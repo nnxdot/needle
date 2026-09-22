@@ -1,5 +1,6 @@
 mod assets;
 mod chrome;
+mod flow;
 mod history;
 mod importer;
 mod library;
@@ -284,6 +285,10 @@ pub struct AppView {
     seek: Entity<SliderState>,
     focus: FocusHandle,
     list_scroll: UniformListScrollHandle,
+    grid_scroll: UniformListScrollHandle,
+    scroll_memory: std::collections::HashMap<String, Point<Pixels>>,
+    pending_scroll: Option<Point<Pixels>>,
+    scroll_on_load: bool,
     _subscriptions: Vec<Subscription>,
     events: crossbeam_channel::Receiver<Event>,
     sender: crossbeam_channel::Sender<Event>,
@@ -564,6 +569,10 @@ impl AppView {
             seek,
             focus,
             list_scroll: UniformListScrollHandle::new(),
+            grid_scroll: UniformListScrollHandle::new(),
+            scroll_memory: Default::default(),
+            pending_scroll: None,
+            scroll_on_load: false,
             _subscriptions: subscriptions,
             events,
             sender,
@@ -768,6 +777,9 @@ impl AppView {
                         self.matched_total = total;
                         self.loading = false;
                         self.reconcile_selection();
+                        if std::mem::take(&mut self.scroll_on_load) {
+                            self.restore_scroll();
+                        }
                     }
                 }
                 Event::History(stats, listens, total) => {
@@ -873,6 +885,9 @@ impl AppView {
                         }
                         self.groups = groups;
                         self.loading = false;
+                        if std::mem::take(&mut self.scroll_on_load) {
+                            self.restore_scroll();
+                        }
                     }
                 }
                 Event::SearchFailed(generation, error) => {
@@ -1121,6 +1136,7 @@ impl AppView {
     }
 
     fn navigate(&mut self, page: Page, window: &mut Window, cx: &mut Context<Self>) {
+        self.remember_scroll();
         if page != self.page {
             self.back.push(self.page.clone());
             if self.back.len() > 50 {
@@ -1131,11 +1147,16 @@ impl AppView {
     }
     fn go_back(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         if let Some(page) = self.back.pop() {
+            self.remember_scroll();
             self.open(page, window, cx);
+            self.scroll_for_back();
         }
     }
     fn open(&mut self, page: Page, window: &mut Window, cx: &mut Context<Self>) {
         self.page = page;
+        self.page_serial += 1;
+        self.pending_scroll = None;
+        self.scroll_on_load = true;
         self.confirm_delete = false;
         self.menu = None;
         self.sort = Sort::Default;

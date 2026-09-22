@@ -245,8 +245,7 @@ impl AppView {
                     .flex()
                     .flex_col()
                     .gap_1()
-                    .when(album_art.is_some(), |el| el.child(faint("Album", cx)))
-                    .when(artist.is_some(), |el| el.child(faint("Artist", cx)))
+                    .children(self.breadcrumbs(cx))
                     .child(page_title(title))
                     .when_some(album_art.clone(), |el, track| {
                         let artist_name = if track.album_artist.is_empty() {
@@ -1041,6 +1040,20 @@ impl AppView {
             .on_click(cx.listener(move |this, event: &ClickEvent, window, cx| {
                 this.click_track(index, event, window, cx)
             }))
+            .on_drag(
+                {
+                    let ids: Vec<String> = if selected {
+                        self.selection.ids.iter().cloned().collect()
+                    } else {
+                        vec![track.id.clone()]
+                    };
+                    super::flow::DraggedTracks {
+                        label: if ids.len() > 1 { format!("{} songs", ids.len()).into() } else { track.title.clone().into() },
+                        ids,
+                    }
+                },
+                |value, _, _, cx| super::flow::drag_preview(value, cx),
+            )
             .on_mouse_down(
                 MouseButton::Right,
                 cx.listener(move |this, event: &MouseDownEvent, _, cx| {
@@ -1071,6 +1084,7 @@ impl AppView {
                     .collect::<Vec<_>>()
             }),
         )
+        .track_scroll(self.grid_scroll.clone())
         .flex_1()
     }
 
@@ -1093,7 +1107,7 @@ impl AppView {
                     .group_hover("tile", |s| s.opacity(0.86))
                     .child(cover(group.artwork.as_deref(), &group.seed, size, cx))
                     .into_any_element()
-            }))
+            }).child(self.cover_play(index, page.clone(), size, cx)))
             .child(
                 div()
                     .text_size(px(13.5))

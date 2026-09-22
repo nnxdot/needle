@@ -196,7 +196,15 @@ impl AppView {
             .child(self.nav_item("nav-albums", "Albums", "albums", Page::Albums, cx))
             .child(self.nav_item("nav-artists", "Artists", "artists", Page::Artists, cx))
             .child(self.section("Collections", cx))
-            .child(self.nav_item("nav-favorites", "Favorites", "heart", Page::Favorites, cx))
+            .child(
+                self.nav_item("nav-favorites", "Favorites", "heart", Page::Favorites, cx)
+                    .drag_over::<super::flow::DraggedTracks>(move |s, _, _, _| s.bg(p.accent_soft))
+                    .on_drop(cx.listener(|this, dragged: &super::flow::DraggedTracks, _, cx| {
+                        this.set_rating(&dragged.ids, 5);
+                        this.notify(if dragged.ids.len() == 1 { "Added to favorites.".to_string() } else { format!("Added {} songs to favorites.", dragged.ids.len()) });
+                        cx.notify();
+                    })),
+            )
             .child(self.nav_item("nav-recent", "Recently added", "recent", Page::Recent, cx))
             .child(self.nav_item(
                 "nav-history",
@@ -256,6 +264,15 @@ impl AppView {
                             Page::Playlist(playlist.id.clone()),
                             cx,
                         )
+                        .when(playlist.query.is_none(), |el| {
+                            let id = playlist.id.clone();
+                            el.drag_over::<super::flow::DraggedTracks>(move |s, _, _, _| s.bg(p.accent_soft))
+                                .on_drop(cx.listener(move |this, dragged: &super::flow::DraggedTracks, _, cx| {
+                                    let tracks = this.library.tracks_by_ids(&dragged.ids).unwrap_or_default();
+                                    this.add_to_playlist(&id, tracks);
+                                    cx.notify();
+                                }))
+                        })
                     })),
             )
             .child(
@@ -664,7 +681,15 @@ impl AppView {
                             .on_click(cx.listener(|this, _, window, cx| this.open_mini(window, cx))),
                     )
                     .child(
-                        Button::new("queue-toggle")
+                        div()
+                            .id("queue-drop")
+                            .rounded(px(6.))
+                            .drag_over::<super::flow::DraggedTracks>(move |s, _, _, _| s.bg(p.accent_soft))
+                            .on_drop(cx.listener(|this, dragged: &super::flow::DraggedTracks, _, _| {
+                                let tracks = this.library.tracks_by_ids(&dragged.ids).unwrap_or_default();
+                                this.enqueue(tracks);
+                            }))
+                            .child(Button::new("queue-toggle")
                             .ghost()
                             .small()
                             .ml_1()
@@ -680,7 +705,7 @@ impl AppView {
                                 }
                                 this.persist_settings();
                                 cx.notify();
-                            })),
+                            }))),
                     ),
             )
     }
