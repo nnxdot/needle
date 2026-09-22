@@ -5,6 +5,7 @@ mod library;
 mod pages;
 mod panel;
 mod suggest;
+mod tags;
 mod theme;
 mod widgets;
 
@@ -21,7 +22,7 @@ use needle_core::{
     integrations::{self, RecordingMatch},
     model::{Listen, Playlist, Settings, Track},
     query,
-    scan::{self, ScanProgress, TagEdit},
+    scan::{self, ScanProgress},
 };
 use rand::seq::SliceRandom;
 use std::{
@@ -33,6 +34,7 @@ use std::{
     },
     time::{Duration, Instant},
 };
+use tags::{TagFields, TagSession};
 pub use theme::{pal, set_theme};
 
 actions!(
@@ -76,7 +78,11 @@ const PAGE_SIZE: usize = 1000;
 pub enum Page {
     Songs,
     Albums,
-    Album { album: String, artist: String, query: String },
+    Album {
+        album: String,
+        artist: String,
+        query: String,
+    },
     Artists,
     Artist(String),
     Favorites,
@@ -129,15 +135,27 @@ pub fn album_page(track: &Track) -> Page {
     let (artist, query) = if track.album_artist.is_empty() {
         (
             track.artist.clone(),
-            format!("album_artist = \"\" and artist = {} and album = {}", quote(&track.artist), quote(&track.album)),
+            format!(
+                "album_artist = \"\" and artist = {} and album = {}",
+                quote(&track.artist),
+                quote(&track.album)
+            ),
         )
     } else {
         (
             track.album_artist.clone(),
-            format!("album_artist = {} and album = {}", quote(&track.album_artist), quote(&track.album)),
+            format!(
+                "album_artist = {} and album = {}",
+                quote(&track.album_artist),
+                quote(&track.album)
+            ),
         )
     };
-    Page::Album { album: track.album.clone(), artist, query }
+    Page::Album {
+        album: track.album.clone(),
+        artist,
+        query,
+    }
 }
 
 pub fn quote(text: &str) -> String {
@@ -182,6 +200,8 @@ enum Event {
     Groups(u64, Vec<library::Group>),
     History(Box<needle_core::history::HistoryStats>, Vec<Listen>, usize),
     MoreHistory(usize, Vec<Listen>),
+    BatchProgress(scan::BatchProgress),
+    BatchDone(scan::BatchReport),
     SearchFailed(u64, String),
     Matches(String, Vec<RecordingMatch>),
     LibraryChanged,
@@ -194,14 +214,6 @@ enum Event {
     ServicesChanged,
     LastfmPending(integrations::LastfmPending),
     LastfmSignedIn(String),
-}
-
-pub struct TagFields {
-    title: Entity<InputState>,
-    artist: Entity<InputState>,
-    album: Entity<InputState>,
-    genre: Entity<InputState>,
-    year: Entity<InputState>,
 }
 
 pub struct AppView {
@@ -258,6 +270,7 @@ pub struct AppView {
     _watcher: Option<Box<dyn std::any::Any>>,
     last_history_id: Option<String>,
     muted_volume: Option<f32>,
+    tag_session: TagSession,
     suggestions: Vec<query::Suggestion>,
     suggestion_active: Option<usize>,
     search_focused: bool,
@@ -338,7 +351,10 @@ pub fn run(library: Library) -> Result<()> {
     Ok(())
 }
 
-fn watch(library: &Library, sender: &crossbeam_channel::Sender<Event>) -> Option<Box<dyn std::any::Any>> {
+fn watch(
+    library: &Library,
+    sender: &crossbeam_channel::Sender<Event>,
+) -> Option<Box<dyn std::any::Any>> {
     let sender = sender.clone();
     scan::watch(library.clone(), move || {
         let _ = sender.send(Event::LibraryChanged);
@@ -379,13 +395,7 @@ impl AppView {
         let lastfm_secret = secret("Shared secret", window, cx);
         let listenbrainz_token = secret("ListenBrainz user token", window, cx);
         let acoustid_key = secret("AcoustID application key", window, cx);
-        let tags = TagFields {
-            title: field("Title", window, cx),
-            artist: field("Artist", window, cx),
-            album: field("Album", window, cx),
-            genre: field("Genre", window, cx),
-            year: field("Year", window, cx),
-        };
+        let tags = TagFields::new(window, cx);
         let volume = cx.new(|_| {
             SliderState::new()
                 .min(0.)
@@ -402,7 +412,18 @@ impl AppView {
                 InputEvent::Change => {
                     this.page_offset = 0;
                     let typing = !this.search.read(cx).value().is_empty();
-                    if typing && !matches!(this.page, Page::Songs | Page::Favorites | Page::Recent | Page::Playlist(_) | Page::Album { .. } | Page::Albums | Page::Artists) {
+                    if typing
+                        && !matches!(
+                            this.page,
+                            Page::Songs
+                                | Page::Favorites
+                                | Page::Recent
+                                | Page::Playlist(_)
+                                | Page::Album { .. }
+                                | Page::Albums
+                                | Page::Artists
+                        )
+                    {
                         this.back.push(this.page.clone());
                         this.page = Page::Songs;
                     }
@@ -493,6 +514,7 @@ impl AppView {
             _watcher: watcher,
             last_history_id: None,
             muted_volume: None,
+            tag_session: TagSession::default(),
             suggestions: vec![],
             suggestion_active: None,
             search_focused: false,
@@ -629,7 +651,6 @@ impl AppView {
                         self.matched_total = total;
                         self.loading = false;
                         self.reconcile_selection();
-
                     }
                 }
                 Event::History(stats, listens, total) => {
@@ -637,6 +658,29 @@ impl AppView {
                     self.history = listens;
                     self.history_total = total;
                     self.history_loading = false;
+                }
+                Event::BatchProgress(progress) => {
+                    self.tag_session.progress = Some(progress);
+                }
+                Event::BatchDone(report) => {
+                    self.tag_session.progress = None;
+                    self.editing = false;
+                    let saved = report.saved.len();
+                    if report.failed.is_empty() {
+                        self.notify(format!(
+                            "Saved tags to {saved} files{}. Originals are backed up in your library folder.",
+                            if report.cancelled { " before you stopped" } else { "" }
+                        ));
+                    } else {
+                        let first = &report.failed[0];
+                        self.fail(format!(
+                            "Saved {saved} files. {} could not be changed, for example {}: {}",
+                            report.failed.len(),
+                            first.path.trim_start_matches("\\\\?\\"),
+                            first.error
+                        ));
+                    }
+                    self.refresh(cx);
                 }
                 Event::MoreHistory(offset, listens) => {
                     if offset == self.history.len() {
@@ -678,7 +722,9 @@ impl AppView {
                 Event::SavedTags => {
                     self.editing = false;
                     self.matches.clear();
-                    self.notify("Tags saved. The original file is backed up in your library folder.");
+                    self.notify(
+                        "Tags saved. The original file is backed up in your library folder.",
+                    );
                     if let Some(track) = &self.focused {
                         self.focused = self.library.track(&track.id).ok().flatten();
                     }
@@ -757,7 +803,11 @@ impl AppView {
             base
         } else {
             let text = quote(&search);
-            let base = base.split(" order by ").next().unwrap_or_default().to_string();
+            let base = base
+                .split(" order by ")
+                .next()
+                .unwrap_or_default()
+                .to_string();
             format!(
                 "({base}) and (title contains {text} or artist contains {text} or album contains {text})"
             )
@@ -767,10 +817,16 @@ impl AppView {
             && !expression.contains("shuffle")
             && !expression.contains(" limit ")
         {
-            let direction = if matches!(self.sort, Sort::Asc(_)) { "asc" } else { "desc" };
+            let direction = if matches!(self.sort, Sort::Asc(_)) {
+                "asc"
+            } else {
+                "desc"
+            };
             if expression.trim().is_empty() {
                 expression = format!("order by {field} {direction}");
-            } else if query::compile(&expression, 0).is_ok_and(|q| q.explanation.starts_with("Title, artist")) {
+            } else if query::compile(&expression, 0)
+                .is_ok_and(|q| q.explanation.starts_with("Title, artist"))
+            {
                 let text = quote(&expression);
                 expression = format!(
                     "(title contains {text} or artist contains {text} or album contains {text} or genre contains {text}) order by {field} {direction}"
@@ -799,14 +855,20 @@ impl AppView {
         }
         let mut expression = self.expression(cx);
         if let Page::Playlist(id) = &self.page
-            && let Some(rule) = self.playlists.iter().find(|p| &p.id == id).and_then(|p| p.query.clone())
+            && let Some(rule) = self
+                .playlists
+                .iter()
+                .find(|p| &p.id == id)
+                .and_then(|p| p.query.clone())
         {
             let search = self.search_text(cx);
             expression = if search.is_empty() {
                 rule
             } else {
                 let text = quote(&search);
-                format!("({rule}) and (title contains {text} or artist contains {text} or album contains {text})")
+                format!(
+                    "({rule}) and (title contains {text} or artist contains {text} or album contains {text})"
+                )
             };
         }
         self.generation += 1;
@@ -957,7 +1019,13 @@ impl AppView {
         self.selection.cursor = Some(index);
         cx.notify();
     }
-    fn click_track(&mut self, index: usize, event: &ClickEvent, window: &mut Window, cx: &mut Context<Self>) {
+    fn click_track(
+        &mut self,
+        index: usize,
+        event: &ClickEvent,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
         let Some(track) = self.tracks.get(index).cloned() else {
             return;
         };
@@ -1004,7 +1072,11 @@ impl AppView {
         } else {
             self.select_single(next, cx);
         }
-        let strategy = if delta < 0 { ScrollStrategy::Top } else { ScrollStrategy::Bottom };
+        let strategy = if delta < 0 {
+            ScrollStrategy::Top
+        } else {
+            ScrollStrategy::Bottom
+        };
         self.list_scroll.scroll_to_item(next, strategy);
     }
     fn selected_tracks(&self) -> Vec<Track> {
@@ -1087,10 +1159,11 @@ impl AppView {
             let result = (|| -> Result<()> {
                 let mut total = ScanProgress::default();
                 for root in library.roots()? {
-                    let p = scan::import(&library, &PathBuf::from(root), cancel.clone(), |mut p| {
-                        p.done = false;
-                        let _ = sender.send(Event::Imported(p));
-                    })?;
+                    let p =
+                        scan::import(&library, &PathBuf::from(root), cancel.clone(), |mut p| {
+                            p.done = false;
+                            let _ = sender.send(Event::Imported(p));
+                        })?;
                     total.scanned += p.scanned;
                     total.imported += p.imported;
                     total.unchanged += p.unchanged;
@@ -1139,7 +1212,12 @@ impl AppView {
         let complete = self.page_offset == 0 && self.tracks.len() >= self.matched_total;
         let sender = self.sender.clone();
         let finish = move |mut tracks: Vec<Track>, start: usize, truncated: bool| {
-            let notice = truncated.then(|| format!("Playing the first {} matching tracks.", widgets::count(PLAY_LIMIT)));
+            let notice = truncated.then(|| {
+                format!(
+                    "Playing the first {} matching tracks.",
+                    widgets::count(PLAY_LIMIT)
+                )
+            });
             if !shuffle {
                 // Keep earlier tracks in the list so Repeat all comes back round to them.
                 let first = tracks.get(start).map(|t| t.id.clone());
@@ -1149,13 +1227,18 @@ impl AppView {
                     .unwrap_or(tracks.len());
                 let items = tracks
                     .into_iter()
-                    .map(|track| QueueItem { track, reason: reason.clone() })
+                    .map(|track| QueueItem {
+                        track,
+                        reason: reason.clone(),
+                    })
                     .collect();
                 let _ = sender.send(Event::PlayAt(items, start, notice));
                 return;
             }
             let mut tracks: Vec<Track> = if shuffle {
-                let first = (start > 0 || !tracks.is_empty()).then(|| tracks.get(start).cloned()).flatten();
+                let first = (start > 0 || !tracks.is_empty())
+                    .then(|| tracks.get(start).cloned())
+                    .flatten();
                 tracks.shuffle(&mut rand::thread_rng());
                 if let (Some(first), true) = (first, start > 0) {
                     tracks.retain(|t| t.id != first.id);
@@ -1243,7 +1326,11 @@ impl AppView {
             })
             .collect();
         self.player.send(Command::PlayNext(items));
-        self.notify(if count == 1 { "Playing next.".into() } else { format!("{count} tracks play next.") });
+        self.notify(if count == 1 {
+            "Playing next.".into()
+        } else {
+            format!("{count} tracks play next.")
+        });
     }
     fn toggle_playback(&mut self, cx: &mut Context<Self>) {
         if self.playback.current.is_some() {
@@ -1276,14 +1363,20 @@ impl AppView {
         }
         let expression = self.expression(cx);
         if smart && expression.trim().is_empty() {
-            self.fail("A smart playlist needs a rule. Type one in search first, like  rating >= 4.");
+            self.fail(
+                "A smart playlist needs a rule. Type one in search first, like  rating >= 4.",
+            );
             return;
         }
         let selected = self.selected_tracks();
-        let track_ids = if selected.len() > 1 { selected } else { self.tracks.clone() }
-            .into_iter()
-            .map(|t| t.id)
-            .collect();
+        let track_ids = if selected.len() > 1 {
+            selected
+        } else {
+            self.tracks.clone()
+        }
+        .into_iter()
+        .map(|t| t.id)
+        .collect();
         let playlist = Playlist {
             id: crate::uuid_string(),
             name,
@@ -1302,7 +1395,8 @@ impl AppView {
         cx.notify();
     }
     fn add_to_playlist(&mut self, playlist_id: &str, tracks: Vec<Track>) {
-        let Some(mut playlist) = self.playlists.iter().find(|p| p.id == playlist_id).cloned() else {
+        let Some(mut playlist) = self.playlists.iter().find(|p| p.id == playlist_id).cloned()
+        else {
             return;
         };
         let count = tracks.len();
@@ -1313,7 +1407,11 @@ impl AppView {
                 self.playlists = self.library.playlists().unwrap_or_default();
                 self.notify(format!(
                     "Added {} to “{}”.",
-                    if count == 1 { "1 track".to_string() } else { format!("{count} tracks") },
+                    if count == 1 {
+                        "1 track".to_string()
+                    } else {
+                        format!("{count} tracks")
+                    },
                     playlist.name
                 ));
             }
@@ -1321,66 +1419,6 @@ impl AppView {
         }
     }
 
-    fn edit_tags(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        let Some(track) = self.focused.clone() else {
-            return;
-        };
-        self.pending_mbid = None;
-        let values = [
-            (&self.tags.title, track.title.clone()),
-            (&self.tags.artist, track.artist.clone()),
-            (&self.tags.album, track.album.clone()),
-            (&self.tags.genre, track.genre.clone()),
-            (
-                &self.tags.year,
-                if track.year > 0 { track.year.to_string() } else { String::new() },
-            ),
-        ];
-        for (input, value) in values {
-            input.update(cx, |s, cx| s.set_value(value, window, cx));
-        }
-        self.editing = true;
-        self.panel = Panel::Details;
-        self.settings.show_inspector = true;
-        cx.notify();
-    }
-    fn write_tags(&mut self, cx: &mut Context<Self>) {
-        let Some(track) = &self.focused else {
-            return;
-        };
-        let value = |input: &Entity<InputState>| input.read(cx).value().trim().to_string();
-        let year = value(&self.tags.year);
-        let year = if year.is_empty() {
-            None
-        } else {
-            match year.parse::<u32>() {
-                Ok(y) if y <= 9999 => Some(y),
-                _ => {
-                    self.fail("Year must be a number, like 1997.");
-                    return;
-                }
-            }
-        };
-        let edit = TagEdit {
-            title: Some(value(&self.tags.title)),
-            artist: Some(value(&self.tags.artist)),
-            album: Some(value(&self.tags.album)),
-            genre: Some(value(&self.tags.genre)),
-            year,
-            musicbrainz_id: self.pending_mbid.clone(),
-            ..Default::default()
-        };
-        let library = self.library.clone();
-        let sender = self.sender.clone();
-        let id = track.id.clone();
-        self.notify("Writing tags and checking the audio is unchanged…");
-        std::thread::spawn(move || {
-            let _ = sender.send(match scan::write_tags(&library, &id, &edit) {
-                Ok(()) => Event::SavedTags,
-                Err(e) => Event::Error(format!("{e:#}")),
-            });
-        });
-    }
     fn lookup(&mut self, cx: &mut Context<Self>) {
         if let Some(track) = &self.focused {
             let library = self.library.clone();
@@ -1390,10 +1428,12 @@ impl AppView {
             let title = track.title.clone();
             self.lookup_busy = true;
             std::thread::spawn(move || {
-                let _ = sender.send(match integrations::musicbrainz_search(&library, &artist, &title) {
-                    Ok(m) => Event::Matches(id, m),
-                    Err(e) => Event::Error(format!("MusicBrainz: {e:#}")),
-                });
+                let _ = sender.send(
+                    match integrations::musicbrainz_search(&library, &artist, &title) {
+                        Ok(m) => Event::Matches(id, m),
+                        Err(e) => Event::Error(format!("MusicBrainz: {e:#}")),
+                    },
+                );
             });
             cx.notify();
         }
@@ -1455,29 +1495,47 @@ impl Render for AppView {
             .size_full()
             .bg(p.canvas)
             .text_color(p.ink)
-            .font_family(gpui_component::ActiveTheme::theme(&**cx).font_family.clone())
+            .font_family(
+                gpui_component::ActiveTheme::theme(&**cx)
+                    .font_family
+                    .clone(),
+            )
             .text_size(px(13.))
             .flex()
             .flex_col()
             .overflow_hidden()
             .on_action(cx.listener(|this, _: &TogglePlayback, _, cx| this.toggle_playback(cx)))
             .on_action(cx.listener(|this, _: &NextTrack, _, _| this.player.send(Command::Next)))
-            .on_action(cx.listener(|this, _: &PreviousTrack, _, _| this.player.send(Command::Previous)))
+            .on_action(
+                cx.listener(|this, _: &PreviousTrack, _, _| this.player.send(Command::Previous)),
+            )
             .on_action(cx.listener(|this, _: &SeekForward, _, _| {
                 if this.playback.current.is_some() {
-                    this.player.send(Command::Seek(this.playback.position + 10.))
+                    this.player
+                        .send(Command::Seek(this.playback.position + 10.))
                 }
             }))
             .on_action(cx.listener(|this, _: &SeekBackward, _, _| {
                 if this.playback.current.is_some() {
-                    this.player.send(Command::Seek((this.playback.position - 10.).max(0.)))
+                    this.player
+                        .send(Command::Seek((this.playback.position - 10.).max(0.)))
                 }
             }))
-            .on_action(cx.listener(|this, _: &VolumeUp, window, cx| this.nudge_volume(0.05, window, cx)))
-            .on_action(cx.listener(|this, _: &VolumeDown, window, cx| this.nudge_volume(-0.05, window, cx)))
-            .on_action(cx.listener(|this, _: &SelectPrevious, _, cx| this.move_cursor(-1, false, cx)))
+            .on_action(
+                cx.listener(|this, _: &VolumeUp, window, cx| this.nudge_volume(0.05, window, cx)),
+            )
+            .on_action(
+                cx.listener(|this, _: &VolumeDown, window, cx| {
+                    this.nudge_volume(-0.05, window, cx)
+                }),
+            )
+            .on_action(
+                cx.listener(|this, _: &SelectPrevious, _, cx| this.move_cursor(-1, false, cx)),
+            )
             .on_action(cx.listener(|this, _: &SelectNext, _, cx| this.move_cursor(1, false, cx)))
-            .on_action(cx.listener(|this, _: &ExtendPrevious, _, cx| this.move_cursor(-1, true, cx)))
+            .on_action(
+                cx.listener(|this, _: &ExtendPrevious, _, cx| this.move_cursor(-1, true, cx)),
+            )
             .on_action(cx.listener(|this, _: &ExtendNext, _, cx| this.move_cursor(1, true, cx)))
             .on_action(cx.listener(|this, _: &SelectAllTracks, _, cx| {
                 this.selection.ids = this.tracks.iter().map(|t| t.id.clone()).collect();
@@ -1495,7 +1553,11 @@ impl Render for AppView {
             .on_action(cx.listener(|this, _: &EditTags, window, cx| this.edit_tags(window, cx)))
             .on_action(cx.listener(|this, _: &ToggleFavorite, _, cx| {
                 let selected = this.selected_tracks();
-                let rating = if selected.iter().all(|t| t.rating >= 4) { 0 } else { 5 };
+                let rating = if selected.iter().all(|t| t.rating >= 4) {
+                    0
+                } else {
+                    5
+                };
                 let ids: Vec<String> = selected.into_iter().map(|t| t.id).collect();
                 this.set_rating(&ids, rating);
                 cx.notify();
@@ -1551,7 +1613,9 @@ impl Render for AppView {
                     .flex()
                     .child(self.sidebar(sidebar, cx))
                     .child(self.main(content_width, window, cx))
-                    .when(show_panel, |el| el.child(self.panel(panel_width, window, cx))),
+                    .when(show_panel, |el| {
+                        el.child(self.panel(panel_width, window, cx))
+                    }),
             )
             .child(self.player_bar(width, cx))
             .children(self.toast(cx))

@@ -1,15 +1,12 @@
 use super::{
     AppView, Event, pal, set_theme,
-    widgets::{faint, glyph, heading, icon, meta, page_title, segmented, setting_row, small_button, strong},
+    widgets::{
+        faint, glyph, heading, icon, meta, page_title, segmented, setting_row, small_button, strong,
+    },
 };
 use anyhow::Result;
 use gpui::{prelude::*, *};
-use gpui_component::{
-    Disableable, Sizable,
-    button::ButtonVariants,
-    input::Input,
-    switch::Switch,
-};
+use gpui_component::{Disableable, Sizable, button::ButtonVariants, input::Input, switch::Switch};
 use needle_core::{
     integrations::{self, SecretKind, SecretSource, ServiceState},
     query,
@@ -24,14 +21,18 @@ impl AppView {
             .flex_col()
             .gap_1()
             .child(heading(title.to_string()))
-            .when(!description.is_empty(), |el| el.child(meta(description.to_string(), cx)))
+            .when(!description.is_empty(), |el| {
+                el.child(meta(description.to_string(), cx))
+            })
     }
 
     fn service_line(&self, state: &ServiceState, cx: &App) -> Div {
         let p = pal(cx);
         let text = match (&state.user, state.source, &state.rejected) {
             (_, _, Some(reason)) => format!("Needs signing in again · {reason}"),
-            (Some(user), Some(SecretSource::Environment), _) => format!("{user} · set by an environment variable"),
+            (Some(user), Some(SecretSource::Environment), _) => {
+                format!("{user} · set by an environment variable")
+            }
             (Some(user), _, _) => format!("Signed in as {user}"),
             (None, Some(SecretSource::Environment), _) => "Set by an environment variable".into(),
             (None, Some(_), _) if state.configured => "Key saved".into(),
@@ -58,7 +59,10 @@ impl AppView {
 
     fn services(&self, cx: &mut Context<Self>) -> impl IntoElement {
         let p = pal(cx);
-        let status = self.service_status.clone().unwrap_or_else(integrations::secret_status);
+        let status = self
+            .service_status
+            .clone()
+            .unwrap_or_else(integrations::secret_status);
         let summary = self.scrobble_summary.clone();
         let from_env = |s: &ServiceState| s.source == Some(SecretSource::Environment);
         let lastfm = status.lastfm.clone();
@@ -259,10 +263,18 @@ impl AppView {
             .child(faint("Keys and sessions are stored in Windows Credential Manager, never in your library or its exports. Environment variables override them.", cx).line_height(relative(1.45)).pt_2())
     }
 
-    fn queue_summary(&self, el: Div, service: &'static str, queue: integrations::QueueSummary, cx: &mut Context<Self>) -> Div {
+    fn queue_summary(
+        &self,
+        el: Div,
+        service: &'static str,
+        queue: integrations::QueueSummary,
+        cx: &mut Context<Self>,
+    ) -> Div {
         let p = pal(cx);
         if queue.pending == 0 && queue.failed == 0 && queue.sign_in_required.is_none() {
-            return el.when(queue.sent > 0, |el| el.child(faint(format!("{} listens sent", queue.sent), cx)));
+            return el.when(queue.sent > 0, |el| {
+                el.child(faint(format!("{} listens sent", queue.sent), cx))
+            });
         }
         let mut parts = vec![];
         if queue.pending > 0 {
@@ -277,13 +289,26 @@ impl AppView {
                 .items_center()
                 .gap_3()
                 .child(meta(parts.join(" · "), cx))
-                .when_some(queue.sign_in_required.clone().or(queue.last_error.clone()), |el, error| el.child(faint(error, cx).text_color(p.danger).truncate().flex_1()))
+                .when_some(
+                    queue.sign_in_required.clone().or(queue.last_error.clone()),
+                    |el, error| el.child(faint(error, cx).text_color(p.danger).truncate().flex_1()),
+                )
                 .when(queue.failed > 0, |el| {
-                    el.child(small_button(SharedString::from(format!("retry-{service}")), "Retry failed").ghost().on_click(cx.listener(move |this, _, _, cx| {
-                        let library = this.library.clone();
-                        this.service_job(move || integrations::retry_failed_scrobbles(&library, Some(service)).map(|n| format!("{n} listens will be retried.")));
-                        cx.notify();
-                    })))
+                    el.child(
+                        small_button(
+                            SharedString::from(format!("retry-{service}")),
+                            "Retry failed",
+                        )
+                        .ghost()
+                        .on_click(cx.listener(move |this, _, _, cx| {
+                            let library = this.library.clone();
+                            this.service_job(move || {
+                                integrations::retry_failed_scrobbles(&library, Some(service))
+                                    .map(|n| format!("{n} listens will be retried."))
+                            });
+                            cx.notify();
+                        })),
+                    )
                 }),
         )
     }
@@ -305,8 +330,16 @@ impl AppView {
         let key = self.lastfm_key.read(cx).value().trim().to_string();
         let secret = self.lastfm_secret.read(cx).value().trim().to_string();
         let credentials = integrations::Credentials::load();
-        let key = if key.is_empty() { credentials.lastfm_api_key.clone() } else { key };
-        let secret = if secret.is_empty() { credentials.lastfm_secret.clone() } else { secret };
+        let key = if key.is_empty() {
+            credentials.lastfm_api_key.clone()
+        } else {
+            key
+        };
+        let secret = if secret.is_empty() {
+            credentials.lastfm_secret.clone()
+        } else {
+            secret
+        };
         if key.is_empty() || secret.is_empty() {
             return self.fail("Enter your Last.fm API key and shared secret first.");
         }
@@ -345,8 +378,16 @@ impl AppView {
         let roots = self.library.roots().unwrap_or_default();
         let weak = cx.entity().downgrade();
         let theme = if self.settings.theme == "light" { 1 } else { 0 };
-        let density = if self.settings.layout.row_height < 50. { 0 } else { 1 };
-        let device = |id: SharedString, name: String, selected: bool, value: Option<String>, cx: &mut Context<Self>| {
+        let density = if self.settings.layout.row_height < 50. {
+            0
+        } else {
+            1
+        };
+        let device = |id: SharedString,
+                      name: String,
+                      selected: bool,
+                      value: Option<String>,
+                      cx: &mut Context<Self>| {
             div()
                 .id(id)
                 .h(px(36.))
@@ -358,9 +399,15 @@ impl AppView {
                 .cursor_pointer()
                 .when(selected, |el| el.bg(p.raised))
                 .hover(|s| s.bg(p.raised))
-                .child(glyph("speaker").size(px(16.)).text_color(if selected { p.accent } else { p.ink_3 }))
+                .child(glyph("speaker").size(px(16.)).text_color(if selected {
+                    p.accent
+                } else {
+                    p.ink_3
+                }))
                 .child(div().flex_1().truncate().text_size(px(13.)).child(name))
-                .when(selected, |el| el.child(glyph("check").size(px(16.)).text_color(p.accent)))
+                .when(selected, |el| {
+                    el.child(glyph("check").size(px(16.)).text_color(p.accent))
+                })
                 .on_click(cx.listener(move |this, _, _, cx| {
                     this.settings.output_device = value.clone();
                     this.configure();

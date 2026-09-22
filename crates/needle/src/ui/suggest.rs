@@ -19,13 +19,24 @@ impl AppView {
         self.suggestion_active = None;
     }
 
-    pub(super) fn accept_suggestion(&mut self, index: usize, window: &mut Window, cx: &mut Context<Self>) {
+    pub(super) fn accept_suggestion(
+        &mut self,
+        index: usize,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
         let Some(suggestion) = self.suggestions.get(index).cloned() else {
             return;
         };
         let text = self.search.read(cx).value().to_string();
-        let range = suggestion.replace.start.min(text.len())..suggestion.replace.end.min(text.len());
-        let next = format!("{}{}{}", &text[..range.start], suggestion.insert, &text[range.end..]);
+        let range =
+            suggestion.replace.start.min(text.len())..suggestion.replace.end.min(text.len());
+        let next = format!(
+            "{}{}{}",
+            &text[..range.start],
+            suggestion.insert,
+            &text[range.end..]
+        );
         let cursor = range.start + suggestion.insert.len();
         self.search.update(cx, |s, cx| {
             s.set_value(next, window, cx);
@@ -37,12 +48,17 @@ impl AppView {
     }
 
     /// Keys the dropdown claims before the text field sees them.
-    pub(super) fn suggestion_keys(&self, field: Stateful<Div>, cx: &mut Context<Self>) -> Stateful<Div> {
+    pub(super) fn suggestion_keys(
+        &self,
+        field: Stateful<Div>,
+        cx: &mut Context<Self>,
+    ) -> Stateful<Div> {
         field
             .capture_action(cx.listener(|this, _: &MoveDown, _, cx| {
                 if !this.suggestions.is_empty() {
                     let n = this.suggestions.len();
-                    this.suggestion_active = Some(this.suggestion_active.map_or(0, |i| (i + 1) % n));
+                    this.suggestion_active =
+                        Some(this.suggestion_active.map_or(0, |i| (i + 1) % n));
                     cx.stop_propagation();
                     cx.notify();
                 }
@@ -50,7 +66,8 @@ impl AppView {
             .capture_action(cx.listener(|this, _: &MoveUp, _, cx| {
                 if !this.suggestions.is_empty() {
                     let n = this.suggestions.len();
-                    this.suggestion_active = Some(this.suggestion_active.map_or(n - 1, |i| (i + n - 1) % n));
+                    this.suggestion_active =
+                        Some(this.suggestion_active.map_or(n - 1, |i| (i + n - 1) % n));
                     cx.stop_propagation();
                     cx.notify();
                 }
@@ -62,7 +79,10 @@ impl AppView {
                 }
             }))
             .capture_action(cx.listener(|this, _: &Enter, window, cx| {
-                if let Some(index) = this.suggestion_active.filter(|_| !this.suggestions.is_empty()) {
+                if let Some(index) = this
+                    .suggestion_active
+                    .filter(|_| !this.suggestions.is_empty())
+                {
                     this.accept_suggestion(index, window, cx);
                     cx.stop_propagation();
                 } else {
@@ -78,7 +98,11 @@ impl AppView {
             }))
     }
 
-    pub(super) fn suggestion_list(&self, width: Pixels, cx: &mut Context<Self>) -> Option<impl IntoElement> {
+    pub(super) fn suggestion_list(
+        &self,
+        width: Pixels,
+        cx: &mut Context<Self>,
+    ) -> Option<impl IntoElement> {
         if self.suggestions.is_empty() {
             return None;
         }
@@ -114,7 +138,13 @@ impl AppView {
                         .font_family(cx.theme().mono_font_family.clone())
                         .child(s.label.clone()),
                 )
-                .child(faint(s.detail.clone(), cx).flex_1().min_w_0().truncate().text_right())
+                .child(
+                    faint(s.detail.clone(), cx)
+                        .flex_1()
+                        .min_w_0()
+                        .truncate()
+                        .text_right(),
+                )
                 .on_mouse_down(
                     MouseButton::Left,
                     cx.listener(move |this, _, window, cx| {

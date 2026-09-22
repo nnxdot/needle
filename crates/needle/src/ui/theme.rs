@@ -177,13 +177,29 @@ mod tests {
     fn text_meets_wcag_aa_on_every_surface() {
         for dark in [true, false] {
             let p = Palette::new(dark);
-            for (surface_name, surface) in [("chrome", p.chrome), ("canvas", p.canvas), ("raised", p.raised)] {
-                for (text_name, text) in [("ink", p.ink), ("ink_2", p.ink_2), ("ink_3", p.ink_3), ("accent", p.accent), ("danger", p.danger)] {
+            for (surface_name, surface) in [
+                ("chrome", p.chrome),
+                ("canvas", p.canvas),
+                ("raised", p.raised),
+            ] {
+                for (text_name, text) in [
+                    ("ink", p.ink),
+                    ("ink_2", p.ink_2),
+                    ("ink_3", p.ink_3),
+                    ("accent", p.accent),
+                    ("danger", p.danger),
+                ] {
                     let ratio = contrast(text, surface);
-                    assert!(ratio >= 4.5, "{text_name} on {surface_name} (dark: {dark}) is {ratio:.2}:1");
+                    assert!(
+                        ratio >= 4.5,
+                        "{text_name} on {surface_name} (dark: {dark}) is {ratio:.2}:1"
+                    );
                 }
             }
-            assert!(contrast(p.accent_ink, p.accent) >= 4.5, "button label on accent (dark: {dark})");
+            assert!(
+                contrast(p.accent_ink, p.accent) >= 4.5,
+                "button label on accent (dark: {dark})"
+            );
         }
     }
 }

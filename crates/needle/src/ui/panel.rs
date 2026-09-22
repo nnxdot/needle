@@ -6,19 +6,27 @@ use gpui::{prelude::*, *};
 use gpui_component::{
     Disableable, Sizable,
     button::{Button, ButtonVariants},
-    input::Input,
 };
 use needle_core::{audio::Command, integrations, model::format_duration};
 use std::path::PathBuf;
 
 fn when(timestamp: i64) -> String {
     chrono::DateTime::from_timestamp(timestamp, 0)
-        .map(|d| d.with_timezone(&chrono::Local).format("%-d %b %Y").to_string())
+        .map(|d| {
+            d.with_timezone(&chrono::Local)
+                .format("%-d %b %Y")
+                .to_string()
+        })
         .unwrap_or_else(|| "—".into())
 }
 
 impl AppView {
-    pub(super) fn panel(&self, width: f32, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+    pub(super) fn panel(
+        &self,
+        width: f32,
+        _window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> impl IntoElement {
         let p = pal(cx);
         let tab = if self.panel == Panel::Details { 0 } else { 1 };
         let weak = cx.entity().downgrade();
@@ -46,7 +54,11 @@ impl AppView {
                         cx,
                         move |index, _, cx| {
                             let _ = weak.update(cx, |this, cx| {
-                                this.panel = if index == 0 { Panel::Details } else { Panel::Queue };
+                                this.panel = if index == 0 {
+                                    Panel::Details
+                                } else {
+                                    Panel::Queue
+                                };
                                 cx.notify();
                             });
                         },
@@ -73,7 +85,14 @@ impl AppView {
             .gap_3()
             .py(px(5.))
             .child(meta(key.to_string(), cx).w(px(92.)).flex_shrink_0())
-            .child(div().flex_1().min_w_0().text_size(px(12.5)).truncate().child(value.into()))
+            .child(
+                div()
+                    .flex_1()
+                    .min_w_0()
+                    .text_size(px(12.5))
+                    .truncate()
+                    .child(value.into()),
+            )
     }
 
     fn details(&self, width: f32, cx: &mut Context<Self>) -> impl IntoElement {
@@ -83,7 +102,10 @@ impl AppView {
             let duration: f64 = selected.iter().map(|t| t.duration).sum();
             let count = selected.len();
             return div()
+                .id("multi-scroll")
                 .flex_1()
+                .min_h_0()
+                .overflow_y_scroll()
                 .p_4()
                 .flex()
                 .flex_col()
@@ -117,6 +139,14 @@ impl AppView {
                                 })),
                         ),
                 )
+                .child(
+                    Button::new("multi-edit")
+                        .small()
+                        .icon(icon("edit"))
+                        .label(format!("Edit tags on {count} tracks"))
+                        .on_click(cx.listener(|this, _, window, cx| this.edit_tags(window, cx))),
+                )
+                .when(self.editing, |el| el.child(self.tag_editor(cx)))
                 .child(faint("Shift-click selects a range. Ctrl-click adds or removes one track. Right-click for more.", cx).line_height(relative(1.5)))
                 .into_any_element();
         }
@@ -132,7 +162,13 @@ impl AppView {
                 .flex_col()
                 .gap_2()
                 .child(strong("Nothing selected"))
-                .child(meta("Select a track to see its details, rate it, or fix its tags.", cx).line_height(relative(1.5)))
+                .child(
+                    meta(
+                        "Select a track to see its details, rate it, or fix its tags.",
+                        cx,
+                    )
+                    .line_height(relative(1.5)),
+                )
                 .into_any_element();
         };
         let reason = self
@@ -157,7 +193,7 @@ impl AppView {
             .flex()
             .flex_col()
             .gap_4()
-            .child(artwork(Some(&track), width - 32., cx))
+            .child(artwork(Some(&track), if self.editing { 96. } else { width - 32. }, cx))
             .child(
                 div()
                     .flex()
@@ -202,7 +238,7 @@ impl AppView {
                                 .child(glyph(if lit { "star-fill" } else { "star" }).size(px(17.)).text_color(if lit { p.accent } else { p.ink_3 }))
                                 .tooltip(move |window, cx| gpui_component::tooltip::Tooltip::new(format!("Rate {star} of 5")).build(window, cx))
                                 .on_click(cx.listener(move |this, _, _, cx| {
-                                    this.set_rating(&[id.clone()], if rating == star { 0 } else { star });
+                                    this.set_rating(std::slice::from_ref(&id), if rating == star { 0 } else { star });
                                     cx.notify();
                                 }))
                         })),
@@ -403,6 +439,7 @@ impl AppView {
                                             .xsmall()
                                             .label("Use these tags")
                                             .on_click(cx.listener(move |this, _, window, cx| {
+                                                this.selection.ids.clear();
                                                 this.edit_tags(window, cx);
                                                 for (input, value) in [
                                                     (&this.tags.title, recording.title.clone()),
@@ -437,56 +474,6 @@ impl AppView {
             .into_any_element()
     }
 
-    fn tag_editor(&self, cx: &mut Context<Self>) -> impl IntoElement {
-        let p = pal(cx);
-        let field = |label: &'static str, input: &Entity<gpui_component::input::InputState>| {
-            div().flex().flex_col().gap_1().child(faint(label, cx)).child(Input::new(input).small())
-        };
-        div()
-            .p_3()
-            .rounded(px(8.))
-            .border_1()
-            .border_color(p.accent.opacity(0.35))
-            .flex()
-            .flex_col()
-            .gap_3()
-            .child(strong("Edit tags"))
-            .child(meta("Saving writes to the file. Needle keeps a backup and checks the audio is unchanged.", cx).line_height(relative(1.45)))
-            .when_some(self.pending_mbid.clone(), |el, id| el.child(faint(format!("MusicBrainz recording {id}"), cx)))
-            .child(field("Title", &self.tags.title))
-            .child(field("Artist", &self.tags.artist))
-            .child(field("Album", &self.tags.album))
-            .child(
-                div()
-                    .flex()
-                    .gap_2()
-                    .child(field("Genre", &self.tags.genre).flex_1())
-                    .child(field("Year", &self.tags.year).w(px(80.))),
-            )
-            .child(
-                div()
-                    .flex()
-                    .gap_2()
-                    .child(
-                        Button::new("save-tags")
-                            .primary()
-                            .small()
-                            .label("Save to file")
-                            .on_click(cx.listener(|this, _, _, cx| this.write_tags(cx))),
-                    )
-                    .child(
-                        Button::new("cancel-tags")
-                            .ghost()
-                            .small()
-                            .label("Cancel")
-                            .on_click(cx.listener(|this, _, _, cx| {
-                                this.editing = false;
-                                cx.notify();
-                            })),
-                    ),
-            )
-    }
-
     fn queue(&self, cx: &mut Context<Self>) -> impl IntoElement {
         let p = pal(cx);
         let count = self.playback.queue.len();
@@ -515,7 +502,11 @@ impl AppView {
                                 .flex_col()
                                 .gap(px(2.))
                                 .child(faint("Now playing", cx))
-                                .child(strong(item.track.title.clone()).truncate().text_color(p.accent))
+                                .child(
+                                    strong(item.track.title.clone())
+                                        .truncate()
+                                        .text_color(p.accent),
+                                )
                                 .child(meta(item.track.display_artist().to_string(), cx).truncate())
                                 .child(faint(item.reason.clone(), cx).truncate()),
                         ),
@@ -534,7 +525,12 @@ impl AppView {
                             .items_baseline()
                             .gap_2()
                             .child(strong("Next up"))
-                            .when(count > 0, |el| el.child(faint(format!("{count} · {}", format_duration(remaining)), cx))),
+                            .when(count > 0, |el| {
+                                el.child(faint(
+                                    format!("{count} · {}", format_duration(remaining)),
+                                    cx,
+                                ))
+                            }),
                     )
                     .when(count > 0, |el| {
                         el.child(
@@ -542,7 +538,9 @@ impl AppView {
                                 .ghost()
                                 .xsmall()
                                 .label("Clear")
-                                .on_click(cx.listener(|this, _, _, _| this.player.send(Command::ClearQueue))),
+                                .on_click(cx.listener(|this, _, _, _| {
+                                    this.player.send(Command::ClearQueue)
+                                })),
                         )
                     }),
             )
@@ -591,8 +589,16 @@ impl AppView {
                                         div()
                                             .flex_1()
                                             .min_w_0()
-                                            .child(div().text_size(px(13.)).truncate().child(item.track.title.clone()))
-                                            .child(meta(item.track.display_artist().to_string(), cx).truncate()),
+                                            .child(
+                                                div()
+                                                    .text_size(px(13.))
+                                                    .truncate()
+                                                    .child(item.track.title.clone()),
+                                            )
+                                            .child(
+                                                meta(item.track.display_artist().to_string(), cx)
+                                                    .truncate(),
+                                            ),
                                     )
                                     .child(
                                         div()
@@ -600,17 +606,30 @@ impl AppView {
                                             .opacity(0.)
                                             .group_hover("queue-row", |s| s.opacity(1.))
                                             .child(
-                                                icon_button(("queue-up", index), "arrow-up", "Move up")
-                                                    .xsmall()
-                                                    .disabled(index == 0)
-                                                    .on_click(cx.listener(move |this, _, _, _| {
-                                                        this.player.send(Command::Move(index, index.saturating_sub(1)))
-                                                    })),
+                                                icon_button(
+                                                    ("queue-up", index),
+                                                    "arrow-up",
+                                                    "Move up",
+                                                )
+                                                .xsmall()
+                                                .disabled(index == 0)
+                                                .on_click(cx.listener(move |this, _, _, _| {
+                                                    this.player.send(Command::Move(
+                                                        index,
+                                                        index.saturating_sub(1),
+                                                    ))
+                                                })),
                                             )
                                             .child(
-                                                icon_button(("queue-remove", index), "close", "Remove")
-                                                    .xsmall()
-                                                    .on_click(cx.listener(move |this, _, _, _| this.player.send(Command::Remove(index)))),
+                                                icon_button(
+                                                    ("queue-remove", index),
+                                                    "close",
+                                                    "Remove",
+                                                )
+                                                .xsmall()
+                                                .on_click(cx.listener(move |this, _, _, _| {
+                                                    this.player.send(Command::Remove(index))
+                                                })),
                                             ),
                                     );
                                 div().w_full().px_2().child(row)

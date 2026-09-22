@@ -1,6 +1,7 @@
 use super::{
-    AppView, Event, album_page, pal,
+    AppView, Event, album_page,
     library::human_duration,
+    pal,
     widgets::{count, faint, glyph, meta, page_title, segmented, strong},
 };
 use gpui::{prelude::*, *};
@@ -66,13 +67,13 @@ impl AppView {
     fn bars(&self, id: &'static str, values: Vec<(String, f64)>, height: f32, cx: &App) -> Div {
         let p = pal(cx);
         let peak = values.iter().map(|v| v.1).fold(0., f64::max).max(1.);
-        div()
-            .h(px(height))
-            .flex()
-            .items_end()
-            .gap(px(2.))
-            .children(values.into_iter().enumerate().map(|(i, (label, value))| {
-                let h = if value > 0. { (value / peak * height as f64).max(3.) } else { 1. };
+        div().h(px(height)).flex().items_end().gap(px(2.)).children(
+            values.into_iter().enumerate().map(|(i, (label, value))| {
+                let h = if value > 0. {
+                    (value / peak * height as f64).max(3.)
+                } else {
+                    1.
+                };
                 div()
                     .id((id, i))
                     .flex_1()
@@ -81,12 +82,23 @@ impl AppView {
                     .bg(if value > 0. { p.accent } else { p.line })
                     .hover(|s| s.opacity(0.7))
                     .tooltip(move |window, cx| {
-                        gpui_component::tooltip::Tooltip::new(format!("{label} · {}", human_duration(value))).build(window, cx)
+                        gpui_component::tooltip::Tooltip::new(format!(
+                            "{label} · {}",
+                            human_duration(value)
+                        ))
+                        .build(window, cx)
                     })
-            }))
+            }),
+        )
     }
 
-    fn top_list(&self, title: &'static str, rows: &[HistoryTop], kind: u8, cx: &mut Context<Self>) -> Div {
+    fn top_list(
+        &self,
+        title: &'static str,
+        rows: &[HistoryTop],
+        kind: u8,
+        cx: &mut Context<Self>,
+    ) -> Div {
         let p = pal(cx);
         let peak = rows.first().map(|r| r.seconds).unwrap_or(1.).max(1.);
         div()
@@ -128,17 +140,37 @@ impl AppView {
                                     .min_w_0()
                                     .flex()
                                     .gap_1()
-                                    .child(div().text_size(px(12.5)).truncate().child(if name.is_empty() { "Unknown".into() } else { name }))
-                                    .when(!sub.is_empty(), |el| el.child(faint(format!("· {sub}"), cx).truncate())),
+                                    .child(div().text_size(px(12.5)).truncate().child(
+                                        if name.is_empty() {
+                                            "Unknown".into()
+                                        } else {
+                                            name
+                                        },
+                                    ))
+                                    .when(!sub.is_empty(), |el| {
+                                        el.child(faint(format!("· {sub}"), cx).truncate())
+                                    }),
                             )
-                            .child(faint(if row.plays == 1 { "1 play".into() } else { format!("{} plays", row.plays) }, cx).flex_shrink_0()),
+                            .child(
+                                faint(
+                                    if row.plays == 1 {
+                                        "1 play".into()
+                                    } else {
+                                        format!("{} plays", row.plays)
+                                    },
+                                    cx,
+                                )
+                                .flex_shrink_0(),
+                            ),
                     )
                     .child(
-                        div()
-                            .h(px(3.))
-                            .rounded_full()
-                            .bg(p.line)
-                            .child(div().h_full().rounded_full().bg(p.accent.opacity(0.8)).w(relative((row.seconds / peak) as f32))),
+                        div().h(px(3.)).rounded_full().bg(p.line).child(
+                            div()
+                                .h_full()
+                                .rounded_full()
+                                .bg(p.accent.opacity(0.8))
+                                .w(relative((row.seconds / peak) as f32)),
+                        ),
                     )
                     .hover(|s| s.opacity(0.8))
                     .on_click(cx.listener(move |this, _, window, cx| {
@@ -161,16 +193,31 @@ impl AppView {
             .chunks(per)
             .map(|chunk| {
                 let date = chrono::NaiveDate::parse_from_str(&chunk[0].date, "%Y-%m-%d")
-                    .map(|d| d.format(if per == 1 { "%a %-d %b" } else { "from %-d %b %Y" }).to_string())
+                    .map(|d| {
+                        d.format(if per == 1 {
+                            "%a %-d %b"
+                        } else {
+                            "from %-d %b %Y"
+                        })
+                        .to_string()
+                    })
                     .unwrap_or_default();
                 (date, chunk.iter().map(|d| d.seconds).sum())
             })
             .collect();
-        let first = stats.days.first().map(|d| d.date.clone()).unwrap_or_default();
+        let first = stats
+            .days
+            .first()
+            .map(|d| d.date.clone())
+            .unwrap_or_default();
         let first = chrono::NaiveDate::parse_from_str(&first, "%Y-%m-%d")
             .map(|d| d.format("%-d %b %Y").to_string())
             .unwrap_or_default();
-        let hours: Vec<(String, f64)> = stats.hours.iter().map(|h| (format!("{:02}:00", h.hour), h.seconds)).collect();
+        let hours: Vec<(String, f64)> = stats
+            .hours
+            .iter()
+            .map(|h| (format!("{:02}:00", h.hour), h.seconds))
+            .collect();
         div()
             .flex()
             .flex_col()
@@ -180,9 +227,22 @@ impl AppView {
                     .flex()
                     .flex_col()
                     .gap_2()
-                    .child(faint(if per == 1 { "Listening per day".to_string() } else { format!("Listening per {per} days") }, cx))
+                    .child(faint(
+                        if per == 1 {
+                            "Listening per day".to_string()
+                        } else {
+                            format!("Listening per {per} days")
+                        },
+                        cx,
+                    ))
                     .child(self.bars("day", days, 84., cx))
-                    .child(div().flex().justify_between().child(faint(first, cx)).child(faint("Today", cx))),
+                    .child(
+                        div()
+                            .flex()
+                            .justify_between()
+                            .child(faint(first, cx))
+                            .child(faint("Today", cx)),
+                    ),
             )
             .child(
                 div()
@@ -234,7 +294,11 @@ impl AppView {
                         let listen = &this.history[index];
                         let track_id = listen.track_id.clone();
                         let date = chrono::DateTime::from_timestamp(listen.started_at, 0)
-                            .map(|d| d.with_timezone(&chrono::Local).format("%a %-d %b %Y · %H:%M").to_string())
+                            .map(|d| {
+                                d.with_timezone(&chrono::Local)
+                                    .format("%a %-d %b %Y · %H:%M")
+                                    .to_string()
+                            })
                             .unwrap_or_default();
                         let row = div()
                             .id(("listen", index))
@@ -251,13 +315,26 @@ impl AppView {
                                 div()
                                     .flex_1()
                                     .min_w_0()
-                                    .child(div().text_size(px(13.5)).font_weight(FontWeight::MEDIUM).truncate().child(listen.title.clone()))
+                                    .child(
+                                        div()
+                                            .text_size(px(13.5))
+                                            .font_weight(FontWeight::MEDIUM)
+                                            .truncate()
+                                            .child(listen.title.clone()),
+                                    )
                                     .child(meta(listen.artist.clone(), cx).truncate()),
                             )
                             .child(meta(date, cx).w(px(170.)).flex_shrink_0())
                             .child(
                                 faint(
-                                    if listen.qualified { format_duration(listen.listened_seconds) } else { format!("skipped at {}", format_duration(listen.listened_seconds)) },
+                                    if listen.qualified {
+                                        format_duration(listen.listened_seconds)
+                                    } else {
+                                        format!(
+                                            "skipped at {}",
+                                            format_duration(listen.listened_seconds)
+                                        )
+                                    },
                                     cx,
                                 )
                                 .w(px(110.))
@@ -274,7 +351,10 @@ impl AppView {
                                     .child(glyph("play").size(px(15.)).text_color(p.ink))
                                     .on_click(cx.listener(move |this, _, _, _| {
                                         if let Ok(Some(track)) = this.library.track(&track_id) {
-                                            this.play_tracks(vec![track], "Played again from your history");
+                                            this.play_tracks(
+                                                vec![track],
+                                                "Played again from your history",
+                                            );
                                         }
                                     })),
                             );
@@ -299,15 +379,28 @@ impl AppView {
                     .items_end()
                     .justify_between()
                     .gap_4()
-                    .child(div().flex().flex_col().gap_1().child(page_title("Listening history")).child(meta(summary, cx)))
-                    .child(segmented("history-range", &RANGES.map(|r| r.0), self.history_range, cx, move |index, _, cx| {
-                        let _ = weak.update(cx, |this, cx| {
-                            this.history_range = index;
-                            this.history_stats = None;
-                            this.load_history();
-                            cx.notify();
-                        });
-                    })),
+                    .child(
+                        div()
+                            .flex()
+                            .flex_col()
+                            .gap_1()
+                            .child(page_title("Listening history"))
+                            .child(meta(summary, cx)),
+                    )
+                    .child(segmented(
+                        "history-range",
+                        &RANGES.map(|r| r.0),
+                        self.history_range,
+                        cx,
+                        move |index, _, cx| {
+                            let _ = weak.update(cx, |this, cx| {
+                                this.history_range = index;
+                                this.history_stats = None;
+                                this.load_history();
+                                cx.notify();
+                            });
+                        },
+                    )),
             )
             .child(if self.history.is_empty() && !self.history_loading {
                 div()
@@ -320,7 +413,10 @@ impl AppView {
                     .pb_20()
                     .child(glyph("history").size(px(28.)).text_color(p.ink_3).mb_2())
                     .child(strong("Your listening story starts here"))
-                    .child(meta("Play something. Every listen is recorded on this device, even offline.", cx))
+                    .child(meta(
+                        "Play something. Every listen is recorded on this device, even offline.",
+                        cx,
+                    ))
                     .into_any_element()
             } else {
                 div()
@@ -335,7 +431,17 @@ impl AppView {
                             .min_w_0()
                             .flex()
                             .flex_col()
-                            .child(faint(format!("Every listen, newest first · {}", count(self.history_total)), cx).px_6().pb_2())
+                            .child(
+                                faint(
+                                    format!(
+                                        "Every listen, newest first · {}",
+                                        count(self.history_total)
+                                    ),
+                                    cx,
+                                )
+                                .px_6()
+                                .pb_2(),
+                            )
                             .child(list),
                     )
                     .when_some(stats.filter(|_| wide), |el, stats| {
@@ -358,5 +464,9 @@ impl AppView {
 }
 
 fn plural(n: usize, noun: &str) -> String {
-    if n == 1 { format!("1 {noun}") } else { format!("{} {noun}s", count(n)) }
+    if n == 1 {
+        format!("1 {noun}")
+    } else {
+        format!("{} {noun}s", count(n))
+    }
 }

@@ -14,7 +14,10 @@ use needle_core::{audio::Command, audio::Repeat, model::format_duration};
 impl AppView {
     pub(super) fn title_bar(&self, sidebar: f32, cx: &mut Context<Self>) -> impl IntoElement {
         let p = pal(cx);
-        let rule = self.explanation.as_deref().is_some_and(|e| e.starts_with("Matches rule"))
+        let rule = self
+            .explanation
+            .as_deref()
+            .is_some_and(|e| e.starts_with("Matches rule"))
             && !self.search_text(cx).is_empty();
         TitleBar::new()
             .h(px(48.))
@@ -92,7 +95,10 @@ impl AppView {
     ) -> Stateful<Div> {
         let p = pal(cx);
         let active = self.page == page
-            || matches!((&self.page, &page), (Page::Album { .. }, Page::Albums) | (Page::Artist(_), Page::Artists));
+            || matches!(
+                (&self.page, &page),
+                (Page::Album { .. }, Page::Albums) | (Page::Artist(_), Page::Artists)
+            );
         div()
             .id(id)
             .h(px(34.))
@@ -105,19 +111,23 @@ impl AppView {
             .cursor_pointer()
             .text_size(px(13.5))
             .when(active, |el| {
-                el.bg(p.raised).text_color(p.ink).font_weight(FontWeight::MEDIUM)
+                el.bg(p.raised)
+                    .text_color(p.ink)
+                    .font_weight(FontWeight::MEDIUM)
             })
             .when(!active, |el| {
                 el.text_color(p.ink_2)
                     .hover(|s| s.bg(p.raised.opacity(0.6)).text_color(p.ink))
             })
-            .child(
-                glyph(glyph_name)
-                    .size(px(17.))
-                    .text_color(if active { p.accent } else { p.ink_3 }),
-            )
+            .child(glyph(glyph_name).size(px(17.)).text_color(if active {
+                p.accent
+            } else {
+                p.ink_3
+            }))
             .child(div().flex_1().min_w_0().truncate().child(name.into()))
-            .on_click(cx.listener(move |this, _, window, cx| this.navigate(page.clone(), window, cx)))
+            .on_click(
+                cx.listener(move |this, _, window, cx| this.navigate(page.clone(), window, cx)),
+            )
     }
 
     fn section(&self, label: &'static str, cx: &App) -> Div {
@@ -152,23 +162,32 @@ impl AppView {
             .child(self.section("Collections", cx))
             .child(self.nav_item("nav-favorites", "Favorites", "heart", Page::Favorites, cx))
             .child(self.nav_item("nav-recent", "Recently added", "recent", Page::Recent, cx))
-            .child(self.nav_item("nav-history", "Listening history", "history", Page::History, cx))
+            .child(self.nav_item(
+                "nav-history",
+                "Listening history",
+                "history",
+                Page::History,
+                cx,
+            ))
             .child(
-                self.section("Playlists", cx).justify_between().pr_3().child(
-                    icon_button("new-playlist", "plus", "New playlist from this view")
-                        .xsmall()
-                        .on_click(cx.listener(|this, _, window, cx| {
-                            if !this.page.is_tracks() {
-                                this.navigate(Page::Songs, window, cx);
-                            }
-                            this.show_save = true;
-                            this.playlist_name.update(cx, |s, cx| {
-                                s.set_value("", window, cx);
-                                s.focus(window, cx);
-                            });
-                            cx.notify();
-                        })),
-                ),
+                self.section("Playlists", cx)
+                    .justify_between()
+                    .pr_3()
+                    .child(
+                        icon_button("new-playlist", "plus", "New playlist from this view")
+                            .xsmall()
+                            .on_click(cx.listener(|this, _, window, cx| {
+                                if !this.page.is_tracks() {
+                                    this.navigate(Page::Songs, window, cx);
+                                }
+                                this.show_save = true;
+                                this.playlist_name.update(cx, |s, cx| {
+                                    s.set_value("", window, cx);
+                                    s.focus(window, cx);
+                                });
+                                cx.notify();
+                            })),
+                    ),
             )
             .child(
                 div()
@@ -179,15 +198,28 @@ impl AppView {
                     .pb_2()
                     .when(self.playlists.is_empty(), |el| {
                         el.child(
-                            faint("Save a search or a set of tracks and it will appear here.", cx)
-                                .px_5()
-                                .py_1()
-                                .line_height(relative(1.45)),
+                            faint(
+                                "Save a search or a set of tracks and it will appear here.",
+                                cx,
+                            )
+                            .px_5()
+                            .py_1()
+                            .line_height(relative(1.45)),
                         )
                     })
                     .children(self.playlists.iter().map(|playlist| {
-                        let glyph_name = if playlist.query.is_some() { "smart" } else { "playlist" };
-                        self.nav_item(SharedString::from(format!("playlist-{}", playlist.id)), playlist.name.clone(), glyph_name, Page::Playlist(playlist.id.clone()), cx)
+                        let glyph_name = if playlist.query.is_some() {
+                            "smart"
+                        } else {
+                            "playlist"
+                        };
+                        self.nav_item(
+                            SharedString::from(format!("playlist-{}", playlist.id)),
+                            playlist.name.clone(),
+                            glyph_name,
+                            Page::Playlist(playlist.id.clone()),
+                            cx,
+                        )
                     })),
             )
             .child(
@@ -212,11 +244,16 @@ impl AppView {
                                     div()
                                         .flex_1()
                                         .min_w_0()
-                                        .child(div().text_size(px(12.5)).font_weight(FontWeight::MEDIUM).child(if scan.scanned == 0 {
-                                            "Importing…".to_string()
-                                        } else {
-                                            format!("Importing · {} files", scan.scanned)
-                                        }))
+                                        .child(
+                                            div()
+                                                .text_size(px(12.5))
+                                                .font_weight(FontWeight::MEDIUM)
+                                                .child(if scan.scanned == 0 {
+                                                    "Importing…".to_string()
+                                                } else {
+                                                    format!("Importing · {} files", scan.scanned)
+                                                }),
+                                        )
                                         .child(faint(scan.current.clone(), cx).truncate()),
                                 )
                                 .child(
@@ -224,7 +261,9 @@ impl AppView {
                                         .ghost()
                                         .xsmall()
                                         .label("Stop")
-                                        .on_click(move |_, _, _| cancel.store(true, std::sync::atomic::Ordering::Relaxed)),
+                                        .on_click(move |_, _, _| {
+                                            cancel.store(true, std::sync::atomic::Ordering::Relaxed)
+                                        }),
                                 ),
                         )
                     })
@@ -246,7 +285,13 @@ impl AppView {
                             .child("Add music folder")
                             .on_click(cx.listener(|this, _, _, cx| this.import_folder(cx))),
                     )
-                    .child(self.nav_item("nav-settings", "Settings", "settings", Page::Settings, cx)),
+                    .child(self.nav_item(
+                        "nav-settings",
+                        "Settings",
+                        "settings",
+                        Page::Settings,
+                        cx,
+                    )),
             )
     }
 
@@ -257,10 +302,18 @@ impl AppView {
         let track = &item.track;
         let source = quality(track);
         if self.playback.output_rate == 0 {
-            return (source.clone(), format!("{source} · the output opens when playback starts"), false);
+            return (
+                source.clone(),
+                format!("{source} · the output opens when playback starts"),
+                false,
+            );
         }
         let rate = self.playback.output_rate as f64 / 1000.;
-        let rate = if rate.fract() == 0. { format!("{rate:.0} kHz") } else { format!("{rate:.1} kHz") };
+        let rate = if rate.fract() == 0. {
+            format!("{rate:.0} kHz")
+        } else {
+            format!("{rate:.1} kHz")
+        };
         let _ = cx;
         if self.playback.exclusive {
             (
@@ -274,10 +327,17 @@ impl AppView {
         } else {
             let resampled = track.sample_rate as u32 != self.playback.output_rate;
             (
-                format!("{source} → {rate}{}", if resampled { " (resampled)" } else { "" }),
+                format!(
+                    "{source} → {rate}{}",
+                    if resampled { " (resampled)" } else { "" }
+                ),
                 format!(
                     "{source} → {} → Windows mixer at {rate} → {}",
-                    if self.playback.replay_gain { "ReplayGain and volume" } else { "volume" },
+                    if self.playback.replay_gain {
+                        "ReplayGain and volume"
+                    } else {
+                        "volume"
+                    },
                     self.playback.output
                 ),
                 false,
@@ -370,7 +430,7 @@ impl AppView {
                                 .small()
                                 .when(favorite, |b| b.text_color(p.accent))
                                 .on_click(cx.listener(move |this, _, _, cx| {
-                                    this.set_rating(&[track.id.clone()], if favorite { 0 } else { 5 });
+                                    this.set_rating(std::slice::from_ref(&track.id), if favorite { 0 } else { 5 });
                                     if let Some(item) = this.playback.current.as_mut() {
                                         item.track.rating = if favorite { 0 } else { 5 };
                                     }
@@ -586,7 +646,11 @@ impl AppView {
                         .rounded(px(10.))
                         .bg(cx.theme().popover)
                         .border_1()
-                        .border_color(if toast.error { p.danger.opacity(0.5) } else { p.line })
+                        .border_color(if toast.error {
+                            p.danger.opacity(0.5)
+                        } else {
+                            p.line
+                        })
                         .shadow_lg()
                         .flex()
                         .items_center()
@@ -596,7 +660,13 @@ impl AppView {
                                 .size(px(16.))
                                 .text_color(if toast.error { p.danger } else { p.accent }),
                         )
-                        .child(div().flex_1().text_size(px(13.)).line_height(relative(1.4)).child(toast.text.clone()))
+                        .child(
+                            div()
+                                .flex_1()
+                                .text_size(px(13.))
+                                .line_height(relative(1.4))
+                                .child(toast.text.clone()),
+                        )
                         .child(
                             icon_button("dismiss-toast", "close", "Dismiss")
                                 .xsmall()
@@ -607,7 +677,8 @@ impl AppView {
                         )
                         .with_animation(
                             ElementId::Name(format!("toast-{:?}", toast.shown).into()),
-                            Animation::new(std::time::Duration::from_millis(180)).with_easing(ease_out_quint()),
+                            Animation::new(std::time::Duration::from_millis(180))
+                                .with_easing(ease_out_quint()),
                             |el, t| el.opacity(t).mt(px(8. * (1. - t))),
                         ),
                 ),
@@ -643,7 +714,12 @@ impl AppView {
             }))
     }
 
-    pub(super) fn open_menu(&mut self, index: usize, position: Point<Pixels>, cx: &mut Context<Self>) {
+    pub(super) fn open_menu(
+        &mut self,
+        index: usize,
+        position: Point<Pixels>,
+        cx: &mut Context<Self>,
+    ) {
         if let Some(track) = self.tracks.get(index)
             && !self.selection.ids.contains(&track.id)
         {
@@ -663,7 +739,12 @@ impl AppView {
         let favorite = selected.iter().all(|t| t.rating >= 4);
         let separator = || div().my_1().h(px(1.)).bg(p.line);
         let index = menu.index;
-        let manual_playlists: Vec<_> = self.playlists.iter().filter(|p| p.query.is_none()).cloned().collect();
+        let manual_playlists: Vec<_> = self
+            .playlists
+            .iter()
+            .filter(|p| p.query.is_none())
+            .cloned()
+            .collect();
         let body = div()
             .id("track-menu")
             .occlude()
@@ -680,59 +761,144 @@ impl AppView {
                 this.menu = None;
                 cx.notify();
             }))
-            .child(self.menu_item("m-play", "play", if many { format!("Play {count} tracks") } else { "Play".into() }, cx, move |this, _, cx| {
-                let selected = this.selected_tracks();
-                if selected.len() > 1 {
-                    let reason = this.reason(cx);
-                    this.play_tracks(selected, &reason);
+            .child(self.menu_item(
+                "m-play",
+                "play",
+                if many {
+                    format!("Play {count} tracks")
                 } else {
-                    this.play_view(index, false, cx);
-                }
-            }))
-            .child(self.menu_item("m-next", "next", if many { format!("Play {count} next") } else { "Play next".into() }, cx, |this, _, _| {
-                let selected = this.selected_tracks();
-                this.play_next(selected);
-            }))
-            .child(self.menu_item("m-queue", "queue", if many { format!("Add {count} to queue") } else { "Add to queue".into() }, cx, |this, _, _| {
-                let selected = this.selected_tracks();
-                this.enqueue(selected);
-            }))
+                    "Play".into()
+                },
+                cx,
+                move |this, _, cx| {
+                    let selected = this.selected_tracks();
+                    if selected.len() > 1 {
+                        let reason = this.reason(cx);
+                        this.play_tracks(selected, &reason);
+                    } else {
+                        this.play_view(index, false, cx);
+                    }
+                },
+            ))
+            .child(self.menu_item(
+                "m-next",
+                "next",
+                if many {
+                    format!("Play {count} next")
+                } else {
+                    "Play next".into()
+                },
+                cx,
+                |this, _, _| {
+                    let selected = this.selected_tracks();
+                    this.play_next(selected);
+                },
+            ))
+            .child(self.menu_item(
+                "m-queue",
+                "queue",
+                if many {
+                    format!("Add {count} to queue")
+                } else {
+                    "Add to queue".into()
+                },
+                cx,
+                |this, _, _| {
+                    let selected = this.selected_tracks();
+                    this.enqueue(selected);
+                },
+            ))
             .child(separator())
-            .child(self.menu_item("m-favorite", if favorite { "heart-fill" } else { "heart" }, if favorite { "Remove from favorites" } else { "Add to favorites" }, cx, move |this, _, _| {
-                let ids: Vec<String> = this.selected_tracks().into_iter().map(|t| t.id).collect();
-                this.set_rating(&ids, if favorite { 0 } else { 5 });
-            }))
+            .child(self.menu_item(
+                "m-favorite",
+                if favorite { "heart-fill" } else { "heart" },
+                if favorite {
+                    "Remove from favorites"
+                } else {
+                    "Add to favorites"
+                },
+                cx,
+                move |this, _, _| {
+                    let ids: Vec<String> =
+                        this.selected_tracks().into_iter().map(|t| t.id).collect();
+                    this.set_rating(&ids, if favorite { 0 } else { 5 });
+                },
+            ))
             .when(!manual_playlists.is_empty(), |el| {
                 el.child(separator())
                     .child(faint("Add to playlist", cx).px_2().py_1())
                     .children(manual_playlists.into_iter().take(8).map(|playlist| {
                         let id = playlist.id.clone();
-                        self.menu_item(SharedString::from(format!("m-pl-{}", playlist.id)), "playlist", playlist.name.clone(), cx, move |this, _, _| {
-                            let selected = this.selected_tracks();
-                            this.add_to_playlist(&id, selected);
-                        })
+                        self.menu_item(
+                            SharedString::from(format!("m-pl-{}", playlist.id)),
+                            "playlist",
+                            playlist.name.clone(),
+                            cx,
+                            move |this, _, _| {
+                                let selected = this.selected_tracks();
+                                this.add_to_playlist(&id, selected);
+                            },
+                        )
                     }))
             })
             .child(separator())
             .when(!many, |el| {
                 let album = super::album_page(&track);
                 let artist = Page::Artist(track.artist.clone());
-                el.child(self.menu_item("m-album", "albums", "Go to album", cx, move |this, window, cx| this.navigate(album.clone(), window, cx)))
-                    .child(self.menu_item("m-artist", "artists", "Go to artist", cx, move |this, window, cx| this.navigate(artist.clone(), window, cx)))
-                    .child(self.menu_item("m-edit", "edit", "Edit tags…", cx, |this, window, cx| this.edit_tags(window, cx)))
-                    .child(separator())
+                el.child(self.menu_item(
+                    "m-album",
+                    "albums",
+                    "Go to album",
+                    cx,
+                    move |this, window, cx| this.navigate(album.clone(), window, cx),
+                ))
+                .child(self.menu_item(
+                    "m-artist",
+                    "artists",
+                    "Go to artist",
+                    cx,
+                    move |this, window, cx| this.navigate(artist.clone(), window, cx),
+                ))
+                .child(
+                    self.menu_item("m-edit", "edit", "Edit tags…", cx, |this, window, cx| {
+                        this.edit_tags(window, cx)
+                    }),
+                )
+                .child(separator())
             })
             .when(!many, |el| {
                 let path = track.path.trim_start_matches("\\\\?\\").to_string();
                 let copy = path.clone();
-                el.child(self.menu_item("m-reveal", "folder", "Show in File Explorer", cx, move |_, _, _| {
-                    let _ = std::process::Command::new("explorer").arg(format!("/select,{path}")).spawn();
-                }))
-                .child(self.menu_item("m-copy", "copy", "Copy file path", cx, move |_, _, cx| {
-                    cx.write_to_clipboard(ClipboardItem::new_string(copy.clone()))
-                }))
+                el.child(self.menu_item(
+                    "m-reveal",
+                    "folder",
+                    "Show in File Explorer",
+                    cx,
+                    move |_, _, _| {
+                        let _ = std::process::Command::new("explorer")
+                            .arg(format!("/select,{path}"))
+                            .spawn();
+                    },
+                ))
+                .child(self.menu_item(
+                    "m-copy",
+                    "copy",
+                    "Copy file path",
+                    cx,
+                    move |_, _, cx| cx.write_to_clipboard(ClipboardItem::new_string(copy.clone())),
+                ))
             })
-            .when(many, |el| el.child(meta(format!("{count} tracks selected"), cx).px_2().py_1()));
-        Some(deferred(anchored().position(menu.position).snap_to_window_with_margin(px(8.)).child(body)).with_priority(2))
+            .when(many, |el| {
+                el.child(meta(format!("{count} tracks selected"), cx).px_2().py_1())
+            });
+        Some(
+            deferred(
+                anchored()
+                    .position(menu.position)
+                    .snap_to_window_with_margin(px(8.))
+                    .child(body),
+            )
+            .with_priority(2),
+        )
     }
 }

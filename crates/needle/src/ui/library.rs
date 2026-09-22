@@ -1,6 +1,9 @@
 use super::{
     AppView, PAGE_SIZE, Page, Sort, pal,
-    widgets::{artwork, count as thousands, cover, faint, glyph, icon, icon_button, meta, page_title, quality},
+    widgets::{
+        artwork, count as thousands, cover, faint, glyph, icon, icon_button, meta, page_title,
+        quality,
+    },
 };
 use gpui::{prelude::*, *};
 use gpui_component::{
@@ -28,12 +31,24 @@ pub fn album_groups(albums: Vec<AlbumSummary>) -> Vec<Group> {
     albums
         .into_iter()
         .map(|album| Group {
-            title: if album.album.is_empty() { "Unknown album".into() } else { album.album.clone() },
-            subtitle: if album.year > 0 { format!("{} · {}", album.artist, album.year) } else { album.artist.clone() },
+            title: if album.album.is_empty() {
+                "Unknown album".into()
+            } else {
+                album.album.clone()
+            },
+            subtitle: if album.year > 0 {
+                format!("{} · {}", album.artist, album.year)
+            } else {
+                album.artist.clone()
+            },
             artwork: album.artwork,
             seed: format!("{}{}", album.album, album.artist),
             tracks: album.tracks,
-            page: Page::Album { album: album.album, artist: album.artist, query: album.query },
+            page: Page::Album {
+                album: album.album,
+                artist: album.artist,
+                query: album.query,
+            },
         })
         .collect()
 }
@@ -42,7 +57,11 @@ pub fn artist_groups(artists: Vec<ArtistSummary>) -> Vec<Group> {
     artists
         .into_iter()
         .map(|artist| Group {
-            title: if artist.name.is_empty() { "Unknown artist".into() } else { artist.name.clone() },
+            title: if artist.name.is_empty() {
+                "Unknown artist".into()
+            } else {
+                artist.name.clone()
+            },
             subtitle: match (artist.albums, artist.tracks) {
                 (1, 1) => "1 track".into(),
                 (1, t) => format!("{t} tracks"),
@@ -66,14 +85,27 @@ fn initials(name: &str) -> String {
 }
 
 impl AppView {
-    pub(super) fn main(&self, width: f32, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+    pub(super) fn main(
+        &self,
+        width: f32,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> impl IntoElement {
         let body = match self.page {
             Page::Settings => self.settings_view(cx).into_any_element(),
             Page::History => self.history_view(width, cx).into_any_element(),
-            _ if self.total == 0 && self.scan.is_none() && !self.loading => self.onboarding(cx).into_any_element(),
+            _ if self.total == 0 && self.scan.is_none() && !self.loading => {
+                self.onboarding(cx).into_any_element()
+            }
             _ => self.collection(width, window, cx).into_any_element(),
         };
-        div().flex_1().min_w_0().h_full().flex().flex_col().child(body)
+        div()
+            .flex_1()
+            .min_w_0()
+            .h_full()
+            .flex()
+            .flex_col()
+            .child(body)
     }
 
     fn onboarding(&self, cx: &mut Context<Self>) -> impl IntoElement {
@@ -140,7 +172,11 @@ impl AppView {
             Page::Artists => "artists",
             _ => "tracks",
         };
-        let shown = if self.page.is_grid() { self.groups.len() } else { count };
+        let shown = if self.page.is_grid() {
+            self.groups.len()
+        } else {
+            count
+        };
         let mut summary = if self.loading && self.tracks.is_empty() {
             "Loading…".to_string()
         } else if shown == 1 {
@@ -165,9 +201,19 @@ impl AppView {
                     .filter(|e| e.starts_with("Matches rule") && !search.is_empty())
                     .map(|e| e.replacen("Matches rule: ", "Rule · ", 1))
             });
-        let can_play = (!self.tracks.is_empty() || matches!(self.page, Page::Artist(_)) && !self.groups.is_empty()) && self.query_error.is_none();
-        let album_art = if let Page::Album { .. } = &self.page { self.tracks.first().cloned() } else { None };
-        let artist = if let Page::Artist(name) = &self.page { Some(name.clone()) } else { None };
+        let can_play = (!self.tracks.is_empty()
+            || matches!(self.page, Page::Artist(_)) && !self.groups.is_empty())
+            && self.query_error.is_none();
+        let album_art = if let Page::Album { .. } = &self.page {
+            self.tracks.first().cloned()
+        } else {
+            None
+        };
+        let artist = if let Page::Artist(name) = &self.page {
+            Some(name.clone())
+        } else {
+            None
+        };
         div()
             .flex_shrink_0()
             .px_6()
@@ -176,7 +222,9 @@ impl AppView {
             .flex()
             .items_end()
             .gap_5()
-            .when_some(album_art.clone(), |el, track| el.child(artwork(Some(&track), 148., cx)))
+            .when_some(album_art.clone(), |el, track| {
+                el.child(artwork(Some(&track), 148., cx))
+            })
             .when_some(artist.clone(), |el, name| {
                 el.child(
                     div()
@@ -204,7 +252,11 @@ impl AppView {
                     .when(artist.is_some(), |el| el.child(faint("Artist", cx)))
                     .child(page_title(title))
                     .when_some(album_art.clone(), |el, track| {
-                        let artist_name = if track.album_artist.is_empty() { track.artist.clone() } else { track.album_artist.clone() };
+                        let artist_name = if track.album_artist.is_empty() {
+                            track.artist.clone()
+                        } else {
+                            track.album_artist.clone()
+                        };
                         let page = Page::Artist(artist_name.clone());
                         el.child(
                             div()
@@ -213,8 +265,14 @@ impl AppView {
                                 .font_weight(FontWeight::MEDIUM)
                                 .cursor_pointer()
                                 .hover(|s| s.underline())
-                                .child(if artist_name.is_empty() { "Unknown artist".into() } else { artist_name })
-                                .on_click(cx.listener(move |this, _, window, cx| this.navigate(page.clone(), window, cx))),
+                                .child(if artist_name.is_empty() {
+                                    "Unknown artist".into()
+                                } else {
+                                    artist_name
+                                })
+                                .on_click(cx.listener(move |this, _, window, cx| {
+                                    this.navigate(page.clone(), window, cx)
+                                })),
                         )
                     })
                     .child(
@@ -235,7 +293,9 @@ impl AppView {
                         )
                         .mt_1(),
                     )
-                    .when_some(rule, |el, rule| el.child(meta(rule, cx).text_color(p.accent).truncate())),
+                    .when_some(rule, |el, rule| {
+                        el.child(meta(rule, cx).text_color(p.accent).truncate())
+                    }),
             )
             .when(!matches!(self.page, Page::Albums | Page::Artists), |el| {
                 el.child(
@@ -249,19 +309,23 @@ impl AppView {
                                 .icon(icon("play"))
                                 .label("Play")
                                 .disabled(!can_play)
-                                .on_click(cx.listener(|this, _, _, cx| this.play_view(0, false, cx))),
+                                .on_click(
+                                    cx.listener(|this, _, _, cx| this.play_view(0, false, cx)),
+                                ),
                         )
                         .child(
                             Button::new("shuffle-view")
                                 .icon(icon("shuffle"))
                                 .label("Shuffle")
                                 .disabled(!can_play)
-                                .on_click(cx.listener(|this, _, _, cx| this.play_view(0, true, cx))),
+                                .on_click(
+                                    cx.listener(|this, _, _, cx| this.play_view(0, true, cx)),
+                                ),
                         )
                         .when(playlist.is_none(), |el| {
                             el.child(
-                                icon_button("save-view", "plus", "Save as a playlist")
-                                    .on_click(cx.listener(|this, _, window, cx| {
+                                icon_button("save-view", "plus", "Save as a playlist").on_click(
+                                    cx.listener(|this, _, window, cx| {
                                         this.show_save = !this.show_save;
                                         if this.show_save {
                                             let name = this.search_text(cx);
@@ -271,7 +335,8 @@ impl AppView {
                                             });
                                         }
                                         cx.notify();
-                                    })),
+                                    }),
+                                ),
                             )
                         }),
                 )
@@ -339,15 +404,22 @@ impl AppView {
                         .small()
                         .ghost()
                         .when(self.confirm_delete, |b| b.danger())
-                        .label(if self.confirm_delete { "Click again to delete" } else { "Delete playlist" })
+                        .label(if self.confirm_delete {
+                            "Click again to delete"
+                        } else {
+                            "Delete playlist"
+                        })
                         .on_click(cx.listener(move |this, _, window, cx| {
                             if this.confirm_delete {
                                 match this.library.delete_playlist(&delete.id) {
                                     Ok(()) => {
-                                        this.playlists = this.library.playlists().unwrap_or_default();
+                                        this.playlists =
+                                            this.library.playlists().unwrap_or_default();
                                         this.back.clear();
                                         this.open(Page::Songs, window, cx);
-                                        this.notify("Playlist deleted. Your music files are untouched.");
+                                        this.notify(
+                                            "Playlist deleted. Your music files are untouched.",
+                                        );
                                     }
                                     Err(e) => this.fail(e.to_string()),
                                 }
@@ -387,7 +459,11 @@ impl AppView {
             .child(
                 Button::new("save-static")
                     .small()
-                    .label(if selected > 1 { format!("Save {selected} selected") } else { "Save these tracks".into() })
+                    .label(if selected > 1 {
+                        format!("Save {selected} selected")
+                    } else {
+                        "Save these tracks".into()
+                    })
                     .on_click(cx.listener(|this, _, _, cx| this.save_playlist(false, cx))),
             )
             .child(
@@ -400,23 +476,49 @@ impl AppView {
             )
     }
 
-    fn collection(&self, width: f32, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+    fn collection(
+        &self,
+        width: f32,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> impl IntoElement {
         let p = pal(cx);
-        let body = if let Some(error) = self.query_error.as_ref().filter(|_| self.tracks.is_empty() && self.groups.is_empty()) {
-            self.problem("That rule needs a fix", error.clone(), cx).into_any_element()
-        } else if self.loading && self.tracks.is_empty() && !self.page.is_grid() {
-            self.skeleton(cx).into_any_element()
-        } else if self.page.is_grid() && self.groups.is_empty() && self.loading {
+        let body = if let Some(error) = self
+            .query_error
+            .as_ref()
+            .filter(|_| self.tracks.is_empty() && self.groups.is_empty())
+        {
+            self.problem("That rule needs a fix", error.clone(), cx)
+                .into_any_element()
+        } else if self.loading
+            && if self.page.is_grid() {
+                self.groups.is_empty()
+            } else {
+                self.tracks.is_empty()
+            }
+        {
             self.skeleton(cx).into_any_element()
         } else if self.page.is_grid() && !self.groups.is_empty() {
             self.grid(width, cx).into_any_element()
         } else if self.tracks.is_empty() {
             let search = self.search_text(cx);
             let (title, detail) = match &self.page {
-                Page::Favorites => ("No favorites yet".to_string(), "Press the heart on any track, or Ctrl+D with tracks selected.".to_string()),
-                Page::Recent => ("Nothing added in the last 30 days".into(), "New files in your music folders appear here automatically.".into()),
-                Page::Playlist(_) if search.is_empty() => ("This playlist is empty".into(), "Right-click tracks anywhere and choose the playlist to add them.".into()),
-                _ if !search.is_empty() => (format!("Nothing matches “{search}”"), "Try fewer words, or a rule such as  artist contains \"Nick\".".into()),
+                Page::Favorites => (
+                    "No favorites yet".to_string(),
+                    "Press the heart on any track, or Ctrl+D with tracks selected.".to_string(),
+                ),
+                Page::Recent => (
+                    "Nothing added in the last 30 days".into(),
+                    "New files in your music folders appear here automatically.".into(),
+                ),
+                Page::Playlist(_) if search.is_empty() => (
+                    "This playlist is empty".into(),
+                    "Right-click tracks anywhere and choose the playlist to add them.".into(),
+                ),
+                _ if !search.is_empty() => (
+                    format!("Nothing matches “{search}”"),
+                    "Try fewer words, or a rule such as  artist contains \"Nick\".".into(),
+                ),
                 _ => ("Nothing to show".into(), "Try another view.".into()),
             };
             self.problem(title, detail, cx).into_any_element()
@@ -431,67 +533,93 @@ impl AppView {
             .child(self.header(cx))
             .children(self.playlist_tools(cx))
             .when(self.show_save, |el| el.child(self.save_form(cx)))
-            .when_some(self.query_error.clone().filter(|_| !self.tracks.is_empty() || !self.groups.is_empty()), |el, error| {
-                el.child(
-                    div()
-                        .mx_6()
-                        .mb_2()
-                        .flex()
-                        .items_center()
-                        .gap_2()
-                        .child(glyph("alert").size(px(14.)).text_color(p.danger))
-                        .child(meta(format!("{error} · showing the last results"), cx).text_color(p.danger)),
-                )
-            })
-            .child(body)
-            .when(self.page.is_tracks() && !self.page.is_grid() && self.matched_total > PAGE_SIZE, |el| {
-                el.child(
-                    div()
-                        .h(px(44.))
-                        .px_6()
-                        .flex_shrink_0()
-                        .flex()
-                        .items_center()
-                        .justify_between()
-                        .border_t_1()
-                        .border_color(p.line_soft)
-                        .child(meta(
-                            format!(
-                                "{}–{} of {} tracks",
-                                thousands(self.page_offset + 1),
-                                thousands(self.page_offset + self.tracks.len()),
-                                thousands(self.matched_total)
+            .when_some(
+                self.query_error
+                    .clone()
+                    .filter(|_| !self.tracks.is_empty() || !self.groups.is_empty()),
+                |el, error| {
+                    el.child(
+                        div()
+                            .mx_6()
+                            .mb_2()
+                            .flex()
+                            .items_center()
+                            .gap_2()
+                            .child(glyph("alert").size(px(14.)).text_color(p.danger))
+                            .child(
+                                meta(format!("{error} · showing the last results"), cx)
+                                    .text_color(p.danger),
                             ),
-                            cx,
-                        ))
-                        .child(
-                            div()
-                                .flex()
-                                .gap_1()
-                                .child(
-                                    icon_button("previous-page", "chevron-left", "Previous 1,000")
+                    )
+                },
+            )
+            .child(body)
+            .when(
+                self.page.is_tracks() && !self.page.is_grid() && self.matched_total > PAGE_SIZE,
+                |el| {
+                    el.child(
+                        div()
+                            .h(px(44.))
+                            .px_6()
+                            .flex_shrink_0()
+                            .flex()
+                            .items_center()
+                            .justify_between()
+                            .border_t_1()
+                            .border_color(p.line_soft)
+                            .child(meta(
+                                format!(
+                                    "{}–{} of {} tracks",
+                                    thousands(self.page_offset + 1),
+                                    thousands(self.page_offset + self.tracks.len()),
+                                    thousands(self.matched_total)
+                                ),
+                                cx,
+                            ))
+                            .child(
+                                div()
+                                    .flex()
+                                    .gap_1()
+                                    .child(
+                                        icon_button(
+                                            "previous-page",
+                                            "chevron-left",
+                                            "Previous 1,000",
+                                        )
                                         .small()
                                         .disabled(self.page_offset == 0)
-                                        .on_click(cx.listener(|this, _, _, cx| {
-                                            this.page_offset = this.page_offset.saturating_sub(PAGE_SIZE);
-                                            this.refresh(cx);
-                                        })),
-                                )
-                                .child(
-                                    icon_button("next-page", "chevron-right", "Next 1,000")
-                                        .small()
-                                        .disabled(self.page_offset + self.tracks.len() >= self.matched_total)
-                                        .on_click(cx.listener(|this, _, _, cx| {
-                                            this.page_offset += PAGE_SIZE;
-                                            this.refresh(cx);
-                                        })),
-                                ),
-                        ),
-                )
-            })
+                                        .on_click(
+                                            cx.listener(|this, _, _, cx| {
+                                                this.page_offset =
+                                                    this.page_offset.saturating_sub(PAGE_SIZE);
+                                                this.refresh(cx);
+                                            }),
+                                        ),
+                                    )
+                                    .child(
+                                        icon_button("next-page", "chevron-right", "Next 1,000")
+                                            .small()
+                                            .disabled(
+                                                self.page_offset + self.tracks.len()
+                                                    >= self.matched_total,
+                                            )
+                                            .on_click(cx.listener(|this, _, _, cx| {
+                                                this.page_offset += PAGE_SIZE;
+                                                this.refresh(cx);
+                                            })),
+                                    ),
+                            ),
+                    )
+                },
+            )
     }
 
-    fn problem(&self, title: impl Into<SharedString>, detail: impl Into<SharedString>, cx: &App) -> impl IntoElement {
+    fn problem(
+        &self,
+        title: impl Into<SharedString>,
+        detail: impl Into<SharedString>,
+        cx: &App,
+    ) -> impl IntoElement {
         let p = pal(cx);
         div()
             .flex_1()
@@ -503,32 +631,67 @@ impl AppView {
             .pb_20()
             .px_10()
             .child(glyph("search").size(px(28.)).text_color(p.ink_3).mb_2())
-            .child(div().text_size(px(15.)).font_weight(FontWeight::MEDIUM).text_center().child(title.into()))
-            .child(meta(detail, cx).max_w(px(460.)).text_center().line_height(relative(1.5)))
+            .child(
+                div()
+                    .text_size(px(15.))
+                    .font_weight(FontWeight::MEDIUM)
+                    .text_center()
+                    .child(title.into()),
+            )
+            .child(
+                meta(detail, cx)
+                    .max_w(px(460.))
+                    .text_center()
+                    .line_height(relative(1.5)),
+            )
     }
 
     fn skeleton(&self, cx: &App) -> impl IntoElement {
         let p = pal(cx);
-        div().flex_1().px_6().pt_2().flex().flex_col().children((0..9).map(|i| {
-            div()
-                .h(px(52.))
-                .flex()
-                .items_center()
-                .gap_3()
-                .child(div().size(px(36.)).rounded(px(4.)).bg(p.raised))
-                .child(
-                    div()
-                        .flex_1()
-                        .flex()
-                        .flex_col()
-                        .gap_2()
-                        .child(div().h(px(10.)).w(relative(0.25 + (i % 3) as f32 * 0.08)).rounded(px(3.)).bg(p.raised))
-                        .child(div().h(px(8.)).w(relative(0.16 + (i % 4) as f32 * 0.05)).rounded(px(3.)).bg(p.raised.opacity(0.7))),
-                )
-        }))
+        div()
+            .flex_1()
+            .px_6()
+            .pt_2()
+            .flex()
+            .flex_col()
+            .children((0..9).map(|i| {
+                div()
+                    .h(px(52.))
+                    .flex()
+                    .items_center()
+                    .gap_3()
+                    .child(div().size(px(36.)).rounded(px(4.)).bg(p.raised))
+                    .child(
+                        div()
+                            .flex_1()
+                            .flex()
+                            .flex_col()
+                            .gap_2()
+                            .child(
+                                div()
+                                    .h(px(10.))
+                                    .w(relative(0.25 + (i % 3) as f32 * 0.08))
+                                    .rounded(px(3.))
+                                    .bg(p.raised),
+                            )
+                            .child(
+                                div()
+                                    .h(px(8.))
+                                    .w(relative(0.16 + (i % 4) as f32 * 0.05))
+                                    .rounded(px(3.))
+                                    .bg(p.raised.opacity(0.7)),
+                            ),
+                    )
+            }))
     }
 
-    fn sort_label(&self, id: &'static str, label: &'static str, field: &'static str, cx: &mut Context<Self>) -> Stateful<Div> {
+    fn sort_label(
+        &self,
+        id: &'static str,
+        label: &'static str,
+        field: &'static str,
+        cx: &mut Context<Self>,
+    ) -> Stateful<Div> {
         let p = pal(cx);
         let state = match self.sort {
             Sort::Asc(f) if f == field => Some("arrow-up"),
@@ -544,7 +707,9 @@ impl AppView {
             .text_color(if state.is_some() { p.ink } else { p.ink_3 })
             .hover(|s| s.text_color(p.ink))
             .child(label)
-            .when_some(state, |el, g| el.child(glyph(g).size(px(12.)).text_color(p.ink)))
+            .when_some(state, |el, g| {
+                el.child(glyph(g).size(px(12.)).text_color(p.ink))
+            })
             .on_click(cx.listener(move |this, _, _, cx| {
                 this.sort = match this.sort {
                     Sort::Asc(f) if f == field => Sort::Desc(field),
@@ -601,15 +766,37 @@ impl AppView {
                             .gap_1()
                             .child(self.sort_label("sort-title", "Title", "title", cx))
                             .when(!album_view, |el| {
-                                el.child("·").child(self.sort_label("sort-artist", "Artist", "artist", cx))
+                                el.child("·").child(self.sort_label(
+                                    "sort-artist",
+                                    "Artist",
+                                    "artist",
+                                    cx,
+                                ))
                             }),
                     )
                     .when(show_album, |el| {
-                        el.child(div().w(relative(0.3)).flex_shrink_0().child(self.sort_label("sort-album", "Album", "album", cx)))
+                        el.child(
+                            div()
+                                .w(relative(0.3))
+                                .flex_shrink_0()
+                                .child(self.sort_label("sort-album", "Album", "album", cx)),
+                        )
                     })
-                    .when(show_quality, |el| el.child(div().w(px(92.)).child(self.sort_label("sort-format", "Quality", "format", cx))))
+                    .when(show_quality, |el| {
+                        el.child(div().w(px(92.)).child(self.sort_label(
+                            "sort-format",
+                            "Quality",
+                            "format",
+                            cx,
+                        )))
+                    })
                     .child(div().w(px(28.)))
-                    .child(div().w(px(46.)).flex().justify_end().child(self.sort_label("sort-time", "Time", "duration", cx)))
+                    .child(div().w(px(46.)).flex().justify_end().child(self.sort_label(
+                        "sort-time",
+                        "Time",
+                        "duration",
+                        cx,
+                    )))
                     .child(div().w(px(28.))),
             )
             .child(
@@ -618,7 +805,9 @@ impl AppView {
                     self.tracks.len(),
                     cx.processor(move |this, range: std::ops::Range<usize>, _, cx| {
                         range
-                            .map(|index| this.track_row(index, album_view, show_album, show_quality, cx))
+                            .map(|index| {
+                                this.track_row(index, album_view, show_album, show_quality, cx)
+                            })
                             .collect::<Vec<_>>()
                     }),
                 )
@@ -628,12 +817,23 @@ impl AppView {
             )
     }
 
-    fn track_row(&self, index: usize, album_view: bool, show_album: bool, show_quality: bool, cx: &mut Context<Self>) -> Div {
+    fn track_row(
+        &self,
+        index: usize,
+        album_view: bool,
+        show_album: bool,
+        show_quality: bool,
+        cx: &mut Context<Self>,
+    ) -> Div {
         let p = pal(cx);
         let track = &self.tracks[index];
         let selected = self.selection.ids.contains(&track.id);
         let cursor = self.selection.cursor == Some(index);
-        let playing = self.playback.current.as_ref().is_some_and(|i| i.track.id == track.id);
+        let playing = self
+            .playback
+            .current
+            .as_ref()
+            .is_some_and(|i| i.track.id == track.id);
         let favorite = track.rating >= 4;
         let id = track.id.clone();
         let height = self.settings.layout.row_height.clamp(44., 76.);
@@ -655,7 +855,9 @@ impl AppView {
             .cursor_default()
             .when(selected, |el| el.bg(p.selection))
             .when(!selected, |el| el.hover(|s| s.bg(p.raised.opacity(0.55))))
-            .when(cursor && selected, |el| el.border_1().border_color(p.accent.opacity(0.28)))
+            .when(cursor && selected, |el| {
+                el.border_1().border_color(p.accent.opacity(0.28))
+            })
             .child(
                 div()
                     .w(px(28.))
@@ -666,10 +868,14 @@ impl AppView {
                     .text_size(px(12.))
                     .text_color(p.ink_3)
                     .child(if playing {
-                        glyph(if self.playback.playing { "volume" } else { "pause" })
-                            .size(px(15.))
-                            .text_color(p.accent)
-                            .into_any_element()
+                        glyph(if self.playback.playing {
+                            "volume"
+                        } else {
+                            "pause"
+                        })
+                        .size(px(15.))
+                        .text_color(p.accent)
+                        .into_any_element()
                     } else {
                         div()
                             .group_hover("row", |s| s.opacity(0.))
@@ -736,19 +942,27 @@ impl AppView {
                                 )
                             }),
                     )
-                    .when(!album_view || track.artist != track.album_artist && !track.album_artist.is_empty(), |el| {
-                        el.child(
-                            div()
-                                .truncate()
-                                .text_size(px(12.))
-                                .text_color(p.ink_2)
-                                .child(if show_album || album_view {
-                                    track.display_artist().to_string()
-                                } else {
-                                    format!("{} · {}", track.display_artist(), track.display_album())
-                                }),
-                        )
-                    }),
+                    .when(
+                        !album_view
+                            || track.artist != track.album_artist && !track.album_artist.is_empty(),
+                        |el| {
+                            el.child(
+                                div()
+                                    .truncate()
+                                    .text_size(px(12.))
+                                    .text_color(p.ink_2)
+                                    .child(if show_album || album_view {
+                                        track.display_artist().to_string()
+                                    } else {
+                                        format!(
+                                            "{} · {}",
+                                            track.display_artist(),
+                                            track.display_album()
+                                        )
+                                    }),
+                            )
+                        },
+                    ),
             )
             .when(show_album, |el| {
                 el.child(
@@ -763,7 +977,15 @@ impl AppView {
                 )
             })
             .when(show_quality, |el| {
-                el.child(div().w(px(92.)).flex_shrink_0().truncate().text_size(px(11.5)).text_color(p.ink_3).child(quality(track)))
+                el.child(
+                    div()
+                        .w(px(92.))
+                        .flex_shrink_0()
+                        .truncate()
+                        .text_size(px(11.5))
+                        .text_color(p.ink_3)
+                        .child(quality(track)),
+                )
             })
             .child(
                 div()
@@ -773,13 +995,19 @@ impl AppView {
                     .flex()
                     .justify_center()
                     .cursor_pointer()
-                    .when(!favorite, |el| el.opacity(0.).group_hover("row", |s| s.opacity(1.)))
+                    .when(!favorite, |el| {
+                        el.opacity(0.).group_hover("row", |s| s.opacity(1.))
+                    })
                     .text_color(if favorite { p.accent } else { p.ink_3 })
                     .hover(|s| s.text_color(p.accent))
-                    .child(glyph(if favorite { "heart-fill" } else { "heart" }).size(px(16.)).text_color(if favorite { p.accent } else { p.ink_2 }))
+                    .child(
+                        glyph(if favorite { "heart-fill" } else { "heart" })
+                            .size(px(16.))
+                            .text_color(if favorite { p.accent } else { p.ink_2 }),
+                    )
                     .on_click(cx.listener(move |this, _, _, cx| {
                         cx.stop_propagation();
-                        this.set_rating(&[id.clone()], if favorite { 0 } else { 5 });
+                        this.set_rating(std::slice::from_ref(&id), if favorite { 0 } else { 5 });
                         cx.notify();
                     })),
             )
@@ -813,10 +1041,14 @@ impl AppView {
                         this.open_menu(index, event.position(), cx);
                     })),
             )
-            .on_click(cx.listener(move |this, event: &ClickEvent, window, cx| this.click_track(index, event, window, cx)))
+            .on_click(cx.listener(move |this, event: &ClickEvent, window, cx| {
+                this.click_track(index, event, window, cx)
+            }))
             .on_mouse_down(
                 MouseButton::Right,
-                cx.listener(move |this, event: &MouseDownEvent, _, cx| this.open_menu(index, event.position, cx)),
+                cx.listener(move |this, event: &MouseDownEvent, _, cx| {
+                    this.open_menu(index, event.position, cx)
+                }),
             );
         div().w_full().px_4().child(row)
     }
@@ -834,12 +1066,10 @@ impl AppView {
             cx.processor(move |this, range: std::ops::Range<usize>, _, cx| {
                 range
                     .map(|row| {
-                        div()
-                            .px_6()
-                            .pb(px(26.))
-                            .flex()
-                            .gap(px(gap))
-                            .children((row * columns..((row + 1) * columns).min(this.groups.len())).map(|i| this.tile(i, tile, artists, cx)))
+                        div().px_6().pb(px(26.)).flex().gap(px(gap)).children(
+                            (row * columns..((row + 1) * columns).min(this.groups.len()))
+                                .map(|i| this.tile(i, tile, artists, cx)),
+                        )
                     })
                     .collect::<Vec<_>>()
             }),
@@ -859,32 +1089,27 @@ impl AppView {
             .flex_col()
             .gap_1()
             .cursor_pointer()
-            .child(
+            .child(div().relative().mb_2().child(if round {
                 div()
-                    .relative()
-                    .mb_2()
-                    .child(if round {
-                        div()
-                            .size(px(size))
-                            .rounded_full()
-                            .bg(p.raised)
-                            .flex()
-                            .items_center()
-                            .justify_center()
-                            .text_size(px(size * 0.24))
-                            .font_weight(FontWeight::SEMIBOLD)
-                            .text_color(p.ink_3)
-                            .group_hover("tile", |s| s.bg(p.raised_hover).text_color(p.ink_2))
-                            .child(initials(&group.title))
-                            .into_any_element()
-                    } else {
-                        div()
-                            .rounded(px(8.))
-                            .group_hover("tile", |s| s.opacity(0.86))
-                            .child(cover(group.artwork.as_deref(), &group.seed, size, cx))
-                            .into_any_element()
-                    }),
-            )
+                    .size(px(size))
+                    .rounded_full()
+                    .bg(p.raised)
+                    .flex()
+                    .items_center()
+                    .justify_center()
+                    .text_size(px(size * 0.24))
+                    .font_weight(FontWeight::SEMIBOLD)
+                    .text_color(p.ink_3)
+                    .group_hover("tile", |s| s.bg(p.raised_hover).text_color(p.ink_2))
+                    .child(initials(&group.title))
+                    .into_any_element()
+            } else {
+                div()
+                    .rounded(px(8.))
+                    .group_hover("tile", |s| s.opacity(0.86))
+                    .child(cover(group.artwork.as_deref(), &group.seed, size, cx))
+                    .into_any_element()
+            }))
             .child(
                 div()
                     .text_size(px(13.5))
@@ -893,8 +1118,14 @@ impl AppView {
                     .when(round, |el| el.text_center())
                     .child(group.title.clone()),
             )
-            .child(meta(group.subtitle.clone(), cx).truncate().when(round, |el| el.text_center()))
-            .on_click(cx.listener(move |this, _, window, cx| this.navigate(page.clone(), window, cx)))
+            .child(
+                meta(group.subtitle.clone(), cx)
+                    .truncate()
+                    .when(round, |el| el.text_center()),
+            )
+            .on_click(
+                cx.listener(move |this, _, window, cx| this.navigate(page.clone(), window, cx)),
+            )
     }
 }
 
