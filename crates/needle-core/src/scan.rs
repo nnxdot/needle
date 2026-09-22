@@ -249,13 +249,35 @@ pub struct TagEdit {
     pub genre: Option<String>,
     pub year: Option<u32>,
     pub musicbrainz_id: Option<String>,
+    /// An empty value removes the tag; Needle then shows the track artist.
+    #[serde(default)]
+    pub album_artist: Option<String>,
+    /// Zero removes the track number.
+    #[serde(default)]
+    pub track_number: Option<u32>,
 }
 
-/// Write through a same-directory temporary file; retain a backup before replacing the original.
-pub fn write_tags(library: &Library, id: &str, edit: &TagEdit) -> Result<()> {
-    let track = library.track(id)?.context("Track no longer exists")?;
-    let original = Path::new(&track.path);
-    let current = fs::metadata(original)?;
+impl TagEdit {
+    pub fn is_empty(&self) -> bool {
+        self.title.is_none()
+            && self.artist.is_none()
+            && self.album.is_none()
+            && self.genre.is_none()
+            && self.year.is_none()
+            && self.musicbrainz_id.is_none()
+            && self.album_artist.is_none()
+            && self.track_number.is_none()
+    }
+    fn validate(&self) -> Result<()> {
+        if let Some(v) = &self.musicbrainz_id {
+            uuid::Uuid::parse_str(v).context("MusicBrainz recording ID must be a UUID")?;
+        }
+        Ok(())
+    }
+}
+
+fn ensure_unchanged(track: &Track) -> Result<()> {
+    let current = fs::metadata(&track.path)?;
     let modified = current
         .modified()?
         .duration_since(std::time::UNIX_EPOCH)
@@ -265,6 +287,53 @@ pub fn write_tags(library: &Library, id: &str, edit: &TagEdit) -> Result<()> {
     if modified != track.modified_at || current.len() as i64 != track.file_size {
         bail!("File changed outside Needle. Rescan before editing its tags.")
     }
+    Ok(())
+}
+
+/// Prepares a same-directory temporary file, requires its decoded audio to match the
+/// original, keeps a backup of the original, then replaces it and rescans the track.
+fn replace_verified(
+    library: &Library,
+    track: &Track,
+    mismatch: &str,
+    prepare: impl FnOnce(&Path) -> Result<()>,
+) -> Result<()> {
+    let original = Path::new(&track.path);
+    let temporary = original.with_file_name(format!(".needle-{}.tmp", uuid::Uuid::new_v4()));
+    let operation = (|| -> Result<()> {
+        prepare(&temporary)?;
+        if audio_digest(original)? != audio_digest(&temporary)? {
+            bail!("{mismatch}");
+        }
+        std::fs::OpenOptions::new()
+            .read(true)
+            .write(true)
+            .open(&temporary)?
+            .sync_all()?;
+        let backup = library.directory.join("backups").join(format!(
+            "{}-{}.{}",
+            track.id,
+            uuid::Uuid::new_v4(),
+            track.format.to_lowercase()
+        ));
+        fs::copy(original, &backup)?;
+        fs::rename(&temporary, original)
+            .context("Unable to replace audio file; original and backup are intact")?;
+        import_one(library, original)?;
+        Ok(())
+    })();
+    if temporary.exists() {
+        let _ = fs::remove_file(temporary);
+    }
+    operation
+}
+
+/// Write through a same-directory temporary file; retain a backup before replacing the original.
+pub fn write_tags(library: &Library, id: &str, edit: &TagEdit) -> Result<()> {
+    edit.validate()?;
+    let track = library.track(id)?.context("Track no longer exists")?;
+    let original = Path::new(&track.path);
+    ensure_unchanged(&track)?;
     let mut tagged = Probe::open(original)?.read()?;
     let primary_type = tagged.primary_tag_type();
     if tagged.primary_tag().is_none() {
@@ -288,8 +357,19 @@ pub fn write_tags(library: &Library, id: &str, edit: &TagEdit) -> Result<()> {
     if let Some(v) = edit.year {
         tag.insert_text(ItemKey::RecordingDate, v.to_string());
     }
+    if let Some(v) = &edit.album_artist {
+        if v.is_empty() {
+            tag.remove_key(ItemKey::AlbumArtist);
+        } else if !tag.insert_text(ItemKey::AlbumArtist, v.clone()) {
+            bail!("This file's tag format cannot store an album artist");
+        }
+    }
+    match edit.track_number {
+        Some(0) => tag.remove_track(),
+        Some(v) => tag.set_track(v),
+        None => {}
+    }
     if let Some(v) = &edit.musicbrainz_id {
-        uuid::Uuid::parse_str(v).context("MusicBrainz recording ID must be a UUID")?;
         // ID3 stores the recording ID in UFID, which is a conversion special
         // case rather than an ItemKey string mapping in Lofty.
         tag.insert_unchecked(lofty::tag::TagItem::new(
@@ -297,36 +377,221 @@ pub fn write_tags(library: &Library, id: &str, edit: &TagEdit) -> Result<()> {
             lofty::tag::ItemValue::Text(v.clone()),
         ));
     }
-    let temporary = original.with_file_name(format!(".needle-{}.tmp", uuid::Uuid::new_v4()));
-    fs::copy(original, &temporary)?;
-    let operation = (|| -> Result<()> {
-        tag.save_to_path(&temporary, WriteOptions::default())?;
-        if audio_digest(original)? != audio_digest(&temporary)? {
-            bail!(
-                "The tag writer would change decoded audio. The original file has been preserved."
-            );
-        }
-        std::fs::OpenOptions::new()
-            .read(true)
-            .write(true)
-            .open(&temporary)?
-            .sync_all()?;
-        let backup = library.directory.join("backups").join(format!(
-            "{}-{}.{}",
-            track.id,
-            uuid::Uuid::new_v4(),
-            track.format.to_lowercase()
-        ));
-        fs::copy(original, &backup)?;
-        fs::rename(&temporary, original)
-            .context("Unable to replace audio file; original and backup are intact")?;
-        import_one(library, original)?;
-        Ok(())
-    })();
-    if temporary.exists() {
-        let _ = fs::remove_file(temporary);
+    replace_verified(
+        library,
+        &track,
+        "The tag writer would change decoded audio. The original file has been preserved.",
+        |temporary| {
+            fs::copy(original, temporary)?;
+            tag.save_to_path(temporary, WriteOptions::default())?;
+            Ok(())
+        },
+    )
+}
+
+#[derive(Clone, Debug, Default, PartialEq, serde::Serialize)]
+pub struct BatchProgress {
+    /// Files attempted so far.
+    pub done: usize,
+    pub total: usize,
+    pub saved: usize,
+    pub failed: usize,
+    /// Path of the file being written, empty once finished.
+    pub current: String,
+}
+
+#[derive(Clone, Debug, Default, PartialEq, serde::Serialize)]
+pub struct BatchFailure {
+    pub id: String,
+    pub path: String,
+    pub error: String,
+}
+
+#[derive(Clone, Debug, Default, PartialEq, serde::Serialize)]
+pub struct BatchReport {
+    pub total: usize,
+    /// Track IDs written successfully; these writes stay saved even if others fail.
+    pub saved: Vec<String>,
+    pub failed: Vec<BatchFailure>,
+    /// Cancelled before every file was attempted.
+    pub cancelled: bool,
+}
+
+/// Applies one edit to many tracks with the same backup and audio-verification guarantees
+/// as [`write_tags`]. Per-file failures are collected; an invalid edit fails before any write.
+pub fn write_tags_batch(
+    library: &Library,
+    ids: &[String],
+    edit: &TagEdit,
+    cancel: Arc<AtomicBool>,
+    mut progress: impl FnMut(BatchProgress),
+) -> Result<BatchReport> {
+    if edit.is_empty() {
+        bail!("Choose at least one tag to change")
     }
-    operation
+    edit.validate()?;
+    let mut seen = std::collections::HashSet::new();
+    let ids: Vec<&String> = ids.iter().filter(|id| seen.insert(id.as_str())).collect();
+    let mut report = BatchReport {
+        total: ids.len(),
+        ..Default::default()
+    };
+    let mut state = BatchProgress {
+        total: ids.len(),
+        ..Default::default()
+    };
+    for id in ids {
+        if cancel.load(Ordering::Relaxed) {
+            report.cancelled = true;
+            break;
+        }
+        let path = library
+            .track(id)
+            .ok()
+            .flatten()
+            .map(|t| t.path)
+            .unwrap_or_default();
+        state.current = path.clone();
+        progress(state.clone());
+        match write_tags(library, id, edit) {
+            Ok(()) => {
+                report.saved.push(id.clone());
+                state.saved += 1;
+            }
+            Err(e) => {
+                report.failed.push(BatchFailure {
+                    id: id.clone(),
+                    path,
+                    error: format!("{e:#}"),
+                });
+                state.failed += 1;
+            }
+        }
+        state.done += 1;
+    }
+    state.current.clear();
+    progress(state);
+    Ok(report)
+}
+
+/// A field's value across a selection.
+#[derive(Clone, Debug, PartialEq, serde::Serialize)]
+#[serde(tag = "state", content = "value", rename_all = "snake_case")]
+pub enum Common<T> {
+    Same(T),
+    /// The selection holds different values (or is empty).
+    Mixed,
+}
+impl<T> Common<T> {
+    pub fn value(&self) -> Option<&T> {
+        match self {
+            Self::Same(value) => Some(value),
+            Self::Mixed => None,
+        }
+    }
+    pub fn is_mixed(&self) -> bool {
+        matches!(self, Self::Mixed)
+    }
+}
+
+/// Shared editable values of a multi-track selection, for prefilling a tag editor.
+#[derive(Clone, Debug, PartialEq, serde::Serialize)]
+pub struct CommonTags {
+    pub count: usize,
+    pub title: Common<String>,
+    pub artist: Common<String>,
+    pub album: Common<String>,
+    pub album_artist: Common<String>,
+    pub genre: Common<String>,
+    pub year: Common<i64>,
+    pub track_number: Common<i64>,
+}
+
+pub fn common_tags(tracks: &[Track]) -> CommonTags {
+    fn common<T: PartialEq + Clone>(tracks: &[Track], field: impl Fn(&Track) -> &T) -> Common<T> {
+        match tracks.split_first() {
+            Some((first, rest)) if rest.iter().all(|t| field(t) == field(first)) => {
+                Common::Same(field(first).clone())
+            }
+            _ => Common::Mixed,
+        }
+    }
+    CommonTags {
+        count: tracks.len(),
+        title: common(tracks, |t| &t.title),
+        artist: common(tracks, |t| &t.artist),
+        album: common(tracks, |t| &t.album),
+        album_artist: common(tracks, |t| &t.album_artist),
+        genre: common(tracks, |t| &t.genre),
+        year: common(tracks, |t| &t.year),
+        track_number: common(tracks, |t| &t.track_number),
+    }
+}
+
+/// An original-file copy kept before a tag write or restore replaced the track's file.
+#[derive(Clone, Debug, PartialEq, serde::Serialize)]
+pub struct TagBackup {
+    pub path: std::path::PathBuf,
+    /// Unix seconds when the backup was made.
+    pub created_at: i64,
+    pub size: u64,
+}
+
+fn backup_belongs(library: &Library, track_id: &str, path: &Path) -> bool {
+    let directory = library.directory.join("backups");
+    path.parent()
+        .and_then(|p| p.canonicalize().ok())
+        .is_some_and(|p| directory.canonicalize().is_ok_and(|d| d == p))
+        && path.is_file()
+        && path
+            .file_stem()
+            .and_then(|s| s.to_str())
+            .and_then(|s| s.strip_prefix(track_id)?.strip_prefix('-'))
+            .is_some_and(|rest| uuid::Uuid::parse_str(rest).is_ok())
+}
+
+/// Backups of a track's file, newest first.
+pub fn tag_backups(library: &Library, track_id: &str) -> Result<Vec<TagBackup>> {
+    let mut found = vec![];
+    for entry in fs::read_dir(library.directory.join("backups"))? {
+        let path = entry?.path();
+        if !backup_belongs(library, track_id, &path) {
+            continue;
+        }
+        let metadata = fs::metadata(&path)?;
+        let created = metadata.created().or_else(|_| metadata.modified())?;
+        found.push((created, path, metadata.len()));
+    }
+    found.sort_by(|a, b| b.0.cmp(&a.0).then_with(|| a.1.cmp(&b.1)));
+    Ok(found
+        .into_iter()
+        .map(|(created, path, size)| TagBackup {
+            path,
+            created_at: created
+                .duration_since(std::time::UNIX_EPOCH)
+                .map_or(0, |d| d.as_secs() as i64),
+            size,
+        })
+        .collect())
+}
+
+/// Restores a backup's tags by replacing the track's file with the backup, only when both
+/// decode to identical audio. The current file is backed up first, so a restore can be undone.
+pub fn restore_tag_backup(library: &Library, track_id: &str, backup: &TagBackup) -> Result<()> {
+    if !backup_belongs(library, track_id, &backup.path) {
+        bail!("This backup does not belong to the track")
+    }
+    let track = library.track(track_id)?.context("Track no longer exists")?;
+    ensure_unchanged(&track)?;
+    replace_verified(
+        library,
+        &track,
+        "The backup's decoded audio differs from the current file. Nothing was restored.",
+        |temporary| {
+            fs::copy(&backup.path, temporary)?;
+            Ok(())
+        },
+    )
 }
 fn audio_digest(path: &Path) -> Result<(u32, u16, u64, blake3::Hash)> {
     use rodio::Source;
@@ -505,5 +770,248 @@ mod tests {
         assert_eq!(first.id, second.id);
         assert_eq!(second.rating, 4);
         assert_eq!(library.count().unwrap(), 1);
+    }
+    fn demo_library() -> (tempfile::TempDir, Library, Vec<Track>) {
+        let dir = tempfile::tempdir().unwrap();
+        let music = dir.path().join("music");
+        crate::demo::create(&music).unwrap();
+        let library = Library::open(dir.path().join("db")).unwrap();
+        import(&library, &music, Arc::new(AtomicBool::new(false)), |_| {}).unwrap();
+        let mut tracks = library.search("").unwrap();
+        tracks.sort_by_key(|t| t.track_number);
+        assert_eq!(tracks.len(), 3);
+        (dir, library, tracks)
+    }
+    fn samples(path: &str) -> Vec<f32> {
+        crate::audio_file::decode(Path::new(path))
+            .unwrap()
+            .collect()
+    }
+
+    #[test]
+    fn batch_edits_report_per_file_results_and_keep_successes() {
+        let (_dir, library, tracks) = demo_library();
+        let mut ids: Vec<String> = tracks.iter().map(|t| t.id.clone()).collect();
+        ids.insert(1, "no-such-track".into());
+        ids.push(ids[0].clone());
+        let before = samples(&tracks[0].path);
+        let mut updates = vec![];
+        let report = write_tags_batch(
+            &library,
+            &ids,
+            &TagEdit {
+                album: Some("Collected".into()),
+                album_artist: Some("Various Needles".into()),
+                ..Default::default()
+            },
+            Arc::new(AtomicBool::new(false)),
+            |p| updates.push(p),
+        )
+        .unwrap();
+        assert_eq!(report.total, 4);
+        assert_eq!(report.saved.len(), 3);
+        assert_eq!(report.failed.len(), 1);
+        assert_eq!(report.failed[0].id, "no-such-track");
+        assert!(!report.cancelled);
+        assert_eq!(updates.len(), 5);
+        assert_eq!(updates[0].current, tracks[0].path);
+        let last = updates.last().unwrap();
+        assert_eq!((last.done, last.saved, last.failed), (4, 3, 1));
+        assert!(last.current.is_empty());
+        for track in library.search("").unwrap() {
+            assert_eq!(track.album, "Collected");
+            assert_eq!(track.album_artist, "Various Needles");
+            assert_eq!(track.artist, "Needle Studio");
+        }
+        assert_eq!(samples(&tracks[0].path), before);
+        assert_eq!(library.albums("").unwrap().len(), 1);
+
+        let cancel = Arc::new(AtomicBool::new(true));
+        let report = write_tags_batch(
+            &library,
+            &ids,
+            &TagEdit {
+                genre: Some("x".into()),
+                ..Default::default()
+            },
+            cancel,
+            |_| {},
+        )
+        .unwrap();
+        assert!(report.cancelled);
+        assert!(report.saved.is_empty() && report.failed.is_empty());
+
+        let backups = fs::read_dir(library.directory.join("backups"))
+            .unwrap()
+            .count();
+        let invalid = TagEdit {
+            title: Some("never written".into()),
+            musicbrainz_id: Some("not a uuid".into()),
+            ..Default::default()
+        };
+        assert!(
+            write_tags_batch(
+                &library,
+                &ids,
+                &invalid,
+                Arc::new(AtomicBool::new(false)),
+                |_| {}
+            )
+            .is_err()
+        );
+        assert!(
+            write_tags_batch(
+                &library,
+                &ids,
+                &TagEdit::default(),
+                Arc::new(AtomicBool::new(false)),
+                |_| {}
+            )
+            .is_err()
+        );
+        assert_eq!(
+            fs::read_dir(library.directory.join("backups"))
+                .unwrap()
+                .count(),
+            backups
+        );
+        assert!(library.search("never").unwrap().is_empty());
+    }
+
+    #[test]
+    fn album_artist_and_track_number_round_trip_and_clear() {
+        let (_dir, library, tracks) = demo_library();
+        let id = &tracks[2].id;
+        let edit = TagEdit {
+            album_artist: Some("Someone Else".into()),
+            track_number: Some(9),
+            ..Default::default()
+        };
+        write_tags(&library, id, &edit).unwrap();
+        let track = library.track(id).unwrap().unwrap();
+        assert_eq!(
+            (track.album_artist.as_str(), track.track_number),
+            ("Someone Else", 9)
+        );
+        let edit = TagEdit {
+            album_artist: Some(String::new()),
+            track_number: Some(0),
+            ..Default::default()
+        };
+        write_tags(&library, id, &edit).unwrap();
+        let track = library.track(id).unwrap().unwrap();
+        assert_eq!(
+            (track.album_artist.as_str(), track.track_number),
+            ("Needle Studio", 0)
+        );
+        let edit: TagEdit = serde_json::from_str(r#"{"album":"Only album"}"#).unwrap();
+        assert!(edit.album_artist.is_none() && edit.track_number.is_none());
+    }
+
+    #[test]
+    fn common_tags_mark_mixed_fields() {
+        let (_dir, _library, tracks) = demo_library();
+        let common = common_tags(&tracks);
+        assert_eq!(common.count, 3);
+        assert!(common.title.is_mixed());
+        assert_eq!(common.artist, Common::Same("Needle Studio".into()));
+        assert_eq!(
+            common.album.value().map(String::as_str),
+            Some("First listening · Demo recordings")
+        );
+        assert_eq!(common.album_artist, Common::Same("Needle Studio".into()));
+        assert_eq!(common.genre, Common::Same("Ambient".into()));
+        assert_eq!(common.year, Common::Same(2026));
+        assert!(common.track_number.is_mixed());
+        assert_eq!(
+            common_tags(&tracks[..1]).title,
+            Common::Same("A room with a view".into())
+        );
+        let empty = common_tags(&[]);
+        assert_eq!(empty.count, 0);
+        assert!(empty.artist.is_mixed());
+        let json = serde_json::to_value(&common).unwrap();
+        assert_eq!(json["title"], serde_json::json!({"state": "mixed"}));
+        assert_eq!(
+            json["year"],
+            serde_json::json!({"state": "same", "value": 2026})
+        );
+    }
+
+    #[test]
+    fn backups_restore_tags_verify_audio_and_are_undoable() {
+        let (_dir, library, tracks) = demo_library();
+        let track = &tracks[0];
+        assert!(tag_backups(&library, &track.id).unwrap().is_empty());
+        let before = samples(&track.path);
+        for title in ["Second title", "Third title"] {
+            write_tags(
+                &library,
+                &track.id,
+                &TagEdit {
+                    title: Some(title.into()),
+                    ..Default::default()
+                },
+            )
+            .unwrap();
+            std::thread::sleep(std::time::Duration::from_millis(20));
+        }
+        write_tags(
+            &library,
+            &tracks[1].id,
+            &TagEdit {
+                title: Some("Other".into()),
+                ..Default::default()
+            },
+        )
+        .unwrap();
+        let backups = tag_backups(&library, &track.id).unwrap();
+        assert_eq!(backups.len(), 2);
+        assert!(backups[0].created_at >= backups[1].created_at);
+        assert!(backups[0].size > 0);
+
+        restore_tag_backup(&library, &track.id, &backups[1]).unwrap();
+        let restored = library.track(&track.id).unwrap().unwrap();
+        assert_eq!(restored.title, "A room with a view");
+        assert_eq!(samples(&track.path), before);
+        assert_eq!(library.count().unwrap(), 3);
+        let after = tag_backups(&library, &track.id).unwrap();
+        assert_eq!(after.len(), 3);
+        restore_tag_backup(&library, &track.id, &after[0]).unwrap();
+        assert_eq!(
+            library.track(&track.id).unwrap().unwrap().title,
+            "Third title"
+        );
+
+        let other = tag_backups(&library, &tracks[1].id).unwrap();
+        assert_eq!(other.len(), 1);
+        assert!(restore_tag_backup(&library, &track.id, &other[0]).is_err());
+        let outside = TagBackup {
+            path: Path::new(&tracks[1].path).to_path_buf(),
+            created_at: 0,
+            size: 0,
+        };
+        assert!(restore_tag_backup(&library, &track.id, &outside).is_err());
+
+        let forged = library.directory.join("backups").join(format!(
+            "{}-{}.wav",
+            track.id,
+            uuid::Uuid::new_v4()
+        ));
+        fs::copy(&tracks[2].path, &forged).unwrap();
+        let forged = tag_backups(&library, &track.id)
+            .unwrap()
+            .into_iter()
+            .find(|b| b.path == forged)
+            .unwrap();
+        let count = tag_backups(&library, &track.id).unwrap().len();
+        let error = restore_tag_backup(&library, &track.id, &forged).unwrap_err();
+        assert!(format!("{error:#}").contains("differs"), "{error:#}");
+        assert_eq!(
+            library.track(&track.id).unwrap().unwrap().title,
+            "Third title"
+        );
+        assert_eq!(tag_backups(&library, &track.id).unwrap().len(), count);
+        assert_eq!(samples(&track.path), before);
     }
 }
