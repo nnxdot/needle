@@ -997,7 +997,14 @@ impl Worker {
                 }
             }
             Command::Previous => {
-                if self.sink.is_some() && self.position() > RESTART_AFTER {
+                // After the queue has finished, the sink is empty and seeking cannot restart
+                // anything, so start the last track again instead.
+                let finished = self.sink.as_ref().is_some_and(|sink| sink.empty());
+                if finished && self.position() > RESTART_AFTER {
+                    if let Some(active) = self.queue.active.clone() {
+                        self.play(vec![active])?;
+                    }
+                } else if self.sink.is_some() && !finished && self.position() > RESTART_AFTER {
                     self.seek(0.0)?;
                 } else if let Some(items) = self.queue.back() {
                     self.play(items)?;
@@ -1841,6 +1848,20 @@ mod tests {
         rig.until_active("c");
         assert_eq!(ids(rig.state().queue.iter()), ["e"]);
         assert!(rig.worker.handle(Command::PlayAt(vec![], 0)).is_err());
+    }
+
+    #[test]
+    fn previous_after_the_queue_ends_plays_the_last_track_again() {
+        let mut rig = rig(FakeOpener::with(&["Speakers"], Some("Speakers")), Settings::default());
+        let list = rig.items(&["a"]);
+        rig.run(Command::Play(list));
+        rig.until_active("a");
+        rig.run(Command::Seek(59.5));
+        rig.until("the queue to finish", |w| !w.playing);
+        rig.run(Command::Previous);
+        rig.until_active("a");
+        assert!(rig.worker.playing);
+        assert!(rig.worker.position() < 5.0);
     }
 
     #[test]
