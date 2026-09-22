@@ -2,6 +2,7 @@ mod ambient;
 mod assets;
 mod chrome;
 mod flow;
+mod glass;
 mod history;
 mod home;
 mod importer;
@@ -297,6 +298,7 @@ pub struct AppView {
     sync_phrase: Entity<InputState>,
     tags: TagFields,
     volume: Entity<SliderState>,
+    glass_slider: Entity<SliderState>,
     seek: Entity<SliderState>,
     focus: FocusHandle,
     list_scroll: UniformListScrollHandle,
@@ -338,6 +340,10 @@ pub struct AppView {
     fade: ambient::Fade,
     /// The film-grain tile, once written (`Some(None)` if it could not be).
     grain_file: Option<Option<PathBuf>>,
+    /// Whether Windows allows transparency, and whether it is Windows 11 (read at start and
+    /// when Appearance settings open).
+    glass_system: (bool, bool),
+    glass_applied: Option<(glass::Material, bool)>,
     home: Option<Box<needle_core::browse::Home>>,
     lyrics: Option<(String, Option<needle_core::media::Lyrics>)>,
     lyric_line: Option<usize>,
@@ -509,6 +515,13 @@ impl AppView {
                 .default_value(settings.volume)
         });
         let seek = cx.new(|_| SliderState::new().min(0.).max(1000.).step(1.));
+        let glass_slider = cx.new(|_| {
+            SliderState::new()
+                .min(0.)
+                .max(1.)
+                .step(0.01)
+                .default_value(settings.glass_amount)
+        });
         let focus = cx.focus_handle();
         window.focus(&focus);
         let (sender, events) = crossbeam_channel::unbounded();
@@ -561,6 +574,12 @@ impl AppView {
                 let SliderEvent::Change(value) = event;
                 this.player.send(Command::Volume(value.start()));
             }),
+            cx.subscribe(&glass_slider, |this, _, event, cx| {
+                let SliderEvent::Change(value) = event;
+                this.settings.glass_amount = value.start();
+                this.persist_settings();
+                cx.notify();
+            }),
             cx.subscribe(&seek, |this, _, event, _| {
                 let SliderEvent::Change(value) = event;
                 if let Some(item) = &this.playback.current {
@@ -606,6 +625,7 @@ impl AppView {
             sync_phrase,
             tags,
             volume,
+            glass_slider,
             seek,
             focus,
             list_scroll: UniformListScrollHandle::new(),
@@ -643,6 +663,8 @@ impl AppView {
             looks: Default::default(),
             fade: ambient::Fade::new(pal(cx)),
             grain_file: None,
+            glass_system: (glass::system_allows_transparency(), glass::windows_11()),
+            glass_applied: None,
             home: None,
             lyrics: None,
             lyric_line: None,
@@ -1242,6 +1264,7 @@ impl AppView {
             self.refresh_import_sources();
         }
         if self.page == Page::Settings {
+            self.glass_system = (glass::system_allows_transparency(), glass::windows_11());
             self.output_devices = audio::devices().unwrap_or_default();
             self.refresh_services();
         }
@@ -1755,6 +1778,7 @@ impl Drop for AppView {
 impl Render for AppView {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         self.update_palette(window, cx);
+        self.update_glass(window, cx);
         let p = pal(cx);
         let width = window.viewport_size().width;
         let show_panel = self.settings.show_inspector
@@ -1799,7 +1823,7 @@ impl Render for AppView {
             .id("needle-app")
             .key_context("Needle")
             .size_full()
-            .bg(p.canvas)
+            .when(p.back.a >= 1., |el| el.bg(p.canvas))
             .text_color(p.ink)
             .font_family(
                 gpui_component::ActiveTheme::theme(&**cx)
@@ -1974,7 +1998,7 @@ impl Render for AppView {
                                 .flex_1()
                                 .min_h_0()
                                 .flex()
-                                .bg(p.chrome)
+                                .bg(p.back)
                                 .child(self.sidebar(sidebar, cx))
                                 .child(
                                     div()

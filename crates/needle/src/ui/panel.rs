@@ -27,7 +27,6 @@ impl AppView {
         _window: &mut Window,
         cx: &mut Context<Self>,
     ) -> impl IntoElement {
-        let p = pal(cx);
         let tab = if self.panel == Panel::Details { 0 } else { 1 };
         let weak = cx.entity().downgrade();
         div()
@@ -36,7 +35,6 @@ impl AppView {
             .h_full()
             .flex()
             .flex_col()
-            .bg(p.chrome)
             .child(
                 div()
                     .h(px(52.))

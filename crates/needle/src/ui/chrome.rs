@@ -27,7 +27,7 @@ impl AppView {
         TitleBar::new()
             .h(px(48.))
             .pl_0()
-            .bg(p.chrome)
+            .bg(p.back)
             .border_b_0()
             // A thin strip that is not a drag area, so Windows offers top-edge resizing.
             .when(!window.is_maximized(), |el| {
@@ -76,6 +76,8 @@ impl AppView {
                     .child(
                         self.suggestion_keys(div().id("search-field"), cx)
                             .relative()
+                            .rounded(px(6.))
+                            .when(p.back.a < 1., |el| el.bg(p.raised.opacity(0.7)))
                             .w(px(520.))
                             .max_w_full()
                             .flex_shrink()
@@ -436,8 +438,8 @@ impl AppView {
             // The playing cover's colour glows in from the left.
             .bg(linear_gradient(
                 90.,
-                linear_color_stop(super::motion::mix(p.chrome, p.glow, if p.dark { 0.2 } else { 0.16 }), 0.),
-                linear_color_stop(p.chrome, 0.55),
+                linear_color_stop(super::motion::mix(p.back, p.glow.opacity(p.back.a), if p.dark { 0.2 } else { 0.16 }), 0.),
+                linear_color_stop(p.back, 0.55),
             ))
             .px_4()
             .flex()

@@ -656,6 +656,7 @@ impl AppView {
                             .child(super::widgets::strong("Look"))
                             .child(div().flex().gap_4().children(theme_cards)),
                     )
+                    .child(self.glass_settings(cx))
                     .child(setting_row(
                         "Colors from the music",
                         "Tint Needle with the colors of the cover that is playing, or of the album or artist you are looking at.",
@@ -1002,5 +1003,80 @@ impl AppView {
                 this.persist_settings();
                 cx.notify();
             }))
+    }
+}
+
+impl AppView {
+    /// Window glass: which material, how see-through, and whether the page shows it too.
+    fn glass_settings(&self, cx: &mut Context<Self>) -> impl IntoElement {
+        use super::glass::Material;
+        let p = pal(cx);
+        let (allowed, win11) = self.glass_system;
+        let chosen = Material::from_name(&self.settings.window_material);
+        let index = Material::ALL
+            .iter()
+            .position(|(name, _, _)| Material::from_name(name) == chosen)
+            .unwrap_or(0);
+        let detail = if !allowed {
+            "Windows' Transparency effects setting is off, so Needle stays solid. Turn it on in Windows Settings › Personalization › Colors.".to_string()
+        } else if chosen == Material::Mica && !win11 {
+            "Mica needs Windows 11, so Needle uses Acrylic here.".to_string()
+        } else {
+            Material::ALL[index].2.to_string()
+        };
+        let solid = chosen == Material::Solid || !allowed;
+        div()
+            .child(setting_row(
+                "Window glass",
+                &detail,
+                segmented(
+                    "window-material",
+                    &Material::ALL.map(|(_, label, _)| label),
+                    index,
+                    cx,
+                    {
+                        let weak = cx.entity().downgrade();
+                        move |i, _, cx| {
+                            let _ = weak.update(cx, |this, cx| {
+                                this.settings.window_material = Material::ALL[i].0.into();
+                                this.persist_settings();
+                                cx.notify();
+                            });
+                        }
+                    },
+                ),
+                cx,
+            ))
+            .when(!solid, |el| {
+                el.child(setting_row(
+                    "See-through",
+                    "How much the glass shows through the sidebar, title bar, and player.",
+                    div()
+                        .w(px(220.))
+                        .flex()
+                        .items_center()
+                        .gap_3()
+                        .child(gpui_component::slider::Slider::new(&self.glass_slider).flex_1())
+                        .child(
+                            div()
+                                .w(px(36.))
+                                .text_right()
+                                .text_size(px(12.))
+                                .text_color(p.ink_2)
+                                .child(format!("{:.0}%", self.settings.glass_amount * 100.)),
+                        ),
+                    cx,
+                ))
+                .child(setting_row(
+                    "Glass behind the page",
+                    "Let a little of the glass show through the page as well. Text stays on a mostly solid surface.",
+                    Switch::new("glass-page").checked(self.settings.glass_page).on_click(cx.listener(|this, checked: &bool, _, cx| {
+                        this.settings.glass_page = *checked;
+                        this.persist_settings();
+                        cx.notify();
+                    })),
+                    cx,
+                ))
+            })
     }
 }

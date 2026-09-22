@@ -1,6 +1,6 @@
 # Needle
 
-A native Rust/GPUI music player with a local SQLite library. **0.5.0 is a working Windows preview.** [PROPOSAL.md](PROPOSAL.md) is the original product vision; [IMPLEMENTATION.md](IMPLEMENTATION.md) records the implemented scope and remaining work.
+A native Rust/GPUI music player with a local SQLite library. **0.6.0 is a working Windows preview.** [PROPOSAL.md](PROPOSAL.md) is the original product vision; [IMPLEMENTATION.md](IMPLEMENTATION.md) records the implemented scope and remaining work.
 
 ## Run
 
@@ -35,6 +35,7 @@ The portable folder also contains `needle-cli.exe`. The Windows build needs a wo
 - **Motion.** Pages fade in, the playing song shows moving bars, a heart pops when you like a song, the big player grows out of the cover and shrinks back into it, its background fades to each new cover's colour, lyrics glide to the sung line, and loading lists shimmer. *Reduce motion* in Settings › Appearance turns all of this off, and Needle also keeps still when Windows' *Animation effects* setting is off.
 - **Settings.** Settings are grouped into sections with a list on the left: Playback, Library, Appearance, Online services, Stems, Plugins, Your data, and Keyboard. The palette can open any section directly.
 - **Look.** Needle takes its colors from the music: the accent, the surfaces, and a soft glow behind each page come from the playing song's cover, fading over about a second when the song changes. Album and artist pages take that album's or artist's own colors, and the big player and mini player glow with a blurred copy of the cover. Music without a cover gets a made-up one — a two-color gradient with the album's first letter — that also colors the app. Page titles use the Fraunces typeface. Settings › Appearance offers three base looks (Night, Midnight, and Day) with live previews, and *Colors from the music* turns the tinting off.
+- **Window glass.** The sidebar, title bar, and player bar are glass. By default they use Windows 11's Mica, a soft color from your wallpaper. Settings › Appearance › *Window glass* switches to Acrylic (frosted glass), Clear (see-through, no blur), or Solid. *See-through* sets how much shows through, and *Glass behind the page* lets a little show through the page too. The mini player uses the same glass. When Windows' own *Transparency effects* setting is off, Needle stays solid; on Windows 10, Mica falls back to Acrylic.
 - **Appearance.** Compact and comfortable rows are in Settings. Text colors are checked by a test to meet WCAG AA contrast (4.5:1) on every surface in all three looks, for 27 different cover colors.
 
 Supported and exercised with generated fixtures: WAV PCM, AIFF PCM, FLAC, MP3, AAC and ALAC in M4A, Ogg Vorbis, and Ogg Opus (`.opus`, or Opus inside `.ogg`). WavPack, APE, DSD, DRM, and streaming services are not implemented. Raw AAC is not part of the validated format set.
