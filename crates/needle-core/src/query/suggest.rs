@@ -105,23 +105,38 @@ pub fn looks_like_rule(input: &str) -> bool {
         _ => None,
     };
     tokens.iter().any(|(t, _)| matches!(t, Lex::Op | Lex::Left))
-        || word(0).is_some_and(|w| ["order", "limit", "shuffle", "missing"].contains(&w.as_str()))
+        || word(0).is_some_and(|w| super::RULE_WORDS.contains(&w.as_str()))
         || (1..tokens.len()).any(|i| {
-            word(i).is_some_and(|w| w == "contains")
+            word(i).is_some_and(|w| super::FIELD_OPERATORS.contains(&w.as_str()))
                 && word(i - 1).is_some_and(|f| field_info(&f).is_ok())
         })
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 enum State {
-    Condition { first: bool },
+    Condition {
+        first: bool,
+    },
     Function(&'static str),
     FunctionArg(&'static str),
     FunctionClose,
     ExistsField,
     ExistsClose,
     Field(&'static str, bool),
+    /// After `field starts` / `field ends`: expects `with`.
+    With(&'static str),
     Value(&'static str, bool),
+    /// After `field between X`: expects `and`, then the upper bound.
+    BetweenAnd(&'static str),
+    BetweenLow(&'static str),
+    /// Inside `field in (…)`.
+    ListOpen(&'static str, bool),
+    ListValue(&'static str, bool),
+    ListNext(&'static str, bool),
+    ShuffleDone,
+    ShuffleBy,
+    LimitDone,
+    PerField,
     After,
     Order,
     OrderField,
@@ -149,12 +164,13 @@ fn step(state: State, token: &Lex, depth: &mut usize) -> State {
         }
         (Condition { first }, Lex::Word(_)) => match word.as_str() {
             "not" => Condition { first: false },
-            "missing" => After,
+            "missing" | "favorite" | "unplayed" => After,
             "recent" => Function("recent"),
             "played" => Function("played"),
+            "skipped" => Function("skipped"),
             "exists" => Function("exists"),
             "order" if first => Order,
-            "shuffle" if first => Suffix,
+            "shuffle" if first => ShuffleDone,
             "limit" if first => Limit,
             _ => field().map_or(Unknown, |(name, numeric)| Field(name, numeric)),
         },
@@ -164,7 +180,22 @@ fn step(state: State, token: &Lex, depth: &mut usize) -> State {
         (FunctionClose | ExistsClose, Lex::Right) => After,
         (ExistsField, Lex::Word(_)) if field().is_some() => ExistsClose,
         (Field(name, numeric), Lex::Op) => Value(name, numeric),
-        (Field(name, false), Lex::Word(_)) if word == "contains" => Value(name, false),
+        (Field(name, numeric), Lex::Word(_)) if word == "not" => Field(name, numeric),
+        (Field(name, false), Lex::Word(_)) if word == "contains" || word == "matches" => {
+            Value(name, false)
+        }
+        (Field(name, false), Lex::Word(_)) if word == "starts" || word == "ends" => With(name),
+        (With(name), Lex::Word(_)) if word == "with" => Value(name, false),
+        (Field(name, true), Lex::Word(_)) if word == "between" => BetweenLow(name),
+        (BetweenLow(name), Lex::Word(_) | Lex::Op) => BetweenAnd(name),
+        (BetweenAnd(name), Lex::Word(_)) if word == "and" => Value(name, true),
+        (BetweenAnd(name), Lex::Op) => BetweenAnd(name),
+        (Field(name, numeric), Lex::Word(_)) if word == "in" => ListOpen(name, numeric),
+        (ListOpen(name, numeric), Lex::Left) => ListValue(name, numeric),
+        (ListValue(name, numeric), Lex::Word(_) | Lex::Text(_, true)) => ListNext(name, numeric),
+        (ListNext(name, numeric), Lex::Comma) => ListValue(name, numeric),
+        (ListNext(..), Lex::Right) => After,
+        (Value(name, true), Lex::Op) => Value(name, true),
         (Value(..), Lex::Word(_) | Lex::Text(_, true)) => After,
         (After, Lex::Right) if *depth > 0 => {
             *depth -= 1;
@@ -173,14 +204,22 @@ fn step(state: State, token: &Lex, depth: &mut usize) -> State {
         (After, Lex::Word(_)) => match word.as_str() {
             "and" | "or" => Condition { first: false },
             "order" if *depth == 0 => Order,
-            "shuffle" if *depth == 0 => Suffix,
+            "shuffle" if *depth == 0 => ShuffleDone,
             "limit" if *depth == 0 => Limit,
             _ => Unknown,
         },
         (Order, Lex::Word(_)) if word == "by" => OrderField,
         (OrderField, Lex::Word(_)) if field().is_some() => OrderDirection,
         (OrderDirection, Lex::Word(_)) if word == "asc" || word == "desc" => Suffix,
-        (OrderDirection | Suffix, Lex::Word(_)) if word == "limit" => Limit,
+        (OrderDirection | Suffix, Lex::Comma) => OrderField,
+        (OrderDirection | Suffix | ShuffleDone, Lex::Word(_)) if word == "limit" => Limit,
+        (ShuffleDone, Lex::Word(_)) if word == "by" => ShuffleBy,
+        (ShuffleBy, Lex::Word(_)) if ["artist", "album", "genre"].contains(&word.as_str()) => {
+            Suffix
+        }
+        (Limit, Lex::Word(_)) if word.parse::<usize>().is_ok() => LimitDone,
+        (LimitDone, Lex::Word(_)) if word == "per" => PerField,
+        (PerField, Lex::Word(_)) if field().is_some() => Suffix,
         _ => Unknown,
     }
 }
@@ -268,8 +307,16 @@ fn candidates(state: State, depth: usize) -> Vec<Candidate> {
                     format!("played({year})"),
                     "Played during a calendar year",
                 ),
+                candidate(
+                    Func,
+                    "skipped(30d)",
+                    "skipped(30d)",
+                    "Skipped within a period",
+                ),
                 candidate(Func, "exists(", "exists(field)", "Field has a value"),
                 keyword("not", "Negate the next condition"),
+                keyword("favorite", "Rated 4 stars or more"),
+                keyword("unplayed", "Never played"),
                 keyword("missing", "File is missing from disk"),
             ]);
             if first {
@@ -318,12 +365,19 @@ fn candidates(state: State, depth: usize) -> Vec<Candidate> {
                     (">=", "At least"),
                     ("<", "Less than"),
                     ("<=", "At most"),
+                    ("between", "Between two values, inclusive"),
+                    ("in (", "One of several values"),
                 ]
             } else {
                 &[
                     ("=", "Equals, ignoring case"),
                     ("!=", "Does not equal"),
                     ("contains", "Contains text, ignoring case"),
+                    ("starts with", "Begins with text"),
+                    ("ends with", "Ends with text"),
+                    ("matches", "Regular expression, ignoring case"),
+                    ("in (", "One of several values"),
+                    ("not", "Negate: not contains, not in, …"),
                 ]
             };
             ops.iter()
@@ -348,9 +402,24 @@ fn candidates(state: State, depth: usize) -> Vec<Candidate> {
                     ("96000".into(), "96 kHz"),
                 ],
                 "bit_depth" => vec![("16".into(), "16-bit"), ("24".into(), "24-bit")],
-                "duration" | "length_seconds" => vec![("300".into(), "Five minutes")],
+                "duration" | "length_seconds" => vec![
+                    ("3:30".into(), "Three and a half minutes"),
+                    ("5m".into(), "Five minutes"),
+                    ("300".into(), "Seconds also work"),
+                ],
+                "added_at" => vec![(
+                    chrono::Local::now().format("%Y-01-01").to_string(),
+                    "A date, YYYY-MM-DD",
+                )],
+                "channels" => vec![("1".into(), "Mono"), ("2".into(), "Stereo")],
                 "play_count" => vec![("0".into(), "Never played"), ("10".into(), "Ten plays")],
-                "last_played" => vec![("null".into(), "Never played")],
+                "last_played" => vec![
+                    ("null".into(), "Never played"),
+                    (
+                        chrono::Local::now().format("%Y-01-01").to_string(),
+                        "A date, YYYY-MM-DD",
+                    ),
+                ],
                 _ => vec![],
             };
             values
@@ -370,11 +439,28 @@ fn candidates(state: State, depth: usize) -> Vec<Candidate> {
                 list.extend([
                     keyword("order by", "Sort the results"),
                     keyword("shuffle", "Shuffle the results"),
+                    keyword("shuffle by artist", "Shuffle, keeping artists apart"),
                     keyword("limit", "Limit the number of tracks"),
                 ]);
             }
             list
         }
+        With(_) => vec![keyword("with", "Then the text")],
+        BetweenLow(name) => candidates(Value(name, true), depth),
+        BetweenAnd(_) => vec![keyword("and", "Then the upper bound")],
+        ListOpen(..) => vec![candidate(Operator, "(", "(", "Start the list")],
+        ListValue(name, numeric) => candidates(Value(name, numeric), depth),
+        ListNext(..) => vec![
+            candidate(Operator, ",", ",", "Another value"),
+            candidate(Operator, ")", ")", "Close the list"),
+        ],
+        ShuffleBy => ["artist", "album", "genre"]
+            .map(|f| keyword(f, "Keep these apart"))
+            .to_vec(),
+        LimitDone => vec![keyword("per", "Per artist, album, or genre")],
+        PerField => ["artist", "album", "album_artist", "genre", "year", "format"]
+            .map(|f| candidate(SuggestionKind::Field, f, f, "Limit applies to each"))
+            .to_vec(),
         Order => vec![keyword("by", "Choose a sort field")],
         OrderField => fields(""),
         OrderDirection => vec![
@@ -383,6 +469,10 @@ fn candidates(state: State, depth: usize) -> Vec<Candidate> {
             keyword("limit", "Limit the number of tracks"),
         ],
         Suffix => vec![keyword("limit", "Limit the number of tracks")],
+        ShuffleDone => vec![
+            keyword("by", "Keep artists, albums, or genres apart"),
+            keyword("limit", "Limit the number of tracks"),
+        ],
         Limit => ["20", "50", "100"]
             .map(|n| candidate(Val, n, n, "Maximum tracks"))
             .to_vec(),
@@ -405,6 +495,22 @@ const EXAMPLES: &[(&str, &str)] = &[
         "This week's most played",
     ),
     ("missing", "Files missing from disk"),
+    (
+        "favorite and not played(30d) shuffle by artist limit 50",
+        "Favorites you have not heard in a month, artists kept apart",
+    ),
+    (
+        "genre in (\"Jazz\", \"Soul\") and duration < 5:00",
+        "Short jazz and soul",
+    ),
+    (
+        "recent(90d) limit 1 per album",
+        "One track from each new album",
+    ),
+    (
+        "skipped(30d) order by play_count desc",
+        "What you skipped lately",
+    ),
 ];
 
 /// Suggestions for the rule under `cursor` (a byte offset). See the module notes.
@@ -618,8 +724,23 @@ mod tests {
 
     #[test]
     fn operators_depend_on_field_type() {
-        assert_eq!(labels("artist "), ["=", "!=", "contains"]);
-        assert_eq!(labels("rating "), ["=", "!=", ">", ">=", "<", "<="]);
+        assert_eq!(
+            labels("artist "),
+            [
+                "=",
+                "!=",
+                "contains",
+                "starts with",
+                "ends with",
+                "matches",
+                "in (",
+                "not"
+            ]
+        );
+        assert_eq!(
+            labels("rating "),
+            ["=", "!=", ">", ">=", "<", "<=", "between", "in ("]
+        );
         assert_eq!(labels("artist c"), ["contains"]);
         assert!(labels("rating c").is_empty());
         assert_eq!(pick("rating", ">="), "rating >= ");
@@ -632,25 +753,74 @@ mod tests {
     fn complete_comparisons_offer_connectives_and_suffixes() {
         assert_eq!(
             labels("rating >= 4 "),
-            ["and", "or", "order by", "shuffle", "limit"]
+            [
+                "and",
+                "or",
+                "order by",
+                "shuffle",
+                "shuffle by artist",
+                "limit"
+            ]
         );
         assert_eq!(labels("(rating >= 4 "), ["and", "or", ")"]);
         assert_eq!(
             labels("(rating >= 4) "),
-            ["and", "or", "order by", "shuffle", "limit"]
+            [
+                "and",
+                "or",
+                "order by",
+                "shuffle",
+                "shuffle by artist",
+                "limit"
+            ]
         );
         assert_eq!(labels("artist = \"Björk\" o"), ["or", "order by"]);
         assert_eq!(pick("artist = \"Björk\"", "and"), "artist = \"Björk\" and ");
         assert_eq!(pick("rating >= 4", "and"), "rating >= 4 and ");
         assert_eq!(
             labels("missing "),
-            ["and", "or", "order by", "shuffle", "limit"]
+            [
+                "and",
+                "or",
+                "order by",
+                "shuffle",
+                "shuffle by artist",
+                "limit"
+            ]
         );
         assert_eq!(
             labels("played(7d) "),
-            ["and", "or", "order by", "shuffle", "limit"]
+            [
+                "and",
+                "or",
+                "order by",
+                "shuffle",
+                "shuffle by artist",
+                "limit"
+            ]
         );
         assert!(labels("rating > 4 and ").contains(&"bpm".to_string()));
+    }
+
+    #[test]
+    fn richer_operators_walk_through() {
+        assert_eq!(labels("title starts "), ["with"]);
+        assert_eq!(pick("title starts ", "with"), "title starts with ");
+        assert_eq!(labels("year between 1990 "), ["and"]);
+        assert_eq!(labels("genre in "), ["("]);
+        assert_eq!(labels("genre in (\"Jazz\" "), [",", ")"]);
+        assert!(labels("genre in (\"Jazz\") ").contains(&"and".to_string()));
+        assert!(labels("duration > ").contains(&"3:30".to_string()));
+        assert!(
+            labels("").contains(&"favorite".to_string())
+                || labels("f").contains(&"favorite".to_string())
+        );
+        for (example, _) in EXAMPLES {
+            assert!(
+                compile(example, 0).is_ok(),
+                "example does not compile: {example}"
+            );
+        }
     }
 
     #[test]
@@ -661,9 +831,11 @@ mod tests {
         assert_eq!(labels("order by year "), ["asc", "desc", "limit"]);
         assert_eq!(labels("order by year d"), ["desc"]);
         assert_eq!(labels("order by year desc "), ["limit"]);
-        assert_eq!(labels("shuffle "), ["limit"]);
+        assert_eq!(labels("shuffle "), ["by", "limit"]);
+        assert_eq!(labels("shuffle by "), ["artist", "album", "genre"]);
         assert_eq!(labels("rating > 3 limit "), ["20", "50", "100"]);
-        assert!(labels("rating > 3 limit 20 ").is_empty());
+        assert_eq!(labels("rating > 3 limit 20 "), ["per"]);
+        assert!(labels("limit 2 per ").contains(&"artist".to_string()));
         let rule = pick(&pick(&pick("rating > 3 order ", "by"), "year"), "desc");
         assert_eq!(rule, "rating > 3 order by year desc ");
         assert!(compile(&rule, 0).is_ok());
@@ -734,7 +906,17 @@ mod tests {
             ["44100", "48000"]
                 .map(String::from)
                 .into_iter()
-                .chain(["and", "or", "order by", "shuffle", "limit"].map(String::from))
+                .chain(
+                    [
+                        "and",
+                        "or",
+                        "order by",
+                        "shuffle",
+                        "shuffle by artist",
+                        "limit"
+                    ]
+                    .map(String::from)
+                )
                 .collect::<Vec<_>>()
         );
         assert_eq!(pick("rating >= 4", "or"), "rating >= 4 or ");
