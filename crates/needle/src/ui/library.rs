@@ -141,6 +141,7 @@ impl AppView {
             _ if self.total == 0 && self.scan.is_none() && !self.loading => {
                 self.onboarding(cx).into_any_element()
             }
+            Page::Home => self.home_view(cx).into_any_element(),
             _ => self.collection(width, window, cx).into_any_element(),
         };
         let page = div()
@@ -287,11 +288,24 @@ impl AppView {
             .flex()
             .items_end()
             .gap_5()
+            .when(album_art.is_some() || artist.is_some(), |el| {
+                el.pt(px(34.)).pb_6()
+            })
             .when_some(album_art.clone(), |el, track| {
-                el.child(artwork(Some(&track), 148., cx))
+                el.child(
+                    div()
+                        .rounded(px(8.))
+                        .shadow_lg()
+                        .child(artwork(Some(&track), 196., cx)),
+                )
             })
             .when_some(artist.clone(), |el, name| {
-                el.child(self.artist_photo(&name, 120., cx))
+                el.child(
+                    div()
+                        .rounded_full()
+                        .shadow_lg()
+                        .child(self.artist_photo(&name, 176., cx)),
+                )
             })
             .child(
                 div()
@@ -301,7 +315,11 @@ impl AppView {
                     .flex_col()
                     .gap_1()
                     .children(self.breadcrumbs(cx))
-                    .child(page_title(title))
+                    .child(if album_art.is_some() || artist.is_some() {
+                        super::widgets::display(title, 46.).truncate()
+                    } else {
+                        page_title(title)
+                    })
                     .when_some(album_art.clone(), |el, track| {
                         let artist_name = if track.album_artist.is_empty() {
                             track.artist.clone()
@@ -1201,6 +1219,8 @@ impl AppView {
                 div()
                     .relative()
                     .mb_2()
+                    .rounded(if round { px(size) } else { px(8.) })
+                    .shadow_md()
                     .child(if round {
                         self.artist_photo(&group.title, size, cx)
                     } else {
@@ -1233,7 +1253,7 @@ impl AppView {
 
 impl AppView {
     /// A round artist photo, or the artist's initials when no photo is known.
-    fn artist_photo(&self, name: &str, size: f32, cx: &App) -> AnyElement {
+    pub(super) fn artist_photo(&self, name: &str, size: f32, cx: &App) -> AnyElement {
         let p = pal(cx);
         if let Some(Some(path)) = self.artist_images.get(name) {
             return img(std::path::PathBuf::from(path))
@@ -1243,19 +1263,7 @@ impl AppView {
                 .object_fit(ObjectFit::Cover)
                 .into_any_element();
         }
-        div()
-            .size(px(size))
-            .flex_shrink_0()
-            .rounded_full()
-            .bg(p.raised)
-            .flex()
-            .items_center()
-            .justify_center()
-            .text_size(px(size * 0.3))
-            .font_weight(FontWeight::SEMIBOLD)
-            .text_color(p.ink_2)
-            .child(initials(name))
-            .into_any_element()
+        super::widgets::generated_cover(&initials(name), size, true, &p).into_any_element()
     }
 }
 

@@ -63,7 +63,7 @@ pub struct Playlist {
     pub updated_at: i64,
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
 pub struct Listen {
     pub id: String,
     pub track_id: String,
@@ -96,6 +96,8 @@ pub struct Settings {
     pub dsp: crate::dsp::Dsp,
     /// Turn off interface animations (Windows' own setting also turns them off).
     pub reduce_motion: bool,
+    /// Tint the interface with the colours of the playing song's cover.
+    pub music_colors: bool,
 }
 
 impl Default for Settings {
@@ -115,6 +117,7 @@ impl Default for Settings {
             online_media: false,
             dsp: crate::dsp::Dsp::default(),
             reduce_motion: false,
+            music_colors: true,
         }
     }
 }

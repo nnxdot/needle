@@ -1,13 +1,40 @@
-use gpui::{App, Global, Hsla, Pixels, Window, px, rgb};
+use gpui::{App, Global, Hsla, Pixels, Window, hsla, px, rgb};
 use gpui_component::{Theme, ThemeMode};
 
 /// Colours the component theme has no slot for. Read with `pal(cx)`.
-#[derive(Clone, Copy)]
+/// The three base looks. Colour from the music tints whichever one is chosen.
+#[derive(Clone, Copy, PartialEq, Debug)]
+pub enum Base {
+    /// Warm charcoal.
+    Night,
+    /// Deep blue-black, darkest.
+    Midnight,
+    /// Light.
+    Day,
+}
+impl Base {
+    /// Settings value and the name people see.
+    pub const ALL: [(&'static str, &'static str); 3] = [
+        ("dark", "Night"),
+        ("midnight", "Midnight"),
+        ("light", "Day"),
+    ];
+    pub fn from_name(name: &str) -> Self {
+        match name {
+            "light" => Self::Day,
+            "midnight" => Self::Midnight,
+            _ => Self::Night,
+        }
+    }
+}
+
+/// Colours the component theme has no slot for. Read with `pal(cx)`.
+#[derive(Clone, Copy, PartialEq, Debug)]
 pub struct Palette {
     pub dark: bool,
-    /// Sidebar, title bar and player: the quieter second neutral layer.
+    /// Sidebar, title bar and player: the back layer.
     pub chrome: Hsla,
-    /// Main content surface.
+    /// Main content sheet.
     pub canvas: Hsla,
     /// Raised elements on the canvas (hover rows, fields, cards).
     pub raised: Hsla,
@@ -23,6 +50,8 @@ pub struct Palette {
     pub selection: Hsla,
     pub danger: Hsla,
     pub success: Hsla,
+    /// The music's colour at full strength, for glows and backdrops (never for text).
+    pub glow: Hsla,
 }
 impl Global for Palette {}
 
@@ -34,46 +63,127 @@ fn c(value: u32) -> Hsla {
     rgb(value).into()
 }
 
-impl Palette {
-    fn new(dark: bool) -> Self {
-        if dark {
-            Self {
-                dark,
-                chrome: c(0x0f0f0e),
-                canvas: c(0x161514),
-                raised: c(0x1f1e1c),
-                raised_hover: c(0x292725),
-                line: c(0x2b2926),
-                line_soft: c(0x211f1d),
-                ink: c(0xedebe7),
-                ink_2: c(0xaaa59e),
-                ink_3: c(0x8f8a83),
-                accent: c(0xe2b46c),
-                accent_ink: c(0x1c1509),
-                accent_soft: c(0xe2b46c).opacity(0.14),
-                selection: c(0xe2b46c).opacity(0.11),
-                danger: c(0xee8479),
-                success: c(0x8cc79a),
-            }
+/// The font for page titles and big names.
+pub const DISPLAY: &str = "Fraunces 72pt Soft";
+
+fn luminance(color: Hsla) -> f32 {
+    let rgba = color.to_rgb();
+    let channel = |c: f32| {
+        if c <= 0.03928 {
+            c / 12.92
         } else {
-            Self {
-                dark,
-                chrome: c(0xf1f1f0),
-                canvas: c(0xfbfbfb),
-                raised: c(0xefeeed),
-                raised_hover: c(0xe6e5e3),
-                line: c(0xdedcd9),
-                line_soft: c(0xeceae8),
-                ink: c(0x1c1b19),
-                ink_2: c(0x5a5650),
-                ink_3: c(0x6f6a63),
-                accent: c(0x8c5a12),
-                accent_ink: c(0xffffff),
-                accent_soft: c(0x8c5a12).opacity(0.10),
-                selection: c(0x8c5a12).opacity(0.09),
-                danger: c(0xb4382c),
-                success: c(0x2f7a45),
+            ((c + 0.055) / 1.055).powf(2.4)
+        }
+    };
+    0.2126 * channel(rgba.r) + 0.7152 * channel(rgba.g) + 0.0722 * channel(rgba.b)
+}
+pub fn contrast(a: Hsla, b: Hsla) -> f32 {
+    let (a, b) = (luminance(a), luminance(b));
+    (a.max(b) + 0.05) / (a.min(b) + 0.05)
+}
+
+impl Palette {
+    /// A palette for `base`, tinted toward `tint` (a cover's colour) when there is one.
+    pub fn build(base: Base, tint: Option<Hsla>) -> Self {
+        // Covers that are nearly grey keep the default accent.
+        let tint = tint.filter(|t| t.s > 0.14 && t.l > 0.06 && t.l < 0.96);
+        let (hue, sat): (f32, f32) = match (tint, base) {
+            (Some(t), Base::Day) => (t.h, 0.16),
+            (Some(t), _) => (t.h, 0.13),
+            (None, Base::Midnight) => (0.62, 0.22),
+            (None, _) => (0.083, 0.05),
+        };
+        let n = |l: f32| hsla(hue, sat, l, 1.);
+        let dark = base != Base::Day;
+        let (chrome, canvas, raised, raised_hover, line, line_soft) = match base {
+            Base::Night => (n(0.05), n(0.082), n(0.118), n(0.152), n(0.165), n(0.125)),
+            Base::Midnight => (n(0.028), n(0.052), n(0.088), n(0.122), n(0.14), n(0.098)),
+            Base::Day => (n(0.935), n(0.985), n(0.93), n(0.9), n(0.865), n(0.915)),
+        };
+        let ink_sat = sat.min(0.1);
+        let (ink, ink_2, ink_3) = if dark {
+            (
+                hsla(hue, ink_sat, 0.93, 1.),
+                hsla(hue, ink_sat, 0.72, 1.),
+                hsla(hue, ink_sat, 0.6, 1.),
+            )
+        } else {
+            (
+                hsla(hue, ink_sat, 0.1, 1.),
+                hsla(hue, ink_sat, 0.31, 1.),
+                hsla(hue, ink_sat, 0.37, 1.),
+            )
+        };
+        let surfaces = [chrome, canvas, raised];
+        let readable = |color: Hsla| surfaces.iter().all(|s| contrast(color, *s) >= 4.6);
+        let accent = match tint {
+            None if dark => c(0xe2b46c),
+            None => c(0x8c5a12),
+            Some(t) => {
+                // Keep the cover's hue, give it enough colour, then move the lightness until
+                // it reads on every surface.
+                let s = t.s.clamp(0.5, 0.85);
+                let mut l = if dark { 0.64 } else { 0.4 };
+                let mut color = hsla(t.h, s, l, 1.);
+                while !readable(color) && (0.05..0.95).contains(&l) {
+                    l += if dark { 0.02 } else { -0.02 };
+                    color = hsla(t.h, s, l, 1.);
+                }
+                color
             }
+        };
+        let dark_ink = hsla(accent.h, 0.5, 0.09, 1.);
+        let accent_ink = if contrast(dark_ink, accent) >= 4.5 {
+            dark_ink
+        } else {
+            c(0xffffff)
+        };
+        let glow = match tint {
+            Some(t) => hsla(t.h, t.s.clamp(0.4, 0.9), if dark { 0.5 } else { 0.62 }, 1.),
+            None => hsla(accent.h, accent.s, if dark { 0.45 } else { 0.7 }, 1.),
+        };
+        Self {
+            dark,
+            chrome,
+            canvas,
+            raised,
+            raised_hover,
+            line,
+            line_soft,
+            ink,
+            ink_2,
+            ink_3,
+            accent,
+            accent_ink,
+            accent_soft: accent.opacity(if dark { 0.15 } else { 0.11 }),
+            selection: accent.opacity(if dark { 0.12 } else { 0.1 }),
+            danger: if dark { c(0xee8479) } else { c(0xb4382c) },
+            success: if dark { c(0x8cc79a) } else { c(0x2f7a45) },
+            glow,
+        }
+    }
+
+    /// Part way from `a` to `b`, for fading between covers.
+    pub fn mix(a: &Self, b: &Self, t: f32) -> Self {
+        let m = |x: Hsla, y: Hsla| super::motion::mix(x, y, t);
+        Self {
+            dark: b.dark,
+            chrome: m(a.chrome, b.chrome),
+            canvas: m(a.canvas, b.canvas),
+            raised: m(a.raised, b.raised),
+            raised_hover: m(a.raised_hover, b.raised_hover),
+            line: m(a.line, b.line),
+            line_soft: m(a.line_soft, b.line_soft),
+            ink: m(a.ink, b.ink),
+            ink_2: m(a.ink_2, b.ink_2),
+            ink_3: m(a.ink_3, b.ink_3),
+            accent: m(a.accent, b.accent),
+            accent_ink: m(a.accent_ink, b.accent_ink),
+            accent_soft: m(a.accent_soft, b.accent_soft),
+            selection: m(a.selection, b.selection),
+            danger: m(a.danger, b.danger),
+            success: m(a.success, b.success),
+            glow: m(a.glow, b.glow),
         }
     }
 }
@@ -81,11 +191,9 @@ impl Palette {
 pub const RADIUS: Pixels = px(6.);
 
 pub fn set_theme(mode: &str, window: Option<&mut Window>, cx: &mut App) {
-    let dark = mode != "light";
-    let p = Palette::new(dark);
-    cx.set_global(p);
+    let p = Palette::build(Base::from_name(mode), None);
     Theme::change(
-        if dark {
+        if p.dark {
             ThemeMode::Dark
         } else {
             ThemeMode::Light
@@ -99,7 +207,14 @@ pub fn set_theme(mode: &str, window: Option<&mut Window>, cx: &mut App) {
     theme.radius = RADIUS;
     theme.radius_lg = px(10.);
     theme.shadow = false;
-    let t = &mut theme.colors;
+    apply(p, cx);
+}
+
+/// Make `p` the palette for the whole app, including the component theme.
+pub fn apply(p: Palette, cx: &mut App) {
+    cx.set_global(p);
+    let dark = p.dark;
+    let t = &mut Theme::global_mut(cx).colors;
     t.background = p.canvas;
     t.foreground = p.ink;
     t.muted = p.raised;
@@ -119,7 +234,11 @@ pub fn set_theme(mode: &str, window: Option<&mut Window>, cx: &mut App) {
     t.secondary_active = p.line;
     t.accent = p.accent_soft;
     t.accent_foreground = p.ink;
-    t.popover = if dark { c(0x1d1c1a) } else { c(0xffffff) };
+    t.popover = if dark {
+        super::motion::mix(p.raised, p.raised_hover, 0.5)
+    } else {
+        c(0xffffff)
+    };
     t.popover_foreground = p.ink;
     t.list_hover = p.raised;
     t.list_active = p.accent_soft;
@@ -156,50 +275,45 @@ pub fn set_theme(mode: &str, window: Option<&mut Window>, cx: &mut App) {
 mod tests {
     use super::*;
 
-    fn luminance(color: Hsla) -> f32 {
-        let rgba = color.to_rgb();
-        let channel = |c: f32| {
-            if c <= 0.03928 {
-                c / 12.92
-            } else {
-                ((c + 0.055) / 1.055).powf(2.4)
-            }
-        };
-        0.2126 * channel(rgba.r) + 0.7152 * channel(rgba.g) + 0.0722 * channel(rgba.b)
-    }
-    fn contrast(a: Hsla, b: Hsla) -> f32 {
-        let (a, b) = (luminance(a), luminance(b));
-        (a.max(b) + 0.05) / (a.min(b) + 0.05)
-    }
-
-    /// Every text colour must stay readable (WCAG AA, 4.5:1) on every surface it is drawn on.
+    /// Every text colour must stay readable (WCAG AA, 4.5:1) on every surface it is drawn on,
+    /// in every base look and whatever colour the cover brings.
     #[test]
     fn text_meets_wcag_aa_on_every_surface() {
-        for dark in [true, false] {
-            let p = Palette::new(dark);
-            for (surface_name, surface) in [
-                ("chrome", p.chrome),
-                ("canvas", p.canvas),
-                ("raised", p.raised),
-            ] {
-                for (text_name, text) in [
-                    ("ink", p.ink),
-                    ("ink_2", p.ink_2),
-                    ("ink_3", p.ink_3),
-                    ("accent", p.accent),
-                    ("danger", p.danger),
+        let tints = [None]
+            .into_iter()
+            .chain((0..24).map(|i| Some(hsla(i as f32 / 24., 0.8, 0.5, 1.))))
+            .chain([
+                Some(hsla(0.6, 0.3, 0.2, 1.)),
+                Some(hsla(0.15, 0.95, 0.85, 1.)),
+                Some(hsla(0.0, 0.0, 0.5, 1.)),
+            ]);
+        for tint in tints {
+            for base in [Base::Night, Base::Midnight, Base::Day] {
+                let p = Palette::build(base, tint);
+                for (surface_name, surface) in [
+                    ("chrome", p.chrome),
+                    ("canvas", p.canvas),
+                    ("raised", p.raised),
                 ] {
-                    let ratio = contrast(text, surface);
-                    assert!(
-                        ratio >= 4.5,
-                        "{text_name} on {surface_name} (dark: {dark}) is {ratio:.2}:1"
-                    );
+                    for (text_name, text) in [
+                        ("ink", p.ink),
+                        ("ink_2", p.ink_2),
+                        ("ink_3", p.ink_3),
+                        ("accent", p.accent),
+                        ("danger", p.danger),
+                    ] {
+                        let ratio = contrast(text, surface);
+                        assert!(
+                            ratio >= 4.5,
+                            "{text_name} on {surface_name} ({base:?}, tint {tint:?}) is {ratio:.2}:1"
+                        );
+                    }
                 }
+                assert!(
+                    contrast(p.accent_ink, p.accent) >= 4.5,
+                    "button label on accent ({base:?}, tint {tint:?})"
+                );
             }
-            assert!(
-                contrast(p.accent_ink, p.accent) >= 4.5,
-                "button label on accent (dark: {dark})"
-            );
         }
     }
 }

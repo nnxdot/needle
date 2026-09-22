@@ -82,6 +82,13 @@ Opening an existing large library for the first time after this change builds th
 - Live requests were made once to LRCLIB (59 timed lines for a known song), MusicBrainz/Wikidata/Commons (an artist photo), and ListenBrainz (listen format). Last.fm import was not run without an API key.
 - In the running app: the title bar drags, the window resizes from its edges including the top, and maximize/restore and double-click work (checked with Windows hit-testing and scripted drags after a fix for a focusable element that swallowed title-bar clicks). The big player showed timed lyrics following playback; the mini player opened, expanded (staying on screen), showed lyrics and the queue, and returned to the main window. The Sound page applied presets that persisted across restarts. The Import page detected an iTunes XML, and importing set ratings, play counts, and a playlist. An example plugin added a track-menu command that rated a song. A demo song was split into stems in the app and played back from its stems with the Karaoke mix.
 
+## 0.5.0 checks
+
+- `cargo test --workspace` passes (98 core tests, 4 ignored, plus the UI contrast test). The contrast test now builds the palette for all three looks and 27 cover colors (24 hues, a dark muted blue, a pale yellow, and grey) and checks every text color on every surface at 4.5:1. A new core test covers the Home shelves, including the order of recently played albums after recorded listens.
+- In the running app, checked from screenshots with a generated library of eight albums with distinct covers: Home with its shelves and Resume card; the palette taking a teal cover's color while it played and a green album's color on that album's page; generated covers and a red tint for music without artwork; the album grid with shadows; the big player with the blurred cover behind it; the mini player's glow; the Appearance section with live previews; and the Night, Midnight, and Day looks. Film grain was checked at 4× zoom.
+- On the 500,000-track library, Home showed loading shelves at once and its covers within about two seconds (the first start also builds a new play-count index).
+- Not checked: very large or unusual cover images, and text over very bright covers in the Day look beyond the tested palette colors (the glow behind page titles fades into the page surface).
+
 ## 0.4.0 checks
 
 - `cargo test -p needle-core` still passes 97 tests; `cargo clippy --workspace --all-targets -- -D warnings` is clean.

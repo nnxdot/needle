@@ -28,8 +28,7 @@ impl AppView {
             .h(px(48.))
             .pl_0()
             .bg(p.chrome)
-            .border_b_1()
-            .border_color(p.line_soft)
+            .border_b_0()
             // A thin strip that is not a drag area, so Windows offers top-edge resizing.
             .when(!window.is_maximized(), |el| {
                 el.child(
@@ -154,7 +153,7 @@ impl AppView {
             .cursor_pointer()
             .text_size(px(13.5))
             .when(active, |el| {
-                el.bg(p.raised)
+                el.bg(p.accent_soft)
                     .text_color(p.ink)
                     .font_weight(FontWeight::MEDIUM)
             })
@@ -195,10 +194,8 @@ impl AppView {
             .h_full()
             .flex()
             .flex_col()
-            .bg(p.chrome)
-            .border_r_1()
-            .border_color(p.line_soft)
-            .pt_2()
+            .pt_1()
+            .child(self.nav_item("nav-home", "Home", "home", Page::Home, cx))
             .child(self.nav_item("nav-songs", "Songs", "songs", Page::Songs, cx))
             .child(self.nav_item("nav-albums", "Albums", "albums", Page::Albums, cx))
             .child(self.nav_item("nav-artists", "Artists", "artists", Page::Artists, cx))
@@ -297,8 +294,6 @@ impl AppView {
             )
             .child(
                 div()
-                    .border_t_1()
-                    .border_color(p.line_soft)
                     .py_2()
                     .when_some(self.scan.as_ref(), |el, scan| {
                         let cancel = self.cancel.clone();
@@ -436,11 +431,14 @@ impl AppView {
         };
         let queue_open = self.settings.show_inspector && self.panel == Panel::Queue;
         div()
-            .h(px(84.))
+            .h(px(80.))
             .flex_shrink_0()
-            .bg(p.chrome)
-            .border_t_1()
-            .border_color(p.line_soft)
+            // The playing cover's colour glows in from the left.
+            .bg(linear_gradient(
+                90.,
+                linear_color_stop(super::motion::mix(p.chrome, p.glow, if p.dark { 0.2 } else { 0.16 }), 0.),
+                linear_color_stop(p.chrome, 0.55),
+            ))
             .px_4()
             .flex()
             .items_center()

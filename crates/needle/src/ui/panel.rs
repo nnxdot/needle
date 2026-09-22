@@ -37,8 +37,6 @@ impl AppView {
             .flex()
             .flex_col()
             .bg(p.chrome)
-            .border_l_1()
-            .border_color(p.line_soft)
             .child(
                 div()
                     .h(px(52.))

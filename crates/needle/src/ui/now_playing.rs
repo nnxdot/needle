@@ -8,7 +8,6 @@ use needle_core::{
     audio::{Command, Repeat},
     model::format_duration,
 };
-use std::collections::HashMap;
 
 #[derive(Clone, Copy, PartialEq)]
 pub enum Side {
@@ -18,48 +17,7 @@ pub enum Side {
     None,
 }
 
-/// Average colour of each artwork file, used to tint the big player. Computed off the UI thread.
-#[derive(Default)]
-pub struct ArtColors {
-    colors: HashMap<String, Option<Hsla>>,
-}
-
-pub fn average_color(path: &str) -> Option<Hsla> {
-    let image = image::open(path).ok()?.thumbnail(24, 24).to_rgb8();
-    let (mut r, mut g, mut b, mut n) = (0u64, 0u64, 0u64, 0u64);
-    for pixel in image.pixels() {
-        r += pixel[0] as u64;
-        g += pixel[1] as u64;
-        b += pixel[2] as u64;
-        n += 1;
-    }
-    if n == 0 {
-        return None;
-    }
-    let rgb = Rgba {
-        r: r as f32 / n as f32 / 255.,
-        g: g as f32 / n as f32 / 255.,
-        b: b as f32 / n as f32 / 255.,
-        a: 1.,
-    };
-    Some(rgb.into())
-}
-
 impl AppView {
-    /// The tint for the current track's artwork, starting a background measurement the first time.
-    pub(super) fn art_tint(&mut self) -> Option<Hsla> {
-        let path = self.playback.current.as_ref()?.track.artwork.clone()?;
-        if let Some(color) = self.art_colors.colors.get(&path) {
-            return *color;
-        }
-        self.art_colors.colors.insert(path.clone(), None);
-        let sender = self.sender.clone();
-        std::thread::spawn(move || {
-            let color = average_color(&path);
-            let _ = sender.send(super::Event::ArtColor(path, color));
-        });
-        None
-    }
     /// Grow the big player out of the cover in the bottom-left corner, or shrink it back.
     /// The player keeps its full size inside a growing clip, so nothing re-flows mid-way.
     pub(super) fn big_reveal(&self, player: AnyElement, w: f32, h: f32, cx: &App) -> AnyElement {
@@ -88,13 +46,10 @@ impl AppView {
         })
     }
 
-    pub(super) fn set_art_color(&mut self, path: String, color: Option<Hsla>) {
-        self.art_colors.colors.insert(path, color);
-    }
-
     pub(super) fn big_player(&mut self, window: &mut Window, cx: &mut Context<Self>) -> AnyElement {
         let p = pal(cx);
-        let tint = self.art_tint();
+        let look = self.now_look();
+        let tint = look.as_ref().map(|l| l.vivid);
         let size = window.viewport_size();
         let (w, h) = (f32::from(size.width), f32::from(size.height));
         let side = if w < 1000. { Side::None } else { self.big_side };
@@ -133,11 +88,41 @@ impl AppView {
                     cx.notify();
                 }))
         };
+        let backdrop = look.and_then(|l| l.blur).map(|blur| {
+            img(blur)
+                .absolute()
+                .top(px(-h * 0.1))
+                .left(px(-w * 0.1))
+                .w(px(w * 1.2))
+                .h(px(h * 1.2))
+                .object_fit(ObjectFit::Cover)
+                .opacity(if p.dark { 0.85 } else { 0.55 })
+        });
         let player = div()
             .id("big-player")
             .size_full()
+            .relative()
+            .overflow_hidden()
             .flex()
             .flex_col()
+            .children(backdrop)
+            // Vignette: darken toward the edges and fade into the page at the bottom, so the
+            // controls always sit on a calm surface.
+            .child(div().absolute().inset_0().bg(linear_gradient(
+                180.,
+                linear_color_stop(p.canvas.opacity(0.25), 0.),
+                linear_color_stop(p.canvas.opacity(0.8), 1.),
+            )))
+            .child(div().absolute().inset_0().bg(linear_gradient(
+                90.,
+                linear_color_stop(p.canvas.opacity(0.45), 0.),
+                linear_color_stop(p.canvas.opacity(0.), 0.3),
+            )))
+            .child(div().absolute().inset_0().bg(linear_gradient(
+                270.,
+                linear_color_stop(p.canvas.opacity(0.45), 0.),
+                linear_color_stop(p.canvas.opacity(0.), 0.3),
+            )))
             .child(
                 div()
                     .h(px(56.))
@@ -208,23 +193,28 @@ impl AppView {
                             .gap_5()
                             .px_12()
                             .pb_8()
-                            .child(div().rounded(px(10.)).shadow_lg().child(artwork(
-                                current.as_ref().map(|i| &i.track),
-                                art,
-                                cx,
-                            )))
+                            .child(
+                                div()
+                                    .rounded(px(10.))
+                                    .shadow(vec![BoxShadow {
+                                        color: gpui::black().opacity(if p.dark {
+                                            0.55
+                                        } else {
+                                            0.25
+                                        }),
+                                        offset: point(px(0.), px(18.)),
+                                        blur_radius: px(48.),
+                                        spread_radius: px(-6.),
+                                    }])
+                                    .child(artwork(current.as_ref().map(|i| &i.track), art, cx)),
+                            )
                             .child(match &current {
                                 None => div()
                                     .flex()
                                     .flex_col()
                                     .items_center()
                                     .gap_1()
-                                    .child(
-                                        div()
-                                            .text_size(px(22.))
-                                            .font_weight(FontWeight::SEMIBOLD)
-                                            .child("Nothing playing"),
-                                    )
+                                    .child(super::widgets::display("Nothing playing", 28.))
                                     .child(meta("Pick something from your library.", cx)),
                                 Some(item) => {
                                     let track = item.track.clone();
@@ -237,12 +227,9 @@ impl AppView {
                                         .items_center()
                                         .gap_1()
                                         .child(
-                                            div()
+                                            super::widgets::display(track.title.clone(), 32.)
                                                 .max_w_full()
-                                                .truncate()
-                                                .text_size(px(24.))
-                                                .font_weight(FontWeight::SEMIBOLD)
-                                                .child(track.title.clone()),
+                                                .truncate(),
                                         )
                                         .child(
                                             div()

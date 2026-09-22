@@ -35,11 +35,27 @@ pub struct ArtistSummary {
     pub play_count: i64,
 }
 
+/// What the Home page shows.
+#[derive(Clone, Debug, Default)]
+pub struct Home {
+    /// Albums played most recently, newest first.
+    pub recent: Vec<AlbumSummary>,
+    /// Albums most recently added to the library.
+    pub added: Vec<AlbumSummary>,
+    /// Albums with the most favorite songs.
+    pub favorites: Vec<AlbumSummary>,
+    /// Albums with the most plays.
+    pub most_played: Vec<AlbumSummary>,
+    /// Artists with the most plays.
+    pub artists: Vec<ArtistSummary>,
+}
+
 pub(crate) fn migrate(db: &Connection) -> Result<()> {
     db.execute_batch(
         "CREATE INDEX IF NOT EXISTS tracks_genre ON tracks(genre COLLATE NOCASE);
         CREATE INDEX IF NOT EXISTS tracks_album_title ON tracks(album COLLATE NOCASE);
         CREATE INDEX IF NOT EXISTS tracks_format ON tracks(format COLLATE NOCASE);
+        CREATE INDEX IF NOT EXISTS tracks_plays ON tracks(play_count);
         CREATE INDEX IF NOT EXISTS tracks_album_summary ON tracks(album_artist COLLATE NOCASE,album COLLATE NOCASE,artist,year,duration,format,added_at,play_count);
         CREATE INDEX IF NOT EXISTS tracks_artist_summary ON tracks(artist COLLATE NOCASE,album,duration,play_count);",
     )?;
@@ -226,6 +242,122 @@ impl Library {
         artists.sort_by_cached_key(|a| (sort_name(&a.name), a.name.clone()));
         Ok(artists)
     }
+    /// Shelves for the Home page, `limit` items each. Empty shelves are left empty.
+    ///
+    /// Each shelf reads only the newest, best-rated, or most-played rows through an index and
+    /// groups them here, so Home stays quick on very large libraries.
+    pub fn home(&self, limit: usize) -> Result<Home> {
+        const SCAN: i64 = 20_000;
+        let db = self.connection()?;
+        // (album artist, album, weight) rows, in the order the shelf wants them.
+        let rows = |sql: &str| -> Result<Vec<(String, String, i64)>> {
+            let mut stmt = db.prepare(sql)?;
+            let rows = stmt.query_map([SCAN], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)))?;
+            Ok(rows.collect::<std::result::Result<_, _>>()?)
+        };
+        // Distinct albums in first-seen order, optionally ranked by their summed weight.
+        let pick = |rows: Vec<(String, String, i64)>, ranked: bool| -> Vec<(String, String)> {
+            let mut order: Vec<(String, String)> = vec![];
+            let mut totals: std::collections::HashMap<(String, String), (usize, i64)> =
+                Default::default();
+            for (artist, album, weight) in rows {
+                let key = (artist.to_lowercase(), album.to_lowercase());
+                let entry = totals.entry(key).or_insert_with(|| {
+                    order.push((artist.clone(), album.clone()));
+                    (order.len() - 1, 0)
+                });
+                entry.1 += weight;
+            }
+            if ranked {
+                let weight =
+                    |a: &(String, String)| totals[&(a.0.to_lowercase(), a.1.to_lowercase())];
+                order.sort_by(|a, b| {
+                    let (a, b) = (weight(a), weight(b));
+                    b.1.cmp(&a.1).then(a.0.cmp(&b.0))
+                });
+            }
+            order.truncate(limit);
+            order
+        };
+        let recent = pick(
+            rows(
+                "SELECT t.album_artist, t.album, 1 FROM listens l JOIN tracks t ON t.id=l.track_id ORDER BY l.started_at DESC LIMIT ?",
+            )?,
+            false,
+        );
+        let added = pick(
+            rows("SELECT album_artist, album, 1 FROM tracks ORDER BY added_at DESC, id LIMIT ?")?,
+            false,
+        );
+        let favorites = pick(
+            rows(
+                "SELECT album_artist, album, 1 FROM tracks WHERE rating >= 4 ORDER BY rating DESC, id LIMIT ?",
+            )?,
+            true,
+        );
+        let most_played = pick(
+            rows(
+                "SELECT album_artist, album, play_count FROM tracks WHERE play_count > 0 ORDER BY play_count DESC LIMIT ?",
+            )?,
+            true,
+        );
+        let albums = |keys: Vec<(String, String)>| -> Result<Vec<AlbumSummary>> {
+            let mut out = vec![];
+            for (album_artist, album) in keys {
+                out.extend(self.album_rows(
+                    &db,
+                    "tracks t WHERE t.album_artist=? COLLATE NOCASE AND t.album=? COLLATE NOCASE",
+                    &[Value::Text(album_artist), Value::Text(album)],
+                )?);
+            }
+            Ok(out)
+        };
+        // Most played artists, then one summary row each.
+        let mut plays: Vec<(String, i64)> = vec![];
+        {
+            let mut stmt = db.prepare("SELECT artist, play_count FROM tracks WHERE play_count > 0 ORDER BY play_count DESC LIMIT ?")?;
+            let mut index: std::collections::HashMap<String, usize> = Default::default();
+            for row in stmt.query_map([SCAN], |r| {
+                Ok((r.get::<_, String>(0)?, r.get::<_, i64>(1)?))
+            })? {
+                let (artist, count) = row?;
+                match index.get(&artist.to_lowercase()) {
+                    Some(&i) => plays[i].1 += count,
+                    None => {
+                        index.insert(artist.to_lowercase(), plays.len());
+                        plays.push((artist, count));
+                    }
+                }
+            }
+        }
+        plays.sort_by(|a, b| b.1.cmp(&a.1).then_with(|| a.0.cmp(&b.0)));
+        plays.truncate(limit);
+        let mut artists = vec![];
+        let mut stmt = db.prepare_cached(
+            "SELECT min(t.artist), count(DISTINCT t.album COLLATE NOCASE), count(*), sum(t.duration), sum(t.play_count),
+                (SELECT a FROM (SELECT json_extract(x.data,'$.artwork') a FROM tracks x WHERE x.artist=t.artist COLLATE NOCASE LIMIT 20) WHERE a IS NOT NULL LIMIT 1)
+             FROM tracks t WHERE t.artist=? COLLATE NOCASE",
+        )?;
+        for (name, _) in plays {
+            artists.push(stmt.query_row([name], |r| {
+                Ok(ArtistSummary {
+                    name: r.get(0)?,
+                    albums: r.get::<_, i64>(1)? as usize,
+                    tracks: r.get::<_, i64>(2)? as usize,
+                    duration: r.get(3)?,
+                    play_count: r.get(4)?,
+                    artwork: r.get(5)?,
+                })
+            })?);
+        }
+        Ok(Home {
+            recent: albums(recent)?,
+            added: albums(added)?,
+            favorites: albums(favorites)?,
+            most_played: albums(most_played)?,
+            artists,
+        })
+    }
     /// An artist's most played tracks, then highest rated.
     pub fn top_tracks(&self, artist: &str, limit: usize) -> Result<Vec<Track>> {
         let db = self.connection()?;
@@ -364,6 +496,37 @@ mod tests {
         assert_eq!(limited.len(), 1);
         assert_eq!(limited[0].album, "Second");
         assert!(library.albums("year >").is_err());
+    }
+
+    #[test]
+    fn home_shelves() {
+        let (_dir, library) = library();
+        let names =
+            |albums: &[AlbumSummary]| albums.iter().map(|a| a.album.clone()).collect::<Vec<_>>();
+        let home = library.home(3).unwrap();
+        assert!(home.recent.is_empty());
+        assert_eq!(names(&home.added), ["Blue", "First", "Mix"]);
+        assert_eq!(names(&home.favorites), ["Blue"]);
+        assert_eq!(names(&home.most_played), ["Blue"]);
+        assert_eq!(
+            home.artists
+                .iter()
+                .map(|a| a.name.as_str())
+                .collect::<Vec<_>>(),
+            ["Bob"]
+        );
+        for (id, at) in [("a3", 10), ("b1", 20), ("a1", 30)] {
+            library
+                .record_listen(&crate::model::Listen {
+                    id: format!("l{id}"),
+                    track_id: id.into(),
+                    started_at: at,
+                    ..Default::default()
+                })
+                .unwrap();
+        }
+        let home = library.home(5).unwrap();
+        assert_eq!(names(&home.recent), ["First", "Blue", "Second"]);
     }
 
     #[test]

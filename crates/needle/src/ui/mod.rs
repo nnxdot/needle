@@ -1,7 +1,9 @@
+mod ambient;
 mod assets;
 mod chrome;
 mod flow;
 mod history;
+mod home;
 mod importer;
 mod library;
 mod lyrics;
@@ -91,9 +93,12 @@ const PLAY_LIMIT: usize = 50_000;
 const PAGE_SIZE: usize = 1000;
 /// How long the big player takes to grow or shrink.
 const BIG_MS: u64 = 260;
+/// Space between the page sheet and the window edges around it.
+const SHEET_GAP: f32 = 8.;
 
 #[derive(Clone, PartialEq, Debug)]
 pub enum Page {
+    Home,
     Songs,
     Albums,
     Album {
@@ -114,6 +119,7 @@ pub enum Page {
 impl Page {
     fn title(&self) -> String {
         match self {
+            Self::Home => "Home".into(),
             Self::Songs => "Songs".into(),
             Self::Albums => "Albums".into(),
             Self::Album { album, .. } => {
@@ -147,7 +153,7 @@ impl Page {
     fn is_tracks(&self) -> bool {
         !matches!(
             self,
-            Self::History | Self::Settings | Self::Sound | Self::Import
+            Self::Home | Self::History | Self::Settings | Self::Sound | Self::Import
         )
     }
     pub fn is_grid(&self) -> bool {
@@ -220,7 +226,8 @@ enum Event {
     Groups(u64, Vec<library::Group>),
     History(Box<needle_core::history::HistoryStats>, Vec<Listen>, usize),
     MoreHistory(usize, Vec<Listen>),
-    ArtColor(String, Option<Hsla>),
+    Look(String, Option<ambient::Look>),
+    Home(Box<needle_core::browse::Home>),
     Lyrics(String, Option<needle_core::media::Lyrics>),
     ArtistImage(String, Option<String>),
     ArtistImages(Vec<(String, Option<String>)>),
@@ -327,7 +334,11 @@ pub struct AppView {
     big_serial: usize,
     /// Big player background: the colour it is fading from, to, and a counter for the fade.
     big_tint: (Hsla, Hsla, usize),
-    art_colors: now_playing::ArtColors,
+    looks: ambient::Looks,
+    fade: ambient::Fade,
+    /// The film-grain tile, once written (`Some(None)` if it could not be).
+    grain_file: Option<Option<PathBuf>>,
+    home: Option<Box<needle_core::browse::Home>>,
     lyrics: Option<(String, Option<needle_core::media::Lyrics>)>,
     lyric_line: Option<usize>,
     lyrics_scroll: ScrollHandle,
@@ -363,6 +374,16 @@ pub fn run(library: Library) -> Result<()> {
         .with_assets(assets::Assets)
         .run(move |cx| {
             gpui_component::init(cx);
+            cx.text_system()
+                .add_fonts(vec![
+                    std::borrow::Cow::Borrowed(
+                        include_bytes!("../../fonts/Fraunces72ptSoft-SemiBold.ttf").as_slice(),
+                    ),
+                    std::borrow::Cow::Borrowed(
+                        include_bytes!("../../fonts/Fraunces72ptSoft-Bold.ttf").as_slice(),
+                    ),
+                ])
+                .ok();
             let settings = library.settings().unwrap_or_default();
             set_theme(&settings.theme, None, cx);
             cx.set_global(motion::Motion {
@@ -404,7 +425,8 @@ pub fn run(library: Library) -> Result<()> {
                 KeyBinding::new("ctrl-4", GoTo(3), Some("Needle")),
                 KeyBinding::new("ctrl-5", GoTo(4), Some("Needle")),
                 KeyBinding::new("ctrl-6", GoTo(5), Some("Needle")),
-                KeyBinding::new("ctrl-,", GoTo(6), Some("Needle")),
+                KeyBinding::new("ctrl-7", GoTo(6), Some("Needle")),
+                KeyBinding::new("ctrl-,", GoTo(7), Some("Needle")),
             ]);
             let bounds = Bounds::centered(None, size(px(1380.), px(880.)), cx);
             let options = WindowOptions {
@@ -562,7 +584,7 @@ impl AppView {
             player,
             playback: PlaybackState::default(),
             settings,
-            page: Page::Songs,
+            page: Page::Home,
             back: vec![],
             tracks: vec![],
             selection: Selection::default(),
@@ -618,7 +640,10 @@ impl AppView {
             big_moving: false,
             big_serial: 0,
             big_tint: (gpui::transparent_black(), gpui::transparent_black(), 0),
-            art_colors: Default::default(),
+            looks: Default::default(),
+            fade: ambient::Fade::new(pal(cx)),
+            grain_file: None,
+            home: None,
             lyrics: None,
             lyric_line: None,
             lyrics_scroll: ScrollHandle::new(),
@@ -647,6 +672,7 @@ impl AppView {
             acoustid_key,
         };
         view.refresh(cx);
+        view.load_home();
         view.recent = view.library.history(50).unwrap_or_default();
         cx.on_release(|_, cx| cx.quit()).detach();
         cx.spawn_in(window, async move |view, cx| {
@@ -837,7 +863,8 @@ impl AppView {
                     }
                     self.refresh(cx);
                 }
-                Event::ArtColor(path, color) => self.set_art_color(path, color),
+                Event::Look(path, look) => self.set_look(path, look),
+                Event::Home(home) => self.home = Some(home),
                 Event::ImportProgress(message) => self.import.busy = Some(message),
                 Event::Plugin(action) => self.plugin_action(action, cx),
                 Event::PaletteFound(generation, songs, albums, artists) => {
@@ -929,6 +956,9 @@ impl AppView {
                 }
                 Event::LibraryChanged => {
                     self.total = self.library.count().unwrap_or(0);
+                    if self.page == Page::Home {
+                        self.load_home();
+                    }
                     self.refresh(cx);
                 }
                 Event::Matches(id, matches) => {
@@ -1199,6 +1229,9 @@ impl AppView {
         self.show_save = false;
         if self.page == Page::History {
             self.load_history();
+        }
+        if self.page == Page::Home {
+            self.load_home();
         }
         if let Page::Artist(name) = &self.page {
             let name = name.clone();
@@ -1721,6 +1754,7 @@ impl Drop for AppView {
 
 impl Render for AppView {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        self.update_palette(window, cx);
         let p = pal(cx);
         let width = window.viewport_size().width;
         let show_panel = self.settings.show_inspector
@@ -1729,7 +1763,11 @@ impl Render for AppView {
             && (self.page.is_tracks() || self.panel == Panel::Queue);
         let sidebar = self.settings.layout.sidebar_width.clamp(200., 260.);
         let panel_width = self.settings.layout.inspector_width.clamp(280., 340.) + 16.;
-        let content_width = f32::from(width) - sidebar - if show_panel { panel_width } else { 0. };
+        // The page is a sheet floating on the back layer, 8 px in from its neighbours.
+        let content_width =
+            f32::from(width) - sidebar - if show_panel { panel_width } else { SHEET_GAP } - 2.;
+        let backdrop = self.page_backdrop(cx);
+        let grain = self.grain(window, cx);
         self.glide_lyrics(window, cx);
         if self.big != self.big_was {
             self.big_was = self.big;
@@ -1886,12 +1924,13 @@ impl Render for AppView {
             .on_action(|_: &FocusPrevious, window, _| window.focus_prev())
             .on_action(cx.listener(|this, GoTo(index): &GoTo, window, cx| {
                 let page = match index {
-                    0 => Page::Songs,
-                    1 => Page::Albums,
-                    2 => Page::Artists,
-                    3 => Page::Favorites,
-                    4 => Page::Recent,
-                    5 => Page::History,
+                    0 => Page::Home,
+                    1 => Page::Songs,
+                    2 => Page::Albums,
+                    3 => Page::Artists,
+                    4 => Page::Favorites,
+                    5 => Page::Recent,
+                    6 => Page::History,
                     _ => Page::Settings,
                 };
                 this.navigate(page, window, cx);
@@ -1935,8 +1974,35 @@ impl Render for AppView {
                                 .flex_1()
                                 .min_h_0()
                                 .flex()
+                                .bg(p.chrome)
                                 .child(self.sidebar(sidebar, cx))
-                                .child(self.main(content_width, window, cx))
+                                .child(
+                                    div()
+                                        .id("sheet")
+                                        .flex_1()
+                                        .min_w_0()
+                                        .mb(px(SHEET_GAP))
+                                        .when(!show_panel, |el| el.mr(px(SHEET_GAP)))
+                                        .relative()
+                                        .flex()
+                                        .rounded(px(12.))
+                                        .overflow_hidden()
+                                        .bg(p.canvas)
+                                        .border_1()
+                                        .border_color(if p.dark { p.line_soft } else { p.line })
+                                        .shadow(vec![BoxShadow {
+                                            color: gpui::black().opacity(if p.dark {
+                                                0.45
+                                            } else {
+                                                0.08
+                                            }),
+                                            offset: point(px(0.), px(2.)),
+                                            blur_radius: px(18.),
+                                            spread_radius: px(0.),
+                                        }])
+                                        .child(backdrop)
+                                        .child(self.main(content_width, window, cx)),
+                                )
                                 .when(show_panel, |el| {
                                     el.child(self.panel(panel_width, window, cx))
                                 }),
@@ -1945,6 +2011,7 @@ impl Render for AppView {
                     })
                     .children(big_layer),
             )
+            .children(grain)
             .children(self.toast(cx))
             .children(self.track_menu(cx))
             .children(self.palette_view(cx))

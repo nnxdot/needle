@@ -1,6 +1,6 @@
 # Needle
 
-A native Rust/GPUI music player with a local SQLite library. **0.4.0 is a working Windows preview.** [PROPOSAL.md](PROPOSAL.md) is the original product vision; [IMPLEMENTATION.md](IMPLEMENTATION.md) records the implemented scope and remaining work.
+A native Rust/GPUI music player with a local SQLite library. **0.5.0 is a working Windows preview.** [PROPOSAL.md](PROPOSAL.md) is the original product vision; [IMPLEMENTATION.md](IMPLEMENTATION.md) records the implemented scope and remaining work.
 
 ## Run
 
@@ -10,7 +10,8 @@ The portable folder also contains `needle-cli.exe`. The Windows build needs a wo
 
 ## Listen and organize
 
-- **Find music.** The sidebar holds Songs, Albums, Artists, Favorites, Recently added, Listening history, and your playlists. The search field in the title bar takes plain words or a rule; while you type a rule it suggests fields, comparisons, and values from your library (Tab completes, ↑/↓ choose, Esc closes).
+- **Home.** Needle opens on Home: a greeting, the song you were playing (with Resume), and shelves of covers — albums you played last, your most played albums, albums with your favorite songs, new additions, and the artists you play most. Each shelf has *See all*.
+- **Find music.** The sidebar holds Home, Songs, Albums, Artists, Favorites, Recently added, Listening history, and your playlists. The search field in the title bar takes plain words or a rule; while you type a rule it suggests fields, comparisons, and values from your library (Tab completes, ↑/↓ choose, Esc closes).
 - **Play.** Double-click a track, press Enter, or use **Play**/**Shuffle** in a page header. Play and Shuffle queue everything the page matches, across its 1,000-track pages, up to 50,000 tracks. Hover an album or artist cover for a play button that plays it without leaving the page.
 - **Menus.** Right-click a track (or use its ⋯ button) for Play, Play next, Add to queue, favorites, *Add to playlist ›*, *Plugins ›*, Go to album/artist, Edit tags, Split into stems, Show in File Explorer, and Copy file path. Every menu uses the same look and shows its shortcut. ↑/↓ move, → opens a submenu, ← goes back, Enter chooses, Esc closes.
 - **Command palette.** Ctrl+K (or the *Ctrl K* button in the title bar) opens one box that goes to any page, playlist, or settings section, runs any action or plugin command, and finds songs, albums, and artists as you type. ↑/↓ choose and Enter runs.
@@ -30,10 +31,11 @@ The portable folder also contains `needle-cli.exe`. The Windows build needs a wo
 - **Stems.** In the big player's *Stems* tab or the details panel, *Split into stems* separates a song into drums, bass, vocals, and everything else on this computer (about half the song's length on a modern CPU; the 166 MB model downloads the first time). Turn on *Play from stems* to mix them live: a slider and Solo for each stem, and Karaoke, Vocals only, No drums, and Bass only mixes. Stems are cached until you delete them.
 - **Import.** *Import* in the sidebar brings over ratings, play counts, date added, and playlists from an iTunes, Apple Music, or MusicBee library XML (found automatically when it exists); listening history and playlists from a Spotify data download (folder or ZIP); scrobbles from Last.fm and listens from ListenBrainz by user name (later imports fetch only new ones); and every M3U playlist in a folder. Songs match by path, then artist and title. Listens for songs you don't have are kept for your statistics; imported listens are never scrobbled.
 - **Plugins.** See below.
-- **Keyboard.** Space play/pause · Ctrl+←/→ previous/next · ←/→ seek 10 s · Ctrl+↑/↓ volume · Ctrl+K command palette · Ctrl+F search · Shift+Enter play next · Ctrl+Enter add to queue · Ctrl+1–6 sidebar pages · Ctrl+, settings · Ctrl+P big player · Ctrl+M mini player · Alt+← or Backspace back · Tab/Shift+Tab move between controls · Esc closes menus, clears search, then the selection.
+- **Keyboard.** Space play/pause · Ctrl+←/→ previous/next · ←/→ seek 10 s · Ctrl+↑/↓ volume · Ctrl+K command palette · Ctrl+F search · Shift+Enter play next · Ctrl+Enter add to queue · Ctrl+1–7 sidebar pages · Ctrl+, settings · Ctrl+P big player · Ctrl+M mini player · Alt+← or Backspace back · Tab/Shift+Tab move between controls · Esc closes menus, clears search, then the selection.
 - **Motion.** Pages fade in, the playing song shows moving bars, a heart pops when you like a song, the big player grows out of the cover and shrinks back into it, its background fades to each new cover's colour, lyrics glide to the sung line, and loading lists shimmer. *Reduce motion* in Settings › Appearance turns all of this off, and Needle also keeps still when Windows' *Animation effects* setting is off.
 - **Settings.** Settings are grouped into sections with a list on the left: Playback, Library, Appearance, Online services, Stems, Plugins, Your data, and Keyboard. The palette can open any section directly.
-- **Appearance.** Dark and light themes and compact/comfortable rows are in Settings. Text colours are checked by a test to meet WCAG AA contrast (4.5:1) on every surface in both themes.
+- **Look.** Needle takes its colors from the music: the accent, the surfaces, and a soft glow behind each page come from the playing song's cover, fading over about a second when the song changes. Album and artist pages take that album's or artist's own colors, and the big player and mini player glow with a blurred copy of the cover. Music without a cover gets a made-up one — a two-color gradient with the album's first letter — that also colors the app. Page titles use the Fraunces typeface. Settings › Appearance offers three base looks (Night, Midnight, and Day) with live previews, and *Colors from the music* turns the tinting off.
+- **Appearance.** Compact and comfortable rows are in Settings. Text colors are checked by a test to meet WCAG AA contrast (4.5:1) on every surface in all three looks, for 27 different cover colors.
 
 Supported and exercised with generated fixtures: WAV PCM, AIFF PCM, FLAC, MP3, AAC and ALAC in M4A, Ogg Vorbis, and Ogg Opus (`.opus`, or Opus inside `.ogg`). WavPack, APE, DSD, DRM, and streaming services are not implemented. Raw AAC is not part of the validated format set.
 

@@ -125,11 +125,12 @@ impl AppView {
                 })
             };
         let mut items = vec![
-            page("songs", "Songs", Page::Songs, Some("Ctrl+1")),
-            page("albums", "Albums", Page::Albums, Some("Ctrl+2")),
-            page("artists", "Artists", Page::Artists, Some("Ctrl+3")),
-            page("heart", "Favorites", Page::Favorites, Some("Ctrl+4")),
-            page("recent", "Recently added", Page::Recent, Some("Ctrl+5")),
+            page("home", "Home", Page::Home, Some("Ctrl+1")),
+            page("songs", "Songs", Page::Songs, Some("Ctrl+2")),
+            page("albums", "Albums", Page::Albums, Some("Ctrl+3")),
+            page("artists", "Artists", Page::Artists, Some("Ctrl+4")),
+            page("heart", "Favorites", Page::Favorites, Some("Ctrl+5")),
+            page("recent", "Recently added", Page::Recent, Some("Ctrl+6")),
             page(
                 "history",
                 "Listening history",
@@ -262,14 +263,14 @@ impl AppView {
             item(
                 "Actions",
                 "palette",
-                "Switch between dark and light",
+                "Switch the look: Night, Midnight, Day",
                 "",
                 None,
                 |this, window, cx| {
-                    let mode = if this.settings.theme == "light" {
-                        "dark"
-                    } else {
-                        "light"
+                    let mode = match this.settings.theme.as_str() {
+                        "light" => "dark",
+                        "midnight" => "light",
+                        _ => "midnight",
                     };
                     super::set_theme(mode, Some(window), cx);
                     this.settings.theme = mode.into();
