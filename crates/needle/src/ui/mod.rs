@@ -94,8 +94,6 @@ const PLAY_LIMIT: usize = 50_000;
 const PAGE_SIZE: usize = 1000;
 /// How long the big player takes to grow or shrink.
 const BIG_MS: u64 = 260;
-/// Space between the page sheet and the window edges around it.
-const SHEET_GAP: f32 = 8.;
 
 #[derive(Clone, PartialEq, Debug)]
 pub enum Page {
@@ -1787,9 +1785,9 @@ impl Render for AppView {
             && (self.page.is_tracks() || self.panel == Panel::Queue);
         let sidebar = self.settings.layout.sidebar_width.clamp(200., 260.);
         let panel_width = self.settings.layout.inspector_width.clamp(280., 340.) + 16.;
-        // The page is a sheet floating on the back layer, 8 px in from its neighbours.
+        // The page and the side panel share one content surface to the right of the sidebar.
         let content_width =
-            f32::from(width) - sidebar - if show_panel { panel_width } else { SHEET_GAP } - 2.;
+            f32::from(width) - sidebar - if show_panel { panel_width } else { 0. } - 1.;
         let backdrop = self.page_backdrop(cx);
         let grain = self.grain(window, cx);
         self.glide_lyrics(window, cx);
@@ -2001,35 +1999,27 @@ impl Render for AppView {
                                 .bg(p.back)
                                 .child(self.sidebar(sidebar, cx))
                                 .child(
+                                    // The content surface: flush with the window's right edge
+                                    // and the player, one hairline and a rounded corner where it
+                                    // meets the sidebar and title bar, like Windows 11's own apps.
                                     div()
                                         .id("sheet")
                                         .flex_1()
                                         .min_w_0()
-                                        .mb(px(SHEET_GAP))
-                                        .when(!show_panel, |el| el.mr(px(SHEET_GAP)))
                                         .relative()
                                         .flex()
-                                        .rounded(px(12.))
+                                        .rounded_tl(px(10.))
                                         .overflow_hidden()
                                         .bg(p.canvas)
-                                        .border_1()
+                                        .border_t_1()
+                                        .border_l_1()
                                         .border_color(if p.dark { p.line_soft } else { p.line })
-                                        .shadow(vec![BoxShadow {
-                                            color: gpui::black().opacity(if p.dark {
-                                                0.45
-                                            } else {
-                                                0.08
-                                            }),
-                                            offset: point(px(0.), px(2.)),
-                                            blur_radius: px(18.),
-                                            spread_radius: px(0.),
-                                        }])
                                         .child(backdrop)
-                                        .child(self.main(content_width, window, cx)),
-                                )
-                                .when(show_panel, |el| {
-                                    el.child(self.panel(panel_width, window, cx))
-                                }),
+                                        .child(self.main(content_width, window, cx))
+                                        .when(show_panel, |el| {
+                                            el.child(self.panel(panel_width, window, cx))
+                                        }),
+                                ),
                         )
                         .child(self.player_bar(width, cx))
                     })
