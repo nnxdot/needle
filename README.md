@@ -16,6 +16,7 @@ The portable folder also contains `needle-cli.exe`. The Windows build needs a wo
 - The heart marks a favorite; Track details provides a 0–5 rating. History records local listening even when network services are disabled.
 - Large collections use pages of 1,000 tracks. Play, shuffle, and “Save shown tracks” act on the current page. Search and smart rules operate over the library, up to the current 500,000-result limit.
 - Tag edits show editable values before writing. Writes keep an original-file backup and verify that decoded audio is unchanged before replacing a file. Batch editing is available through the CLI.
+- The core library also provides full history paging and statistics, album/artist/genre summaries, rule autocomplete, multi-track tag editing, and restoring a tag backup (see [IMPLEMENTATION.md](IMPLEMENTATION.md)). The current interface does not use them yet.
 
 Supported and exercised with generated fixtures: WAV PCM, AIFF PCM, FLAC, MP3, AAC and ALAC in M4A, and Ogg Vorbis. Opus, WavPack, APE, DSD, DRM, and streaming services are not implemented. Raw AAC is not part of the validated format set.
 
@@ -32,7 +33,7 @@ missing
 
 Use `and`, `or`, `not`, parentheses, `=`, `!=`, `<`, `<=`, `>`, `>=`, `contains`, `exists(field)`, `recent(30d)`, and `played(7d)`/`played(2025)`. Optional suffixes are `order by field asc|desc` or `shuffle`, followed by `limit N`. Quoted text supports backslash escapes. Fields include title, artist, album, album_artist, genre, year, format, path, bpm, rating, duration, sample_rate, bit_depth, play_count, added_at, and last_played. Missing BPM values do not satisfy numeric comparisons.
 
-This is a bounded query language, not the proposal’s complete expression pipeline. Artist-constrained shuffle, similarity, grouped history analytics, and expression autocomplete remain unimplemented. The core also exposes simple `{artist} — {title}` display templates.
+This is a bounded query language, not the proposal’s complete expression pipeline. Artist-constrained shuffle and similarity remain unimplemented. `query::suggest` offers context-aware completions (fields, type-appropriate operators, functions, connectives, `order by` fields and directions, and quoted library values); it stays silent for ordinary words that are not rule vocabulary. `not missing` on its own is read as plain text; write `not missing and …` or use parentheses. The core also exposes simple `{artist} — {title}` display templates.
 
 ## Audio output
 
@@ -61,7 +62,7 @@ Qualified plays are queued locally and retried in chronological order every minu
 
 ## Data, backups, and layouts
 
-The default location is `%LOCALAPPDATA%\nnx\Needle\data` on Windows; Settings and `needle-cli doctor` show the resolved path. Use `--data-dir PATH` to isolate another library. The folder holds `library.db`, artwork, tag backups, and optional demos. Back up through Settings or the CLI so SQLite’s WAL is included correctly.
+The default location is `%LOCALAPPDATA%\nnx\Needle\data` on Windows; Settings and `needle-cli doctor` show the resolved path. Use `--data-dir PATH` to isolate another library. The folder holds `library.db`, artwork, tag backups, and optional demos. Each tag write or restore first copies the file it replaces into `backups`; backups are not pruned automatically. A backup can be restored only when its decoded audio matches the current file. Back up through Settings or the CLI so SQLite’s WAL is included correctly.
 
 Encrypted bundles transfer history, ratings, and playlists between libraries containing the same music files. Use a passphrase of at least 12 characters. XChaCha20-Poly1305 authenticates the contents; Argon2 derives the key. Matching uses file hashes, existing nonzero local ratings win, listen IDs deduplicate, and newer playlist timestamps win. Unmatched files are reported. Imported history is never re-scrobbled. Audio, credentials, and playback position are excluded. This is **manual transfer**, not automatic peer-to-peer/CRDT sync.
 
@@ -82,7 +83,7 @@ Layout import/export uses one JSON file for sidebar width, inspector width, and 
 .\needle-cli.exe tag 'album = "Example"' '.\changes.json'
 ```
 
-`changes.json` contains only fields to change, e.g. `{"album":"Correct album","year":2026}`. Preview first, then add `--apply` to write each matching file with backups. Batch failures are reported per file; already-successful writes remain saved. Available tag fields are title, artist, album, genre, year, and musicbrainz_id.
+`changes.json` contains only fields to change, e.g. `{"album":"Correct album","year":2026}`. Preview first, then add `--apply` to write each matching file with backups; progress goes to standard error. Batch failures are reported per file; already-successful writes remain saved. Available tag fields are title, artist, album, album_artist, genre, year, track_number, and musicbrainz_id. An empty album_artist removes that tag (Needle then shows the track artist); a track_number of 0 removes the number.
 
 Other commands include `devices`, `exclusive`, `history`, `demo`, `import-playlist`, `lookup`, `identify`, `fingerprint`, `cover`, `scrobble`, `layout-import`, `layout-export`, `sync-import`, and `sync-export`. Sync CLI commands read `NEEDLE_SYNC_PASSPHRASE` from the environment. Duplicate analysis is capped at 5,000 candidate tracks and reports suggestions without deleting files.
 
