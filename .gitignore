@@ -1,0 +1,8 @@
+/target/
+/.needle/
+*.log
+*.db
+*.db-shm
+*.db-wal
+/artifacts/
+/dist/

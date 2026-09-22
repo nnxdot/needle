@@ -1,0 +1,35 @@
+[package]
+name = "needle-core"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+anyhow = "1"
+argon2 = "0.5"
+base64 = "0.22"
+blake3 = "1"
+chacha20poly1305 = "0.10"
+chrono = { version = "0.4", features = ["serde"] }
+crossbeam-channel = "0.5"
+directories = "6"
+ebur128 = "0.1.10"
+hound = "3.5"
+lofty = "=0.24.0"
+md5 = "0.7"
+notify = "8"
+rand = "0.8"
+reqwest = { version = "0.12", default-features = false, features = ["blocking", "json", "rustls-tls"] }
+rodio = { version = "=0.21.1", features = ["symphonia-all"] }
+rusqlite = { version = "0.37", features = ["bundled", "backup"] }
+rusty-chromaprint = "0.3"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+uuid = { version = "1", features = ["v4", "serde"] }
+walkdir = "2"
+
+[target.'cfg(windows)'.dependencies]
+wasapi = "=0.24.0"
+
+[dev-dependencies]
+tempfile = "3"
