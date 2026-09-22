@@ -6,3 +6,4 @@
 *.db-wal
 /artifacts/
 /dist/
+/target-*/
