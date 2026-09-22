@@ -12,7 +12,12 @@ use gpui_component::{
 use needle_core::{audio::Command, audio::Repeat, model::format_duration};
 
 impl AppView {
-    pub(super) fn title_bar(&self, sidebar: f32, cx: &mut Context<Self>) -> impl IntoElement {
+    pub(super) fn title_bar(
+        &self,
+        sidebar: f32,
+        window: &Window,
+        cx: &mut Context<Self>,
+    ) -> impl IntoElement {
         let p = pal(cx);
         let rule = self
             .explanation
@@ -25,6 +30,19 @@ impl AppView {
             .bg(p.chrome)
             .border_b_1()
             .border_color(p.line_soft)
+            // A thin strip that is not a drag area, so Windows offers top-edge resizing.
+            .when(!window.is_maximized(), |el| {
+                el.child(
+                    div()
+                        .id("resize-top")
+                        .absolute()
+                        .top_0()
+                        .left_0()
+                        .right_0()
+                        .h(px(5.))
+                        .occlude(),
+                )
+            })
             .child(
                 div()
                     .w(px(sidebar))
