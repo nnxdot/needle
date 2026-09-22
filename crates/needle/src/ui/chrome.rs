@@ -114,8 +114,15 @@ impl AppView {
                             .hover(|s| s.bg(p.raised).text_color(p.ink))
                             .child(glyph("command").size(px(14.)).text_color(p.ink_3))
                             .child("Ctrl K")
-                            .tooltip(|window, cx| gpui_component::tooltip::Tooltip::new("Command palette: go anywhere, do anything").build(window, cx))
-                            .on_click(cx.listener(|this, _, window, cx| this.open_palette(window, cx))),
+                            .tooltip(|window, cx| {
+                                gpui_component::tooltip::Tooltip::new(
+                                    "Command palette: go anywhere, do anything",
+                                )
+                                .build(window, cx)
+                            })
+                            .on_click(
+                                cx.listener(|this, _, window, cx| this.open_palette(window, cx)),
+                            ),
                     )
                     .child(div().flex_1()),
             )
@@ -199,11 +206,17 @@ impl AppView {
             .child(
                 self.nav_item("nav-favorites", "Favorites", "heart", Page::Favorites, cx)
                     .drag_over::<super::flow::DraggedTracks>(move |s, _, _, _| s.bg(p.accent_soft))
-                    .on_drop(cx.listener(|this, dragged: &super::flow::DraggedTracks, _, cx| {
-                        this.set_rating(&dragged.ids, 5);
-                        this.notify(if dragged.ids.len() == 1 { "Added to favorites.".to_string() } else { format!("Added {} songs to favorites.", dragged.ids.len()) });
-                        cx.notify();
-                    })),
+                    .on_drop(
+                        cx.listener(|this, dragged: &super::flow::DraggedTracks, _, cx| {
+                            this.set_rating(&dragged.ids, 5);
+                            this.notify(if dragged.ids.len() == 1 {
+                                "Added to favorites.".to_string()
+                            } else {
+                                format!("Added {} songs to favorites.", dragged.ids.len())
+                            });
+                            cx.notify();
+                        }),
+                    ),
             )
             .child(self.nav_item("nav-recent", "Recently added", "recent", Page::Recent, cx))
             .child(self.nav_item(
@@ -266,12 +279,19 @@ impl AppView {
                         )
                         .when(playlist.query.is_none(), |el| {
                             let id = playlist.id.clone();
-                            el.drag_over::<super::flow::DraggedTracks>(move |s, _, _, _| s.bg(p.accent_soft))
-                                .on_drop(cx.listener(move |this, dragged: &super::flow::DraggedTracks, _, cx| {
-                                    let tracks = this.library.tracks_by_ids(&dragged.ids).unwrap_or_default();
+                            el.drag_over::<super::flow::DraggedTracks>(move |s, _, _, _| {
+                                s.bg(p.accent_soft)
+                            })
+                            .on_drop(cx.listener(
+                                move |this, dragged: &super::flow::DraggedTracks, _, cx| {
+                                    let tracks = this
+                                        .library
+                                        .tracks_by_ids(&dragged.ids)
+                                        .unwrap_or_default();
                                     this.add_to_playlist(&id, tracks);
                                     cx.notify();
-                                }))
+                                },
+                            ))
                         })
                     })),
             )
@@ -492,9 +512,19 @@ impl AppView {
                             .map_or(track.rating, |t| t.rating)
                             >= 4;
                         el.child(
-                            icon_button("now-favorite", if favorite { "heart-fill" } else { "heart" }, if favorite { "Remove from favorites" } else { "Add to favorites" })
-                                .small()
-                                .when(favorite, |b| b.text_color(p.accent))
+                            div()
+                                .id("now-favorite")
+                                .size(px(28.))
+                                .rounded(px(6.))
+                                .flex()
+                                .items_center()
+                                .justify_center()
+                                .cursor_pointer()
+                                .hover(|s| s.bg(p.raised_hover))
+                                .child(self.heart(&track.id, favorite, 15., if favorite { p.accent } else { p.ink_2 }, cx))
+                                .tooltip(move |window, cx| {
+                                    gpui_component::tooltip::Tooltip::new(if favorite { "Remove from favorites" } else { "Add to favorites" }).build(window, cx)
+                                })
                                 .on_click(cx.listener(move |this, _, _, cx| {
                                     this.set_rating(std::slice::from_ref(&track.id), if favorite { 0 } else { 5 });
                                     if let Some(item) = this.playback.current.as_mut() {
@@ -541,7 +571,8 @@ impl AppView {
                                     .justify_center()
                                     .cursor_pointer()
                                     .hover(|s| s.opacity(0.88))
-                                    .active(|s| s.opacity(0.75))
+                                    // Pressed: shrink inside the same space so nothing around it moves.
+                                    .active(|s| s.size(px(34.)).m(px(2.)).opacity(0.8))
                                     .child(glyph(if playing { "pause" } else { "play" }).size(px(17.)).text_color(p.canvas))
                                     .tooltip(move |window, cx| {
                                         gpui_component::tooltip::Tooltip::new(if playing { "Pause · Space" } else { "Play · Space" }).build(window, cx)

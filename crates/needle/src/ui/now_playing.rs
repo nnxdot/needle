@@ -1,5 +1,5 @@
 use super::{
-    AppView, Page, album_page, pal,
+    AppView, BIG_MS, Page, album_page, motion, pal,
     widgets::{artwork, faint, glyph, icon_button, meta, quality},
 };
 use gpui::{prelude::*, *};
@@ -60,15 +60,39 @@ impl AppView {
         });
         None
     }
+    /// Grow the big player out of the cover in the bottom-left corner, or shrink it back.
+    /// The player keeps its full size inside a growing clip, so nothing re-flows mid-way.
+    pub(super) fn big_reveal(&self, player: AnyElement, w: f32, h: f32, cx: &App) -> AnyElement {
+        let closing = !self.big;
+        let canvas = pal(cx).canvas;
+        // Where the cover sits in the player bar, measured from the body's edges.
+        let art = [22., h - 77., w - 78., 21.];
+        let edge = move |t: f32, i: usize| art[i] * (1. - if closing { 1. - t } else { t });
+        let serial = self.big_serial;
+        let inner = motion::animate(
+            div().absolute().w(px(w)).h(px(h)).child(player),
+            ("big-inner", serial),
+            BIG_MS,
+            cx,
+            move |el, t| el.left(px(-edge(t, 0))).top(px(-edge(t, 1))),
+        );
+        let clip = div().absolute().overflow_hidden().bg(canvas).child(inner);
+        motion::animate(clip, ("big-reveal", serial), BIG_MS, cx, move |el, t| {
+            let shown = if closing { 1. - t } else { t };
+            el.left(px(edge(t, 0)))
+                .top(px(edge(t, 1)))
+                .right(px(edge(t, 2)))
+                .bottom(px(edge(t, 3)))
+                .rounded(px(8. * (1. - shown)))
+                .opacity((shown * 1.6).min(1.))
+        })
+    }
+
     pub(super) fn set_art_color(&mut self, path: String, color: Option<Hsla>) {
         self.art_colors.colors.insert(path, color);
     }
 
-    pub(super) fn big_player(
-        &mut self,
-        window: &mut Window,
-        cx: &mut Context<Self>,
-    ) -> impl IntoElement {
+    pub(super) fn big_player(&mut self, window: &mut Window, cx: &mut Context<Self>) -> AnyElement {
         let p = pal(cx);
         let tint = self.art_tint();
         let size = window.viewport_size();
@@ -84,11 +108,14 @@ impl AppView {
             Some(c) => hsla(c.h, (c.s * 0.7).min(0.4), 0.86, 1.),
             None => p.raised,
         };
-        let background = linear_gradient(
-            180.,
-            linear_color_stop(top, 0.),
-            linear_color_stop(p.canvas, 0.85),
-        );
+        // Fade the background to the new cover's colour instead of snapping.
+        if self.big_tint.2 == 0 {
+            self.big_tint = (top, top, 1);
+        } else if self.big_tint.1 != top {
+            self.big_tint = (self.big_tint.1, top, self.big_tint.2 + 1);
+        }
+        let (from, to, tint_serial) = self.big_tint;
+        let canvas = p.canvas;
         let side_button = |id: &'static str,
                            name: &'static str,
                            tip: &'static str,
@@ -106,13 +133,11 @@ impl AppView {
                     cx.notify();
                 }))
         };
-        div()
+        let player = div()
             .id("big-player")
-            .flex_1()
-            .min_h_0()
+            .size_full()
             .flex()
             .flex_col()
-            .bg(background)
             .child(
                 div()
                     .h(px(56.))
@@ -320,6 +345,7 @@ impl AppView {
                                             .justify_center()
                                             .cursor_pointer()
                                             .hover(|s| s.opacity(0.88))
+                                            .active(|s| s.size(px(55.)).m(px(2.5)).opacity(0.8))
                                             .child(
                                                 glyph(if playing { "pause" } else { "play" })
                                                     .size(px(26.))
@@ -398,7 +424,14 @@ impl AppView {
                                 }),
                         )
                     }),
-            )
+            );
+        motion::animate(player, ("big-tint", tint_serial), 900, cx, move |el, t| {
+            el.bg(linear_gradient(
+                180.,
+                linear_color_stop(motion::mix(from, to, t), 0.),
+                linear_color_stop(canvas, 0.85),
+            ))
+        })
     }
 
     /// The upcoming queue as a simple list, shared by the big and mini players.

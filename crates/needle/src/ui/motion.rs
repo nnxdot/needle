@@ -19,9 +19,18 @@ pub fn enabled(cx: &App) -> bool {
 pub fn system_allows_animation() -> bool {
     #[cfg(windows)]
     {
-        use windows_sys::Win32::UI::WindowsAndMessaging::{SPI_GETCLIENTAREAANIMATION, SystemParametersInfoW};
+        use windows_sys::Win32::UI::WindowsAndMessaging::{
+            SPI_GETCLIENTAREAANIMATION, SystemParametersInfoW,
+        };
         let mut on: i32 = 1;
-        let ok = unsafe { SystemParametersInfoW(SPI_GETCLIENTAREAANIMATION, 0, &mut on as *mut i32 as *mut _, 0) };
+        let ok = unsafe {
+            SystemParametersInfoW(
+                SPI_GETCLIENTAREAANIMATION,
+                0,
+                &mut on as *mut i32 as *mut _,
+                0,
+            )
+        };
         if ok != 0 {
             return on != 0;
         }
@@ -46,7 +55,11 @@ pub fn animate<E: IntoElement + 'static>(
         return apply(element, 1.).into_any_element();
     }
     element
-        .with_animation(id, Animation::new(Duration::from_millis(ms)).with_easing(ease_out), apply)
+        .with_animation(
+            id,
+            Animation::new(Duration::from_millis(ms)).with_easing(ease_out),
+            apply,
+        )
         .into_any_element()
 }
 
@@ -65,7 +78,9 @@ pub fn repeat<E: IntoElement + 'static>(
     element
         .with_animation(
             id,
-            Animation::new(Duration::from_millis(ms)).repeat().with_easing(pulsating_between(0., 1.)),
+            Animation::new(Duration::from_millis(ms))
+                .repeat()
+                .with_easing(pulsating_between(0., 1.)),
             apply,
         )
         .into_any_element()
@@ -81,4 +96,43 @@ pub fn mix(a: Hsla, b: Hsla, t: f32) -> Hsla {
         a: a.a + (b.a - a.a) * t,
     }
     .into()
+}
+
+/// A heart (or any icon) that swells and settles once when `id` changes.
+pub fn pop(icon: Svg, id: impl Into<ElementId>, cx: &App) -> AnyElement {
+    animate(icon, id, 420, cx, |el, t| {
+        let s = 1. + 0.38 * (t * std::f32::consts::PI).sin();
+        el.with_transformation(Transformation::scale(size(s, s)))
+    })
+}
+
+/// Three little bars that bounce while a song plays and rest when it is paused.
+pub fn equalizer(
+    id: impl Into<SharedString>,
+    color: Hsla,
+    moving: bool,
+    cx: &App,
+) -> impl IntoElement {
+    let id: SharedString = id.into();
+    let moving = moving && enabled(cx);
+    div().h(px(14.)).flex().items_end().gap(px(2.)).children(
+        [(620u64, 0.55), (820, 0.9), (540, 0.4)]
+            .into_iter()
+            .enumerate()
+            .map(move |(i, (ms, rest))| {
+                let bar = div().w(px(3.)).rounded(px(1.)).bg(color);
+                if moving {
+                    bar.with_animation(
+                        ElementId::NamedInteger(id.clone(), i as u64),
+                        Animation::new(Duration::from_millis(ms))
+                            .repeat()
+                            .with_easing(pulsating_between(0., 1.)),
+                        |el, t| el.h(px(3. + 11. * t)),
+                    )
+                    .into_any_element()
+                } else {
+                    bar.h(px(3. + 11. * rest * 0.5)).into_any_element()
+                }
+            }),
+    )
 }

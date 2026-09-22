@@ -9,14 +9,33 @@ type Action = Rc<dyn Fn(&mut AppView, &mut Window, &mut Context<AppView>)>;
 
 #[derive(Clone)]
 pub enum Entry {
-    Item { icon: &'static str, label: SharedString, hint: Option<&'static str>, action: Action },
-    Sub { icon: &'static str, label: SharedString, key: &'static str },
+    Item {
+        icon: &'static str,
+        label: SharedString,
+        hint: Option<&'static str>,
+        action: Action,
+    },
+    Sub {
+        icon: &'static str,
+        label: SharedString,
+        key: &'static str,
+    },
     Label(SharedString),
     Separator,
 }
 impl Entry {
-    fn item(icon: &'static str, label: impl Into<SharedString>, hint: Option<&'static str>, action: impl Fn(&mut AppView, &mut Window, &mut Context<AppView>) + 'static) -> Self {
-        Self::Item { icon, label: label.into(), hint, action: Rc::new(action) }
+    fn item(
+        icon: &'static str,
+        label: impl Into<SharedString>,
+        hint: Option<&'static str>,
+        action: impl Fn(&mut AppView, &mut Window, &mut Context<AppView>) + 'static,
+    ) -> Self {
+        Self::Item {
+            icon,
+            label: label.into(),
+            hint,
+            action: Rc::new(action),
+        }
     }
     fn selectable(&self) -> bool {
         matches!(self, Self::Item { .. } | Self::Sub { .. })
@@ -35,34 +54,59 @@ pub struct TrackMenu {
 }
 
 impl AppView {
-    pub(super) fn open_menu(&mut self, index: usize, position: Point<Pixels>, cx: &mut Context<Self>) {
+    pub(super) fn open_menu(
+        &mut self,
+        index: usize,
+        position: Point<Pixels>,
+        cx: &mut Context<Self>,
+    ) {
         if let Some(track) = self.tracks.get(index)
             && !self.selection.ids.contains(&track.id)
         {
             self.select_single(index, cx);
         }
         self.menu_serial += 1;
-        self.menu = Some(TrackMenu { position, index, sub: None, highlight: None, serial: self.menu_serial });
+        self.menu = Some(TrackMenu {
+            position,
+            index,
+            sub: None,
+            highlight: None,
+            serial: self.menu_serial,
+        });
         cx.notify();
     }
 
     fn menu_entries(&self) -> Vec<Entry> {
-        let Some(menu) = &self.menu else { return vec![] };
-        let Some(track) = self.tracks.get(menu.index).cloned() else { return vec![] };
+        let Some(menu) = &self.menu else {
+            return vec![];
+        };
+        let Some(track) = self.tracks.get(menu.index).cloned() else {
+            return vec![];
+        };
         let selected = self.selected_tracks();
         let count = selected.len();
         let many = count > 1;
         let index = menu.index;
         match menu.sub {
             Some("playlists") => {
-                let mut entries = vec![Entry::item("plus", "New playlist from selection…", None, |this, window, cx| {
-                    this.show_save = true;
-                    this.playlist_name.update(cx, |s, cx| {
-                        s.set_value("", window, cx);
-                        s.focus(window, cx);
-                    });
-                })];
-                let playlists: Vec<_> = self.playlists.iter().filter(|p| p.query.is_none()).cloned().collect();
+                let mut entries = vec![Entry::item(
+                    "plus",
+                    "New playlist from selection…",
+                    None,
+                    |this, window, cx| {
+                        this.show_save = true;
+                        this.playlist_name.update(cx, |s, cx| {
+                            s.set_value("", window, cx);
+                            s.focus(window, cx);
+                        });
+                    },
+                )];
+                let playlists: Vec<_> = self
+                    .playlists
+                    .iter()
+                    .filter(|p| p.query.is_none())
+                    .cloned()
+                    .collect();
                 if !playlists.is_empty() {
                     entries.push(Entry::Separator);
                 }
@@ -91,32 +135,77 @@ impl AppView {
             _ => {
                 let favorite = selected.iter().all(|t| t.rating >= 4);
                 let mut entries = vec![
-                    Entry::item("play", if many { format!("Play {count} tracks") } else { "Play".into() }, Some("Enter"), move |this, _, cx| {
-                        let selected = this.selected_tracks();
-                        if selected.len() > 1 {
-                            let reason = this.reason(cx);
-                            this.play_tracks(selected, &reason);
+                    Entry::item(
+                        "play",
+                        if many {
+                            format!("Play {count} tracks")
                         } else {
-                            this.play_view(index, false, cx);
-                        }
-                    }),
-                    Entry::item("next", if many { format!("Play {count} next") } else { "Play next".into() }, Some("Shift+Enter"), |this, _, _| {
-                        let selected = this.selected_tracks();
-                        this.play_next(selected);
-                    }),
-                    Entry::item("queue", if many { format!("Add {count} to queue") } else { "Add to queue".into() }, Some("Ctrl+Enter"), |this, _, _| {
-                        let selected = this.selected_tracks();
-                        this.enqueue(selected);
-                    }),
+                            "Play".into()
+                        },
+                        Some("Enter"),
+                        move |this, _, cx| {
+                            let selected = this.selected_tracks();
+                            if selected.len() > 1 {
+                                let reason = this.reason(cx);
+                                this.play_tracks(selected, &reason);
+                            } else {
+                                this.play_view(index, false, cx);
+                            }
+                        },
+                    ),
+                    Entry::item(
+                        "next",
+                        if many {
+                            format!("Play {count} next")
+                        } else {
+                            "Play next".into()
+                        },
+                        Some("Shift+Enter"),
+                        |this, _, _| {
+                            let selected = this.selected_tracks();
+                            this.play_next(selected);
+                        },
+                    ),
+                    Entry::item(
+                        "queue",
+                        if many {
+                            format!("Add {count} to queue")
+                        } else {
+                            "Add to queue".into()
+                        },
+                        Some("Ctrl+Enter"),
+                        |this, _, _| {
+                            let selected = this.selected_tracks();
+                            this.enqueue(selected);
+                        },
+                    ),
                     Entry::Separator,
-                    Entry::item(if favorite { "heart-fill" } else { "heart" }, if favorite { "Remove from favorites" } else { "Add to favorites" }, Some("Ctrl+D"), move |this, _, _| {
-                        let ids: Vec<String> = this.selected_tracks().into_iter().map(|t| t.id).collect();
-                        this.set_rating(&ids, if favorite { 0 } else { 5 });
-                    }),
-                    Entry::Sub { icon: "playlist", label: "Add to playlist".into(), key: "playlists" },
+                    Entry::item(
+                        if favorite { "heart-fill" } else { "heart" },
+                        if favorite {
+                            "Remove from favorites"
+                        } else {
+                            "Add to favorites"
+                        },
+                        Some("Ctrl+D"),
+                        move |this, _, _| {
+                            let ids: Vec<String> =
+                                this.selected_tracks().into_iter().map(|t| t.id).collect();
+                            this.set_rating(&ids, if favorite { 0 } else { 5 });
+                        },
+                    ),
+                    Entry::Sub {
+                        icon: "playlist",
+                        label: "Add to playlist".into(),
+                        key: "playlists",
+                    },
                 ];
                 if self.plugins.commands().iter().any(|c| c.for_tracks) {
-                    entries.push(Entry::Sub { icon: "plugin", label: "Plugins".into(), key: "plugins" });
+                    entries.push(Entry::Sub {
+                        icon: "plugin",
+                        label: "Plugins".into(),
+                        key: "plugins",
+                    });
                 }
                 if !many {
                     let album = super::album_page(&track);
@@ -126,9 +215,18 @@ impl AppView {
                     let copy = path.clone();
                     entries.extend([
                         Entry::Separator,
-                        Entry::item("albums", "Go to album", None, move |this, window, cx| this.navigate(album.clone(), window, cx)),
-                        Entry::item("artists", "Go to artist", None, move |this, window, cx| this.navigate(artist.clone(), window, cx)),
-                        Entry::item("edit", "Edit tags…", Some("Ctrl+E"), |this, window, cx| this.edit_tags(window, cx)),
+                        Entry::item("albums", "Go to album", None, move |this, window, cx| {
+                            this.navigate(album.clone(), window, cx)
+                        }),
+                        Entry::item("artists", "Go to artist", None, move |this, window, cx| {
+                            this.navigate(artist.clone(), window, cx)
+                        }),
+                        Entry::item(
+                            "edit",
+                            "Edit tags…",
+                            Some("Ctrl+E"),
+                            |this, window, cx| this.edit_tags(window, cx),
+                        ),
                         Entry::item("stems", "Split into stems", None, move |this, _, cx| {
                             this.settings.show_inspector = true;
                             this.panel = super::Panel::Details;
@@ -136,12 +234,19 @@ impl AppView {
                         }),
                         Entry::Separator,
                         Entry::item("folder", "Show in File Explorer", None, move |_, _, _| {
-                            let _ = std::process::Command::new("explorer").arg(format!("/select,{path}")).spawn();
+                            let _ = std::process::Command::new("explorer")
+                                .arg(format!("/select,{path}"))
+                                .spawn();
                         }),
-                        Entry::item("copy", "Copy file path", None, move |_, _, cx| cx.write_to_clipboard(ClipboardItem::new_string(copy.clone()))),
+                        Entry::item("copy", "Copy file path", None, move |_, _, cx| {
+                            cx.write_to_clipboard(ClipboardItem::new_string(copy.clone()))
+                        }),
                     ]);
                 } else {
-                    entries.extend([Entry::Separator, Entry::Label(format!("{count} tracks selected").into())]);
+                    entries.extend([
+                        Entry::Separator,
+                        Entry::Label(format!("{count} tracks selected").into()),
+                    ]);
                 }
                 entries
             }
@@ -168,23 +273,40 @@ impl AppView {
     }
 
     /// Keyboard handling while a menu is open. Returns false when no menu is open.
-    pub(super) fn menu_key(&mut self, key: &str, window: &mut Window, cx: &mut Context<Self>) -> bool {
+    pub(super) fn menu_key(
+        &mut self,
+        key: &str,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> bool {
         if self.menu.is_none() {
             return false;
         }
         let entries = self.menu_entries();
-        let selectable: Vec<usize> = entries.iter().enumerate().filter(|(_, e)| e.selectable()).map(|(i, _)| i).collect();
-        let Some(menu) = self.menu.as_mut() else { return false };
+        let selectable: Vec<usize> = entries
+            .iter()
+            .enumerate()
+            .filter(|(_, e)| e.selectable())
+            .map(|(i, _)| i)
+            .collect();
+        let Some(menu) = self.menu.as_mut() else {
+            return false;
+        };
         let n = selectable.len();
         match key {
             "down" if n > 0 => menu.highlight = Some(menu.highlight.map_or(0, |h| (h + 1) % n)),
-            "up" if n > 0 => menu.highlight = Some(menu.highlight.map_or(n - 1, |h| (h + n - 1) % n)),
+            "up" if n > 0 => {
+                menu.highlight = Some(menu.highlight.map_or(n - 1, |h| (h + n - 1) % n))
+            }
             "left" if menu.sub.is_some() => {
                 menu.sub = None;
                 menu.highlight = Some(0);
             }
             "enter" | "right" => {
-                if let Some(entry) = menu.highlight.and_then(|h| selectable.get(h)).map(|i| entries[*i].clone())
+                if let Some(entry) = menu
+                    .highlight
+                    .and_then(|h| selectable.get(h))
+                    .map(|i| entries[*i].clone())
                     && (key == "enter" || matches!(entry, Entry::Sub { .. }))
                 {
                     self.activate(entry, window, cx);
@@ -208,10 +330,18 @@ impl AppView {
             .enumerate()
             .map(|(i, entry)| match entry {
                 Entry::Separator => div().my_1().mx_1().h(px(1.)).bg(p.line).into_any_element(),
-                Entry::Label(text) => div().px_2().py_1().text_size(px(12.)).text_color(p.ink_3).child(text.clone()).into_any_element(),
+                Entry::Label(text) => div()
+                    .px_2()
+                    .py_1()
+                    .text_size(px(12.))
+                    .text_color(p.ink_3)
+                    .child(text.clone())
+                    .into_any_element(),
                 entry => {
                     let (icon, label, hint, sub) = match entry {
-                        Entry::Item { icon, label, hint, .. } => (*icon, label.clone(), *hint, false),
+                        Entry::Item {
+                            icon, label, hint, ..
+                        } => (*icon, label.clone(), *hint, false),
                         Entry::Sub { icon, label, .. } => (*icon, label.clone(), None, true),
                         _ => unreachable!(),
                     };
@@ -230,11 +360,21 @@ impl AppView {
                         .text_size(px(13.))
                         .when(active, |el| el.bg(p.raised_hover))
                         .hover(|s| s.bg(p.raised_hover))
-                        .child(glyph(icon).size(px(15.)).text_color(if active { p.ink } else { p.ink_2 }))
+                        .child(glyph(icon).size(px(15.)).text_color(if active {
+                            p.ink
+                        } else {
+                            p.ink_2
+                        }))
                         .child(div().flex_1().truncate().child(label))
-                        .when_some(hint, |el, hint| el.child(div().text_size(px(11.)).text_color(p.ink_3).child(hint)))
-                        .when(sub, |el| el.child(glyph("chevron-right").size(px(14.)).text_color(p.ink_3)))
-                        .on_click(cx.listener(move |this, _, window, cx| this.activate(entry.clone(), window, cx)))
+                        .when_some(hint, |el, hint| {
+                            el.child(div().text_size(px(11.)).text_color(p.ink_3).child(hint))
+                        })
+                        .when(sub, |el| {
+                            el.child(glyph("chevron-right").size(px(14.)).text_color(p.ink_3))
+                        })
+                        .on_click(cx.listener(move |this, _, window, cx| {
+                            this.activate(entry.clone(), window, cx)
+                        }))
                         .into_any_element()
                 }
             })
@@ -287,7 +427,17 @@ impl AppView {
                 .child(div().my_1().mx_1().h(px(1.)).bg(p.line))
             })
             .children(rows);
-        let body = motion::animate(body, ("menu-in", menu.serial), 140, cx, |el, t| el.opacity(t).mt(px(6. * (1. - t))));
-        Some(deferred(anchored().position(menu.position).snap_to_window_with_margin(px(8.)).child(body)).with_priority(2))
+        let body = motion::animate(body, ("menu-in", menu.serial), 140, cx, |el, t| {
+            el.opacity(t).mt(px(6. * (1. - t)))
+        });
+        Some(
+            deferred(
+                anchored()
+                    .position(menu.position)
+                    .snap_to_window_with_margin(px(8.))
+                    .child(body),
+            )
+            .with_priority(2),
+        )
     }
 }

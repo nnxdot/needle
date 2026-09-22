@@ -36,7 +36,15 @@ impl Render for DragPreview {
             .child(glyph("songs").size(px(14.)).text_color(p.accent))
             .child(self.label.clone())
             .when(self.count > 1, |el| {
-                el.child(div().px(px(6.)).rounded_full().bg(p.accent).text_color(p.accent_ink).text_size(px(11.)).child(self.count.to_string()))
+                el.child(
+                    div()
+                        .px(px(6.))
+                        .rounded_full()
+                        .bg(p.accent)
+                        .text_color(p.accent_ink)
+                        .text_size(px(11.))
+                        .child(self.count.to_string()),
+                )
             })
     }
 }
@@ -64,7 +72,11 @@ impl AppView {
     /// Scroll a freshly loaded page back to where it was, or to the top.
     pub(super) fn restore_scroll(&mut self) {
         let offset = self.pending_scroll.take().unwrap_or_default();
-        let handle = if self.page.is_grid() { &self.grid_scroll } else { &self.list_scroll };
+        let handle = if self.page.is_grid() {
+            &self.grid_scroll
+        } else {
+            &self.list_scroll
+        };
         handle.0.borrow().base_handle.set_offset(offset);
     }
 
@@ -79,7 +91,14 @@ impl AppView {
         std::thread::spawn(move || {
             let event = match library.search_page(&rule, 0, PLAY_LIMIT) {
                 Ok(page) => Event::Play(
-                    page.tracks.into_iter().filter(|t| !t.missing).map(|track| QueueItem { track, reason: reason.clone() }).collect(),
+                    page.tracks
+                        .into_iter()
+                        .filter(|t| !t.missing)
+                        .map(|track| QueueItem {
+                            track,
+                            reason: reason.clone(),
+                        })
+                        .collect(),
                     None,
                 ),
                 Err(e) => Event::Error(format!("{e:#}")),
@@ -90,7 +109,13 @@ impl AppView {
 
     /// A round play button that appears over a cover on hover and plays the whole album or
     /// artist without leaving the page.
-    pub(super) fn cover_play(&self, index: usize, page: Page, size: f32, cx: &mut Context<Self>) -> impl IntoElement {
+    pub(super) fn cover_play(
+        &self,
+        index: usize,
+        page: Page,
+        size: f32,
+        cx: &mut Context<Self>,
+    ) -> impl IntoElement {
         let p = pal(cx);
         let button = (size * 0.22).clamp(34., 46.);
         div()
@@ -108,7 +133,12 @@ impl AppView {
             .opacity(0.)
             .group_hover("tile", |s| s.opacity(1.))
             .hover(|s| s.bg(p.accent.opacity(0.88)))
-            .child(glyph("play").size(px(button * 0.42)).text_color(p.accent_ink))
+            .active(|s| s.bg(p.accent.opacity(0.7)))
+            .child(
+                glyph("play")
+                    .size(px(button * 0.42))
+                    .text_color(p.accent_ink),
+            )
             .tooltip(|window, cx| gpui_component::tooltip::Tooltip::new("Play").build(window, cx))
             .on_click(cx.listener(move |this, _, _, cx| {
                 cx.stop_propagation();
@@ -121,28 +151,91 @@ impl AppView {
             }))
     }
 
+    /// A heart icon that pops when this song was just added to favorites.
+    pub(super) fn heart(
+        &self,
+        id: &str,
+        favorite: bool,
+        size: f32,
+        color: Hsla,
+        cx: &App,
+    ) -> AnyElement {
+        let icon = glyph(if favorite { "heart-fill" } else { "heart" })
+            .size(px(size))
+            .text_color(color);
+        match &self.heart_pop {
+            Some((popped, serial)) if favorite && popped == id => {
+                super::motion::pop(icon, ("heart-pop", *serial), cx)
+            }
+            _ => icon.into_any_element(),
+        }
+    }
+
     /// "Albums › Artist" above an album, "Artists" above an artist, "Playlists" above a playlist.
     pub(super) fn breadcrumbs(&self, cx: &mut Context<Self>) -> Option<impl IntoElement> {
         let p = pal(cx);
         let crumbs: Vec<(String, Option<Page>)> = match &self.page {
-            Page::Album { artist, .. } => vec![("Albums".into(), Some(Page::Albums)), (if artist.is_empty() { "Unknown artist".into() } else { artist.clone() }, Some(Page::Artist(artist.clone())))],
+            Page::Album { artist, .. } => vec![
+                ("Albums".into(), Some(Page::Albums)),
+                (
+                    if artist.is_empty() {
+                        "Unknown artist".into()
+                    } else {
+                        artist.clone()
+                    },
+                    Some(Page::Artist(artist.clone())),
+                ),
+            ],
             Page::Artist(_) => vec![("Artists".into(), Some(Page::Artists))],
             Page::Playlist(id) => vec![(
-                if self.playlists.iter().any(|p| &p.id == id && p.query.is_some()) { "Smart playlist" } else { "Playlist" }.into(),
+                if self
+                    .playlists
+                    .iter()
+                    .any(|p| &p.id == id && p.query.is_some())
+                {
+                    "Smart playlist"
+                } else {
+                    "Playlist"
+                }
+                .into(),
                 None,
             )],
             _ => return None,
         };
-        Some(div().flex().items_center().gap_1().text_size(px(12.)).children(crumbs.into_iter().enumerate().flat_map(|(i, (label, target))| {
-            let separator = (i > 0).then(|| glyph("chevron-right").size(px(12.)).text_color(p.ink_3).into_any_element());
-            let crumb = div()
-                .id(("crumb", i))
-                .text_color(p.ink_3)
-                .when(target.is_some(), |el| el.cursor_pointer().hover(|s| s.text_color(p.ink).underline()))
-                .child(label)
-                .when_some(target, |el, target| el.on_click(cx.listener(move |this, _, window, cx| this.navigate(target.clone(), window, cx))))
-                .into_any_element();
-            separator.into_iter().chain([crumb])
-        })))
+        Some(
+            div()
+                .flex()
+                .items_center()
+                .gap_1()
+                .text_size(px(12.))
+                .children(
+                    crumbs
+                        .into_iter()
+                        .enumerate()
+                        .flat_map(|(i, (label, target))| {
+                            let separator = (i > 0).then(|| {
+                                glyph("chevron-right")
+                                    .size(px(12.))
+                                    .text_color(p.ink_3)
+                                    .into_any_element()
+                            });
+                            let crumb = div()
+                                .id(("crumb", i))
+                                .text_color(p.ink_3)
+                                .when(target.is_some(), |el| {
+                                    el.cursor_pointer()
+                                        .hover(|s| s.text_color(p.ink).underline())
+                                })
+                                .child(label)
+                                .when_some(target, |el, target| {
+                                    el.on_click(cx.listener(move |this, _, window, cx| {
+                                        this.navigate(target.clone(), window, cx)
+                                    }))
+                                })
+                                .into_any_element();
+                            separator.into_iter().chain([crumb])
+                        }),
+                ),
+        )
     }
 }

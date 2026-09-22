@@ -27,7 +27,9 @@ pub const SETTINGS_TABS: [(&str, &str); 8] = [
 impl AppView {
     fn section_title(&self, title: &str, description: &str, cx: &App) -> Div {
         // The first section of a settings page shares the page's name; don't repeat it.
-        let repeat = SETTINGS_TABS.get(self.settings_tab).is_some_and(|(tab, _)| *tab == title);
+        let repeat = SETTINGS_TABS
+            .get(self.settings_tab)
+            .is_some_and(|(tab, _)| *tab == title);
         div()
             .when(!repeat, |el| el.mt_10())
             .when(repeat, |el| el.mt_1())
@@ -36,7 +38,9 @@ impl AppView {
             .flex_col()
             .gap_1()
             .when(!repeat, |el| el.child(heading(title.to_string())))
-            .when(!description.is_empty(), |el| el.child(meta(description.to_string(), cx).w_full()))
+            .when(!description.is_empty(), |el| {
+                el.child(meta(description.to_string(), cx).w_full())
+            })
     }
 
     fn service_line(&self, state: &ServiceState, cx: &App) -> Div {
@@ -453,28 +457,44 @@ impl AppView {
             .gap(px(2.))
             .border_r_1()
             .border_color(p.line_soft)
-            .children(SETTINGS_TABS.iter().enumerate().map(|(i, (name, icon_name))| {
-                let active = i == tab;
-                div()
-                    .id(("settings-tab", i))
-                    .h(px(32.))
-                    .px_3()
-                    .rounded(px(6.))
-                    .flex()
-                    .items_center()
-                    .gap_2()
-                    .cursor_pointer()
-                    .text_size(px(13.))
-                    .when(active, |el| el.bg(p.raised).text_color(p.ink).font_weight(FontWeight::MEDIUM))
-                    .when(!active, |el| el.text_color(p.ink_2).hover(|s| s.bg(p.raised.opacity(0.6)).text_color(p.ink)))
-                    .child(glyph(icon_name).size(px(15.)).text_color(if active { p.accent } else { p.ink_3 }))
-                    .child(*name)
-                    .on_click(cx.listener(move |this, _, _, cx| {
-                        this.settings_tab = i;
-                        this.page_serial += 1;
-                        cx.notify();
-                    }))
-            }));
+            .children(
+                SETTINGS_TABS
+                    .iter()
+                    .enumerate()
+                    .map(|(i, (name, icon_name))| {
+                        let active = i == tab;
+                        div()
+                            .id(("settings-tab", i))
+                            .h(px(32.))
+                            .px_3()
+                            .rounded(px(6.))
+                            .flex()
+                            .items_center()
+                            .gap_2()
+                            .cursor_pointer()
+                            .text_size(px(13.))
+                            .when(active, |el| {
+                                el.bg(p.raised)
+                                    .text_color(p.ink)
+                                    .font_weight(FontWeight::MEDIUM)
+                            })
+                            .when(!active, |el| {
+                                el.text_color(p.ink_2)
+                                    .hover(|s| s.bg(p.raised.opacity(0.6)).text_color(p.ink))
+                            })
+                            .child(glyph(icon_name).size(px(15.)).text_color(if active {
+                                p.accent
+                            } else {
+                                p.ink_3
+                            }))
+                            .child(*name)
+                            .on_click(cx.listener(move |this, _, _, cx| {
+                                this.settings_tab = i;
+                                this.page_serial += 1;
+                                cx.notify();
+                            }))
+                    }),
+            );
         let content = div()
             .id("settings-scroll")
             .flex_1()
