@@ -9,6 +9,7 @@ mod motion;
 mod mini;
 mod now_playing;
 mod pages;
+mod palette;
 mod panel;
 mod plugin_ui;
 mod sound;
@@ -72,6 +73,7 @@ actions!(
         FocusNext,
         FocusPrevious,
         ToggleBigPlayer,
+        OpenPalette,
         PlayNextSelection,
         EnqueueSelection,
         OpenMiniPlayer,
@@ -223,6 +225,7 @@ enum Event {
     ArtFetched,
     ImportProgress(String),
     Plugin(needle_core::plugins::HostAction),
+    PaletteFound(u64, Vec<Track>, Vec<needle_core::browse::AlbumSummary>, Vec<String>),
     StemsProgress(String, String, f32),
     StemsDone(String, std::result::Result<(), String>),
     ImportPicked(needle_core::import::SourceKind, PathBuf),
@@ -263,6 +266,10 @@ pub struct AppView {
     panel: Panel,
     menu: Option<menus::TrackMenu>,
     menu_serial: usize,
+    settings_tab: usize,
+    palette: palette::PaletteState,
+    /// Changes whenever the visible page (or settings section) changes, to replay its fade.
+    page_serial: usize,
     sort: Sort,
     total: usize,
     matched_total: usize,
@@ -361,7 +368,7 @@ pub fn run(library: Library) -> Result<()> {
                 KeyBinding::new("alt-left", GoBack, tracks),
                 KeyBinding::new("backspace", GoBack, tracks),
                 KeyBinding::new("ctrl-f", FocusSearch, Some("Needle")),
-                KeyBinding::new("ctrl-k", FocusSearch, Some("Needle")),
+                KeyBinding::new("ctrl-k", OpenPalette, Some("Needle")),
                 KeyBinding::new("ctrl-o", ImportFolder, Some("Needle")),
                 KeyBinding::new("ctrl-j", ToggleQueue, Some("Needle")),
                 KeyBinding::new("escape", EscapePanel, Some("Needle")),
@@ -449,6 +456,7 @@ impl AppView {
         let tags = TagFields::new(window, cx);
         let sound = sound::SoundControls::new(&settings.dsp, cx);
         let import = importer::ImportState::new(window, cx);
+        let palette = palette::PaletteState::new(window, cx);
         let volume = cx.new(|_| {
             SliderState::new()
                 .min(0.)
@@ -540,6 +548,9 @@ impl AppView {
             panel: Panel::Details,
             menu: None,
             menu_serial: 0,
+            settings_tab: 0,
+            palette,
+            page_serial: 0,
             sort: Sort::Default,
             matched_total: 0,
             page_offset: 0,
@@ -791,6 +802,9 @@ impl AppView {
                 Event::ArtColor(path, color) => self.set_art_color(path, color),
                 Event::ImportProgress(message) => self.import.busy = Some(message),
                 Event::Plugin(action) => self.plugin_action(action, cx),
+                Event::PaletteFound(generation, songs, albums, artists) => {
+                    self.palette_found(generation, songs, albums, artists)
+                }
                 Event::StemsProgress(id, stage, fraction) => {
                     self.stems.job = Some((id, stage, fraction))
                 }
@@ -1776,6 +1790,13 @@ impl Render for AppView {
                 cx.notify();
             }))
             .on_action(cx.listener(|this, _: &GoBack, window, cx| this.go_back(window, cx)))
+            .on_action(cx.listener(|this, _: &OpenPalette, window, cx| {
+                if this.palette.open {
+                    this.close_palette(window, cx)
+                } else {
+                    this.open_palette(window, cx)
+                }
+            }))
             .on_action(cx.listener(|this, _: &ToggleBigPlayer, _, cx| {
                 this.big = !this.big;
                 cx.notify();
@@ -1847,5 +1868,6 @@ impl Render for AppView {
             )
             .children(self.toast(cx))
             .children(self.track_menu(cx))
+            .children(self.palette_view(cx))
     }
 }

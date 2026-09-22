@@ -69,6 +69,7 @@ fn shape(name: &str) -> Option<String> {
         "eq" => "<path d='M5 4v16M12 4v16M19 4v16'/><rect x='3' y='13' width='4' height='3' rx='1' fill='currentColor'/><rect x='10' y='7' width='4' height='3' rx='1' fill='currentColor'/><rect x='17' y='11' width='4' height='3' rx='1' fill='currentColor'/>".into(),
         "grip" => format!("<circle cx='9' cy='6' r='1.3' {FILLED}/><circle cx='15' cy='6' r='1.3' {FILLED}/><circle cx='9' cy='12' r='1.3' {FILLED}/><circle cx='15' cy='12' r='1.3' {FILLED}/><circle cx='9' cy='18' r='1.3' {FILLED}/><circle cx='15' cy='18' r='1.3' {FILLED}/>"),
         "command" => "<path d='M9 6.5A2.5 2.5 0 1 0 6.5 9H9zM15 6.5A2.5 2.5 0 1 1 17.5 9H15zM9 17.5A2.5 2.5 0 1 1 6.5 15H9zM15 17.5a2.5 2.5 0 1 0 2.5-2.5H15zM9 9h6v6H9z'/>".into(),
+        "palette" => format!("<path d='M12 3a9 9 0 1 0 0 18c1.1 0 1.8-.9 1.5-1.9l-.3-1a1.8 1.8 0 0 1 1.7-2.4H17a4 4 0 0 0 4-4C21 6.9 17 3 12 3z'/><circle cx='7.5' cy='11' r='1.2' {FILLED}/><circle cx='10' cy='7' r='1.2' {FILLED}/><circle cx='15' cy='7.5' r='1.2' {FILLED}/>"),
         "plugin" => "<path d='M9 3v4M15 3v4M7 7h10v4a5 5 0 0 1-10 0z'/><path d='M12 16v5'/>".into(),
         "stems" => "<path d='m12 2.5 9 4.8-9 4.8-9-4.8z'/><path d='m3 12 9 4.8 9-4.8'/><path d='m3 16.6 9 4.8 9-4.8'/>".into(),
         "import" => "<path d='M12 3v12M7 10l5 5 5-5'/><path d='M4 17v2.5A1.5 1.5 0 0 0 5.5 21h13a1.5 1.5 0 0 0 1.5-1.5V17'/>".into(),

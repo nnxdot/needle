@@ -99,6 +99,24 @@ impl AppView {
                                     }),
                             ),
                     )
+                    .child(
+                        div()
+                            .id("open-palette")
+                            .h(px(28.))
+                            .px_2()
+                            .rounded(px(6.))
+                            .flex()
+                            .items_center()
+                            .gap_2()
+                            .cursor_pointer()
+                            .text_size(px(12.))
+                            .text_color(p.ink_3)
+                            .hover(|s| s.bg(p.raised).text_color(p.ink))
+                            .child(glyph("command").size(px(14.)).text_color(p.ink_3))
+                            .child("Ctrl K")
+                            .tooltip(|window, cx| gpui_component::tooltip::Tooltip::new("Command palette: go anywhere, do anything").build(window, cx))
+                            .on_click(cx.listener(|this, _, window, cx| this.open_palette(window, cx))),
+                    )
                     .child(div().flex_1()),
             )
     }
