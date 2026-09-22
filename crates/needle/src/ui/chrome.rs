@@ -325,7 +325,7 @@ impl AppView {
                             .child(div().text_size(px(13.5)).text_color(p.ink_2).child("Nothing playing"))
                             .child(faint("Double-click a track to start.", cx)),
                         Some(track) => {
-                            let album = Page::Album { album: track.album.clone(), artist: if track.album_artist.is_empty() { track.artist.clone() } else { track.album_artist.clone() } };
+                            let album = super::album_page(track);
                             let artist = Page::Artist(track.artist.clone());
                             div()
                                 .flex_shrink()
@@ -660,7 +660,6 @@ impl AppView {
         let many = selected.len() > 1;
         let count = selected.len();
         let favorite = selected.iter().all(|t| t.rating >= 4);
-        let album_artist = if track.album_artist.is_empty() { track.artist.clone() } else { track.album_artist.clone() };
         let separator = || div().my_1().h(px(1.)).bg(p.line);
         let index = menu.index;
         let manual_playlists: Vec<_> = self.playlists.iter().filter(|p| p.query.is_none()).cloned().collect();
@@ -715,7 +714,7 @@ impl AppView {
             })
             .child(separator())
             .when(!many, |el| {
-                let album = Page::Album { album: track.album.clone(), artist: album_artist.clone() };
+                let album = super::album_page(&track);
                 let artist = Page::Artist(track.artist.clone());
                 el.child(self.menu_item("m-album", "albums", "Go to album", cx, move |this, window, cx| this.navigate(album.clone(), window, cx)))
                     .child(self.menu_item("m-artist", "artists", "Go to artist", cx, move |this, window, cx| this.navigate(artist.clone(), window, cx)))

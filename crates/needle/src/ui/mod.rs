@@ -74,7 +74,7 @@ const PAGE_SIZE: usize = 1000;
 pub enum Page {
     Songs,
     Albums,
-    Album { album: String, artist: String },
+    Album { album: String, artist: String, query: String },
     Artists,
     Artist(String),
     Favorites,
@@ -109,11 +109,7 @@ impl Page {
         match self {
             Self::Favorites => "rating >= 4".into(),
             Self::Recent => "recent(30d) order by added_at desc".into(),
-            Self::Album { album, artist } => format!(
-                "album = {} and (album_artist = {artist} or (album_artist = \"\" and artist = {artist}))",
-                quote(album),
-                artist = quote(artist)
-            ),
+            Self::Album { query, .. } => query.clone(),
             Self::Artist(name) => format!("artist = {0} or album_artist = {0}", quote(name)),
             _ => String::new(),
         }
@@ -121,9 +117,25 @@ impl Page {
     fn is_tracks(&self) -> bool {
         !matches!(self, Self::History | Self::Settings)
     }
-    fn is_grid(&self) -> bool {
+    pub fn is_grid(&self) -> bool {
         matches!(self, Self::Albums | Self::Artists | Self::Artist(_))
     }
+}
+
+/// The album page for a track, matching how the library groups albums.
+pub fn album_page(track: &Track) -> Page {
+    let (artist, query) = if track.album_artist.is_empty() {
+        (
+            track.artist.clone(),
+            format!("album_artist = \"\" and artist = {} and album = {}", quote(&track.artist), quote(&track.album)),
+        )
+    } else {
+        (
+            track.album_artist.clone(),
+            format!("album_artist = {} and album = {}", quote(&track.album_artist), quote(&track.album)),
+        )
+    };
+    Page::Album { album: track.album.clone(), artist, query }
 }
 
 pub fn quote(text: &str) -> String {
@@ -165,6 +177,7 @@ enum Event {
     Imported(ScanProgress),
     Error(String),
     Loaded(u64, Vec<Track>, usize),
+    Groups(u64, Vec<library::Group>),
     SearchFailed(u64, String),
     Matches(String, Vec<RecordingMatch>),
     LibraryChanged,
@@ -378,7 +391,7 @@ impl AppView {
                 InputEvent::Change => {
                     this.page_offset = 0;
                     let typing = !this.search.read(cx).value().is_empty();
-                    if typing && !matches!(this.page, Page::Songs | Page::Favorites | Page::Recent | Page::Playlist(_) | Page::Album { .. }) {
+                    if typing && !matches!(this.page, Page::Songs | Page::Favorites | Page::Recent | Page::Playlist(_) | Page::Album { .. } | Page::Albums | Page::Artists) {
                         this.back.push(this.page.clone());
                         this.page = Page::Songs;
                     }
@@ -587,9 +600,13 @@ impl AppView {
                         self.matched_total = total;
                         self.loading = false;
                         self.reconcile_selection();
-                        if self.page.is_grid() {
-                            self.groups = library::group(&self.tracks, self.page == Page::Artists);
-                        }
+
+                    }
+                }
+                Event::Groups(generation, groups) => {
+                    if generation == self.generation {
+                        self.groups = groups;
+                        self.loading = false;
                     }
                 }
                 Event::SearchFailed(generation, error) => {
@@ -687,6 +704,9 @@ impl AppView {
     /// The full rule for what the current page shows, including search text and column sort.
     fn expression(&self, cx: &App) -> String {
         let search = self.search_text(cx);
+        if matches!(self.page, Page::Albums | Page::Artists) {
+            return search;
+        }
         let base = self.page.base();
         let mut expression = if base.is_empty() {
             search
@@ -767,7 +787,26 @@ impl AppView {
         let manual = self.manual_playlist();
         let offset = self.page_offset;
         let filter = self.search_text(cx);
-        let limit = if self.page.is_grid() { 500_000 } else { PAGE_SIZE };
+        if self.page.is_grid() {
+            let page = self.page.clone();
+            // Grid pages have no loaded tracks; playing them fetches every match.
+            self.tracks.clear();
+            self.matched_total = usize::MAX;
+            std::thread::spawn(move || {
+                let result = match &page {
+                    Page::Albums => library.albums(&expression).map(library::album_groups),
+                    Page::Artists => library.artists(&expression).map(library::artist_groups),
+                    Page::Artist(name) => library.artist_albums(name).map(library::album_groups),
+                    _ => Ok(vec![]),
+                };
+                let _ = sender.send(match result {
+                    Ok(groups) => Event::Groups(generation, groups),
+                    Err(e) => Event::SearchFailed(generation, format!("{e:#}")),
+                });
+            });
+            cx.notify();
+            return;
+        }
         std::thread::spawn(move || {
             let result = (|| -> Result<needle_core::database::SearchPage> {
                 if let Some(list) = manual {
@@ -784,7 +823,7 @@ impl AppView {
                     let tracks = tracks.into_iter().skip(offset).take(PAGE_SIZE).collect();
                     Ok(needle_core::database::SearchPage { tracks, total })
                 } else {
-                    library.search_page(&expression, offset, limit)
+                    library.search_page(&expression, offset, PAGE_SIZE)
                 }
             })();
             let _ = sender.send(match result {

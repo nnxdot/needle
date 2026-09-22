@@ -141,8 +141,7 @@ impl AppView {
             .as_ref()
             .filter(|i| i.track.id == track.id)
             .map(|i| i.reason.clone());
-        let album_artist = if track.album_artist.is_empty() { track.artist.clone() } else { track.album_artist.clone() };
-        let album_page = Page::Album { album: track.album.clone(), artist: album_artist };
+        let album_page = super::album_page(&track);
         let artist_page = Page::Artist(track.artist.clone());
         let rating = track.rating;
         let id = track.id.clone();

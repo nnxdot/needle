@@ -8,71 +8,52 @@ use gpui_component::{
     button::{Button, ButtonVariants},
     input::Input,
 };
-use needle_core::model::{Track, format_duration};
-use std::collections::BTreeMap;
+use needle_core::{
+    browse::{AlbumSummary, ArtistSummary},
+    model::format_duration,
+};
 
-/// One album or artist tile, derived from the loaded tracks.
+/// One album or artist tile.
 #[derive(Clone)]
 pub struct Group {
     pub title: String,
     pub subtitle: String,
     pub artwork: Option<String>,
     pub seed: String,
+    pub tracks: usize,
     pub page: Page,
 }
 
-pub fn group(tracks: &[Track], artists: bool) -> Vec<Group> {
-    let mut groups: BTreeMap<String, (Group, usize, i64)> = BTreeMap::new();
-    for track in tracks {
-        let album_artist = if track.album_artist.is_empty() { track.artist.clone() } else { track.album_artist.clone() };
-        let (key, title, page) = if artists {
-            let name = track.display_artist().to_string();
-            (sort_key(&name), name.clone(), Page::Artist(track.artist.clone()))
-        } else {
-            (
-                format!("{}\0{:04}\0{}", sort_key(&album_artist), track.year, track.album.to_lowercase()),
-                track.display_album().to_string(),
-                Page::Album { album: track.album.clone(), artist: album_artist.clone() },
-            )
-        };
-        let entry = groups.entry(key).or_insert_with(|| {
-            (
-                Group {
-                    title,
-                    subtitle: String::new(),
-                    artwork: None,
-                    seed: format!("{}{}", track.album, track.album_artist),
-                    page,
-                },
-                0,
-                track.year,
-            )
-        });
-        entry.1 += 1;
-        if entry.0.artwork.is_none() {
-            entry.0.artwork = track.artwork.clone();
-        }
-        if !artists && entry.0.subtitle.is_empty() {
-            entry.0.subtitle = if album_artist.is_empty() { "Unknown artist".into() } else { album_artist };
-        }
-    }
-    groups
-        .into_values()
-        .map(|(mut group, count, year)| {
-            if artists {
-                group.subtitle = if count == 1 { "1 track".into() } else { format!("{count} tracks") };
-            } else if year > 0 {
-                group.subtitle = format!("{} · {year}", group.subtitle);
-            }
-            group
+pub fn album_groups(albums: Vec<AlbumSummary>) -> Vec<Group> {
+    albums
+        .into_iter()
+        .map(|album| Group {
+            title: if album.album.is_empty() { "Unknown album".into() } else { album.album.clone() },
+            subtitle: if album.year > 0 { format!("{} · {}", album.artist, album.year) } else { album.artist.clone() },
+            artwork: album.artwork,
+            seed: format!("{}{}", album.album, album.artist),
+            tracks: album.tracks,
+            page: Page::Album { album: album.album, artist: album.artist, query: album.query },
         })
         .collect()
 }
 
-/// Sort artists the way people look for them: case-insensitive, ignoring a leading "The".
-fn sort_key(name: &str) -> String {
-    let lower = name.to_lowercase();
-    lower.strip_prefix("the ").unwrap_or(&lower).to_string()
+pub fn artist_groups(artists: Vec<ArtistSummary>) -> Vec<Group> {
+    artists
+        .into_iter()
+        .map(|artist| Group {
+            title: if artist.name.is_empty() { "Unknown artist".into() } else { artist.name.clone() },
+            subtitle: match (artist.albums, artist.tracks) {
+                (1, 1) => "1 track".into(),
+                (1, t) => format!("{t} tracks"),
+                (a, t) => format!("{a} albums · {t} tracks"),
+            },
+            artwork: artist.artwork,
+            seed: artist.name.clone(),
+            tracks: artist.tracks,
+            page: Page::Artist(artist.name),
+        })
+        .collect()
 }
 
 fn initials(name: &str) -> String {
@@ -155,11 +136,11 @@ impl AppView {
             (page, _) => page.title(),
         };
         let noun = match self.page {
-            Page::Albums => "albums",
+            Page::Albums | Page::Artist(_) => "albums",
             Page::Artists => "artists",
             _ => "tracks",
         };
-        let shown = if self.page.is_grid() && !matches!(self.page, Page::Artist(_)) { self.groups.len() } else { count };
+        let shown = if self.page.is_grid() { self.groups.len() } else { count };
         let mut summary = if self.loading && self.tracks.is_empty() {
             "Loading…".to_string()
         } else if shown == 1 {
@@ -169,6 +150,10 @@ impl AppView {
         };
         if noun == "tracks" && count > 0 && count <= self.tracks.len() {
             summary.push_str(&format!(" · {}", human_duration(duration)));
+        }
+        if matches!(self.page, Page::Artist(_)) {
+            let tracks: usize = self.groups.iter().map(|g| g.tracks).sum();
+            summary.push_str(&format!(" · {} tracks", thousands(tracks)));
         }
         let rule = playlist
             .as_ref()
@@ -180,7 +165,7 @@ impl AppView {
                     .filter(|e| e.starts_with("Matches rule") && !search.is_empty())
                     .map(|e| e.replacen("Matches rule: ", "Rule · ", 1))
             });
-        let can_play = !self.tracks.is_empty() && self.query_error.is_none();
+        let can_play = (!self.tracks.is_empty() || matches!(self.page, Page::Artist(_)) && !self.groups.is_empty()) && self.query_error.is_none();
         let album_art = if let Page::Album { .. } = &self.page { self.tracks.first().cloned() } else { None };
         let artist = if let Page::Artist(name) = &self.page { Some(name.clone()) } else { None };
         div()
@@ -252,7 +237,7 @@ impl AppView {
                     )
                     .when_some(rule, |el, rule| el.child(meta(rule, cx).text_color(p.accent).truncate())),
             )
-            .when(self.page.is_tracks() && !matches!(self.page, Page::Albums | Page::Artists), |el| {
+            .when(!matches!(self.page, Page::Albums | Page::Artists), |el| {
                 el.child(
                     div()
                         .flex()
@@ -419,8 +404,12 @@ impl AppView {
         let p = pal(cx);
         let body = if let Some(error) = &self.query_error {
             self.problem("That rule needs a fix", error.clone(), cx).into_any_element()
-        } else if self.loading && self.tracks.is_empty() {
+        } else if self.loading && self.tracks.is_empty() && !self.page.is_grid() {
             self.skeleton(cx).into_any_element()
+        } else if self.page.is_grid() && self.groups.is_empty() && self.loading {
+            self.skeleton(cx).into_any_element()
+        } else if self.page.is_grid() && !self.groups.is_empty() {
+            self.grid(width, cx).into_any_element()
         } else if self.tracks.is_empty() {
             let search = self.search_text(cx);
             let (title, detail) = match &self.page {
@@ -431,8 +420,6 @@ impl AppView {
                 _ => ("Nothing to show".into(), "Try another view.".into()),
             };
             self.problem(title, detail, cx).into_any_element()
-        } else if matches!(self.page, Page::Albums | Page::Artists | Page::Artist(_)) {
-            self.grid(width, cx).into_any_element()
         } else {
             self.table(width, window, cx).into_any_element()
         };
