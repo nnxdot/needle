@@ -88,7 +88,7 @@ enum Commands {
         #[arg(long)]
         apply: bool,
     },
-    /// Identify a file using AcoustID (requires NEEDLE_ACOUSTID_API_KEY).
+    /// Identify a file using AcoustID (requires `login acoustid` or NEEDLE_ACOUSTID_API_KEY).
     Identify {
         file: PathBuf,
     },
@@ -102,6 +102,27 @@ enum Commands {
         track_id: String,
         release_id: String,
     },
+    /// Sign in to a service; secrets are read from the terminal and kept in Credential Manager.
+    Login {
+        service: Service,
+        /// Last.fm only: enter a new application API key and shared secret.
+        #[arg(long)]
+        new_app: bool,
+    },
+    /// Remove a service's stored credentials. Environment variables are not affected.
+    Logout {
+        service: Service,
+    },
+    /// Show account and scrobble-queue status without revealing secrets.
+    Services,
+}
+#[derive(Clone, Copy, clap::ValueEnum)]
+enum Service {
+    Lastfm,
+    /// The Last.fm application API key and shared secret.
+    LastfmApp,
+    Listenbrainz,
+    Acoustid,
 }
 fn main() {
     if let Err(error) = run() {
@@ -150,7 +171,7 @@ fn run() -> Result<()> {
             Ok(())
         }
         Some(Commands::Identify { file }) => {
-            let key = std::env::var("NEEDLE_ACOUSTID_API_KEY").unwrap_or_default();
+            let key = integrations::acoustid_key().unwrap_or_default();
             println!(
                 "{}",
                 serde_json::to_string_pretty(&integrations::acoustid_lookup(
@@ -324,12 +345,37 @@ fn run() -> Result<()> {
         Some(Commands::Scrobble) => {
             println!(
                 "Submitted {} listens",
-                integrations::flush_scrobbles(
-                    &library,
-                    &integrations::Credentials::from_environment()
-                )?
+                integrations::flush_scrobbles(&library, &integrations::Credentials::load())?
             );
-            println!("{:?}", integrations::scrobble_status(&library)?);
+            println!(
+                "{}",
+                serde_json::to_string_pretty(&integrations::scrobble_summary(&library)?)?
+            );
+            Ok(())
+        }
+        Some(Commands::Login { service, new_app }) => login(service, new_app),
+        Some(Commands::Logout { service }) => {
+            use integrations::SecretKind;
+            match service {
+                Service::Lastfm => integrations::lastfm_sign_out()?,
+                Service::LastfmApp => {
+                    integrations::clear_secret(SecretKind::LastfmApiKey)?;
+                    integrations::clear_secret(SecretKind::LastfmSecret)?;
+                }
+                Service::Listenbrainz => integrations::listenbrainz_sign_out()?,
+                Service::Acoustid => integrations::clear_secret(SecretKind::AcoustidKey)?,
+            }
+            println!("Removed stored credentials. Environment variables, if set, still apply.");
+            Ok(())
+        }
+        Some(Commands::Services) => {
+            println!(
+                "{}",
+                serde_json::to_string_pretty(&serde_json::json!({
+                    "accounts": integrations::secret_status(),
+                    "scrobbles": integrations::scrobble_summary(&library)?,
+                }))?
+            );
             Ok(())
         }
         Some(Commands::Loudness { expression }) => {
@@ -371,6 +417,70 @@ fn run() -> Result<()> {
             Ok(())
         }
     }
+}
+fn prompt(label: &str) -> Result<String> {
+    use std::io::Write;
+    eprint!("{label}: ");
+    std::io::stderr().flush()?;
+    let mut line = String::new();
+    std::io::stdin().read_line(&mut line)?;
+    let line = line.trim().to_string();
+    anyhow::ensure!(!line.is_empty(), "Nothing entered");
+    Ok(line)
+}
+fn login(service: Service, new_app: bool) -> Result<()> {
+    use integrations::SecretKind;
+    match service {
+        Service::Listenbrainz => {
+            let token = prompt("ListenBrainz user token (https://listenbrainz.org/settings/)")?;
+            let user = integrations::listenbrainz_sign_in(&token)?;
+            println!("Signed in to ListenBrainz as {user}");
+        }
+        Service::Acoustid => {
+            integrations::save_secret(SecretKind::AcoustidKey, &prompt("AcoustID API key")?)?;
+            println!("Saved. AcoustID checks the key on the first lookup.");
+        }
+        Service::LastfmApp => {
+            integrations::save_secret(SecretKind::LastfmApiKey, &prompt("Last.fm API key")?)?;
+            integrations::save_secret(SecretKind::LastfmSecret, &prompt("Last.fm shared secret")?)?;
+            println!("Saved the Last.fm application key. Run `login lastfm` to sign in.");
+        }
+        Service::Lastfm => {
+            let credentials = integrations::Credentials::load();
+            let (key, secret) = if new_app
+                || credentials.lastfm_api_key.is_empty()
+                || credentials.lastfm_secret.is_empty()
+            {
+                (prompt("Last.fm API key")?, prompt("Last.fm shared secret")?)
+            } else {
+                (credentials.lastfm_api_key, credentials.lastfm_secret)
+            };
+            let pending = integrations::lastfm_begin(&key, &secret)?;
+            println!(
+                "Approve Needle in your browser:\n{}\nWaiting for approval (up to 10 minutes)...",
+                pending.auth_url
+            );
+            #[cfg(windows)]
+            let _ = std::process::Command::new("rundll32")
+                .args(["url.dll,FileProtocolHandler", &pending.auth_url])
+                .spawn();
+            let deadline = std::time::Instant::now() + std::time::Duration::from_secs(600);
+            loop {
+                std::thread::sleep(std::time::Duration::from_secs(4));
+                match integrations::lastfm_complete(&pending) {
+                    Ok(user) => {
+                        println!("Signed in to Last.fm as {user}");
+                        break;
+                    }
+                    Err(error)
+                        if integrations::is_not_yet_authorized(&error)
+                            && std::time::Instant::now() < deadline => {}
+                    Err(error) => return Err(error),
+                }
+            }
+        }
+    }
+    Ok(())
 }
 fn uuid_string() -> String {
     format!(
