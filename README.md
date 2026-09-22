@@ -17,7 +17,9 @@ The portable folder also contains `needle-cli.exe`. The Windows build needs a wo
 - Large collections use pages of 1,000 tracks. Play, shuffle, and “Save shown tracks” act on the current page. Search and smart rules operate over the library, up to the current 500,000-result limit.
 - Tag edits show editable values before writing. Writes keep an original-file backup and verify that decoded audio is unchanged before replacing a file. Batch editing is available through the CLI.
 
-Supported and exercised with generated fixtures: WAV PCM, AIFF PCM, FLAC, MP3, AAC and ALAC in M4A, and Ogg Vorbis. Opus, WavPack, APE, DSD, DRM, and streaming services are not implemented. Raw AAC is not part of the validated format set.
+Supported and exercised with generated fixtures: WAV PCM, AIFF PCM, FLAC, MP3, AAC and ALAC in M4A, Ogg Vorbis, and Ogg Opus (`.opus`, or Opus inside `.ogg`). WavPack, APE, DSD, DRM, and streaming services are not implemented. Raw AAC is not part of the validated format set.
+
+Opus uses a pure-Rust decoder (a patched `opus-decoder` crate), so no system libraries are needed. Pre-skip, end trimming, the header's output gain, seeking, and mono/stereo/5.1 channel mappings are handled and tested. Its CELT output matched FFmpeg's libopus decode at over 100 dB SNR on the fixtures; hybrid (SILK+CELT) packets, typical of low-bitrate speech-like encodes, matched at about 44–54 dB, which is close but not identical. Opus R128 gain tags are not read, and only the first stream of a chained Ogg file plays.
 
 ## Rules
 
@@ -36,7 +38,11 @@ This is a bounded query language, not the proposal’s complete expression pipel
 
 ## Audio output
 
-Shared output follows the system/device sample rate; the footer displays the negotiated path. Volume and optional track ReplayGain apply there. **Measure loudness** computes EBU R128 integrated loudness and true peak, storing normalization data in the library. The normalization target is −18 LUFS with peak protection.
+Shared output follows the system/device sample rate; the footer displays the negotiated path. Volume and optional ReplayGain apply there. **Measure loudness** computes EBU R128 integrated loudness and true peak, storing normalization data in the library. The normalization target is −18 LUFS with peak protection.
+
+Album gain measures every track of an album (same album artist, or artist when that is blank, and album title) as one programme, and stores the album gain and highest true peak on each track. When the `album_gain` setting is on (the current interface has no switch for it yet), playback uses it and falls back to track gain for tracks without an album measurement. The same peak protection applies. Album and track ReplayGain tags already in files are read when scanning. `needle-cli loudness EXPR --album` measures the albums of matching tracks.
+
+If the output device disappears or its stream stops responding, Needle reopens the selected device, or the system default when that device is gone, and continues from the same position. If nothing can be opened, playback pauses with an error and the queue is kept; play retries. When no device is selected, Needle follows changes of the system default output. A selected device that is missing at startup falls back to the default with a notice. These paths are tested with a simulated device; physically unplugging headphones or a USB DAC has not been exercised.
 
 Windows exclusive output opens WASAPI at the file’s native rate and channel count, in packed 24-bit or 24-valid-bit integer PCM. It bypasses volume and ReplayGain; adjust volume on the audio device. Unsupported rates produce an error instead of resampling. This machine’s Focusrite endpoint accepted 48 kHz packed 24-bit PCM and rejected 44.1/96 kHz in its current driver configuration. Device behavior will vary.
 
@@ -78,6 +84,7 @@ Layout import/export uses one JSON file for sidebar width, inspector width, and 
 .\needle-cli.exe export 'Favorites' '.\favorites.m3u8'
 .\needle-cli.exe backup '.\library-backup.db'
 .\needle-cli.exe loudness 'album = "Example"'
+.\needle-cli.exe loudness 'artist = "Example"' --album
 .\needle-cli.exe duplicates 'artist = "Example"'
 .\needle-cli.exe tag 'album = "Example"' '.\changes.json'
 ```

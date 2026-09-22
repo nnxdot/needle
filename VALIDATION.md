@@ -4,7 +4,7 @@ Environment: Windows x64, Rust 1.98.1, MSVC build tools. Verification used isola
 
 ## Automated core checks
 
-`cargo test -p needle-core` passes 12 tests for typed/bounded queries and escaping; ordinary titles and leading zeroes; import/rescan/moved-file identity; watched-folder import notifications; database persistence and history; tag backups with unchanged decoded samples and recording IDs; Unicode search; known-signal R128 loudness and fingerprinting; authenticated encrypted transfer with ID remapping and deduplication; rejection of invalid imports without partial changes; exact 16/24-bit integer conversion; and AIFF sound-data boundaries.
+`cargo test -p needle-core` passes 37 tests (3 more are ignored because they need a real audio device or FFmpeg) for playback queue operations under each repeat mode, play-next/jump/play-from-index, A–B loop bounds, ReplayGain and album-gain peak protection, listen qualification, session save and restore, 50,000-item queues published without per-tick copies, output recovery (device error, stalled stream, seek on a dead stream, missing configured device, changed system default, no device at all) against a simulated device thread; album loudness over mixed sample rates and album grouping; Ogg Opus length, pre-skip alignment, seeking, 5.1 channel order, import, and tag writes;  typed/bounded queries and escaping; ordinary titles and leading zeroes; import/rescan/moved-file identity; watched-folder import notifications; database persistence and history; tag backups with unchanged decoded samples and recording IDs; Unicode search; known-signal R128 loudness and fingerprinting; authenticated encrypted transfer with ID remapping and deduplication; rejection of invalid imports without partial changes; exact 16/24-bit integer conversion; and AIFF sound-data boundaries.
 
 `cargo clippy --workspace --all-targets -- -D warnings` and `cargo fmt --all --check` are required by the packaging script. A third-party `proc-macro-error2` future-compatibility notice remains in Cargo output; it is not an application warning or current build failure.
 
@@ -20,6 +20,10 @@ The exercise found and fixed two decoder-boundary issues:
 2. AAC/M4A priming and padding were not trimmed by the underlying container decoder. A bounded parser honors the single normal-rate edit used in the tested M4A file. Complex edit lists and alternative priming metadata are not covered.
 
 Every tag write now compares decoded audio digests before replacing the original file, in addition to keeping a backup. A difference rejects the write.
+
+## Opus
+
+The fixtures in `crates/needle-core/testdata` were encoded by FFmpeg's libopus: a 1 s stereo tone at 96 kb/s, a 1.5 s mono tone from 44.1 kHz at 48 kb/s, and a 0.5 s 5.1 tone at 192 kb/s. Each decodes to the exact length FFmpeg produces. `cargo test -p needle-core --lib opus -- --ignored` compares against FFmpeg's libopus decode: CELT channels agreed at 101–106 dB SNR; the mono file's first 400 ms and the 5.1 file's centre and LFE streams are hybrid (SILK+CELT) packets and agreed at 43.5 dB and 53.7 dB. The same run decoded 60 s of stereo pink noise at 160 kb/s at roughly 150× real time. The published crate's direct DFT managed about 3×, which is why Needle uses a patched copy.
 
 ## Live audio
 
@@ -54,7 +58,7 @@ The Windows app was opened and inspected directly. The first-run screen created 
 
 ## Not verified
 
-macOS/Linux builds and playback; exhaustive codec/container metadata; unusual MP4 timelines; device hot-plug recovery; screen-reader operation; external DAC sample capture; real Last.fm/ListenBrainz submissions; an authenticated AcoustID response; production signing, installer, auto-update, and commercial service setup.
+macOS/Linux builds and playback; exhaustive codec/container metadata; unusual MP4 timelines; physical device hot-plug (recovery is tested only with a simulated device); screen-reader operation; external DAC sample capture; real Last.fm/ListenBrainz submissions; an authenticated AcoustID response; production signing, installer, auto-update, and commercial service setup.
 
 ## Packaged release checks
 
