@@ -87,6 +87,7 @@ Opening an existing large library for the first time after this change builds th
 - `cargo test --workspace` passes, including a new test that glass only thins the back layer (and the page when asked) and never changes text colors.
 - On Windows 11, checked from screenshots: Mica behind the sidebar, title bar, and player in the Night and Day looks (the sidebar took the wallpaper's tint); Acrylic showing a frosted blur of the windows behind; Clear showing the desktop through the back layer only, with the page solid; the mini player with glass; and the Appearance controls. Extending the window frame into the client area made Windows draw its own caption buttons behind Needle's when maximized, so Needle no longer does that; Mica still shows, and a maximized window has only Needle's buttons.
 - The page no longer floats as a separate card with a border, shadow, and gaps; it now sits flush with the window edge and the player, with one hairline and a rounded corner where it meets the sidebar, and the details panel shares its surface. Checked in the Night and Day looks.
+- Needle.exe and needle-cli.exe now carry the app icon (resource 1, which GPUI uses for the window). The running app showed it in the taskbar; the icon was checked at 16–256 px on light and dark backgrounds.
 - Not checked: Windows 10 (where Mica falls back to Acrylic), the Transparency effects setting turned off, and smoothness while dragging with Acrylic on slower PCs.
 
 ## 0.5.0 checks

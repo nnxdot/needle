@@ -4180,6 +4180,7 @@ dependencies = [
  "chrono",
  "clap",
  "crossbeam-channel",
+ "embed-resource",
  "gpui",
  "gpui-component",
  "gpui-component-assets",
