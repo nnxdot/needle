@@ -4077,12 +4077,15 @@ dependencies = [
  "gpui",
  "gpui-component",
  "gpui-component-assets",
+ "image",
  "needle-core",
  "rand 0.8.8",
+ "raw-window-handle",
  "rfd",
  "schemars",
  "serde",
  "serde_json",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]

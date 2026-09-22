@@ -397,7 +397,19 @@ impl AppView {
                     .flex()
                     .items_center()
                     .gap_3()
-                    .child(artwork(current.as_ref(), 56., cx))
+                    .child(
+                        div()
+                            .id("open-big")
+                            .cursor_pointer()
+                            .rounded(px(4.))
+                            .hover(|s| s.opacity(0.85))
+                            .child(artwork(current.as_ref(), 56., cx))
+                            .tooltip(|window, cx| gpui_component::tooltip::Tooltip::new("Open the big player · Ctrl+P").build(window, cx))
+                            .on_click(cx.listener(|this, _, _, cx| {
+                                this.big = true;
+                                cx.notify();
+                            })),
+                    )
                     .child(match &current {
                         None => div()
                             .flex_1()
@@ -620,6 +632,12 @@ impl AppView {
                             })),
                     )
                     .child(Slider::new(&self.volume).w(px(if wide { 96. } else { 72. })).disabled(self.playback.exclusive))
+                    .child(
+                        icon_button("open-mini", "mini", "Mini player · Ctrl+M")
+                            .small()
+                            .ml_1()
+                            .on_click(cx.listener(|this, _, window, cx| this.open_mini(window, cx))),
+                    )
                     .child(
                         Button::new("queue-toggle")
                             .ghost()

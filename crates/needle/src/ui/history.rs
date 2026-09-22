@@ -470,3 +470,47 @@ fn plural(n: usize, noun: &str) -> String {
         format!("{} {noun}s", count(n))
     }
 }
+
+impl AppView {
+    /// The latest listens, newest first, for the mini player.
+    pub(super) fn recent_listens(&self, cx: &mut Context<Self>) -> impl IntoElement {
+        let p = pal(cx);
+        div()
+            .id("recent-listens")
+            .flex_1()
+            .min_h_0()
+            .overflow_y_scroll()
+            .flex()
+            .flex_col()
+            .when(self.recent.is_empty(), |el| {
+                el.child(meta("No listening history yet.", cx))
+            })
+            .children(self.recent.iter().enumerate().map(|(i, listen)| {
+                let id = listen.track_id.clone();
+                div()
+                    .id(("recent", i))
+                    .h(px(44.))
+                    .px_2()
+                    .rounded(px(6.))
+                    .flex()
+                    .flex_col()
+                    .justify_center()
+                    .cursor_pointer()
+                    .hover(|s| s.bg(p.raised))
+                    .child(
+                        div()
+                            .text_size(px(13.))
+                            .truncate()
+                            .child(listen.title.clone()),
+                    )
+                    .child(meta(listen.artist.clone(), cx).truncate())
+                    .on_click(cx.listener(move |this, event: &ClickEvent, _, _| {
+                        if event.click_count() == 2
+                            && let Ok(Some(track)) = this.library.track(&id)
+                        {
+                            this.play_tracks(vec![track], "Played again from your history");
+                        }
+                    }))
+            }))
+    }
+}

@@ -1,0 +1,250 @@
+use super::{
+    AppView, Event, Page, pal,
+    widgets::{faint, glyph, meta, small_button},
+};
+use gpui::{prelude::*, *};
+use gpui_component::button::ButtonVariants;
+use needle_core::{
+    audio::Command,
+    media::{self, Lyrics, LyricsSource},
+    model::Track,
+};
+
+impl AppView {
+    /// Look up lyrics, missing album art, and the artist photo for a newly playing track.
+    pub(super) fn track_started(&mut self, track: &Track) {
+        self.lyrics = None;
+        self.lyric_line = None;
+        let library = self.library.clone();
+        let sender = self.sender.clone();
+        let online = self.settings.online_media;
+        let track = track.clone();
+        std::thread::spawn(move || {
+            let lyrics = media::lyrics(&library, &track, online).unwrap_or_else(|e| {
+                eprintln!("Lyrics lookup failed: {e:#}");
+                None
+            });
+            let _ = sender.send(Event::Lyrics(track.id.clone(), lyrics));
+            if online
+                && track.artwork.is_none()
+                && media::fetch_album_art(&library, &track).unwrap_or(0) > 0
+            {
+                let _ = sender.send(Event::ArtFetched);
+            }
+        });
+    }
+
+    pub(super) fn fetched_art(&mut self, track: Track) {
+        if let Some(path) = track.artwork {
+            self.art_override.insert(track.id, path);
+        }
+    }
+
+    /// Ask for an artist photo. Grids pass `online: false` so scrolling never floods the web
+    /// services; the artist page itself may look online.
+    pub(super) fn request_artist_image(&mut self, name: &str, online: bool) {
+        if name.is_empty() || self.artist_images.contains_key(name) {
+            return;
+        }
+        self.artist_images.insert(name.to_string(), None);
+        let library = self.library.clone();
+        let sender = self.sender.clone();
+        let online = online && self.settings.online_media;
+        let name = name.to_string();
+        std::thread::spawn(move || {
+            let path = media::artist_image(&library, &name, online).ok().flatten();
+            let _ = sender.send(Event::ArtistImage(
+                name,
+                path.map(|p| p.to_string_lossy().into()),
+            ));
+        });
+    }
+
+    /// Photos already saved on this computer, for a whole grid at once. Never goes online.
+    pub(super) fn cached_artist_images(&mut self, names: Vec<String>) {
+        let names: Vec<String> = names
+            .into_iter()
+            .filter(|n| !self.artist_images.contains_key(n))
+            .collect();
+        if names.is_empty() {
+            return;
+        }
+        let library = self.library.clone();
+        let sender = self.sender.clone();
+        std::thread::spawn(move || {
+            let found = names
+                .into_iter()
+                .map(|name| {
+                    let path = media::artist_image(&library, &name, false).ok().flatten();
+                    (name, path.map(|p| p.to_string_lossy().into()))
+                })
+                .collect();
+            let _ = sender.send(Event::ArtistImages(found));
+        });
+    }
+
+    /// Keep the sung line in view as playback moves.
+    pub(super) fn follow_lyrics(&mut self) {
+        let Some((id, Some(lyrics))) = &self.lyrics else {
+            return;
+        };
+        if self
+            .playback
+            .current
+            .as_ref()
+            .is_none_or(|c| &c.track.id != id)
+        {
+            return;
+        }
+        let line = lyrics.line_at(self.playback.position + 0.15);
+        if line != self.lyric_line {
+            self.lyric_line = line;
+            if let Some(line) = line {
+                self.lyrics_scroll.scroll_to_item(line.saturating_sub(2));
+            }
+        }
+    }
+
+    pub(super) fn lyrics_view(&self, big: bool, cx: &mut Context<Self>) -> impl IntoElement {
+        let p = pal(cx);
+        let current = self.playback.current.as_ref().map(|c| c.track.id.clone());
+        let lyrics: Option<&Lyrics> = match (&self.lyrics, &current) {
+            (Some((id, lyrics)), Some(cur)) if id == cur => lyrics.as_ref(),
+            _ => None,
+        };
+        let loading = current.is_some()
+            && self
+                .lyrics
+                .as_ref()
+                .is_none_or(|(id, _)| Some(id) != current.as_ref());
+        let size = if big { 22. } else { 15. };
+        let message = |title: &str, detail: &str, cx: &mut Context<Self>| {
+            div()
+                .flex_1()
+                .flex()
+                .flex_col()
+                .items_center()
+                .justify_center()
+                .gap_2()
+                .px_4()
+                .child(glyph("lyrics").size(px(26.)).text_color(p.ink_3))
+                .child(
+                    div()
+                        .text_size(px(14.))
+                        .font_weight(FontWeight::MEDIUM)
+                        .child(title.to_string()),
+                )
+                .child(
+                    meta(detail.to_string(), cx)
+                        .text_center()
+                        .line_height(relative(1.5)),
+                )
+        };
+        let Some(lyrics) = lyrics else {
+            if current.is_none() {
+                return message(
+                    "Nothing playing",
+                    "Lyrics show here while a song plays.",
+                    cx,
+                )
+                .into_any_element();
+            }
+            if loading {
+                return message("Looking for lyrics…", "", cx).into_any_element();
+            }
+            return message(
+                "No lyrics for this song",
+                if self.settings.online_media {
+                    "None were found next to the file, inside it, or on LRCLIB. Put an .lrc file beside the song to add your own."
+                } else {
+                    "Needle checked for an .lrc file and the file's own tags. Turn on online lookups to search LRCLIB too."
+                },
+                cx,
+            )
+            .when(!self.settings.online_media, |el| {
+                el.child(
+                    small_button("enable-online", "Turn on online lookups")
+                        .ghost()
+                        .on_click(cx.listener(|this, _, window, cx| this.navigate(Page::Settings, window, cx))),
+                )
+            })
+            .into_any_element();
+        };
+        if lyrics.instrumental {
+            return message("Instrumental", "This track has no words.", cx).into_any_element();
+        }
+        let source = match lyrics.source {
+            LyricsSource::Sidecar => "From a file beside the song",
+            LyricsSource::Embedded => "From the song's tags",
+            LyricsSource::Lrclib => "From LRCLIB",
+        };
+        // Lines are direct children of the scroll area so the view can scroll to one of them.
+        let gap = if big { 14. } else { 8. };
+        let lines: Vec<AnyElement> = if lyrics.lines.is_empty() {
+            lyrics
+                .plain
+                .lines()
+                .map(|l| {
+                    div()
+                        .min_h(px(size * 1.6))
+                        .text_size(px(size))
+                        .line_height(relative(1.6))
+                        .child(l.to_string())
+                        .into_any_element()
+                })
+                .collect()
+        } else {
+            let active = self.lyric_line;
+            lyrics
+                .lines
+                .iter()
+                .enumerate()
+                .map(|(i, line)| {
+                    let time = line.time;
+                    let state = match active {
+                        Some(a) if a == i => 0,
+                        Some(a) if i < a => 1,
+                        _ => 2,
+                    };
+                    div()
+                        .id(("lyric", i))
+                        .pb(px(gap))
+                        .text_size(px(size))
+                        .line_height(relative(1.35))
+                        .font_weight(if big {
+                            FontWeight::SEMIBOLD
+                        } else {
+                            FontWeight::MEDIUM
+                        })
+                        .cursor_pointer()
+                        .text_color(match state {
+                            0 => p.ink,
+                            1 => p.ink_3.opacity(0.7),
+                            _ => p.ink_3,
+                        })
+                        .hover(|s| s.text_color(p.ink_2))
+                        .child(if line.text.is_empty() {
+                            "♪".to_string()
+                        } else {
+                            line.text.clone()
+                        })
+                        .on_click(
+                            cx.listener(move |this, _, _, _| this.player.send(Command::Seek(time))),
+                        )
+                        .into_any_element()
+                })
+                .collect()
+        };
+        div()
+            .id("lyrics")
+            .flex_1()
+            .min_h_0()
+            .overflow_y_scroll()
+            .track_scroll(&self.lyrics_scroll)
+            .pr_2()
+            .pb_20()
+            .children(lines)
+            .child(faint(source, cx).mt_6())
+            .into_any_element()
+    }
+}

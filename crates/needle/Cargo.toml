@@ -14,7 +14,9 @@ crossbeam-channel = "0.5"
 gpui = "=0.2.2"
 gpui-component = "=0.5.1"
 gpui-component-assets = "=0.5.1"
+image = { version = "0.25", default-features = false, features = ["jpeg", "png", "webp", "gif", "bmp"] }
 rand = "0.8"
+raw-window-handle = "0.6"
 rfd = "0.15"
 schemars = "1"
 serde = { version = "1", features = ["derive"] }
@@ -27,3 +29,6 @@ path = "src/main.rs"
 [[bin]]
 name = "needle-desktop"
 path = "src/desktop.rs"
+
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.52", features = ["Win32_Foundation", "Win32_Graphics_Gdi", "Win32_UI_WindowsAndMessaging"] }
