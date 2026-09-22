@@ -47,7 +47,7 @@ impl Palette {
                 line_soft: c(0x211f1d),
                 ink: c(0xedebe7),
                 ink_2: c(0xaaa59e),
-                ink_3: c(0x8a857e),
+                ink_3: c(0x8f8a83),
                 accent: c(0xe2b46c),
                 accent_ink: c(0x1c1509),
                 accent_soft: c(0xe2b46c).opacity(0.14),
@@ -150,4 +150,40 @@ pub fn set_theme(mode: &str, window: Option<&mut Window>, cx: &mut App) {
     t.skeleton = p.raised;
     t.overlay = c(0x000000).opacity(if dark { 0.55 } else { 0.25 });
     t.window_border = p.line;
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn luminance(color: Hsla) -> f32 {
+        let rgba = color.to_rgb();
+        let channel = |c: f32| {
+            if c <= 0.03928 {
+                c / 12.92
+            } else {
+                ((c + 0.055) / 1.055).powf(2.4)
+            }
+        };
+        0.2126 * channel(rgba.r) + 0.7152 * channel(rgba.g) + 0.0722 * channel(rgba.b)
+    }
+    fn contrast(a: Hsla, b: Hsla) -> f32 {
+        let (a, b) = (luminance(a), luminance(b));
+        (a.max(b) + 0.05) / (a.min(b) + 0.05)
+    }
+
+    /// Every text colour must stay readable (WCAG AA, 4.5:1) on every surface it is drawn on.
+    #[test]
+    fn text_meets_wcag_aa_on_every_surface() {
+        for dark in [true, false] {
+            let p = Palette::new(dark);
+            for (surface_name, surface) in [("chrome", p.chrome), ("canvas", p.canvas), ("raised", p.raised)] {
+                for (text_name, text) in [("ink", p.ink), ("ink_2", p.ink_2), ("ink_3", p.ink_3), ("accent", p.accent), ("danger", p.danger)] {
+                    let ratio = contrast(text, surface);
+                    assert!(ratio >= 4.5, "{text_name} on {surface_name} (dark: {dark}) is {ratio:.2}:1");
+                }
+            }
+            assert!(contrast(p.accent_ink, p.accent) >= 4.5, "button label on accent (dark: {dark})");
+        }
+    }
 }

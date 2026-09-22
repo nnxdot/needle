@@ -4078,7 +4078,9 @@ dependencies = [
  "gpui-component",
  "gpui-component-assets",
  "needle-core",
+ "rand 0.8.8",
  "rfd",
+ "schemars",
  "serde",
  "serde_json",
 ]

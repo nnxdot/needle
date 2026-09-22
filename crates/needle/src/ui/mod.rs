@@ -56,8 +56,15 @@ actions!(
         VolumeDown,
         ToggleQueue,
         GoBack,
+        FocusNext,
+        FocusPrevious,
     ]
 );
+
+/// Jump to a sidebar destination: Ctrl+1 … Ctrl+6, Ctrl+, for settings.
+#[derive(Clone, PartialEq, serde::Deserialize, schemars::JsonSchema, Action)]
+#[action(namespace = needle)]
+pub struct GoTo(pub usize);
 
 /// The most tracks one play action queues. Larger libraries play their first 50,000 matches.
 const PLAY_LIMIT: usize = 50_000;
@@ -271,6 +278,15 @@ pub fn run(library: Library) -> Result<()> {
                 KeyBinding::new("ctrl-o", ImportFolder, Some("Needle")),
                 KeyBinding::new("ctrl-j", ToggleQueue, Some("Needle")),
                 KeyBinding::new("escape", EscapePanel, Some("Needle")),
+                KeyBinding::new("tab", FocusNext, tracks),
+                KeyBinding::new("shift-tab", FocusPrevious, Some("Needle")),
+                KeyBinding::new("ctrl-1", GoTo(0), Some("Needle")),
+                KeyBinding::new("ctrl-2", GoTo(1), Some("Needle")),
+                KeyBinding::new("ctrl-3", GoTo(2), Some("Needle")),
+                KeyBinding::new("ctrl-4", GoTo(3), Some("Needle")),
+                KeyBinding::new("ctrl-5", GoTo(4), Some("Needle")),
+                KeyBinding::new("ctrl-6", GoTo(5), Some("Needle")),
+                KeyBinding::new("ctrl-,", GoTo(6), Some("Needle")),
             ]);
             let bounds = Bounds::centered(None, size(px(1380.), px(880.)), cx);
             let options = WindowOptions {
@@ -1370,6 +1386,20 @@ impl Render for AppView {
                 cx.notify();
             }))
             .on_action(cx.listener(|this, _: &GoBack, window, cx| this.go_back(window, cx)))
+            .on_action(|_: &FocusNext, window, _| window.focus_next())
+            .on_action(|_: &FocusPrevious, window, _| window.focus_prev())
+            .on_action(cx.listener(|this, GoTo(index): &GoTo, window, cx| {
+                let page = match index {
+                    0 => Page::Songs,
+                    1 => Page::Albums,
+                    2 => Page::Artists,
+                    3 => Page::Favorites,
+                    4 => Page::Recent,
+                    5 => Page::History,
+                    _ => Page::Settings,
+                };
+                this.navigate(page, window, cx);
+            }))
             .on_action(cx.listener(|this, _: &FocusSearch, window, cx| {
                 this.search.update(cx, |s, cx| s.focus(window, cx))
             }))
