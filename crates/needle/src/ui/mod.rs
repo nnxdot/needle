@@ -4,6 +4,7 @@ mod history;
 mod library;
 mod pages;
 mod panel;
+mod suggest;
 mod theme;
 mod widgets;
 
@@ -257,6 +258,9 @@ pub struct AppView {
     _watcher: Option<Box<dyn std::any::Any>>,
     last_history_id: Option<String>,
     muted_volume: Option<f32>,
+    suggestions: Vec<query::Suggestion>,
+    suggestion_active: Option<usize>,
+    search_focused: bool,
     groups: Vec<library::Group>,
     service_status: Option<integrations::ServiceStatus>,
     scrobble_summary: Option<integrations::ScrobbleSummary>,
@@ -403,14 +407,23 @@ impl AppView {
                         this.page = Page::Songs;
                     }
                     this.refresh(cx);
+                    this.update_suggestions(cx);
+                }
+                InputEvent::Focus => {
+                    this.search_focused = true;
+                    this.update_suggestions(cx);
+                }
+                InputEvent::Blur => {
+                    this.search_focused = false;
+                    this.suggestions.clear();
                 }
                 InputEvent::PressEnter { .. } => {
+                    this.suggestions.clear();
                     window.focus(&this.focus);
                     if this.selection.cursor.is_none() && !this.tracks.is_empty() {
                         this.select_single(0, cx);
                     }
                 }
-                _ => {}
             }),
             cx.subscribe(&volume, |this, _, event, _| {
                 let SliderEvent::Change(value) = event;
@@ -480,6 +493,9 @@ impl AppView {
             _watcher: watcher,
             last_history_id: None,
             muted_volume: None,
+            suggestions: vec![],
+            suggestion_active: None,
+            search_focused: false,
             groups: vec![],
             service_status: None,
             scrobble_summary: None,

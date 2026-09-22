@@ -402,7 +402,7 @@ impl AppView {
 
     fn collection(&self, width: f32, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let p = pal(cx);
-        let body = if let Some(error) = &self.query_error {
+        let body = if let Some(error) = self.query_error.as_ref().filter(|_| self.tracks.is_empty() && self.groups.is_empty()) {
             self.problem("That rule needs a fix", error.clone(), cx).into_any_element()
         } else if self.loading && self.tracks.is_empty() && !self.page.is_grid() {
             self.skeleton(cx).into_any_element()
@@ -431,6 +431,18 @@ impl AppView {
             .child(self.header(cx))
             .children(self.playlist_tools(cx))
             .when(self.show_save, |el| el.child(self.save_form(cx)))
+            .when_some(self.query_error.clone().filter(|_| !self.tracks.is_empty() || !self.groups.is_empty()), |el, error| {
+                el.child(
+                    div()
+                        .mx_6()
+                        .mb_2()
+                        .flex()
+                        .items_center()
+                        .gap_2()
+                        .child(glyph("alert").size(px(14.)).text_color(p.danger))
+                        .child(meta(format!("{error} · showing the last results"), cx).text_color(p.danger)),
+                )
+            })
             .child(body)
             .when(self.page.is_tracks() && !self.page.is_grid() && self.matched_total > PAGE_SIZE, |el| {
                 el.child(

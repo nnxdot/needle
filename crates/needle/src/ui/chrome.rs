@@ -54,11 +54,12 @@ impl AppView {
                             .on_click(cx.listener(|this, _, window, cx| this.go_back(window, cx))),
                     )
                     .child(
-                        div()
-                            .id("search-field")
+                        self.suggestion_keys(div().id("search-field"), cx)
+                            .relative()
                             .w(px(520.))
                             .max_w_full()
                             .flex_shrink()
+                            .children(self.suggestion_list(px(520.), cx))
                             .child(
                                 Input::new(&self.search)
                                     .small()
