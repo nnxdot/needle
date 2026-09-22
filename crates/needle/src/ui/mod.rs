@@ -1,5 +1,6 @@
 mod assets;
 mod chrome;
+mod history;
 mod library;
 mod pages;
 mod panel;
@@ -178,6 +179,8 @@ enum Event {
     Error(String),
     Loaded(u64, Vec<Track>, usize),
     Groups(u64, Vec<library::Group>),
+    History(Box<needle_core::history::HistoryStats>, Vec<Listen>, usize),
+    MoreHistory(usize, Vec<Listen>),
     SearchFailed(u64, String),
     Matches(String, Vec<RecordingMatch>),
     LibraryChanged,
@@ -210,6 +213,10 @@ pub struct AppView {
     tracks: Vec<Track>,
     playlists: Vec<Playlist>,
     history: Vec<Listen>,
+    history_total: usize,
+    history_stats: Option<needle_core::history::HistoryStats>,
+    history_range: usize,
+    history_loading: bool,
     selection: Selection,
     /// The track the details panel describes: the last one clicked.
     focused: Option<Track>,
@@ -423,7 +430,11 @@ impl AppView {
         let mut view = Self {
             total: library.count().unwrap_or(0),
             playlists: library.playlists().unwrap_or_default(),
-            history: library.history(200).unwrap_or_default(),
+            history: vec![],
+            history_total: 0,
+            history_stats: None,
+            history_range: 1,
+            history_loading: false,
             library,
             player,
             playback: PlaybackState::default(),
@@ -548,7 +559,9 @@ impl AppView {
         let id = self.playback.current.as_ref().map(|i| i.track.id.clone());
         if changed || id != self.last_history_id {
             self.last_history_id = id;
-            self.history = self.library.history(200).unwrap_or_default();
+            if self.page == Page::History {
+                self.load_history();
+            }
         }
         if let Some(item) = &self.playback.current {
             let value = if item.track.duration > 0.0 {
@@ -603,6 +616,18 @@ impl AppView {
 
                     }
                 }
+                Event::History(stats, listens, total) => {
+                    self.history_stats = Some(*stats);
+                    self.history = listens;
+                    self.history_total = total;
+                    self.history_loading = false;
+                }
+                Event::MoreHistory(offset, listens) => {
+                    if offset == self.history.len() {
+                        self.history.extend(listens);
+                    }
+                    self.history_loading = false;
+                }
                 Event::Groups(generation, groups) => {
                     if generation == self.generation {
                         self.groups = groups;
@@ -649,7 +674,9 @@ impl AppView {
                     }
                     self.refresh(cx);
                     self.playlists = self.library.playlists().unwrap_or_default();
-                    self.history = self.library.history(200).unwrap_or_default();
+                    if self.page == Page::History {
+                        self.load_history();
+                    }
                     if let Some(track) = &self.focused {
                         self.focused = self.library.track(&track.id).ok().flatten();
                     }
@@ -865,7 +892,7 @@ impl AppView {
         self.search.update(cx, |s, cx| s.set_value("", window, cx));
         self.show_save = false;
         if self.page == Page::History {
-            self.history = self.library.history(200).unwrap_or_default();
+            self.load_history();
         }
         if self.page == Page::Settings {
             self.output_devices = audio::devices().unwrap_or_default();

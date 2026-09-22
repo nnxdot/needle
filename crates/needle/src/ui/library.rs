@@ -69,7 +69,7 @@ impl AppView {
     pub(super) fn main(&self, width: f32, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let body = match self.page {
             Page::Settings => self.settings_view(cx).into_any_element(),
-            Page::History => self.history_view(cx).into_any_element(),
+            Page::History => self.history_view(width, cx).into_any_element(),
             _ if self.total == 0 && self.scan.is_none() && !self.loading => self.onboarding(cx).into_any_element(),
             _ => self.collection(width, window, cx).into_any_element(),
         };
