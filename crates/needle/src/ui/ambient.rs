@@ -336,6 +336,9 @@ impl AppView {
 
     /// Film grain over the whole window, so large surfaces do not look like flat paint.
     pub(super) fn grain(&mut self, window: &Window, cx: &App) -> Option<AnyElement> {
+        if self.settings.grain <= 0.001 {
+            return None;
+        }
         if self.grain_file.is_none() {
             let path = self
                 .library
@@ -351,7 +354,9 @@ impl AppView {
             (f32::from(size.width) / GRAIN as f32).ceil() as u32,
             (f32::from(size.height) / GRAIN as f32).ceil() as u32,
         );
-        let strength = if theme::pal(cx).dark { 0.06 } else { 0.045 };
+        // Even at full strength the grain stays faint.
+        let strength =
+            self.settings.grain.clamp(0., 1.) * if theme::pal(cx).dark { 0.05 } else { 0.035 };
         Some(
             div()
                 .absolute()

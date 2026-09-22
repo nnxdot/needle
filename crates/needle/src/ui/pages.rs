@@ -658,6 +658,25 @@ impl AppView {
                     )
                     .child(self.glass_settings(cx))
                     .child(setting_row(
+                        "Film grain",
+                        "A fine texture over the whole window. Off by default.",
+                        div()
+                            .w(px(220.))
+                            .flex()
+                            .items_center()
+                            .gap_3()
+                            .child(gpui_component::slider::Slider::new(&self.grain_slider).flex_1())
+                            .child(
+                                div()
+                                    .w(px(36.))
+                                    .text_right()
+                                    .text_size(px(12.))
+                                    .text_color(p.ink_2)
+                                    .child(if self.settings.grain <= 0.001 { "Off".to_string() } else { format!("{:.0}%", self.settings.grain * 100.) }),
+                            ),
+                        cx,
+                    ))
+                    .child(setting_row(
                         "Colors from the music",
                         "Tint Needle with the colors of the cover that is playing, or of the album or artist you are looking at.",
                         Switch::new("music-colors").checked(self.settings.music_colors).on_click(cx.listener(|this, checked: &bool, _, cx| {
@@ -775,6 +794,7 @@ impl AppView {
                     .when(tab == 3, |el| {
                         el
                     .child(self.section_title("Listening services", "Optional. Nothing is sent until you connect a service and turn it on.", cx))
+                    .when(Self::discord_available(), |el| el.child(self.discord_settings(cx)))
                     .child(self.services(cx))
                     })
                     // Stems
@@ -1078,5 +1098,23 @@ impl AppView {
                     cx,
                 ))
             })
+    }
+}
+
+impl AppView {
+    /// Discord Rich Presence: one switch. Needle finds Discord by itself.
+    fn discord_settings(&self, cx: &mut Context<Self>) -> impl IntoElement {
+        setting_row(
+            "Show what you're playing on Discord",
+            "When Discord is open on this PC, your profile shows the song, the artist, and a time bar. Needle only talks to the real Discord app, over this PC, and sends nothing else.",
+            Switch::new("discord-presence")
+                .checked(self.settings.discord_presence)
+                .on_click(cx.listener(|this, checked: &bool, _, cx| {
+                    this.settings.discord_presence = *checked;
+                    this.persist_settings();
+                    cx.notify();
+                })),
+            cx,
+        )
     }
 }

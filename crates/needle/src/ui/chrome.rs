@@ -747,7 +747,9 @@ impl AppView {
         Some(
             div()
                 .absolute()
-                .bottom(px(100.))
+                // Above the player bar; in the big player, at the top, clear of its controls.
+                .when(self.big, |el| el.top(px(104.)))
+                .when(!self.big, |el| el.bottom(px(100.)))
                 .left_0()
                 .right_0()
                 .flex()
@@ -778,11 +780,14 @@ impl AppView {
                                 .text_color(if toast.error { p.danger } else { p.accent }),
                         )
                         .child(
-                            div()
-                                .flex_1()
-                                .text_size(px(13.))
-                                .line_height(relative(1.4))
-                                .child(toast.text.clone()),
+                            div().flex_1().min_w_0().child(
+                                // Wrapped text needs its own width or it is measured as one line.
+                                div()
+                                    .w_full()
+                                    .text_size(px(13.))
+                                    .line_height(relative(1.4))
+                                    .child(toast.text.clone()),
+                            ),
                         )
                         .child(
                             icon_button("dismiss-toast", "close", "Dismiss")

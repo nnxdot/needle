@@ -56,6 +56,8 @@ impl AppView {
                     ..Default::default()
                 }),
                 window_min_size: Some(size(px(300.), px(140.))),
+                // The mini player sizes itself: compact, or expanded with a list.
+                is_resizable: false,
                 ..Default::default()
             };
             let weak = app.downgrade();
@@ -226,7 +228,9 @@ impl Render for MiniView {
                     .flex_1()
                     .py(px(5.))
                     .rounded(px(6.))
-                    .text_center()
+                    // Centre with layout: a hover style resets text alignment in GPUI.
+                    .flex()
+                    .justify_center()
                     .text_size(px(12.5))
                     .cursor_pointer()
                     .when(active, |el| {
@@ -365,7 +369,13 @@ impl Render for MiniView {
                     .flex()
                     .items_center()
                     .gap_2()
-                    .child(faint(format_duration(position), cx).w(px(32.)))
+                    .child(
+                        faint(
+                            format_duration(if current.is_some() { position } else { 0. }),
+                            cx,
+                        )
+                        .w(px(32.)),
+                    )
                     .child(Slider::new(&seek).flex_1().disabled(current.is_none()))
                     .child(
                         faint(
