@@ -633,6 +633,12 @@ impl AppView {
                     )
                     .child(Slider::new(&self.volume).w(px(if wide { 96. } else { 72. })).disabled(self.playback.exclusive))
                     .child(
+                        icon_button("open-sound", "eq", "Equalizer and sound tools")
+                            .small()
+                            .when(self.settings.dsp.eq || !self.settings.dsp.is_transparent(), |b| b.text_color(p.accent))
+                            .on_click(cx.listener(|this, _, window, cx| this.navigate(Page::Sound, window, cx))),
+                    )
+                    .child(
                         icon_button("open-mini", "mini", "Mini player · Ctrl+M")
                             .small()
                             .ml_1()

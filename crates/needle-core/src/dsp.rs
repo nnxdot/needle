@@ -1,0 +1,454 @@
+//! Sound tools for shared output: a 10-band graphic equalizer with preamp, balance, mono,
+//! and headphone crossfeed. Exclusive output never passes through here.
+//!
+//! Settings change live: the playing source re-reads them every few milliseconds.
+use rodio::Source;
+use serde::{Deserialize, Serialize};
+use std::{
+    f64::consts::PI,
+    sync::{
+        Arc, Mutex,
+        atomic::{AtomicU64, Ordering},
+    },
+    time::Duration,
+};
+
+/// Centre frequencies of the graphic equalizer, one octave apart.
+pub const BANDS: [f64; 10] = [
+    31., 62., 125., 250., 500., 1000., 2000., 4000., 8000., 16000.,
+];
+pub const MAX_GAIN_DB: f32 = 12.;
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct Dsp {
+    pub eq: bool,
+    pub preamp_db: f32,
+    /// Gain per band in dB, matching [`BANDS`].
+    pub bands: [f32; 10],
+    /// −1 is fully left, +1 fully right.
+    pub balance: f32,
+    pub mono: bool,
+    /// Blend a little of each channel into the other, as speakers do, for easier headphone listening.
+    pub crossfeed: bool,
+    pub preset: String,
+}
+
+impl Default for Dsp {
+    fn default() -> Self {
+        Self {
+            eq: false,
+            preamp_db: 0.,
+            bands: [0.; 10],
+            balance: 0.,
+            mono: false,
+            crossfeed: false,
+            preset: "Flat".into(),
+        }
+    }
+}
+
+impl Dsp {
+    /// True when nothing would change the signal, so playback can skip processing entirely.
+    pub fn is_transparent(&self) -> bool {
+        let eq_flat = !self.eq || (self.preamp_db == 0. && self.bands.iter().all(|b| *b == 0.));
+        eq_flat && self.balance == 0. && !self.mono && !self.crossfeed
+    }
+    /// The preamp that keeps the loudest boosted band from clipping.
+    pub fn suggested_preamp(&self) -> f32 {
+        -self.bands.iter().copied().fold(0., f32::max)
+    }
+}
+
+/// Built-in equalizer curves: name, preamp, and band gains.
+pub const PRESETS: &[(&str, f32, [f32; 10])] = &[
+    ("Flat", 0., [0., 0., 0., 0., 0., 0., 0., 0., 0., 0.]),
+    ("Bass boost", -6., [6., 5., 4., 2., 0., 0., 0., 0., 0., 0.]),
+    (
+        "Treble boost",
+        -5.,
+        [0., 0., 0., 0., 0., 0., 1., 3., 4., 5.],
+    ),
+    ("Loudness", -5., [5., 4., 2., 0., -1., -1., 0., 2., 3., 4.]),
+    ("Vocal", -4., [-2., -2., -1., 0., 2., 4., 4., 2., 0., -1.]),
+    ("Rock", -4., [4., 3., 1., -1., -2., -1., 1., 3., 4., 4.]),
+    ("Electronic", -5., [5., 4., 1., 0., -2., 1., 0., 1., 4., 5.]),
+    ("Classical", -3., [3., 2., 1., 0., 0., 0., -1., -1., 1., 3.]),
+    (
+        "Spoken word",
+        -3.,
+        [-4., -3., -1., 1., 3., 3., 2., 1., -1., -3.],
+    ),
+    (
+        "Headphones",
+        -4.,
+        [3., 3., 1., 0., -1., 0., 1., 2., 0., -2.],
+    ),
+];
+
+/// Settings shared with the playing sources.
+#[derive(Default)]
+pub struct DspControl {
+    settings: Mutex<Dsp>,
+    version: AtomicU64,
+}
+impl DspControl {
+    pub fn new(settings: Dsp) -> Arc<Self> {
+        Arc::new(Self {
+            settings: Mutex::new(settings),
+            version: AtomicU64::new(1),
+        })
+    }
+    pub fn set(&self, settings: Dsp) {
+        *self.settings.lock().unwrap_or_else(|p| p.into_inner()) = settings;
+        self.version.fetch_add(1, Ordering::Release);
+    }
+    pub fn get(&self) -> Dsp {
+        self.settings
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .clone()
+    }
+}
+
+/// RBJ "Audio EQ Cookbook" peaking filter, transposed direct form II.
+#[derive(Clone, Copy, Default)]
+struct Biquad {
+    b0: f64,
+    b1: f64,
+    b2: f64,
+    a1: f64,
+    a2: f64,
+}
+impl Biquad {
+    fn peaking(rate: f64, frequency: f64, gain_db: f64, q: f64) -> Self {
+        let a = 10f64.powf(gain_db / 40.);
+        let w = 2. * PI * frequency / rate;
+        let alpha = w.sin() / (2. * q);
+        let a0 = 1. + alpha / a;
+        Self {
+            b0: (1. + alpha * a) / a0,
+            b1: -2. * w.cos() / a0,
+            b2: (1. - alpha * a) / a0,
+            a1: -2. * w.cos() / a0,
+            a2: (1. - alpha / a) / a0,
+        }
+    }
+    fn run(&self, state: &mut [f64; 2], x: f64) -> f64 {
+        let y = self.b0 * x + state[0];
+        state[0] = self.b1 * x - self.a1 * y + state[1];
+        state[1] = self.b2 * x - self.a2 * y;
+        y
+    }
+}
+
+/// The processing state for one source: filter coefficients and per-channel history.
+pub struct Chain {
+    rate: f64,
+    channels: usize,
+    settings: Dsp,
+    filters: Vec<Biquad>,
+    state: Vec<[f64; 2]>,
+    preamp: f64,
+    crossfeed_lp: [f64; 2],
+    crossfeed_a: f64,
+}
+impl Chain {
+    pub fn new(settings: Dsp, rate: u32, channels: u16) -> Self {
+        let mut chain = Self {
+            rate: rate.max(1) as f64,
+            channels: channels.max(1) as usize,
+            settings: Dsp::default(),
+            filters: vec![],
+            state: vec![],
+            preamp: 1.,
+            crossfeed_lp: [0.; 2],
+            // One-pole low-pass near 700 Hz for the blended opposite channel.
+            crossfeed_a: (-2. * PI * 700. / rate.max(1) as f64).exp(),
+        };
+        chain.configure(settings);
+        chain
+    }
+    pub fn configure(&mut self, settings: Dsp) {
+        let active = settings.eq;
+        let old_filters = self.filters.len();
+        self.filters = if active {
+            BANDS
+                .iter()
+                .zip(settings.bands)
+                .filter(|(f, g)| **f < self.rate * 0.45 && *g != 0.)
+                .map(|(f, g)| {
+                    Biquad::peaking(
+                        self.rate,
+                        *f,
+                        g.clamp(-MAX_GAIN_DB, MAX_GAIN_DB) as f64,
+                        1.41,
+                    )
+                })
+                .collect()
+        } else {
+            vec![]
+        };
+        // Keep filter history when only gains change, so adjusting a slider does not click.
+        if self.filters.len() != old_filters {
+            self.state = vec![[0.; 2]; self.filters.len() * self.channels];
+        }
+        self.preamp = if active {
+            10f64.powf(settings.preamp_db.clamp(-24., 12.) as f64 / 20.)
+        } else {
+            1.
+        };
+        self.settings = settings;
+    }
+    /// Process one interleaved frame in place.
+    pub fn frame(&mut self, frame: &mut [f32]) {
+        for (channel, sample) in frame.iter_mut().enumerate() {
+            let mut x = *sample as f64 * self.preamp;
+            for (band, filter) in self.filters.iter().enumerate() {
+                x = filter.run(&mut self.state[band * self.channels + channel], x);
+            }
+            *sample = x as f32;
+        }
+        if frame.len() >= 2 {
+            let (mut l, mut r) = (frame[0] as f64, frame[1] as f64);
+            if self.settings.crossfeed {
+                let a = self.crossfeed_a;
+                self.crossfeed_lp[0] = self.crossfeed_lp[0] * a + r * (1. - a);
+                self.crossfeed_lp[1] = self.crossfeed_lp[1] * a + l * (1. - a);
+                let level = 0.3;
+                l = (l + level * self.crossfeed_lp[0]) / (1. + level);
+                r = (r + level * self.crossfeed_lp[1]) / (1. + level);
+            }
+            if self.settings.mono {
+                let m = (l + r) * 0.5;
+                (l, r) = (m, m);
+            }
+            let balance = self.settings.balance.clamp(-1., 1.) as f64;
+            l *= (1. - balance).min(1.);
+            r *= (1. + balance).min(1.);
+            frame[0] = l as f32;
+            frame[1] = r as f32;
+        }
+        for sample in frame.iter_mut() {
+            *sample = sample.clamp(-1., 1.);
+        }
+    }
+}
+
+/// A source wrapper that runs [`Chain`] and follows live setting changes.
+pub struct Processed<S: Source> {
+    inner: S,
+    control: Arc<DspControl>,
+    version: u64,
+    chain: Chain,
+    frame: Vec<f32>,
+    position: usize,
+    frames_until_check: usize,
+}
+impl<S: Source> Processed<S> {
+    pub fn new(inner: S, control: Arc<DspControl>) -> Self {
+        let chain = Chain::new(control.get(), inner.sample_rate(), inner.channels());
+        let channels = inner.channels().max(1) as usize;
+        Self {
+            version: control.version.load(Ordering::Acquire),
+            inner,
+            control,
+            chain,
+            frame: vec![0.; channels],
+            position: channels,
+            frames_until_check: 0,
+        }
+    }
+}
+impl<S: Source> Iterator for Processed<S> {
+    type Item = f32;
+    fn next(&mut self) -> Option<f32> {
+        if self.position >= self.frame.len() {
+            if self.frames_until_check == 0 {
+                self.frames_until_check = 256;
+                let version = self.control.version.load(Ordering::Acquire);
+                if version != self.version {
+                    self.version = version;
+                    self.chain.configure(self.control.get());
+                }
+            }
+            self.frames_until_check -= 1;
+            for slot in self.frame.iter_mut() {
+                *slot = self.inner.next()?;
+            }
+            self.chain.frame(&mut self.frame);
+            self.position = 0;
+        }
+        let sample = self.frame[self.position];
+        self.position += 1;
+        Some(sample)
+    }
+}
+impl<S: Source> Source for Processed<S> {
+    fn current_span_len(&self) -> Option<usize> {
+        self.inner.current_span_len()
+    }
+    fn channels(&self) -> u16 {
+        self.inner.channels()
+    }
+    fn sample_rate(&self) -> u32 {
+        self.inner.sample_rate()
+    }
+    fn total_duration(&self) -> Option<Duration> {
+        self.inner.total_duration()
+    }
+    fn try_seek(&mut self, pos: Duration) -> Result<(), rodio::source::SeekError> {
+        self.position = self.frame.len();
+        self.inner.try_seek(pos)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn sine(frequency: f64, rate: f64, frames: usize) -> Vec<f32> {
+        (0..frames)
+            .flat_map(|i| {
+                let s = (2. * PI * frequency * i as f64 / rate).sin() as f32 * 0.25;
+                [s, s]
+            })
+            .collect()
+    }
+    fn run(settings: Dsp, input: &[f32]) -> Vec<f32> {
+        let mut chain = Chain::new(settings, 48000, 2);
+        let mut out = input.to_vec();
+        for frame in out.chunks_mut(2) {
+            chain.frame(frame);
+        }
+        out
+    }
+    fn rms(samples: &[f32]) -> f64 {
+        let tail = &samples[samples.len() / 2..];
+        (tail.iter().map(|s| (*s as f64).powi(2)).sum::<f64>() / tail.len() as f64).sqrt()
+    }
+
+    #[test]
+    fn defaults_are_transparent() {
+        let input = sine(1000., 48000., 4800);
+        assert!(Dsp::default().is_transparent());
+        assert_eq!(run(Dsp::default(), &input), input);
+        let flat_eq = Dsp {
+            eq: true,
+            ..Default::default()
+        };
+        assert!(flat_eq.is_transparent());
+        assert_eq!(run(flat_eq, &input), input);
+    }
+
+    #[test]
+    fn a_band_boosts_its_own_frequency_and_not_distant_ones() {
+        let mut settings = Dsp {
+            eq: true,
+            ..Default::default()
+        };
+        settings.bands[5] = 6.; // 1 kHz
+        let at_band = rms(&run(settings.clone(), &sine(1000., 48000., 48000)))
+            / rms(&sine(1000., 48000., 48000));
+        let far = rms(&run(settings, &sine(62., 48000., 48000))) / rms(&sine(62., 48000., 48000));
+        assert!(
+            (at_band - 2.0).abs() < 0.05,
+            "+6 dB should double amplitude, got {at_band}"
+        );
+        assert!(
+            (far - 1.0).abs() < 0.03,
+            "a distant band should be nearly untouched, got {far}"
+        );
+    }
+
+    #[test]
+    fn preamp_scales_and_output_never_clips() {
+        let loud: Vec<f32> = vec![0.9; 2000];
+        let boosted = run(
+            Dsp {
+                eq: true,
+                preamp_db: 12.,
+                ..Default::default()
+            },
+            &loud,
+        );
+        assert!(boosted.iter().all(|s| (-1.0..=1.0).contains(s)));
+        let quieter = run(
+            Dsp {
+                eq: true,
+                preamp_db: -6.,
+                ..Default::default()
+            },
+            &[0.5, 0.5],
+        );
+        assert!((quieter[0] - 0.2506).abs() < 0.001);
+    }
+
+    #[test]
+    fn mono_balance_and_crossfeed_mix_channels() {
+        let mono = run(
+            Dsp {
+                mono: true,
+                ..Default::default()
+            },
+            &[0.4, 0.0],
+        );
+        assert_eq!(mono, vec![0.2, 0.2]);
+        let right = run(
+            Dsp {
+                balance: 0.5,
+                ..Default::default()
+            },
+            &[0.4, 0.4],
+        );
+        assert!((right[0] - 0.2).abs() < 1e-6 && (right[1] - 0.4).abs() < 1e-6);
+        let only_left: Vec<f32> = (0..4800).flat_map(|_| [0.5, 0.0]).collect();
+        let fed = run(
+            Dsp {
+                crossfeed: true,
+                ..Default::default()
+            },
+            &only_left,
+        );
+        assert!(
+            fed[fed.len() - 1] > 0.05,
+            "some of the left channel should reach the right"
+        );
+    }
+
+    #[test]
+    fn bands_above_nyquist_are_skipped_and_presets_are_well_formed() {
+        let mut settings = Dsp {
+            eq: true,
+            ..Default::default()
+        };
+        settings.bands[9] = 6.;
+        let chain = Chain::new(settings, 22050, 2);
+        assert!(
+            chain.filters.is_empty(),
+            "16 kHz cannot be shaped at 22.05 kHz"
+        );
+        for (name, preamp, bands) in PRESETS {
+            let max = bands.iter().copied().fold(0., f32::max);
+            assert!(*preamp <= -max + 0.01 || max == 0., "{name} could clip");
+        }
+    }
+
+    #[test]
+    fn live_changes_reach_a_playing_source() {
+        let control = DspControl::new(Dsp::default());
+        let source = rodio::buffer::SamplesBuffer::new(2, 48000, vec![0.5f32; 4096]);
+        let mut processed = Processed::new(source, control.clone());
+        assert_eq!(processed.next(), Some(0.5));
+        control.set(Dsp {
+            eq: true,
+            preamp_db: -6.,
+            ..Default::default()
+        });
+        let later: Vec<f32> = processed.by_ref().skip(1024).take(2).collect();
+        assert!(
+            later.iter().all(|s| (*s - 0.2506).abs() < 0.001),
+            "{later:?}"
+        );
+    }
+}

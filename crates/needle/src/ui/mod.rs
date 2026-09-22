@@ -7,6 +7,7 @@ mod mini;
 mod now_playing;
 mod pages;
 mod panel;
+mod sound;
 mod suggest;
 mod tags;
 mod theme;
@@ -95,6 +96,7 @@ pub enum Page {
     History,
     Playlist(String),
     Settings,
+    Sound,
 }
 impl Page {
     fn title(&self) -> String {
@@ -115,6 +117,7 @@ impl Page {
             Self::History => "Listening history".into(),
             Self::Playlist(_) => "Playlist".into(),
             Self::Settings => "Settings".into(),
+            Self::Sound => "Sound".into(),
         }
     }
     /// The rule behind the page, before any search text is applied.
@@ -128,7 +131,7 @@ impl Page {
         }
     }
     fn is_tracks(&self) -> bool {
-        !matches!(self, Self::History | Self::Settings)
+        !matches!(self, Self::History | Self::Settings | Self::Sound)
     }
     pub fn is_grid(&self) -> bool {
         matches!(self, Self::Albums | Self::Artists | Self::Artist(_))
@@ -289,6 +292,7 @@ pub struct AppView {
     artist_images: std::collections::HashMap<String, Option<String>>,
     recent: Vec<Listen>,
     mini: Option<AnyWindowHandle>,
+    sound: sound::SoundControls,
     /// Artwork found online after a track was queued, by track id.
     art_override: std::collections::HashMap<String, String>,
     tag_session: TagSession,
@@ -419,6 +423,7 @@ impl AppView {
         let listenbrainz_token = secret("ListenBrainz user token", window, cx);
         let acoustid_key = secret("AcoustID application key", window, cx);
         let tags = TagFields::new(window, cx);
+        let sound = sound::SoundControls::new(&settings.dsp, cx);
         let volume = cx.new(|_| {
             SliderState::new()
                 .min(0.)
@@ -546,6 +551,7 @@ impl AppView {
             artist_images: Default::default(),
             recent: vec![],
             mini: None,
+            sound,
             art_override: Default::default(),
             tag_session: TagSession::default(),
             suggestions: vec![],

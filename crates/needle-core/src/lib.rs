@@ -4,6 +4,7 @@ pub mod audio_file;
 pub mod browse;
 pub mod database;
 pub mod demo;
+pub mod dsp;
 #[cfg(windows)]
 mod exclusive;
 pub mod history;

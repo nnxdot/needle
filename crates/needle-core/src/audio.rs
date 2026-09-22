@@ -102,6 +102,8 @@ pub enum Command {
     Move(usize, usize),
     Repeat(Repeat),
     Loop(Option<(f64, f64)>),
+    /// Change the equalizer and sound tools; applies to the playing track without a restart.
+    Dsp(crate::dsp::Dsp),
     Shutdown,
 }
 
@@ -588,6 +590,7 @@ struct Worker {
     seek_timeout: Duration,
     default_check: Duration,
     last_default_check: Instant,
+    dsp: Arc<crate::dsp::DspControl>,
 }
 impl Worker {
     fn new(
@@ -616,7 +619,9 @@ impl Worker {
         let items = session.resolve(&library);
         let (queue, resume_position) = Queue::restore(&session, items);
         let saved_version = queue.version;
+        let dsp = crate::dsp::DspControl::new(settings.dsp.clone());
         Self {
+            dsp,
             library,
             state,
             settings,
@@ -853,8 +858,19 @@ impl Worker {
                 }
             };
             let gain = replay_gain_factor(&item.track, &self.settings);
+            // Exclusive output stays bit-exact; the sound tools only apply to shared output.
+            let processed: Box<dyn Source + Send> = if self.settings.exclusive
+                || self.settings.dsp.is_transparent() && !self.settings.dsp.eq
+            {
+                Box::new(source.amplify(gain as f32))
+            } else {
+                Box::new(crate::dsp::Processed::new(
+                    source.amplify(gain as f32),
+                    self.dsp.clone(),
+                ))
+            };
             let marked = Marked {
-                inner: source.amplify(gain as f32),
+                inner: processed,
                 item: item.clone(),
                 started: false,
                 epoch: self.epoch,
@@ -991,12 +1007,34 @@ impl Worker {
                 let listen = self.listen.take();
                 self.close();
                 self.settings = settings;
+                self.dsp.set(self.settings.dsp.clone());
                 self.library.save_settings(&self.settings)?;
                 if let Some(current) = current {
                     let mut items = vec![current];
                     items.extend(queue);
                     self.listen = listen;
                     self.restart(items, position, was_playing)?;
+                }
+            }
+            Command::Dsp(dsp) => {
+                // Tracks already queued without processing pick it up from the next one onwards.
+                let was_off = self.settings.dsp.is_transparent() && !self.settings.dsp.eq;
+                self.dsp.set(dsp.clone());
+                self.settings.dsp = dsp;
+                self.library.save_settings(&self.settings)?;
+                if was_off && !self.settings.exclusive && self.queue.active.is_some() {
+                    let current = self.queue.active.clone();
+                    let position = self.position();
+                    let was_playing = self.playing;
+                    let queue = self.queue.tail();
+                    let listen = self.listen.take();
+                    self.close();
+                    if let Some(current) = current {
+                        let mut items = vec![current];
+                        items.extend(queue);
+                        self.listen = listen;
+                        self.restart(items, position, was_playing)?;
+                    }
                 }
             }
             Command::ClearQueue => {
