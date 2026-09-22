@@ -163,6 +163,26 @@ impl AppView {
         self.look(&path)
     }
 
+    /// The window material in use now, after Windows' own settings.
+    pub(super) fn material(&self) -> super::glass::Material {
+        use super::glass::Material;
+        let (allowed, win11) = self.glass_system;
+        match Material::from_name(&self.settings.window_material) {
+            _ if !allowed => Material::Solid,
+            Material::Mica if !win11 => Material::Acrylic,
+            m => m,
+        }
+    }
+
+    /// Tell Windows which material to draw, when it or dark/light changed.
+    pub(super) fn update_glass(&mut self, window: &mut Window, cx: &App) {
+        let key = (self.material(), theme::pal(cx).dark);
+        if self.glass_applied != Some(key) {
+            super::glass::apply(window, key.0, key.1);
+            self.glass_applied = Some(key);
+        }
+    }
+
     /// Move the app palette toward the playing cover's colours. Called once per frame.
     pub(super) fn update_palette(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         // An album or artist page takes that album's or artist's colour; elsewhere the
@@ -181,7 +201,15 @@ impl AppView {
         } else {
             None
         };
-        let target = Palette::build(Base::from_name(&self.settings.theme), tint);
+        let mut target = Palette::build(Base::from_name(&self.settings.theme), tint);
+        match self.material() {
+            super::glass::Material::Solid => {}
+            // Clear glass shows the desktop unblurred, so it keeps more of the surface.
+            super::glass::Material::Clear => {
+                target = target.glass(self.settings.glass_amount, self.settings.glass_page, 0.55)
+            }
+            _ => target = target.glass(self.settings.glass_amount, self.settings.glass_page, 0.8),
+        }
         let shown = theme::pal(cx);
         if target != self.fade.to {
             // Switching dark and light snaps; covers fade.

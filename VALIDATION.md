@@ -82,6 +82,14 @@ Opening an existing large library for the first time after this change builds th
 - Live requests were made once to LRCLIB (59 timed lines for a known song), MusicBrainz/Wikidata/Commons (an artist photo), and ListenBrainz (listen format). Last.fm import was not run without an API key.
 - In the running app: the title bar drags, the window resizes from its edges including the top, and maximize/restore and double-click work (checked with Windows hit-testing and scripted drags after a fix for a focusable element that swallowed title-bar clicks). The big player showed timed lyrics following playback; the mini player opened, expanded (staying on screen), showed lyrics and the queue, and returned to the main window. The Sound page applied presets that persisted across restarts. The Import page detected an iTunes XML, and importing set ratings, play counts, and a playlist. An example plugin added a track-menu command that rated a song. A demo song was split into stems in the app and played back from its stems with the Karaoke mix.
 
+## 0.6.0 checks
+
+- `cargo test --workspace` passes, including a new test that glass only thins the back layer (and the page when asked) and never changes text colors.
+- On Windows 11, checked from screenshots: Mica behind the sidebar, title bar, and player in the Night and Day looks (the sidebar took the wallpaper's tint); Acrylic showing a frosted blur of the windows behind; Clear showing the desktop through the back layer only, with the page solid; the mini player with glass; and the Appearance controls. Extending the window frame into the client area made Windows draw its own caption buttons behind Needle's when maximized, so Needle no longer does that; Mica still shows, and a maximized window has only Needle's buttons.
+- The page no longer floats as a separate card with a border, shadow, and gaps; it now sits flush with the window edge and the player, with one hairline and a rounded corner where it meets the sidebar, and the details panel shares its surface. Checked in the Night and Day looks.
+- Needle.exe and needle-cli.exe now carry the app icon (resource 1, which GPUI uses for the window). The running app showed it in the taskbar; the icon was checked at 16–256 px on light and dark backgrounds.
+- Not checked: Windows 10 (where Mica falls back to Acrylic), the Transparency effects setting turned off, and smoothness while dragging with Acrylic on slower PCs.
+
 ## 0.5.0 checks
 
 - `cargo test --workspace` passes (98 core tests, 4 ignored, plus the UI contrast test). The contrast test now builds the palette for all three looks and 27 cover colors (24 hues, a dark muted blue, a pale yellow, and grey) and checks every text color on every surface at 4.5:1. A new core test covers the Home shelves, including the order of recently played albums after recorded listens.

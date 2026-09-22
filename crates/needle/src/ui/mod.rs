@@ -2,6 +2,7 @@ mod ambient;
 mod assets;
 mod chrome;
 mod flow;
+mod glass;
 mod history;
 mod home;
 mod importer;
@@ -93,8 +94,6 @@ const PLAY_LIMIT: usize = 50_000;
 const PAGE_SIZE: usize = 1000;
 /// How long the big player takes to grow or shrink.
 const BIG_MS: u64 = 260;
-/// Space between the page sheet and the window edges around it.
-const SHEET_GAP: f32 = 8.;
 
 #[derive(Clone, PartialEq, Debug)]
 pub enum Page {
@@ -297,6 +296,7 @@ pub struct AppView {
     sync_phrase: Entity<InputState>,
     tags: TagFields,
     volume: Entity<SliderState>,
+    glass_slider: Entity<SliderState>,
     seek: Entity<SliderState>,
     focus: FocusHandle,
     list_scroll: UniformListScrollHandle,
@@ -338,6 +338,10 @@ pub struct AppView {
     fade: ambient::Fade,
     /// The film-grain tile, once written (`Some(None)` if it could not be).
     grain_file: Option<Option<PathBuf>>,
+    /// Whether Windows allows transparency, and whether it is Windows 11 (read at start and
+    /// when Appearance settings open).
+    glass_system: (bool, bool),
+    glass_applied: Option<(glass::Material, bool)>,
     home: Option<Box<needle_core::browse::Home>>,
     lyrics: Option<(String, Option<needle_core::media::Lyrics>)>,
     lyric_line: Option<usize>,
@@ -509,6 +513,13 @@ impl AppView {
                 .default_value(settings.volume)
         });
         let seek = cx.new(|_| SliderState::new().min(0.).max(1000.).step(1.));
+        let glass_slider = cx.new(|_| {
+            SliderState::new()
+                .min(0.)
+                .max(1.)
+                .step(0.01)
+                .default_value(settings.glass_amount)
+        });
         let focus = cx.focus_handle();
         window.focus(&focus);
         let (sender, events) = crossbeam_channel::unbounded();
@@ -561,6 +572,12 @@ impl AppView {
                 let SliderEvent::Change(value) = event;
                 this.player.send(Command::Volume(value.start()));
             }),
+            cx.subscribe(&glass_slider, |this, _, event, cx| {
+                let SliderEvent::Change(value) = event;
+                this.settings.glass_amount = value.start();
+                this.persist_settings();
+                cx.notify();
+            }),
             cx.subscribe(&seek, |this, _, event, _| {
                 let SliderEvent::Change(value) = event;
                 if let Some(item) = &this.playback.current {
@@ -606,6 +623,7 @@ impl AppView {
             sync_phrase,
             tags,
             volume,
+            glass_slider,
             seek,
             focus,
             list_scroll: UniformListScrollHandle::new(),
@@ -643,6 +661,8 @@ impl AppView {
             looks: Default::default(),
             fade: ambient::Fade::new(pal(cx)),
             grain_file: None,
+            glass_system: (glass::system_allows_transparency(), glass::windows_11()),
+            glass_applied: None,
             home: None,
             lyrics: None,
             lyric_line: None,
@@ -1242,6 +1262,7 @@ impl AppView {
             self.refresh_import_sources();
         }
         if self.page == Page::Settings {
+            self.glass_system = (glass::system_allows_transparency(), glass::windows_11());
             self.output_devices = audio::devices().unwrap_or_default();
             self.refresh_services();
         }
@@ -1755,6 +1776,7 @@ impl Drop for AppView {
 impl Render for AppView {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         self.update_palette(window, cx);
+        self.update_glass(window, cx);
         let p = pal(cx);
         let width = window.viewport_size().width;
         let show_panel = self.settings.show_inspector
@@ -1763,9 +1785,9 @@ impl Render for AppView {
             && (self.page.is_tracks() || self.panel == Panel::Queue);
         let sidebar = self.settings.layout.sidebar_width.clamp(200., 260.);
         let panel_width = self.settings.layout.inspector_width.clamp(280., 340.) + 16.;
-        // The page is a sheet floating on the back layer, 8 px in from its neighbours.
+        // The page and the side panel share one content surface to the right of the sidebar.
         let content_width =
-            f32::from(width) - sidebar - if show_panel { panel_width } else { SHEET_GAP } - 2.;
+            f32::from(width) - sidebar - if show_panel { panel_width } else { 0. } - 1.;
         let backdrop = self.page_backdrop(cx);
         let grain = self.grain(window, cx);
         self.glide_lyrics(window, cx);
@@ -1799,7 +1821,7 @@ impl Render for AppView {
             .id("needle-app")
             .key_context("Needle")
             .size_full()
-            .bg(p.canvas)
+            .when(p.back.a >= 1., |el| el.bg(p.canvas))
             .text_color(p.ink)
             .font_family(
                 gpui_component::ActiveTheme::theme(&**cx)
@@ -1974,38 +1996,30 @@ impl Render for AppView {
                                 .flex_1()
                                 .min_h_0()
                                 .flex()
-                                .bg(p.chrome)
+                                .bg(p.back)
                                 .child(self.sidebar(sidebar, cx))
                                 .child(
+                                    // The content surface: flush with the window's right edge
+                                    // and the player, one hairline and a rounded corner where it
+                                    // meets the sidebar and title bar, like Windows 11's own apps.
                                     div()
                                         .id("sheet")
                                         .flex_1()
                                         .min_w_0()
-                                        .mb(px(SHEET_GAP))
-                                        .when(!show_panel, |el| el.mr(px(SHEET_GAP)))
                                         .relative()
                                         .flex()
-                                        .rounded(px(12.))
+                                        .rounded_tl(px(10.))
                                         .overflow_hidden()
                                         .bg(p.canvas)
-                                        .border_1()
+                                        .border_t_1()
+                                        .border_l_1()
                                         .border_color(if p.dark { p.line_soft } else { p.line })
-                                        .shadow(vec![BoxShadow {
-                                            color: gpui::black().opacity(if p.dark {
-                                                0.45
-                                            } else {
-                                                0.08
-                                            }),
-                                            offset: point(px(0.), px(2.)),
-                                            blur_radius: px(18.),
-                                            spread_radius: px(0.),
-                                        }])
                                         .child(backdrop)
-                                        .child(self.main(content_width, window, cx)),
-                                )
-                                .when(show_panel, |el| {
-                                    el.child(self.panel(panel_width, window, cx))
-                                }),
+                                        .child(self.main(content_width, window, cx))
+                                        .when(show_panel, |el| {
+                                            el.child(self.panel(panel_width, window, cx))
+                                        }),
+                                ),
                         )
                         .child(self.player_bar(width, cx))
                     })

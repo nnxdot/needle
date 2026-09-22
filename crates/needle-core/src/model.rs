@@ -98,6 +98,12 @@ pub struct Settings {
     pub reduce_motion: bool,
     /// Tint the interface with the colours of the playing song's cover.
     pub music_colors: bool,
+    /// What Windows draws behind the back layer: "mica", "acrylic", "clear", or "solid".
+    pub window_material: String,
+    /// How see-through the glass is, 0 (solid) to 1 (most see-through).
+    pub glass_amount: f32,
+    /// Let the glass show through the page too, not only the sidebar and bars.
+    pub glass_page: bool,
 }
 
 impl Default for Settings {
@@ -118,6 +124,9 @@ impl Default for Settings {
             dsp: crate::dsp::Dsp::default(),
             reduce_motion: false,
             music_colors: true,
+            window_material: "mica".into(),
+            glass_amount: 0.6,
+            glass_page: false,
         }
     }
 }

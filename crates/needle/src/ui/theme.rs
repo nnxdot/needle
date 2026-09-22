@@ -34,6 +34,8 @@ pub struct Palette {
     pub dark: bool,
     /// Sidebar, title bar and player: the back layer.
     pub chrome: Hsla,
+    /// The back layer as painted: `chrome`, or see-through when window glass is on.
+    pub back: Hsla,
     /// Main content sheet.
     pub canvas: Hsla,
     /// Raised elements on the canvas (hover rows, fields, cards).
@@ -145,6 +147,7 @@ impl Palette {
         Self {
             dark,
             chrome,
+            back: chrome,
             canvas,
             raised,
             raised_hover,
@@ -163,12 +166,25 @@ impl Palette {
         }
     }
 
+    /// Let window glass show through: the back layer by `amount` (0–1), and the page a little
+    /// too when `page` is set. Text keeps its colours; surfaces only lose opacity. `reach` is
+    /// how far the back layer may go: blurred materials can go further than clear glass.
+    pub fn glass(mut self, amount: f32, page: bool, reach: f32) -> Self {
+        let amount = amount.clamp(0., 1.);
+        self.back = self.chrome.opacity(1. - amount * reach);
+        if page {
+            self.canvas = self.canvas.opacity(1. - amount * 0.3);
+        }
+        self
+    }
+
     /// Part way from `a` to `b`, for fading between covers.
     pub fn mix(a: &Self, b: &Self, t: f32) -> Self {
         let m = |x: Hsla, y: Hsla| super::motion::mix(x, y, t);
         Self {
             dark: b.dark,
             chrome: m(a.chrome, b.chrome),
+            back: m(a.back, b.back),
             canvas: m(a.canvas, b.canvas),
             raised: m(a.raised, b.raised),
             raised_hover: m(a.raised_hover, b.raised_hover),
@@ -215,7 +231,12 @@ pub fn apply(p: Palette, cx: &mut App) {
     cx.set_global(p);
     let dark = p.dark;
     let t = &mut Theme::global_mut(cx).colors;
-    t.background = p.canvas;
+    // With glass on, nothing may paint an opaque layer under the whole window.
+    t.background = if p.back.a < 1. {
+        gpui::transparent_black()
+    } else {
+        p.canvas
+    };
     t.foreground = p.ink;
     t.muted = p.raised;
     t.muted_foreground = p.ink_2;
@@ -251,9 +272,9 @@ pub fn apply(p: Palette, cx: &mut App) {
     t.scrollbar = gpui::transparent_black();
     t.scrollbar_thumb = p.ink_3.opacity(0.35);
     t.scrollbar_thumb_hover = p.ink_3.opacity(0.6);
-    t.title_bar = p.chrome;
-    t.title_bar_border = p.chrome;
-    t.sidebar = p.chrome;
+    t.title_bar = p.back;
+    t.title_bar_border = p.back;
+    t.sidebar = p.back;
     t.sidebar_border = p.line_soft;
     t.tab_bar = p.chrome;
     t.tab = p.chrome;
@@ -315,5 +336,22 @@ mod tests {
                 );
             }
         }
+    }
+
+    /// Glass only thins the back layer (and the page when asked), never text colours.
+    #[test]
+    fn glass_thins_surfaces_only() {
+        let p = Palette::build(Base::Night, None);
+        let solid = p.glass(0., false, 0.8);
+        assert_eq!(solid.back, p.chrome);
+        let glass = p.glass(1., false, 0.8);
+        assert!((glass.back.a - 0.2).abs() < 1e-5);
+        assert_eq!(
+            (glass.canvas, glass.ink, glass.accent),
+            (p.canvas, p.ink, p.accent)
+        );
+        let page = p.glass(1., true, 0.55);
+        assert!((page.back.a - 0.45).abs() < 1e-5);
+        assert!(page.canvas.a >= 0.7 && page.canvas.a < 1.);
     }
 }

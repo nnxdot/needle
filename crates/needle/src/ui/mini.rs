@@ -29,6 +29,7 @@ pub struct MiniView {
     expanded: bool,
     tab: Tab,
     pinned: bool,
+    glass_applied: Option<(super::glass::Material, bool)>,
     _observe: Option<Subscription>,
 }
 
@@ -67,6 +68,7 @@ impl AppView {
                     expanded: false,
                     tab: Tab::Next,
                     pinned: false,
+                    glass_applied: None,
                 });
                 cx.new(|cx| Root::new(view, window, cx))
             });
@@ -182,8 +184,9 @@ impl Render for MiniView {
             window.remove_window();
             return div().into_any_element();
         };
-        let (current, playing, position, volume, seek, volume_state, blur) = {
+        let (current, playing, position, volume, seek, volume_state, blur, material) = {
             let a = app.read(cx);
+            let material = a.material();
             let blur = a
                 .settings
                 .music_colors
@@ -204,8 +207,13 @@ impl Render for MiniView {
                 a.seek.clone(),
                 a.volume.clone(),
                 blur,
+                material,
             )
         };
+        if self.glass_applied != Some((material, p.dark)) {
+            super::glass::apply(window, material, p.dark);
+            self.glass_applied = Some((material, p.dark));
+        }
         let control = |id: &'static str, name: &'static str, tip: &'static str| {
             icon_button(id, name, tip).xsmall()
         };
@@ -239,7 +247,7 @@ impl Render for MiniView {
             .size_full()
             .relative()
             .overflow_hidden()
-            .bg(p.chrome)
+            .bg(p.back)
             .text_color(p.ink)
             .flex()
             .flex_col()
@@ -251,12 +259,12 @@ impl Render for MiniView {
                         .inset_0()
                         .size_full()
                         .object_fit(ObjectFit::Cover)
-                        .opacity(if p.dark { 0.55 } else { 0.4 }),
+                        .opacity(if p.dark { 0.55 } else { 0.4 } * (0.4 + 0.6 * p.back.a)),
                 )
                 .child(div().absolute().inset_0().bg(linear_gradient(
                     180.,
-                    linear_color_stop(p.chrome.opacity(0.25), 0.),
-                    linear_color_stop(p.chrome.opacity(0.75), 1.),
+                    linear_color_stop(p.chrome.opacity(0.25 * p.back.a), 0.),
+                    linear_color_stop(p.chrome.opacity(0.75 * p.back.a), 1.),
                 )))
             })
             // Title strip: drag anywhere, window controls on the right.
