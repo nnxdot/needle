@@ -228,6 +228,10 @@ impl Pipe {
     }
 
     fn set_activity(&mut self, activity: Option<&Activity>) -> std::io::Result<()> {
+        self.set_activity_reply(activity).map(|_| ())
+    }
+
+    fn set_activity_reply(&mut self, activity: Option<&Activity>) -> std::io::Result<Value> {
         self.nonce += 1;
         let message = json!({
             "cmd": "SET_ACTIVITY",
@@ -239,7 +243,7 @@ impl Pipe {
         if reply["evt"] == "ERROR" {
             eprintln!("Discord refused the presence: {}", reply["data"]);
         }
-        Ok(())
+        Ok(reply)
     }
 
     fn send(&mut self, op: u32, value: &Value) -> std::io::Result<()> {
@@ -305,6 +309,33 @@ mod tests {
         assert!(is_discord_client("Vesktop.exe"));
         assert!(!is_discord_client("notdiscord.exe"));
         assert!(!is_discord_client("python.exe"));
+    }
+
+    /// Run by hand with Discord open and NEEDLE_DISCORD_ID set: shows a presence for a few
+    /// seconds, checks that Discord accepted it, then clears it.
+    #[test]
+    #[ignore]
+    fn live_presence() {
+        let id = std::env::var("NEEDLE_DISCORD_ID").expect("set NEEDLE_DISCORD_ID");
+        let mut pipe = Pipe::connect(&id).expect("Discord did not accept the connection");
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_secs() as i64;
+        let reply = pipe
+            .set_activity_reply(Some(&Activity {
+                title: "Needle presence test".into(),
+                artist: "Needle".into(),
+                album: "Testing".into(),
+                started: now,
+                ends: Some(now + 60),
+                paused: false,
+            }))
+            .unwrap();
+        println!("{reply}");
+        assert_ne!(reply["evt"], "ERROR", "{reply}");
+        std::thread::sleep(Duration::from_secs(8));
+        pipe.set_activity(None).unwrap();
     }
 
     /// Run by hand with Discord open: finds its pipe and confirms who serves it.

@@ -4,7 +4,7 @@ use super::AppView;
 use needle_core::discord::{Activity, Presence};
 
 /// The Discord application Needle appears as (discord.com/developers/applications).
-pub const APP_ID: &str = "";
+pub const APP_ID: &str = "1552097597454295110";
 
 impl AppView {
     /// Presence runs when it is turned on and this build knows its Discord application.
