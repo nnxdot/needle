@@ -1,13 +1,20 @@
 # Third-party notices
 
-Needle uses the packages below. This conservative Cargo inventory includes runtime, build, and development dependencies for the Windows resolution. Each retains its own license. Exact versions are locked in Cargo.lock.
+Needle uses the packages below. This conservative Cargo inventory includes runtime, build, and development dependencies for the Windows resolution. Each retains its own license. Exact versions are locked in Cargo.lock. Regenerate this file with `python scripts/third_party.py`.
 
 Bundled license texts are in `third-party/licenses.txt`. Original, unmodified MPL-2.0 crate source archives are in `third-party/sources/`; they can also be obtained from each linked crates.io release. Needle's application source does not modify these dependencies, with one exception: `third-party/patched/opus-decoder-0.1.1/` is the published opus-decoder 0.1.1 crate with its O(n²) MDCT DFT replaced by a `rustfft` transform (`src/celt/kiss_fft.rs`), its tests and dev-dependencies removed, and upstream license files added. Cargo uses it through `[patch.crates-io]`.
+
+## Components that are not Cargo packages
+
+- **ONNX Runtime** (MIT License, Copyright (c) Microsoft Corporation) is linked into Needle through the `ort` crate, which downloads Microsoft's prebuilt runtime at build time. It runs the stem-separation model.
+- **HT-Demucs** stem-separation model (MIT License, Copyright (c) Meta Platforms, Inc. and affiliates; Rouard, Massa and Défossez, "Hybrid Transformers for Music Source Separation", ICASSP 2023), in the ONNX export published by StemSplit at huggingface.co/StemSplitio/htdemucs-onnx (MIT). It is not included in the package; Needle downloads it when you first split a song.
+- **Online services** used only when you turn them on: MusicBrainz, the Cover Art Archive, AcoustID, LRCLIB (lyrics), Wikidata and Wikimedia Commons (artist photos; each image keeps its own Commons license), Last.fm, and ListenBrainz.
 
 | Package | License | Source release |
 |---|---|---|
 | adler2-2.0.1 | 0BSD OR MIT OR Apache-2.0 | [crates.io](https://crates.io/crates/adler2/2.0.1) |
 | aead-0.5.2 | MIT OR Apache-2.0 | [crates.io](https://crates.io/crates/aead/0.5.2) |
+| ahash-0.8.12 | MIT OR Apache-2.0 | [crates.io](https://crates.io/crates/ahash/0.8.12) |
 | aho-corasick-1.1.5 | Unlicense OR MIT | [crates.io](https://crates.io/crates/aho-corasick/1.1.5) |
 | aligned-0.4.3 | MIT OR Apache-2.0 | [crates.io](https://crates.io/crates/aligned/0.4.3) |
 | aligned-vec-0.6.4 | MIT | [crates.io](https://crates.io/crates/aligned-vec/0.6.4) |
@@ -47,6 +54,7 @@ Bundled license texts are in `third-party/licenses.txt`. Original, unmodified MP
 | avif-serialize-0.8.9 | BSD-3-Clause | [crates.io](https://crates.io/crates/avif-serialize/0.8.9) |
 | base62-2.2.6 | MIT | [crates.io](https://crates.io/crates/base62/2.2.6) |
 | base64-0.22.1 | MIT OR Apache-2.0 | [crates.io](https://crates.io/crates/base64/0.22.1) |
+| base64-0.23.1 | MIT OR Apache-2.0 | [crates.io](https://crates.io/crates/base64/0.23.1) |
 | base64ct-1.8.3 | Apache-2.0 OR MIT | [crates.io](https://crates.io/crates/base64ct/1.8.3) |
 | bit-set-0.8.0 | Apache-2.0 OR MIT | [crates.io](https://crates.io/crates/bit-set/0.8.0) |
 | bit-vec-0.8.0 | Apache-2.0 OR MIT | [crates.io](https://crates.io/crates/bit-vec/0.8.0) |
@@ -90,6 +98,8 @@ Bundled license texts are in `third-party/licenses.txt`. Original, unmodified MP
 | compression-core-0.4.33 | MIT OR Apache-2.0 | [crates.io](https://crates.io/crates/compression-core/0.4.33) |
 | concurrent-queue-2.5.0 | Apache-2.0 OR MIT | [crates.io](https://crates.io/crates/concurrent-queue/2.5.0) |
 | const-oid-0.10.2 | Apache-2.0 OR MIT | [crates.io](https://crates.io/crates/const-oid/0.10.2) |
+| const-random-0.1.18 | MIT OR Apache-2.0 | [crates.io](https://crates.io/crates/const-random/0.1.18) |
+| const-random-macro-0.1.16 | MIT OR Apache-2.0 | [crates.io](https://crates.io/crates/const-random-macro/0.1.16) |
 | constant_time_eq-0.4.2 | CC0-1.0 OR MIT-0 OR Apache-2.0 | [crates.io](https://crates.io/crates/constant_time_eq/0.4.2) |
 | convert_case-0.4.0 | MIT | [crates.io](https://crates.io/crates/convert_case/0.4.0) |
 | core_detect-1.0.0 | MIT/Apache-2.0 | [crates.io](https://crates.io/crates/core_detect/1.0.0) |
@@ -103,6 +113,7 @@ Bundled license texts are in `third-party/licenses.txt`. Original, unmodified MP
 | crossbeam-epoch-0.9.21 | MIT OR Apache-2.0 | [crates.io](https://crates.io/crates/crossbeam-epoch/0.9.21) |
 | crossbeam-queue-0.3.14 | MIT OR Apache-2.0 | [crates.io](https://crates.io/crates/crossbeam-queue/0.3.14) |
 | crossbeam-utils-0.8.23 | MIT OR Apache-2.0 | [crates.io](https://crates.io/crates/crossbeam-utils/0.8.23) |
+| crunchy-0.2.4 | MIT | [crates.io](https://crates.io/crates/crunchy/0.2.4) |
 | crypto-common-0.1.7 | MIT OR Apache-2.0 | [crates.io](https://crates.io/crates/crypto-common/0.1.7) |
 | crypto-common-0.2.2 | MIT OR Apache-2.0 | [crates.io](https://crates.io/crates/crypto-common/0.2.2) |
 | ctor-0.4.3 | Apache-2.0 OR MIT | [crates.io](https://crates.io/crates/ctor/0.4.3) |
@@ -112,6 +123,8 @@ Bundled license texts are in `third-party/licenses.txt`. Original, unmodified MP
 | data-encoding-2.11.1 | MIT | [crates.io](https://crates.io/crates/data-encoding/2.11.1) |
 | data-url-0.3.2 | MIT OR Apache-2.0 | [crates.io](https://crates.io/crates/data-url/0.3.2) |
 | deflate64-0.1.12 | MIT | [crates.io](https://crates.io/crates/deflate64/0.1.12) |
+| der-0.8.2 | Apache-2.0 OR MIT | [crates.io](https://crates.io/crates/der/0.8.2) |
+| deranged-0.5.8 | MIT OR Apache-2.0 | [crates.io](https://crates.io/crates/deranged/0.5.8) |
 | derive_more-0.99.20 | MIT | [crates.io](https://crates.io/crates/derive_more/0.99.20) |
 | digest-0.10.7 | MIT OR Apache-2.0 | [crates.io](https://crates.io/crates/digest/0.10.7) |
 | digest-0.11.3 | MIT OR Apache-2.0 | [crates.io](https://crates.io/crates/digest/0.11.3) |
@@ -206,6 +219,7 @@ Bundled license texts are in `third-party/licenses.txt`. Original, unmodified MP
 | heck-0.5.0 | MIT OR Apache-2.0 | [crates.io](https://crates.io/crates/heck/0.5.0) |
 | hexf-parse-0.2.1 | CC0-1.0 | [crates.io](https://crates.io/crates/hexf-parse/0.2.1) |
 | hidden-trait-0.1.2 | MIT | [crates.io](https://crates.io/crates/hidden-trait/0.1.2) |
+| hmac-sha256-1.1.14 | ISC | [crates.io](https://crates.io/crates/hmac-sha256/1.1.14) |
 | home-0.5.12 | MIT OR Apache-2.0 | [crates.io](https://crates.io/crates/home/0.5.12) |
 | hound-3.5.1 | Apache-2.0 | [crates.io](https://crates.io/crates/hound/3.5.1) |
 | html5ever-0.27.0 | MIT OR Apache-2.0 | [crates.io](https://crates.io/crates/html5ever/0.27.0) |
@@ -242,6 +256,7 @@ Bundled license texts are in `third-party/licenses.txt`. Original, unmodified MP
 | itertools-0.14.0 | MIT OR Apache-2.0 | [crates.io](https://crates.io/crates/itertools/0.14.0) |
 | itoa-1.0.18 | MIT OR Apache-2.0 | [crates.io](https://crates.io/crates/itoa/1.0.18) |
 | jobserver-0.1.35 | MIT OR Apache-2.0 | [crates.io](https://crates.io/crates/jobserver/0.1.35) |
+| keyring-3.6.3 | MIT OR Apache-2.0 | [crates.io](https://crates.io/crates/keyring/3.6.3) |
 | kurbo-0.11.3 | Apache-2.0 OR MIT | [crates.io](https://crates.io/crates/kurbo/0.11.3) |
 | kv-log-macro-1.0.7 | MIT OR Apache-2.0 | [crates.io](https://crates.io/crates/kv-log-macro/1.0.7) |
 | lazy_static-1.5.0 | MIT OR Apache-2.0 | [crates.io](https://crates.io/crates/lazy_static/1.5.0) |
@@ -263,10 +278,12 @@ Bundled license texts are in `third-party/licenses.txt`. Original, unmodified MP
 | lyon_geom-1.0.19 | MIT OR Apache-2.0 | [crates.io](https://crates.io/crates/lyon_geom/1.0.19) |
 | lyon_path-1.0.19 | MIT OR Apache-2.0 | [crates.io](https://crates.io/crates/lyon_path/1.0.19) |
 | lyon_tessellation-1.0.22 | MIT OR Apache-2.0 | [crates.io](https://crates.io/crates/lyon_tessellation/1.0.22) |
+| lzma-rust2-0.15.8 | Apache-2.0 | [crates.io](https://crates.io/crates/lzma-rust2/0.15.8) |
 | mac-0.1.1 | MIT/Apache-2.0 | [crates.io](https://crates.io/crates/mac/0.1.1) |
 | markdown-1.0.0 | MIT | [crates.io](https://crates.io/crates/markdown/1.0.0) |
 | markup5ever-0.12.1 | MIT OR Apache-2.0 | [crates.io](https://crates.io/crates/markup5ever/0.12.1) |
 | markup5ever_rcdom-0.3.0 | MIT OR Apache-2.0 | [crates.io](https://crates.io/crates/markup5ever_rcdom/0.3.0) |
+| matrixmultiply-0.3.11 | MIT/Apache-2.0 | [crates.io](https://crates.io/crates/matrixmultiply/0.3.11) |
 | maybe-rayon-0.1.1 | MIT | [crates.io](https://crates.io/crates/maybe-rayon/0.1.1) |
 | md5-0.7.0 | Apache-2.0/MIT | [crates.io](https://crates.io/crates/md5/0.7.0) |
 | memchr-2.8.3 | Unlicense OR MIT | [crates.io](https://crates.io/crates/memchr/2.8.3) |
@@ -283,6 +300,8 @@ Bundled license texts are in `third-party/licenses.txt`. Original, unmodified MP
 | multiversion_no_op-1.0.0 | Apache-2.0 OR MIT | [crates.io](https://crates.io/crates/multiversion_no_op/1.0.0) |
 | naga-25.0.1 | MIT OR Apache-2.0 | [crates.io](https://crates.io/crates/naga/25.0.1) |
 | nanorand-0.7.0 | Zlib | [crates.io](https://crates.io/crates/nanorand/0.7.0) |
+| native-tls-0.2.18 | MIT OR Apache-2.0 | [crates.io](https://crates.io/crates/native-tls/0.2.18) |
+| ndarray-0.17.2 | MIT OR Apache-2.0 | [crates.io](https://crates.io/crates/ndarray/0.17.2) |
 | new_debug_unreachable-1.0.6 | MIT | [crates.io](https://crates.io/crates/new_debug_unreachable/1.0.6) |
 | no_std_io2-0.9.4 | Apache-2.0 OR MIT | [crates.io](https://crates.io/crates/no_std_io2/0.9.4) |
 | nom-8.0.0 | MIT | [crates.io](https://crates.io/crates/nom/8.0.0) |
@@ -295,6 +314,7 @@ Bundled license texts are in `third-party/licenses.txt`. Original, unmodified MP
 | ntapi-0.4.3 | Apache-2.0 OR MIT | [crates.io](https://crates.io/crates/ntapi/0.4.3) |
 | num-bigint-0.4.8 | MIT OR Apache-2.0 | [crates.io](https://crates.io/crates/num-bigint/0.4.8) |
 | num-complex-0.4.6 | MIT OR Apache-2.0 | [crates.io](https://crates.io/crates/num-complex/0.4.6) |
+| num-conv-0.2.2 | MIT OR Apache-2.0 | [crates.io](https://crates.io/crates/num-conv/0.2.2) |
 | num-derive-0.4.2 | MIT OR Apache-2.0 | [crates.io](https://crates.io/crates/num-derive/0.4.2) |
 | num-integer-0.1.47 | MIT OR Apache-2.0 | [crates.io](https://crates.io/crates/num-integer/0.1.47) |
 | num-rational-0.4.2 | MIT OR Apache-2.0 | [crates.io](https://crates.io/crates/num-rational/0.4.2) |
@@ -305,14 +325,17 @@ Bundled license texts are in `third-party/licenses.txt`. Original, unmodified MP
 | once_cell-1.21.4 | MIT OR Apache-2.0 | [crates.io](https://crates.io/crates/once_cell/1.21.4) |
 | once_cell_polyfill-1.70.2 | MIT OR Apache-2.0 | [crates.io](https://crates.io/crates/once_cell_polyfill/1.70.2) |
 | opaque-debug-0.3.1 | MIT OR Apache-2.0 | [crates.io](https://crates.io/crates/opaque-debug/0.3.1) |
-| opus-decoder-0.1.1 (patched) | MIT OR Apache-2.0; ports libopus (BSD-3-Clause) | [crates.io](https://crates.io/crates/opus-decoder/0.1.1) |
 | option-ext-0.2.0 | MPL-2.0 | [crates.io](https://crates.io/crates/option-ext/0.2.0) |
+| opus-decoder-0.1.1 (patched copy in third-party/patched) | MIT OR Apache-2.0 | [crates.io](https://crates.io/crates/opus-decoder/0.1.1) |
+| ort-2.0.0-rc.13 | MIT OR Apache-2.0 | [crates.io](https://crates.io/crates/ort/2.0.0-rc.13) |
+| ort-sys-2.0.0-rc.13 | MIT OR Apache-2.0 | [crates.io](https://crates.io/crates/ort-sys/2.0.0-rc.13) |
 | parking-2.2.1 | Apache-2.0 OR MIT | [crates.io](https://crates.io/crates/parking/2.2.1) |
 | parking_lot-0.12.5 | MIT OR Apache-2.0 | [crates.io](https://crates.io/crates/parking_lot/0.12.5) |
 | parking_lot_core-0.9.12 | MIT OR Apache-2.0 | [crates.io](https://crates.io/crates/parking_lot_core/0.9.12) |
 | password-hash-0.5.0 | MIT OR Apache-2.0 | [crates.io](https://crates.io/crates/password-hash/0.5.0) |
 | paste-1.0.15 | MIT OR Apache-2.0 | [crates.io](https://crates.io/crates/paste/1.0.15) |
 | pastey-0.1.1 | MIT OR Apache-2.0 | [crates.io](https://crates.io/crates/pastey/0.1.1) |
+| pem-rfc7468-1.0.0 | Apache-2.0 OR MIT | [crates.io](https://crates.io/crates/pem-rfc7468/1.0.0) |
 | percent-encoding-2.3.2 | MIT OR Apache-2.0 | [crates.io](https://crates.io/crates/percent-encoding/2.3.2) |
 | phf-0.11.3 | MIT | [crates.io](https://crates.io/crates/phf/0.11.3) |
 | phf_codegen-0.11.3 | MIT | [crates.io](https://crates.io/crates/phf_codegen/0.11.3) |
@@ -325,13 +348,16 @@ Bundled license texts are in `third-party/licenses.txt`. Original, unmodified MP
 | pin-utils-0.1.0 | MIT OR Apache-2.0 | [crates.io](https://crates.io/crates/pin-utils/0.1.0) |
 | piper-0.2.5 | MIT OR Apache-2.0 | [crates.io](https://crates.io/crates/piper/0.2.5) |
 | pkg-config-0.3.34 | MIT OR Apache-2.0 | [crates.io](https://crates.io/crates/pkg-config/0.3.34) |
+| plist-1.10.1 | MIT | [crates.io](https://crates.io/crates/plist/1.10.1) |
 | png-0.17.16 | MIT OR Apache-2.0 | [crates.io](https://crates.io/crates/png/0.17.16) |
 | png-0.18.1 | MIT OR Apache-2.0 | [crates.io](https://crates.io/crates/png/0.18.1) |
 | polling-3.11.0 | Apache-2.0 OR MIT | [crates.io](https://crates.io/crates/polling/3.11.0) |
 | pollster-0.2.5 | Apache-2.0/MIT | [crates.io](https://crates.io/crates/pollster/0.2.5) |
 | poly1305-0.8.0 | Apache-2.0 OR MIT | [crates.io](https://crates.io/crates/poly1305/0.8.0) |
+| portable-atomic-1.15.0 | Apache-2.0 OR MIT | [crates.io](https://crates.io/crates/portable-atomic/1.15.0) |
 | postage-0.5.0 | MIT | [crates.io](https://crates.io/crates/postage/0.5.0) |
 | potential_utf-0.1.6 | Unicode-3.0 | [crates.io](https://crates.io/crates/potential_utf/0.1.6) |
+| powerfmt-0.2.0 | MIT OR Apache-2.0 | [crates.io](https://crates.io/crates/powerfmt/0.2.0) |
 | ppv-lite86-0.2.21 | MIT OR Apache-2.0 | [crates.io](https://crates.io/crates/ppv-lite86/0.2.21) |
 | precomputed-hash-0.1.1 | MIT | [crates.io](https://crates.io/crates/precomputed-hash/0.1.1) |
 | primal-check-0.3.4 | MIT OR Apache-2.0 | [crates.io](https://crates.io/crates/primal-check/0.3.4) |
@@ -346,6 +372,7 @@ Bundled license texts are in `third-party/licenses.txt`. Original, unmodified MP
 | pxfm-0.1.30 | BSD-3-Clause OR Apache-2.0 | [crates.io](https://crates.io/crates/pxfm/0.1.30) |
 | qoi-0.4.1 | MIT/Apache-2.0 | [crates.io](https://crates.io/crates/qoi/0.4.1) |
 | quick-error-2.0.1 | MIT/Apache-2.0 | [crates.io](https://crates.io/crates/quick-error/2.0.1) |
+| quick-xml-0.42.0 | MIT | [crates.io](https://crates.io/crates/quick-xml/0.42.0) |
 | quinn-0.11.12 | MIT OR Apache-2.0 | [crates.io](https://crates.io/crates/quinn/0.11.12) |
 | quinn-proto-0.11.18 | MIT OR Apache-2.0 | [crates.io](https://crates.io/crates/quinn-proto/0.11.18) |
 | quinn-udp-0.5.15 | MIT OR Apache-2.0 | [crates.io](https://crates.io/crates/quinn-udp/0.5.15) |
@@ -363,6 +390,7 @@ Bundled license texts are in `third-party/licenses.txt`. Original, unmodified MP
 | ravif-0.13.0 | BSD-3-Clause | [crates.io](https://crates.io/crates/ravif/0.13.0) |
 | raw-cpuid-11.6.0 | MIT | [crates.io](https://crates.io/crates/raw-cpuid/11.6.0) |
 | raw-window-handle-0.6.2 | MIT OR Apache-2.0 OR Zlib | [crates.io](https://crates.io/crates/raw-window-handle/0.6.2) |
+| rawpointer-0.2.1 | MIT/Apache-2.0 | [crates.io](https://crates.io/crates/rawpointer/0.2.1) |
 | rayon-1.12.0 | MIT OR Apache-2.0 | [crates.io](https://crates.io/crates/rayon/1.12.0) |
 | rayon-core-1.13.0 | MIT OR Apache-2.0 | [crates.io](https://crates.io/crates/rayon-core/1.13.0) |
 | realfft-3.5.0 | MIT | [crates.io](https://crates.io/crates/realfft/3.5.0) |
@@ -376,6 +404,8 @@ Bundled license texts are in `third-party/licenses.txt`. Original, unmodified MP
 | resvg-0.45.1 | Apache-2.0 OR MIT | [crates.io](https://crates.io/crates/resvg/0.45.1) |
 | rfd-0.15.4 | MIT | [crates.io](https://crates.io/crates/rfd/0.15.4) |
 | rgb-0.8.53 | MIT | [crates.io](https://crates.io/crates/rgb/0.8.53) |
+| rhai-1.26.1 | MIT OR Apache-2.0 | [crates.io](https://crates.io/crates/rhai/1.26.1) |
+| rhai_codegen-3.2.0 | MIT OR Apache-2.0 | [crates.io](https://crates.io/crates/rhai_codegen/3.2.0) |
 | ring-0.17.14 | Apache-2.0 AND ISC | [crates.io](https://crates.io/crates/ring/0.17.14) |
 | rodio-0.21.1 | MIT OR Apache-2.0 | [crates.io](https://crates.io/crates/rodio/0.21.1) |
 | ropey-2.0.0-beta.1 | MIT OR Apache-2.0 | [crates.io](https://crates.io/crates/ropey/2.0.0-beta.1) |
@@ -435,8 +465,10 @@ Bundled license texts are in `third-party/licenses.txt`. Original, unmodified MP
 | slab-0.4.12 | MIT | [crates.io](https://crates.io/crates/slab/0.4.12) |
 | slotmap-1.1.1 | Zlib | [crates.io](https://crates.io/crates/slotmap/1.1.1) |
 | smallvec-1.16.1 | MIT OR Apache-2.0 | [crates.io](https://crates.io/crates/smallvec/1.16.1) |
+| smartstring-1.0.1 | MPL-2.0+ | [crates.io](https://crates.io/crates/smartstring/1.0.1) |
 | smol-2.0.2 | Apache-2.0 OR MIT | [crates.io](https://crates.io/crates/smol/2.0.2) |
 | socket2-0.6.5 | MIT OR Apache-2.0 | [crates.io](https://crates.io/crates/socket2/0.6.5) |
+| socks-0.3.4 | MIT/Apache-2.0 | [crates.io](https://crates.io/crates/socks/0.3.4) |
 | spin-0.9.9 | MIT | [crates.io](https://crates.io/crates/spin/0.9.9) |
 | spirv-0.3.0+sdk-1.3.268.0 | Apache-2.0 | [crates.io](https://crates.io/crates/spirv/0.3.0+sdk-1.3.268.0) |
 | stable_deref_trait-1.2.1 | MIT OR Apache-2.0 | [crates.io](https://crates.io/crates/stable_deref_trait/1.2.1) |
@@ -493,11 +525,16 @@ Bundled license texts are in `third-party/licenses.txt`. Original, unmodified MP
 | tempfile-3.27.0 | MIT OR Apache-2.0 | [crates.io](https://crates.io/crates/tempfile/3.27.0) |
 | tendril-0.4.3 | MIT/Apache-2.0 | [crates.io](https://crates.io/crates/tendril/0.4.3) |
 | termcolor-1.4.1 | Unlicense OR MIT | [crates.io](https://crates.io/crates/termcolor/1.4.1) |
+| thin-vec-0.2.20 | MIT OR Apache-2.0 | [crates.io](https://crates.io/crates/thin-vec/0.2.20) |
 | thiserror-1.0.69 | MIT OR Apache-2.0 | [crates.io](https://crates.io/crates/thiserror/1.0.69) |
 | thiserror-2.0.20 | MIT OR Apache-2.0 | [crates.io](https://crates.io/crates/thiserror/2.0.20) |
 | thiserror-impl-1.0.69 | MIT OR Apache-2.0 | [crates.io](https://crates.io/crates/thiserror-impl/1.0.69) |
 | thiserror-impl-2.0.20 | MIT OR Apache-2.0 | [crates.io](https://crates.io/crates/thiserror-impl/2.0.20) |
 | tiff-0.11.3 | MIT | [crates.io](https://crates.io/crates/tiff/0.11.3) |
+| time-0.3.55 | MIT OR Apache-2.0 | [crates.io](https://crates.io/crates/time/0.3.55) |
+| time-core-0.1.9 | MIT OR Apache-2.0 | [crates.io](https://crates.io/crates/time-core/0.1.9) |
+| time-macros-0.2.32 | MIT OR Apache-2.0 | [crates.io](https://crates.io/crates/time-macros/0.2.32) |
+| tiny-keccak-2.0.2 | CC0-1.0 | [crates.io](https://crates.io/crates/tiny-keccak/2.0.2) |
 | tiny-skia-0.11.4 | BSD-3-Clause | [crates.io](https://crates.io/crates/tiny-skia/0.11.4) |
 | tiny-skia-path-0.11.4 | BSD-3-Clause | [crates.io](https://crates.io/crates/tiny-skia-path/0.11.4) |
 | tinystr-0.8.4 | Unicode-3.0 | [crates.io](https://crates.io/crates/tinystr/0.8.4) |
@@ -507,8 +544,10 @@ Bundled license texts are in `third-party/licenses.txt`. Original, unmodified MP
 | tokio-socks-0.5.3 | MIT | [crates.io](https://crates.io/crates/tokio-socks/0.5.3) |
 | tokio-util-0.7.19 | MIT | [crates.io](https://crates.io/crates/tokio-util/0.7.19) |
 | toml-0.8.23 | MIT OR Apache-2.0 | [crates.io](https://crates.io/crates/toml/0.8.23) |
+| toml-0.9.12+spec-1.1.0 | MIT OR Apache-2.0 | [crates.io](https://crates.io/crates/toml/0.9.12+spec-1.1.0) |
 | toml-1.1.6+spec-1.1.0 | MIT OR Apache-2.0 | [crates.io](https://crates.io/crates/toml/1.1.6+spec-1.1.0) |
 | toml_datetime-0.6.11 | MIT OR Apache-2.0 | [crates.io](https://crates.io/crates/toml_datetime/0.6.11) |
+| toml_datetime-0.7.5+spec-1.1.0 | MIT OR Apache-2.0 | [crates.io](https://crates.io/crates/toml_datetime/0.7.5+spec-1.1.0) |
 | toml_datetime-1.1.1+spec-1.1.0 | MIT OR Apache-2.0 | [crates.io](https://crates.io/crates/toml_datetime/1.1.1+spec-1.1.0) |
 | toml_edit-0.22.27 | MIT OR Apache-2.0 | [crates.io](https://crates.io/crates/toml_edit/0.22.27) |
 | toml_parser-1.1.3+spec-1.1.0 | MIT OR Apache-2.0 | [crates.io](https://crates.io/crates/toml_parser/1.1.3+spec-1.1.0) |
@@ -544,9 +583,12 @@ Bundled license texts are in `third-party/licenses.txt`. Original, unmodified MP
 | universal-hash-0.5.1 | MIT OR Apache-2.0 | [crates.io](https://crates.io/crates/universal-hash/0.5.1) |
 | unsafe-libyaml-0.2.11 | MIT | [crates.io](https://crates.io/crates/unsafe-libyaml/0.2.11) |
 | untrusted-0.9.0 | ISC | [crates.io](https://crates.io/crates/untrusted/0.9.0) |
+| ureq-3.4.2 | MIT OR Apache-2.0 | [crates.io](https://crates.io/crates/ureq/3.4.2) |
+| ureq-proto-0.6.4 | MIT OR Apache-2.0 | [crates.io](https://crates.io/crates/ureq-proto/0.6.4) |
 | url-2.5.8 | MIT OR Apache-2.0 | [crates.io](https://crates.io/crates/url/2.5.8) |
 | usvg-0.45.1 | Apache-2.0 OR MIT | [crates.io](https://crates.io/crates/usvg/0.45.1) |
 | utf-8-0.7.6 | MIT OR Apache-2.0 | [crates.io](https://crates.io/crates/utf-8/0.7.6) |
+| utf8-zero-0.8.1 | MIT OR Apache-2.0 | [crates.io](https://crates.io/crates/utf8-zero/0.8.1) |
 | utf8_iter-1.0.4 | Apache-2.0 OR MIT | [crates.io](https://crates.io/crates/utf8_iter/1.0.4) |
 | utf8parse-0.2.2 | Apache-2.0 OR MIT | [crates.io](https://crates.io/crates/utf8parse/0.2.2) |
 | uuid-1.26.1 | Apache-2.0 OR MIT | [crates.io](https://crates.io/crates/uuid/1.26.1) |
@@ -566,6 +608,7 @@ Bundled license texts are in `third-party/licenses.txt`. Original, unmodified MP
 | wasm-bindgen-macro-0.2.128 | MIT OR Apache-2.0 | [crates.io](https://crates.io/crates/wasm-bindgen-macro/0.2.128) |
 | wasm-bindgen-macro-support-0.2.128 | MIT OR Apache-2.0 | [crates.io](https://crates.io/crates/wasm-bindgen-macro-support/0.2.128) |
 | wasm-bindgen-shared-0.2.128 | MIT OR Apache-2.0 | [crates.io](https://crates.io/crates/wasm-bindgen-shared/0.2.128) |
+| webpki-root-certs-1.0.9 | CDLA-Permissive-2.0 | [crates.io](https://crates.io/crates/webpki-root-certs/1.0.9) |
 | webpki-roots-1.0.9 | CDLA-Permissive-2.0 | [crates.io](https://crates.io/crates/webpki-roots/1.0.9) |
 | weezl-0.1.12 | MIT OR Apache-2.0 | [crates.io](https://crates.io/crates/weezl/0.1.12) |
 | which-6.0.3 | MIT | [crates.io](https://crates.io/crates/which/6.0.3) |
@@ -634,8 +677,10 @@ Bundled license texts are in `third-party/licenses.txt`. Original, unmodified MP
 | zerotrie-0.2.5 | Unicode-3.0 | [crates.io](https://crates.io/crates/zerotrie/0.2.5) |
 | zerovec-0.11.8 | Unicode-3.0 | [crates.io](https://crates.io/crates/zerovec/0.11.8) |
 | zerovec-derive-0.11.6 | Unicode-3.0 | [crates.io](https://crates.io/crates/zerovec-derive/0.11.6) |
+| zip-2.4.2 | MIT | [crates.io](https://crates.io/crates/zip/2.4.2) |
 | zlib-rs-0.6.8 | Zlib | [crates.io](https://crates.io/crates/zlib-rs/0.6.8) |
 | zmij-1.0.23 | MIT | [crates.io](https://crates.io/crates/zmij/1.0.23) |
+| zopfli-0.8.3 | Apache-2.0 | [crates.io](https://crates.io/crates/zopfli/0.8.3) |
 | zune-core-0.5.3 | MIT OR Apache-2.0 OR Zlib | [crates.io](https://crates.io/crates/zune-core/0.5.3) |
 | zune-inflate-0.2.54 | MIT OR Apache-2.0 OR Zlib | [crates.io](https://crates.io/crates/zune-inflate/0.2.54) |
 | zune-jpeg-0.5.15 | MIT OR Apache-2.0 OR Zlib | [crates.io](https://crates.io/crates/zune-jpeg/0.5.15) |

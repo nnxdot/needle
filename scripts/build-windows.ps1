@@ -20,12 +20,14 @@ try {
     New-Item -ItemType Directory -Path $package -Force | Out-Null
     Copy-Item -LiteralPath (Join-Path $workspace 'target\release\needle-desktop.exe') -Destination (Join-Path $package 'Needle.exe')
     Copy-Item -LiteralPath (Join-Path $workspace 'target\release\needle.exe') -Destination (Join-Path $package 'needle-cli.exe')
+    # Runtime libraries the build placed next to the executables (ONNX Runtime's DirectML).
+    Get-ChildItem -Path (Join-Path $workspace 'target\release') -Filter '*.dll' | Copy-Item -Destination $package
     foreach ($document in @('README.md','PROPOSAL.md','IMPLEMENTATION.md','VALIDATION.md','THIRD-PARTY-NOTICES.md')) {
         Copy-Item -LiteralPath (Join-Path $workspace $document) -Destination $package
     }
     Copy-Item -LiteralPath (Join-Path $workspace 'layouts') -Destination $package -Recurse -Force
     Copy-Item -LiteralPath (Join-Path $workspace 'third-party') -Destination $package -Recurse -Force
     Get-FileHash -Algorithm SHA256 -LiteralPath (Join-Path $package 'Needle.exe'),(Join-Path $package 'needle-cli.exe') | ForEach-Object { '{0}  {1}' -f $_.Hash, (Split-Path $_.Path -Leaf) } | Set-Content -LiteralPath (Join-Path $package 'SHA256SUMS.txt')
-    Compress-Archive -LiteralPath $package -DestinationPath (Join-Path $workspace 'dist\Needle-0.2.0-windows-x64.zip') -Force
+    Compress-Archive -LiteralPath $package -DestinationPath (Join-Path $workspace 'dist\Needle-0.3.0-windows-x64.zip') -Force
     Write-Output "Built $package"
 } finally { Pop-Location }

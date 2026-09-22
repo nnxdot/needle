@@ -75,6 +75,13 @@ A release build over 500,000 synthetic tracks (41,667 albums, 10,000 artists) an
 
 Opening an existing large library for the first time after this change builds the new indexes once.
 
+## 0.3.0 checks
+
+- `cargo test -p needle-core` passes 97 tests (4 ignored: a real audio device, FFmpeg, and the 166 MB stem model). New tests cover the equalizer (transparency when flat, +6 dB at a band's own frequency, no clipping, live changes reaching a playing source, mono/balance/crossfeed), the rule language additions against a real library, iTunes XML and Spotify import (idempotent re-import, no scrobbling of imported listens), LRC parsing and LRCLIB response shapes, folder covers, plugins (loading disabled, hooks, commands, confinement to the plugin folder, the operation limit, permission refusals), stem windows, resampling, and the stem mixer, and Previous after the queue ends.
+- The ignored stem test was run with the real model: a 10-second mix split in 6.7 s (release build, CPU), putting a 55 Hz tone in the bass stem and clicks in drums with a near-silent vocal stem.
+- Live requests were made once to LRCLIB (59 timed lines for a known song), MusicBrainz/Wikidata/Commons (an artist photo), and ListenBrainz (listen format). Last.fm import was not run without an API key.
+- In the running app: the title bar drags, the window resizes from its edges including the top, and maximize/restore and double-click work (checked with Windows hit-testing and scripted drags after a fix for a focusable element that swallowed title-bar clicks). The big player showed timed lyrics following playback; the mini player opened, expanded (staying on screen), showed lyrics and the queue, and returned to the main window. The Sound page applied presets that persisted across restarts. The Import page detected an iTunes XML, and importing set ratings, play counts, and a playlist. An example plugin added a track-menu command that rated a song. A demo song was split into stems in the app and played back from its stems with the Karaoke mix.
+
 ## Native UI exercise
 
 The redesigned interface (0.2.0) was driven on Windows with scripted clicks and keys and checked from screenshots: first-run screen and demo import; song table, selection, right-click menu, album grid and album page, artist grid; settings in dark and light themes; rule suggestions with Tab completion; the history page with ranges, charts, and top lists; Play on a 500,000-track library queuing its first 50,000 matches without the interface stalling; and album and artist pages over the same library. A three-track selection had its genre changed through the multi-track editor; the database then showed the new genre on all three, and restoring the earlier version of one file brought its original genre back. `cargo test -p needle` checks WCAG AA contrast for every text colour on every surface in both themes.
@@ -85,7 +92,7 @@ The Windows app was opened and inspected directly. The first-run screen created 
 
 ## Not verified
 
-macOS/Linux builds and playback; exhaustive codec/container metadata; unusual MP4 timelines; physical device hot-plug (recovery is tested only with a simulated device); screen-reader operation (GPUI 0.2.2 exposes no accessibility tree on Windows); Last.fm and ListenBrainz sign-in screens against the live services; external DAC sample capture; real Last.fm/ListenBrainz submissions; an authenticated AcoustID response; production signing, installer, auto-update, and commercial service setup.
+macOS/Linux builds and playback; exhaustive codec/container metadata; unusual MP4 timelines; physical device hot-plug (recovery is tested only with a simulated device); listening to stem separation quality on real music; GPU-accelerated separation; Last.fm history import; screen-reader operation (GPUI 0.2.2 exposes no accessibility tree on Windows); Last.fm and ListenBrainz sign-in screens against the live services; external DAC sample capture; real Last.fm/ListenBrainz submissions; an authenticated AcoustID response; production signing, installer, auto-update, and commercial service setup.
 
 ## Packaged release checks
 

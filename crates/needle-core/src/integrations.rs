@@ -17,10 +17,14 @@ static SCROBBLE_LOCK: Mutex<()> = Mutex::new(());
 pub(crate) fn client() -> Result<Client> {
     Ok(Client::builder()
         .timeout(Duration::from_secs(20))
-        .user_agent(
-            std::env::var("NEEDLE_HTTP_USER_AGENT")
-                .unwrap_or_else(|_| "Needle/0.1.0 (local desktop music player)".into()),
-        )
+        .user_agent(std::env::var("NEEDLE_HTTP_USER_AGENT").unwrap_or_else(|_| {
+            concat!(
+                "Needle/",
+                env!("CARGO_PKG_VERSION"),
+                " (local desktop music player)"
+            )
+            .into()
+        }))
         .build()?)
 }
 
