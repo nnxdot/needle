@@ -1,6 +1,6 @@
 # Needle
 
-A native Rust/GPUI music player with a local SQLite library. **0.1.0 is a working Windows preview.** [PROPOSAL.md](PROPOSAL.md) is the original product vision; [IMPLEMENTATION.md](IMPLEMENTATION.md) records the implemented scope and remaining work.
+A native Rust/GPUI music player with a local SQLite library. **0.2.0 is a working Windows preview.** [PROPOSAL.md](PROPOSAL.md) is the original product vision; [IMPLEMENTATION.md](IMPLEMENTATION.md) records the implemented scope and remaining work.
 
 ## Run
 
@@ -10,13 +10,16 @@ The portable folder also contains `needle-cli.exe`. The Windows build needs a wo
 
 ## Listen and organize
 
-- Double-click a track, or select it and press Enter. Space plays/pauses, Ctrl+F focuses search, Ctrl+O adds a folder, and Ctrl+Left/Right changes tracks. Escape leaves a text field or closes an editing panel.
-- Use the plus beside a track to queue it. The queue supports removal, reordering, repeat, and A–B looping. Closing Needle saves the queue and position; reopening restores it paused.
-- Search ordinary artist/title/album/genre text, or write a rule. **Save playlist** creates a live rule or a snapshot of shown tracks. Regular and smart playlists can be renamed, exported as M3U8, and deleted without deleting music.
-- The heart marks a favorite; Track details provides a 0–5 rating. History records local listening even when network services are disabled.
-- Large collections use pages of 1,000 tracks. Play, shuffle, and “Save shown tracks” act on the current page. Search and smart rules operate over the library, up to the current 500,000-result limit.
-- Tag edits show editable values before writing. Writes keep an original-file backup and verify that decoded audio is unchanged before replacing a file. Batch editing is available through the CLI.
-- The core library also provides full history paging and statistics, album/artist/genre summaries, rule autocomplete, multi-track tag editing, and restoring a tag backup (see [IMPLEMENTATION.md](IMPLEMENTATION.md)). The current interface does not use them yet.
+- **Find music.** The sidebar holds Songs, Albums, Artists, Favorites, Recently added, Listening history, and your playlists. The search field in the title bar takes plain words or a rule; while you type a rule it suggests fields, comparisons, and values from your library (Tab completes, ↑/↓ choose, Esc closes).
+- **Play.** Double-click a track, press Enter, or use **Play**/**Shuffle** in a page header. Play and Shuffle queue everything the page matches, across its 1,000-track pages, up to 50,000 tracks. Right-click a track (or use its ⋯ button) for Play next, Add to queue, favorites, Add to playlist, Go to album/artist, Edit tags, Show in File Explorer, and Copy file path.
+- **Select.** Click selects, Shift-click or Shift+↑/↓ extends, Ctrl-click adds or removes one track, and Ctrl+A selects the page. Actions in the menu and side panel apply to the whole selection.
+- **Side panel.** *Details* shows the focused track: artwork, 0–5 stars, format and file facts, loudness measurement, MusicBrainz/AcoustID lookups, and why it is playing. *Queue* shows what is next; double-click an entry to jump to it, or reorder and remove entries. Ctrl+J opens the queue. Closing Needle saves the queue and position; reopening restores it paused.
+- **Player bar.** Title and artist link to the album and artist pages. The chip next to the volume shows the signal path (for example `FLAC 24/96 → 48 kHz (resampled)` or `→ Exclusive 96 kHz`); hover it for the full path. The loop button sets A, then B, then clears an A–B loop.
+- **Playlists.** The plus in a page header or beside *Playlists* saves the current search as a smart playlist that updates itself, or saves the shown (or selected) tracks as a regular playlist. Playlists can be renamed, exported as M3U8, and deleted without deleting music.
+- **Tags.** Ctrl+E or *Edit tags* opens the editor in the side panel. With several tracks selected it shows shared values, marks differing ones as mixed, and writes only the fields you change, with per-file progress and results. Every write keeps an original-file backup and verifies that decoded audio is unchanged; *Earlier versions of this file* restores a backup, and a restore can itself be undone.
+- **History.** Every listen is recorded locally, even offline. The history page lists every listen (loading more as you scroll) and shows listening per day and per hour of day, plus top artists, albums, and tracks for 7 days, 30 days, 12 months, or all time.
+- **Keyboard.** Space play/pause · Ctrl+←/→ previous/next · ←/→ seek 10 s · Ctrl+↑/↓ volume · Ctrl+K or Ctrl+F search · Ctrl+1–6 sidebar pages · Ctrl+, settings · Alt+← or Backspace back · Tab/Shift+Tab move between controls · Esc closes menus, clears search, then the selection.
+- **Appearance.** Dark and light themes and compact/comfortable rows are in Settings. Text colours are checked by a test to meet WCAG AA contrast (4.5:1) on every surface in both themes.
 
 Supported and exercised with generated fixtures: WAV PCM, AIFF PCM, FLAC, MP3, AAC and ALAC in M4A, Ogg Vorbis, and Ogg Opus (`.opus`, or Opus inside `.ogg`). WavPack, APE, DSD, DRM, and streaming services are not implemented. Raw AAC is not part of the validated format set.
 
@@ -35,15 +38,15 @@ missing
 
 Use `and`, `or`, `not`, parentheses, `=`, `!=`, `<`, `<=`, `>`, `>=`, `contains`, `exists(field)`, `recent(30d)`, and `played(7d)`/`played(2025)`. Optional suffixes are `order by field asc|desc` or `shuffle`, followed by `limit N`. Quoted text supports backslash escapes. Fields include title, artist, album, album_artist, genre, year, format, path, bpm, rating, duration, sample_rate, bit_depth, play_count, added_at, and last_played. Missing BPM values do not satisfy numeric comparisons.
 
-This is a bounded query language, not the proposal’s complete expression pipeline. Artist-constrained shuffle and similarity remain unimplemented. `query::suggest` offers context-aware completions (fields, type-appropriate operators, functions, connectives, `order by` fields and directions, and quoted library values); it stays silent for ordinary words that are not rule vocabulary. `not missing` on its own is read as plain text; write `not missing and …` or use parentheses. The core also exposes simple `{artist} — {title}` display templates.
+This is a bounded query language, not the proposal’s complete expression pipeline. Artist-constrained shuffle and similarity remain unimplemented. The search field's suggestions come from `query::suggest`, which offers context-aware completions (fields, type-appropriate operators, functions, connectives, `order by` fields and directions, and quoted library values); it stays silent for ordinary words that are not rule vocabulary. `not missing` on its own is read as plain text; write `not missing and …` or use parentheses. The core also exposes simple `{artist} — {title}` display templates.
 
 ## Audio output
 
-Shared output follows the system/device sample rate; the footer displays the negotiated path. Volume and optional ReplayGain apply there. **Measure loudness** computes EBU R128 integrated loudness and true peak, storing normalization data in the library. The normalization target is −18 LUFS with peak protection.
+Shared output follows the system/device sample rate; the signal-path chip in the player bar shows the negotiated path. Volume and optional ReplayGain apply there. **Measure loudness** computes EBU R128 integrated loudness and true peak, storing normalization data in the library. The normalization target is −18 LUFS with peak protection.
 
-Album gain measures every track of an album (same album artist, or artist when that is blank, and album title) as one programme, and stores the album gain and highest true peak on each track. When the `album_gain` setting is on (the current interface has no switch for it yet), playback uses it and falls back to track gain for tracks without an album measurement. The same peak protection applies. Album and track ReplayGain tags already in files are read when scanning. `needle-cli loudness EXPR --album` measures the albums of matching tracks.
+Album gain measures every track of an album (same album artist, or artist when that is blank, and album title) as one programme, and stores the album gain and highest true peak on each track. When **Keep album dynamics** is on in Settings (shown once ReplayGain is on), playback uses it and falls back to track gain for tracks without an album measurement. The same peak protection applies. Album and track ReplayGain tags already in files are read when scanning. `needle-cli loudness EXPR --album` measures the albums of matching tracks.
 
-If the output device disappears or its stream stops responding, Needle reopens the selected device, or the system default when that device is gone, and continues from the same position. If nothing can be opened, playback pauses with an error and the queue is kept; play retries. When no device is selected, Needle follows changes of the system default output. A selected device that is missing at startup falls back to the default with a notice. These paths are tested with a simulated device; physically unplugging headphones or a USB DAC has not been exercised.
+If the output device disappears or its stream stops responding, Needle reopens the selected device, or the system default when that device is gone, and continues from the same position. If nothing can be opened, playback pauses with an error and the queue is kept; play retries. When no device is selected, Needle follows changes of the system default output. A selected device that is missing at startup falls back to the default with a notice. Settings lists output devices and can refresh the list. These paths are tested with a simulated device; physically unplugging headphones or a USB DAC has not been exercised.
 
 Windows exclusive output opens WASAPI at the file’s native rate and channel count, in packed 24-bit or 24-valid-bit integer PCM. It bypasses volume and ReplayGain; adjust volume on the audio device. Unsupported rates produce an error instead of resampling. This machine’s Focusrite endpoint accepted 48 kHz packed 24-bit PCM and rejected 44.1/96 kHz in its current driver configuration. Device behavior will vary.
 
@@ -57,7 +60,7 @@ MusicBrainz results are cached for seven days and limited to one request per sec
 
 AcoustID requires an API key for a registered application. Save it with `needle-cli login acoustid` (or set `NEEDLE_ACOUSTID_API_KEY`); the key is checked on the first lookup, not when saved. Do not put credentials in source control. Its free service is for noncommercial use and permits at most three requests per second. Needle spaces requests by at least 350 ms. [AcoustID API](https://acoustid.org/webservice), [MusicBrainz API requirements](https://musicbrainz.org/doc/MusicBrainz_API/Rate_Limiting), [Cover Art Archive API](https://musicbrainz.org/doc/Cover_Art_Archive/API).
 
-For scrobbling, sign in, then enable the service in Settings:
+For scrobbling, sign in under **Settings › Listening services** (or with the CLI), then turn the service on there. Settings also shows queued and failed listens, with a retry button and a "sign in again" message when a session is rejected.
 
 | Service | Sign in | What is stored | Environment override |
 |---|---|---|---|

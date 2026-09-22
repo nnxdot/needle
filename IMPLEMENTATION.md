@@ -1,10 +1,10 @@
-# Implementation status — 0.1.0
+# Implementation status — 0.2.0
 
 This repository now contains a runnable native music player, its headless Rust core, command-line tools, and a Windows packaging script. It is a **Windows preview**, not completion of every release in the original 17.75-engineer-month proposal.
 
 | Proposal area | Current implementation | Remaining work |
 |---|---|---|
-| Native UI | GPUI; library, album/artist views, details, queue, history, settings; dark/light themes; virtual rows and 1,000-track pages | macOS/Linux validation, comprehensive accessibility, responsive/device coverage, richer layout customization |
+| Native UI | GPUI; custom title bar with rule search and suggestions; sidebar; song table with sorting, multi-selection, keyboard navigation and context menu; album/artist grids and pages; details/queue side panel; history dashboard; settings with service sign-in; toasts; dark/light themes; contrast test | macOS/Linux validation, screen-reader support (needs an accessibility tree from GPUI), responsive/device coverage, richer layout customization |
 | Expression language | Typed predicates, boolean logic, time functions, ordering, limits, shuffle, errors; shared by search, smart playlists, autoplay; context-aware autocomplete with library values in the search field | Constrained shuffle; similarity; one unified formatting/pipeline language |
 | Playback | Shared output, preloaded queue, gapless-enabled decoding, seek, repeat, A–B loop, volume, visible path, saved paused session; play-next, play-from-index, and jump; whole-view playback up to 50,000 tracks; device loss/stall/default-change recovery at the same position; Ogg Opus via a pure-Rust decoder | DSD, ASIO, sample-accurate conformance across all codecs and transitions, physical hot-plug testing, Opus R128 tags and chained streams |
 | Exclusive output | Windows WASAPI; native rate/channel count, 24-bit integer containers; bypasses gain/volume | CoreAudio hog mode, ALSA/PipeWire exclusive modes, device matrix, external DAC/loopback bit-perfect certification |
@@ -25,7 +25,7 @@ This repository now contains a runnable native music player, its headless Rust c
 - A large library is searched as a whole, with at most 500,000 results. The song list shows 1,000 tracks per page; Play and Shuffle queue every match, up to 50,000 tracks.
 - A moved file retains identity when its full hash matches a record whose previous path is absent. Simultaneously moving and changing tags changes that hash; recognition is not guaranteed.
 - Sync is an explicit file transfer. Nonzero local ratings take precedence, playlist timestamps choose the newer version, and whole-file hashes determine matches. It is not a CRDT, relay service, or background synchronization product.
-- The Windows binary has been built and exercised on this machine. Other platforms and all-platform bit-perfect playback are unverified. The GPUI accessibility tree on this Windows backend does not yet expose the application’s full control hierarchy.
+- The Windows binary has been built and exercised on this machine. Other platforms and all-platform bit-perfect playback are unverified. GPUI 0.2.2 exposes no accessibility tree on Windows, so screen readers cannot read the interface; keyboard operation, focus movement, and contrast are covered instead.
 - External API clients compile and follow their documented request shapes, but account-based sign-in and submission were not exercised without user credentials. Response parsing, error classification, request signing, credential precedence, and redaction are unit-tested against captured response shapes; Credential Manager save/read/remove was exercised locally with a dummy value. Production service agreements and application registrations are not supplied by this repository.
 
 See [VALIDATION.md](VALIDATION.md) for specific evidence, rather than interpreting roadmap requirements as completed tests.
