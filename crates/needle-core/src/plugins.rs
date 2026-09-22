@@ -115,7 +115,7 @@ pub enum HostAction {
 }
 
 pub enum PluginEvent {
-    TrackStarted(Track),
+    TrackStarted(Box<Track>),
     Listen(Listen),
     Paused,
     Resumed,
@@ -217,7 +217,7 @@ fn run(
                 publish(&loaded);
             }
             PluginEvent::TrackStarted(track) => {
-                *now_playing.lock().unwrap_or_else(|p| p.into_inner()) = Some(track.clone());
+                *now_playing.lock().unwrap_or_else(|p| p.into_inner()) = Some((*track).clone());
                 let value = track_map(&track);
                 for plugin in loaded.iter_mut() {
                     let _ = call(plugin, "on_track_start", vec![value.clone().into()]);
@@ -893,11 +893,11 @@ mod tests {
         host.send(PluginEvent::Enable("rate-selection".into(), true));
         let commands = wait(|| Some(host.commands()).filter(|c| c.len() == 2));
         assert!(commands.iter().any(|c| c.id == "five" && c.for_tracks));
-        host.send(PluginEvent::TrackStarted(Track {
+        host.send(PluginEvent::TrackStarted(Box::new(Track {
             id: "t1".into(),
             duration: 12.,
             ..Default::default()
-        }));
+        })));
         wait(|| {
             seen.lock()
                 .unwrap()
@@ -927,11 +927,11 @@ mod tests {
                 .find(|p| p.manifest.id == "now-playing-file" && p.enabled)
                 .map(|_| ())
         });
-        host.send(PluginEvent::TrackStarted(Track {
+        host.send(PluginEvent::TrackStarted(Box::new(Track {
             title: "Song".into(),
             artist: "Artist".into(),
             ..Default::default()
-        }));
+        })));
         let file = library
             .directory
             .join("plugins/now-playing-file/now-playing.txt");

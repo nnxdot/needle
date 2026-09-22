@@ -1852,7 +1852,10 @@ mod tests {
 
     #[test]
     fn previous_after_the_queue_ends_plays_the_last_track_again() {
-        let mut rig = rig(FakeOpener::with(&["Speakers"], Some("Speakers")), Settings::default());
+        let mut rig = rig(
+            FakeOpener::with(&["Speakers"], Some("Speakers")),
+            Settings::default(),
+        );
         let list = rig.items(&["a"]);
         rig.run(Command::Play(list));
         rig.until_active("a");

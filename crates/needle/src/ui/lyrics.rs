@@ -14,9 +14,9 @@ impl AppView {
     /// Look up lyrics, missing album art, and the artist photo for a newly playing track.
     pub(super) fn track_started(&mut self, track: &Track) {
         self.plugins
-            .send(needle_core::plugins::PluginEvent::TrackStarted(
+            .send(needle_core::plugins::PluginEvent::TrackStarted(Box::new(
                 track.clone(),
-            ));
+            )));
         self.lyrics = None;
         self.lyric_line = None;
         let library = self.library.clone();

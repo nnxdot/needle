@@ -129,7 +129,6 @@ impl AppView {
     }
 
     fn source_card(
-        &self,
         id: &'static str,
         glyph_name: &'static str,
         title: &str,
@@ -227,7 +226,7 @@ impl AppView {
                         }))
                     })
                     .child(div().mt_4().child(heading("Choose a source")))
-                    .child(self.source_card(
+                    .child(Self::source_card(
                         "src-itunes",
                         "albums",
                         "iTunes, Apple Music, or MusicBee",
@@ -236,7 +235,7 @@ impl AppView {
                         small_button("pick-itunes", "Choose library XML…").disabled(busy).on_click(cx.listener(|this, _, _, _| this.pick_and_import(SourceKind::Itunes))),
                         cx,
                     ))
-                    .child(self.source_card(
+                    .child(Self::source_card(
                         "src-spotify",
                         "globe",
                         "Spotify",
@@ -245,7 +244,7 @@ impl AppView {
                         small_button("pick-spotify", "Choose Spotify download…").disabled(busy).on_click(cx.listener(|this, _, _, _| this.pick_and_import(SourceKind::Spotify))),
                         cx,
                     ))
-                    .child(self.source_card(
+                    .child(Self::source_card(
                         "src-lastfm",
                         "history",
                         "Last.fm",
@@ -264,7 +263,7 @@ impl AppView {
                             }))),
                         cx,
                     ))
-                    .child(self.source_card(
+                    .child(Self::source_card(
                         "src-listenbrainz",
                         "history",
                         "ListenBrainz",
@@ -283,7 +282,7 @@ impl AppView {
                             }))),
                         cx,
                     ))
-                    .child(self.source_card(
+                    .child(Self::source_card(
                         "src-playlists",
                         "playlist",
                         "A folder of playlists",

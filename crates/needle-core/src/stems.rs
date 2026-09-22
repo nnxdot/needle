@@ -225,9 +225,9 @@ pub fn separate(
         .unwrap_or(4);
     let model = model_path(library);
     let build = || -> ort::Result<ort::session::Session> {
-        Ok(ort::session::Session::builder()?
+        ort::session::Session::builder()?
             .with_intra_threads(threads)?
-            .commit_from_file(&model)?)
+            .commit_from_file(&model)
     };
     let mut session = build().map_err(|e| {
         anyhow::anyhow!(
