@@ -8,6 +8,7 @@ mod exclusive;
 pub mod integrations;
 pub mod model;
 mod mp4_trim;
+mod opus;
 pub mod query;
 pub mod scan;
 mod secrets;

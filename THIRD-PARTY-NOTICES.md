@@ -2,7 +2,7 @@
 
 Needle uses the packages below. This conservative Cargo inventory includes runtime, build, and development dependencies for the Windows resolution. Each retains its own license. Exact versions are locked in Cargo.lock.
 
-Bundled license texts are in `third-party/licenses.txt`. Original, unmodified MPL-2.0 crate source archives are in `third-party/sources/`; they can also be obtained from each linked crates.io release. Needle?s application source does not modify these dependencies.
+Bundled license texts are in `third-party/licenses.txt`. Original, unmodified MPL-2.0 crate source archives are in `third-party/sources/`; they can also be obtained from each linked crates.io release. Needle's application source does not modify these dependencies, with one exception: `third-party/patched/opus-decoder-0.1.1/` is the published opus-decoder 0.1.1 crate with its O(n²) MDCT DFT replaced by a `rustfft` transform (`src/celt/kiss_fft.rs`), its tests and dev-dependencies removed, and upstream license files added. Cargo uses it through `[patch.crates-io]`.
 
 | Package | License | Source release |
 |---|---|---|
@@ -305,6 +305,7 @@ Bundled license texts are in `third-party/licenses.txt`. Original, unmodified MP
 | once_cell-1.21.4 | MIT OR Apache-2.0 | [crates.io](https://crates.io/crates/once_cell/1.21.4) |
 | once_cell_polyfill-1.70.2 | MIT OR Apache-2.0 | [crates.io](https://crates.io/crates/once_cell_polyfill/1.70.2) |
 | opaque-debug-0.3.1 | MIT OR Apache-2.0 | [crates.io](https://crates.io/crates/opaque-debug/0.3.1) |
+| opus-decoder-0.1.1 (patched) | MIT OR Apache-2.0; ports libopus (BSD-3-Clause) | [crates.io](https://crates.io/crates/opus-decoder/0.1.1) |
 | option-ext-0.2.0 | MPL-2.0 | [crates.io](https://crates.io/crates/option-ext/0.2.0) |
 | parking-2.2.1 | Apache-2.0 OR MIT | [crates.io](https://crates.io/crates/parking/2.2.1) |
 | parking_lot-0.12.5 | MIT OR Apache-2.0 | [crates.io](https://crates.io/crates/parking_lot/0.12.5) |

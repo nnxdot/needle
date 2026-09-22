@@ -61,34 +61,49 @@ impl Seek for AudioReader {
         }
     }
 }
+enum Inner {
+    Symphonia(Decoder<AudioReader>),
+    Opus(Box<crate::opus::OpusSource>),
+}
 pub struct Decoded {
-    inner: Decoder<AudioReader>,
+    inner: Inner,
     trim: Option<(u64, u64)>,
     position: u64,
+}
+impl Decoded {
+    fn source(&self) -> &dyn Source<Item = f32> {
+        match &self.inner {
+            Inner::Symphonia(d) => d,
+            Inner::Opus(d) => d.as_ref(),
+        }
+    }
 }
 impl Iterator for Decoded {
     type Item = f32;
     fn next(&mut self) -> Option<f32> {
         if self
             .trim
-            .is_some_and(|(_, frames)| self.position >= frames * self.inner.channels() as u64)
+            .is_some_and(|(_, frames)| self.position >= frames * self.channels() as u64)
         {
             return None;
         }
-        let sample = self.inner.next()?;
+        let sample = match &mut self.inner {
+            Inner::Symphonia(d) => d.next(),
+            Inner::Opus(d) => d.next(),
+        }?;
         self.position += 1;
         Some(sample)
     }
 }
 impl Source for Decoded {
     fn channels(&self) -> u16 {
-        self.inner.channels()
+        self.source().channels()
     }
     fn sample_rate(&self) -> u32 {
-        self.inner.sample_rate()
+        self.source().sample_rate()
     }
     fn current_span_len(&self) -> Option<usize> {
-        let inner = self.inner.current_span_len();
+        let inner = self.source().current_span_len();
         if let Some((_, frames)) = self.trim {
             let remaining = (frames * self.channels() as u64)
                 .saturating_sub(self.position)
@@ -103,7 +118,7 @@ impl Source for Decoded {
             .map(|(_, frames)| {
                 std::time::Duration::from_secs_f64(frames as f64 / self.sample_rate() as f64)
             })
-            .or_else(|| self.inner.total_duration())
+            .or_else(|| self.source().total_duration())
     }
     fn try_seek(
         &mut self,
@@ -111,13 +126,23 @@ impl Source for Decoded {
     ) -> std::result::Result<(), rodio::source::SeekError> {
         let first = self.trim.map(|t| t.0).unwrap_or(0);
         let offset = std::time::Duration::from_secs_f64(first as f64 / self.sample_rate() as f64);
-        self.inner.try_seek(position + offset)?;
+        match &mut self.inner {
+            Inner::Symphonia(d) => d.try_seek(position + offset)?,
+            Inner::Opus(d) => d.try_seek(position + offset)?,
+        }
         self.position = (position.as_secs_f64() * self.sample_rate() as f64).round() as u64
             * self.channels() as u64;
         Ok(())
     }
 }
 pub fn decode(path: &Path) -> Result<Decoded> {
+    if crate::opus::is_ogg_opus(path) {
+        return Ok(Decoded {
+            inner: Inner::Opus(Box::new(crate::opus::OpusSource::open(path)?)),
+            trim: None,
+            position: 0,
+        });
+    }
     let input = AudioReader::open(path)?;
     let length = input.length;
     let mut inner = Decoder::builder()
@@ -134,7 +159,7 @@ pub fn decode(path: &Path) -> Result<Decoded> {
         }
     }
     Ok(Decoded {
-        inner,
+        inner: Inner::Symphonia(inner),
         trim,
         position: 0,
     })
