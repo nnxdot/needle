@@ -1327,7 +1327,10 @@ pub fn play_exclusive(_path: &std::path::Path) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::sync::atomic::{AtomicBool, Ordering};
+    use std::{
+        path::Path,
+        sync::atomic::{AtomicBool, Ordering},
+    };
 
     fn item(id: &str) -> QueueItem {
         QueueItem {
@@ -1752,6 +1755,25 @@ mod tests {
         rig.until_active("c");
         assert_eq!(ids(rig.state().queue.iter()), ["e"]);
         assert!(rig.worker.handle(Command::PlayAt(vec![], 0)).is_err());
+    }
+
+    #[test]
+    fn opus_tracks_play_back_to_back() {
+        let mut rig = rig(FakeOpener::with(&[], Some("Speakers")), Settings::default());
+        let testdata = Path::new(env!("CARGO_MANIFEST_DIR")).join("testdata");
+        let list: Vec<_> = ["tone.opus", "mono44.opus"]
+            .into_iter()
+            .map(|name| {
+                let mut item = item(name);
+                item.track.path = testdata.join(name).to_string_lossy().into();
+                item
+            })
+            .collect();
+        rig.run(Command::Play(list));
+        rig.until_active("tone.opus");
+        rig.until_active("mono44.opus");
+        assert!(rig.state().error.is_none());
+        rig.until("finished", |w| !w.playing);
     }
 
     #[test]

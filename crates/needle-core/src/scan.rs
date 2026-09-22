@@ -17,7 +17,7 @@ use std::{
 };
 
 pub const EXTENSIONS: &[&str] = &[
-    "flac", "mp3", "m4a", "mp4", "aac", "wav", "wave", "aif", "aiff", "ogg", "oga",
+    "flac", "mp3", "m4a", "mp4", "aac", "wav", "wave", "aif", "aiff", "ogg", "oga", "opus",
 ];
 #[derive(Clone, Debug, Default)]
 pub struct ScanProgress {

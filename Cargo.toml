@@ -10,8 +10,17 @@ license = "LicenseRef-Proprietary"
 [profile.dev]
 debug = 0
 
+# Unoptimized Opus decoding is too slow for real-time playback in dev builds.
+[profile.dev.package.opus-decoder]
+opt-level = 3
+[profile.dev.package.rustfft]
+opt-level = 3
+
 [profile.release]
 opt-level = 3
 lto = "thin"
 strip = "debuginfo"
 
+# Pure-Rust Opus decoder with a faster MDCT FFT; see THIRD-PARTY-NOTICES.md.
+[patch.crates-io]
+opus-decoder = { path = "third-party/patched/opus-decoder-0.1.1" }
