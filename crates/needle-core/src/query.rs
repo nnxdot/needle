@@ -2,6 +2,10 @@
 use crate::model::Track;
 use anyhow::{Result, bail};
 use rusqlite::types::Value;
+mod suggest;
+pub use suggest::{
+    Suggestion, SuggestionKind, looks_like_rule, quote, suggest, suggest_with_library,
+};
 
 #[derive(Clone, Debug, PartialEq)]
 enum Token {
