@@ -82,6 +82,13 @@ Opening an existing large library for the first time after this change builds th
 - Live requests were made once to LRCLIB (59 timed lines for a known song), MusicBrainz/Wikidata/Commons (an artist photo), and ListenBrainz (listen format). Last.fm import was not run without an API key.
 - In the running app: the title bar drags, the window resizes from its edges including the top, and maximize/restore and double-click work (checked with Windows hit-testing and scripted drags after a fix for a focusable element that swallowed title-bar clicks). The big player showed timed lyrics following playback; the mini player opened, expanded (staying on screen), showed lyrics and the queue, and returned to the main window. The Sound page applied presets that persisted across restarts. The Import page detected an iTunes XML, and importing set ratings, play counts, and a playlist. An example plugin added a track-menu command that rated a song. A demo song was split into stems in the app and played back from its stems with the Karaoke mix.
 
+## 0.7.0 checks
+
+- Fixed and checked in the running app: the mini player can no longer be resized by dragging (it sizes itself); its Playing next / History tab labels no longer jump to the left on hover (a hover style reset text alignment, so the labels are now centered by layout); long messages wrap inside their bubble, and in the big player the bubble sits at the top instead of over the controls; *Turn on online lookups* in the lyrics panel now turns lookups on in place and searches LRCLIB at once (before, it switched to Settings behind the big player, so nothing seemed to happen); and with nothing playing, the times read 0:00 and the seek bar rests at the start.
+- The mini player's History tab and the Listening history page show covers, group back-to-back plays of a song (checked with four plays in a row, shown as ×4), and use short dates.
+- Film grain is off by default and has a strength slider.
+- Discord Rich Presence is built but not yet switched on: it needs Needle's Discord application ID. It talks only to the local Discord pipe and first checks that the program serving the pipe is a Discord client (Discord, Canary, PTB, Development, Vesktop, Equibop, Legcord, or WebCord); a live check against this PC's Discord passed. Tests cover the activity message (listening type, 2–128 character fields, time bar in milliseconds, paused state without a time bar) and the client name check.
+
 ## 0.6.0 checks
 
 - `cargo test --workspace` passes, including a new test that glass only thins the back layer (and the page when asked) and never changes text colors.

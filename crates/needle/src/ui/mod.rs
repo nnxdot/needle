@@ -1,6 +1,7 @@
 mod ambient;
 mod assets;
 mod chrome;
+mod discord;
 mod flow;
 mod glass;
 mod history;
@@ -269,6 +270,10 @@ pub struct AppView {
     tracks: Vec<Track>,
     playlists: Vec<Playlist>,
     history: Vec<Listen>,
+    /// Runs of the same song played back to back in `history`: (first index, plays).
+    history_runs: Vec<(usize, usize)>,
+    /// Tracks behind `history`, for covers.
+    history_tracks: std::collections::HashMap<String, Track>,
     history_total: usize,
     history_stats: Option<needle_core::history::HistoryStats>,
     history_range: usize,
@@ -297,6 +302,7 @@ pub struct AppView {
     tags: TagFields,
     volume: Entity<SliderState>,
     glass_slider: Entity<SliderState>,
+    grain_slider: Entity<SliderState>,
     seek: Entity<SliderState>,
     focus: FocusHandle,
     list_scroll: UniformListScrollHandle,
@@ -350,6 +356,8 @@ pub struct AppView {
     lyric_glide: bool,
     artist_images: std::collections::HashMap<String, Option<String>>,
     recent: Vec<Listen>,
+    /// The tracks behind `recent`, for covers.
+    recent_tracks: std::collections::HashMap<String, Track>,
     mini: Option<AnyWindowHandle>,
     sound: sound::SoundControls,
     import: importer::ImportState,
@@ -371,6 +379,9 @@ pub struct AppView {
     lastfm_secret: Entity<InputState>,
     listenbrainz_token: Entity<InputState>,
     acoustid_key: Entity<InputState>,
+    discord: Option<needle_core::discord::Presence>,
+    /// What Discord was last told: song, paused, and start second.
+    discord_sent: Option<(String, bool, i64)>,
 }
 
 pub fn run(library: Library) -> Result<()> {
@@ -513,6 +524,13 @@ impl AppView {
                 .default_value(settings.volume)
         });
         let seek = cx.new(|_| SliderState::new().min(0.).max(1000.).step(1.));
+        let grain_slider = cx.new(|_| {
+            SliderState::new()
+                .min(0.)
+                .max(1.)
+                .step(0.01)
+                .default_value(settings.grain)
+        });
         let glass_slider = cx.new(|_| {
             SliderState::new()
                 .min(0.)
@@ -572,6 +590,12 @@ impl AppView {
                 let SliderEvent::Change(value) = event;
                 this.player.send(Command::Volume(value.start()));
             }),
+            cx.subscribe(&grain_slider, |this, _, event, cx| {
+                let SliderEvent::Change(value) = event;
+                this.settings.grain = value.start();
+                this.persist_settings();
+                cx.notify();
+            }),
             cx.subscribe(&glass_slider, |this, _, event, cx| {
                 let SliderEvent::Change(value) = event;
                 this.settings.glass_amount = value.start();
@@ -593,6 +617,8 @@ impl AppView {
             total: library.count().unwrap_or(0),
             playlists: library.playlists().unwrap_or_default(),
             history: vec![],
+            history_runs: vec![],
+            history_tracks: Default::default(),
             history_total: 0,
             history_stats: None,
             history_range: 1,
@@ -624,6 +650,7 @@ impl AppView {
             tags,
             volume,
             glass_slider,
+            grain_slider,
             seek,
             focus,
             list_scroll: UniformListScrollHandle::new(),
@@ -670,6 +697,7 @@ impl AppView {
             lyric_glide: false,
             artist_images: Default::default(),
             recent: vec![],
+            recent_tracks: Default::default(),
             mini: None,
             sound,
             import,
@@ -690,10 +718,12 @@ impl AppView {
             lastfm_secret,
             listenbrainz_token,
             acoustid_key,
+            discord: None,
+            discord_sent: None,
         };
         view.refresh(cx);
         view.load_home();
-        view.recent = view.library.history(50).unwrap_or_default();
+        view.refresh_recent();
         cx.on_release(|_, cx| cx.quit()).detach();
         cx.spawn_in(window, async move |view, cx| {
             // Poll often while playing so the seek bar glides; rarely while paused.
@@ -784,7 +814,7 @@ impl AppView {
                 });
             }
             self.last_history_id = id;
-            self.recent = self.library.history(50).unwrap_or_default();
+            self.refresh_recent();
             if let Some(latest) = self.recent.first()
                 && self.last_listen.as_ref() != Some(&latest.id)
             {
@@ -798,16 +828,17 @@ impl AppView {
                 self.load_history();
             }
         }
+        self.update_discord();
         self.follow_lyrics();
-        if let Some(item) = &self.playback.current {
-            let value = if item.track.duration > 0.0 {
+        // With nothing playing the seek bar rests at the start.
+        let value = match &self.playback.current {
+            Some(item) if item.track.duration > 0.0 => {
                 (self.playback.position / item.track.duration * 1000.0) as f32
-            } else {
-                0.
-            };
-            self.seek
-                .update(cx, |state, cx| state.set_value(value, window, cx));
-        }
+            }
+            _ => 0.,
+        };
+        self.seek
+            .update(cx, |state, cx| state.set_value(value, window, cx));
         if let Some(toast) = &self.toast {
             let life = if toast.error { 14 } else { 6 };
             if toast.shown.elapsed() > Duration::from_secs(life) {
@@ -859,6 +890,7 @@ impl AppView {
                     self.history = listens;
                     self.history_total = total;
                     self.history_loading = false;
+                    self.history_changed();
                 }
                 Event::BatchProgress(progress) => {
                     self.tag_session.progress = Some(progress);
@@ -946,6 +978,7 @@ impl AppView {
                 Event::MoreHistory(offset, listens) => {
                     if offset == self.history.len() {
                         self.history.extend(listens);
+                        self.history_changed();
                     }
                     self.history_loading = false;
                 }

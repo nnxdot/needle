@@ -283,9 +283,16 @@ impl AppView {
                                     .items_center()
                                     .gap_3()
                                     .child(
-                                        faint(format_duration(self.playback.position), cx)
-                                            .w(px(40.))
-                                            .text_right(),
+                                        faint(
+                                            format_duration(if current.is_some() {
+                                                self.playback.position
+                                            } else {
+                                                0.
+                                            }),
+                                            cx,
+                                        )
+                                        .w(px(40.))
+                                        .text_right(),
                                     )
                                     .child(
                                         Slider::new(&self.seek)

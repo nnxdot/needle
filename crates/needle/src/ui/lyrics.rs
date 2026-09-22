@@ -1,5 +1,5 @@
 use super::{
-    AppView, Event, Page, motion, pal,
+    AppView, Event, motion, pal,
     widgets::{faint, glyph, meta, small_button},
 };
 use gpui::{prelude::*, *};
@@ -17,6 +17,11 @@ impl AppView {
             .send(needle_core::plugins::PluginEvent::TrackStarted(Box::new(
                 track.clone(),
             )));
+        self.lookup_media(track);
+    }
+
+    /// Find lyrics and any missing cover for `track`, in the background.
+    pub(super) fn lookup_media(&mut self, track: &Track) {
         self.lyrics = None;
         self.lyric_line = None;
         let library = self.library.clone();
@@ -201,7 +206,16 @@ impl AppView {
                 el.child(
                     small_button("enable-online", "Turn on online lookups")
                         .ghost()
-                        .on_click(cx.listener(|this, _, window, cx| this.navigate(Page::Settings, window, cx))),
+                        // Turn lookups on right here and search again, without leaving the player.
+                        .on_click(cx.listener(|this, _, _, cx| {
+                            this.settings.online_media = true;
+                            this.persist_settings();
+                            if let Some(item) = this.playback.current.clone() {
+                                this.lookup_media(&item.track);
+                            }
+                            this.notify("Online lookups are on. Looking for lyrics on LRCLIB…");
+                            cx.notify();
+                        })),
                 )
             })
             .into_any_element();

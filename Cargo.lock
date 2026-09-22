@@ -4174,7 +4174,7 @@ dependencies = [
 
 [[package]]
 name = "needle"
-version = "0.6.0"
+version = "0.7.0"
 dependencies = [
  "anyhow",
  "chrono",
@@ -4197,7 +4197,7 @@ dependencies = [
 
 [[package]]
 name = "needle-core"
-version = "0.6.0"
+version = "0.7.0"
 dependencies = [
  "anyhow",
  "argon2",
@@ -4231,6 +4231,7 @@ dependencies = [
  "uuid",
  "walkdir",
  "wasapi",
+ "windows-sys 0.52.0",
  "zip",
 ]
 

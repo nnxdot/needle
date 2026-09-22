@@ -104,6 +104,10 @@ pub struct Settings {
     pub glass_amount: f32,
     /// Let the glass show through the page too, not only the sidebar and bars.
     pub glass_page: bool,
+    /// Film grain over the window, 0 (off) to 1.
+    pub grain: f32,
+    /// Show what is playing on Discord, whenever Discord is running.
+    pub discord_presence: bool,
 }
 
 impl Default for Settings {
@@ -127,6 +131,8 @@ impl Default for Settings {
             window_material: "mica".into(),
             glass_amount: 0.6,
             glass_page: false,
+            grain: 0.,
+            discord_presence: true,
         }
     }
 }
