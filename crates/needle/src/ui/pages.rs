@@ -627,6 +627,18 @@ impl AppView {
                         })),
                         cx,
                     ))
+                    .when(self.settings.replay_gain, |el| {
+                        el.child(setting_row(
+                            "Keep album dynamics",
+                            "Uses album gain when an album has been measured, so quiet songs stay quiet next to loud ones. Falls back to track gain.",
+                            Switch::new("album-gain").checked(self.settings.album_gain).on_click(cx.listener(|this, checked: &bool, _, cx| {
+                                this.settings.album_gain = *checked;
+                                this.configure();
+                                cx.notify();
+                            })),
+                            cx,
+                        ))
+                    })
                     .child(
                         div()
                             .py_4()

@@ -689,6 +689,10 @@ impl AppView {
                     this.play_view(index, false, cx);
                 }
             }))
+            .child(self.menu_item("m-next", "next", if many { format!("Play {count} next") } else { "Play next".into() }, cx, |this, _, _| {
+                let selected = this.selected_tracks();
+                this.play_next(selected);
+            }))
             .child(self.menu_item("m-queue", "queue", if many { format!("Add {count} to queue") } else { "Add to queue".into() }, cx, |this, _, _| {
                 let selected = this.selected_tracks();
                 this.enqueue(selected);

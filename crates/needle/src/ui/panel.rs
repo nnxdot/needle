@@ -299,6 +299,34 @@ impl AppView {
                             ),
                     )
                     .child(
+                        self.fact("Album gain", track.album_replay_gain.map(|g| format!("{g:+.2} dB")).unwrap_or_else(|| "Not measured".into()), cx)
+                            .items_center()
+                            .child(
+                                Button::new("measure-album")
+                                    .ghost()
+                                    .xsmall()
+                                    .label("Measure album")
+                                    .on_click({
+                                        let id = track.id.clone();
+                                        cx.listener(move |this, _, _, cx| {
+                                            let library = this.library.clone();
+                                            let id = id.clone();
+                                            this.notify("Measuring the whole album in the background…");
+                                            this.background(move || {
+                                                let album = needle_core::analysis::scan_album_loudness(&library, &id)?;
+                                                Ok(format!(
+                                                    "Album measured: {:.1} LUFS · gain {:+.2} dB across {} tracks.",
+                                                    album.integrated_lufs,
+                                                    album.replay_gain_db,
+                                                    album.tracks.len()
+                                                ))
+                                            });
+                                            cx.notify();
+                                        })
+                                    }),
+                            ),
+                    )
+                    .child(
                         self.fact("File", path.clone(), cx).child(
                             icon_button("copy-path", "copy", "Copy file path")
                                 .xsmall()
@@ -552,7 +580,13 @@ impl AppView {
                                     .flex()
                                     .items_center()
                                     .gap_3()
+                                    .cursor_pointer()
                                     .hover(|s| s.bg(p.raised.opacity(0.6)))
+                                    .on_click(cx.listener(move |this, event: &ClickEvent, _, _| {
+                                        if event.click_count() == 2 {
+                                            this.player.send(Command::Jump(index));
+                                        }
+                                    }))
                                     .child(artwork(Some(&item.track), 34., cx))
                                     .child(
                                         div()

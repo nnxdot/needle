@@ -172,6 +172,7 @@ enum Event {
     SavedTags,
     Notice(String),
     Play(Vec<QueueItem>, Option<String>),
+    PlayAt(Vec<QueueItem>, usize, Option<String>),
     Enqueue(Vec<QueueItem>, String),
     ServicesChanged,
     LastfmPending(integrations::LastfmPending),
@@ -522,6 +523,11 @@ impl AppView {
         {
             self.fail(error.clone());
         }
+        if playback.output_notice != self.playback.output_notice
+            && let Some(notice) = &playback.output_notice
+        {
+            self.notify(notice.clone());
+        }
         let changed = playback.playing != self.playback.playing
             || playback.current.as_ref().map(|i| &i.track.id)
                 != self.playback.current.as_ref().map(|i| &i.track.id);
@@ -654,6 +660,16 @@ impl AppView {
                     self.settings.lastfm_enabled = true;
                     self.persist_settings();
                     self.notify(format!("Signed in to Last.fm as {user}. Scrobbling is on."));
+                }
+                Event::PlayAt(items, start, notice) => {
+                    if start < items.len() {
+                        self.player.send(Command::PlayAt(items, start));
+                    } else {
+                        self.notify("Nothing here can be played. The files may be unavailable.");
+                    }
+                    if let Some(notice) = notice {
+                        self.notify(notice);
+                    }
                 }
                 Event::Enqueue(items, notice) => {
                     self.player.send(Command::Enqueue(items));
@@ -1041,6 +1057,21 @@ impl AppView {
         let complete = self.page_offset == 0 && self.tracks.len() >= self.matched_total;
         let sender = self.sender.clone();
         let finish = move |mut tracks: Vec<Track>, start: usize, truncated: bool| {
+            let notice = truncated.then(|| format!("Playing the first {} matching tracks.", widgets::count(PLAY_LIMIT)));
+            if !shuffle {
+                // Keep earlier tracks in the list so Repeat all comes back round to them.
+                let first = tracks.get(start).map(|t| t.id.clone());
+                tracks.retain(|t| !t.missing);
+                let start = first
+                    .and_then(|id| tracks.iter().position(|t| t.id == id))
+                    .unwrap_or(tracks.len());
+                let items = tracks
+                    .into_iter()
+                    .map(|track| QueueItem { track, reason: reason.clone() })
+                    .collect();
+                let _ = sender.send(Event::PlayAt(items, start, notice));
+                return;
+            }
             let mut tracks: Vec<Track> = if shuffle {
                 let first = (start > 0 || !tracks.is_empty()).then(|| tracks.get(start).cloned()).flatten();
                 tracks.shuffle(&mut rand::thread_rng());
@@ -1060,7 +1091,6 @@ impl AppView {
                     reason: reason.clone(),
                 })
                 .collect();
-            let notice = truncated.then(|| format!("Playing the first {} matching tracks.", widgets::count(PLAY_LIMIT)));
             let _ = sender.send(Event::Play(items, notice));
         };
         if complete {
@@ -1119,6 +1149,19 @@ impl AppView {
                 format!("Added {count} tracks to the queue.")
             },
         ));
+    }
+    fn play_next(&mut self, tracks: Vec<Track>) {
+        let count = tracks.len();
+        let items = tracks
+            .into_iter()
+            .filter(|t| !t.missing)
+            .map(|track| QueueItem {
+                track,
+                reason: "Chosen to play next by you".into(),
+            })
+            .collect();
+        self.player.send(Command::PlayNext(items));
+        self.notify(if count == 1 { "Playing next.".into() } else { format!("{count} tracks play next.") });
     }
     fn toggle_playback(&mut self, cx: &mut Context<Self>) {
         if self.playback.current.is_some() {
