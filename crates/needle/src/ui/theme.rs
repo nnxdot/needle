@@ -127,6 +127,7 @@ pub fn set_theme(mode: &str, window: Option<&mut Window>, cx: &mut App) {
     t.slider_bar = p.accent;
     t.slider_thumb = p.ink;
     t.switch = p.line;
+    t.switch_thumb = if dark { c(0xe8e6e2) } else { c(0xffffff) };
     t.progress_bar = p.accent;
     t.scrollbar = gpui::transparent_black();
     t.scrollbar_thumb = p.ink_3.opacity(0.35);

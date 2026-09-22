@@ -166,6 +166,9 @@ enum Event {
     Notice(String),
     Play(Vec<QueueItem>, Option<String>),
     Enqueue(Vec<QueueItem>, String),
+    ServicesChanged,
+    LastfmPending(integrations::LastfmPending),
+    LastfmSignedIn(String),
 }
 
 pub struct TagFields {
@@ -226,6 +229,15 @@ pub struct AppView {
     _watcher: Option<Box<dyn std::any::Any>>,
     last_history_id: Option<String>,
     muted_volume: Option<f32>,
+    groups: Vec<library::Group>,
+    service_status: Option<integrations::ServiceStatus>,
+    scrobble_summary: Option<integrations::ScrobbleSummary>,
+    service_busy: bool,
+    lastfm_pending: Option<integrations::LastfmPending>,
+    lastfm_key: Entity<InputState>,
+    lastfm_secret: Entity<InputState>,
+    listenbrainz_token: Entity<InputState>,
+    acoustid_key: Entity<InputState>,
 }
 
 pub fn run(library: Library) -> Result<()> {
@@ -318,6 +330,14 @@ impl AppView {
             let name = name.to_string();
             cx.new(|cx| InputState::new(window, cx).placeholder(name))
         };
+        let secret = |name: &str, window: &mut Window, cx: &mut Context<Self>| {
+            let name = name.to_string();
+            cx.new(|cx| InputState::new(window, cx).placeholder(name).masked(true))
+        };
+        let lastfm_key = field("Last.fm API key", window, cx);
+        let lastfm_secret = secret("Shared secret", window, cx);
+        let listenbrainz_token = secret("ListenBrainz user token", window, cx);
+        let acoustid_key = secret("AcoustID application key", window, cx);
         let tags = TagFields {
             title: field("Title", window, cx),
             artist: field("Artist", window, cx),
@@ -419,6 +439,15 @@ impl AppView {
             _watcher: watcher,
             last_history_id: None,
             muted_volume: None,
+            groups: vec![],
+            service_status: None,
+            scrobble_summary: None,
+            service_busy: false,
+            lastfm_pending: None,
+            lastfm_key,
+            lastfm_secret,
+            listenbrainz_token,
+            acoustid_key,
         };
         view.refresh(cx);
         cx.spawn_in(window, async move |view, cx| {
@@ -451,6 +480,11 @@ impl AppView {
             error: true,
             shown: Instant::now(),
         });
+    }
+
+    fn refresh_services(&mut self) {
+        self.service_status = Some(integrations::secret_status());
+        self.scrobble_summary = integrations::scrobble_summary(&self.library).ok();
     }
 
     fn persist_settings(&mut self) {
@@ -531,6 +565,9 @@ impl AppView {
                         self.matched_total = total;
                         self.loading = false;
                         self.reconcile_selection();
+                        if self.page.is_grid() {
+                            self.groups = library::group(&self.tracks, self.page == Page::Artists);
+                        }
                     }
                 }
                 Event::SearchFailed(generation, error) => {
@@ -568,7 +605,9 @@ impl AppView {
                     self.refresh(cx);
                 }
                 Event::Notice(notice) => {
-                    self.notify(notice);
+                    if !notice.is_empty() {
+                        self.notify(notice);
+                    }
                     self.refresh(cx);
                     self.playlists = self.library.playlists().unwrap_or_default();
                     self.history = self.library.history(200).unwrap_or_default();
@@ -585,6 +624,20 @@ impl AppView {
                     if let Some(notice) = notice {
                         self.notify(notice);
                     }
+                }
+                Event::ServicesChanged => {
+                    self.service_busy = false;
+                    self.refresh_services();
+                }
+                Event::LastfmPending(pending) => {
+                    cx.open_url(&pending.auth_url);
+                    self.lastfm_pending = Some(pending);
+                }
+                Event::LastfmSignedIn(user) => {
+                    self.lastfm_pending = None;
+                    self.settings.lastfm_enabled = true;
+                    self.persist_settings();
+                    self.notify(format!("Signed in to Last.fm as {user}. Scrobbling is on."));
                 }
                 Event::Enqueue(items, notice) => {
                     self.player.send(Command::Enqueue(items));
@@ -745,7 +798,9 @@ impl AppView {
         }
         if self.page == Page::Settings {
             self.output_devices = audio::devices().unwrap_or_default();
+            self.refresh_services();
         }
+        self.groups.clear();
         self.refresh(cx);
         window.focus(&self.focus);
     }
@@ -774,8 +829,6 @@ impl AppView {
             self.selection.anchor = Some(index);
             self.selection.cursor = Some(index);
             self.focus_track(track.clone());
-            self.list_scroll
-                .scroll_to_item(index, ScrollStrategy::Nearest);
         }
         cx.notify();
     }
@@ -788,8 +841,6 @@ impl AppView {
             .collect();
         self.selection.anchor = Some(anchor);
         self.selection.cursor = Some(index);
-        self.list_scroll
-            .scroll_to_item(index, ScrollStrategy::Nearest);
         cx.notify();
     }
     fn click_track(&mut self, index: usize, event: &ClickEvent, window: &mut Window, cx: &mut Context<Self>) {
@@ -839,6 +890,8 @@ impl AppView {
         } else {
             self.select_single(next, cx);
         }
+        let strategy = if delta < 0 { ScrollStrategy::Top } else { ScrollStrategy::Bottom };
+        self.list_scroll.scroll_to_item(next, strategy);
     }
     fn selected_tracks(&self) -> Vec<Track> {
         self.tracks
@@ -1247,7 +1300,10 @@ impl Render for AppView {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let p = pal(cx);
         let width = window.viewport_size().width;
-        let show_panel = self.settings.show_inspector && width > px(1080.) && self.total > 0;
+        let show_panel = self.settings.show_inspector
+            && width > px(1080.)
+            && self.total > 0
+            && (self.page.is_tracks() || self.panel == Panel::Queue);
         let sidebar = self.settings.layout.sidebar_width.clamp(200., 260.);
         let panel_width = self.settings.layout.inspector_width.clamp(280., 340.) + 16.;
         let content_width = f32::from(width) - sidebar - if show_panel { panel_width } else { 0. };
@@ -1258,7 +1314,7 @@ impl Render for AppView {
             .size_full()
             .bg(p.canvas)
             .text_color(p.ink)
-            .font_family(gpui_component::ActiveTheme::theme(cx).font_family.clone())
+            .font_family(gpui_component::ActiveTheme::theme(&**cx).font_family.clone())
             .text_size(px(13.))
             .flex()
             .flex_col()

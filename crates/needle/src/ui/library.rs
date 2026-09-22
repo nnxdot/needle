@@ -341,7 +341,7 @@ impl AppView {
                                     .set_file_name(format!("{}.m3u8", playlist.name))
                                     .save_file()
                                 else {
-                                    anyhow::bail!("Export cancelled.");
+                                    return Ok(String::new());
                                 };
                                 library.export_playlist(&playlist, &path)?;
                                 Ok("Playlist exported.".into())
@@ -545,7 +545,7 @@ impl AppView {
             .text_color(if state.is_some() { p.ink } else { p.ink_3 })
             .hover(|s| s.text_color(p.ink))
             .child(label)
-            .when_some(state, |el, g| el.child(glyph(g).size(px(12.))))
+            .when_some(state, |el, g| el.child(glyph(g).size(px(12.)).text_color(p.ink)))
             .on_click(cx.listener(move |this, _, _, cx| {
                 this.sort = match this.sort {
                     Sort::Asc(f) if f == field => Sort::Desc(field),
@@ -606,7 +606,7 @@ impl AppView {
                             }),
                     )
                     .when(show_album, |el| {
-                        el.child(div().flex_basis(relative(0.32)).flex_shrink_0().child(self.sort_label("sort-album", "Album", "album", cx)))
+                        el.child(div().w(relative(0.3)).flex_shrink_0().child(self.sort_label("sort-album", "Album", "album", cx)))
                     })
                     .when(show_quality, |el| el.child(div().w(px(92.)).child(self.sort_label("sort-format", "Quality", "format", cx))))
                     .child(div().w(px(28.)))
@@ -629,7 +629,7 @@ impl AppView {
             )
     }
 
-    fn track_row(&self, index: usize, album_view: bool, show_album: bool, show_quality: bool, cx: &mut Context<Self>) -> impl IntoElement {
+    fn track_row(&self, index: usize, album_view: bool, show_album: bool, show_quality: bool, cx: &mut Context<Self>) -> Div {
         let p = pal(cx);
         let track = &self.tracks[index];
         let selected = self.selection.ids.contains(&track.id);
@@ -643,11 +643,11 @@ impl AppView {
         } else {
             (self.page_offset + index + 1).to_string()
         };
-        div()
+        let row = div()
             .id(("row", index))
             .group("row")
             .h(px(height))
-            .mx_4()
+            .w_full()
             .px_2()
             .rounded(px(6.))
             .flex()
@@ -688,7 +688,7 @@ impl AppView {
                                 .group_hover("row", |s| s.opacity(1.))
                                 .cursor_pointer()
                                 .text_color(p.ink)
-                                .child(glyph("play").size(px(15.)))
+                                .child(glyph("play").size(px(15.)).text_color(p.ink))
                                 .on_click(cx.listener(move |this, _, _, cx| {
                                     cx.stop_propagation();
                                     this.select_single(index, cx);
@@ -754,7 +754,7 @@ impl AppView {
             .when(show_album, |el| {
                 el.child(
                     div()
-                        .flex_basis(relative(0.32))
+                        .w(relative(0.3))
                         .flex_shrink_0()
                         .min_w_0()
                         .truncate()
@@ -777,7 +777,7 @@ impl AppView {
                     .when(!favorite, |el| el.opacity(0.).group_hover("row", |s| s.opacity(1.)))
                     .text_color(if favorite { p.accent } else { p.ink_3 })
                     .hover(|s| s.text_color(p.accent))
-                    .child(glyph(if favorite { "heart-fill" } else { "heart" }).size(px(16.)))
+                    .child(glyph(if favorite { "heart-fill" } else { "heart" }).size(px(16.)).text_color(if favorite { p.accent } else { p.ink_2 }))
                     .on_click(cx.listener(move |this, _, _, cx| {
                         cx.stop_propagation();
                         this.set_rating(&[id.clone()], if favorite { 0 } else { 5 });
@@ -808,7 +808,7 @@ impl AppView {
                     .group_hover("row", |s| s.opacity(1.))
                     .text_color(p.ink_2)
                     .hover(|s| s.bg(p.raised_hover).text_color(p.ink))
-                    .child(glyph("more").size(px(16.)))
+                    .child(glyph("more").size(px(16.)).text_color(p.ink_2))
                     .on_click(cx.listener(move |this, event: &ClickEvent, _, cx| {
                         cx.stop_propagation();
                         this.open_menu(index, event.position(), cx);
@@ -818,7 +818,8 @@ impl AppView {
             .on_mouse_down(
                 MouseButton::Right,
                 cx.listener(move |this, event: &MouseDownEvent, _, cx| this.open_menu(index, event.position, cx)),
-            )
+            );
+        div().w_full().px_4().child(row)
     }
 
     fn grid(&self, width: f32, cx: &mut Context<Self>) -> impl IntoElement {
@@ -847,7 +848,7 @@ impl AppView {
         .flex_1()
     }
 
-    fn tile(&self, index: usize, size: f32, round: bool, cx: &mut Context<Self>) -> impl IntoElement {
+    fn tile(&self, index: usize, size: f32, round: bool, cx: &mut Context<Self>) -> Stateful<Div> {
         let p = pal(cx);
         let group = &self.groups[index];
         let page = group.page.clone();

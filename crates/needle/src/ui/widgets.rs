@@ -118,20 +118,6 @@ pub fn quality(track: &Track) -> String {
     }
 }
 
-pub fn badge(text: impl Into<SharedString>, cx: &App) -> Div {
-    let p = pal(cx);
-    div()
-        .flex_shrink_0()
-        .px(px(6.))
-        .py(px(1.))
-        .rounded(px(4.))
-        .border_1()
-        .border_color(p.line)
-        .text_size(px(11.))
-        .text_color(p.ink_2)
-        .child(text.into())
-}
-
 /// A row of mutually exclusive choices. `selected` is the index shown as active.
 pub fn segmented(
     id: &'static str,

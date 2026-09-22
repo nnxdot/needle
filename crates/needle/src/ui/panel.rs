@@ -20,7 +20,6 @@ fn when(timestamp: i64) -> String {
 impl AppView {
     pub(super) fn panel(&self, width: f32, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let p = pal(cx);
-        let queued = self.playback.queue.len();
         let tab = if self.panel == Panel::Details { 0 } else { 1 };
         let weak = cx.entity().downgrade();
         div()
@@ -42,7 +41,7 @@ impl AppView {
                     .justify_between()
                     .child(segmented(
                         "panel-tab",
-                        &["Details", if queued > 0 { "Queue ·" } else { "Queue" }],
+                        &["Details", "Queue"],
                         tab,
                         cx,
                         move |index, _, cx| {
@@ -201,7 +200,7 @@ impl AppView {
                                 .cursor_pointer()
                                 .text_color(if lit { p.accent } else { p.ink_3 })
                                 .hover(|s| s.text_color(p.accent))
-                                .child(glyph(if lit { "star-fill" } else { "star" }).size(px(17.)))
+                                .child(glyph(if lit { "star-fill" } else { "star" }).size(px(17.)).text_color(if lit { p.accent } else { p.ink_3 }))
                                 .tooltip(move |window, cx| gpui_component::tooltip::Tooltip::new(format!("Rate {star} of 5")).build(window, cx))
                                 .on_click(cx.listener(move |this, _, _, cx| {
                                     this.set_rating(&[id.clone()], if rating == star { 0 } else { star });
@@ -342,7 +341,7 @@ impl AppView {
                                             let sender = this.sender.clone();
                                             this.lookup_busy = true;
                                             std::thread::spawn(move || {
-                                                let key = std::env::var("NEEDLE_ACOUSTID_API_KEY").unwrap_or_default();
+                                                let key = integrations::acoustid_key().unwrap_or_default();
                                                 let result = integrations::acoustid_lookup(&library, &PathBuf::from(&track.path), &key);
                                                 let _ = sender.send(match result {
                                                     Ok(matches) => Event::Matches(track.id, matches),
@@ -543,11 +542,11 @@ impl AppView {
                         range
                             .map(|index| {
                                 let item = &this.playback.queue[index];
-                                div()
+                                let row = div()
                                     .id(("queue-row", index))
                                     .group("queue-row")
                                     .h(px(48.))
-                                    .mx_2()
+                                    .w_full()
                                     .px_2()
                                     .rounded(px(6.))
                                     .flex()
@@ -580,7 +579,8 @@ impl AppView {
                                                     .xsmall()
                                                     .on_click(cx.listener(move |this, _, _, _| this.player.send(Command::Remove(index)))),
                                             ),
-                                    )
+                                    );
+                                div().w_full().px_2().child(row)
                             })
                             .collect::<Vec<_>>()
                     }),

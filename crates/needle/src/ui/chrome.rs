@@ -83,7 +83,7 @@ impl AppView {
 
     fn nav_item(
         &self,
-        id: &'static str,
+        id: impl Into<ElementId>,
         name: impl Into<SharedString>,
         glyph_name: &'static str,
         page: Page,
@@ -186,8 +186,7 @@ impl AppView {
                     })
                     .children(self.playlists.iter().map(|playlist| {
                         let glyph_name = if playlist.query.is_some() { "smart" } else { "playlist" };
-                        self.nav_item("", playlist.name.clone(), glyph_name, Page::Playlist(playlist.id.clone()), cx)
-                            .id(SharedString::from(format!("playlist-{}", playlist.id)))
+                        self.nav_item(SharedString::from(format!("playlist-{}", playlist.id)), playlist.name.clone(), glyph_name, Page::Playlist(playlist.id.clone()), cx)
                     })),
             )
             .child(
@@ -329,7 +328,7 @@ impl AppView {
                             let album = Page::Album { album: track.album.clone(), artist: if track.album_artist.is_empty() { track.artist.clone() } else { track.album_artist.clone() } };
                             let artist = Page::Artist(track.artist.clone());
                             div()
-                                .flex_1()
+                                .flex_shrink()
                                 .min_w_0()
                                 .flex()
                                 .flex_col()
@@ -416,7 +415,7 @@ impl AppView {
                                     .cursor_pointer()
                                     .hover(|s| s.opacity(0.88))
                                     .active(|s| s.opacity(0.75))
-                                    .child(glyph(if playing { "pause" } else { "play" }).size(px(17.)))
+                                    .child(glyph(if playing { "pause" } else { "play" }).size(px(17.)).text_color(p.canvas))
                                     .tooltip(move |window, cx| {
                                         gpui_component::tooltip::Tooltip::new(if playing { "Pause · Space" } else { "Play · Space" }).build(window, cx)
                                     })
@@ -485,7 +484,7 @@ impl AppView {
                                 .text_color(if exclusive { p.accent } else { p.ink_2 })
                                 .bg(if exclusive { p.accent_soft } else { p.raised })
                                 .cursor_pointer()
-                                .child(glyph("signal").size(px(13.)))
+                                .child(glyph("signal").size(px(13.)).text_color(if exclusive { p.accent } else { p.ink_2 }))
                                 .child(div().truncate().child(path.clone()))
                                 .tooltip(move |window, cx| gpui_component::tooltip::Tooltip::new(path_detail.clone()).build(window, cx))
                                 .on_click(cx.listener(|this, _, window, cx| this.navigate(Page::Settings, window, cx))),
