@@ -1,5 +1,5 @@
 use super::{
-    AppView, PAGE_SIZE, Page, Sort, pal,
+    AppView, PAGE_SIZE, Page, Sort, motion, pal,
     widgets::{
         artwork, count as thousands, cover, faint, glyph, icon, icon_button, meta, page_title,
         quality,
@@ -15,6 +15,48 @@ use needle_core::{
     browse::{AlbumSummary, ArtistSummary},
     model::format_duration,
 };
+
+/// A way out of an empty page.
+#[derive(Clone, Copy)]
+pub enum Step {
+    ClearSearch,
+    Palette,
+    Songs,
+    AddFolder,
+    Import,
+}
+impl Step {
+    fn label(self) -> (&'static str, &'static str) {
+        match self {
+            Self::ClearSearch => ("Clear search", "close"),
+            Self::Palette => ("Search everything", "command"),
+            Self::Songs => ("Browse songs", "songs"),
+            Self::AddFolder => ("Add music folder", "folder"),
+            Self::Import => ("Import a library", "import"),
+        }
+    }
+    fn run(self, this: &mut AppView, window: &mut Window, cx: &mut Context<AppView>) {
+        match self {
+            Self::ClearSearch => {
+                this.search.update(cx, |s, cx| s.set_value("", window, cx));
+                window.focus(&this.focus);
+                this.refresh(cx);
+            }
+            Self::Palette => {
+                let text = this.search_text(cx);
+                this.open_palette(window, cx);
+                this.palette
+                    .input
+                    .update(cx, |s, cx| s.set_value(text, window, cx));
+                this.palette.active = 0;
+                this.palette_search(cx);
+            }
+            Self::Songs => this.navigate(Page::Songs, window, cx),
+            Self::AddFolder => this.import_folder(cx),
+            Self::Import => this.navigate(Page::Import, window, cx),
+        }
+    }
+}
 
 /// One album or artist tile.
 #[derive(Clone)]
@@ -101,13 +143,26 @@ impl AppView {
             }
             _ => self.collection(width, window, cx).into_any_element(),
         };
-        div()
+        let page = div()
             .flex_1()
             .min_w_0()
             .h_full()
             .flex()
             .flex_col()
-            .child(body)
+            .child(body);
+        // A short fade each time the page changes.
+        div()
+            .flex_1()
+            .min_w_0()
+            .h_full()
+            .flex()
+            .child(motion::animate(
+                page,
+                ("page", self.page_serial),
+                160,
+                cx,
+                |el, t| el.opacity(t),
+            ))
     }
 
     fn onboarding(&self, cx: &mut Context<Self>) -> impl IntoElement {
@@ -245,8 +300,7 @@ impl AppView {
                     .flex()
                     .flex_col()
                     .gap_1()
-                    .when(album_art.is_some(), |el| el.child(faint("Album", cx)))
-                    .when(artist.is_some(), |el| el.child(faint("Artist", cx)))
+                    .children(self.breadcrumbs(cx))
                     .child(page_title(title))
                     .when_some(album_art.clone(), |el, track| {
                         let artist_name = if track.album_artist.is_empty() {
@@ -485,8 +539,13 @@ impl AppView {
             .as_ref()
             .filter(|_| self.tracks.is_empty() && self.groups.is_empty())
         {
-            self.problem("That rule needs a fix", error.clone(), cx)
-                .into_any_element()
+            self.problem(
+                "That rule needs a fix",
+                error.clone(),
+                &[Step::ClearSearch],
+                cx,
+            )
+            .into_any_element()
         } else if self.loading
             && if self.page.is_grid() {
                 self.groups.is_empty()
@@ -499,26 +558,35 @@ impl AppView {
             self.grid(width, cx).into_any_element()
         } else if self.tracks.is_empty() {
             let search = self.search_text(cx);
-            let (title, detail) = match &self.page {
+            let (title, detail, steps): (String, String, &[Step]) = match &self.page {
+                _ if !search.is_empty() => (
+                    format!("Nothing matches “{search}”"),
+                    "Try fewer words, or a rule such as  artist contains \"Nick\".".into(),
+                    &[Step::ClearSearch, Step::Palette],
+                ),
                 Page::Favorites => (
                     "No favorites yet".to_string(),
-                    "Press the heart on any track, or Ctrl+D with tracks selected.".to_string(),
+                    "Press the heart on any track, or drag songs onto Favorites.".to_string(),
+                    &[Step::Songs],
                 ),
                 Page::Recent => (
                     "Nothing added in the last 30 days".into(),
                     "New files in your music folders appear here automatically.".into(),
+                    &[Step::AddFolder],
                 ),
-                Page::Playlist(_) if search.is_empty() => (
+                Page::Playlist(_) => (
                     "This playlist is empty".into(),
-                    "Right-click tracks anywhere and choose the playlist to add them.".into(),
+                    "Drag songs onto the playlist in the sidebar, or right-click them and choose Add to playlist.".into(),
+                    &[Step::Songs],
                 ),
-                _ if !search.is_empty() => (
-                    format!("Nothing matches “{search}”"),
-                    "Try fewer words, or a rule such as  artist contains \"Nick\".".into(),
+                Page::Songs | Page::Albums | Page::Artists => (
+                    "Your library is empty".into(),
+                    "Add a folder with music, or bring your library over from iTunes, Spotify, or Last.fm.".into(),
+                    &[Step::AddFolder, Step::Import],
                 ),
-                _ => ("Nothing to show".into(), "Try another view.".into()),
+                _ => ("Nothing to show yet".into(), "Your songs are one click away.".into(), &[Step::Songs]),
             };
-            self.problem(title, detail, cx).into_any_element()
+            self.problem(title, detail, steps, cx).into_any_element()
         } else {
             self.table(width, window, cx).into_any_element()
         };
@@ -615,7 +683,8 @@ impl AppView {
         &self,
         title: impl Into<SharedString>,
         detail: impl Into<SharedString>,
-        cx: &App,
+        steps: &[Step],
+        cx: &mut Context<Self>,
     ) -> impl IntoElement {
         let p = pal(cx);
         div()
@@ -641,11 +710,30 @@ impl AppView {
                     .text_center()
                     .line_height(relative(1.5)),
             )
+            .child(
+                div()
+                    .mt_3()
+                    .flex()
+                    .gap_2()
+                    .children(steps.iter().enumerate().map(|(i, step)| {
+                        let step = *step;
+                        let (label, name) = step.label();
+                        let button = Button::new(("next-step", i)).icon(icon(name)).label(label);
+                        if i == 0 {
+                            button.primary()
+                        } else {
+                            button.ghost()
+                        }
+                        .on_click(
+                            cx.listener(move |this, _, window, cx| step.run(this, window, cx)),
+                        )
+                    })),
+            )
     }
 
-    fn skeleton(&self, cx: &App) -> impl IntoElement {
+    fn skeleton(&self, cx: &App) -> AnyElement {
         let p = pal(cx);
-        div()
+        let rows = div()
             .flex_1()
             .px_6()
             .pt_2()
@@ -679,7 +767,11 @@ impl AppView {
                                     .bg(p.raised.opacity(0.7)),
                             ),
                     )
-            }))
+            }));
+        // A slow breathing shimmer so a long load reads as "working", not "stuck".
+        motion::repeat(rows, "skeleton", 1400, 1., cx, |el, t| {
+            el.opacity(0.45 + 0.55 * t)
+        })
     }
 
     fn sort_label(
@@ -865,13 +957,12 @@ impl AppView {
                     .text_size(px(12.))
                     .text_color(p.ink_3)
                     .child(if playing {
-                        glyph(if self.playback.playing {
-                            "volume"
-                        } else {
-                            "pause"
-                        })
-                        .size(px(15.))
-                        .text_color(p.accent)
+                        motion::equalizer(
+                            format!("eq-{index}"),
+                            p.accent,
+                            self.playback.playing,
+                            cx,
+                        )
                         .into_any_element()
                     } else {
                         div()
@@ -997,11 +1088,13 @@ impl AppView {
                     })
                     .text_color(if favorite { p.accent } else { p.ink_3 })
                     .hover(|s| s.text_color(p.accent))
-                    .child(
-                        glyph(if favorite { "heart-fill" } else { "heart" })
-                            .size(px(16.))
-                            .text_color(if favorite { p.accent } else { p.ink_2 }),
-                    )
+                    .child(self.heart(
+                        &id,
+                        favorite,
+                        16.,
+                        if favorite { p.accent } else { p.ink_2 },
+                        cx,
+                    ))
                     .on_click(cx.listener(move |this, _, _, cx| {
                         cx.stop_propagation();
                         this.set_rating(std::slice::from_ref(&id), if favorite { 0 } else { 5 });
@@ -1041,6 +1134,24 @@ impl AppView {
             .on_click(cx.listener(move |this, event: &ClickEvent, window, cx| {
                 this.click_track(index, event, window, cx)
             }))
+            .on_drag(
+                {
+                    let ids: Vec<String> = if selected {
+                        self.selection.ids.iter().cloned().collect()
+                    } else {
+                        vec![track.id.clone()]
+                    };
+                    super::flow::DraggedTracks {
+                        label: if ids.len() > 1 {
+                            format!("{} songs", ids.len()).into()
+                        } else {
+                            track.title.clone().into()
+                        },
+                        ids,
+                    }
+                },
+                |value, _, _, cx| super::flow::drag_preview(value, cx),
+            )
             .on_mouse_down(
                 MouseButton::Right,
                 cx.listener(move |this, event: &MouseDownEvent, _, cx| {
@@ -1071,6 +1182,7 @@ impl AppView {
                     .collect::<Vec<_>>()
             }),
         )
+        .track_scroll(self.grid_scroll.clone())
         .flex_1()
     }
 
@@ -1085,15 +1197,21 @@ impl AppView {
             .flex_col()
             .gap_1()
             .cursor_pointer()
-            .child(div().relative().mb_2().child(if round {
-                self.artist_photo(&group.title, size, cx)
-            } else {
+            .child(
                 div()
-                    .rounded(px(8.))
-                    .group_hover("tile", |s| s.opacity(0.86))
-                    .child(cover(group.artwork.as_deref(), &group.seed, size, cx))
-                    .into_any_element()
-            }))
+                    .relative()
+                    .mb_2()
+                    .child(if round {
+                        self.artist_photo(&group.title, size, cx)
+                    } else {
+                        div()
+                            .rounded(px(8.))
+                            .group_hover("tile", |s| s.opacity(0.86))
+                            .child(cover(group.artwork.as_deref(), &group.seed, size, cx))
+                            .into_any_element()
+                    })
+                    .child(self.cover_play(index, page.clone(), size, cx)),
+            )
             .child(
                 div()
                     .text_size(px(13.5))

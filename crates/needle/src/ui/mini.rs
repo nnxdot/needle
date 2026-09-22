@@ -388,6 +388,7 @@ impl Render for MiniView {
                                     .justify_center()
                                     .cursor_pointer()
                                     .hover(|s| s.opacity(0.88))
+                                    .active(|s| s.size(px(29.)).m(px(1.5)).opacity(0.8))
                                     .child(
                                         glyph(if playing { "pause" } else { "play" })
                                             .size(px(15.))

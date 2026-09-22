@@ -1,5 +1,5 @@
 use super::{
-    AppView, Event, Page, pal,
+    AppView, Event, Page, motion, pal,
     widgets::{faint, glyph, meta, small_button},
 };
 use gpui::{prelude::*, *};
@@ -103,10 +103,42 @@ impl AppView {
         let line = lyrics.line_at(self.playback.position + 0.15);
         if line != self.lyric_line {
             self.lyric_line = line;
-            if let Some(line) = line {
-                self.lyrics_scroll.scroll_to_item(line.saturating_sub(2));
-            }
+            self.lyric_glide = line.is_some();
         }
+    }
+
+    /// Where the lyrics should be scrolled so the sung line sits a third of the way down.
+    fn lyric_target(&self, line: usize) -> Option<f32> {
+        let item = self.lyrics_scroll.bounds_for_item(line)?;
+        let view = self.lyrics_scroll.bounds();
+        let max = f32::from(self.lyrics_scroll.max_offset().height);
+        Some(f32::from(view.top() + view.size.height * 0.3 - item.top()).clamp(-max, 0.))
+    }
+
+    /// Ease the lyrics a step toward the sung line; called every frame while gliding.
+    pub(super) fn glide_lyrics(&mut self, window: &mut Window, cx: &App) {
+        if !self.lyric_glide {
+            return;
+        }
+        let Some(target) = self.lyric_line.and_then(|line| self.lyric_target(line)) else {
+            self.lyric_glide = false;
+            return;
+        };
+        let mut offset = self.lyrics_scroll.offset();
+        let now = f32::from(offset.y);
+        let next = if motion::enabled(cx) {
+            now + (target - now) * 0.14
+        } else {
+            target
+        };
+        if (target - next).abs() < 0.5 {
+            offset.y = px(target);
+            self.lyric_glide = false;
+        } else {
+            offset.y = px(next);
+            window.request_animation_frame();
+        }
+        self.lyrics_scroll.set_offset(offset);
     }
 
     pub(super) fn lyrics_view(&self, big: bool, cx: &mut Context<Self>) -> impl IntoElement {
@@ -210,7 +242,7 @@ impl AppView {
                         Some(a) if i < a => 1,
                         _ => 2,
                     };
-                    div()
+                    let line_el = div()
                         .id(("lyric", i))
                         .pb(px(gap))
                         .text_size(px(size))
@@ -234,8 +266,16 @@ impl AppView {
                         })
                         .on_click(
                             cx.listener(move |this, _, _, _| this.player.send(Command::Seek(time))),
-                        )
-                        .into_any_element()
+                        );
+                    if state == 0 {
+                        // The new line brightens in as it arrives.
+                        let (dim, ink) = (p.ink_3, p.ink);
+                        motion::animate(line_el, ("lyric-on", i), 380, cx, move |el, t| {
+                            el.text_color(motion::mix(dim, ink, t))
+                        })
+                    } else {
+                        line_el.into_any_element()
+                    }
                 })
                 .collect()
         };
@@ -246,7 +286,12 @@ impl AppView {
             .overflow_y_scroll()
             .track_scroll(&self.lyrics_scroll)
             .pr_2()
-            .pb_20()
+            // Room above and below so any line can glide to the reading spot.
+            .when(!lyrics.lines.is_empty(), |el| {
+                el.pt(px(if big { 140. } else { 48. }))
+                    .pb(px(if big { 360. } else { 200. }))
+            })
+            .when(lyrics.lines.is_empty(), |el| el.pb_20())
             .children(lines)
             .child(faint(source, cx).mt_6())
             .into_any_element()

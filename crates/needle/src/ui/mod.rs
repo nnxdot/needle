@@ -1,12 +1,16 @@
 mod assets;
 mod chrome;
+mod flow;
 mod history;
 mod importer;
 mod library;
 mod lyrics;
+mod menus;
 mod mini;
+mod motion;
 mod now_playing;
 mod pages;
+mod palette;
 mod panel;
 mod plugin_ui;
 mod sound;
@@ -70,6 +74,9 @@ actions!(
         FocusNext,
         FocusPrevious,
         ToggleBigPlayer,
+        OpenPalette,
+        PlayNextSelection,
+        EnqueueSelection,
         OpenMiniPlayer,
     ]
 );
@@ -82,6 +89,8 @@ pub struct GoTo(pub usize);
 /// The most tracks one play action queues. Larger libraries play their first 50,000 matches.
 const PLAY_LIMIT: usize = 50_000;
 const PAGE_SIZE: usize = 1000;
+/// How long the big player takes to grow or shrink.
+const BIG_MS: u64 = 260;
 
 #[derive(Clone, PartialEq, Debug)]
 pub enum Page {
@@ -204,11 +213,6 @@ pub struct Selection {
     cursor: Option<usize>,
 }
 
-pub struct TrackMenu {
-    position: Point<Pixels>,
-    index: usize,
-}
-
 enum Event {
     Imported(ScanProgress),
     Error(String),
@@ -223,6 +227,12 @@ enum Event {
     ArtFetched,
     ImportProgress(String),
     Plugin(needle_core::plugins::HostAction),
+    PaletteFound(
+        u64,
+        Vec<Track>,
+        Vec<needle_core::browse::AlbumSummary>,
+        Vec<String>,
+    ),
     StemsProgress(String, String, f32),
     StemsDone(String, std::result::Result<(), String>),
     ImportPicked(needle_core::import::SourceKind, PathBuf),
@@ -261,7 +271,14 @@ pub struct AppView {
     /// The track the details panel describes: the last one clicked.
     focused: Option<Track>,
     panel: Panel,
-    menu: Option<TrackMenu>,
+    menu: Option<menus::TrackMenu>,
+    menu_serial: usize,
+    /// The song whose heart was just filled, and a counter that replays the pop.
+    heart_pop: Option<(String, usize)>,
+    settings_tab: usize,
+    palette: palette::PaletteState,
+    /// Changes whenever the visible page (or settings section) changes, to replay its fade.
+    page_serial: usize,
     sort: Sort,
     total: usize,
     matched_total: usize,
@@ -276,6 +293,10 @@ pub struct AppView {
     seek: Entity<SliderState>,
     focus: FocusHandle,
     list_scroll: UniformListScrollHandle,
+    grid_scroll: UniformListScrollHandle,
+    scroll_memory: std::collections::HashMap<String, Point<Pixels>>,
+    pending_scroll: Option<Point<Pixels>>,
+    scroll_on_load: bool,
     _subscriptions: Vec<Subscription>,
     events: crossbeam_channel::Receiver<Event>,
     sender: crossbeam_channel::Sender<Event>,
@@ -299,10 +320,19 @@ pub struct AppView {
     muted_volume: Option<f32>,
     big: bool,
     big_side: now_playing::Side,
+    /// What the last frame showed, to notice the big player opening or closing.
+    big_was: bool,
+    /// The big player is growing or shrinking; both layers are drawn meanwhile.
+    big_moving: bool,
+    big_serial: usize,
+    /// Big player background: the colour it is fading from, to, and a counter for the fade.
+    big_tint: (Hsla, Hsla, usize),
     art_colors: now_playing::ArtColors,
     lyrics: Option<(String, Option<needle_core::media::Lyrics>)>,
     lyric_line: Option<usize>,
     lyrics_scroll: ScrollHandle,
+    /// The lyrics are easing toward the sung line.
+    lyric_glide: bool,
     artist_images: std::collections::HashMap<String, Option<String>>,
     recent: Vec<Listen>,
     mini: Option<AnyWindowHandle>,
@@ -335,6 +365,9 @@ pub fn run(library: Library) -> Result<()> {
             gpui_component::init(cx);
             let settings = library.settings().unwrap_or_default();
             set_theme(&settings.theme, None, cx);
+            cx.set_global(motion::Motion {
+                enabled: !settings.reduce_motion && motion::system_allows_animation(),
+            });
             let tracks = Some("Needle && !Input");
             cx.bind_keys([
                 KeyBinding::new("space", TogglePlayback, tracks),
@@ -350,12 +383,14 @@ pub fn run(library: Library) -> Result<()> {
                 KeyBinding::new("shift-down", ExtendNext, tracks),
                 KeyBinding::new("ctrl-a", SelectAllTracks, tracks),
                 KeyBinding::new("enter", PlaySelection, tracks),
+                KeyBinding::new("shift-enter", PlayNextSelection, tracks),
+                KeyBinding::new("ctrl-enter", EnqueueSelection, tracks),
                 KeyBinding::new("ctrl-e", EditTags, tracks),
                 KeyBinding::new("ctrl-d", ToggleFavorite, tracks),
                 KeyBinding::new("alt-left", GoBack, tracks),
                 KeyBinding::new("backspace", GoBack, tracks),
                 KeyBinding::new("ctrl-f", FocusSearch, Some("Needle")),
-                KeyBinding::new("ctrl-k", FocusSearch, Some("Needle")),
+                KeyBinding::new("ctrl-k", OpenPalette, Some("Needle")),
                 KeyBinding::new("ctrl-o", ImportFolder, Some("Needle")),
                 KeyBinding::new("ctrl-j", ToggleQueue, Some("Needle")),
                 KeyBinding::new("escape", EscapePanel, Some("Needle")),
@@ -443,6 +478,7 @@ impl AppView {
         let tags = TagFields::new(window, cx);
         let sound = sound::SoundControls::new(&settings.dsp, cx);
         let import = importer::ImportState::new(window, cx);
+        let palette = palette::PaletteState::new(window, cx);
         let volume = cx.new(|_| {
             SliderState::new()
                 .min(0.)
@@ -533,6 +569,11 @@ impl AppView {
             focused: None,
             panel: Panel::Details,
             menu: None,
+            menu_serial: 0,
+            heart_pop: None,
+            settings_tab: 0,
+            palette,
+            page_serial: 0,
             sort: Sort::Default,
             matched_total: 0,
             page_offset: 0,
@@ -546,6 +587,10 @@ impl AppView {
             seek,
             focus,
             list_scroll: UniformListScrollHandle::new(),
+            grid_scroll: UniformListScrollHandle::new(),
+            scroll_memory: Default::default(),
+            pending_scroll: None,
+            scroll_on_load: false,
             _subscriptions: subscriptions,
             events,
             sender,
@@ -569,10 +614,15 @@ impl AppView {
             muted_volume: None,
             big: false,
             big_side: now_playing::Side::Lyrics,
+            big_was: false,
+            big_moving: false,
+            big_serial: 0,
+            big_tint: (gpui::transparent_black(), gpui::transparent_black(), 0),
             art_colors: Default::default(),
             lyrics: None,
             lyric_line: None,
             lyrics_scroll: ScrollHandle::new(),
+            lyric_glide: false,
             artist_images: Default::default(),
             recent: vec![],
             mini: None,
@@ -600,15 +650,18 @@ impl AppView {
         view.recent = view.library.history(50).unwrap_or_default();
         cx.on_release(|_, cx| cx.quit()).detach();
         cx.spawn_in(window, async move |view, cx| {
+            // Poll often while playing so the seek bar glides; rarely while paused.
+            let mut every = 120;
             loop {
                 cx.background_executor()
-                    .timer(Duration::from_millis(120))
+                    .timer(Duration::from_millis(every))
                     .await;
-                if view
-                    .update_in(cx, |view, window, cx| view.poll(window, cx))
-                    .is_err()
-                {
-                    break;
+                match view.update_in(cx, |view, window, cx| {
+                    view.poll(window, cx);
+                    view.playback.playing && motion::enabled(cx)
+                }) {
+                    Ok(fast) => every = if fast { 40 } else { 150 },
+                    Err(_) => break,
                 }
             }
         })
@@ -750,6 +803,9 @@ impl AppView {
                         self.matched_total = total;
                         self.loading = false;
                         self.reconcile_selection();
+                        if std::mem::take(&mut self.scroll_on_load) {
+                            self.restore_scroll();
+                        }
                     }
                 }
                 Event::History(stats, listens, total) => {
@@ -784,6 +840,9 @@ impl AppView {
                 Event::ArtColor(path, color) => self.set_art_color(path, color),
                 Event::ImportProgress(message) => self.import.busy = Some(message),
                 Event::Plugin(action) => self.plugin_action(action, cx),
+                Event::PaletteFound(generation, songs, albums, artists) => {
+                    self.palette_found(generation, songs, albums, artists)
+                }
                 Event::StemsProgress(id, stage, fraction) => {
                     self.stems.job = Some((id, stage, fraction))
                 }
@@ -852,6 +911,9 @@ impl AppView {
                         }
                         self.groups = groups;
                         self.loading = false;
+                        if std::mem::take(&mut self.scroll_on_load) {
+                            self.restore_scroll();
+                        }
                     }
                 }
                 Event::SearchFailed(generation, error) => {
@@ -1100,6 +1162,7 @@ impl AppView {
     }
 
     fn navigate(&mut self, page: Page, window: &mut Window, cx: &mut Context<Self>) {
+        self.remember_scroll();
         if page != self.page {
             self.back.push(self.page.clone());
             if self.back.len() > 50 {
@@ -1110,11 +1173,16 @@ impl AppView {
     }
     fn go_back(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         if let Some(page) = self.back.pop() {
+            self.remember_scroll();
             self.open(page, window, cx);
+            self.scroll_for_back();
         }
     }
     fn open(&mut self, page: Page, window: &mut Window, cx: &mut Context<Self>) {
         self.page = page;
+        self.page_serial += 1;
+        self.pending_scroll = None;
+        self.scroll_on_load = true;
         self.confirm_delete = false;
         self.menu = None;
         self.sort = Sort::Default;
@@ -1509,6 +1577,12 @@ impl AppView {
     }
 
     fn set_rating(&mut self, ids: &[String], rating: i64) {
+        if let [id] = ids
+            && rating >= 4
+        {
+            let serial = self.heart_pop.as_ref().map_or(0, |(_, n)| n + 1);
+            self.heart_pop = Some((id.clone(), serial));
+        }
         for id in ids {
             if let Err(e) = self.library.rate(id, rating) {
                 self.fail(e.to_string());
@@ -1656,6 +1730,33 @@ impl Render for AppView {
         let sidebar = self.settings.layout.sidebar_width.clamp(200., 260.);
         let panel_width = self.settings.layout.inspector_width.clamp(280., 340.) + 16.;
         let content_width = f32::from(width) - sidebar - if show_panel { panel_width } else { 0. };
+        self.glide_lyrics(window, cx);
+        if self.big != self.big_was {
+            self.big_was = self.big;
+            self.big_serial += 1;
+            self.big_moving = motion::enabled(cx);
+            if self.big_moving {
+                let serial = self.big_serial;
+                cx.spawn(async move |this, cx| {
+                    cx.background_executor()
+                        .timer(Duration::from_millis(BIG_MS + 20))
+                        .await;
+                    let _ = this.update(cx, |this, cx| {
+                        if this.big_serial == serial {
+                            this.big_moving = false;
+                            cx.notify();
+                        }
+                    });
+                })
+                .detach();
+            }
+        }
+        let big_layer = (self.big || self.big_moving).then(|| {
+            let body = window.viewport_size();
+            let (w, h) = (f32::from(body.width), f32::from(body.height) - 48.);
+            let player = self.big_player(window, cx);
+            self.big_reveal(player, w, h, cx)
+        });
         div()
             .id("needle-app")
             .key_context("Needle")
@@ -1676,13 +1777,19 @@ impl Render for AppView {
             .on_action(
                 cx.listener(|this, _: &PreviousTrack, _, _| this.player.send(Command::Previous)),
             )
-            .on_action(cx.listener(|this, _: &SeekForward, _, _| {
+            .on_action(cx.listener(|this, _: &SeekForward, window, cx| {
+                if this.menu_key("right", window, cx) {
+                    return;
+                }
                 if this.playback.current.is_some() {
                     this.player
                         .send(Command::Seek(this.playback.position + 10.))
                 }
             }))
-            .on_action(cx.listener(|this, _: &SeekBackward, _, _| {
+            .on_action(cx.listener(|this, _: &SeekBackward, window, cx| {
+                if this.menu_key("left", window, cx) {
+                    return;
+                }
                 if this.playback.current.is_some() {
                     this.player
                         .send(Command::Seek((this.playback.position - 10.).max(0.)))
@@ -1696,10 +1803,28 @@ impl Render for AppView {
                     this.nudge_volume(-0.05, window, cx)
                 }),
             )
-            .on_action(
-                cx.listener(|this, _: &SelectPrevious, _, cx| this.move_cursor(-1, false, cx)),
-            )
-            .on_action(cx.listener(|this, _: &SelectNext, _, cx| this.move_cursor(1, false, cx)))
+            .on_action(cx.listener(|this, _: &SelectPrevious, window, cx| {
+                if !this.menu_key("up", window, cx) {
+                    this.move_cursor(-1, false, cx)
+                }
+            }))
+            .on_action(cx.listener(|this, _: &SelectNext, window, cx| {
+                if !this.menu_key("down", window, cx) {
+                    this.move_cursor(1, false, cx)
+                }
+            }))
+            .on_action(cx.listener(|this, _: &PlayNextSelection, _, _| {
+                let selected = this.selected_tracks();
+                if !selected.is_empty() {
+                    this.play_next(selected);
+                }
+            }))
+            .on_action(cx.listener(|this, _: &EnqueueSelection, _, _| {
+                let selected = this.selected_tracks();
+                if !selected.is_empty() {
+                    this.enqueue(selected);
+                }
+            }))
             .on_action(
                 cx.listener(|this, _: &ExtendPrevious, _, cx| this.move_cursor(-1, true, cx)),
             )
@@ -1708,7 +1833,10 @@ impl Render for AppView {
                 this.selection.ids = this.tracks.iter().map(|t| t.id.clone()).collect();
                 cx.notify();
             }))
-            .on_action(cx.listener(|this, _: &PlaySelection, _, cx| {
+            .on_action(cx.listener(|this, _: &PlaySelection, window, cx| {
+                if this.menu_key("enter", window, cx) {
+                    return;
+                }
                 let selected = this.selected_tracks();
                 if selected.len() > 1 {
                     let reason = this.reason(cx);
@@ -1740,6 +1868,13 @@ impl Render for AppView {
                 cx.notify();
             }))
             .on_action(cx.listener(|this, _: &GoBack, window, cx| this.go_back(window, cx)))
+            .on_action(cx.listener(|this, _: &OpenPalette, window, cx| {
+                if this.palette.open {
+                    this.close_palette(window, cx)
+                } else {
+                    this.open_palette(window, cx)
+                }
+            }))
             .on_action(cx.listener(|this, _: &ToggleBigPlayer, _, cx| {
                 this.big = !this.big;
                 cx.notify();
@@ -1793,8 +1928,8 @@ impl Render for AppView {
                     .min_h_0()
                     .flex()
                     .flex_col()
-                    .when(self.big, |el| el.child(self.big_player(window, cx)))
-                    .when(!self.big, |el| {
+                    .relative()
+                    .when(!self.big || self.big_moving, |el| {
                         el.child(
                             div()
                                 .flex_1()
@@ -1807,9 +1942,11 @@ impl Render for AppView {
                                 }),
                         )
                         .child(self.player_bar(width, cx))
-                    }),
+                    })
+                    .children(big_layer),
             )
             .children(self.toast(cx))
             .children(self.track_menu(cx))
+            .children(self.palette_view(cx))
     }
 }

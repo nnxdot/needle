@@ -1,5 +1,5 @@
 use super::{
-    AppView, Event, pal, set_theme,
+    AppView, Event, motion, pal, set_theme,
     widgets::{
         faint, glyph, heading, icon, meta, page_title, segmented, setting_row, small_button, strong,
     },
@@ -12,17 +12,34 @@ use needle_core::{
     query,
 };
 
+/// Settings sections: name and icon.
+pub const SETTINGS_TABS: [(&str, &str); 8] = [
+    ("Playback", "speaker"),
+    ("Library", "folder"),
+    ("Appearance", "palette"),
+    ("Online services", "globe"),
+    ("Stems", "stems"),
+    ("Plugins", "plugin"),
+    ("Your data", "import"),
+    ("Keyboard", "command"),
+];
+
 impl AppView {
     fn section_title(&self, title: &str, description: &str, cx: &App) -> Div {
+        // The first section of a settings page shares the page's name; don't repeat it.
+        let repeat = SETTINGS_TABS
+            .get(self.settings_tab)
+            .is_some_and(|(tab, _)| *tab == title);
         div()
-            .mt_10()
+            .when(!repeat, |el| el.mt_10())
+            .when(repeat, |el| el.mt_1())
             .mb_1()
             .flex()
             .flex_col()
             .gap_1()
-            .child(heading(title.to_string()))
+            .when(!repeat, |el| el.child(heading(title.to_string())))
             .when(!description.is_empty(), |el| {
-                el.child(meta(description.to_string(), cx))
+                el.child(meta(description.to_string(), cx).w_full())
             })
     }
 
@@ -421,16 +438,75 @@ impl AppView {
             ("Ctrl + ↑ / ↓", "Volume"),
             ("↑ / ↓, Shift", "Move or extend the selection"),
             ("Enter", "Play the selection"),
-            ("Ctrl + K or Ctrl + F", "Search"),
+            ("Ctrl + K", "Command palette: go anywhere, do anything"),
+            ("Ctrl + F", "Search"),
+            ("Shift + Enter", "Play next"),
+            ("Ctrl + Enter", "Add to queue"),
             ("Ctrl + E", "Edit tags"),
             ("Ctrl + D", "Favorite"),
             ("Ctrl + J", "Show the queue"),
             ("Ctrl + O", "Add a music folder"),
+            ("Ctrl + P", "Big player"),
+            ("Ctrl + M", "Mini player"),
+            ("Ctrl + 1 – 6", "Sidebar pages"),
+            ("Ctrl + ,", "Settings"),
             ("Alt + ← or Backspace", "Go back"),
         ];
-        div()
+        let tab = self.settings_tab;
+        let nav = div()
+            .w(px(188.))
+            .flex_shrink_0()
+            .h_full()
+            .pt_6()
+            .px_3()
+            .flex()
+            .flex_col()
+            .gap(px(2.))
+            .border_r_1()
+            .border_color(p.line_soft)
+            .children(
+                SETTINGS_TABS
+                    .iter()
+                    .enumerate()
+                    .map(|(i, (name, icon_name))| {
+                        let active = i == tab;
+                        div()
+                            .id(("settings-tab", i))
+                            .h(px(32.))
+                            .px_3()
+                            .rounded(px(6.))
+                            .flex()
+                            .items_center()
+                            .gap_2()
+                            .cursor_pointer()
+                            .text_size(px(13.))
+                            .when(active, |el| {
+                                el.bg(p.raised)
+                                    .text_color(p.ink)
+                                    .font_weight(FontWeight::MEDIUM)
+                            })
+                            .when(!active, |el| {
+                                el.text_color(p.ink_2)
+                                    .hover(|s| s.bg(p.raised.opacity(0.6)).text_color(p.ink))
+                            })
+                            .child(glyph(icon_name).size(px(15.)).text_color(if active {
+                                p.accent
+                            } else {
+                                p.ink_3
+                            }))
+                            .child(*name)
+                            .on_click(cx.listener(move |this, _, _, cx| {
+                                this.settings_tab = i;
+                                this.page_serial += 1;
+                                cx.notify();
+                            }))
+                    }),
+            );
+        let content = div()
             .id("settings-scroll")
-            .size_full()
+            .flex_1()
+            .min_w_0()
+            .h_full()
             .overflow_y_scroll()
             .child(
                 div()
@@ -440,8 +516,10 @@ impl AppView {
                     .pb_16()
                     .flex()
                     .flex_col()
-                    .child(page_title("Settings"))
+                    .child(page_title(SETTINGS_TABS[tab].0))
                     // Playback
+                    .when(tab == 0, |el| {
+                        el
                     .child(self.section_title("Playback", "", cx))
                     .child(setting_row(
                         "Exclusive output",
@@ -526,7 +604,10 @@ impl AppView {
                                     }))),
                             ),
                     )
+                    })
                     // Library
+                    .when(tab == 1, |el| {
+                        el
                     .child(self.section_title("Music folders", "Needle watches these folders and never moves or deletes your files.", cx))
                     .child(
                         div()
@@ -556,7 +637,10 @@ impl AppView {
                                     .child(small_button("rescan", "Check for changes").ghost().disabled(self.scan.is_some()).on_click(cx.listener(|this, _, _, cx| this.rescan(cx)))),
                             ),
                     )
+                    })
                     // Appearance
+                    .when(tab == 2, |el| {
+                        el
                     .child(self.section_title("Appearance", "", cx))
                     .child(setting_row(
                         "Theme",
@@ -573,6 +657,21 @@ impl AppView {
                                 });
                             }
                         }),
+                        cx,
+                    ))
+                    .child(setting_row(
+                        "Reduce motion",
+                        if motion::system_allows_animation() {
+                            "Turns off fades, slides, and other animations."
+                        } else {
+                            "Windows has animations turned off, so Needle keeps still too."
+                        },
+                        Switch::new("reduce-motion").checked(self.settings.reduce_motion || !motion::system_allows_animation()).on_click(cx.listener(|this, checked: &bool, _, cx| {
+                            this.settings.reduce_motion = *checked;
+                            this.persist_settings();
+                            cx.set_global(motion::Motion { enabled: !*checked && motion::system_allows_animation() });
+                            cx.notify();
+                        })),
                         cx,
                     ))
                     .child(setting_row(
@@ -624,7 +723,10 @@ impl AppView {
                             }))),
                         cx,
                     ))
+                    })
                     // Artwork and lyrics
+                    .when(tab == 1, |el| {
+                        el
                     .child(self.section_title("Artwork and lyrics", "Needle always uses covers, .lrc files, and lyrics tags found with your music.", cx))
                     .child(setting_row(
                         "Look things up online",
@@ -660,16 +762,28 @@ impl AppView {
                             cx,
                         ))
                     })
+                    })
                     // Services
+                    .when(tab == 3, |el| {
+                        el
                     .child(self.section_title("Listening services", "Optional. Nothing is sent until you connect a service and turn it on.", cx))
                     .child(self.services(cx))
+                    })
                     // Stems
+                    .when(tab == 4, |el| {
+                        el
                     .child(self.section_title("Stems", "Split songs into drums, bass, vocals, and other, on this computer.", cx))
                     .child(self.stems_settings(cx))
+                    })
                     // Plugins
+                    .when(tab == 5, |el| {
+                        el
                     .child(self.section_title("Plugins", "Add features with small scripts. Each plugin lists what it may do.", cx))
                     .child(self.plugins_section(cx))
+                    })
                     // Data
+                    .when(tab == 6, |el| {
+                        el
                     .child(self.section_title("Your data", "History, ratings, and playlists live in one local database.", cx))
                     .child(setting_row(
                         "Back up the library",
@@ -718,7 +832,10 @@ impl AppView {
                                     .child(small_button("sync-import", "Import…").ghost().on_click(cx.listener(|this, _, _, cx| this.sync_transfer(false, cx)))),
                             ),
                     )
+                    })
                     // Keyboard
+                    .when(tab == 7, |el| {
+                        el
                     .child(self.section_title("Keyboard", "", cx))
                     .child(
                         div().pt_2().flex().flex_col().children(shortcuts.iter().map(|(keys, what)| {
@@ -742,6 +859,7 @@ impl AppView {
                                 .child(meta(*what, cx))
                         })),
                     )
+                    })
                     .child(
                         div()
                             .mt_10()
@@ -754,7 +872,8 @@ impl AppView {
                             .child(faint(format!("Needle {} · nnx", env!("CARGO_PKG_VERSION")), cx))
                             .child(faint(format!("Library data: {}", self.library.directory.display()), cx)),
                     ),
-            )
+            );
+        div().size_full().flex().child(nav).child(content)
     }
 
     fn sync_transfer(&mut self, export: bool, cx: &mut Context<Self>) {

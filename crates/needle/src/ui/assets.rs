@@ -60,15 +60,18 @@ fn shape(name: &str) -> Option<String> {
         "alert" => "<path d='M12 3.5 2.5 20h19z'/><path d='M12 10v4.5M12 17.2v.1'/>".into(),
         "globe" => "<circle cx='12' cy='12' r='9'/><path d='M3 12h18M12 3c2.5 2.6 3.7 5.6 3.7 9s-1.2 6.4-3.7 9c-2.5-2.6-3.7-5.6-3.7-9S9.5 5.6 12 3z'/>".into(),
         "undo" => "<path d='M9 14 4 9l5-5'/><path d='M4 9h10.5a5.5 5.5 0 0 1 0 11H11'/>".into(),
-        "lyrics" => "<path d='M4 5h11M4 10h11M4 15h6'/><path d='M18 8v8.5'/><circle cx='15.5' cy='17' r='2.5'/>".into(),
+        "lyrics" => "<path d='M4 6a2.5 2.5 0 0 1 2.5-2.5h11A2.5 2.5 0 0 1 20 6v7.5a2.5 2.5 0 0 1-2.5 2.5H10l-4.5 4v-4A1.5 1.5 0 0 1 4 14.5z'/><path d='M8 8.5h8M8 12h5'/>".into(),
         "mini" => "<rect x='3' y='5' width='18' height='14' rx='2.5'/><rect x='11.5' y='11.5' width='7' height='5' rx='1' fill='currentColor' stroke='none'/>".into(),
         "expand" => "<path d='M14 4h6v6M10 20H4v-6M20 4l-7 7M4 20l7-7'/>".into(),
         "minus" => "<path d='M6 12h12'/>".into(),
         "pin" => "<path d='M9 4h6l-1 6 3 3H7l3-3z'/><path d='M12 13v7'/>".into(),
         "pin-fill" => format!("<path d='M9 4h6l-1 6 3 3H7l3-3z' {FILLED}/><path d='M12 13v7'/>"),
         "eq" => "<path d='M5 4v16M12 4v16M19 4v16'/><rect x='3' y='13' width='4' height='3' rx='1' fill='currentColor'/><rect x='10' y='7' width='4' height='3' rx='1' fill='currentColor'/><rect x='17' y='11' width='4' height='3' rx='1' fill='currentColor'/>".into(),
+        "grip" => format!("<circle cx='9' cy='6' r='1.3' {FILLED}/><circle cx='15' cy='6' r='1.3' {FILLED}/><circle cx='9' cy='12' r='1.3' {FILLED}/><circle cx='15' cy='12' r='1.3' {FILLED}/><circle cx='9' cy='18' r='1.3' {FILLED}/><circle cx='15' cy='18' r='1.3' {FILLED}/>"),
+        "command" => "<path d='M9 6.5A2.5 2.5 0 1 0 6.5 9H9zM15 6.5A2.5 2.5 0 1 1 17.5 9H15zM9 17.5A2.5 2.5 0 1 1 6.5 15H9zM15 17.5a2.5 2.5 0 1 0 2.5-2.5H15zM9 9h6v6H9z'/>".into(),
+        "palette" => format!("<path d='M12 3a9 9 0 1 0 0 18c1.1 0 1.8-.9 1.5-1.9l-.3-1a1.8 1.8 0 0 1 1.7-2.4H17a4 4 0 0 0 4-4C21 6.9 17 3 12 3z'/><circle cx='7.5' cy='11' r='1.2' {FILLED}/><circle cx='10' cy='7' r='1.2' {FILLED}/><circle cx='15' cy='7.5' r='1.2' {FILLED}/>"),
         "plugin" => "<path d='M9 3v4M15 3v4M7 7h10v4a5 5 0 0 1-10 0z'/><path d='M12 16v5'/>".into(),
-        "stems" => "<path d='M4 7h4M10 7h10M4 12h9M15 12h5M4 17h2M8 17h12'/>".into(),
+        "stems" => "<path d='m12 2.5 9 4.8-9 4.8-9-4.8z'/><path d='m3 12 9 4.8 9-4.8'/><path d='m3 16.6 9 4.8 9-4.8'/>".into(),
         "import" => "<path d='M12 3v12M7 10l5 5 5-5'/><path d='M4 17v2.5A1.5 1.5 0 0 0 5.5 21h13a1.5 1.5 0 0 0 1.5-1.5V17'/>".into(),
         "logo" => "<circle cx='11' cy='13' r='8.5'/><circle cx='11' cy='13' r='2.2' fill='currentColor'/><path d='M21.5 2.5 14.8 9.2'/><path d='M7 9.8a5.3 5.3 0 0 1 2.6-2' opacity='.6'/>".into(),
         _ => return None,
@@ -77,6 +80,9 @@ fn shape(name: &str) -> Option<String> {
 
 impl AssetSource for Assets {
     fn load(&self, path: &str) -> Result<Option<Cow<'static, [u8]>>> {
+        if path == "needle/settings.svg" {
+            return gpui_component_assets::Assets.load("icons/settings.svg");
+        }
         if let Some(name) = path
             .strip_prefix("needle/")
             .and_then(|p| p.strip_suffix(".svg"))

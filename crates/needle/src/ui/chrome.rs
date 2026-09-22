@@ -1,6 +1,6 @@
 use super::{
-    AppView, Page, Panel, TrackMenu, pal,
-    widgets::{artwork, faint, glyph, icon, icon_button, meta, quality},
+    AppView, Page, Panel, pal,
+    widgets::{artwork, faint, glyph, icon, icon_button, quality},
 };
 use gpui::{prelude::*, *};
 use gpui_component::{
@@ -99,6 +99,31 @@ impl AppView {
                                     }),
                             ),
                     )
+                    .child(
+                        div()
+                            .id("open-palette")
+                            .h(px(28.))
+                            .px_2()
+                            .rounded(px(6.))
+                            .flex()
+                            .items_center()
+                            .gap_2()
+                            .cursor_pointer()
+                            .text_size(px(12.))
+                            .text_color(p.ink_3)
+                            .hover(|s| s.bg(p.raised).text_color(p.ink))
+                            .child(glyph("command").size(px(14.)).text_color(p.ink_3))
+                            .child("Ctrl K")
+                            .tooltip(|window, cx| {
+                                gpui_component::tooltip::Tooltip::new(
+                                    "Command palette: go anywhere, do anything",
+                                )
+                                .build(window, cx)
+                            })
+                            .on_click(
+                                cx.listener(|this, _, window, cx| this.open_palette(window, cx)),
+                            ),
+                    )
                     .child(div().flex_1()),
             )
     }
@@ -178,7 +203,21 @@ impl AppView {
             .child(self.nav_item("nav-albums", "Albums", "albums", Page::Albums, cx))
             .child(self.nav_item("nav-artists", "Artists", "artists", Page::Artists, cx))
             .child(self.section("Collections", cx))
-            .child(self.nav_item("nav-favorites", "Favorites", "heart", Page::Favorites, cx))
+            .child(
+                self.nav_item("nav-favorites", "Favorites", "heart", Page::Favorites, cx)
+                    .drag_over::<super::flow::DraggedTracks>(move |s, _, _, _| s.bg(p.accent_soft))
+                    .on_drop(
+                        cx.listener(|this, dragged: &super::flow::DraggedTracks, _, cx| {
+                            this.set_rating(&dragged.ids, 5);
+                            this.notify(if dragged.ids.len() == 1 {
+                                "Added to favorites.".to_string()
+                            } else {
+                                format!("Added {} songs to favorites.", dragged.ids.len())
+                            });
+                            cx.notify();
+                        }),
+                    ),
+            )
             .child(self.nav_item("nav-recent", "Recently added", "recent", Page::Recent, cx))
             .child(self.nav_item(
                 "nav-history",
@@ -238,6 +277,22 @@ impl AppView {
                             Page::Playlist(playlist.id.clone()),
                             cx,
                         )
+                        .when(playlist.query.is_none(), |el| {
+                            let id = playlist.id.clone();
+                            el.drag_over::<super::flow::DraggedTracks>(move |s, _, _, _| {
+                                s.bg(p.accent_soft)
+                            })
+                            .on_drop(cx.listener(
+                                move |this, dragged: &super::flow::DraggedTracks, _, cx| {
+                                    let tracks = this
+                                        .library
+                                        .tracks_by_ids(&dragged.ids)
+                                        .unwrap_or_default();
+                                    this.add_to_playlist(&id, tracks);
+                                    cx.notify();
+                                },
+                            ))
+                        })
                     })),
             )
             .child(
@@ -457,9 +512,19 @@ impl AppView {
                             .map_or(track.rating, |t| t.rating)
                             >= 4;
                         el.child(
-                            icon_button("now-favorite", if favorite { "heart-fill" } else { "heart" }, if favorite { "Remove from favorites" } else { "Add to favorites" })
-                                .small()
-                                .when(favorite, |b| b.text_color(p.accent))
+                            div()
+                                .id("now-favorite")
+                                .size(px(28.))
+                                .rounded(px(6.))
+                                .flex()
+                                .items_center()
+                                .justify_center()
+                                .cursor_pointer()
+                                .hover(|s| s.bg(p.raised_hover))
+                                .child(self.heart(&track.id, favorite, 15., if favorite { p.accent } else { p.ink_2 }, cx))
+                                .tooltip(move |window, cx| {
+                                    gpui_component::tooltip::Tooltip::new(if favorite { "Remove from favorites" } else { "Add to favorites" }).build(window, cx)
+                                })
                                 .on_click(cx.listener(move |this, _, _, cx| {
                                     this.set_rating(std::slice::from_ref(&track.id), if favorite { 0 } else { 5 });
                                     if let Some(item) = this.playback.current.as_mut() {
@@ -506,7 +571,8 @@ impl AppView {
                                     .justify_center()
                                     .cursor_pointer()
                                     .hover(|s| s.opacity(0.88))
-                                    .active(|s| s.opacity(0.75))
+                                    // Pressed: shrink inside the same space so nothing around it moves.
+                                    .active(|s| s.size(px(34.)).m(px(2.)).opacity(0.8))
                                     .child(glyph(if playing { "pause" } else { "play" }).size(px(17.)).text_color(p.canvas))
                                     .tooltip(move |window, cx| {
                                         gpui_component::tooltip::Tooltip::new(if playing { "Pause · Space" } else { "Play · Space" }).build(window, cx)
@@ -646,7 +712,15 @@ impl AppView {
                             .on_click(cx.listener(|this, _, window, cx| this.open_mini(window, cx))),
                     )
                     .child(
-                        Button::new("queue-toggle")
+                        div()
+                            .id("queue-drop")
+                            .rounded(px(6.))
+                            .drag_over::<super::flow::DraggedTracks>(move |s, _, _, _| s.bg(p.accent_soft))
+                            .on_drop(cx.listener(|this, dragged: &super::flow::DraggedTracks, _, _| {
+                                let tracks = this.library.tracks_by_ids(&dragged.ids).unwrap_or_default();
+                                this.enqueue(tracks);
+                            }))
+                            .child(Button::new("queue-toggle")
                             .ghost()
                             .small()
                             .ml_1()
@@ -662,7 +736,7 @@ impl AppView {
                                 }
                                 this.persist_settings();
                                 cx.notify();
-                            })),
+                            }))),
                     ),
             )
     }
@@ -725,249 +799,6 @@ impl AppView {
                             |el, t| el.opacity(t).mt(px(8. * (1. - t))),
                         ),
                 ),
-        )
-    }
-
-    fn menu_item(
-        &self,
-        id: impl Into<ElementId>,
-        glyph_name: &str,
-        label: impl Into<SharedString>,
-        cx: &mut Context<Self>,
-        action: impl Fn(&mut Self, &mut Window, &mut Context<Self>) + 'static,
-    ) -> Stateful<Div> {
-        let p = pal(cx);
-        div()
-            .id(id)
-            .h(px(30.))
-            .px_2()
-            .rounded(px(5.))
-            .flex()
-            .items_center()
-            .gap_2()
-            .cursor_pointer()
-            .text_size(px(13.))
-            .hover(|s| s.bg(p.raised_hover))
-            .child(glyph(glyph_name).size(px(15.)).text_color(p.ink_2))
-            .child(div().flex_1().truncate().child(label.into()))
-            .on_click(cx.listener(move |this, _, window, cx| {
-                this.menu = None;
-                action(this, window, cx);
-                cx.notify();
-            }))
-    }
-
-    pub(super) fn open_menu(
-        &mut self,
-        index: usize,
-        position: Point<Pixels>,
-        cx: &mut Context<Self>,
-    ) {
-        if let Some(track) = self.tracks.get(index)
-            && !self.selection.ids.contains(&track.id)
-        {
-            self.select_single(index, cx);
-        }
-        self.menu = Some(TrackMenu { position, index });
-        cx.notify();
-    }
-
-    pub(super) fn track_menu(&self, cx: &mut Context<Self>) -> Option<impl IntoElement> {
-        let menu = self.menu.as_ref()?;
-        let track = self.tracks.get(menu.index)?.clone();
-        let p = pal(cx);
-        let selected = self.selected_tracks();
-        let many = selected.len() > 1;
-        let count = selected.len();
-        let favorite = selected.iter().all(|t| t.rating >= 4);
-        let separator = || div().my_1().h(px(1.)).bg(p.line);
-        let index = menu.index;
-        let manual_playlists: Vec<_> = self
-            .playlists
-            .iter()
-            .filter(|p| p.query.is_none())
-            .cloned()
-            .collect();
-        let plugin_commands: Vec<_> = self
-            .plugins
-            .commands()
-            .into_iter()
-            .filter(|c| c.for_tracks)
-            .collect();
-        let body = div()
-            .id("track-menu")
-            .occlude()
-            .w(px(236.))
-            .p_1()
-            .rounded(px(8.))
-            .bg(cx.theme().popover)
-            .border_1()
-            .border_color(p.line)
-            .shadow_lg()
-            .flex()
-            .flex_col()
-            .on_mouse_down_out(cx.listener(|this, _, _, cx| {
-                this.menu = None;
-                cx.notify();
-            }))
-            .child(self.menu_item(
-                "m-play",
-                "play",
-                if many {
-                    format!("Play {count} tracks")
-                } else {
-                    "Play".into()
-                },
-                cx,
-                move |this, _, cx| {
-                    let selected = this.selected_tracks();
-                    if selected.len() > 1 {
-                        let reason = this.reason(cx);
-                        this.play_tracks(selected, &reason);
-                    } else {
-                        this.play_view(index, false, cx);
-                    }
-                },
-            ))
-            .child(self.menu_item(
-                "m-next",
-                "next",
-                if many {
-                    format!("Play {count} next")
-                } else {
-                    "Play next".into()
-                },
-                cx,
-                |this, _, _| {
-                    let selected = this.selected_tracks();
-                    this.play_next(selected);
-                },
-            ))
-            .child(self.menu_item(
-                "m-queue",
-                "queue",
-                if many {
-                    format!("Add {count} to queue")
-                } else {
-                    "Add to queue".into()
-                },
-                cx,
-                |this, _, _| {
-                    let selected = this.selected_tracks();
-                    this.enqueue(selected);
-                },
-            ))
-            .child(separator())
-            .child(self.menu_item(
-                "m-favorite",
-                if favorite { "heart-fill" } else { "heart" },
-                if favorite {
-                    "Remove from favorites"
-                } else {
-                    "Add to favorites"
-                },
-                cx,
-                move |this, _, _| {
-                    let ids: Vec<String> =
-                        this.selected_tracks().into_iter().map(|t| t.id).collect();
-                    this.set_rating(&ids, if favorite { 0 } else { 5 });
-                },
-            ))
-            .when(!plugin_commands.is_empty(), |el| {
-                el.child(separator())
-                    .child(faint("Plugins", cx).px_2().py_1())
-                    .children(plugin_commands.into_iter().take(10).enumerate().map(
-                        |(i, command)| {
-                            let (plugin, id) = (command.plugin.clone(), command.id.clone());
-                            self.menu_item(
-                                ("m-plugin", i),
-                                "plugin",
-                                command.title.clone(),
-                                cx,
-                                move |this, _, _| {
-                                    let ids =
-                                        this.selected_tracks().into_iter().map(|t| t.id).collect();
-                                    this.run_plugin_command(plugin.clone(), id.clone(), ids);
-                                },
-                            )
-                        },
-                    ))
-            })
-            .when(!manual_playlists.is_empty(), |el| {
-                el.child(separator())
-                    .child(faint("Add to playlist", cx).px_2().py_1())
-                    .children(manual_playlists.into_iter().take(8).map(|playlist| {
-                        let id = playlist.id.clone();
-                        self.menu_item(
-                            SharedString::from(format!("m-pl-{}", playlist.id)),
-                            "playlist",
-                            playlist.name.clone(),
-                            cx,
-                            move |this, _, _| {
-                                let selected = this.selected_tracks();
-                                this.add_to_playlist(&id, selected);
-                            },
-                        )
-                    }))
-            })
-            .child(separator())
-            .when(!many, |el| {
-                let album = super::album_page(&track);
-                let artist = Page::Artist(track.artist.clone());
-                el.child(self.menu_item(
-                    "m-album",
-                    "albums",
-                    "Go to album",
-                    cx,
-                    move |this, window, cx| this.navigate(album.clone(), window, cx),
-                ))
-                .child(self.menu_item(
-                    "m-artist",
-                    "artists",
-                    "Go to artist",
-                    cx,
-                    move |this, window, cx| this.navigate(artist.clone(), window, cx),
-                ))
-                .child(
-                    self.menu_item("m-edit", "edit", "Edit tags…", cx, |this, window, cx| {
-                        this.edit_tags(window, cx)
-                    }),
-                )
-                .child(separator())
-            })
-            .when(!many, |el| {
-                let path = track.path.trim_start_matches("\\\\?\\").to_string();
-                let copy = path.clone();
-                el.child(self.menu_item(
-                    "m-reveal",
-                    "folder",
-                    "Show in File Explorer",
-                    cx,
-                    move |_, _, _| {
-                        let _ = std::process::Command::new("explorer")
-                            .arg(format!("/select,{path}"))
-                            .spawn();
-                    },
-                ))
-                .child(self.menu_item(
-                    "m-copy",
-                    "copy",
-                    "Copy file path",
-                    cx,
-                    move |_, _, cx| cx.write_to_clipboard(ClipboardItem::new_string(copy.clone())),
-                ))
-            })
-            .when(many, |el| {
-                el.child(meta(format!("{count} tracks selected"), cx).px_2().py_1())
-            });
-        Some(
-            deferred(
-                anchored()
-                    .position(menu.position)
-                    .snap_to_window_with_margin(px(8.))
-                    .child(body),
-            )
-            .with_priority(2),
         )
     }
 }
