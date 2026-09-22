@@ -10,4 +10,5 @@ pub mod model;
 mod mp4_trim;
 pub mod query;
 pub mod scan;
+mod secrets;
 pub mod sync;
