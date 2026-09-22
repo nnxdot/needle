@@ -10,6 +10,7 @@ mod pages;
 mod panel;
 mod plugin_ui;
 mod sound;
+mod stems_ui;
 mod suggest;
 mod tags;
 mod theme;
@@ -222,6 +223,8 @@ enum Event {
     ArtFetched,
     ImportProgress(String),
     Plugin(needle_core::plugins::HostAction),
+    StemsProgress(String, String, f32),
+    StemsDone(String, std::result::Result<(), String>),
     ImportPicked(needle_core::import::SourceKind, PathBuf),
     ImportDone(std::result::Result<needle_core::import::ImportReport, String>),
     BatchProgress(scan::BatchProgress),
@@ -306,6 +309,7 @@ pub struct AppView {
     sound: sound::SoundControls,
     import: importer::ImportState,
     plugins: needle_core::plugins::PluginHost,
+    stems: stems_ui::StemsState,
     last_listen: Option<String>,
     /// Artwork found online after a track was queued, by track id.
     art_override: std::collections::HashMap<String, String>,
@@ -575,6 +579,7 @@ impl AppView {
             sound,
             import,
             plugins,
+            stems: stems_ui::StemsState::new(cx),
             last_listen: None,
             art_override: Default::default(),
             tag_session: TagSession::default(),
@@ -779,6 +784,28 @@ impl AppView {
                 Event::ArtColor(path, color) => self.set_art_color(path, color),
                 Event::ImportProgress(message) => self.import.busy = Some(message),
                 Event::Plugin(action) => self.plugin_action(action, cx),
+                Event::StemsProgress(id, stage, fraction) => {
+                    self.stems.job = Some((id, stage, fraction))
+                }
+                Event::StemsDone(id, result) => {
+                    self.stems.job = None;
+                    match result {
+                        Ok(()) => {
+                            let title = self
+                                .library
+                                .track(&id)
+                                .ok()
+                                .flatten()
+                                .map(|t| t.title)
+                                .unwrap_or_default();
+                            self.notify(format!(
+                                "“{title}” is split into stems. Turn on Play from stems to mix it."
+                            ));
+                        }
+                        Err(e) if e == "Stopped" || e == "Download stopped" => {}
+                        Err(e) => self.fail(e),
+                    }
+                }
                 Event::ImportPicked(kind, path) => self.import_picked(kind, path, cx),
                 Event::ImportDone(result) => {
                     self.import.busy = None;

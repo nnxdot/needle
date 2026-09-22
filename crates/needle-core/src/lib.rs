@@ -18,4 +18,5 @@ pub mod plugins;
 pub mod query;
 pub mod scan;
 mod secrets;
+pub mod stems;
 pub mod sync;

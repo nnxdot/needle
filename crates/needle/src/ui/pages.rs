@@ -663,6 +663,9 @@ impl AppView {
                     // Services
                     .child(self.section_title("Listening services", "Optional. Nothing is sent until you connect a service and turn it on.", cx))
                     .child(self.services(cx))
+                    // Stems
+                    .child(self.section_title("Stems", "Split songs into drums, bass, vocals, and other, on this computer.", cx))
+                    .child(self.stems_settings(cx))
                     // Plugins
                     .child(self.section_title("Plugins", "Add features with small scripts. Each plugin lists what it may do.", cx))
                     .child(self.plugins_section(cx))

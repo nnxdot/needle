@@ -14,6 +14,7 @@ use std::collections::HashMap;
 pub enum Side {
     Lyrics,
     Queue,
+    Stems,
     None,
 }
 
@@ -156,6 +157,7 @@ impl AppView {
                         Side::Queue,
                         cx,
                     ))
+                    .child(side_button("big-stems", "stems", "Stems", Side::Stems, cx))
                     .child(
                         icon_button("big-mini", "mini", "Mini player").on_click(cx.listener(
                             |this, _, window, cx| {
@@ -384,6 +386,14 @@ impl AppView {
                                 .flex_col()
                                 .child(match side {
                                     Side::Lyrics => self.lyrics_view(true, cx).into_any_element(),
+                                    Side::Stems => div()
+                                        .pt_4()
+                                        .child(self.stems_view(
+                                            current.as_ref().map(|c| c.track.clone()),
+                                            true,
+                                            cx,
+                                        ))
+                                        .into_any_element(),
                                     _ => self.up_next(cx).into_any_element(),
                                 }),
                         )

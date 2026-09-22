@@ -79,6 +79,8 @@ pub struct PlaybackState {
     pub replay_gain: bool,
     pub album_gain: bool,
     pub loop_range: Option<(f64, f64)>,
+    /// The track currently playing from its separated stems.
+    pub stems: Option<String>,
 }
 
 pub enum Command {
@@ -104,11 +106,14 @@ pub enum Command {
     Loop(Option<(f64, f64)>),
     /// Change the equalizer and sound tools; applies to the playing track without a restart.
     Dsp(crate::dsp::Dsp),
+    /// Play this track from its stem folder (with the live mix), or `None` to go back to the file.
+    Stems(Option<(String, std::path::PathBuf)>),
     Shutdown,
 }
 
 #[derive(Clone)]
 pub struct Player {
+    stem_mix: Arc<crate::stems::StemMix>,
     tx: Sender<Command>,
     state: Arc<Mutex<PlaybackState>>,
     worker: Arc<Mutex<Option<std::thread::JoinHandle<()>>>>,
@@ -122,13 +127,19 @@ impl Player {
             ..Default::default()
         }));
         let worker_state = state.clone();
+        let stem_mix = Arc::new(crate::stems::StemMix::default());
+        let mix = stem_mix.clone();
         let worker = std::thread::Builder::new()
             .name("needle-playback".into())
             .spawn(move || {
-                Worker::new(library, worker_state, settings, Box::new(SystemOutput)).run(rx)
+                let mut worker =
+                    Worker::new(library, worker_state, settings, Box::new(SystemOutput));
+                worker.stem_mix = mix;
+                worker.run(rx)
             })
             .expect("start audio worker");
         Self {
+            stem_mix,
             tx,
             state,
             worker: Arc::new(Mutex::new(Some(worker))),
@@ -136,6 +147,10 @@ impl Player {
     }
     pub fn send(&self, command: Command) {
         let _ = self.tx.send(command);
+    }
+    /// Live stem volumes for the track playing from stems.
+    pub fn stem_mix(&self) -> &Arc<crate::stems::StemMix> {
+        &self.stem_mix
     }
     pub fn state(&self) -> PlaybackState {
         self.state.lock().unwrap_or_else(|p| p.into_inner()).clone()
@@ -591,6 +606,8 @@ struct Worker {
     default_check: Duration,
     last_default_check: Instant,
     dsp: Arc<crate::dsp::DspControl>,
+    stem_mix: Arc<crate::stems::StemMix>,
+    stems: Option<(String, std::path::PathBuf)>,
 }
 impl Worker {
     fn new(
@@ -622,6 +639,8 @@ impl Worker {
         let dsp = crate::dsp::DspControl::new(settings.dsp.clone());
         Self {
             dsp,
+            stem_mix: Arc::default(),
+            stems: None,
             library,
             state,
             settings,
@@ -846,7 +865,19 @@ impl Worker {
             let Some(item) = self.queue.pending.pop_front() else {
                 break;
             };
-            let source = match crate::audio_file::decode(std::path::Path::new(&item.track.path)) {
+            let stems = self
+                .stems
+                .as_ref()
+                .filter(|(id, _)| *id == item.track.id && !self.settings.exclusive)
+                .and_then(|(_, dir)| {
+                    crate::stems::StemSource::open(dir, self.stem_mix.clone()).ok()
+                });
+            let decoded = match stems {
+                Some(stems) => Ok(Box::new(stems) as Box<dyn Source + Send>),
+                None => crate::audio_file::decode(std::path::Path::new(&item.track.path))
+                    .map(|d| Box::new(d) as Box<dyn Source + Send>),
+            };
+            let source = match decoded {
                 Ok(source) => source,
                 Err(error) => {
                     self.queue.touch();
@@ -1035,6 +1066,22 @@ impl Worker {
                         self.listen = listen;
                         self.restart(items, position, was_playing)?;
                     }
+                }
+            }
+            Command::Stems(stems) => {
+                // Restart the current track at the same place from the new source.
+                self.stems = stems;
+                let current = self.queue.active.clone();
+                let position = self.position();
+                let was_playing = self.playing;
+                let queue = self.queue.tail();
+                let listen = self.listen.take();
+                self.close();
+                if let Some(current) = current {
+                    let mut items = vec![current];
+                    items.extend(queue);
+                    self.listen = listen;
+                    self.restart(items, position, was_playing)?;
                 }
             }
             Command::ClearQueue => {
@@ -1270,6 +1317,7 @@ impl Worker {
         state.album_gain = state.replay_gain && self.settings.album_gain;
         state.loop_range = self.loop_range;
         state.exclusive = self.settings.exclusive;
+        state.stems = self.stems.as_ref().map(|(id, _)| id.clone());
         Ok(())
     }
     fn run(mut self, rx: Receiver<Command>) {
