@@ -86,6 +86,8 @@ impl Library {
                 INSERT INTO tracks_fts(rowid,search) VALUES(new.rowid,new.title || char(10) || new.artist || char(10) || new.album || char(10) || new.genre); END;
             COMMIT;")?;
         }
+        crate::history::migrate(&db)?;
+        crate::browse::migrate(&db)?;
         Ok(library)
     }
     pub fn connection(&self) -> Result<Connection> {
@@ -111,7 +113,7 @@ impl Library {
     pub fn upsert(&self, track: &Track) -> Result<()> {
         Self::upsert_on(&self.connection()?, track)
     }
-    fn row_track(row: &rusqlite::Row<'_>) -> rusqlite::Result<Track> {
+    pub(crate) fn row_track(row: &rusqlite::Row<'_>) -> rusqlite::Result<Track> {
         let data: String = row.get(0)?;
         let mut track: Track = serde_json::from_str(&data).map_err(|e| {
             rusqlite::Error::FromSqlConversionFailure(0, rusqlite::types::Type::Text, Box::new(e))
@@ -436,5 +438,199 @@ mod tests {
         assert!(db.search("not played(7d)").unwrap().is_empty());
         drop(db);
         assert_eq!(Library::open(dir.path()).unwrap().count().unwrap(), 1);
+    }
+    fn wav(path: &Path, frames: usize) {
+        let mut writer = hound::WavWriter::create(
+            path,
+            hound::WavSpec {
+                channels: 1,
+                sample_rate: 8000,
+                bits_per_sample: 16,
+                sample_format: hound::SampleFormat::Int,
+            },
+        )
+        .unwrap();
+        for i in 0..frames {
+            writer.write_sample((i % 100) as i16).unwrap();
+        }
+        writer.finalize().unwrap();
+    }
+    fn playlist(id: &str, name: &str, query: Option<&str>, ids: &[&str]) -> Playlist {
+        Playlist {
+            id: id.into(),
+            name: name.into(),
+            query: query.map(String::from),
+            track_ids: ids.iter().map(|s| s.to_string()).collect(),
+            updated_at: 1,
+        }
+    }
+
+    #[test]
+    fn playlists_save_rename_delete_and_resolve_tracks() {
+        let dir = tempfile::tempdir().unwrap();
+        let db = Library::open(dir.path()).unwrap();
+        for (id, rating) in [("a", 5), ("b", 2), ("c", 4)] {
+            db.upsert(&Track {
+                id: id.into(),
+                path: format!("/{id}.flac"),
+                title: id.into(),
+                ..Default::default()
+            })
+            .unwrap();
+            db.rate(id, rating).unwrap();
+        }
+        assert!(db.save_playlist(&playlist("x", "  ", None, &[])).is_err());
+        assert!(
+            db.save_playlist(&playlist("x", "Broken", Some("rating >"), &[]))
+                .is_err()
+        );
+        assert!(db.playlists().unwrap().is_empty());
+        db.save_playlist(&playlist("s", "zeta", None, &["c", "gone", "a"]))
+            .unwrap();
+        db.save_playlist(&playlist(
+            "q",
+            "Alpha",
+            Some("rating >= 4 order by rating desc"),
+            &[],
+        ))
+        .unwrap();
+        let names: Vec<_> = db
+            .playlists()
+            .unwrap()
+            .into_iter()
+            .map(|p| p.name)
+            .collect();
+        assert_eq!(names, ["Alpha", "zeta"]);
+        let ids = |p: &Playlist| {
+            db.playlist_tracks(p)
+                .unwrap()
+                .into_iter()
+                .map(|t| t.id)
+                .collect::<Vec<_>>()
+        };
+        let lists = db.playlists().unwrap();
+        assert_eq!(ids(&lists[0]), ["a", "c"]);
+        assert_eq!(ids(&lists[1]), ["c", "a"]);
+        let mut renamed = lists[1].clone();
+        renamed.name = "Beta".into();
+        db.save_playlist(&renamed).unwrap();
+        let lists = db.playlists().unwrap();
+        assert_eq!(lists.len(), 2);
+        assert_eq!(lists[1].name, "Beta");
+        assert_eq!(lists[1].track_ids, ["c", "gone", "a"]);
+        db.delete_playlist("q").unwrap();
+        db.delete_playlist("unknown").unwrap();
+        assert_eq!(db.playlists().unwrap().len(), 1);
+        assert_eq!(db.count().unwrap(), 3);
+    }
+
+    #[test]
+    fn ratings_are_bounded_and_survive_rescans() {
+        let dir = tempfile::tempdir().unwrap();
+        let db = Library::open(dir.path()).unwrap();
+        let track = Track {
+            id: "t".into(),
+            path: "/t.flac".into(),
+            ..Default::default()
+        };
+        db.upsert(&track).unwrap();
+        for rating in [0, 3, 5] {
+            db.rate("t", rating).unwrap();
+            assert_eq!(db.track("t").unwrap().unwrap().rating, rating);
+        }
+        assert!(db.rate("t", 6).is_err());
+        assert!(db.rate("t", -1).is_err());
+        db.upsert(&track).unwrap();
+        assert_eq!(db.track("t").unwrap().unwrap().rating, 5);
+        assert_eq!(db.search("rating = 5").unwrap().len(), 1);
+    }
+
+    #[test]
+    fn m3u_export_and_import_round_trip() {
+        let dir = tempfile::tempdir().unwrap();
+        let music = dir.path().join("music");
+        std::fs::create_dir_all(music.join("sub")).unwrap();
+        let db = Library::open(dir.path().join("db")).unwrap();
+        let mut ids = vec![];
+        for name in ["one.wav", "sub/two.wav", "three.wav"] {
+            let path = music.join(name);
+            wav(&path, 800 + ids.len());
+            crate::scan::import_one(&db, &path).unwrap();
+            let track = db
+                .track_by_path(&path.canonicalize().unwrap().to_string_lossy())
+                .unwrap()
+                .unwrap();
+            ids.push(track.id);
+        }
+        let mut odd = db.track(&ids[1]).unwrap().unwrap();
+        odd.title = "Line\nbreak".into();
+        db.upsert(&odd).unwrap();
+        let order = [ids[2].clone(), ids[0].clone(), ids[1].clone()];
+        let list = Playlist {
+            id: "p".into(),
+            name: "Mix".into(),
+            query: None,
+            track_ids: order.to_vec(),
+            updated_at: 1,
+        };
+        let exported = music.join("Road trip.m3u8");
+        db.export_playlist(&list, &exported).unwrap();
+        let text = std::fs::read_to_string(&exported).unwrap();
+        assert!(text.starts_with("#EXTM3U\n"));
+        assert_eq!(text.lines().count(), 7);
+        assert!(text.contains("#EXTINF:0, - Line break\n"));
+        let imported = db.import_playlist(&exported).unwrap();
+        assert_eq!(imported.name, "Road trip");
+        assert_eq!(imported.track_ids, order);
+        assert_ne!(imported.id, "p");
+        assert_eq!(db.playlists().unwrap().len(), 1);
+
+        let relative = music.join("relative.m3u");
+        std::fs::write(
+            &relative,
+            "#EXTM3U\r\n\r\nsub/two.wav\r\n  one.wav  \r\nnot-there.wav\r\n",
+        )
+        .unwrap();
+        assert_eq!(
+            db.import_playlist(&relative).unwrap().track_ids,
+            [ids[1].clone(), ids[0].clone()]
+        );
+        let nothing = music.join("nothing.m3u");
+        std::fs::write(&nothing, "#EXTM3U\nmissing.wav\n").unwrap();
+        assert!(db.import_playlist(&nothing).is_err());
+        assert_eq!(db.playlists().unwrap().len(), 2);
+    }
+
+    #[test]
+    fn missing_files_are_flagged_and_recovered() {
+        let dir = tempfile::tempdir().unwrap();
+        let music = dir.path().join("music");
+        std::fs::create_dir(&music).unwrap();
+        let db = Library::open(dir.path().join("db")).unwrap();
+        let (keep, lose) = (music.join("keep.wav"), music.join("lose.wav"));
+        wav(&keep, 800);
+        wav(&lose, 900);
+        let scan = |db: &Library| {
+            crate::scan::import(db, &music, std::sync::Arc::new(Default::default()), |_| {})
+                .unwrap()
+        };
+        scan(&db);
+        assert!(db.search("missing").unwrap().is_empty());
+        let saved = std::fs::read(&lose).unwrap();
+        std::fs::remove_file(&lose).unwrap();
+        scan(&db);
+        let missing = db.search("missing").unwrap();
+        assert_eq!(missing.len(), 1);
+        assert!(missing[0].missing);
+        assert!(missing[0].path.ends_with("lose.wav"));
+        assert_eq!(db.count().unwrap(), 2);
+        assert_eq!(db.search("not missing and rating = 0").unwrap().len(), 1);
+        std::fs::write(&lose, saved).unwrap();
+        scan(&db);
+        assert!(db.search("missing").unwrap().is_empty());
+        assert_eq!(
+            db.track(&missing[0].id).unwrap().unwrap().path,
+            missing[0].path
+        );
     }
 }

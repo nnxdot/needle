@@ -6,6 +6,8 @@ Environment: Windows x64, Rust 1.98.1, MSVC build tools. Verification used isola
 
 `cargo test -p needle-core` passes 37 tests (3 more are ignored because they need a real audio device or FFmpeg) for playback queue operations under each repeat mode, play-next/jump/play-from-index, A–B loop bounds, ReplayGain and album-gain peak protection, listen qualification, session save and restore, 50,000-item queues published without per-tick copies, output recovery (device error, stalled stream, seek on a dead stream, missing configured device, changed system default, no device at all) against a simulated device thread; album loudness over mixed sample rates and album grouping; Ogg Opus length, pre-skip alignment, seeking, 5.1 channel order, import, and tag writes;  typed/bounded queries and escaping; ordinary titles and leading zeroes; import/rescan/moved-file identity; watched-folder import notifications; database persistence and history; tag backups with unchanged decoded samples and recording IDs; Unicode search; known-signal R128 loudness and fingerprinting; authenticated encrypted transfer with ID remapping and deduplication; rejection of invalid imports without partial changes; exact 16/24-bit integer conversion; and AIFF sound-data boundaries.
 
+Later additions bring the suite to 34 tests. They cover history paging, statistics (totals, rankings, zero-filled local days, hours, ranges), and index use after migration; album/artist/genre summaries, album keys and rules, and escaped field-value prefixes; autocomplete contexts, cursor replacement, plain-text detection matching the parser, and quoted library values that round-trip through search; batch tag writes with a missing track, duplicates, cancellation, and invalid edits; album artist/track number writes and removal; shared-value detection; backup restore, restore-undo, and rejection of foreign or audio-mismatched backups; and playlists, M3U round trips, ratings, and missing-file recovery.
+
 `cargo clippy --workspace --all-targets -- -D warnings` and `cargo fmt --all --check` are required by the packaging script. A third-party `proc-macro-error2` future-compatibility notice remains in Cargo output; it is not an application warning or current build failure.
 
 ## Format exercise
@@ -51,6 +53,27 @@ The synthetic database contained 500,000 unique indexed track records and occupi
 | Empty query | 16.9 ms | 17.9 ms |
 
 These are local, warm-cache synthetic timings, not a promise that every query, disk, cold start, or real-world metadata distribution will remain under 100 ms.
+
+### Browsing, history, and completion
+
+`cargo run --release -p needle-core --example browse_benchmark -- DIR`
+
+A release build over 500,000 synthetic tracks (41,667 albums, 10,000 artists) and 1,000,000 listens spread over three years and 50,000 tracks. Five warm iterations each; other builds were running on the machine, so timings varied by roughly 2× between runs.
+
+| Call | Median | Maximum |
+|---|---:|---:|
+| `history_stats(None)` | 370 ms | 414 ms |
+| `history_stats` (last 30 days, 51,375 listens) | 115 ms | 119 ms |
+| `history_page(10000, 200)` | 7.9 ms | 9.0 ms |
+| `albums("")` | 466 ms | 491 ms |
+| `albums("year >= 2020")` | 226 ms | 250 ms |
+| `artists("")` | 374 ms | 465 ms |
+| `artist_albums` | 6.5 ms | 7.1 ms |
+| `genres()` | 52 ms | 58 ms |
+| `field_values("album", "", 10)` | 65 ms | 78 ms |
+| `suggest_with_library` (`genre = "Ge`) | 67 ms | 78 ms |
+
+Opening an existing large library for the first time after this change builds the new indexes once.
 
 ## Native UI exercise
 

@@ -150,22 +150,38 @@ fn run() -> Result<()> {
                 println!(
                     "{}",
                     serde_json::to_string(
-                        &serde_json::json!({"id":track.id,"path":track.path,"before":{"title":track.title,"artist":track.artist,"album":track.album,"genre":track.genre,"year":track.year,"musicbrainz_id":track.musicbrainz_id},"changes":edit})
+                        &serde_json::json!({"id":track.id,"path":track.path,"before":{"title":track.title,"artist":track.artist,"album":track.album,"album_artist":track.album_artist,"genre":track.genre,"year":track.year,"track_number":track.track_number,"musicbrainz_id":track.musicbrainz_id},"changes":edit})
                     )?
                 );
             }
             if apply {
-                let mut errors = vec![];
-                let mut saved = 0;
-                for track in tracks {
-                    match scan::write_tags(&library, &track.id, &edit) {
-                        Ok(()) => saved += 1,
-                        Err(e) => errors.push(format!("{}: {e:#}", track.path)),
-                    }
-                }
-                println!("Saved {saved} files with backups; {} errors", errors.len());
-                if !errors.is_empty() {
-                    anyhow::bail!("{}", errors.join("\n"));
+                let ids: Vec<String> = tracks.into_iter().map(|t| t.id).collect();
+                let report = scan::write_tags_batch(
+                    &library,
+                    &ids,
+                    &edit,
+                    Arc::new(AtomicBool::new(false)),
+                    |p| {
+                        if !p.current.is_empty() {
+                            eprintln!("[{}/{}] {}", p.done + 1, p.total, p.current);
+                        }
+                    },
+                )?;
+                println!(
+                    "Saved {} files with backups; {} errors",
+                    report.saved.len(),
+                    report.failed.len()
+                );
+                if !report.failed.is_empty() {
+                    anyhow::bail!(
+                        "{}",
+                        report
+                            .failed
+                            .iter()
+                            .map(|f| format!("{}: {}", f.path, f.error))
+                            .collect::<Vec<_>>()
+                            .join("\n")
+                    );
                 }
             } else {
                 println!(
