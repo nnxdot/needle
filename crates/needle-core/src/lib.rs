@@ -14,6 +14,7 @@ pub mod media;
 pub mod model;
 mod mp4_trim;
 mod opus;
+pub mod plugins;
 pub mod query;
 pub mod scan;
 mod secrets;

@@ -788,6 +788,12 @@ impl AppView {
             .filter(|p| p.query.is_none())
             .cloned()
             .collect();
+        let plugin_commands: Vec<_> = self
+            .plugins
+            .commands()
+            .into_iter()
+            .filter(|c| c.for_tracks)
+            .collect();
         let body = div()
             .id("track-menu")
             .occlude()
@@ -867,6 +873,26 @@ impl AppView {
                     this.set_rating(&ids, if favorite { 0 } else { 5 });
                 },
             ))
+            .when(!plugin_commands.is_empty(), |el| {
+                el.child(separator())
+                    .child(faint("Plugins", cx).px_2().py_1())
+                    .children(plugin_commands.into_iter().take(10).enumerate().map(
+                        |(i, command)| {
+                            let (plugin, id) = (command.plugin.clone(), command.id.clone());
+                            self.menu_item(
+                                ("m-plugin", i),
+                                "plugin",
+                                command.title.clone(),
+                                cx,
+                                move |this, _, _| {
+                                    let ids =
+                                        this.selected_tracks().into_iter().map(|t| t.id).collect();
+                                    this.run_plugin_command(plugin.clone(), id.clone(), ids);
+                                },
+                            )
+                        },
+                    ))
+            })
             .when(!manual_playlists.is_empty(), |el| {
                 el.child(separator())
                     .child(faint("Add to playlist", cx).px_2().py_1())

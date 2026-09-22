@@ -8,6 +8,7 @@ mod mini;
 mod now_playing;
 mod pages;
 mod panel;
+mod plugin_ui;
 mod sound;
 mod suggest;
 mod tags;
@@ -220,6 +221,7 @@ enum Event {
     ArtistImages(Vec<(String, Option<String>)>),
     ArtFetched,
     ImportProgress(String),
+    Plugin(needle_core::plugins::HostAction),
     ImportPicked(needle_core::import::SourceKind, PathBuf),
     ImportDone(std::result::Result<needle_core::import::ImportReport, String>),
     BatchProgress(scan::BatchProgress),
@@ -303,6 +305,8 @@ pub struct AppView {
     mini: Option<AnyWindowHandle>,
     sound: sound::SoundControls,
     import: importer::ImportState,
+    plugins: needle_core::plugins::PluginHost,
+    last_listen: Option<String>,
     /// Artwork found online after a track was queued, by track id.
     art_override: std::collections::HashMap<String, String>,
     tag_session: TagSession,
@@ -446,6 +450,12 @@ impl AppView {
         let focus = cx.focus_handle();
         window.focus(&focus);
         let (sender, events) = crossbeam_channel::unbounded();
+        let plugins = {
+            let sender = sender.clone();
+            needle_core::plugins::PluginHost::start(library.clone(), move |action| {
+                let _ = sender.send(Event::Plugin(action));
+            })
+        };
         let subscriptions = vec![
             cx.subscribe_in(&search, window, |this, _, event, window, cx| match event {
                 InputEvent::Change => {
@@ -564,6 +574,8 @@ impl AppView {
             mini: None,
             sound,
             import,
+            plugins,
+            last_listen: None,
             art_override: Default::default(),
             tag_session: TagSession::default(),
             suggestions: vec![],
@@ -660,8 +672,24 @@ impl AppView {
             {
                 self.track_started(&item.track);
             }
+            if changed && self.last_history_id == id {
+                self.plugins.send(if self.playback.playing {
+                    needle_core::plugins::PluginEvent::Resumed
+                } else {
+                    needle_core::plugins::PluginEvent::Paused
+                });
+            }
             self.last_history_id = id;
             self.recent = self.library.history(50).unwrap_or_default();
+            if let Some(latest) = self.recent.first()
+                && self.last_listen.as_ref() != Some(&latest.id)
+            {
+                if self.last_listen.is_some() {
+                    self.plugins
+                        .send(needle_core::plugins::PluginEvent::Listen(latest.clone()));
+                }
+                self.last_listen = Some(latest.id.clone());
+            }
             if self.page == Page::History {
                 self.load_history();
             }
@@ -750,6 +778,7 @@ impl AppView {
                 }
                 Event::ArtColor(path, color) => self.set_art_color(path, color),
                 Event::ImportProgress(message) => self.import.busy = Some(message),
+                Event::Plugin(action) => self.plugin_action(action, cx),
                 Event::ImportPicked(kind, path) => self.import_picked(kind, path, cx),
                 Event::ImportDone(result) => {
                     self.import.busy = None;

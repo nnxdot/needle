@@ -663,6 +663,9 @@ impl AppView {
                     // Services
                     .child(self.section_title("Listening services", "Optional. Nothing is sent until you connect a service and turn it on.", cx))
                     .child(self.services(cx))
+                    // Plugins
+                    .child(self.section_title("Plugins", "Add features with small scripts. Each plugin lists what it may do.", cx))
+                    .child(self.plugins_section(cx))
                     // Data
                     .child(self.section_title("Your data", "History, ratings, and playlists live in one local database.", cx))
                     .child(setting_row(
