@@ -19,6 +19,12 @@ impl AppView {
         cx: &mut Context<Self>,
     ) -> impl IntoElement {
         let p = pal(cx);
+        let width = f32::from(window.viewport_size().width);
+        let narrow = width < 1100.;
+        // The title bar does not shrink its contents, so size the search field from the room
+        // left beside the sidebar column, back button, palette button, and window buttons.
+        let search_width =
+            (width - sidebar - 32. - 36. - if narrow { 44. } else { 96. } - 170.).clamp(140., 520.);
         let rule = self
             .explanation
             .as_deref()
@@ -62,6 +68,7 @@ impl AppView {
             .child(
                 div()
                     .flex_1()
+                    .min_w_0()
                     .h_full()
                     .px_4()
                     .flex()
@@ -78,10 +85,9 @@ impl AppView {
                             .relative()
                             .rounded(px(6.))
                             .when(p.back.a < 1., |el| el.bg(p.raised.opacity(0.7)))
-                            .w(px(520.))
-                            .max_w_full()
-                            .flex_shrink()
-                            .children(self.suggestion_list(px(520.), cx))
+                            .w(px(search_width))
+                            .flex_shrink_0()
+                            .children(self.suggestion_list(px(search_width.max(420.)), cx))
                             .child(
                                 Input::new(&self.search)
                                     .small()
@@ -113,8 +119,9 @@ impl AppView {
                             .text_size(px(12.))
                             .text_color(p.ink_3)
                             .hover(|s| s.bg(p.raised).text_color(p.ink))
+                            .flex_shrink_0()
                             .child(glyph("command").size(px(14.)).text_color(p.ink_3))
-                            .child("Ctrl K")
+                            .when(!narrow, |el| el.child("Ctrl K"))
                             .tooltip(|window, cx| {
                                 gpui_component::tooltip::Tooltip::new(
                                     "Command palette: go anywhere, do anything",
