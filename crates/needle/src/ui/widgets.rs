@@ -179,7 +179,11 @@ pub fn setting_row(title: &str, description: &str, control: impl IntoElement, cx
                 .gap_1()
                 .child(strong(title.to_string()))
                 .when(!description.is_empty(), |el| {
-                    el.child(meta(description.to_string(), cx).line_height(relative(1.45)))
+                    el.child(
+                        meta(description.to_string(), cx)
+                            .w_full()
+                            .line_height(relative(1.45)),
+                    )
                 }),
         )
         .child(div().flex_shrink_0().child(control))

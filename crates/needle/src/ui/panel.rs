@@ -270,6 +270,17 @@ impl AppView {
                     ),
             )
             .when(self.editing, |el| el.child(self.tag_editor(cx)))
+            .child(
+                div()
+                    .pt_3()
+                    .border_t_1()
+                    .border_color(p.line_soft)
+                    .flex()
+                    .flex_col()
+                    .gap_2()
+                    .child(faint("Stems", cx))
+                    .child(self.stems_view(Some(track.clone()), false, cx)),
+            )
             .when_some(reason, |el, reason| {
                 el.child(
                     div()

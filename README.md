@@ -1,6 +1,6 @@
 # Needle
 
-A native Rust/GPUI music player with a local SQLite library. **0.2.0 is a working Windows preview.** [PROPOSAL.md](PROPOSAL.md) is the original product vision; [IMPLEMENTATION.md](IMPLEMENTATION.md) records the implemented scope and remaining work.
+A native Rust/GPUI music player with a local SQLite library. **0.3.0 is a working Windows preview.** [PROPOSAL.md](PROPOSAL.md) is the original product vision; [IMPLEMENTATION.md](IMPLEMENTATION.md) records the implemented scope and remaining work.
 
 ## Run
 
@@ -18,7 +18,15 @@ The portable folder also contains `needle-cli.exe`. The Windows build needs a wo
 - **Playlists.** The plus in a page header or beside *Playlists* saves the current search as a smart playlist that updates itself, or saves the shown (or selected) tracks as a regular playlist. Playlists can be renamed, exported as M3U8, and deleted without deleting music.
 - **Tags.** Ctrl+E or *Edit tags* opens the editor in the side panel. With several tracks selected it shows shared values, marks differing ones as mixed, and writes only the fields you change, with per-file progress and results. Every write keeps an original-file backup and verifies that decoded audio is unchanged; *Earlier versions of this file* restores a backup, and a restore can itself be undone.
 - **History.** Every listen is recorded locally, even offline. The history page lists every listen (loading more as you scroll) and shows listening per day and per hour of day, plus top artists, albums, and tracks for 7 days, 30 days, 12 months, or all time.
-- **Keyboard.** Space play/pause · Ctrl+←/→ previous/next · ←/→ seek 10 s · Ctrl+↑/↓ volume · Ctrl+K or Ctrl+F search · Ctrl+1–6 sidebar pages · Ctrl+, settings · Alt+← or Backspace back · Tab/Shift+Tab move between controls · Esc closes menus, clears search, then the selection.
+- **Big player.** Click the artwork in the player bar (or Ctrl+P) for a full-window player tinted by the album art, with synced lyrics, what's next, and the stem mixer beside it. Esc closes it.
+- **Mini player.** The mini-player button (or Ctrl+M) swaps the main window for a small one with the essentials. It expands to show what's playing next, your recent history, or lyrics, can stay on top of other windows, and its art or expand button returns to the full window.
+- **Lyrics.** Needle shows lyrics from an `.lrc` or `.txt` file beside the song, from the song's own tags, or (with online lookups on) from LRCLIB. Timed lyrics follow the song; click a line to jump there.
+- **Artwork and artist photos.** Covers come from the file, then from `cover`/`folder`/`front`/`albumart` images (JPEG, PNG, or WebP) or a lone image in the folder. With online lookups on, missing covers come from the Cover Art Archive and artist photos from Wikimedia Commons via MusicBrainz and Wikidata; Settings can look up every missing cover at once.
+- **Sound.** The equalizer button in the player bar opens *Sound*: a 10-band graphic equalizer (31 Hz–16 kHz, ±12 dB) with a preamp and ten presets, balance, mono, and headphone crossfeed. Changes apply while you listen. These tools apply to shared output only; exclusive output stays bit-for-bit.
+- **Stems.** In the big player's *Stems* tab or the details panel, *Split into stems* separates a song into drums, bass, vocals, and everything else on this computer (about half the song's length on a modern CPU; the 166 MB model downloads the first time). Turn on *Play from stems* to mix them live: a slider and Solo for each stem, and Karaoke, Vocals only, No drums, and Bass only mixes. Stems are cached until you delete them.
+- **Import.** *Import* in the sidebar brings over ratings, play counts, date added, and playlists from an iTunes, Apple Music, or MusicBee library XML (found automatically when it exists); listening history and playlists from a Spotify data download (folder or ZIP); scrobbles from Last.fm and listens from ListenBrainz by user name (later imports fetch only new ones); and every M3U playlist in a folder. Songs match by path, then artist and title. Listens for songs you don't have are kept for your statistics; imported listens are never scrobbled.
+- **Plugins.** See below.
+- **Keyboard.** Space play/pause · Ctrl+←/→ previous/next · ←/→ seek 10 s · Ctrl+↑/↓ volume · Ctrl+K or Ctrl+F search · Ctrl+1–6 sidebar pages · Ctrl+, settings · Ctrl+P big player · Ctrl+M mini player · Alt+← or Backspace back · Tab/Shift+Tab move between controls · Esc closes menus, clears search, then the selection.
 - **Appearance.** Dark and light themes and compact/comfortable rows are in Settings. Text colours are checked by a test to meet WCAG AA contrast (4.5:1) on every surface in both themes.
 
 Supported and exercised with generated fixtures: WAV PCM, AIFF PCM, FLAC, MP3, AAC and ALAC in M4A, Ogg Vorbis, and Ogg Opus (`.opus`, or Opus inside `.ogg`). WavPack, APE, DSD, DRM, and streaming services are not implemented. Raw AAC is not part of the validated format set.
@@ -36,9 +44,22 @@ played(2025)
 missing
 ```
 
-Use `and`, `or`, `not`, parentheses, `=`, `!=`, `<`, `<=`, `>`, `>=`, `contains`, `exists(field)`, `recent(30d)`, and `played(7d)`/`played(2025)`. Optional suffixes are `order by field asc|desc` or `shuffle`, followed by `limit N`. Quoted text supports backslash escapes. Fields include title, artist, album, album_artist, genre, year, format, path, bpm, rating, duration, sample_rate, bit_depth, play_count, added_at, and last_played. Missing BPM values do not satisfy numeric comparisons.
+favorite and not played(30d) shuffle by artist limit 50
+genre in ("Jazz", "Soul") and duration < 5:00
+title matches "^(intro|interlude)" or duration < 1m
+year between 1990 and 1999 order by artist, year desc
+recent(90d) limit 1 per album
+skipped(30d) order by play_count desc
+```
 
-This is a bounded query language, not the proposal’s complete expression pipeline. Artist-constrained shuffle and similarity remain unimplemented. The search field's suggestions come from `query::suggest`, which offers context-aware completions (fields, type-appropriate operators, functions, connectives, `order by` fields and directions, and quoted library values); it stays silent for ordinary words that are not rule vocabulary. `not missing` on its own is read as plain text; write `not missing and …` or use parentheses. The core also exposes simple `{artist} — {title}` display templates.
+- **Combine:** `and`, `or`, `not`, parentheses.
+- **Compare numbers:** `=`, `!=`, `<`, `<=`, `>`, `>=`, `between A and B`, `in (…)`. Lengths may be written `3:30`, `4m`, `90s`, or `1h`; `added_at` and `last_played` accept dates such as `2024-05-01`.
+- **Compare text:** `=`, `!=`, `contains`, `starts with`, `ends with`, `matches "regular expression"` (ignoring case), and `in ("a", "b")`. Put `not` after the field to negate: `artist not in (…)`, `genre not contains "live"`.
+- **Functions and words:** `recent(30d)`, `played(7d)` or `played(2025)`, `skipped(30d)`, `exists(field)`, `favorite` (4 stars or more), `unplayed`, and `missing`.
+- **Shape the results:** `order by field [asc|desc]` (several fields separated by commas) or `shuffle`; `shuffle by artist` (or album, or genre) keeps neighbours apart; `limit N`, or `limit N per artist|album|album_artist|genre|year|format`, optionally followed by an overall `limit N`.
+- **Fields:** title, artist, album, album_artist, genre, year, format, path, bpm, rating, duration (also `length`), sample_rate, bit_depth, bitrate, channels, track_number, disc, replay_gain, musicbrainz_id, play_count (also `plays`), added_at (also `added`), and last_played. Missing values do not satisfy numeric comparisons.
+
+Quoted text supports backslash escapes. Case-insensitive matching folds only A–Z (an SQLite limit), so `"BJÖRK"` does not match `Björk`. This is a bounded query language, not the proposal’s complete expression pipeline; similarity search remains unimplemented. The search field's suggestions come from `query::suggest`, which offers context-aware completions (fields, type-appropriate operators, functions, connectives, `order by` fields and directions, and quoted library values); it stays silent for ordinary words that are not rule vocabulary. `not missing` on its own is read as plain text; write `not missing and …` or use parentheses. The core also exposes simple `{artist} — {title}` display templates.
 
 ## Audio output
 
@@ -74,9 +95,31 @@ Last.fm requires an application API key and shared secret from [a registered API
 
 Qualified plays are queued locally and retried in chronological order every minute, with backoff after failures. Local qualification requires half the track or four minutes; Last.fm also requires a track longer than 30 seconds. Responses that can never succeed (missing artist/title, invalid parameters, a scrobble Last.fm ignores as too old) mark that listen as failed instead of retrying it forever. A rejected session or token pauses that service's queue, with a "sign in again" message, until the credential changes; nothing is dropped. Network errors, rate limits, and service outages are retried. `needle-cli scrobble` submits due listens and prints queue counts, the latest error, and the next retry time. [Last.fm scrobbling rules](https://www.last.fm/api/scrobbling), [ListenBrainz API](https://listenbrainz.readthedocs.io/en/latest/users/api/core.html).
 
+## Plugins
+
+Plugins are small [Rhai](https://rhai.rs) scripts. Each lives in its own folder inside the library's `plugins` folder (Settings › Plugins › *Open plugins folder*) with a `plugin.toml`:
+
+```toml
+id = "this-week"
+name = "This week's favourites"
+version = "1.0.0"
+author = "you"
+description = "Builds a playlist of your most played songs this week."
+entry = "main.rhai"
+permissions = ["library.read", "library.write"]
+```
+
+Permissions are `library.read`, `library.write`, `playback`, `network`, and `files` (the plugin's own folder only). New plugins start off; turning one on in Settings grants what it lists. A script may define:
+
+- `on_load()`, `on_track_start(track)`, `on_listen(listen)`, `on_pause()`, `on_resume()`
+- `commands()` returning `[ #{ id, title, scope } ]`, where scope `"track"` adds the command to the track menu (it receives the selected track IDs) and `"global"` shows a button in Settings
+- `run(command, track_ids)`
+
+The host API: `notify(text)`, `log(text)`, `now()`, `now_playing()`, `library_search(rule)`, `recent_listens(n)`, `set_rating(id, stars)`, `save_playlist(name, ids)`, `play(ids)`, `enqueue(ids)`, `play_next(ids)`, `toggle_playback()`, `next_track()`, `previous_track()`, `http_get(url)`, `http_post_json(url, map)`, `parse_json(text)`, `read_file(name)`, `write_file(name, text)`, `setting(key)`, and `set_setting(key, value)`. Calls outside a plugin's permissions fail with a message. Plugins run on their own thread with limits on operations, nesting, and sizes, so an endless loop stops with an error instead of freezing Needle. *Add example plugins* installs four: now playing to a text file, a weekly favourites playlist, skipping very short tracks, and a five-star menu command.
+
 ## Data, backups, and layouts
 
-The default location is `%LOCALAPPDATA%\nnx\Needle\data` on Windows; Settings and `needle-cli doctor` show the resolved path. Use `--data-dir PATH` to isolate another library. The folder holds `library.db`, artwork, tag backups, and optional demos. Each tag write or restore first copies the file it replaces into `backups`; backups are not pruned automatically. A backup can be restored only when its decoded audio matches the current file. Back up through Settings or the CLI so SQLite’s WAL is included correctly.
+The default location is `%LOCALAPPDATA%\nnx\Needle\data` on Windows; Settings and `needle-cli doctor` show the resolved path. Use `--data-dir PATH` to isolate another library. The folder holds `library.db`, artwork and artist photos, tag backups, plugins, the stem model and split stems when used, and optional demos. Each tag write or restore first copies the file it replaces into `backups`; backups are not pruned automatically. A backup can be restored only when its decoded audio matches the current file. Back up through Settings or the CLI so SQLite’s WAL is included correctly.
 
 Encrypted bundles transfer history, ratings, and playlists between libraries containing the same music files. Use a passphrase of at least 12 characters. XChaCha20-Poly1305 authenticates the contents; Argon2 derives the key. Matching uses file hashes, existing nonzero local ratings win, listen IDs deduplicate, and newer playlist timestamps win. Unmatched files are reported. Imported history is never re-scrobbled. Audio, credentials, and playback position are excluded. This is **manual transfer**, not automatic peer-to-peer/CRDT sync.
 

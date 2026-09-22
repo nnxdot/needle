@@ -91,6 +91,9 @@ pub struct Settings {
     pub lastfm_enabled: bool,
     pub listenbrainz_enabled: bool,
     pub layout: Layout,
+    /// Look up lyrics, artist photos, and missing album art online.
+    pub online_media: bool,
+    pub dsp: crate::dsp::Dsp,
 }
 
 impl Default for Settings {
@@ -107,6 +110,8 @@ impl Default for Settings {
             lastfm_enabled: false,
             listenbrainz_enabled: false,
             layout: Layout::default(),
+            online_media: false,
+            dsp: crate::dsp::Dsp::default(),
         }
     }
 }

@@ -93,6 +93,8 @@ impl AppView {
     ) -> impl IntoElement {
         let body = match self.page {
             Page::Settings => self.settings_view(cx).into_any_element(),
+            Page::Sound => self.sound_view(cx).into_any_element(),
+            Page::Import => self.import_view(cx).into_any_element(),
             Page::History => self.history_view(width, cx).into_any_element(),
             _ if self.total == 0 && self.scan.is_none() && !self.loading => {
                 self.onboarding(cx).into_any_element()
@@ -150,6 +152,14 @@ impl AppView {
                     ),
             )
             .child(faint("Ctrl+O adds a folder at any time. No account needed.", cx))
+            .child(
+                Button::new("empty-import")
+                    .ghost()
+                    .small()
+                    .icon(icon("import"))
+                    .label("Coming from iTunes, Spotify, or Last.fm? Bring your history")
+                    .on_click(cx.listener(|this, _, window, cx| this.navigate(Page::Import, window, cx))),
+            )
     }
 
     fn header(&self, cx: &mut Context<Self>) -> impl IntoElement {
@@ -226,20 +236,7 @@ impl AppView {
                 el.child(artwork(Some(&track), 148., cx))
             })
             .when_some(artist.clone(), |el, name| {
-                el.child(
-                    div()
-                        .size(px(120.))
-                        .flex_shrink_0()
-                        .rounded_full()
-                        .bg(p.raised)
-                        .flex()
-                        .items_center()
-                        .justify_center()
-                        .text_size(px(38.))
-                        .font_weight(FontWeight::SEMIBOLD)
-                        .text_color(p.ink_2)
-                        .child(initials(&name)),
-                )
+                el.child(self.artist_photo(&name, 120., cx))
             })
             .child(
                 div()
@@ -1078,7 +1075,6 @@ impl AppView {
     }
 
     fn tile(&self, index: usize, size: f32, round: bool, cx: &mut Context<Self>) -> Stateful<Div> {
-        let p = pal(cx);
         let group = &self.groups[index];
         let page = group.page.clone();
         div()
@@ -1090,19 +1086,7 @@ impl AppView {
             .gap_1()
             .cursor_pointer()
             .child(div().relative().mb_2().child(if round {
-                div()
-                    .size(px(size))
-                    .rounded_full()
-                    .bg(p.raised)
-                    .flex()
-                    .items_center()
-                    .justify_center()
-                    .text_size(px(size * 0.24))
-                    .font_weight(FontWeight::SEMIBOLD)
-                    .text_color(p.ink_3)
-                    .group_hover("tile", |s| s.bg(p.raised_hover).text_color(p.ink_2))
-                    .child(initials(&group.title))
-                    .into_any_element()
+                self.artist_photo(&group.title, size, cx)
             } else {
                 div()
                     .rounded(px(8.))
@@ -1126,6 +1110,34 @@ impl AppView {
             .on_click(
                 cx.listener(move |this, _, window, cx| this.navigate(page.clone(), window, cx)),
             )
+    }
+}
+
+impl AppView {
+    /// A round artist photo, or the artist's initials when no photo is known.
+    fn artist_photo(&self, name: &str, size: f32, cx: &App) -> AnyElement {
+        let p = pal(cx);
+        if let Some(Some(path)) = self.artist_images.get(name) {
+            return img(std::path::PathBuf::from(path))
+                .size(px(size))
+                .flex_shrink_0()
+                .rounded_full()
+                .object_fit(ObjectFit::Cover)
+                .into_any_element();
+        }
+        div()
+            .size(px(size))
+            .flex_shrink_0()
+            .rounded_full()
+            .bg(p.raised)
+            .flex()
+            .items_center()
+            .justify_center()
+            .text_size(px(size * 0.3))
+            .font_weight(FontWeight::SEMIBOLD)
+            .text_color(p.ink_2)
+            .child(initials(name))
+            .into_any_element()
     }
 }
 

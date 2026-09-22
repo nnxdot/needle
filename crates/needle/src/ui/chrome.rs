@@ -303,6 +303,7 @@ impl AppView {
                             .child("Add music folder")
                             .on_click(cx.listener(|this, _, _, cx| this.import_folder(cx))),
                     )
+                    .child(self.nav_item("nav-import", "Import", "import", Page::Import, cx))
                     .child(self.nav_item(
                         "nav-settings",
                         "Settings",
@@ -397,7 +398,19 @@ impl AppView {
                     .flex()
                     .items_center()
                     .gap_3()
-                    .child(artwork(current.as_ref(), 56., cx))
+                    .child(
+                        div()
+                            .id("open-big")
+                            .cursor_pointer()
+                            .rounded(px(4.))
+                            .hover(|s| s.opacity(0.85))
+                            .child(artwork(current.as_ref(), 56., cx))
+                            .tooltip(|window, cx| gpui_component::tooltip::Tooltip::new("Open the big player · Ctrl+P").build(window, cx))
+                            .on_click(cx.listener(|this, _, _, cx| {
+                                this.big = true;
+                                cx.notify();
+                            })),
+                    )
                     .child(match &current {
                         None => div()
                             .flex_1()
@@ -621,6 +634,18 @@ impl AppView {
                     )
                     .child(Slider::new(&self.volume).w(px(if wide { 96. } else { 72. })).disabled(self.playback.exclusive))
                     .child(
+                        icon_button("open-sound", "eq", "Equalizer and sound tools")
+                            .small()
+                            .when(self.settings.dsp.eq || !self.settings.dsp.is_transparent(), |b| b.text_color(p.accent))
+                            .on_click(cx.listener(|this, _, window, cx| this.navigate(Page::Sound, window, cx))),
+                    )
+                    .child(
+                        icon_button("open-mini", "mini", "Mini player · Ctrl+M")
+                            .small()
+                            .ml_1()
+                            .on_click(cx.listener(|this, _, window, cx| this.open_mini(window, cx))),
+                    )
+                    .child(
                         Button::new("queue-toggle")
                             .ghost()
                             .small()
@@ -763,6 +788,12 @@ impl AppView {
             .filter(|p| p.query.is_none())
             .cloned()
             .collect();
+        let plugin_commands: Vec<_> = self
+            .plugins
+            .commands()
+            .into_iter()
+            .filter(|c| c.for_tracks)
+            .collect();
         let body = div()
             .id("track-menu")
             .occlude()
@@ -842,6 +873,26 @@ impl AppView {
                     this.set_rating(&ids, if favorite { 0 } else { 5 });
                 },
             ))
+            .when(!plugin_commands.is_empty(), |el| {
+                el.child(separator())
+                    .child(faint("Plugins", cx).px_2().py_1())
+                    .children(plugin_commands.into_iter().take(10).enumerate().map(
+                        |(i, command)| {
+                            let (plugin, id) = (command.plugin.clone(), command.id.clone());
+                            self.menu_item(
+                                ("m-plugin", i),
+                                "plugin",
+                                command.title.clone(),
+                                cx,
+                                move |this, _, _| {
+                                    let ids =
+                                        this.selected_tracks().into_iter().map(|t| t.id).collect();
+                                    this.run_plugin_command(plugin.clone(), id.clone(), ids);
+                                },
+                            )
+                        },
+                    ))
+            })
             .when(!manual_playlists.is_empty(), |el| {
                 el.child(separator())
                     .child(faint("Add to playlist", cx).px_2().py_1())

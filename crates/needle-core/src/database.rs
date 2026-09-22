@@ -93,6 +93,30 @@ impl Library {
     pub fn connection(&self) -> Result<Connection> {
         let db = Connection::open(self.directory.join("library.db"))?;
         db.busy_timeout(Duration::from_secs(10))?;
+        // `field matches "pattern"` in rules: case-insensitive regular expressions, compiled
+        // once per statement.
+        db.create_scalar_function(
+            "needle_regexp",
+            2,
+            rusqlite::functions::FunctionFlags::SQLITE_UTF8
+                | rusqlite::functions::FunctionFlags::SQLITE_DETERMINISTIC,
+            |ctx| {
+                let pattern: std::sync::Arc<regex::Regex> = ctx.get_or_create_aux(0, |value| {
+                    regex::RegexBuilder::new(value.as_str()?)
+                        .case_insensitive(true)
+                        .size_limit(1 << 20)
+                        .build()
+                        .map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send + Sync>)
+                })?;
+                Ok(match ctx.get_raw(1) {
+                    rusqlite::types::ValueRef::Text(text) => {
+                        pattern.is_match(&String::from_utf8_lossy(text))
+                    }
+                    rusqlite::types::ValueRef::Null => false,
+                    other => pattern.is_match(&format!("{other:?}")),
+                })
+            },
+        )?;
         db.execute_batch("PRAGMA foreign_keys=ON; PRAGMA synchronous=NORMAL;")?;
         Ok(db)
     }
@@ -128,15 +152,22 @@ impl Library {
         let query = query::compile(expression, chrono::Utc::now().timestamp())?;
         let db = self.connection()?;
         let sql = format!(
-            "SELECT t.data,t.rating,t.play_count,t.last_played,t.missing FROM tracks t WHERE ({}) ORDER BY {} LIMIT {}",
-            query.sql, query.order, query.limit
+            "SELECT t.data,t.rating,t.play_count,t.last_played,t.missing FROM {} WHERE ({}) ORDER BY {} LIMIT {}",
+            query.from(),
+            query.filter(),
+            query.order,
+            query.limit
         );
         let mut statement = db.prepare(&sql)?;
         let rows = statement.query_map(
             rusqlite::params_from_iter(query.parameters),
             Self::row_track,
         )?;
-        Ok(rows.collect::<std::result::Result<_, _>>()?)
+        let tracks: Vec<Track> = rows.collect::<std::result::Result<_, _>>()?;
+        Ok(match query.spread {
+            Some(field) => query::spread(tracks, field),
+            None => tracks,
+        })
     }
     pub fn search_page(
         &self,
@@ -148,15 +179,18 @@ impl Library {
         let db = self.connection()?;
         let count: i64 = db.query_row(
             &format!(
-                "SELECT count(*) FROM (SELECT 1 FROM tracks t WHERE ({}) LIMIT {})",
-                query.sql, query.limit
+                "SELECT count(*) FROM (SELECT 1 FROM {} WHERE ({}) LIMIT {})",
+                query.from(),
+                query.filter(),
+                query.limit
             ),
             rusqlite::params_from_iter(query.parameters.iter()),
             |r| r.get(0),
         )?;
         let total = (count as usize).min(query.limit);
         let size = page_size.min(total.saturating_sub(offset));
-        let ordered_index = if total == query.limit
+        let ordered_index = if query.per.is_none()
+            && total == query.limit
             && query.limit <= 1000
             && query.order
                 == "t.artist COLLATE NOCASE, t.album COLLATE NOCASE, t.disc, t.track_number, t.id"
@@ -166,16 +200,24 @@ impl Library {
             ""
         };
         let sql = format!(
-            "SELECT t.data,t.rating,t.play_count,t.last_played,t.missing FROM tracks t{ordered_index} WHERE ({}) ORDER BY {} LIMIT {} OFFSET {}",
-            query.sql, query.order, size, offset
+            "SELECT t.data,t.rating,t.play_count,t.last_played,t.missing FROM {}{ordered_index} WHERE ({}) ORDER BY {} LIMIT {} OFFSET {}",
+            query.from(),
+            query.filter(),
+            query.order,
+            size,
+            offset
         );
         let mut stmt = db.prepare(&sql)?;
-        let tracks = stmt
+        let tracks: Vec<Track> = stmt
             .query_map(
                 rusqlite::params_from_iter(query.parameters.iter()),
                 Self::row_track,
             )?
             .collect::<std::result::Result<_, _>>()?;
+        let tracks = match query.spread {
+            Some(field) => query::spread(tracks, field),
+            None => tracks,
+        };
         Ok(SearchPage { tracks, total })
     }
     pub fn track(&self, id: &str) -> Result<Option<Track>> {

@@ -14,13 +14,17 @@ use std::{
 static MB_LAST: Mutex<Option<Instant>> = Mutex::new(None);
 static ACOUSTID_LAST: Mutex<Option<Instant>> = Mutex::new(None);
 static SCROBBLE_LOCK: Mutex<()> = Mutex::new(());
-fn client() -> Result<Client> {
+pub(crate) fn client() -> Result<Client> {
     Ok(Client::builder()
         .timeout(Duration::from_secs(20))
-        .user_agent(
-            std::env::var("NEEDLE_HTTP_USER_AGENT")
-                .unwrap_or_else(|_| "Needle/0.1.0 (local desktop music player)".into()),
-        )
+        .user_agent(std::env::var("NEEDLE_HTTP_USER_AGENT").unwrap_or_else(|_| {
+            concat!(
+                "Needle/",
+                env!("CARGO_PKG_VERSION"),
+                " (local desktop music player)"
+            )
+            .into()
+        }))
         .build()?)
 }
 
@@ -33,6 +37,25 @@ pub struct RecordingMatch {
     pub score: i64,
     #[serde(default)]
     pub release_id: Option<String>,
+}
+
+/// A MusicBrainz web-service GET that honours the one-request-per-second limit shared by all callers.
+pub(crate) fn musicbrainz_get(path: &str, query: &[(&str, &str)]) -> Result<Value> {
+    let mut last = MB_LAST.lock().unwrap();
+    if let Some(time) = *last {
+        let elapsed = time.elapsed();
+        if elapsed < Duration::from_secs(1) {
+            std::thread::sleep(Duration::from_secs(1) - elapsed);
+        }
+    }
+    *last = Some(Instant::now());
+    Ok(client()?
+        .get(format!("https://musicbrainz.org/ws/2/{path}"))
+        .query(query)
+        .query(&[("fmt", "json")])
+        .send()?
+        .error_for_status()?
+        .json()?)
 }
 
 pub fn musicbrainz_search(

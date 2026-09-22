@@ -1,9 +1,16 @@
 mod assets;
 mod chrome;
 mod history;
+mod importer;
 mod library;
+mod lyrics;
+mod mini;
+mod now_playing;
 mod pages;
 mod panel;
+mod plugin_ui;
+mod sound;
+mod stems_ui;
 mod suggest;
 mod tags;
 mod theme;
@@ -62,6 +69,8 @@ actions!(
         GoBack,
         FocusNext,
         FocusPrevious,
+        ToggleBigPlayer,
+        OpenMiniPlayer,
     ]
 );
 
@@ -90,6 +99,8 @@ pub enum Page {
     History,
     Playlist(String),
     Settings,
+    Sound,
+    Import,
 }
 impl Page {
     fn title(&self) -> String {
@@ -110,6 +121,8 @@ impl Page {
             Self::History => "Listening history".into(),
             Self::Playlist(_) => "Playlist".into(),
             Self::Settings => "Settings".into(),
+            Self::Sound => "Sound".into(),
+            Self::Import => "Import".into(),
         }
     }
     /// The rule behind the page, before any search text is applied.
@@ -123,7 +136,10 @@ impl Page {
         }
     }
     fn is_tracks(&self) -> bool {
-        !matches!(self, Self::History | Self::Settings)
+        !matches!(
+            self,
+            Self::History | Self::Settings | Self::Sound | Self::Import
+        )
     }
     pub fn is_grid(&self) -> bool {
         matches!(self, Self::Albums | Self::Artists | Self::Artist(_))
@@ -200,6 +216,17 @@ enum Event {
     Groups(u64, Vec<library::Group>),
     History(Box<needle_core::history::HistoryStats>, Vec<Listen>, usize),
     MoreHistory(usize, Vec<Listen>),
+    ArtColor(String, Option<Hsla>),
+    Lyrics(String, Option<needle_core::media::Lyrics>),
+    ArtistImage(String, Option<String>),
+    ArtistImages(Vec<(String, Option<String>)>),
+    ArtFetched,
+    ImportProgress(String),
+    Plugin(needle_core::plugins::HostAction),
+    StemsProgress(String, String, f32),
+    StemsDone(String, std::result::Result<(), String>),
+    ImportPicked(needle_core::import::SourceKind, PathBuf),
+    ImportDone(std::result::Result<needle_core::import::ImportReport, String>),
     BatchProgress(scan::BatchProgress),
     BatchDone(scan::BatchReport),
     SearchFailed(u64, String),
@@ -270,6 +297,22 @@ pub struct AppView {
     _watcher: Option<Box<dyn std::any::Any>>,
     last_history_id: Option<String>,
     muted_volume: Option<f32>,
+    big: bool,
+    big_side: now_playing::Side,
+    art_colors: now_playing::ArtColors,
+    lyrics: Option<(String, Option<needle_core::media::Lyrics>)>,
+    lyric_line: Option<usize>,
+    lyrics_scroll: ScrollHandle,
+    artist_images: std::collections::HashMap<String, Option<String>>,
+    recent: Vec<Listen>,
+    mini: Option<AnyWindowHandle>,
+    sound: sound::SoundControls,
+    import: importer::ImportState,
+    plugins: needle_core::plugins::PluginHost,
+    stems: stems_ui::StemsState,
+    last_listen: Option<String>,
+    /// Artwork found online after a track was queued, by track id.
+    art_override: std::collections::HashMap<String, String>,
     tag_session: TagSession,
     suggestions: Vec<query::Suggestion>,
     suggestion_active: Option<usize>,
@@ -317,6 +360,8 @@ pub fn run(library: Library) -> Result<()> {
                 KeyBinding::new("ctrl-j", ToggleQueue, Some("Needle")),
                 KeyBinding::new("escape", EscapePanel, Some("Needle")),
                 KeyBinding::new("tab", FocusNext, tracks),
+                KeyBinding::new("ctrl-p", ToggleBigPlayer, Some("Needle")),
+                KeyBinding::new("ctrl-m", OpenMiniPlayer, Some("Needle")),
                 KeyBinding::new("shift-tab", FocusPrevious, Some("Needle")),
                 KeyBinding::new("ctrl-1", GoTo(0), Some("Needle")),
                 KeyBinding::new("ctrl-2", GoTo(1), Some("Needle")),
@@ -396,6 +441,8 @@ impl AppView {
         let listenbrainz_token = secret("ListenBrainz user token", window, cx);
         let acoustid_key = secret("AcoustID application key", window, cx);
         let tags = TagFields::new(window, cx);
+        let sound = sound::SoundControls::new(&settings.dsp, cx);
+        let import = importer::ImportState::new(window, cx);
         let volume = cx.new(|_| {
             SliderState::new()
                 .min(0.)
@@ -407,6 +454,12 @@ impl AppView {
         let focus = cx.focus_handle();
         window.focus(&focus);
         let (sender, events) = crossbeam_channel::unbounded();
+        let plugins = {
+            let sender = sender.clone();
+            needle_core::plugins::PluginHost::start(library.clone(), move |action| {
+                let _ = sender.send(Event::Plugin(action));
+            })
+        };
         let subscriptions = vec![
             cx.subscribe_in(&search, window, |this, _, event, window, cx| match event {
                 InputEvent::Change => {
@@ -514,6 +567,21 @@ impl AppView {
             _watcher: watcher,
             last_history_id: None,
             muted_volume: None,
+            big: false,
+            big_side: now_playing::Side::Lyrics,
+            art_colors: Default::default(),
+            lyrics: None,
+            lyric_line: None,
+            lyrics_scroll: ScrollHandle::new(),
+            artist_images: Default::default(),
+            recent: vec![],
+            mini: None,
+            sound,
+            import,
+            plugins,
+            stems: stems_ui::StemsState::new(cx),
+            last_listen: None,
+            art_override: Default::default(),
             tag_session: TagSession::default(),
             suggestions: vec![],
             suggestion_active: None,
@@ -529,6 +597,8 @@ impl AppView {
             acoustid_key,
         };
         view.refresh(cx);
+        view.recent = view.library.history(50).unwrap_or_default();
+        cx.on_release(|_, cx| cx.quit()).detach();
         cx.spawn_in(window, async move |view, cx| {
             loop {
                 cx.background_executor()
@@ -594,13 +664,42 @@ impl AppView {
             || playback.current.as_ref().map(|i| &i.track.id)
                 != self.playback.current.as_ref().map(|i| &i.track.id);
         self.playback = playback;
+        if let Some(item) = self.playback.current.as_mut()
+            && item.track.artwork.is_none()
+            && let Some(path) = self.art_override.get(&item.track.id)
+        {
+            item.track.artwork = Some(path.clone());
+        }
         let id = self.playback.current.as_ref().map(|i| i.track.id.clone());
         if changed || id != self.last_history_id {
+            if id != self.last_history_id
+                && let Some(item) = self.playback.current.clone()
+            {
+                self.track_started(&item.track);
+            }
+            if changed && self.last_history_id == id {
+                self.plugins.send(if self.playback.playing {
+                    needle_core::plugins::PluginEvent::Resumed
+                } else {
+                    needle_core::plugins::PluginEvent::Paused
+                });
+            }
             self.last_history_id = id;
+            self.recent = self.library.history(50).unwrap_or_default();
+            if let Some(latest) = self.recent.first()
+                && self.last_listen.as_ref() != Some(&latest.id)
+            {
+                if self.last_listen.is_some() {
+                    self.plugins
+                        .send(needle_core::plugins::PluginEvent::Listen(latest.clone()));
+                }
+                self.last_listen = Some(latest.id.clone());
+            }
             if self.page == Page::History {
                 self.load_history();
             }
         }
+        self.follow_lyrics();
         if let Some(item) = &self.playback.current {
             let value = if item.track.duration > 0.0 {
                 (self.playback.position / item.track.duration * 1000.0) as f32
@@ -682,6 +781,62 @@ impl AppView {
                     }
                     self.refresh(cx);
                 }
+                Event::ArtColor(path, color) => self.set_art_color(path, color),
+                Event::ImportProgress(message) => self.import.busy = Some(message),
+                Event::Plugin(action) => self.plugin_action(action, cx),
+                Event::StemsProgress(id, stage, fraction) => {
+                    self.stems.job = Some((id, stage, fraction))
+                }
+                Event::StemsDone(id, result) => {
+                    self.stems.job = None;
+                    match result {
+                        Ok(()) => {
+                            let title = self
+                                .library
+                                .track(&id)
+                                .ok()
+                                .flatten()
+                                .map(|t| t.title)
+                                .unwrap_or_default();
+                            self.notify(format!(
+                                "“{title}” is split into stems. Turn on Play from stems to mix it."
+                            ));
+                        }
+                        Err(e) if e == "Stopped" || e == "Download stopped" => {}
+                        Err(e) => self.fail(e),
+                    }
+                }
+                Event::ImportPicked(kind, path) => self.import_picked(kind, path, cx),
+                Event::ImportDone(result) => {
+                    self.import.busy = None;
+                    match result {
+                        Ok(report) => {
+                            let summary = report.summary();
+                            self.import.results.push(summary.clone());
+                            self.notify(summary);
+                            self.playlists = self.library.playlists().unwrap_or_default();
+                            self.total = self.library.count().unwrap_or(0);
+                            self.refresh(cx);
+                        }
+                        Err(error) => self.fail(error),
+                    }
+                }
+                Event::Lyrics(id, lyrics) => {
+                    self.lyrics = Some((id, lyrics));
+                    self.lyric_line = None;
+                }
+                Event::ArtistImage(name, path) => {
+                    self.artist_images.insert(name, path);
+                }
+                Event::ArtistImages(found) => self.artist_images.extend(found),
+                Event::ArtFetched => {
+                    if let Some(item) = self.playback.current.as_ref()
+                        && let Ok(Some(track)) = self.library.track(&item.track.id)
+                    {
+                        self.fetched_art(track);
+                    }
+                    self.refresh(cx);
+                }
                 Event::MoreHistory(offset, listens) => {
                     if offset == self.history.len() {
                         self.history.extend(listens);
@@ -690,6 +845,11 @@ impl AppView {
                 }
                 Event::Groups(generation, groups) => {
                     if generation == self.generation {
+                        if self.page == Page::Artists {
+                            self.cached_artist_images(
+                                groups.iter().map(|g| g.title.clone()).collect(),
+                            );
+                        }
                         self.groups = groups;
                         self.loading = false;
                     }
@@ -971,6 +1131,14 @@ impl AppView {
         self.show_save = false;
         if self.page == Page::History {
             self.load_history();
+        }
+        if let Page::Artist(name) = &self.page {
+            let name = name.clone();
+            self.artist_images.remove(&name);
+            self.request_artist_image(&name, true);
+        }
+        if self.page == Page::Import {
+            self.refresh_import_sources();
         }
         if self.page == Page::Settings {
             self.output_devices = audio::devices().unwrap_or_default();
@@ -1572,6 +1740,13 @@ impl Render for AppView {
                 cx.notify();
             }))
             .on_action(cx.listener(|this, _: &GoBack, window, cx| this.go_back(window, cx)))
+            .on_action(cx.listener(|this, _: &ToggleBigPlayer, _, cx| {
+                this.big = !this.big;
+                cx.notify();
+            }))
+            .on_action(
+                cx.listener(|this, _: &OpenMiniPlayer, window, cx| this.open_mini(window, cx)),
+            )
             .on_action(|_: &FocusNext, window, _| window.focus_next())
             .on_action(|_: &FocusPrevious, window, _| window.focus_prev())
             .on_action(cx.listener(|this, GoTo(index): &GoTo, window, cx| {
@@ -1591,7 +1766,9 @@ impl Render for AppView {
             }))
             .on_action(cx.listener(|this, _: &ImportFolder, _, cx| this.import_folder(cx)))
             .on_action(cx.listener(|this, _: &EscapePanel, window, cx| {
-                if this.menu.take().is_none() && !this.show_save && !this.editing {
+                if this.big {
+                    this.big = false;
+                } else if this.menu.take().is_none() && !this.show_save && !this.editing {
                     if !this.search_text(cx).is_empty() {
                         this.search.update(cx, |s, cx| s.set_value("", window, cx));
                         this.refresh(cx);
@@ -1616,18 +1793,21 @@ impl Render for AppView {
                     .min_h_0()
                     .flex()
                     .flex_col()
-                    .child(
-                        div()
-                            .flex_1()
-                            .min_h_0()
-                            .flex()
-                            .child(self.sidebar(sidebar, cx))
-                            .child(self.main(content_width, window, cx))
-                            .when(show_panel, |el| {
-                                el.child(self.panel(panel_width, window, cx))
-                            }),
-                    )
-                    .child(self.player_bar(width, cx)),
+                    .when(self.big, |el| el.child(self.big_player(window, cx)))
+                    .when(!self.big, |el| {
+                        el.child(
+                            div()
+                                .flex_1()
+                                .min_h_0()
+                                .flex()
+                                .child(self.sidebar(sidebar, cx))
+                                .child(self.main(content_width, window, cx))
+                                .when(show_panel, |el| {
+                                    el.child(self.panel(panel_width, window, cx))
+                                }),
+                        )
+                        .child(self.player_bar(width, cx))
+                    }),
             )
             .children(self.toast(cx))
             .children(self.track_menu(cx))

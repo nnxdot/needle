@@ -624,9 +624,51 @@ impl AppView {
                             }))),
                         cx,
                     ))
+                    // Artwork and lyrics
+                    .child(self.section_title("Artwork and lyrics", "Needle always uses covers, .lrc files, and lyrics tags found with your music.", cx))
+                    .child(setting_row(
+                        "Look things up online",
+                        "Finds missing album covers (MusicBrainz and the Cover Art Archive), artist photos (Wikimedia Commons), and lyrics (LRCLIB). Only artist, album, title, and length are sent.",
+                        Switch::new("online-media").checked(self.settings.online_media).on_click(cx.listener(|this, checked: &bool, _, cx| {
+                            this.settings.online_media = *checked;
+                            this.persist_settings();
+                            this.artist_images.retain(|_, v| v.is_some());
+                            if let Some(item) = this.playback.current.clone() {
+                                this.track_started(&item.track);
+                            }
+                            cx.notify();
+                        })),
+                        cx,
+                    ))
+                    .when(self.settings.online_media, |el| {
+                        el.child(setting_row(
+                            "Find missing album covers",
+                            "Looks up every album without a cover. Large libraries take a while: MusicBrainz allows one request per second.",
+                            small_button("fetch-covers", "Find covers").on_click(cx.listener(|this, _, _, _| {
+                                let library = this.library.clone();
+                                this.notify("Looking for missing album covers in the background…");
+                                this.background(move || {
+                                    let mut found = 0;
+                                    for album in library.albums("")?.into_iter().filter(|a| a.artwork.is_none()) {
+                                        if let Some(track) = library.album_tracks(&album.key)?.into_iter().next() {
+                                            found += needle_core::media::fetch_album_art(&library, &track).unwrap_or(0).min(1);
+                                        }
+                                    }
+                                    Ok(format!("Found covers for {found} albums."))
+                                });
+                            })),
+                            cx,
+                        ))
+                    })
                     // Services
                     .child(self.section_title("Listening services", "Optional. Nothing is sent until you connect a service and turn it on.", cx))
                     .child(self.services(cx))
+                    // Stems
+                    .child(self.section_title("Stems", "Split songs into drums, bass, vocals, and other, on this computer.", cx))
+                    .child(self.stems_settings(cx))
+                    // Plugins
+                    .child(self.section_title("Plugins", "Add features with small scripts. Each plugin lists what it may do.", cx))
+                    .child(self.plugins_section(cx))
                     // Data
                     .child(self.section_title("Your data", "History, ratings, and playlists live in one local database.", cx))
                     .child(setting_row(

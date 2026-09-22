@@ -9,7 +9,7 @@ use lofty::{
 use std::{
     fs::{self, File},
     io::Read,
-    path::Path,
+    path::{Path, PathBuf},
     sync::{
         Arc,
         atomic::{AtomicBool, Ordering},
@@ -211,9 +211,12 @@ pub fn import_one(library: &Library, path: &Path) -> Result<bool> {
         track.musicbrainz_id = tag
             .get_string(ItemKey::MusicBrainzRecordingId)
             .map(String::from);
-        if let Some(picture) = tag
-            .pictures()
-            .first()
+        // Prefer the front cover when a file carries several pictures.
+        let pictures = tag.pictures();
+        if let Some(picture) = pictures
+            .iter()
+            .find(|p| p.pic_type() == lofty::picture::PictureType::CoverFront)
+            .or_else(|| pictures.first())
             .filter(|p| p.data().len() <= 20 * 1024 * 1024)
         {
             let filename = format!("{}.img", blake3::hash(picture.data()).to_hex());
@@ -225,19 +228,7 @@ pub fn import_one(library: &Library, path: &Path) -> Result<bool> {
         }
     }
     if track.artwork.is_none() {
-        for filename in [
-            "cover.jpg",
-            "folder.jpg",
-            "cover.png",
-            "front.jpg",
-            "Folder.jpg",
-        ] {
-            let cover = path.parent().unwrap().join(filename);
-            if cover.is_file() {
-                track.artwork = Some(cover.to_string_lossy().into());
-                break;
-            }
-        }
+        track.artwork = folder_cover(path.parent().unwrap_or(&path));
     }
     library.upsert(&track)?;
     Ok(true)
@@ -1019,5 +1010,69 @@ mod tests {
         );
         assert_eq!(tag_backups(&library, &track.id).unwrap().len(), count);
         assert_eq!(samples(&track.path), before);
+    }
+}
+
+/// A cover image kept beside the audio files: cover, folder, front, or album art, in any case,
+/// as JPEG, PNG or WebP. A folder with exactly one image uses that image.
+pub fn folder_cover(folder: &Path) -> Option<String> {
+    let images: Vec<PathBuf> = fs::read_dir(folder)
+        .ok()?
+        .filter_map(|e| e.ok().map(|e| e.path()))
+        .filter(|p| {
+            p.extension().and_then(|e| e.to_str()).is_some_and(|e| {
+                matches!(
+                    e.to_ascii_lowercase().as_str(),
+                    "jpg" | "jpeg" | "png" | "webp"
+                )
+            })
+        })
+        .collect();
+    let rank = |p: &PathBuf| {
+        let stem = p
+            .file_stem()
+            .and_then(|s| s.to_str())
+            .unwrap_or_default()
+            .to_ascii_lowercase();
+        ["cover", "folder", "front", "albumart", "album"]
+            .iter()
+            .position(|name| {
+                stem == *name
+                    || stem.starts_with(&format!("{name}_"))
+                    || stem.starts_with(&format!("{name} "))
+                    || (*name == "albumart" && stem.starts_with("albumart"))
+            })
+    };
+    images
+        .iter()
+        .filter_map(|p| rank(p).map(|r| (r, p)))
+        .min_by_key(|(r, _)| *r)
+        .map(|(_, p)| p.clone())
+        .or_else(|| (images.len() == 1).then(|| images[0].clone()))
+        .map(|p| p.to_string_lossy().into())
+}
+
+#[cfg(test)]
+mod cover_tests {
+    use super::folder_cover;
+
+    #[test]
+    fn finds_named_and_lone_covers() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join("back.jpg"), b"x").unwrap();
+        std::fs::write(dir.path().join("Front.PNG"), b"x").unwrap();
+        std::fs::write(dir.path().join("Cover.jpg"), b"x").unwrap();
+        assert!(folder_cover(dir.path()).unwrap().ends_with("Cover.jpg"));
+        let lone = tempfile::tempdir().unwrap();
+        std::fs::write(lone.path().join("scan0001.webp"), b"x").unwrap();
+        assert!(
+            folder_cover(lone.path())
+                .unwrap()
+                .ends_with("scan0001.webp")
+        );
+        let two = tempfile::tempdir().unwrap();
+        std::fs::write(two.path().join("a.jpg"), b"x").unwrap();
+        std::fs::write(two.path().join("b.jpg"), b"x").unwrap();
+        assert_eq!(folder_cover(two.path()), None);
     }
 }
