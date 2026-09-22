@@ -182,8 +182,20 @@ impl Render for MiniView {
             window.remove_window();
             return div().into_any_element();
         };
-        let (current, playing, position, volume, seek, volume_state) = {
+        let (current, playing, position, volume, seek, volume_state, blur) = {
             let a = app.read(cx);
+            let blur = a
+                .settings
+                .music_colors
+                .then(|| {
+                    a.playback
+                        .current
+                        .as_ref()
+                        .and_then(|c| c.track.artwork.as_ref())
+                })
+                .flatten()
+                .and_then(|art| a.cached_look(art))
+                .and_then(|look| look.blur);
             (
                 a.playback.current.clone(),
                 a.playback.playing,
@@ -191,6 +203,7 @@ impl Render for MiniView {
                 a.playback.volume,
                 a.seek.clone(),
                 a.volume.clone(),
+                blur,
             )
         };
         let control = |id: &'static str, name: &'static str, tip: &'static str| {
@@ -224,10 +237,28 @@ impl Render for MiniView {
             };
         div()
             .size_full()
+            .relative()
+            .overflow_hidden()
             .bg(p.chrome)
             .text_color(p.ink)
             .flex()
             .flex_col()
+            // The cover, blurred, glowing behind everything.
+            .when_some(blur, |el, blur| {
+                el.child(
+                    img(blur)
+                        .absolute()
+                        .inset_0()
+                        .size_full()
+                        .object_fit(ObjectFit::Cover)
+                        .opacity(if p.dark { 0.55 } else { 0.4 }),
+                )
+                .child(div().absolute().inset_0().bg(linear_gradient(
+                    180.,
+                    linear_color_stop(p.chrome.opacity(0.25), 0.),
+                    linear_color_stop(p.chrome.opacity(0.75), 1.),
+                )))
+            })
             // Title strip: drag anywhere, window controls on the right.
             .child(
                 div()

@@ -56,6 +56,7 @@ Bundled license texts are in `third-party/licenses.txt`. Original, unmodified MP
 
 - **ONNX Runtime** (MIT License, Copyright (c) Microsoft Corporation) is linked into Needle through the `ort` crate, which downloads Microsoft's prebuilt runtime at build time. It runs the stem-separation model.
 - **HT-Demucs** stem-separation model (MIT License, Copyright (c) Meta Platforms, Inc. and affiliates; Rouard, Massa and Défossez, "Hybrid Transformers for Music Source Separation", ICASSP 2023), in the ONNX export published by StemSplit at huggingface.co/StemSplitio/htdemucs-onnx (MIT). It is not included in the package; Needle downloads it when you first split a song.
+- **Fraunces** typeface (72pt Soft SemiBold and Bold; SIL Open Font License 1.1, Copyright 2018 The Fraunces Project Authors, github.com/undercasetype/Fraunces) is built into Needle for titles. Its license text is at the end of `third-party/licenses.txt`.
 - **Online services** used only when you turn them on: MusicBrainz, the Cover Art Archive, AcoustID, LRCLIB (lyrics), Wikidata and Wikimedia Commons (artist photos; each image keeps its own Commons license), Last.fm, and ListenBrainz.
 
 | Package | License | Source release |
@@ -66,6 +67,8 @@ with open(os.path.join(root, "THIRD-PARTY-NOTICES.md"), "w", encoding="utf-8", n
 os.makedirs(os.path.join(root, "third-party", "sources"), exist_ok=True)
 with open(os.path.join(root, "third-party", "licenses.txt"), "w", encoding="utf-8", newline="\n") as f:
     f.write("".join(texts))
+    with open(os.path.join(root, "crates", "needle", "fonts", "Fraunces-OFL.txt"), encoding="utf-8") as font_license:
+        f.write("\n\n==== Fraunces typeface (SIL Open Font License 1.1) ====\n\n" + font_license.read())
 wanted = set()
 for name, version in mpl:
     archive = crate_archive(name, version)

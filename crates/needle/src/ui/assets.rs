@@ -30,6 +30,7 @@ fn shape(name: &str) -> Option<String> {
         "heart-fill" => format!("<path d='{heart}' {FILLED}/>"),
         "star" => format!("<path d='{star}'/>"),
         "star-fill" => format!("<path d='{star}' {FILLED}/>"),
+        "home" => "<path d='M3.5 10.5 12 3.5l8.5 7'/><path d='M5.5 9v10.5a1 1 0 0 0 1 1H10v-6h4v6h3.5a1 1 0 0 0 1-1V9'/>".into(),
         "recent" => "<circle cx='12' cy='12' r='9'/><path d='M12 7v5l3.2 2'/>".into(),
         "history" => "<path d='M3 20h18'/><path d='M6.5 16v-4M11 16V6M15.5 16V9.5M20 16v-8'/>".into(),
         "plus" => "<path d='M12 5v14M5 12h14'/>".into(),

@@ -394,7 +394,6 @@ impl AppView {
         let p = pal(cx);
         let roots = self.library.roots().unwrap_or_default();
         let weak = cx.entity().downgrade();
-        let theme = if self.settings.theme == "light" { 1 } else { 0 };
         let density = if self.settings.layout.row_height < 50. {
             0
         } else {
@@ -448,7 +447,7 @@ impl AppView {
             ("Ctrl + O", "Add a music folder"),
             ("Ctrl + P", "Big player"),
             ("Ctrl + M", "Mini player"),
-            ("Ctrl + 1 – 6", "Sidebar pages"),
+            ("Ctrl + 1 – 7", "Sidebar pages"),
             ("Ctrl + ,", "Settings"),
             ("Alt + ← or Backspace", "Go back"),
         ];
@@ -640,23 +639,31 @@ impl AppView {
                     })
                     // Appearance
                     .when(tab == 2, |el| {
+                        let theme_cards: Vec<AnyElement> = super::theme::Base::ALL
+                            .iter()
+                            .map(|(mode, name)| self.theme_card(mode, name, cx).into_any_element())
+                            .collect();
                         el
                     .child(self.section_title("Appearance", "", cx))
+                    .child(
+                        div()
+                            .py_4()
+                            .flex()
+                            .flex_col()
+                            .gap_3()
+                            .border_b_1()
+                            .border_color(p.line_soft)
+                            .child(super::widgets::strong("Look"))
+                            .child(div().flex().gap_4().children(theme_cards)),
+                    )
                     .child(setting_row(
-                        "Theme",
-                        "",
-                        segmented("theme", &["Dark", "Light"], theme, cx, {
-                            let weak = weak.clone();
-                            move |index, window, cx| {
-                                let mode = if index == 0 { "dark" } else { "light" };
-                                set_theme(mode, Some(window), cx);
-                                let _ = weak.update(cx, |this, cx| {
-                                    this.settings.theme = mode.into();
-                                    this.persist_settings();
-                                    cx.notify();
-                                });
-                            }
-                        }),
+                        "Colors from the music",
+                        "Tint Needle with the colors of the cover that is playing, or of the album or artist you are looking at.",
+                        Switch::new("music-colors").checked(self.settings.music_colors).on_click(cx.listener(|this, checked: &bool, _, cx| {
+                            this.settings.music_colors = *checked;
+                            this.persist_settings();
+                            cx.notify();
+                        })),
                         cx,
                     ))
                     .child(setting_row(
@@ -899,5 +906,101 @@ impl AppView {
                 ))
             }
         });
+    }
+}
+
+impl AppView {
+    /// A small picture of a base look, in today's colours, that switches to it when clicked.
+    fn theme_card(
+        &self,
+        mode: &'static str,
+        name: &'static str,
+        cx: &mut Context<Self>,
+    ) -> impl IntoElement {
+        let p = pal(cx);
+        let base = super::theme::Base::from_name(mode);
+        let active = super::theme::Base::from_name(&self.settings.theme) == base;
+        let tint = if self.settings.music_colors {
+            self.playback
+                .current
+                .as_ref()
+                .and_then(|c| c.track.artwork.as_ref())
+                .and_then(|a| self.cached_look(a))
+                .map(|l| l.vivid)
+        } else {
+            None
+        };
+        let look = super::theme::Palette::build(base, tint);
+        let bar = |w: f32, color: Hsla| div().h(px(4.)).w(px(w)).rounded(px(2.)).bg(color);
+        div()
+            .id(SharedString::from(format!("theme-{mode}")))
+            .flex()
+            .flex_col()
+            .gap_2()
+            .cursor_pointer()
+            .child(
+                div()
+                    .w(px(150.))
+                    .h(px(96.))
+                    .rounded(px(10.))
+                    .border_2()
+                    .border_color(if active { p.accent } else { p.line })
+                    .bg(look.chrome)
+                    .p(px(6.))
+                    .flex()
+                    .gap(px(6.))
+                    .overflow_hidden()
+                    .child(
+                        div()
+                            .w(px(28.))
+                            .flex()
+                            .flex_col()
+                            .gap(px(5.))
+                            .pt_1()
+                            .child(bar(22., look.accent))
+                            .child(bar(18., look.ink_3))
+                            .child(bar(20., look.ink_3)),
+                    )
+                    .child(
+                        div()
+                            .flex_1()
+                            .rounded(px(6.))
+                            .bg(linear_gradient(
+                                180.,
+                                linear_color_stop(
+                                    super::motion::mix(look.canvas, look.glow, 0.3),
+                                    0.,
+                                ),
+                                linear_color_stop(look.canvas, 0.7),
+                            ))
+                            .p(px(7.))
+                            .flex()
+                            .flex_col()
+                            .gap(px(5.))
+                            .child(bar(46., look.ink))
+                            .child(bar(30., look.ink_2))
+                            .child(
+                                div()
+                                    .mt_1()
+                                    .h(px(12.))
+                                    .w(px(28.))
+                                    .rounded(px(4.))
+                                    .bg(look.accent),
+                            ),
+                    ),
+            )
+            .child(
+                div()
+                    .text_size(px(13.))
+                    .when(active, |el| el.font_weight(FontWeight::MEDIUM))
+                    .text_color(if active { p.ink } else { p.ink_2 })
+                    .child(name),
+            )
+            .on_click(cx.listener(move |this, _, window, cx| {
+                set_theme(mode, Some(window), cx);
+                this.settings.theme = mode.into();
+                this.persist_settings();
+                cx.notify();
+            }))
     }
 }
