@@ -1104,17 +1104,32 @@ impl AppView {
 impl AppView {
     /// Discord Rich Presence: one switch. Needle finds Discord by itself.
     fn discord_settings(&self, cx: &mut Context<Self>) -> impl IntoElement {
-        setting_row(
-            "Show what you're playing on Discord",
-            "When Discord is open on this PC, your profile shows the song, the artist, and a time bar. Needle only talks to the real Discord app, over this PC, and sends nothing else.",
-            Switch::new("discord-presence")
-                .checked(self.settings.discord_presence)
+        let covers = setting_row(
+            "Show covers on Discord",
+            "Discord can only show pictures from the web, so Needle finds the cover in Apple's iTunes catalog by artist and song name. Your files never leave this PC. Without a match, Discord shows the Needle logo.",
+            Switch::new("discord-covers")
+                .checked(self.settings.discord_covers)
                 .on_click(cx.listener(|this, checked: &bool, _, cx| {
-                    this.settings.discord_presence = *checked;
+                    this.settings.discord_covers = *checked;
+                    this.discord_sent = None;
                     this.persist_settings();
                     cx.notify();
                 })),
             cx,
-        )
+        );
+        div()
+            .child(setting_row(
+                "Show what you're playing on Discord",
+                "When Discord is open on this PC, your profile shows \"Listening to\" the song, with the artist, the album, and a time bar. Needle only talks to the real Discord app on this PC.",
+                Switch::new("discord-presence")
+                    .checked(self.settings.discord_presence)
+                    .on_click(cx.listener(|this, checked: &bool, _, cx| {
+                        this.settings.discord_presence = *checked;
+                        this.persist_settings();
+                        cx.notify();
+                    })),
+                cx,
+            ))
+            .when(self.settings.discord_presence, |el| el.child(covers))
     }
 }
