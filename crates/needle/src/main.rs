@@ -70,8 +70,12 @@ enum Commands {
         title: String,
     },
     Scrobble,
+    /// Measure EBU R128 loudness and store ReplayGain for matching tracks.
     Loudness {
         expression: String,
+        /// Also measure each matching track's whole album and store album gain.
+        #[arg(long)]
+        album: bool,
     },
     Fingerprint {
         file: PathBuf,
@@ -332,7 +336,38 @@ fn run() -> Result<()> {
             println!("{:?}", integrations::scrobble_status(&library)?);
             Ok(())
         }
-        Some(Commands::Loudness { expression }) => {
+        Some(Commands::Loudness { expression, album }) if album => {
+            let mut measured = std::collections::HashSet::new();
+            for track in library.search(&expression)? {
+                let Some(key) = needle_core::analysis::album_key(&track) else {
+                    eprintln!("{}: no album title; skipped", track.title);
+                    continue;
+                };
+                if !measured.insert(key) {
+                    continue;
+                }
+                let album = needle_core::analysis::scan_album_loudness(&library, &track.id)?;
+                println!(
+                    "{} — {}\t{:.2} LUFS\t{:+.2} dB album\tpeak {:.3}",
+                    album.album_artist,
+                    album.album,
+                    album.integrated_lufs,
+                    album.replay_gain_db,
+                    album.true_peak
+                );
+                for track in album.tracks {
+                    match track.loudness {
+                        Some(l) => println!(
+                            "  {}\t{:.2} LUFS\t{:+.2} dB",
+                            track.title, l.integrated_lufs, l.replay_gain_db
+                        ),
+                        None => println!("  {}\ttoo quiet or short to measure", track.title),
+                    }
+                }
+            }
+            Ok(())
+        }
+        Some(Commands::Loudness { expression, .. }) => {
             for track in library.search(&expression)? {
                 let measurement = needle_core::analysis::scan_loudness(&library, &track.id)?;
                 println!(

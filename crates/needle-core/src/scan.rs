@@ -202,6 +202,12 @@ pub fn import_one(library: &Library, path: &Path) -> Result<bool> {
         track.replay_peak = tag
             .get_string(ItemKey::ReplayGainTrackPeak)
             .and_then(|s| s.parse().ok());
+        track.album_replay_gain = tag
+            .get_string(ItemKey::ReplayGainAlbumGain)
+            .and_then(parse_gain);
+        track.album_peak = tag
+            .get_string(ItemKey::ReplayGainAlbumPeak)
+            .and_then(|s| s.parse().ok());
         track.musicbrainz_id = tag
             .get_string(ItemKey::MusicBrainzRecordingId)
             .map(String::from);
