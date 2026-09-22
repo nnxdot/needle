@@ -184,3 +184,16 @@ pub fn setting_row(title: &str, description: &str, control: impl IntoElement, cx
 pub fn small_button(id: impl Into<ElementId>, label: impl Into<SharedString>) -> Button {
     Button::new(id).small().label(label)
 }
+
+/// 500000 → "500,000".
+pub fn count(n: usize) -> String {
+    let digits = n.to_string();
+    let mut out = String::new();
+    for (i, c) in digits.chars().enumerate() {
+        if i > 0 && (digits.len() - i) % 3 == 0 {
+            out.push(',');
+        }
+        out.push(c);
+    }
+    out
+}

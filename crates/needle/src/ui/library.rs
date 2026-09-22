@@ -1,6 +1,6 @@
 use super::{
     AppView, PAGE_SIZE, Page, Sort, pal,
-    widgets::{artwork, cover, faint, glyph, icon, icon_button, meta, page_title, quality},
+    widgets::{artwork, count as thousands, cover, faint, glyph, icon, icon_button, meta, page_title, quality},
 };
 use gpui::{prelude::*, *};
 use gpui_component::{
@@ -165,7 +165,7 @@ impl AppView {
         } else if shown == 1 {
             format!("1 {}", noun.trim_end_matches('s'))
         } else {
-            format!("{shown} {noun}")
+            format!("{} {noun}", thousands(shown))
         };
         if noun == "tracks" && count > 0 && count <= self.tracks.len() {
             summary.push_str(&format!(" · {}", human_duration(duration)));
@@ -459,9 +459,9 @@ impl AppView {
                         .child(meta(
                             format!(
                                 "{}–{} of {} tracks",
-                                self.page_offset + 1,
-                                self.page_offset + self.tracks.len(),
-                                self.matched_total
+                                thousands(self.page_offset + 1),
+                                thousands(self.page_offset + self.tracks.len()),
+                                thousands(self.matched_total)
                             ),
                             cx,
                         ))
@@ -641,7 +641,7 @@ impl AppView {
         let number = if album_view && track.track_number > 0 {
             track.track_number.to_string()
         } else {
-            (self.page_offset + index + 1).to_string()
+            thousands(self.page_offset + index + 1)
         };
         let row = div()
             .id(("row", index))

@@ -1060,7 +1060,7 @@ impl AppView {
                     reason: reason.clone(),
                 })
                 .collect();
-            let notice = truncated.then(|| format!("Playing the first {PLAY_LIMIT} matching tracks."));
+            let notice = truncated.then(|| format!("Playing the first {} matching tracks.", widgets::count(PLAY_LIMIT)));
             let _ = sender.send(Event::Play(items, notice));
         };
         if complete {
