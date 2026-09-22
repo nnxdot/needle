@@ -33,6 +33,8 @@ impl AppView {
                 started,
                 ends: (track.duration > 0.).then(|| started + track.duration.round() as i64),
                 paused: !self.playback.playing,
+                find_cover: self.settings.discord_covers,
+                cover: None,
             }
         });
         let key = activity

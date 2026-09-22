@@ -108,6 +108,8 @@ pub struct Settings {
     pub grain: f32,
     /// Show what is playing on Discord, whenever Discord is running.
     pub discord_presence: bool,
+    /// Look up covers online (artist and song name only) so Discord can show them.
+    pub discord_covers: bool,
 }
 
 impl Default for Settings {
@@ -133,6 +135,7 @@ impl Default for Settings {
             glass_page: false,
             grain: 0.,
             discord_presence: true,
+            discord_covers: true,
         }
     }
 }

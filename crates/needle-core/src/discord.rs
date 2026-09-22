@@ -20,6 +20,10 @@ pub struct Activity {
     pub started: i64,
     pub ends: Option<i64>,
     pub paused: bool,
+    /// Look up the cover online so Discord can show it (Discord needs a public image link).
+    pub find_cover: bool,
+    /// The cover's public link, once known.
+    pub cover: Option<String>,
 }
 
 enum Message {
@@ -39,10 +43,16 @@ impl Presence {
         std::thread::spawn(move || {
             let mut pipe: Option<Pipe> = None;
             let mut wanted: Option<Activity> = None;
+            let mut covers: std::collections::HashMap<String, Option<String>> = Default::default();
             let mut shown: Option<Option<Activity>> = None;
             loop {
                 match receiver.recv_timeout(Duration::from_secs(15)) {
-                    Ok(Message::Set(activity)) => wanted = activity,
+                    Ok(Message::Set(activity)) => {
+                        wanted = activity;
+                        if let Some(a) = wanted.as_mut().filter(|a| a.find_cover) {
+                            a.cover = covers.get(&cover_key(a)).cloned().flatten();
+                        }
+                    }
                     Ok(Message::Stop) | Err(RecvTimeoutError::Disconnected) => {
                         if let Some(p) = pipe.as_mut() {
                             let _ = p.set_activity(None);
@@ -64,6 +74,24 @@ impl Presence {
                         shown = Some(wanted.clone());
                     } else {
                         pipe = None;
+                    }
+                }
+                // Show the song straight away, then add its cover once it has been found.
+                if pipe.is_some()
+                    && let Some(a) = wanted.as_mut().filter(|a| a.find_cover)
+                    && !covers.contains_key(&cover_key(a))
+                {
+                    let found = find_cover(&a.artist, &a.title, &a.album);
+                    covers.insert(cover_key(a), found.clone());
+                    if found.is_some() {
+                        a.cover = found;
+                        if let Some(p) = pipe.as_mut() {
+                            if p.set_activity(Some(a)).is_ok() {
+                                shown = Some(Some(a.clone()));
+                            } else {
+                                pipe = None;
+                            }
+                        }
                     }
                 }
             }
@@ -100,20 +128,37 @@ pub fn activity_json(activity: Option<&Activity>) -> Value {
         }
         s
     };
+    // Header "Listening to <song>", then the artist, then the album (or "Paused").
+    let album = if a.album.trim().is_empty() {
+        None
+    } else {
+        Some(text(&a.album, ""))
+    };
     let mut value = json!({
+        "name": text(&a.title, "Needle"),
         "type": 2,
-        "status_display_type": 2,
-        "details": text(&a.title, "Unknown song"),
-        "state": if a.paused {
-            format!("Paused · {}", text(&a.artist, "Unknown artist"))
-        } else {
-            text(&a.artist, "Unknown artist")
-        },
+        "status_display_type": 0,
+        "details": text(&a.artist, "Unknown artist"),
         "assets": {
-            "large_image": "needle",
-            "large_text": text(&a.album, "Needle"),
+            "large_image": a.cover.clone().unwrap_or_else(|| "needle".into()),
+            "large_text": album.clone().unwrap_or_else(|| "Needle".into()),
+            "small_image": if a.cover.is_some() { json!("needle") } else { Value::Null },
+            "small_text": if a.cover.is_some() { json!("Needle") } else { Value::Null },
         },
     });
+    let state = match (a.paused, album) {
+        (true, Some(album)) => Some(format!("Paused · {album}")),
+        (true, None) => Some("Paused".to_string()),
+        (false, album) => album,
+    };
+    if let Some(state) = state {
+        value["state"] = json!(state);
+    }
+    if a.cover.is_none() {
+        let assets = value["assets"].as_object_mut().unwrap();
+        assets.remove("small_image");
+        assets.remove("small_text");
+    }
     if !a.paused {
         let mut timestamps = json!({ "start": a.started * 1000 });
         if let Some(end) = a.ends {
@@ -122,6 +167,64 @@ pub fn activity_json(activity: Option<&Activity>) -> Value {
         value["timestamps"] = timestamps;
     }
     value
+}
+
+fn cover_key(a: &Activity) -> String {
+    format!(
+        "{}\u{1}{}\u{1}{}",
+        a.artist.to_lowercase(),
+        a.album.to_lowercase(),
+        a.title.to_lowercase()
+    )
+}
+
+/// Find a public link to the song's cover in Apple's iTunes catalog, searching by artist and
+/// song name only. Returns `None` unless the artist matches, so a wrong cover is never shown.
+pub fn find_cover(artist: &str, title: &str, album: &str) -> Option<String> {
+    if artist.trim().is_empty() || title.trim().is_empty() {
+        return None;
+    }
+    let client = crate::integrations::client().ok()?;
+    let response: Value = client
+        .get("https://itunes.apple.com/search")
+        .query(&[
+            ("term", format!("{artist} {title}").as_str()),
+            ("entity", "song"),
+            ("limit", "10"),
+        ])
+        .timeout(Duration::from_secs(6))
+        .send()
+        .ok()?
+        .json()
+        .ok()?;
+    best_cover(response["results"].as_array()?, artist, title, album)
+}
+
+/// Pick the best result: the artist must match; then prefer the same song on the same album.
+pub fn best_cover(results: &[Value], artist: &str, title: &str, album: &str) -> Option<String> {
+    let norm = |s: &str| {
+        s.to_lowercase()
+            .chars()
+            .filter(|c| c.is_alphanumeric())
+            .collect::<String>()
+    };
+    let (artist, title, album) = (norm(artist), norm(title), norm(album));
+    let artist_ok = |r: &Value| {
+        let found = norm(r["artistName"].as_str().unwrap_or_default());
+        !found.is_empty() && (found.contains(&artist) || artist.contains(&found))
+    };
+    let score = |r: &Value| {
+        let same_title = norm(r["trackName"].as_str().unwrap_or_default()) == title;
+        let same_album =
+            !album.is_empty() && norm(r["collectionName"].as_str().unwrap_or_default()) == album;
+        same_title as u8 * 2 + same_album as u8
+    };
+    let best = results
+        .iter()
+        .filter(|r| artist_ok(r))
+        .max_by_key(|r| score(r))?;
+    let url = best["artworkUrl100"].as_str()?;
+    Some(url.replace("100x100bb", "600x600bb"))
 }
 
 /// Executable names of the Discord desktop app and well-known Discord clients that offer
@@ -283,23 +386,59 @@ mod tests {
             started: 1_000,
             ends: Some(1_196),
             paused: false,
+            find_cover: true,
+            cover: None,
         };
         let v = activity_json(Some(&a));
         assert_eq!(v["type"], 2);
-        assert_eq!(v["details"], "Armageddon");
-        assert_eq!(v["state"], "aespa");
+        assert_eq!(v["name"], "Armageddon");
+        assert_eq!(v["details"], "aespa");
+        assert!(v.get("state").is_none());
+        assert_eq!(v["assets"]["large_image"], "needle");
         assert_eq!(v["assets"]["large_text"], "Needle");
+        assert!(v["assets"].get("small_image").is_none());
         assert_eq!(v["timestamps"]["start"], 1_000_000);
         assert_eq!(v["timestamps"]["end"], 1_196_000);
+        let with_cover = activity_json(Some(&Activity {
+            album: "Armageddon - The 1st Album".into(),
+            cover: Some("https://example.com/c.jpg".into()),
+            ..a.clone()
+        }));
+        assert_eq!(
+            with_cover["assets"]["large_image"],
+            "https://example.com/c.jpg"
+        );
+        assert_eq!(with_cover["assets"]["small_image"], "needle");
+        assert_eq!(with_cover["state"], "Armageddon - The 1st Album");
         let paused = activity_json(Some(&Activity {
             paused: true,
             title: "X".into(),
             ..a
         }));
-        assert_eq!(paused["details"], "X ");
-        assert_eq!(paused["state"], "Paused · aespa");
+        assert_eq!(paused["name"], "X ");
+        assert_eq!(paused["state"], "Paused");
         assert!(paused.get("timestamps").is_none());
         assert_eq!(activity_json(None), Value::Null);
+    }
+
+    #[test]
+    fn picks_the_right_cover() {
+        let results: Vec<Value> = serde_json::from_str(r#"[
+            {"artistName":"Someone Else","trackName":"Armageddon","collectionName":"X","artworkUrl100":"https://a/wrong/100x100bb.jpg"},
+            {"artistName":"aespa","trackName":"Armageddon (Remix)","collectionName":"K-POP","artworkUrl100":"https://a/remix/100x100bb.jpg"},
+            {"artistName":"aespa","trackName":"Armageddon","collectionName":"Armageddon - The 1st Album","artworkUrl100":"https://a/album/100x100bb.jpg"}
+        ]"#).unwrap();
+        assert_eq!(
+            best_cover(
+                &results,
+                "aespa",
+                "Armageddon",
+                "Armageddon - The 1st Album"
+            )
+            .as_deref(),
+            Some("https://a/album/600x600bb.jpg")
+        );
+        assert_eq!(best_cover(&results[..1], "aespa", "Armageddon", ""), None);
     }
 
     #[test]
@@ -324,12 +463,14 @@ mod tests {
             .as_secs() as i64;
         let reply = pipe
             .set_activity_reply(Some(&Activity {
-                title: "Needle presence test".into(),
-                artist: "Needle".into(),
-                album: "Testing".into(),
+                title: "Armageddon".into(),
+                artist: "aespa".into(),
+                album: "Armageddon - The 1st Album".into(),
                 started: now,
                 ends: Some(now + 60),
                 paused: false,
+                find_cover: false,
+                cover: find_cover("aespa", "Armageddon", "Armageddon - The 1st Album"),
             }))
             .unwrap();
         println!("{reply}");
