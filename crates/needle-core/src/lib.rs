@@ -8,6 +8,7 @@ pub mod dsp;
 #[cfg(windows)]
 mod exclusive;
 pub mod history;
+pub mod import;
 pub mod integrations;
 pub mod media;
 pub mod model;

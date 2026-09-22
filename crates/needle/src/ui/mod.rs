@@ -1,6 +1,7 @@
 mod assets;
 mod chrome;
 mod history;
+mod importer;
 mod library;
 mod lyrics;
 mod mini;
@@ -97,6 +98,7 @@ pub enum Page {
     Playlist(String),
     Settings,
     Sound,
+    Import,
 }
 impl Page {
     fn title(&self) -> String {
@@ -118,6 +120,7 @@ impl Page {
             Self::Playlist(_) => "Playlist".into(),
             Self::Settings => "Settings".into(),
             Self::Sound => "Sound".into(),
+            Self::Import => "Import".into(),
         }
     }
     /// The rule behind the page, before any search text is applied.
@@ -131,7 +134,10 @@ impl Page {
         }
     }
     fn is_tracks(&self) -> bool {
-        !matches!(self, Self::History | Self::Settings | Self::Sound)
+        !matches!(
+            self,
+            Self::History | Self::Settings | Self::Sound | Self::Import
+        )
     }
     pub fn is_grid(&self) -> bool {
         matches!(self, Self::Albums | Self::Artists | Self::Artist(_))
@@ -213,6 +219,9 @@ enum Event {
     ArtistImage(String, Option<String>),
     ArtistImages(Vec<(String, Option<String>)>),
     ArtFetched,
+    ImportProgress(String),
+    ImportPicked(needle_core::import::SourceKind, PathBuf),
+    ImportDone(std::result::Result<needle_core::import::ImportReport, String>),
     BatchProgress(scan::BatchProgress),
     BatchDone(scan::BatchReport),
     SearchFailed(u64, String),
@@ -293,6 +302,7 @@ pub struct AppView {
     recent: Vec<Listen>,
     mini: Option<AnyWindowHandle>,
     sound: sound::SoundControls,
+    import: importer::ImportState,
     /// Artwork found online after a track was queued, by track id.
     art_override: std::collections::HashMap<String, String>,
     tag_session: TagSession,
@@ -424,6 +434,7 @@ impl AppView {
         let acoustid_key = secret("AcoustID application key", window, cx);
         let tags = TagFields::new(window, cx);
         let sound = sound::SoundControls::new(&settings.dsp, cx);
+        let import = importer::ImportState::new(window, cx);
         let volume = cx.new(|_| {
             SliderState::new()
                 .min(0.)
@@ -552,6 +563,7 @@ impl AppView {
             recent: vec![],
             mini: None,
             sound,
+            import,
             art_override: Default::default(),
             tag_session: TagSession::default(),
             suggestions: vec![],
@@ -737,6 +749,22 @@ impl AppView {
                     self.refresh(cx);
                 }
                 Event::ArtColor(path, color) => self.set_art_color(path, color),
+                Event::ImportProgress(message) => self.import.busy = Some(message),
+                Event::ImportPicked(kind, path) => self.import_picked(kind, path, cx),
+                Event::ImportDone(result) => {
+                    self.import.busy = None;
+                    match result {
+                        Ok(report) => {
+                            let summary = report.summary();
+                            self.import.results.push(summary.clone());
+                            self.notify(summary);
+                            self.playlists = self.library.playlists().unwrap_or_default();
+                            self.total = self.library.count().unwrap_or(0);
+                            self.refresh(cx);
+                        }
+                        Err(error) => self.fail(error),
+                    }
+                }
                 Event::Lyrics(id, lyrics) => {
                     self.lyrics = Some((id, lyrics));
                     self.lyric_line = None;
@@ -1052,6 +1080,9 @@ impl AppView {
             let name = name.clone();
             self.artist_images.remove(&name);
             self.request_artist_image(&name, true);
+        }
+        if self.page == Page::Import {
+            self.refresh_import_sources();
         }
         if self.page == Page::Settings {
             self.output_devices = audio::devices().unwrap_or_default();

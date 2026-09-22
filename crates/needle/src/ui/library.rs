@@ -94,6 +94,7 @@ impl AppView {
         let body = match self.page {
             Page::Settings => self.settings_view(cx).into_any_element(),
             Page::Sound => self.sound_view(cx).into_any_element(),
+            Page::Import => self.import_view(cx).into_any_element(),
             Page::History => self.history_view(width, cx).into_any_element(),
             _ if self.total == 0 && self.scan.is_none() && !self.loading => {
                 self.onboarding(cx).into_any_element()
@@ -151,6 +152,14 @@ impl AppView {
                     ),
             )
             .child(faint("Ctrl+O adds a folder at any time. No account needed.", cx))
+            .child(
+                Button::new("empty-import")
+                    .ghost()
+                    .small()
+                    .icon(icon("import"))
+                    .label("Coming from iTunes, Spotify, or Last.fm? Bring your history")
+                    .on_click(cx.listener(|this, _, window, cx| this.navigate(Page::Import, window, cx))),
+            )
     }
 
     fn header(&self, cx: &mut Context<Self>) -> impl IntoElement {

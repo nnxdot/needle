@@ -303,6 +303,7 @@ impl AppView {
                             .child("Add music folder")
                             .on_click(cx.listener(|this, _, _, cx| this.import_folder(cx))),
                     )
+                    .child(self.nav_item("nav-import", "Import", "import", Page::Import, cx))
                     .child(self.nav_item(
                         "nav-settings",
                         "Settings",
