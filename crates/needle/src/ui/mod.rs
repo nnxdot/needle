@@ -1491,7 +1491,6 @@ impl Render for AppView {
         div()
             .id("needle-app")
             .key_context("Needle")
-            .track_focus(&self.focus)
             .size_full()
             .bg(p.canvas)
             .text_color(p.ink)
@@ -1605,19 +1604,31 @@ impl Render for AppView {
                 window.focus(&this.focus);
                 cx.notify();
             }))
-            .child(self.title_bar(sidebar, cx))
+            // The title bar must stay outside the focusable body: a focusable element under the
+            // pointer consumes the mouse-down, and Windows then never starts a drag, resize, or
+            // maximize from the title bar.
+            .child(self.title_bar(sidebar, window, cx))
             .child(
                 div()
+                    .id("needle-body")
+                    .track_focus(&self.focus)
                     .flex_1()
                     .min_h_0()
                     .flex()
-                    .child(self.sidebar(sidebar, cx))
-                    .child(self.main(content_width, window, cx))
-                    .when(show_panel, |el| {
-                        el.child(self.panel(panel_width, window, cx))
-                    }),
+                    .flex_col()
+                    .child(
+                        div()
+                            .flex_1()
+                            .min_h_0()
+                            .flex()
+                            .child(self.sidebar(sidebar, cx))
+                            .child(self.main(content_width, window, cx))
+                            .when(show_panel, |el| {
+                                el.child(self.panel(panel_width, window, cx))
+                            }),
+                    )
+                    .child(self.player_bar(width, cx)),
             )
-            .child(self.player_bar(width, cx))
             .children(self.toast(cx))
             .children(self.track_menu(cx))
     }
