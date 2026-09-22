@@ -8,6 +8,7 @@ pub mod demo;
 mod exclusive;
 pub mod history;
 pub mod integrations;
+pub mod media;
 pub mod model;
 mod mp4_trim;
 mod opus;
