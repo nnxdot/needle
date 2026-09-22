@@ -4,6 +4,8 @@ mod history;
 mod importer;
 mod library;
 mod lyrics;
+mod menus;
+mod motion;
 mod mini;
 mod now_playing;
 mod pages;
@@ -70,6 +72,8 @@ actions!(
         FocusNext,
         FocusPrevious,
         ToggleBigPlayer,
+        PlayNextSelection,
+        EnqueueSelection,
         OpenMiniPlayer,
     ]
 );
@@ -204,10 +208,6 @@ pub struct Selection {
     cursor: Option<usize>,
 }
 
-pub struct TrackMenu {
-    position: Point<Pixels>,
-    index: usize,
-}
 
 enum Event {
     Imported(ScanProgress),
@@ -261,7 +261,8 @@ pub struct AppView {
     /// The track the details panel describes: the last one clicked.
     focused: Option<Track>,
     panel: Panel,
-    menu: Option<TrackMenu>,
+    menu: Option<menus::TrackMenu>,
+    menu_serial: usize,
     sort: Sort,
     total: usize,
     matched_total: usize,
@@ -335,6 +336,9 @@ pub fn run(library: Library) -> Result<()> {
             gpui_component::init(cx);
             let settings = library.settings().unwrap_or_default();
             set_theme(&settings.theme, None, cx);
+            cx.set_global(motion::Motion {
+                enabled: !settings.reduce_motion && motion::system_allows_animation(),
+            });
             let tracks = Some("Needle && !Input");
             cx.bind_keys([
                 KeyBinding::new("space", TogglePlayback, tracks),
@@ -350,6 +354,8 @@ pub fn run(library: Library) -> Result<()> {
                 KeyBinding::new("shift-down", ExtendNext, tracks),
                 KeyBinding::new("ctrl-a", SelectAllTracks, tracks),
                 KeyBinding::new("enter", PlaySelection, tracks),
+                KeyBinding::new("shift-enter", PlayNextSelection, tracks),
+                KeyBinding::new("ctrl-enter", EnqueueSelection, tracks),
                 KeyBinding::new("ctrl-e", EditTags, tracks),
                 KeyBinding::new("ctrl-d", ToggleFavorite, tracks),
                 KeyBinding::new("alt-left", GoBack, tracks),
@@ -533,6 +539,7 @@ impl AppView {
             focused: None,
             panel: Panel::Details,
             menu: None,
+            menu_serial: 0,
             sort: Sort::Default,
             matched_total: 0,
             page_offset: 0,
@@ -1676,13 +1683,19 @@ impl Render for AppView {
             .on_action(
                 cx.listener(|this, _: &PreviousTrack, _, _| this.player.send(Command::Previous)),
             )
-            .on_action(cx.listener(|this, _: &SeekForward, _, _| {
+            .on_action(cx.listener(|this, _: &SeekForward, window, cx| {
+                if this.menu_key("right", window, cx) {
+                    return;
+                }
                 if this.playback.current.is_some() {
                     this.player
                         .send(Command::Seek(this.playback.position + 10.))
                 }
             }))
-            .on_action(cx.listener(|this, _: &SeekBackward, _, _| {
+            .on_action(cx.listener(|this, _: &SeekBackward, window, cx| {
+                if this.menu_key("left", window, cx) {
+                    return;
+                }
                 if this.playback.current.is_some() {
                     this.player
                         .send(Command::Seek((this.playback.position - 10.).max(0.)))
@@ -1697,9 +1710,29 @@ impl Render for AppView {
                 }),
             )
             .on_action(
-                cx.listener(|this, _: &SelectPrevious, _, cx| this.move_cursor(-1, false, cx)),
+                cx.listener(|this, _: &SelectPrevious, window, cx| {
+                    if !this.menu_key("up", window, cx) {
+                        this.move_cursor(-1, false, cx)
+                    }
+                }),
             )
-            .on_action(cx.listener(|this, _: &SelectNext, _, cx| this.move_cursor(1, false, cx)))
+            .on_action(cx.listener(|this, _: &SelectNext, window, cx| {
+                if !this.menu_key("down", window, cx) {
+                    this.move_cursor(1, false, cx)
+                }
+            }))
+            .on_action(cx.listener(|this, _: &PlayNextSelection, _, _| {
+                let selected = this.selected_tracks();
+                if !selected.is_empty() {
+                    this.play_next(selected);
+                }
+            }))
+            .on_action(cx.listener(|this, _: &EnqueueSelection, _, _| {
+                let selected = this.selected_tracks();
+                if !selected.is_empty() {
+                    this.enqueue(selected);
+                }
+            }))
             .on_action(
                 cx.listener(|this, _: &ExtendPrevious, _, cx| this.move_cursor(-1, true, cx)),
             )
@@ -1708,7 +1741,10 @@ impl Render for AppView {
                 this.selection.ids = this.tracks.iter().map(|t| t.id.clone()).collect();
                 cx.notify();
             }))
-            .on_action(cx.listener(|this, _: &PlaySelection, _, cx| {
+            .on_action(cx.listener(|this, _: &PlaySelection, window, cx| {
+                if this.menu_key("enter", window, cx) {
+                    return;
+                }
                 let selected = this.selected_tracks();
                 if selected.len() > 1 {
                     let reason = this.reason(cx);

@@ -1,5 +1,5 @@
 use super::{
-    AppView, Event, pal, set_theme,
+    AppView, Event, motion, pal, set_theme,
     widgets::{
         faint, glyph, heading, icon, meta, page_title, segmented, setting_row, small_button, strong,
     },
@@ -573,6 +573,21 @@ impl AppView {
                                 });
                             }
                         }),
+                        cx,
+                    ))
+                    .child(setting_row(
+                        "Reduce motion",
+                        if motion::system_allows_animation() {
+                            "Turns off fades, slides, and other animations."
+                        } else {
+                            "Windows has animations turned off, so Needle keeps still too."
+                        },
+                        Switch::new("reduce-motion").checked(self.settings.reduce_motion || !motion::system_allows_animation()).on_click(cx.listener(|this, checked: &bool, _, cx| {
+                            this.settings.reduce_motion = *checked;
+                            this.persist_settings();
+                            cx.set_global(motion::Motion { enabled: !*checked && motion::system_allows_animation() });
+                            cx.notify();
+                        })),
                         cx,
                     ))
                     .child(setting_row(

@@ -94,6 +94,8 @@ pub struct Settings {
     /// Look up lyrics, artist photos, and missing album art online.
     pub online_media: bool,
     pub dsp: crate::dsp::Dsp,
+    /// Turn off interface animations (Windows' own setting also turns them off).
+    pub reduce_motion: bool,
 }
 
 impl Default for Settings {
@@ -112,6 +114,7 @@ impl Default for Settings {
             layout: Layout::default(),
             online_media: false,
             dsp: crate::dsp::Dsp::default(),
+            reduce_motion: false,
         }
     }
 }
