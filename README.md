@@ -1,6 +1,6 @@
 # Needle
 
-A native Rust/GPUI music player with a local SQLite library. **0.7.0 is a working Windows preview.** [PROPOSAL.md](PROPOSAL.md) is the original product vision; [IMPLEMENTATION.md](IMPLEMENTATION.md) records the implemented scope and remaining work.
+A native Rust/GPUI music player with a local SQLite library. **0.7.1 is a working Windows preview.** [PROPOSAL.md](PROPOSAL.md) is the original product vision; [IMPLEMENTATION.md](IMPLEMENTATION.md) records the implemented scope and remaining work.
 
 ## Run
 
@@ -30,6 +30,7 @@ The portable folder also contains `needle-cli.exe`. The Windows build needs a wo
 - **Sound.** The equalizer button in the player bar opens *Sound*: a 10-band graphic equalizer (31 Hz–16 kHz, ±12 dB) with a preamp and ten presets, balance, mono, and headphone crossfeed. Changes apply while you listen. These tools apply to shared output only; exclusive output stays bit-for-bit.
 - **Stems.** In the big player's *Stems* tab or the details panel, *Split into stems* separates a song into drums, bass, vocals, and everything else on this computer (about half the song's length on a modern CPU; the 166 MB model downloads the first time). Turn on *Play from stems* to mix them live: a slider and Solo for each stem, and Karaoke, Vocals only, No drums, and Bass only mixes. Stems are cached until you delete them.
 - **Import.** *Import* in the sidebar brings over ratings, play counts, date added, and playlists from an iTunes, Apple Music, or MusicBee library XML (found automatically when it exists); listening history and playlists from a Spotify data download (folder or ZIP); scrobbles from Last.fm and listens from ListenBrainz by user name (later imports fetch only new ones); and every M3U playlist in a folder. Songs match by path, then artist and title. Listens for songs you don't have are kept for your statistics; imported listens are never scrobbled.
+- **Discord.** While Discord is open on this PC, your Discord profile shows "Listening to Needle" with the song, the artist, the album, and a time bar ("Paused" without the bar when paused). There is nothing to set up; Settings › Online services has a switch to turn it off. Needle only talks to the real Discord app on this PC (it checks which program serves Discord's local pipe) and sends nothing else.
 - **Plugins.** See below.
 - **Keyboard.** Space play/pause · Ctrl+←/→ previous/next · ←/→ seek 10 s · Ctrl+↑/↓ volume · Ctrl+K command palette · Ctrl+F search · Shift+Enter play next · Ctrl+Enter add to queue · Ctrl+1–7 sidebar pages · Ctrl+, settings · Ctrl+P big player · Ctrl+M mini player · Alt+← or Backspace back · Tab/Shift+Tab move between controls · Esc closes menus, clears search, then the selection.
 - **Motion.** Pages fade in, the playing song shows moving bars, a heart pops when you like a song, the big player grows out of the cover and shrinks back into it, its background fades to each new cover's colour, lyrics glide to the sung line, and loading lists shimmer. *Reduce motion* in Settings › Appearance turns all of this off, and Needle also keeps still when Windows' *Animation effects* setting is off.
