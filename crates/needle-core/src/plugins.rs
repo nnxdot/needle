@@ -1562,7 +1562,8 @@ fn songs(page) {
             channels: song.channelCount,
             size: song.size,
             musicbrainz_id: song.musicBrainzId,
-            cover_id: song.coverArt,
+            // One cover per album: songs often carry their own copy of the same picture.
+            cover_id: if song.albumId != () { "album:" + song.albumId } else { song.coverArt },
             cover: if song.coverArt != () {
                 link("getCoverArt", #{ id: song.coverArt, size: 600 }, cover_auth)
             } else {
@@ -1677,6 +1678,10 @@ const EARLIER_EXAMPLES: &[(&str, &str)] = &[
     (
         "subsonic",
         "57942e2acdcd0a0e376c59d7dc4dabc05c3c990394c10673a8e5c29207881862",
+    ),
+    (
+        "subsonic",
+        "6ed2b6a5b1f7c0d6018af622b35ccf394ab7dc083ae6c9ed9e895e9b1f22cce8",
     ),
 ];
 
@@ -1885,8 +1890,8 @@ mod tests {
                 } else if path.ends_with("/search3.view") {
                     if param("songOffset") == "0" {
                         let mut songs = vec![
-                            r#"{"id":"s1","title":"Hey Hi","artist":"KiiiKiii","album":"WhyKiiiKiii - EP","year":2026,"track":2,"duration":1,"suffix":"wav","bitRate":1411,"coverArt":"al-1"}"#.to_string(),
-                            r#"{"id":"s2","title":"Sweet Sour","artist":"KiiiKiii","album":"WhyKiiiKiii - EP","track":4,"duration":1,"suffix":"wav","coverArt":"al-1"}"#.to_string(),
+                            r#"{"id":"s1","title":"Hey Hi","artist":"KiiiKiii","album":"WhyKiiiKiii - EP","albumId":"1","year":2026,"track":2,"duration":1,"suffix":"wav","bitRate":1411,"coverArt":"mf-s1"}"#.to_string(),
+                            r#"{"id":"s2","title":"Sweet Sour","artist":"KiiiKiii","album":"WhyKiiiKiii - EP","albumId":"1","track":4,"duration":1,"suffix":"wav","coverArt":"mf-s2"}"#.to_string(),
                         ];
                         for n in 0..filler {
                             let extra: Vec<String> = (0..40)
@@ -1996,8 +2001,10 @@ mod tests {
             (hey.artist.as_str(), hey.year, hey.format.as_str()),
             ("KiiiKiii", 2026, "WAV")
         );
-        // Both songs share the album's cover, fetched once.
+        // Both songs share the album's cover, fetched once, though each has its own cover id.
         wait(|| library.track(&hey.id).unwrap().unwrap().artwork);
+        let sweet = tracks.iter().find(|t| t.title == "Sweet Sour").unwrap();
+        wait(|| library.track(&sweet.id).unwrap().unwrap().artwork);
         let covers = requests
             .lock()
             .unwrap()
