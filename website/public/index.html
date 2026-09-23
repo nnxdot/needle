@@ -8,52 +8,80 @@
 <meta property="og:title" content="Needle — Your music, in its place.">
 <meta property="og:description" content="A music player for Windows, for the music you own. Made at NNX.">
 <meta property="og:url" content="https://needle.nnx.fyi/">
-<meta name="theme-color" content="#ffffff">
-<link rel="icon" href="/favicon.svg" type="image/svg+xml">
+<meta property="og:image" content="https://needle.nnx.fyi/icon-512.png">
+<meta name="theme-color" content="#171514">
+<link rel="icon" href="/favicon-64.png" type="image/png">
+<link rel="apple-touch-icon" href="/apple-touch-icon.png">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght,SOFT@9..144,500..700,0..100&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="/style.css">
 </head>
 <body>
 <a class="skip" href="#main">Skip to content</a>
 
+<!-- The logo: an amber record with its grooves, and a cream tonearm. -->
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <defs>
+    <g id="record">
+      <circle cx="45" cy="56" r="31" fill="#e1b36b"/>
+      <g fill="none" stroke="#c6944e" stroke-width="1.7">
+        <circle cx="45" cy="56" r="26.5"/><circle cx="45" cy="56" r="22.3"/><circle cx="45" cy="56" r="18.1"/>
+      </g>
+      <circle cx="45" cy="56" r="10.2" fill="#1b1816"/>
+      <circle cx="45" cy="56" r="2.6" fill="#e1b36b"/>
+    </g>
+    <g id="arm">
+      <path d="M61.5 41 81.5 17.5" stroke="#efe6d8" stroke-width="5.6" stroke-linecap="round"/>
+      <circle cx="82" cy="17" r="6.8" fill="#efe6d8"/>
+      <circle cx="82" cy="17" r="2.6" fill="#1b1816"/>
+    </g>
+  </defs>
+</svg>
+
 <header class="top">
   <div class="wrap top-row">
-    <a class="mark" href="#" aria-label="Needle home">needle<span class="dot">.</span></a>
+    <a class="brand" href="#" aria-label="Needle home">
+      <svg class="brand-mark" viewBox="0 0 100 100" aria-hidden="true"><use href="#record"/><use href="#arm"/></svg>
+      <span>Needle</span>
+    </a>
     <nav aria-label="Main navigation">
       <a href="#features">Features</a>
       <a href="#private">Privacy</a>
-      <a href="#download">Download</a>
-      <a href="https://nnx.fyi/">NNX</a>
+      <a class="nav-cta" href="#download">Download</a>
     </nav>
   </div>
 </header>
 
 <main id="main">
   <section class="hero" aria-labelledby="hero-title">
-    <p class="kicker"><span class="kicker-dot" aria-hidden="true"></span>A music player by NNX</p>
-    <h1 id="hero-title">Your music,<br><span class="soft">in its place</span><span class="dot">.</span></h1>
+    <div class="hero-logo" aria-hidden="true">
+      <svg viewBox="0 0 100 100">
+        <g class="spin"><use href="#record"/></g>
+        <use href="#arm"/>
+      </svg>
+    </div>
+    <h1 id="hero-title">Your music,<br><em>in its place.</em></h1>
     <p class="lede">A fast, careful player for the music you own.<br>Lossless, private, and yours to arrange.</p>
     <div class="actions">
       <a class="button primary" href="#download">Download for Windows
         <svg viewBox="0 0 20 20" aria-hidden="true"><path d="M10 3v10m0 0-4-4m4 4 4-4M4 16h12"/></svg></a>
       <a class="button quiet" href="#features">See what it does</a>
     </div>
-    <p class="fine">Version 1.0.0 · Windows 10 and 11 · Free</p>
+    <p class="fine">Version 1.0.0 · Windows 10 and 11 · Free · Made at <a href="https://nnx.fyi/">NNX</a></p>
   </section>
 
   <!-- A drawing of the app, with made-up albums. -->
   <section class="stage" aria-label="Needle's album view">
     <div class="app" role="img" aria-label="Needle showing a grid of albums, with a song playing.">
       <div class="app-title">
-        <span class="app-name"><i class="app-logo"></i>Needle</span>
+        <span class="app-name"><svg viewBox="0 0 100 100" aria-hidden="true"><use href="#record"/><use href="#arm"/></svg>Needle</span>
         <span class="app-search">Search, or write a rule like  rating &gt;= 4</span>
         <span class="app-win"><i></i><i></i><i></i></span>
       </div>
       <div class="app-body">
         <aside class="app-side">
-          <b class="on">Home</b><b>Songs</b><b class="sel">Albums</b><b>Artists</b><b>Folders</b>
+          <b>Home</b><b>Songs</b><b class="sel">Albums</b><b>Artists</b><b>Folders</b>
           <em>Collections</em><b>Favorites</b><b>Recently added</b><b>Listening history</b>
           <span class="grow"></span><b>Fix my library</b><b>Settings</b>
         </aside>
@@ -84,7 +112,7 @@
   <section id="features" class="features" aria-labelledby="features-title">
     <div class="wrap">
       <div class="section-head">
-        <h2 id="features-title">Made for the music you own<span class="dot">.</span></h2>
+        <h2 id="features-title">Made for the music <em>you own.</em></h2>
         <p>Your files, played properly. Everything below runs on your computer.</p>
       </div>
 
@@ -177,7 +205,7 @@
 
   <section class="more" aria-labelledby="more-title">
     <div class="wrap">
-      <h2 id="more-title">And the rest<span class="dot">.</span></h2>
+      <h2 id="more-title">And the rest.</h2>
       <dl class="list">
         <div><dt>Every format you have</dt><dd>FLAC, ALAC, WAV, AIFF, MP3, AAC, Ogg, Opus, WavPack, Monkey's Audio, DSD, and CUE sheets.</dd></div>
         <div><dt>Sound, done right</dt><dd>Gapless playback, crossfade, ReplayGain, an equalizer, and exclusive output for your DAC.</dd></div>
@@ -191,7 +219,7 @@
 
   <section id="private" class="private" aria-labelledby="private-title">
     <div class="wrap private-row">
-      <h2 id="private-title">Yours stays yours<span class="dot">.</span></h2>
+      <h2 id="private-title">Yours stays <em>yours.</em></h2>
       <div>
         <p>Needle works without an account and keeps your library on your computer. Looking up lyrics and covers online is off until you turn it on, and then it sends only the artist, album, and title.</p>
         <p>Your files are never moved or changed unless you ask. When you do, Needle keeps a backup.</p>
@@ -202,9 +230,9 @@
 
   <section id="download" class="download" aria-labelledby="download-title">
     <div class="wrap">
-      <p class="kicker"><span class="kicker-dot" aria-hidden="true"></span>Needle 1.0.0</p>
-      <h2 id="download-title">Bring your music home<span class="dot">.</span></h2>
-      <p class="lede">For Windows 10 and 11, 64-bit. No administrator needed.</p>
+      <img class="download-icon" src="/icon-512.png" width="112" height="112" alt="The Needle app icon: an amber record with a cream tonearm.">
+      <h2 id="download-title">Bring your music home.</h2>
+      <p class="lede">Needle 1.0.0 for Windows 10 and 11, 64-bit. No administrator needed.</p>
       <div class="actions">
         <a class="button primary" href="/download/Needle-Setup-1.0.0.exe">Download the installer
           <svg viewBox="0 0 20 20" aria-hidden="true"><path d="M10 3v10m0 0-4-4m4 4 4-4M4 16h12"/></svg></a>
@@ -218,8 +246,11 @@
 <footer class="foot">
   <div class="wrap">
     <div class="foot-row">
-      <a class="mark big" href="#" aria-label="Needle home">needle<span class="dot">.</span></a>
-      <p>A music player.<br>Made at <a href="https://nnx.fyi/">NNX</a>.</p>
+      <a class="brand big" href="#" aria-label="Needle home">
+        <svg class="brand-mark" viewBox="0 0 100 100" aria-hidden="true"><use href="#record"/><use href="#arm"/></svg>
+        <span>Needle</span>
+      </a>
+      <p>Your music, in its place.<br>Made at <a href="https://nnx.fyi/">NNX</a>.</p>
     </div>
     <div class="foot-row small">
       <span>© 2026 NNX</span>
