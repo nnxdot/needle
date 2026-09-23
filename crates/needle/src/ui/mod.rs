@@ -1841,6 +1841,7 @@ impl Render for AppView {
             f32::from(width) - sidebar - if show_panel { panel_width } else { 0. } - 1.;
         let backdrop = self.page_backdrop(cx);
         let grain = self.grain(window, cx);
+        let ambient_layer = self.ambient_layer(cx);
         self.glide_lyrics(window, cx);
         if self.big != self.big_was {
             self.big_was = self.big;
@@ -2031,6 +2032,7 @@ impl Render for AppView {
             // The title bar must stay outside the focusable body: a focusable element under the
             // pointer consumes the mouse-down, and Windows then never starts a drag, resize, or
             // maximize from the title bar.
+            .children(ambient_layer)
             .child(self.title_bar(sidebar, window, cx))
             .child(
                 div()

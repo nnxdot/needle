@@ -88,7 +88,13 @@ impl AppView {
                     cx.notify();
                 }))
         };
-        let fit = look.as_ref().map_or(1., |l| l.strength(p.dark));
+        let ambient = self.ambient_look();
+        // Ambient: the cover fills the whole screen at full strength.
+        let fit = if ambient {
+            1.
+        } else {
+            look.as_ref().map_or(1., |l| l.strength(p.dark))
+        };
         let backdrop = look.and_then(|l| l.blur).map(|blur| {
             img(blur)
                 .absolute()
@@ -97,7 +103,15 @@ impl AppView {
                 .w(px(w * 1.2))
                 .h(px(h * 1.2))
                 .object_fit(ObjectFit::Cover)
-                .opacity(if p.dark { 0.85 } else { 0.55 } * fit)
+                .opacity(
+                    if ambient {
+                        1.
+                    } else if p.dark {
+                        0.85
+                    } else {
+                        0.55
+                    } * fit,
+                )
         });
         let player = div()
             .id("big-player")

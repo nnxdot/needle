@@ -239,6 +239,11 @@ impl AppView {
             }
             _ => target = target.glass(self.settings.glass_amount, self.settings.glass_page, 0.8),
         }
+        // Ambient: the bars and the page float over the full-window cover, part see-through.
+        if self.ambient_look() {
+            target.back = target.chrome.opacity(0.5);
+            target.canvas = target.canvas.opacity(0.62);
+        }
         let shown = theme::pal(cx);
         if target != self.fade.to {
             // Switching dark and light snaps; covers fade.
@@ -337,6 +342,60 @@ fn make_grain(path: &Path) -> Option<PathBuf> {
 }
 
 impl AppView {
+    pub(super) fn ambient_look(&self) -> bool {
+        Base::from_name(&self.settings.theme) == Base::Ambient
+    }
+
+    /// The Ambient look's background: the page's or the playing song's cover, blurred, over
+    /// the whole window (or the chosen colour as a soft gradient), with a dark wash on top so
+    /// text stays readable on any cover.
+    pub(super) fn ambient_layer(&mut self, cx: &App) -> Option<AnyElement> {
+        if !self.ambient_look() {
+            return None;
+        }
+        let p = theme::pal(cx);
+        let path = self
+            .settings
+            .music_colors
+            .then(|| {
+                self.page_art().or_else(|| {
+                    self.playback
+                        .current
+                        .as_ref()
+                        .and_then(|c| c.track.artwork.clone())
+                })
+            })
+            .flatten();
+        let blur = path
+            .and_then(|path| self.look(&path))
+            .and_then(|look| look.blur.clone().map(|b| (b, look.strength(true).max(0.6))));
+        let layer = div().absolute().inset_0().bg(p.chrome);
+        let layer = match blur {
+            Some((blur, fit)) => layer.child(
+                img(blur)
+                    .absolute()
+                    .inset_0()
+                    .size_full()
+                    .object_fit(ObjectFit::Cover)
+                    .opacity(0.8 * fit),
+            ),
+            None => layer.child(div().absolute().inset_0().bg(linear_gradient(
+                150.,
+                linear_color_stop(p.glow.opacity(0.55), 0.),
+                linear_color_stop(p.glow.opacity(0.08), 1.),
+            ))),
+        };
+        Some(
+            layer
+                .child(div().absolute().inset_0().bg(linear_gradient(
+                    180.,
+                    linear_color_stop(p.chrome.opacity(0.3), 0.),
+                    linear_color_stop(p.chrome.opacity(0.65), 1.),
+                )))
+                .into_any_element(),
+        )
+    }
+
     /// The glow behind the current page: an album's or artist's own picture on their pages,
     /// otherwise the playing song's cover.
     pub(super) fn page_backdrop(&mut self, cx: &App) -> AnyElement {
@@ -358,7 +417,8 @@ impl AppView {
             super::Page::Home => (playing, 440., 1.),
             _ => (playing, 300., 0.55),
         };
-        if path.is_none() && !self.settings.music_colors {
+        // Ambient paints the whole window instead; no band on top of it.
+        if self.ambient_look() || (path.is_none() && !self.settings.music_colors) {
             return div().into_any_element();
         }
         self.backdrop(path.as_deref(), height, strength, cx)

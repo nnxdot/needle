@@ -228,6 +228,7 @@ impl Render for MiniView {
         let (current, playing, position, volume, seek, volume_state, blur, material) = {
             let a = app.read(cx);
             let material = a.material();
+            let ambient = a.ambient_look();
             let blur = a
                 .settings
                 .music_colors
@@ -251,9 +252,10 @@ impl Render for MiniView {
                 self.seek.clone(),
                 self.volume.clone(),
                 blur,
-                material,
+                (material, ambient),
             )
         };
+        let (material, ambient) = material;
         // Follow playback, changing the sliders only when they are off, so a frame is not
         // redrawn for nothing.
         let seek_value = match &current {
@@ -315,7 +317,8 @@ impl Render for MiniView {
             .size_full()
             .relative()
             .overflow_hidden()
-            .bg(p.back)
+            // Ambient has no desktop glass behind the mini player: keep a solid base.
+            .bg(if ambient { p.chrome } else { p.back })
             .text_color(p.ink)
             .flex()
             .flex_col()
@@ -327,7 +330,16 @@ impl Render for MiniView {
                         .inset_0()
                         .size_full()
                         .object_fit(ObjectFit::Cover)
-                        .opacity(if p.dark { 0.55 } else { 0.4 } * (0.4 + 0.6 * p.back.a) * fit),
+                        .opacity(
+                            if ambient {
+                                0.8
+                            } else if p.dark {
+                                0.55
+                            } else {
+                                0.4
+                            } * (0.4 + 0.6 * p.back.a)
+                                * fit,
+                        ),
                 )
                 .child(div().absolute().inset_0().bg(linear_gradient(
                     180.,
