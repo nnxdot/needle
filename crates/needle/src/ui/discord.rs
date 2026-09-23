@@ -23,39 +23,58 @@ impl AppView {
             .discord
             .get_or_insert_with(|| Presence::start(APP_ID.to_string()));
         let now = chrono::Utc::now().timestamp();
-        let activity = self.playback.current.as_ref().map(|item| {
-            let track = &item.track;
-            let started = now - self.playback.position.round() as i64;
-            Activity {
-                title: track.title.clone(),
-                artist: track.display_artist().to_string(),
-                album: track.album.clone(),
-                started,
-                ends: (track.duration > 0.).then(|| started + track.duration.round() as i64),
-                paused: !self.playback.playing,
-                find_cover: self.settings.discord_covers,
-                cover: None,
-                layout: Layout {
-                    title: Field::from_name(&self.settings.discord_title),
-                    top: Field::from_name(&self.settings.discord_top),
-                    middle: Field::from_name(&self.settings.discord_middle),
-                    bottom: Field::from_name(&self.settings.discord_bottom),
-                    logo: self.settings.discord_logo,
-                },
-            }
-        });
+        // Nothing playing for a while (paused or stopped): the status goes away, so it does
+        // not sit on the profile. Playing again brings it back.
+        if self.playback.playing {
+            self.discord_idle_since = None;
+        } else if self.discord_idle_since.is_none() {
+            self.discord_idle_since = Some(now);
+        }
+        let idle = self.settings.discord_idle_minutes > 0
+            && self
+                .discord_idle_since
+                .is_some_and(|since| now - since >= self.settings.discord_idle_minutes as i64 * 60);
+        let hidden = idle || (!self.playback.playing && !self.settings.discord_paused);
+        let activity = self
+            .playback
+            .current
+            .as_ref()
+            .filter(|_| !hidden)
+            .map(|item| {
+                let track = &item.track;
+                let started = now - self.playback.position.round() as i64;
+                Activity {
+                    title: track.title.clone(),
+                    artist: track.display_artist().to_string(),
+                    album: track.album.clone(),
+                    started,
+                    ends: (track.duration > 0.).then(|| started + track.duration.round() as i64),
+                    paused: !self.playback.playing,
+                    find_cover: self.settings.discord_covers,
+                    cover: None,
+                    layout: Layout {
+                        title: Field::from_name(&self.settings.discord_title),
+                        top: Field::from_name(&self.settings.discord_top),
+                        middle: Field::from_name(&self.settings.discord_middle),
+                        bottom: Field::from_name(&self.settings.discord_bottom),
+                        logo: self.settings.discord_logo,
+                    },
+                }
+            });
         let key = activity
             .as_ref()
             .map(|a| (format!("{}\u{1}{}", a.title, a.artist), a.paused, a.started));
-        let changed = match (&self.discord_sent, &key) {
-            (None, None) => false,
-            (Some((song, paused, started)), Some((new_song, new_paused, new_started))) => {
-                song != new_song
-                    || paused != new_paused
-                    || (!new_paused && (started - new_started).abs() > 2)
-            }
-            _ => true,
-        };
+        let refresh = std::mem::take(&mut self.discord_refresh);
+        let changed = refresh
+            || match (&self.discord_sent, &key) {
+                (None, None) => false,
+                (Some((song, paused, started)), Some((new_song, new_paused, new_started))) => {
+                    song != new_song
+                        || paused != new_paused
+                        || (!new_paused && (started - new_started).abs() > 2)
+                }
+                _ => true,
+            };
         if changed {
             presence.set(activity);
             self.discord_sent = key;

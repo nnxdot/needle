@@ -156,6 +156,11 @@ pub struct Settings {
     pub discord_middle: String,
     pub discord_bottom: String,
     pub discord_logo: bool,
+    /// Keep showing the song on Discord while it is paused.
+    pub discord_paused: bool,
+    /// Minutes of nothing playing (paused or stopped) before the Discord status is cleared;
+    /// 0 keeps it.
+    pub discord_idle_minutes: u32,
     /// Font for page titles: "system", "bahnschrift", or "fraunces".
     pub display_font: String,
     /// Color for the interface when colors from the music are off: a hex color like
@@ -177,6 +182,9 @@ pub struct Settings {
     pub remote_key: String,
     /// Equalizer presets the listener saved.
     pub eq_presets: Vec<crate::dsp::UserPreset>,
+    /// An icon in the notification area; closing the window hides it there and the music
+    /// plays on.
+    pub tray: bool,
 }
 
 /// One column of the song table.
@@ -218,6 +226,8 @@ impl Default for Settings {
             discord_middle: "song".into(),
             discord_bottom: "album".into(),
             discord_logo: true,
+            discord_paused: true,
+            discord_idle_minutes: 10,
             display_font: "system".into(),
             accent_color: String::new(),
             ambient: false,
@@ -234,6 +244,7 @@ impl Default for Settings {
             remote: false,
             remote_key: String::new(),
             eq_presets: vec![],
+            tray: false,
         }
     }
 }
@@ -245,6 +256,8 @@ pub struct Layout {
     pub sidebar_width: f32,
     pub inspector_width: f32,
     pub row_height: f32,
+    /// The left sidebar is folded away (Ctrl+B, or the button beside the Needle name).
+    pub sidebar_hidden: bool,
 }
 
 impl Default for Layout {
@@ -254,6 +267,7 @@ impl Default for Layout {
             sidebar_width: 212.0,
             inspector_width: 284.0,
             row_height: 52.0,
+            sidebar_hidden: false,
         }
     }
 }

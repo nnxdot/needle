@@ -51,6 +51,7 @@ wat = { version = "1.259.0", default-features = false }
 wasapi = "=0.24.0"
 keyring = { version = "3.6", features = ["windows-native"] }
 windows-sys = { version = "0.52", features = ["Win32_Foundation", "Win32_System_Pipes", "Win32_System_Threading", "Win32_UI_Shell"] }
+windows = { version = "0.61", features = ["Win32_Foundation", "Win32_Media_MediaFoundation", "Win32_System_Com", "Win32_System_Com_StructuredStorage", "Win32_System_Variant"] }
 
 [dev-dependencies]
 tempfile = "3"

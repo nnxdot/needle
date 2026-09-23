@@ -30,6 +30,7 @@ mod suggest;
 mod tags;
 mod theme;
 mod timing;
+mod tray;
 mod updates;
 mod welcome;
 mod widgets;
@@ -85,6 +86,7 @@ actions!(
         VolumeUp,
         VolumeDown,
         ToggleQueue,
+        ToggleSidebar,
         GoBack,
         FocusNext,
         FocusPrevious,
@@ -284,6 +286,7 @@ enum Event {
     MediaKey(media_keys::Key),
     ImportProgress(String),
     Plugin(needle_core::plugins::HostAction),
+    Tray(tray::TrayAction),
     PaletteFound(
         u64,
         Vec<Track>,
@@ -436,6 +439,12 @@ pub struct AppView {
     last_item: Option<(QueueItem, Instant)>,
     mini: Option<AnyWindowHandle>,
     sound: sound::SoundControls,
+    /// When playback last stopped or paused, for clearing the Discord status after a while.
+    discord_idle_since: Option<i64>,
+    /// The tray icon, while hide to tray is on.
+    tray: Option<tray::Tray>,
+    /// The window is hidden in the tray.
+    hidden: bool,
     /// The welcome guide's step, while it is open.
     welcome_step: Option<usize>,
     /// The phone remote, while it is on.
@@ -464,6 +473,9 @@ pub struct AppView {
     discord: Option<needle_core::discord::Presence>,
     /// What Discord was last told: song, paused, and start second.
     discord_sent: Option<(String, bool, i64)>,
+    /// A Discord setting changed: tell Discord again even if nothing else did (including
+    /// clearing the status).
+    discord_refresh: bool,
 }
 
 pub fn run(library: Library, files: Vec<std::path::PathBuf>) -> Result<()> {
@@ -513,6 +525,7 @@ pub fn run(library: Library, files: Vec<std::path::PathBuf>) -> Result<()> {
                 KeyBinding::new("ctrl-k", OpenPalette, Some("Needle")),
                 KeyBinding::new("ctrl-o", ImportFolder, Some("Needle")),
                 KeyBinding::new("ctrl-j", ToggleQueue, Some("Needle")),
+                KeyBinding::new("ctrl-b", ToggleSidebar, Some("Needle")),
                 KeyBinding::new("escape", EscapePanel, Some("Needle")),
                 KeyBinding::new("tab", FocusNext, tracks),
                 KeyBinding::new("ctrl-p", ToggleBigPlayer, Some("Needle")),
@@ -758,6 +771,9 @@ impl AppView {
             speaker_timing: Default::default(),
             remote: None,
             welcome_step: None,
+            tray: None,
+            hidden: false,
+            discord_idle_since: None,
             palette,
             page_serial: 0,
             sort: Sort::Default,
@@ -846,6 +862,7 @@ impl AppView {
             acoustid_key,
             discord: None,
             discord_sent: None,
+            discord_refresh: false,
         };
         view.refresh(cx);
         view.load_home();
@@ -853,6 +870,7 @@ impl AppView {
         view.start_measuring();
         view.check_for_update(false);
         view.apply_remote();
+        view.apply_tray();
         view.maybe_welcome();
         {
             // Crash reports from earlier runs: send them (unless turned off), in the background.
@@ -870,6 +888,21 @@ impl AppView {
             }
         }
         cx.on_release(|_, cx| cx.quit()).detach();
+        {
+            // With hide to tray on, closing hides the window instead; the music plays on.
+            let weak = cx.entity().downgrade();
+            window.on_window_should_close(cx, move |window, cx| {
+                weak.update(cx, |this, _| {
+                    if this.tray.is_some() {
+                        this.hide_to_tray(window);
+                        false
+                    } else {
+                        true
+                    }
+                })
+                .unwrap_or(true)
+            });
+        }
         cx.spawn_in(window, async move |view, cx| {
             // Poll often while playing so the seek bar glides; rarely while paused.
             let mut every = 120;
@@ -910,6 +943,10 @@ impl AppView {
         self.scrobble_summary = integrations::scrobble_summary(&self.library).ok();
     }
 
+    fn toggle_sidebar(&mut self) {
+        self.settings.layout.sidebar_hidden = !self.settings.layout.sidebar_hidden;
+        self.persist_settings();
+    }
     fn persist_settings(&mut self) {
         self.settings.volume = self.playback.volume;
         if let Err(e) = self.library.save_settings(&self.settings) {
@@ -1075,6 +1112,10 @@ impl AppView {
                 Event::BlendChoices(artist, choices) => self.blend_choices(artist, choices),
                 Event::Speakers(found) => self.speakers_found(found),
                 Event::OpenFiles(files) => {
+                    // Opening Needle again (or a file with it) brings it back from the tray.
+                    if self.hidden {
+                        self.show_from_tray(window);
+                    }
                     window.activate_window();
                     if !files.is_empty() {
                         self.open_files(files);
@@ -1084,6 +1125,7 @@ impl AppView {
                 Event::UpdateStarted(result) => self.update_started(result, cx),
                 Event::ImportProgress(message) => self.import.busy = Some(message),
                 Event::Plugin(action) => self.plugin_action(action, cx),
+                Event::Tray(action) => self.tray_action(action, window, cx),
                 Event::PaletteFound(generation, songs, albums, artists) => {
                     self.palette_found(generation, songs, albums, artists)
                 }
@@ -2009,12 +2051,19 @@ impl Render for AppView {
         }
         let p = pal(cx);
         let width = window.viewport_size().width;
+        let sidebar_open = !self.settings.layout.sidebar_hidden;
+        let sidebar = if sidebar_open {
+            self.settings.layout.sidebar_width.clamp(200., 260.)
+        } else {
+            0.
+        };
+        let panel_width = self.settings.layout.inspector_width.clamp(280., 340.) + 16.;
+        // The side panel shows when the page keeps at least 360 px beside it, so a narrow
+        // window with the sidebar folded away still has room for the queue.
         let show_panel = self.settings.show_inspector
-            && width > px(1080.)
+            && f32::from(width) - sidebar - panel_width >= 360.
             && self.total > 0
             && (self.page.is_tracks() || self.panel == Panel::Queue);
-        let sidebar = self.settings.layout.sidebar_width.clamp(200., 260.);
-        let panel_width = self.settings.layout.inspector_width.clamp(280., 340.) + 16.;
         // The page and the side panel share one content surface to the right of the sidebar.
         let content_width =
             f32::from(width) - sidebar - if show_panel { panel_width } else { 0. } - 1.;
@@ -2148,6 +2197,10 @@ impl Render for AppView {
                 this.set_rating(&ids, rating);
                 cx.notify();
             }))
+            .on_action(cx.listener(|this, _: &ToggleSidebar, _, cx| {
+                this.toggle_sidebar();
+                cx.notify();
+            }))
             .on_action(cx.listener(|this, _: &ToggleQueue, _, cx| {
                 if this.settings.show_inspector && this.panel == Panel::Queue {
                     this.settings.show_inspector = false;
@@ -2229,7 +2282,7 @@ impl Render for AppView {
                                 .min_h_0()
                                 .flex()
                                 .bg(p.back)
-                                .child(self.sidebar(sidebar, cx))
+                                .when(sidebar_open, |el| el.child(self.sidebar(sidebar, cx)))
                                 .child(
                                     // The content surface: flush with the window's right edge
                                     // and the player, one hairline and a rounded corner where it

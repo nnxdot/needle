@@ -153,11 +153,16 @@ pub fn cover(path: Option<&str>, seed: &str, size: f32, cx: &App) -> AnyElement 
     let p = pal(cx);
     let radius = px((size * 0.06).clamp(3., 8.));
     if let Some(path) = path {
-        return img(PathBuf::from(path))
+        return div()
             .size(px(size))
             .flex_shrink_0()
-            .object_fit(ObjectFit::Cover)
             .rounded(radius)
+            .overflow_hidden()
+            .child(
+                img(PathBuf::from(path))
+                    .size_full()
+                    .object_fit(ObjectFit::Cover),
+            )
             .into_any_element();
     }
     let _ = radius;
