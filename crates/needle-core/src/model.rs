@@ -122,6 +122,8 @@ pub struct Settings {
     /// Color for the interface when colors from the music are off: a hex color like
     /// "#3e63dd", or empty for Needle's amber.
     pub accent_color: String,
+    /// The cover (or the chosen color) fills the whole background, with any look.
+    pub ambient: bool,
 }
 
 impl Default for Settings {
@@ -155,6 +157,7 @@ impl Default for Settings {
             discord_logo: true,
             display_font: "system".into(),
             accent_color: String::new(),
+            ambient: false,
         }
     }
 }

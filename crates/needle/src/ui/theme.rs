@@ -2,8 +2,8 @@ use gpui::{App, Global, Hsla, Pixels, Window, hsla, px, rgb};
 use gpui_component::{Theme, ThemeMode};
 
 /// Colours the component theme has no slot for. Read with `pal(cx)`.
-/// The base looks. Colour from the music tints whichever one is chosen; Ambient lets it fill
-/// the whole background.
+/// The base looks. Colour from the music tints whichever one is chosen; the Ambient setting
+/// lets it fill the whole background of any of them.
 #[derive(Clone, Copy, PartialEq, Debug)]
 pub enum Base {
     /// Warm charcoal.
@@ -12,23 +12,18 @@ pub enum Base {
     Midnight,
     /// Light.
     Day,
-    /// The cover (or the chosen colour) fills the whole background, blurred, with the
-    /// interface floating over it.
-    Ambient,
 }
 impl Base {
-    /// Settings value and the name people see.
-    pub const ALL: [(&'static str, &'static str); 4] = [
-        ("dark", "Night"),
-        ("midnight", "Midnight"),
-        ("light", "Day"),
-        ("ambient", "Ambient"),
+    /// Settings value, the name people see, and a few words about it.
+    pub const ALL: [(&'static str, &'static str, &'static str); 3] = [
+        ("dark", "Night", "Warm charcoal"),
+        ("midnight", "Midnight", "True black"),
+        ("light", "Day", "Light and airy"),
     ];
     pub fn from_name(name: &str) -> Self {
         match name {
             "light" => Self::Day,
             "midnight" => Self::Midnight,
-            "ambient" => Self::Ambient,
             _ => Self::Night,
         }
     }
@@ -135,24 +130,27 @@ pub fn contrast(a: Hsla, b: Hsla) -> f32 {
 
 impl Palette {
     /// A palette for `base`, tinted toward `tint` (a cover's colour) when there is one.
-    pub fn build(base: Base, tint: Option<Hsla>) -> Self {
+    /// `ambient` tints the surfaces much more strongly, for the full-window background.
+    pub fn build(base: Base, tint: Option<Hsla>, ambient: bool) -> Self {
         // Covers that are nearly grey keep the default accent.
         let tint = tint.filter(|t| t.s > 0.14 && t.l > 0.06 && t.l < 0.96);
         let (hue, sat): (f32, f32) = match (tint, base) {
+            (Some(t), Base::Day) if ambient => (t.h, 0.3),
             (Some(t), Base::Day) => (t.h, 0.16),
-            (Some(t), Base::Ambient) => (t.h, 0.34),
+            (Some(t), _) if ambient => (t.h, 0.34),
+            // Midnight stays neutral black; only the accent takes the colour.
+            (Some(t), Base::Midnight) => (t.h, 0.0),
             (Some(t), _) => (t.h, 0.13),
-            (None, Base::Ambient) => (0.083, 0.22),
-            (None, Base::Midnight) => (0.62, 0.22),
+            (None, _) if ambient => (0.083, 0.2),
+            (None, Base::Midnight) => (0.0, 0.0),
             (None, _) => (0.083, 0.05),
         };
         let n = |l: f32| hsla(hue, sat, l, 1.);
         let dark = base != Base::Day;
         let (chrome, canvas, raised, raised_hover, line, line_soft) = match base {
             Base::Night => (n(0.05), n(0.082), n(0.118), n(0.152), n(0.165), n(0.125)),
-            Base::Midnight => (n(0.028), n(0.052), n(0.088), n(0.122), n(0.14), n(0.098)),
+            Base::Midnight => (n(0.0), n(0.03), n(0.07), n(0.105), n(0.125), n(0.085)),
             Base::Day => (n(0.935), n(0.985), n(0.93), n(0.9), n(0.865), n(0.915)),
-            Base::Ambient => (n(0.07), n(0.1), n(0.15), n(0.19), n(0.21), n(0.16)),
         };
         let ink_sat = sat.min(0.1);
         let (ink, ink_2, ink_3) = if dark {
@@ -259,7 +257,7 @@ impl Palette {
 pub const RADIUS: Pixels = px(6.);
 
 pub fn set_theme(mode: &str, window: Option<&mut Window>, cx: &mut App) {
-    let p = Palette::build(Base::from_name(mode), None);
+    let p = Palette::build(Base::from_name(mode), None, false);
     Theme::change(
         if p.dark {
             ThemeMode::Dark
@@ -361,8 +359,11 @@ mod tests {
                 Some(hsla(0.0, 0.0, 0.5, 1.)),
             ]);
         for tint in tints {
-            for base in [Base::Night, Base::Midnight, Base::Day, Base::Ambient] {
-                let p = Palette::build(base, tint);
+            for (base, ambient) in [Base::Night, Base::Midnight, Base::Day]
+                .into_iter()
+                .flat_map(|b| [(b, false), (b, true)])
+            {
+                let p = Palette::build(base, tint, ambient);
                 for (surface_name, surface) in [
                     ("chrome", p.chrome),
                     ("canvas", p.canvas),
@@ -378,13 +379,13 @@ mod tests {
                         let ratio = contrast(text, surface);
                         assert!(
                             ratio >= 4.5,
-                            "{text_name} on {surface_name} ({base:?}, tint {tint:?}) is {ratio:.2}:1"
+                            "{text_name} on {surface_name} ({base:?}, ambient {ambient}, tint {tint:?}) is {ratio:.2}:1"
                         );
                     }
                 }
                 assert!(
                     contrast(p.accent_ink, p.accent) >= 4.5,
-                    "button label on accent ({base:?}, tint {tint:?})"
+                    "button label on accent ({base:?}, ambient {ambient}, tint {tint:?})"
                 );
             }
         }
@@ -393,7 +394,7 @@ mod tests {
     /// Glass only thins the back layer (and the page when asked), never text colours.
     #[test]
     fn glass_thins_surfaces_only() {
-        let p = Palette::build(Base::Night, None);
+        let p = Palette::build(Base::Night, None, false);
         let solid = p.glass(0., false, 0.8);
         assert_eq!(solid.back, p.chrome);
         let glass = p.glass(1., false, 0.8);
