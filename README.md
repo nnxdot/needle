@@ -111,6 +111,24 @@ Last.fm requires an application API key and shared secret from [a registered API
 
 Qualified plays are queued locally and retried in chronological order every minute, with backoff after failures. Local qualification requires half the track or four minutes; Last.fm also requires a track longer than 30 seconds. Responses that can never succeed (missing artist/title, invalid parameters, a scrobble Last.fm ignores as too old) mark that listen as failed instead of retrying it forever. A rejected session or token pauses that service's queue, with a "sign in again" message, until the credential changes; nothing is dropped. Network errors, rate limits, and service outages are retried. `needle-cli scrobble` submits due listens and prints queue counts, the latest error, and the next retry time. [Last.fm scrobbling rules](https://www.last.fm/api/scrobbling), [ListenBrainz API](https://listenbrainz.readthedocs.io/en/latest/users/api/core.html).
 
+## Themes
+
+A custom theme is a small TOML file in the library's `themes` folder. It starts from one of the looks (Night, Midnight, or Day) and changes any of 14 colors; the colors it leaves out follow the base look and the colors it sets.
+
+```toml
+name = "Sakura"
+base = "light"          # dark (Night), midnight, or light (Day)
+music_colors = true     # may colors from the music tint what the theme leaves out
+[colors]
+page = "#fff5f7"
+accent = "#c2185b"
+[extras]
+grain = 0.15            # film grain, 0 to 1
+font = "fraunces"       # title font: system, bahnschrift, or fraunces
+```
+
+Colors are `sidebar`, `page`, `card`, `card_hover`, `border`, `border_soft`, `text`, `text_muted`, `text_faint`, `accent`, `accent_text`, `danger`, `success`, and `glow`. Text colors are moved just enough to meet WCAG AA contrast (4.5:1) on the sidebar, page, and cards; when nothing can read on both, the sidebar moves toward the page. Themes show next to the built-in looks in Settings › Appearance. *Make a copy* starts a theme from the look in use and opens an editor with a color picker per color that saves as you go. *Export…* saves the theme to share, and *Add a theme…* or dropping a `.toml` file on the window adds one without overwriting. Needle notices edits to theme files within two seconds. Plugins can bring themes in a `themes` folder (a plugin with only themes needs no script); those show while the plugin is on and are copied to be changed. The full guide is at https://needle.nnx.fyi/themes.
+
 ## Plugins
 
 Plugins are small [Rhai](https://rhai.rs) scripts. Each lives in its own folder inside the library's `plugins` folder (Settings › Plugins › *Open plugins folder*) with a `plugin.toml`:

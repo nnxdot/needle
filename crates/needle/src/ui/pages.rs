@@ -1,5 +1,5 @@
 use super::{
-    AppView, Event, motion, pal, set_theme,
+    AppView, Event, motion, pal,
     widgets::{
         faint, glyph, heading, icon, meta, page_title, segmented, setting_row, small_button, strong,
     },
@@ -693,9 +693,34 @@ impl AppView {
                     })
                     // Appearance
                     .when(tab == 3, |el| {
-                        let theme_cards: Vec<AnyElement> = super::theme::Base::ALL
+                        let mut looks: Vec<(String, String, String)> = super::theme::Base::ALL
                             .iter()
-                            .map(|(mode, name, about)| self.theme_card(mode, name, about, cx).into_any_element())
+                            .map(|(mode, name, about)| (mode.to_string(), name.to_string(), about.to_string()))
+                            .collect();
+                        if let Some(themes) = cx.try_global::<super::themes::Themes>() {
+                            looks.extend(themes.list.iter().map(|t| {
+                                let about = if t.read_only {
+                                    format!("From {}", t.id.split('/').next().unwrap_or_default())
+                                } else if !t.author.is_empty() {
+                                    format!("By {}", t.author)
+                                } else {
+                                    "Your theme".to_string()
+                                };
+                                (t.mode(), t.name.clone(), about)
+                            }));
+                        }
+                        // Four to a row (a wrapping row would grow too tall; see gpui notes).
+                        let theme_rows: Vec<AnyElement> = looks
+                            .chunks(4)
+                            .map(|row| {
+                                div()
+                                    .flex()
+                                    .gap_4()
+                                    .children(row.iter().map(|(mode, name, about)| {
+                                        self.theme_card(mode.clone(), name.clone(), about.clone(), cx).into_any_element()
+                                    }))
+                                    .into_any_element()
+                            })
                             .collect();
                         el
                     .child(self.section_title("Appearance", "", cx))
@@ -708,7 +733,9 @@ impl AppView {
                             .border_b_1()
                             .border_color(p.line_soft)
                             .child(super::widgets::strong("Look"))
-                            .child(div().flex().gap_4().children(theme_cards)),
+                            .children(theme_rows)
+                            .child(self.theme_actions(cx))
+                            .children(self.theme_editor_view(cx)),
                     )
                     .child(setting_row(
                         "Ambient background",
@@ -753,7 +780,7 @@ impl AppView {
                         })),
                         cx,
                     ))
-                    .when(!self.settings.music_colors, |el| el.child(self.accent_settings(cx)))
+                    .when(!self.settings.music_colors && self.accent_choice_applies(cx), |el| el.child(self.accent_settings(cx)))
                     .child(setting_row(
                         "Reduce motion",
                         if motion::system_allows_animation() {
@@ -1097,14 +1124,20 @@ impl AppView {
     /// that is on), that switches to it when clicked.
     fn theme_card(
         &self,
-        mode: &'static str,
-        name: &'static str,
-        about: &'static str,
+        mode: String,
+        name: String,
+        about: String,
         cx: &mut Context<Self>,
     ) -> impl IntoElement {
         let p = pal(cx);
-        let base = super::theme::Base::from_name(mode);
-        let active = super::theme::Base::from_name(&self.settings.theme) == base;
+        let custom = |m: &str| m.starts_with("custom:");
+        // Old settings may hold other names for the base looks, so those compare by look.
+        let active = if custom(&mode) || custom(&self.settings.theme) {
+            self.settings.theme == mode
+        } else {
+            super::theme::Base::from_name(&self.settings.theme)
+                == super::theme::Base::from_name(&mode)
+        };
         let ambient = self.ambient_look();
         let tint = if self.settings.music_colors {
             self.playback
@@ -1116,7 +1149,7 @@ impl AppView {
         } else {
             super::theme::parse_hex(&self.settings.accent_color)
         };
-        let look = super::theme::Palette::build(base, tint, ambient);
+        let look = super::theme::look(&mode, tint, ambient, cx);
         let bar = |w: f32, color: Hsla| div().h(px(4.)).w(px(w)).rounded(px(2.)).bg(color);
         // The window: the back layer, or with Ambient a wash of the music's color behind it all.
         let window_bg = if ambient {
@@ -1146,6 +1179,7 @@ impl AppView {
         };
         div()
             .id(SharedString::from(format!("theme-{mode}")))
+            .w(px(172.))
             .flex()
             .flex_col()
             .gap(px(6.))
@@ -1202,16 +1236,20 @@ impl AppView {
             .child(
                 div()
                     .text_size(px(13.))
+                    .truncate()
                     .when(active, |el| el.font_weight(FontWeight::SEMIBOLD))
                     .text_color(if active { p.ink } else { p.ink_2 })
                     .child(name),
             )
-            .child(div().text_size(px(11.5)).text_color(p.ink_3).child(about))
+            .child(
+                div()
+                    .text_size(px(11.5))
+                    .truncate()
+                    .text_color(p.ink_3)
+                    .child(about),
+            )
             .on_click(cx.listener(move |this, _, window, cx| {
-                set_theme(mode, Some(window), cx);
-                this.settings.theme = mode.into();
-                this.persist_settings();
-                cx.notify();
+                this.choose_look(&mode, window, cx);
             }))
     }
 }
@@ -1615,10 +1653,11 @@ impl AppView {
                         .enumerate()
                         .map(|(i, (hex, name))| {
                             let selected = self.settings.accent_color == *hex;
-                            let look = super::theme::Palette::build(
-                                super::theme::Base::from_name(&self.settings.theme),
+                            let look = super::theme::look(
+                                &self.settings.theme,
                                 super::theme::parse_hex(hex),
                                 false,
+                                cx,
                             );
                             let hex = hex.to_string();
                             div()

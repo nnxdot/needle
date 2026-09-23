@@ -128,6 +128,29 @@ pub fn contrast(a: Hsla, b: Hsla) -> f32 {
     (a.max(b) + 0.05) / (a.min(b) + 0.05)
 }
 
+/// `color`, or the nearest lighter or darker version of it, that reads (4.5:1) on every one
+/// of `surfaces`; lighter first when `lighter` is set. `None` when nothing can.
+fn readable_version(color: Hsla, surfaces: &[Hsla], lighter: bool) -> Option<Hsla> {
+    let ok = |c: Hsla| surfaces.iter().all(|s| contrast(c, *s) >= 4.5);
+    if ok(color) {
+        return Some(color);
+    }
+    let walk = |up: bool| {
+        let mut l = color.l;
+        while (0.0..=1.0).contains(&l) {
+            let candidate = hsla(color.h, color.s, l.clamp(0., 1.), 1.);
+            if ok(candidate) {
+                return Some(candidate);
+            }
+            l += if up { 0.02 } else { -0.02 };
+        }
+        [c(0xffffff), c(0x000000)]
+            .into_iter()
+            .find(|c| ok(*c) && (luminance(*c) > 0.5) == up)
+    };
+    walk(lighter).or_else(|| walk(!lighter))
+}
+
 impl Palette {
     /// A palette for `base`, tinted toward `tint` (a cover's colour) when there is one.
     /// `ambient` tints the surfaces much more strongly, for the full-window background.
@@ -217,6 +240,138 @@ impl Palette {
         }
     }
 
+    /// The palette for a custom theme: its base look (tinted by the music when the theme
+    /// allows), with the theme's colours on top. Colours it leaves out follow the ones it
+    /// sets, and text colours move just enough to stay readable (4.5:1) on every surface.
+    /// Also returns the theme's own colours that had to move.
+    pub fn custom(
+        theme: &super::themes::CustomTheme,
+        tint: Option<Hsla>,
+        ambient: bool,
+    ) -> (Self, Vec<super::themes::Slot>) {
+        use super::themes::Slot;
+        let set = |slot: Slot| theme.colors.get(&slot).copied();
+        // A dark page makes a dark look and a light one a light look, whatever the base.
+        let base = match set(Slot::Page).map(luminance) {
+            Some(l) if l < 0.2 && theme.base == Base::Day => Base::Night,
+            Some(l) if l >= 0.2 && theme.base != Base::Day => Base::Day,
+            _ => theme.base,
+        };
+        let tint = tint.filter(|_| theme.music_colors);
+        let mut p = Self::build(base, tint, ambient && theme.music_colors);
+        for (slot, color) in &theme.colors {
+            slot.set(&mut p, *color);
+        }
+        let dark = luminance(p.canvas) < 0.2;
+        p.dark = dark;
+        // Colours the theme leaves out, made from the ones it sets.
+        let toward = if dark { c(0xffffff) } else { c(0x000000) };
+        let m = super::motion::mix;
+        if set(Slot::Page).is_some() {
+            if set(Slot::Sidebar).is_none() {
+                p.chrome = if dark {
+                    m(p.canvas, c(0x000000), 0.3)
+                } else {
+                    m(p.canvas, c(0x000000), 0.05)
+                };
+            }
+            if set(Slot::Card).is_none() {
+                p.raised = m(p.canvas, toward, 0.05);
+            }
+            if set(Slot::Border).is_none() {
+                p.line = m(p.canvas, toward, 0.14);
+            }
+            if set(Slot::BorderSoft).is_none() {
+                p.line_soft = m(p.canvas, toward, 0.08);
+            }
+        }
+        if set(Slot::CardHover).is_none()
+            && (set(Slot::Page).is_some() || set(Slot::Card).is_some())
+        {
+            p.raised_hover = m(p.raised, toward, 0.05);
+        }
+        if let Some(ink) = set(Slot::Text) {
+            if set(Slot::TextMuted).is_none() {
+                p.ink_2 = m(ink, p.canvas, 0.25);
+            }
+            if set(Slot::TextFaint).is_none() {
+                p.ink_3 = m(ink, p.canvas, 0.38);
+            }
+        }
+        if set(Slot::Accent).is_some() && set(Slot::Glow).is_none() && tint.is_none() {
+            p.glow = p.accent;
+        }
+        p.back = p.chrome;
+        // Text must read on the sidebar, the page, and cards. When no colour can read on all
+        // of them (a black page beside a mid-grey sidebar), the sidebar and cards move toward
+        // the page until one can.
+        let texts = [
+            Slot::Text,
+            Slot::TextMuted,
+            Slot::TextFaint,
+            Slot::Accent,
+            Slot::Danger,
+        ];
+        let mut fixed = None;
+        for _ in 0..24 {
+            let surfaces = [p.chrome, p.canvas, p.raised];
+            let found: Option<Vec<Hsla>> = texts
+                .iter()
+                .map(|slot| readable_version(slot.get(&p), &surfaces, dark))
+                .collect();
+            if let Some(found) = found {
+                fixed = Some(found);
+                break;
+            }
+            p.chrome = m(p.chrome, p.canvas, 0.25);
+            p.raised = m(p.raised, p.canvas, 0.25);
+            p.raised_hover = m(p.raised_hover, p.canvas, 0.25);
+        }
+        let fixed = fixed.unwrap_or_else(|| {
+            let best = if contrast(c(0xffffff), p.canvas) >= contrast(c(0x000000), p.canvas) {
+                c(0xffffff)
+            } else {
+                c(0x000000)
+            };
+            p.chrome = p.canvas;
+            p.raised = p.canvas;
+            vec![best; texts.len()]
+        });
+        for (slot, color) in texts.iter().zip(fixed) {
+            slot.set(&mut p, color);
+        }
+        p.back = p.chrome;
+        // Labels on accent buttons.
+        let label_ok = |l: Hsla| contrast(l, p.accent) >= 4.5;
+        if !set(Slot::AccentText).is_some_and(label_ok) {
+            p.accent_ink = [hsla(p.accent.h, 0.5, 0.09, 1.), c(0xffffff), c(0x000000)]
+                .into_iter()
+                .find(|l| label_ok(*l))
+                .unwrap_or_else(|| {
+                    if contrast(c(0xffffff), p.accent) > contrast(c(0x000000), p.accent) {
+                        c(0xffffff)
+                    } else {
+                        c(0x000000)
+                    }
+                });
+        }
+        p.accent_soft = p.accent.opacity(if dark { 0.15 } else { 0.11 });
+        p.selection = p.accent.opacity(if dark { 0.12 } else { 0.1 });
+        let adjusted = theme
+            .colors
+            .iter()
+            .filter(|(slot, color)| {
+                let now = slot.get(&p);
+                (now.to_rgb().r - color.to_rgb().r).abs()
+                    + (now.to_rgb().g - color.to_rgb().g).abs()
+                    + (now.to_rgb().b - color.to_rgb().b).abs()
+                    > 0.01
+            })
+            .map(|(slot, _)| *slot)
+            .collect();
+        (p, adjusted)
+    }
+
     /// Let window glass show through: the back layer by `amount` (0–1), and the page a little
     /// too when `page` is set. Text keeps its colours; surfaces only lose opacity. `reach` is
     /// how far the back layer may go: blurred materials can go further than clear glass.
@@ -257,8 +412,20 @@ impl Palette {
 
 pub const RADIUS: Pixels = px(6.);
 
+/// The palette for a settings value: a base look ("dark", "midnight", "light") or a custom
+/// theme ("custom:<id>"). A custom theme that is gone falls back to Night.
+pub fn look(mode: &str, tint: Option<Hsla>, ambient: bool, cx: &App) -> Palette {
+    match cx
+        .try_global::<super::themes::Themes>()
+        .and_then(|themes| themes.find(mode))
+    {
+        Some(theme) => Palette::custom(theme, tint, ambient).0,
+        None => Palette::build(Base::from_name(mode), tint, ambient),
+    }
+}
+
 pub fn set_theme(mode: &str, window: Option<&mut Window>, cx: &mut App) {
-    let p = Palette::build(Base::from_name(mode), None, false);
+    let p = look(mode, None, false, cx);
     Theme::change(
         if p.dark {
             ThemeMode::Dark

@@ -29,6 +29,8 @@ mod stems_ui;
 mod suggest;
 mod tags;
 mod theme;
+mod themes;
+mod themes_ui;
 mod timing;
 mod tray;
 mod updates;
@@ -478,6 +480,12 @@ pub struct AppView {
     discord_refresh: bool,
     /// The song Last.fm and ListenBrainz were last told is playing now.
     now_playing_sent: Option<String>,
+    /// When the theme files were last looked at.
+    themes_checked: Instant,
+    /// The custom theme open in Settings › Appearance.
+    theme_editor: Option<themes_ui::Editor>,
+    /// The theme whose Delete button was clicked once.
+    theme_delete_armed: Option<String>,
 }
 
 pub fn run(library: Library, files: Vec<std::path::PathBuf>) -> Result<()> {
@@ -496,6 +504,7 @@ pub fn run(library: Library, files: Vec<std::path::PathBuf>) -> Result<()> {
                 ])
                 .ok();
             let settings = library.settings().unwrap_or_default();
+            cx.set_global(themes::load(&themes::sources(&library)));
             set_theme(&settings.theme, None, cx);
             theme::set_display_font(&settings.display_font);
             cx.set_global(motion::Motion {
@@ -866,6 +875,9 @@ impl AppView {
             discord_sent: None,
             discord_refresh: false,
             now_playing_sent: None,
+            themes_checked: Instant::now(),
+            theme_editor: None,
+            theme_delete_armed: None,
         };
         view.refresh(cx);
         view.load_home();
@@ -1016,6 +1028,7 @@ impl AppView {
         }
         self.update_discord();
         self.update_now_playing();
+        self.check_themes(window, cx);
         self.update_media_keys();
         self.follow_output();
         self.follow_lyrics();
@@ -2104,6 +2117,17 @@ impl Render for AppView {
         div()
             .id("needle-app")
             .key_context("Needle")
+            // A theme file dropped on the window is added and chosen.
+            .on_drop(cx.listener(|this, paths: &ExternalPaths, window, cx| {
+                for path in paths.paths() {
+                    if path
+                        .extension()
+                        .is_some_and(|e| e.eq_ignore_ascii_case("toml"))
+                    {
+                        this.import_theme(path, window, cx);
+                    }
+                }
+            }))
             .size_full()
             .when(p.back.a >= 1., |el| el.bg(p.canvas))
             .text_color(p.ink)
