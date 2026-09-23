@@ -283,6 +283,7 @@ pub struct AppView {
     focused: Option<Track>,
     panel: Panel,
     menu: Option<menus::TrackMenu>,
+    playlist_menu: Option<menus::PlaylistMenu>,
     menu_serial: usize,
     /// The song whose heart was just filled, and a counter that replays the pop.
     heart_pop: Option<(String, usize)>,
@@ -639,6 +640,7 @@ impl AppView {
             focused: None,
             panel: Panel::Details,
             menu: None,
+            playlist_menu: None,
             menu_serial: 0,
             heart_pop: None,
             settings_tab: 0,
@@ -2076,6 +2078,7 @@ impl Render for AppView {
             .children(grain)
             .children(self.toast(cx))
             .children(self.track_menu(cx))
+            .children(self.playlist_menu_view(cx))
             .children(self.palette_view(cx))
     }
 }

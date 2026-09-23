@@ -299,6 +299,12 @@ impl AppView {
                             Page::Playlist(playlist.id.clone()),
                             cx,
                         )
+                        .on_mouse_down(MouseButton::Right, {
+                            let id = playlist.id.clone();
+                            cx.listener(move |this, event: &MouseDownEvent, _, cx| {
+                                this.open_playlist_menu(id.clone(), event.position, cx)
+                            })
+                        })
                         .when(playlist.query.is_none(), |el| {
                             let id = playlist.id.clone();
                             el.drag_over::<super::flow::DraggedTracks>(move |s, _, _, _| {
