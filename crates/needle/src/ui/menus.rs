@@ -225,7 +225,42 @@ impl AppView {
                         key: "plugins",
                     });
                 }
-                if !many {
+                let streamed: Vec<String> = selected
+                    .iter()
+                    .filter(|t| t.is_streamed())
+                    .map(|t| t.id.clone())
+                    .collect();
+                if !streamed.is_empty() {
+                    let label = if streamed.len() == 1 {
+                        "Save to my music".to_string()
+                    } else {
+                        format!("Save {} to my music", streamed.len())
+                    };
+                    entries.extend([
+                        Entry::Separator,
+                        Entry::item("import", label, None, move |this, _, _| {
+                            this.save_streamed(&streamed)
+                        }),
+                    ]);
+                }
+                if !many && track.is_streamed() {
+                    // A song on a music server: no file here to edit, split, or show.
+                    let album = super::album_page(&track);
+                    let artist = Page::Artist(track.artist.clone());
+                    entries.extend([
+                        Entry::Separator,
+                        Entry::item("albums", "Go to album", None, move |this, window, cx| {
+                            this.navigate(album.clone(), window, cx)
+                        }),
+                        Entry::item("artists", "Go to artist", None, move |this, window, cx| {
+                            this.navigate(artist.clone(), window, cx)
+                        }),
+                        Entry::item("radio", "Start radio", None, {
+                            let seed = track.clone();
+                            move |this, _, _| this.start_radio(seed.clone())
+                        }),
+                    ]);
+                } else if !many {
                     let album = super::album_page(&track);
                     let artist = Page::Artist(track.artist.clone());
                     let stem_track = track.clone();

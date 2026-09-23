@@ -24,6 +24,7 @@ mod plugin_ui;
 mod radio;
 mod remote_ui;
 mod sound;
+mod sources_ui;
 mod speakers;
 mod stems_ui;
 mod suggest;
@@ -140,6 +141,11 @@ pub enum Page {
     Wrapped(i32),
     /// Fix my library: duplicates, covers, tags, and tidy files.
     Doctor,
+    /// The songs of a music source (a server a plugin connects to).
+    Source {
+        plugin: String,
+        name: String,
+    },
 }
 impl Page {
     fn title(&self) -> String {
@@ -168,6 +174,7 @@ impl Page {
             Self::Timing => "Lyric timing".into(),
             Self::Wrapped(year) => format!("{year} in music"),
             Self::Doctor => "Fix my library".into(),
+            Self::Source { name, .. } => name.clone(),
         }
     }
     /// The rule behind the page, before any search text is applied.
@@ -182,6 +189,7 @@ impl Page {
                 "path starts with {} order by path",
                 quote(&folders::with_separator(path))
             ),
+            Self::Source { plugin, .. } => needle_core::sources::rule(plugin),
             _ => String::new(),
         }
     }
@@ -486,6 +494,8 @@ pub struct AppView {
     theme_editor: Option<themes_ui::Editor>,
     /// The theme whose Delete button was clicked once.
     theme_delete_armed: Option<String>,
+    /// Text boxes of music sources' sign-in forms, by `plugin/field`.
+    source_inputs: std::collections::HashMap<String, Entity<InputState>>,
 }
 
 pub fn run(library: Library, files: Vec<std::path::PathBuf>) -> Result<()> {
@@ -878,6 +888,7 @@ impl AppView {
             themes_checked: Instant::now(),
             theme_editor: None,
             theme_delete_armed: None,
+            source_inputs: std::collections::HashMap::new(),
         };
         view.refresh(cx);
         view.load_home();
@@ -1029,6 +1040,7 @@ impl AppView {
         self.update_discord();
         self.update_now_playing();
         self.check_themes(window, cx);
+        self.ensure_source_inputs(window, cx);
         self.update_media_keys();
         self.follow_output();
         self.follow_lyrics();
@@ -1920,6 +1932,13 @@ impl AppView {
             if let Err(e) = self.library.rate(id, rating) {
                 self.fail(e.to_string());
                 return;
+            }
+            // A song from a music server is rated on the server too.
+            if id.starts_with("src-") {
+                self.plugins.send(needle_core::plugins::PluginEvent::Rated {
+                    track_id: id.clone(),
+                    stars: rating,
+                });
             }
             for track in self.tracks.iter_mut().filter(|t| &t.id == id) {
                 track.rating = rating;

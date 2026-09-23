@@ -175,6 +175,15 @@ impl AppView {
         let id = track.id.clone();
         let (play, queue) = (track.clone(), track.clone());
         let path = track.file_path().trim_start_matches("\\\\?\\").to_string();
+        let streamed_from = track.source().map(|(plugin, _)| {
+            self.plugins
+                .plugins()
+                .into_iter()
+                .find(|p| p.manifest.id == plugin)
+                .and_then(|p| p.source.map(|s| s.name))
+                .unwrap_or_else(|| plugin.to_string())
+        });
+        let streamed = streamed_from.is_some();
         div()
             .id("details-scroll")
             .flex_1()
@@ -359,13 +368,25 @@ impl AppView {
                                     }),
                             ),
                     )
-                    .child(
-                        self.fact("File", path.clone(), cx).child(
-                            icon_button("copy-path", "copy", "Copy file path")
-                                .xsmall()
-                                .on_click(move |_, _, cx| cx.write_to_clipboard(ClipboardItem::new_string(path.clone()))),
+                    .map(|el| match streamed_from.clone() {
+                        // A song on a music server: say where it comes from, not a made-up path.
+                        Some(server) => el.child(self.fact(
+                            "From",
+                            if needle_core::sources::is_cached(&track) {
+                                format!("{server} (also kept on this computer)")
+                            } else {
+                                server
+                            },
+                            cx,
+                        )),
+                        None => el.child(
+                            self.fact("File", path.clone(), cx).child(
+                                icon_button("copy-path", "copy", "Copy file path")
+                                    .xsmall()
+                                    .on_click(move |_, _, cx| cx.write_to_clipboard(ClipboardItem::new_string(path.clone()))),
+                            ),
                         ),
-                    ),
+                    }),
             )
             .child(
                 div()
@@ -389,7 +410,7 @@ impl AppView {
                                     .tooltip("Search MusicBrainz by artist and title. Sends only that text.")
                                     .on_click(cx.listener(|this, _, _, cx| this.lookup(cx))),
                             )
-                            .child(
+                            .when(!streamed, |el| el.child(
                                 Button::new("fingerprint-lookup")
                                     .small()
                                     .ghost()
@@ -417,7 +438,7 @@ impl AppView {
                                             cx.notify();
                                         }
                                     })),
-                            ),
+                            )),
                     )
                     .children(self.matches.iter().enumerate().map(|(index, recording)| {
                         let recording = recording.clone();

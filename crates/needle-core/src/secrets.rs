@@ -137,3 +137,72 @@ pub fn redact(text: &str, secrets: &[&str]) -> String {
     }
     text
 }
+
+/// Secrets a plugin keeps (a source's password, for example): in the Windows Credential
+/// Manager as `plugin:<id>:<key>`, and in memory in tests.
+pub mod plugin {
+    use anyhow::Result;
+
+    #[cfg(any(test, not(windows)))]
+    fn memory() -> &'static std::sync::Mutex<std::collections::HashMap<String, String>> {
+        static STORE: std::sync::LazyLock<
+            std::sync::Mutex<std::collections::HashMap<String, String>>,
+        > = std::sync::LazyLock::new(Default::default);
+        &STORE
+    }
+
+    fn account(plugin: &str, key: &str) -> String {
+        format!("plugin:{plugin}:{key}")
+    }
+
+    pub fn get(plugin: &str, key: &str) -> Result<Option<String>> {
+        #[cfg(all(windows, not(test)))]
+        {
+            let entry = keyring::Entry::new(super::SERVICE_NAME, &account(plugin, key))
+                .map_err(|e| anyhow::anyhow!("Credential Manager: {e}"))?;
+            match entry.get_password() {
+                Ok(value) => Ok(Some(value).filter(|v| !v.is_empty())),
+                Err(keyring::Error::NoEntry) => Ok(None),
+                Err(e) => anyhow::bail!("Credential Manager could not read a plugin secret: {e}"),
+            }
+        }
+        #[cfg(any(test, not(windows)))]
+        Ok(memory().lock().unwrap().get(&account(plugin, key)).cloned())
+    }
+
+    pub fn set(plugin: &str, key: &str, value: &str) -> Result<()> {
+        #[cfg(all(windows, not(test)))]
+        {
+            keyring::Entry::new(super::SERVICE_NAME, &account(plugin, key))
+                .and_then(|e| e.set_password(value))
+                .map_err(|e| {
+                    anyhow::anyhow!("Credential Manager could not save a plugin secret: {e}")
+                })
+        }
+        #[cfg(any(test, not(windows)))]
+        {
+            memory()
+                .lock()
+                .unwrap()
+                .insert(account(plugin, key), value.into());
+            Ok(())
+        }
+    }
+
+    pub fn delete(plugin: &str, key: &str) -> Result<()> {
+        #[cfg(all(windows, not(test)))]
+        {
+            let entry = keyring::Entry::new(super::SERVICE_NAME, &account(plugin, key))
+                .map_err(|e| anyhow::anyhow!("Credential Manager: {e}"))?;
+            match entry.delete_credential() {
+                Ok(()) | Err(keyring::Error::NoEntry) => Ok(()),
+                Err(e) => anyhow::bail!("Credential Manager could not remove a plugin secret: {e}"),
+            }
+        }
+        #[cfg(any(test, not(windows)))]
+        {
+            memory().lock().unwrap().remove(&account(plugin, key));
+            Ok(())
+        }
+    }
+}

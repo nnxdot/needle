@@ -105,6 +105,34 @@ pub struct PluginInfo {
     pub commands: Vec<Command>,
     /// Names of the sound effects it adds.
     pub effects: Vec<String>,
+    /// Set when the plugin is a music source (it defines `source()`).
+    pub source: Option<SourceInfo>,
+}
+
+/// A music source a plugin brings: what to ask for to sign in, and how it is doing.
+#[derive(Clone, Debug, Default, Serialize)]
+pub struct SourceInfo {
+    /// The name people see, such as "Navidrome".
+    pub name: String,
+    pub fields: Vec<SourceField>,
+    pub signed_in: bool,
+    /// Songs from it in the library.
+    pub songs: usize,
+    /// When it was last synced (Unix seconds).
+    pub synced_at: Option<i64>,
+    pub syncing: bool,
+    /// What went wrong signing in or syncing.
+    pub error: Option<String>,
+}
+
+/// One box of a source's sign-in form.
+#[derive(Clone, Debug, Default, Serialize)]
+pub struct SourceField {
+    pub id: String,
+    pub label: String,
+    pub placeholder: String,
+    /// Typed text is hidden, and the plugin should keep it with `set_secret`.
+    pub secret: bool,
 }
 
 /// What a plugin asks the application to do.
@@ -147,7 +175,34 @@ pub enum PluginEvent {
     Enable(String, bool),
     Reload,
     Shutdown,
+    /// Sign in to a source with what was typed in its form.
+    SourceSignIn {
+        plugin: String,
+        fields: std::collections::BTreeMap<String, String>,
+    },
+    SourceSignOut(String),
+    /// Fetch a source's whole list of songs again.
+    SourceSync(String),
+    /// One page of a sync (sent by the plugin thread to itself, so streams are not held up).
+    SourceSyncPage {
+        plugin: String,
+        page: i64,
+    },
+    /// A link to stream one of a source's songs.
+    Stream {
+        plugin: String,
+        id: String,
+        reply: Sender<Result<String, String>>,
+    },
+    /// A song was rated in Needle.
+    Rated {
+        track_id: String,
+        stars: i64,
+    },
 }
+
+/// Sources are synced again on start when their last sync is older than this.
+const RESYNC_AFTER: i64 = 30 * 60;
 
 const ENABLED_KEY: &str = "plugins_enabled";
 
@@ -182,15 +237,37 @@ impl PluginHost {
             folder,
         };
         let actions: Arc<dyn Fn(HostAction) + Send + Sync> = Arc::new(actions);
+        crate::sources::set_cache_dir(library.directory.join("stream-cache"));
+        {
+            let host = host.clone();
+            crate::sources::set_resolver(move |plugin, id| host.stream_link(plugin, id));
+        }
+        let own = host.tx.clone();
         std::thread::Builder::new()
             .name("needle-plugins".into())
-            .spawn(move || run(library, rx, infos, effects, actions))
+            .spawn(move || run(library, rx, own, infos, effects, actions))
             .expect("start plugin thread");
         let _ = host.tx.send(PluginEvent::Reload);
         host
     }
     pub fn send(&self, event: PluginEvent) {
         let _ = self.tx.send(event);
+    }
+    /// Ask a source plugin for a link to stream one of its songs.
+    pub fn stream_link(&self, plugin: &str, id: &str) -> Result<String> {
+        let (reply, answer) = crossbeam_channel::bounded(1);
+        self.tx
+            .send(PluginEvent::Stream {
+                plugin: plugin.into(),
+                id: id.into(),
+                reply,
+            })
+            .map_err(|_| anyhow::anyhow!("Plugins are not running"))?;
+        match answer.recv_timeout(Duration::from_secs(20)) {
+            Ok(Ok(link)) => Ok(link),
+            Ok(Err(error)) => bail!("{error}"),
+            Err(_) => bail!("The music source did not answer in time"),
+        }
     }
     pub fn plugins(&self) -> Vec<PluginInfo> {
         self.infos.lock().unwrap_or_else(|p| p.into_inner()).clone()
@@ -210,12 +287,33 @@ impl PluginHost {
 fn run(
     library: Library,
     rx: Receiver<PluginEvent>,
+    tx: Sender<PluginEvent>,
     infos: Arc<Mutex<Vec<PluginInfo>>>,
     effects: Arc<crate::effects::Registry>,
     actions: Arc<dyn Fn(HostAction) + Send + Sync>,
 ) {
     let now_playing: Arc<Mutex<Option<Track>>> = Arc::default();
     let mut loaded: Vec<Loaded> = vec![];
+    // Songs of syncs under way, by plugin.
+    let mut syncing: HashMap<String, Vec<crate::sources::Song>> = HashMap::new();
+    // After loading: read each source's state, and sync the ones not synced lately.
+    let start_sources =
+        |loaded: &mut Vec<Loaded>, syncing: &HashMap<String, Vec<crate::sources::Song>>| {
+            let now = chrono::Utc::now().timestamp();
+            for plugin in loaded.iter_mut() {
+                refresh_source(plugin, &library);
+                let id = plugin.info.manifest.id.clone();
+                if let Some(source) = &mut plugin.info.source {
+                    source.syncing = syncing.contains_key(&id);
+                    if source.signed_in
+                        && !source.syncing
+                        && source.synced_at.is_none_or(|at| now - at > RESYNC_AFTER)
+                    {
+                        let _ = tx.send(PluginEvent::SourceSync(id));
+                    }
+                }
+            }
+        };
     let publish = |loaded: &Vec<Loaded>| {
         *infos.lock().unwrap_or_else(|p| p.into_inner()) =
             loaded.iter().map(|l| l.info.clone()).collect();
@@ -234,6 +332,7 @@ fn run(
             PluginEvent::Shutdown => break,
             PluginEvent::Reload => {
                 loaded = load_all(&library, &actions, &now_playing);
+                start_sources(&mut loaded, &syncing);
                 publish(&loaded);
                 offer(&loaded);
             }
@@ -250,6 +349,7 @@ fn run(
                 }
                 let _ = library.set_json(ENABLED_KEY, &enabled);
                 loaded = load_all(&library, &actions, &now_playing);
+                start_sources(&mut loaded, &syncing);
                 publish(&loaded);
                 offer(&loaded);
             }
@@ -259,12 +359,167 @@ fn run(
                 for plugin in loaded.iter_mut() {
                     let _ = call(plugin, "on_track_start", vec![value.clone().into()]);
                 }
+                // Tell a source's server what is playing.
+                if let Some((owner, id)) = track.source()
+                    && let Some(plugin) = source_plugin(&mut loaded, owner)
+                {
+                    let _ = call_source(plugin, "playing", vec![id.into()]);
+                }
                 publish(&loaded);
             }
             PluginEvent::Listen(listen) => {
                 let value = listen_map(&listen);
                 for plugin in loaded.iter_mut() {
                     let _ = call(plugin, "on_listen", vec![value.clone().into()]);
+                }
+                // A played song from a source counts on its server too.
+                if listen.qualified
+                    && let Ok(Some(track)) = library.track(&listen.track_id)
+                    && let Some((owner, id)) = track.source()
+                    && let Some(plugin) = source_plugin(&mut loaded, owner)
+                {
+                    let _ =
+                        call_source(plugin, "played", vec![id.into(), listen.started_at.into()]);
+                }
+                publish(&loaded);
+            }
+            PluginEvent::Rated { track_id, stars } => {
+                if let Ok(Some(track)) = library.track(&track_id)
+                    && let Some((owner, id)) = track.source()
+                    && let Some(plugin) = source_plugin(&mut loaded, owner)
+                    && let Err(error) = call_source(plugin, "rate", vec![id.into(), stars.into()])
+                {
+                    actions(HostAction::Notify(format!(
+                        "{}: the rating was not saved on the server: {error}",
+                        plugin.info.manifest.name
+                    )));
+                }
+            }
+            PluginEvent::Stream { plugin, id, reply } => {
+                let answer = match source_plugin(&mut loaded, &plugin) {
+                    None => Err(format!(
+                        "Turn on the plugin {plugin} in Settings › Plugins to play this song"
+                    )),
+                    Some(target) => match call_source(target, "stream", vec![id.into()]) {
+                        Ok(link) => link
+                            .into_string()
+                            .map_err(|_| "The plugin gave no stream link".to_string()),
+                        Err(error) => Err(error),
+                    },
+                };
+                let _ = reply.send(answer);
+            }
+            PluginEvent::SourceSignIn { plugin, fields } => {
+                if let Some(target) = source_plugin(&mut loaded, &plugin) {
+                    let map: Map = fields
+                        .into_iter()
+                        .map(|(k, v)| (k.into(), Dynamic::from(v)))
+                        .collect();
+                    let result = call_source(target, "sign_in", vec![map.into()]);
+                    refresh_source(target, &library);
+                    if let Some(source) = &mut target.info.source {
+                        match result {
+                            Ok(_) if source.signed_in => {
+                                source.error = None;
+                                let _ = tx.send(PluginEvent::SourceSync(plugin.clone()));
+                            }
+                            Ok(_) => source.error = Some("Signing in did not work".into()),
+                            Err(error) => source.error = Some(error),
+                        }
+                    }
+                }
+                publish(&loaded);
+            }
+            PluginEvent::SourceSignOut(plugin) => {
+                if let Some(target) = source_plugin(&mut loaded, &plugin) {
+                    let _ = call_source(target, "sign_out", vec![]);
+                    let _ = crate::sources::forget(&library, &plugin);
+                    refresh_source(target, &library);
+                    actions(HostAction::LibraryChanged);
+                }
+                syncing.remove(&plugin);
+                publish(&loaded);
+            }
+            PluginEvent::SourceSync(plugin) => {
+                if !syncing.contains_key(&plugin)
+                    && let Some(target) = source_plugin(&mut loaded, &plugin)
+                    && let Some(source) = &mut target.info.source
+                    && source.signed_in
+                {
+                    source.syncing = true;
+                    source.error = None;
+                    syncing.insert(plugin.clone(), vec![]);
+                    let _ = tx.send(PluginEvent::SourceSyncPage { plugin, page: 0 });
+                }
+                publish(&loaded);
+            }
+            PluginEvent::SourceSyncPage { plugin, page } => {
+                let Some(target) = source_plugin(&mut loaded, &plugin) else {
+                    syncing.remove(&plugin);
+                    continue;
+                };
+                let name = target.info.manifest.name.clone();
+                let result = call_source(target, "songs", vec![page.into()]);
+                let list: Vec<serde_json::Value> = match &result {
+                    Ok(list) => serde_json::to_value(list)
+                        .ok()
+                        .and_then(|v| v.as_array().cloned())
+                        .unwrap_or_default(),
+                    Err(_) => vec![],
+                };
+                let error = result.err();
+                let songs = syncing.entry(plugin.clone()).or_default();
+                songs.extend(list.iter().filter_map(crate::sources::Song::from_value));
+                if error.is_none() && !list.is_empty() && page < 1000 {
+                    let _ = tx.send(PluginEvent::SourceSyncPage {
+                        plugin,
+                        page: page + 1,
+                    });
+                    continue;
+                }
+                let songs = syncing.remove(&plugin).unwrap_or_default();
+                let (before, _) = crate::sources::status(&library, &plugin);
+                let outcome = match error {
+                    Some(error) => Err(error),
+                    // An empty answer from a server that had songs is more likely a problem
+                    // than an emptied library, so nothing is marked missing.
+                    None if songs.is_empty() && before > 0 => {
+                        Err("The server sent no songs; nothing was changed".to_string())
+                    }
+                    None => crate::sources::apply(&library, &plugin, &songs)
+                        .map_err(|e| format!("{e:#}")),
+                };
+                if let Some(source) = &mut target.info.source {
+                    source.syncing = false;
+                    source.error = outcome.as_ref().err().cloned();
+                }
+                refresh_source(target, &library);
+                match outcome {
+                    Ok(synced) => {
+                        if synced.added + synced.gone > 0 {
+                            actions(HostAction::Notify(format!(
+                                "{name}: {} new songs{}.",
+                                synced.added,
+                                if synced.gone > 0 {
+                                    format!(", {} no longer on the server", synced.gone)
+                                } else {
+                                    String::new()
+                                }
+                            )));
+                        }
+                        actions(HostAction::LibraryChanged);
+                        if !synced.covers.is_empty() {
+                            let (library, actions) = (library.clone(), actions.clone());
+                            std::thread::spawn(move || {
+                                if crate::sources::fetch_covers(&library, &synced.covers) > 0 {
+                                    actions(HostAction::LibraryChanged);
+                                }
+                            });
+                        }
+                    }
+                    Err(error) => actions(HostAction::Notify(format!(
+                        "{name} could not sync: {error}"
+                    ))),
                 }
                 publish(&loaded);
             }
@@ -300,6 +555,108 @@ fn run(
             }
         }
     }
+}
+
+/// The turned-on plugin with this id, if it is a music source.
+fn source_plugin<'a>(loaded: &'a mut [Loaded], id: &str) -> Option<&'a mut Loaded> {
+    loaded
+        .iter_mut()
+        .find(|p| p.info.manifest.id == id && p.info.enabled && p.info.source.is_some())
+}
+
+/// Read a source plugin's description and whether it is signed in.
+fn refresh_source(plugin: &mut Loaded, library: &Library) {
+    let defines = |plugin: &Loaded, name: &str| {
+        plugin
+            .ast
+            .as_ref()
+            .is_some_and(|ast| ast.iter_functions().any(|f| f.name == name))
+    };
+    // Needle fetches the links a source gives it, so being one needs the network permission:
+    // otherwise a plugin could send library data out inside a link.
+    if !plugin.info.enabled
+        || !defines(plugin, "source")
+        || !plugin
+            .info
+            .manifest
+            .permissions
+            .contains(&Permission::Network)
+    {
+        plugin.info.source = None;
+        return;
+    }
+    let previous = plugin.info.source.take().unwrap_or_default();
+    let about = call_source(plugin, "source", vec![]).ok();
+    let about = about
+        .and_then(|d| serde_json::to_value(&d).ok())
+        .unwrap_or_default();
+    let text = |v: &serde_json::Value| v.as_str().unwrap_or_default().to_string();
+    let fields = about["fields"]
+        .as_array()
+        .map(|list| {
+            list.iter()
+                .filter(|f| f["id"].is_string())
+                .map(|f| SourceField {
+                    id: text(&f["id"]),
+                    label: Some(text(&f["label"]))
+                        .filter(|l| !l.is_empty())
+                        .unwrap_or_else(|| text(&f["id"])),
+                    placeholder: text(&f["placeholder"]),
+                    secret: f["secret"].as_bool().unwrap_or(false),
+                })
+                .collect()
+        })
+        .unwrap_or_default();
+    let signed_in = call_source(plugin, "signed_in", vec![])
+        .ok()
+        .and_then(|d| d.as_bool().ok())
+        .unwrap_or(false);
+    let (songs, synced_at) = crate::sources::status(library, &plugin.info.manifest.id);
+    plugin.info.source = Some(SourceInfo {
+        name: Some(text(&about["name"]))
+            .filter(|n| !n.is_empty())
+            .unwrap_or_else(|| plugin.info.manifest.name.clone()),
+        fields,
+        signed_in,
+        songs,
+        synced_at,
+        ..previous
+    });
+}
+
+/// The message a script threw, without the engine's wrapping.
+fn plain_error(error: &EvalAltResult) -> String {
+    match error {
+        EvalAltResult::ErrorRuntime(value, _) => value.to_string(),
+        EvalAltResult::ErrorInFunctionCall(_, _, inner, _) => plain_error(inner),
+        other => other.to_string(),
+    }
+}
+
+/// Call a source function: like `call`, but a failure (a wrong password, a server that is
+/// down) is returned as its plain message and does not mark the plugin as broken.
+fn call_source(plugin: &mut Loaded, name: &str, args: Vec<Dynamic>) -> Result<Dynamic, String> {
+    let Some(ast) = &plugin.ast else {
+        return Ok(Dynamic::UNIT);
+    };
+    if !plugin.info.enabled
+        || !ast
+            .iter_functions()
+            .any(|f| f.name == name && f.params.len() == args.len())
+    {
+        return Ok(Dynamic::UNIT);
+    }
+    plugin
+        .engine
+        .call_fn::<Dynamic>(&mut plugin.scope, ast, name, args)
+        .map_err(|error| {
+            let message = plain_error(&error);
+            crate::logfile::warn(format!(
+                "Source {} failed in {name}: {message}",
+                plugin.info.manifest.id
+            ));
+            message
+        })
 }
 
 /// Call `name` if the plugin defines it; failures are recorded on the plugin, not raised.
@@ -380,6 +737,7 @@ fn load_all(
                         error: Some(format!("{error:#}")),
                         commands: vec![],
                         effects: vec![],
+                        source: None,
                     },
                     engine: Engine::new_raw(),
                     ast: None,
@@ -408,6 +766,7 @@ fn load_all(
                 error: None,
                 commands: vec![],
                 effects: vec![],
+                source: None,
             },
             engine,
             ast: None,
@@ -521,6 +880,10 @@ fn track_map(track: &Track) -> Map {
         "path".into(),
         track.path.trim_start_matches("\\\\?\\").to_string().into(),
     );
+    if let Some((source, id)) = track.source() {
+        map.insert("source".into(), source.to_string().into());
+        map.insert("source_id".into(), id.into());
+    }
     map
 }
 fn listen_map(listen: &Listen) -> Map {
@@ -751,6 +1114,54 @@ fn engine_for(
                     .body(json))
             },
         );
+    }
+    // Helpers for talking to servers (a source's sign-in, for example).
+    engine.register_fn("md5", |text: &str| {
+        format!("{:x}", md5::compute(text.as_bytes()))
+    });
+    engine.register_fn("random_text", |length: i64| {
+        use rand::Rng;
+        rand::thread_rng()
+            .sample_iter(&rand::distributions::Alphanumeric)
+            .take(length.clamp(1, 256) as usize)
+            .map(char::from)
+            .collect::<String>()
+    });
+    engine.register_fn("url_encode", |text: &str| {
+        let mut out = String::new();
+        for byte in text.bytes() {
+            if byte.is_ascii_alphanumeric() || b"-_.~".contains(&byte) {
+                out.push(byte as char);
+            } else {
+                out += &format!("%{byte:02X}");
+            }
+        }
+        out
+    });
+    // Secrets (a password), kept in Windows' Credential Manager under the plugin's name.
+    {
+        let plugin = id.clone();
+        engine.register_fn("secret", move |key: &str| -> Result<Dynamic, Fail> {
+            match crate::secrets::plugin::get(&plugin, key).map_err(|e| fail(format!("{e:#}")))? {
+                Some(value) => Ok(value.into()),
+                None => Ok(Dynamic::UNIT),
+            }
+        });
+    }
+    {
+        let plugin = id.clone();
+        engine.register_fn(
+            "set_secret",
+            move |key: &str, value: &str| -> Result<(), Fail> {
+                crate::secrets::plugin::set(&plugin, key, value).map_err(|e| fail(format!("{e:#}")))
+            },
+        );
+    }
+    {
+        let plugin = id.clone();
+        engine.register_fn("delete_secret", move |key: &str| -> Result<(), Fail> {
+            crate::secrets::plugin::delete(&plugin, key).map_err(|e| fail(format!("{e:#}")))
+        });
     }
     engine.register_fn("parse_json", |text: &str| -> Result<Dynamic, Fail> {
         serde_json::from_str::<Dynamic>(text).map_err(|e| fail(format!("Not JSON: {e}")))
@@ -990,6 +1401,159 @@ fn effects() {
 }
 "#,
     ),
+    (
+        "subsonic",
+        r#"id = "subsonic"
+name = "Navidrome / Subsonic"
+version = "1.0.0"
+author = "nnx"
+description = "Plays the music on your Navidrome or other Subsonic server. Songs are listed with your own and streamed; plays and ratings are saved on the server."
+permissions = ["network"]
+"#,
+        r#"// Your music server as a source: Navidrome, and other servers that speak the Subsonic API
+// (Airsonic-Advanced, Gonic, Ampache, LMS). Songs are listed in Needle and streamed from the
+// server; plays and ratings are saved on the server too.
+
+fn source() {
+    #{
+        name: "Navidrome / Subsonic",
+        fields: [
+            #{ id: "server", label: "Server address", placeholder: "https://music.example.com" },
+            #{ id: "username", label: "User name", placeholder: "" },
+            #{ id: "password", label: "Password", placeholder: "", secret: true },
+        ]
+    }
+}
+
+fn signed_in() {
+    let server = setting("server");
+    server != () && server != "" && secret("password") != ()
+}
+
+// "music.example.com/" becomes "https://music.example.com".
+fn address(typed) {
+    let server = typed;
+    server.trim();
+    while server.ends_with("/") {
+        server.pop();
+    }
+    if server != "" && !server.starts_with("http://") && !server.starts_with("https://") {
+        server = "https://" + server;
+    }
+    server
+}
+
+// The sign-in part of every request. The password itself is never sent: only a salted hash.
+fn auth() {
+    let password = secret("password");
+    if password == () {
+        throw "Sign in to your server first";
+    }
+    let salt = random_text(12);
+    `u=${url_encode(setting("username"))}&t=${md5(password + salt)}&s=${salt}&v=1.16.1&c=Needle&f=json`
+}
+
+fn link(method, params, auth) {
+    let url = `${setting("server")}/rest/${method}.view?${auth}`;
+    for key in params.keys() {
+        url += `&${key}=${url_encode(params[key].to_string())}`;
+    }
+    url
+}
+
+fn ask(method, params) {
+    let answer = parse_json(http_get(link(method, params, auth())));
+    let reply = answer["subsonic-response"];
+    if reply == () {
+        throw "That address did not answer like a Subsonic server";
+    }
+    if reply.status != "ok" {
+        let message = if reply.error != () { reply.error.message } else { () };
+        throw if message != () { message } else { "The server refused the request" };
+    }
+    reply
+}
+
+fn sign_in(fields) {
+    let server = address(fields.server);
+    if server == "" {
+        throw "Type your server's address";
+    }
+    set_setting("server", server);
+    set_setting("username", fields.username);
+    set_secret("password", fields.password);
+    try {
+        ask("ping", #{});
+    } catch (error) {
+        sign_out();
+        throw error;
+    }
+}
+
+fn sign_out() {
+    set_setting("server", "");
+    delete_secret("password");
+}
+
+// 500 songs a page, until a page comes back empty.
+fn songs(page) {
+    let reply = ask("search3", #{
+        query: "", songCount: 500, songOffset: page * 500, artistCount: 0, albumCount: 0
+    });
+    let found = if reply.searchResult3 != () { reply.searchResult3.song } else { () };
+    if found == () {
+        return [];
+    }
+    // One sign-in for all the cover links of this page, so an album's songs share one link.
+    let cover_auth = auth();
+    let list = [];
+    for song in found {
+        list.push(#{
+            id: song.id,
+            title: song.title,
+            artist: song.artist,
+            album: song.album,
+            album_artist: song.displayAlbumArtist,
+            genre: song.genre,
+            year: song.year,
+            track: song.track,
+            disc: song.discNumber,
+            duration: song.duration,
+            format: song.suffix,
+            bitrate: song.bitRate,
+            sample_rate: song.samplingRate,
+            bit_depth: song.bitDepth,
+            channels: song.channelCount,
+            size: song.size,
+            musicbrainz_id: song.musicBrainzId,
+            cover: if song.coverArt != () {
+                link("getCoverArt", #{ id: song.coverArt, size: 600 }, cover_auth)
+            } else {
+                ""
+            },
+        });
+    }
+    list
+}
+
+// The original file, not a smaller copy.
+fn stream(id) {
+    link("stream", #{ id: id, format: "raw" }, auth())
+}
+
+fn playing(id) {
+    ask("scrobble", #{ id: id, submission: false });
+}
+
+fn played(id, started_at) {
+    ask("scrobble", #{ id: id, time: started_at * 1000, submission: true });
+}
+
+fn rate(id, stars) {
+    ask("setRating", #{ id: id, rating: stars });
+}
+"#,
+    ),
 ];
 
 /// Extra files for the example plugins: (folder, file name, contents).
@@ -1156,6 +1720,254 @@ mod tests {
                 .contains(&HostAction::LibraryChanged)
                 .then_some(())
         });
+    }
+
+    /// A pretend Subsonic server on this computer: it checks the salted password, lists two
+    /// songs, streams a WAV, and records every request.
+    fn fake_subsonic(password: &'static str) -> (String, Arc<Mutex<Vec<String>>>) {
+        use std::io::{BufRead, BufReader, Write};
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let address = format!("http://{}", listener.local_addr().unwrap());
+        let seen: Arc<Mutex<Vec<String>>> = Arc::default();
+        let log = seen.clone();
+        let wav = {
+            let mut bytes = std::io::Cursor::new(vec![]);
+            let spec = hound::WavSpec {
+                channels: 2,
+                sample_rate: 44100,
+                bits_per_sample: 16,
+                sample_format: hound::SampleFormat::Int,
+            };
+            let mut writer = hound::WavWriter::new(&mut bytes, spec).unwrap();
+            for i in 0..44100 {
+                let v = ((i as f32 * 0.05).sin() * 8000.) as i16;
+                writer.write_sample(v).unwrap();
+                writer.write_sample(v).unwrap();
+            }
+            writer.finalize().unwrap();
+            bytes.into_inner()
+        };
+        std::thread::spawn(move || {
+            for stream in listener.incoming().flatten() {
+                let mut reader = BufReader::new(stream.try_clone().unwrap());
+                let mut line = String::new();
+                if reader.read_line(&mut line).is_err() {
+                    continue;
+                }
+                loop {
+                    let mut header = String::new();
+                    if reader.read_line(&mut header).is_err() || header.trim().is_empty() {
+                        break;
+                    }
+                }
+                let target = line
+                    .split_whitespace()
+                    .nth(1)
+                    .unwrap_or_default()
+                    .to_string();
+                log.lock().unwrap().push(target.clone());
+                let (path, query) = target.split_once('?').unwrap_or((&target, ""));
+                let param = |key: &str| {
+                    query
+                        .split('&')
+                        .find_map(|kv| kv.strip_prefix(&format!("{key}=")))
+                        .unwrap_or_default()
+                        .to_string()
+                };
+                let authorised = param("t")
+                    == format!("{:x}", md5::compute(format!("{password}{}", param("s"))));
+                let ok = |body: &str| {
+                    format!(
+                        "{{\"subsonic-response\":{{\"status\":\"ok\",\"version\":\"1.16.1\"{body}}}}}"
+                    )
+                };
+                let (kind, body): (&str, Vec<u8>) = if !authorised {
+                    ("application/json", br#"{"subsonic-response":{"status":"failed","error":{"code":40,"message":"Wrong username or password"}}}"#.to_vec())
+                } else if path.ends_with("/stream.view") {
+                    ("audio/wav", wav.clone())
+                } else if path.ends_with("/getCoverArt.view") {
+                    ("image/png", vec![7u8; 500])
+                } else if path.ends_with("/search3.view") {
+                    if param("songOffset") == "0" {
+                        ("application/json", ok(r#","searchResult3":{"song":[
+                            {"id":"s1","title":"Hey Hi","artist":"KiiiKiii","album":"WhyKiiiKiii - EP","year":2026,"track":2,"duration":1,"suffix":"wav","bitRate":1411,"coverArt":"al-1"},
+                            {"id":"s2","title":"Sweet Sour","artist":"KiiiKiii","album":"WhyKiiiKiii - EP","track":4,"duration":1,"suffix":"wav","coverArt":"al-1"}
+                        ]}"#).into_bytes())
+                    } else {
+                        (
+                            "application/json",
+                            ok(r#","searchResult3":{}"#).into_bytes(),
+                        )
+                    }
+                } else {
+                    ("application/json", ok("").into_bytes())
+                };
+                let mut stream = stream;
+                let _ = write!(
+                    stream,
+                    "HTTP/1.1 200 OK\r\nContent-Type: {kind}\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+                    body.len()
+                );
+                let _ = stream.write_all(&body);
+            }
+        });
+        (address, seen)
+    }
+
+    #[test]
+    fn subsonic_songs_sync_stream_and_count_on_the_server() {
+        let (server, requests) = fake_subsonic("hunter2");
+        let dir = tempfile::tempdir().unwrap();
+        let library = Library::open(dir.path()).unwrap();
+        install_examples(&library).unwrap();
+        let host = PluginHost::start(library.clone(), Arc::default(), |_| {});
+        wait(|| Some(host.plugins()).filter(|p| p.len() == EXAMPLES.len()));
+        host.send(PluginEvent::Enable("subsonic".into(), true));
+        let source = || {
+            host.plugins()
+                .into_iter()
+                .find(|p| p.manifest.id == "subsonic")
+                .and_then(|p| p.source)
+        };
+        let info = wait(source);
+        assert_eq!(info.name, "Navidrome / Subsonic");
+        assert_eq!(info.fields.len(), 3);
+        assert!(info.fields[2].secret && !info.signed_in);
+
+        let sign_in = |password: &str| {
+            host.send(PluginEvent::SourceSignIn {
+                plugin: "subsonic".into(),
+                fields: [
+                    ("server".to_string(), format!("{server}/")),
+                    ("username".to_string(), "willow".to_string()),
+                    ("password".to_string(), password.to_string()),
+                ]
+                .into(),
+            })
+        };
+        sign_in("wrong");
+        let refused = wait(|| source().and_then(|s| s.error));
+        assert_eq!(refused, "Wrong username or password");
+        assert!(!source().unwrap().signed_in);
+
+        sign_in("hunter2");
+        let synced = wait(|| source().filter(|s| s.songs == 2 && !s.syncing));
+        assert!(synced.signed_in && synced.error.is_none() && synced.synced_at.is_some());
+        let tracks = library.search(&crate::sources::rule("subsonic")).unwrap();
+        assert_eq!(tracks.len(), 2);
+        let hey = tracks.iter().find(|t| t.title == "Hey Hi").unwrap().clone();
+        assert!(hey.is_streamed());
+        assert_eq!(
+            (hey.artist.as_str(), hey.year, hey.format.as_str()),
+            ("KiiiKiii", 2026, "WAV")
+        );
+        // Both songs share the album's cover, fetched once.
+        wait(|| library.track(&hey.id).unwrap().unwrap().artwork);
+        let covers = requests
+            .lock()
+            .unwrap()
+            .iter()
+            .filter(|r| r.contains("getCoverArt"))
+            .count();
+        assert_eq!(covers, 1);
+        // The password never goes over the network, only a salted hash of it.
+        assert!(
+            requests
+                .lock()
+                .unwrap()
+                .iter()
+                .all(|r| !r.contains("hunter2"))
+        );
+
+        // Streaming: samples arrive, and the finished song stays in the cache.
+        let cache = dir.path().join("stream-cache");
+        let streamer = host.clone();
+        let link = move |plugin: &str, id: &str| streamer.stream_link(plugin, id);
+        let source_audio = crate::sources::open_with(&hey, &cache, &link).unwrap();
+        assert_eq!(source_audio.channels(), 2);
+        assert_eq!(source_audio.sample_rate(), 44100);
+        let samples: Vec<f32> = source_audio.collect();
+        assert_eq!(samples.len(), 44100 * 2);
+        assert!(samples.iter().any(|s| s.abs() > 0.1));
+        wait(|| {
+            walkdir::WalkDir::new(&cache)
+                .into_iter()
+                .flatten()
+                .any(|e| e.path().extension().is_some_and(|x| x == "wav"))
+                .then_some(())
+        });
+        let streams = || {
+            requests
+                .lock()
+                .unwrap()
+                .iter()
+                .filter(|r| r.contains("stream.view"))
+                .count()
+        };
+        assert_eq!(streams(), 1);
+        let again: Vec<f32> = crate::sources::open_with(&hey, &cache, &link)
+            .unwrap()
+            .collect();
+        assert_eq!(again.len(), samples.len());
+        assert_eq!(streams(), 1, "played again from the cache");
+
+        // Plays and ratings reach the server.
+        host.send(PluginEvent::Listen(Listen {
+            id: "l1".into(),
+            track_id: hey.id.clone(),
+            title: hey.title.clone(),
+            artist: hey.artist.clone(),
+            album: hey.album.clone(),
+            started_at: 1_790_000_000,
+            listened_seconds: 1.,
+            duration: 1.,
+            qualified: true,
+        }));
+        host.send(PluginEvent::Rated {
+            track_id: hey.id.clone(),
+            stars: 4,
+        });
+        wait(|| {
+            let seen = requests.lock().unwrap();
+            (seen.iter().any(|r| {
+                r.contains("scrobble.view")
+                    && r.contains("id=s1")
+                    && r.contains("submission=true")
+                    && r.contains("time=1790000000000")
+            }) && seen
+                .iter()
+                .any(|r| r.contains("setRating.view") && r.contains("rating=4")))
+            .then_some(())
+        });
+
+        // Signing out keeps the songs (with their ratings) but marks them missing.
+        host.send(PluginEvent::SourceSignOut("subsonic".into()));
+        wait(|| source().filter(|s| !s.signed_in && s.songs == 0));
+        assert!(library.track(&hey.id).unwrap().unwrap().missing);
+    }
+
+    /// A plugin that did not ask to use the internet cannot be a source: Needle would fetch
+    /// its links for it.
+    #[test]
+    fn a_source_needs_the_network_permission() {
+        let dir = tempfile::tempdir().unwrap();
+        let library = Library::open(dir.path()).unwrap();
+        let folder = dir.path().join("plugins").join("sneaky");
+        std::fs::create_dir_all(&folder).unwrap();
+        std::fs::write(
+            folder.join("plugin.toml"),
+            "id = \"sneaky\"\nname = \"Sneaky\"",
+        )
+        .unwrap();
+        std::fs::write(
+            folder.join("main.rhai"),
+            "fn source() { #{ name: \"S\", fields: [] } }\nfn signed_in() { true }",
+        )
+        .unwrap();
+        let host = PluginHost::start(library, Arc::default(), |_| {});
+        host.send(PluginEvent::Enable("sneaky".into(), true));
+        let plugin = wait(|| host.plugins().into_iter().find(|p| p.enabled));
+        assert!(plugin.source.is_none());
     }
 
     #[test]
