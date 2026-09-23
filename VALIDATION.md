@@ -113,6 +113,13 @@ Opening an existing large library for the first time after this change builds th
 - Film grain is off by default and has a strength slider.
 - Discord Rich Presence uses Needle's own Discord application. A live test with Discord open showed a "Listening" presence named Needle with the uploaded logo and a time bar for eight seconds, confirmed by Discord's reply, and then cleared it. A second live test showed "Listening to Armageddon" with the artist, the album, and the album cover found in the iTunes catalog (Discord proxied the image), with the Needle logo as the small badge. A test checks the cover match: a different artist never counts, and the same song on the same album wins over remixes. It talks only to the local Discord pipe and first checks that the program serving the pipe is a Discord client (Discord, Canary, PTB, Development, Vesktop, Equibop, Legcord, or WebCord); a live check against this PC's Discord passed. Tests cover the activity message (listening type, 2–128 character fields, time bar in milliseconds, paused state without a time bar) and the client name check.
 
+## Custom themes (not released yet)
+
+- New tests in the `needle` crate: theme files are read and written back unchanged; mistakes are explained (an unknown color key lists the right ones, a bad color, base, or font says what is wrong); names become file names without overwriting; user and plugin themes load, plugin themes only while the plugin is on and never saved over, and edits to a file are noticed.
+- Readability: for every base look, 10 page colors (black, greys, white, and saturated red, yellow, green, blue, pink) against 10 text and accent colors and a clashing sidebar, every text color meets 4.5:1 on the sidebar, page, and cards, and accent labels meet 4.5:1 on the accent. Chosen colors that already read are kept exactly.
+- `needle-core`: a plugin with only a `themes` folder and no script loads and turns on without an error.
+- `cargo test --workspace`, `cargo clippy --workspace --all-targets -- -D warnings`, and `cargo fmt --all --check` pass. The app was not run and no screenshots were taken, so the Appearance page, the editor, the color pickers, dropping a file on the window, and the Import and Export dialogs were not looked at or tried by hand.
+
 ## 1.3.11 checks
 
 - Scrobbles and "now playing" use Apple's spelling of the artist when the tags write it another way, only when Apple has the same song on the same album. A new test covers it: names that already agree stay as tagged, and without the same album a different artist is never taken. The live iTunes search for "키키 Hey Hi" returns KiiiKiii on "WhyKiiiKiii - EP". It was not tried against a real Last.fm account before release.

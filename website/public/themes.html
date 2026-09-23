@@ -1,0 +1,265 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Themes — Needle</title>
+<meta name="description" content="Make and share themes for Needle: one small file that changes its colors, with readable text kept for you.">
+<meta property="og:title" content="Themes — Needle">
+<meta property="og:description" content="Make and share themes for Needle, the music player for the music you own.">
+<meta property="og:url" content="https://needle.nnx.fyi/themes">
+<meta property="og:image" content="https://needle.nnx.fyi/icon-512.png">
+<meta name="theme-color" content="#171514">
+<link rel="icon" href="/favicon-64.png" type="image/png">
+<link rel="apple-touch-icon" href="/apple-touch-icon.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght,SOFT@9..144,500..700,0..100&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/style.css">
+</head>
+<body>
+<a class="skip" href="#main">Skip to content</a>
+
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <defs>
+    <g id="record">
+      <circle cx="45" cy="56" r="31" fill="#e1b36b"/>
+      <g fill="none" stroke="#c6944e" stroke-width="1.7">
+        <circle cx="45" cy="56" r="26.5"/><circle cx="45" cy="56" r="22.3"/><circle cx="45" cy="56" r="18.1"/>
+      </g>
+      <circle cx="45" cy="56" r="10.2" fill="#1b1816"/>
+      <circle cx="45" cy="56" r="2.6" fill="#e1b36b"/>
+    </g>
+    <g id="arm">
+      <path d="M61.5 41 81.5 17.5" stroke="#efe6d8" stroke-width="5.6" stroke-linecap="round"/>
+      <circle cx="82" cy="17" r="6.8" fill="#efe6d8"/>
+      <circle cx="82" cy="17" r="2.6" fill="#1b1816"/>
+    </g>
+  </defs>
+</svg>
+
+<header class="top">
+  <div class="wrap top-row">
+    <a class="brand" href="/" aria-label="Needle home">
+      <svg class="brand-mark" viewBox="0 0 100 100" aria-hidden="true"><use href="#record"/><use href="#arm"/></svg>
+      <span>Needle</span>
+    </a>
+    <nav aria-label="Main navigation">
+      <a href="/#features">Features</a>
+      <a href="/plugins">Plugins</a>
+      <a href="/themes" aria-current="page">Themes</a>
+      <a href="/help">Help</a>
+      <a class="nav-cta" href="/#download">Download</a>
+    </nav>
+  </div>
+</header>
+
+<main id="main" class="doc">
+  <div class="wrap doc-grid">
+    <nav class="doc-toc" aria-label="On this page">
+      <p>On this page</p>
+      <a href="#start">Make a theme</a>
+      <a href="#file">The theme file</a>
+      <a href="#colors">Colors</a>
+      <a href="#extras">Extras</a>
+      <a href="#readable">Readable text</a>
+      <a href="#share">Sharing</a>
+      <a href="#plugins">Themes in plugins</a>
+      <a href="#examples">Examples</a>
+      <a href="#trouble">When something goes wrong</a>
+    </nav>
+
+    <article class="doc-body">
+      <header class="doc-head">
+        <p class="tag">Themes</p>
+        <h1>Make Needle <em>yours.</em></h1>
+        <p class="lede">A theme is one small text file. It starts from one of Needle's looks and changes the colors you choose. Make one in the app with color pickers, or write the file by hand.</p>
+      </header>
+
+      <section id="start">
+        <h2>Make a theme</h2>
+        <ol class="steps">
+          <li>Open <b>Settings</b>, then <b>Appearance</b>.</li>
+          <li>Choose the look you want to start from, then press <b>Make a copy</b>.</li>
+          <li>Give it a name. Change any color with its color picker. Needle shows each change straight away and saves as you go.</li>
+          <li>Press <b>Done</b>. Your theme stays in the list of looks, next to Night, Midnight, and Day.</li>
+        </ol>
+        <p>A color you leave alone follows the look you started from and the colors you set. For example, set only <b>Page</b>, and the lines and cards follow it. Press <b>Reset</b> beside a color to let it follow again.</p>
+      </section>
+
+      <section id="file">
+        <h2>The theme file</h2>
+        <p>Themes are <code>.toml</code> files in Needle's themes folder. Press <b>Open themes folder</b> in Settings › Appearance to find it. Needle sees a new or changed file within two seconds, so you can edit one in any text editor and watch the change.</p>
+<pre><code>name = "Sakura"
+author = "you"
+base = "light"
+music_colors = true
+
+[colors]
+page = "#fff5f7"
+sidebar = "#fbe9ee"
+accent = "#c2185b"
+text = "#3a2230"
+
+[extras]
+grain = 0.15
+font = "fraunces"</code></pre>
+        <div class="table">
+          <table>
+            <thead><tr><th>Key</th><th>Needed</th><th>What it is</th></tr></thead>
+            <tbody>
+              <tr><td><code>name</code></td><td>No</td><td>The name people see. The default is the file name.</td></tr>
+              <tr><td><code>author</code></td><td>No</td><td>Your name.</td></tr>
+              <tr><td><code>base</code></td><td>No</td><td>The look to start from: <code>"dark"</code> (Night), <code>"midnight"</code>, or <code>"light"</code> (Day). The default is <code>"dark"</code>.</td></tr>
+              <tr><td><code>music_colors</code></td><td>No</td><td>With <b>Colors from the music</b> on, the cover that is playing may tint the colors this theme leaves out. The default is <code>true</code>. Set <code>false</code> to keep the theme's colors always.</td></tr>
+              <tr><td><code>[colors]</code></td><td>No</td><td>The colors to change, as <code>"#rrggbb"</code>. See <a href="#colors">Colors</a>.</td></tr>
+              <tr><td><code>[extras]</code></td><td>No</td><td>Film grain and a title font, applied when someone chooses the theme. See <a href="#extras">Extras</a>.</td></tr>
+            </tbody>
+          </table>
+        </div>
+        <p>A dark <code>page</code> makes a dark theme, and a light one a light theme, whatever the <code>base</code>.</p>
+      </section>
+
+      <section id="colors">
+        <h2>Colors</h2>
+        <div class="table">
+          <table>
+            <thead><tr><th>Key</th><th>What it paints</th></tr></thead>
+            <tbody>
+              <tr><td><code>sidebar</code></td><td>The sidebar, the title bar, and the player at the bottom.</td></tr>
+              <tr><td><code>page</code></td><td>The sheet the songs and pages sit on.</td></tr>
+              <tr><td><code>card</code></td><td>Hovered rows, search fields, and cards.</td></tr>
+              <tr><td><code>card_hover</code></td><td>Cards and buttons under the pointer.</td></tr>
+              <tr><td><code>border</code></td><td>Borders around fields and cards.</td></tr>
+              <tr><td><code>border_soft</code></td><td>Quiet dividers between rows and sections.</td></tr>
+              <tr><td><code>text</code></td><td>Titles and most text.</td></tr>
+              <tr><td><code>text_muted</code></td><td>Artists, albums, and descriptions.</td></tr>
+              <tr><td><code>text_faint</code></td><td>Small print, times, and hints.</td></tr>
+              <tr><td><code>accent</code></td><td>Buttons, switches, the playing song, and links.</td></tr>
+              <tr><td><code>accent_text</code></td><td>Labels on accent buttons.</td></tr>
+              <tr><td><code>danger</code></td><td>Errors and delete buttons.</td></tr>
+              <tr><td><code>success</code></td><td>Things that went well.</td></tr>
+              <tr><td><code>glow</code></td><td>The soft light behind covers and page headers.</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <section id="extras">
+        <h2>Extras</h2>
+        <div class="table">
+          <table>
+            <thead><tr><th>Key</th><th>What it is</th></tr></thead>
+            <tbody>
+              <tr><td><code>grain</code></td><td>Film grain over the window, from <code>0</code> (off) to <code>1</code>.</td></tr>
+              <tr><td><code>font</code></td><td>The font for page titles and big names: <code>"system"</code> (Segoe UI), <code>"bahnschrift"</code>, or <code>"fraunces"</code>.</td></tr>
+            </tbody>
+          </table>
+        </div>
+        <p>Extras are set when someone chooses the theme. They can still change them afterwards in Settings.</p>
+      </section>
+
+      <section id="readable">
+        <h2>Readable text</h2>
+        <p>Needle keeps every text color readable on the sidebar, the page, and cards (a contrast of at least 4.5 to 1, the WCAG AA level). When a color you chose is too close to its background, Needle makes it just lighter or darker enough, and the editor says which colors moved. If no text color can read on both the sidebar and the page, Needle moves the sidebar toward the page.</p>
+        <p>Themes change colors, the title font, and grain only. They cannot change the layout, so a theme cannot break Needle.</p>
+      </section>
+
+      <section id="share">
+        <h2>Sharing</h2>
+        <ul>
+          <li><b>Export…</b> in Settings › Appearance saves the theme in use as a file you can send to anyone.</li>
+          <li>To add a theme, drop its file on the Needle window, or press <b>Add a theme…</b>. Needle copies it into the themes folder and switches to it.</li>
+          <li>If the name is taken, Needle adds a number to the file name. Nothing is overwritten.</li>
+        </ul>
+      </section>
+
+      <section id="plugins">
+        <h2>Themes in plugins</h2>
+        <p>A <a href="/plugins">plugin</a> can bring themes: put <code>.toml</code> theme files in a <code>themes</code> folder inside the plugin's folder. They show in the list of looks while the plugin is on, marked with the plugin's name. They cannot be changed in place; press <b>Make a copy</b> to make your own version. A plugin needs no permission to bring themes.</p>
+<pre><code>plugins/
+  pastels/
+    plugin.toml
+    themes/
+      mint.toml
+      lilac.toml</code></pre>
+        <p>A plugin that only brings themes needs no script: a <code>plugin.toml</code> and the <code>themes</code> folder are enough.</p>
+      </section>
+
+      <section id="examples">
+        <h2>Examples</h2>
+        <h3>Forest</h3>
+<pre><code>name = "Forest"
+base = "dark"
+music_colors = false
+
+[colors]
+sidebar = "#0f1a14"
+page = "#14231b"
+accent = "#7fcf9a"
+glow = "#2f6b47"</code></pre>
+        <h3>Paper</h3>
+<pre><code>name = "Paper"
+base = "light"
+music_colors = false
+
+[colors]
+page = "#ffffff"
+sidebar = "#f3f3f1"
+text = "#111111"
+accent = "#1f5fd6"
+
+[extras]
+font = "fraunces"</code></pre>
+        <h3>Deep sea</h3>
+<pre><code>name = "Deep sea"
+base = "midnight"
+
+[colors]
+page = "#050b16"
+sidebar = "#02060d"
+accent = "#4cc3ff"
+
+[extras]
+grain = 0.2</code></pre>
+      </section>
+
+      <section id="trouble">
+        <h2>When something goes wrong</h2>
+        <dl class="api">
+          <dt>My theme does not show</dt><dd>Check that the file ends in <code>.toml</code> and is in the themes folder. A file Needle cannot read shows under the looks with what is wrong, such as <i>"pink" is not a color like "#e75480"</i>.</dd>
+          <dt>A color looks different from the one I chose</dt><dd>Needle moved it so text stays readable. The editor marks it with <i>Moved a little so text stays readable</i>. Choose a lighter or darker background, or a text color further from it.</dd>
+          <dt>The colors change with each song</dt><dd>The theme allows colors from the music, and <b>Colors from the music</b> is on. Set every color you care about, set <code>music_colors = false</code>, or turn the switch off in the editor.</dd>
+          <dt>A plugin's theme is gone</dt><dd>Plugin themes show only while the plugin is on. If the theme you use goes away, Needle uses Night until you choose another look.</dd>
+        </dl>
+      </section>
+    </article>
+  </div>
+</main>
+
+<footer class="foot">
+  <div class="wrap">
+    <div class="foot-row">
+      <a class="brand big" href="/" aria-label="Needle home">
+        <svg class="brand-mark" viewBox="0 0 100 100" aria-hidden="true"><use href="#record"/><use href="#arm"/></svg>
+        <span>Needle</span>
+      </a>
+      <p>Your music, in its place.<br>Made at <a href="https://nnx.fyi/">NNX</a>.</p>
+    </div>
+    <div class="foot-row small">
+      <span>© 2026 NNX</span>
+      <nav aria-label="Footer navigation">
+        <a href="/plugins">Plugins</a>
+        <a href="/themes">Themes</a>
+        <a href="/help">Help</a>
+        <a href="/privacy">Privacy</a>
+        <a href="https://nnx.fyi/">NNX</a>
+        <a href="https://nivren.nnx.fyi/">Nivren</a>
+        <a href="https://deadline.nnx.fyi/">Deadline</a>
+        <a href="mailto:dot@nnx.fyi">Contact</a>
+      </nav>
+    </div>
+  </div>
+</footer>
+</body>
+</html>

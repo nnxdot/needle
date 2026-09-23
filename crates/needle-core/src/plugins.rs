@@ -414,6 +414,11 @@ fn load_all(
             scope: Scope::new(),
             effects: vec![],
         };
+        // A plugin that only brings themes (a `themes` folder) needs no script.
+        if !dir.join(&manifest.entry).exists() && dir.join("themes").is_dir() {
+            loaded.push(plugin);
+            continue;
+        }
         match std::fs::read_to_string(dir.join(&manifest.entry))
             .context("Cannot read the script")
             .and_then(|source| {
@@ -1151,6 +1156,26 @@ mod tests {
                 .contains(&HostAction::LibraryChanged)
                 .then_some(())
         });
+    }
+
+    #[test]
+    fn a_plugin_with_only_themes_needs_no_script() {
+        let dir = tempfile::tempdir().unwrap();
+        let library = Library::open(dir.path()).unwrap();
+        let folder = dir.path().join("plugins").join("pastels");
+        std::fs::create_dir_all(folder.join("themes")).unwrap();
+        std::fs::write(
+            folder.join("plugin.toml"),
+            "id = \"pastels\"\nname = \"Pastels\"",
+        )
+        .unwrap();
+        std::fs::write(folder.join("themes").join("mint.toml"), "name = \"Mint\"").unwrap();
+        let host = PluginHost::start(library, Arc::default(), |_| {});
+        let plugins = wait(|| Some(host.plugins()).filter(|p| p.len() == 1));
+        assert!(plugins[0].error.is_none(), "{:?}", plugins[0].error);
+        host.send(PluginEvent::Enable("pastels".into(), true));
+        wait(|| host.plugins()[0].enabled.then_some(()));
+        assert!(host.plugins()[0].error.is_none());
     }
 
     #[test]
