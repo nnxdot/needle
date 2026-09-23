@@ -113,6 +113,11 @@ Opening an existing large library for the first time after this change builds th
 - Film grain is off by default and has a strength slider.
 - Discord Rich Presence uses Needle's own Discord application. A live test with Discord open showed a "Listening" presence named Needle with the uploaded logo and a time bar for eight seconds, confirmed by Discord's reply, and then cleared it. A second live test showed "Listening to Armageddon" with the artist, the album, and the album cover found in the iTunes catalog (Discord proxied the image), with the Needle logo as the small badge. A test checks the cover match: a different artist never counts, and the same song on the same album wins over remixes. It talks only to the local Discord pipe and first checks that the program serving the pipe is a Discord client (Discord, Canary, PTB, Development, Vesktop, Equibop, Legcord, or WebCord); a live check against this PC's Discord passed. Tests cover the activity message (listening type, 2–128 character fields, time bar in milliseconds, paused state without a time bar) and the client name check.
 
+## 1.3.1 checks
+
+- The Discord cover search now accepts Apple's result when the artist is written another way (for example 키키 in the tags and KiiiKiii at Apple), if the song and the album both match. A new test covers it; the song name alone is still refused.
+- A live iTunes search for "키키 Hey Hi" returned "Hey Hi" on "WhyKiiiKiii - EP" by KiiiKiii, which the new rule accepts.
+
 ## 1.3.0 checks
 
 - `cargo test --workspace` passes (163 core tests, 10 ignored, plus 8 UI tests); `cargo clippy --workspace --all-targets -- -D warnings` and `cargo fmt --all --check` are clean. The app was not run and no screenshots were taken, so the layout fixes below were not looked at.
