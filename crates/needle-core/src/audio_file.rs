@@ -232,6 +232,9 @@ pub fn decode(path: &Path) -> Result<Decoded> {
 
 /// Decode a library track: its file, or its stretch of the album file for a CUE track.
 pub fn decode_track(track: &crate::model::Track) -> Result<Box<dyn Source + Send>> {
+    if track.is_streamed() {
+        return crate::sources::open(track);
+    }
     let decoded = decode(Path::new(track.audio_path()))?;
     let Some(cue) = &track.cue else {
         return Ok(Box::new(decoded));

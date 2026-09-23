@@ -630,6 +630,11 @@ impl AppView {
                     "New files in your music folders appear here automatically.".into(),
                     &[Step::AddFolder],
                 ),
+                Page::Source { name, .. } => (
+                    format!("No songs from {name} yet"),
+                    "Needle is getting the list of songs, or the server has none. Check Settings › Plugins.".into(),
+                    &[Step::Songs],
+                ),
                 Page::Playlist(_) => (
                     "This playlist is empty".into(),
                     "Drag songs onto the playlist in the sidebar, or right-click them and choose Add to playlist.".into(),

@@ -111,6 +111,7 @@ impl AppView {
             .flex()
             .flex_col()
             .gap_3()
+            .children(self.music_server_card(cx))
             .child(
                 div()
                     .flex()
@@ -195,6 +196,7 @@ impl AppView {
                     .when(!enabled && !plugin.manifest.permissions.is_empty(), |el| el.child(faint("Turning it on allows everything listed above.", cx)))
                     .when(enabled && !plugin.effects.is_empty(), |el| el.child(faint(format!("Adds to Sound › Effects: {}.", plugin.effects.join(", ")), cx).w_full()))
                     .when_some(plugin.error.clone(), |el, error| el.child(meta(error, cx).w_full().text_color(p.danger)))
+                    .children(self.source_block(&plugin, cx))
                     .when(enabled, |el| {
                         el.child(div().flex().gap_2().children(plugin.commands.iter().filter(|c| !c.for_tracks).enumerate().map(|(j, command)| {
                             let (plugin, command_id) = (command.plugin.clone(), command.id.clone());

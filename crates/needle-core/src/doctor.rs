@@ -142,7 +142,11 @@ pub fn quality_rank(track: &Track) -> (bool, bool, i64, i64, i64, i64, bool, i64
 /// "(Off Vocal)" or "(Instrumental)": see `title_key`.)
 pub fn find_duplicates(tracks: &[Track]) -> Vec<DuplicateGroup> {
     let mut by_name: HashMap<(String, String, String), Vec<&Track>> = HashMap::new();
-    for track in tracks.iter().filter(|t| !t.missing && t.cue.is_none()) {
+    // Songs on a music server are not files here, so they are never duplicates to recycle.
+    for track in tracks
+        .iter()
+        .filter(|t| !t.missing && t.cue.is_none() && !t.is_streamed())
+    {
         let title = title_key(&track.title);
         if simple(&track.title).is_empty() {
             continue;
@@ -339,7 +343,7 @@ impl Library {
         let ids: Vec<String> = self
             .connection()?
             .prepare(
-                "SELECT max(id) FROM tracks WHERE album != '' AND missing = 0
+                "SELECT max(id) FROM tracks WHERE album != '' AND missing = 0 AND path NOT LIKE 'source://%'
                  GROUP BY lower(album), lower(CASE WHEN album_artist != '' THEN album_artist ELSE artist END)
                  HAVING max(json_extract(data,'$.artwork')) IS NULL
                  ORDER BY lower(CASE WHEN album_artist != '' THEN album_artist ELSE artist END), lower(album)",
@@ -602,7 +606,7 @@ pub fn album_issues(tracks: &[Track]) -> Vec<AlbumIssue> {
     let mut albums: HashMap<(String, String), Vec<&Track>> = HashMap::new();
     for track in tracks
         .iter()
-        .filter(|t| !t.missing && t.cue.is_none() && !t.album.trim().is_empty())
+        .filter(|t| !t.missing && t.cue.is_none() && !t.is_streamed() && !t.album.trim().is_empty())
     {
         // Without an album artist, an album is its songs in one folder (a compilation's songs
         // have different artists).
@@ -768,7 +772,8 @@ pub fn pattern_path(pattern: &str, track: &Track) -> String {
 pub fn plan_organize(tracks: &[Track], roots: &[String], pattern: &str) -> Plan {
     let mut plan = Plan::default();
     let mut wanted: Vec<(&Track, String)> = vec![];
-    for track in tracks {
+    // Songs on a music server have no file here to move.
+    for track in tracks.iter().filter(|t| !t.is_streamed()) {
         let skip =
             |plan: &mut Plan, why: &str| plan.skipped.push((track.path.clone(), why.to_string()));
         if track.cue.is_some() {
