@@ -22,6 +22,7 @@ mod palette;
 mod panel;
 mod plugin_ui;
 mod radio;
+mod remote_ui;
 mod sound;
 mod speakers;
 mod stems_ui;
@@ -30,6 +31,7 @@ mod tags;
 mod theme;
 mod timing;
 mod updates;
+mod welcome;
 mod widgets;
 mod wrapped;
 
@@ -434,6 +436,10 @@ pub struct AppView {
     last_item: Option<(QueueItem, Instant)>,
     mini: Option<AnyWindowHandle>,
     sound: sound::SoundControls,
+    /// The welcome guide's step, while it is open.
+    welcome_step: Option<usize>,
+    /// The phone remote, while it is on.
+    remote: Option<needle_core::remote::Server>,
     /// Timing sliders for the members of a speaker group, by address.
     speaker_timing: std::collections::HashMap<String, (Entity<SliderState>, Subscription)>,
     import: importer::ImportState,
@@ -748,6 +754,8 @@ impl AppView {
             heart_pop: None,
             settings_tab: 0,
             speaker_timing: Default::default(),
+            remote: None,
+            welcome_step: None,
             palette,
             page_serial: 0,
             sort: Sort::Default,
@@ -842,6 +850,8 @@ impl AppView {
         view.refresh_recent();
         view.start_measuring();
         view.check_for_update(false);
+        view.apply_remote();
+        view.maybe_welcome();
         {
             // Crash reports from earlier runs: send them (unless turned off), in the background.
             let (data, send) = (view.library.directory.clone(), view.settings.crash_reports);
@@ -2253,5 +2263,6 @@ impl Render for AppView {
             .children(self.blend_menu_view(cx))
             .children(self.speaker_menu_view(cx))
             .children(self.palette_view(cx))
+            .children(self.welcome_view(window, cx))
     }
 }

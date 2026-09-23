@@ -1,0 +1,187 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Help — Needle</title>
+<meta name="description" content="How to install Needle, add your music, use the equalizer, speakers, and phone remote, and fix common problems.">
+<meta property="og:title" content="Help — Needle">
+<meta property="og:description" content="How to install Needle, add your music, use the equalizer, speakers, and phone remote, and fix common problems.">
+<meta property="og:url" content="https://needle.nnx.fyi/help">
+<meta property="og:image" content="https://needle.nnx.fyi/icon-512.png">
+<meta name="theme-color" content="#171514">
+<link rel="icon" href="/favicon-64.png" type="image/png">
+<link rel="apple-touch-icon" href="/apple-touch-icon.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght,SOFT@9..144,500..700,0..100&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/style.css">
+</head>
+<body>
+<a class="skip" href="#main">Skip to content</a>
+
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <defs>
+    <g id="record">
+      <circle cx="45" cy="56" r="31" fill="#e1b36b"/>
+      <g fill="none" stroke="#c6944e" stroke-width="1.7">
+        <circle cx="45" cy="56" r="26.5"/><circle cx="45" cy="56" r="22.3"/><circle cx="45" cy="56" r="18.1"/>
+      </g>
+      <circle cx="45" cy="56" r="10.2" fill="#1b1816"/>
+      <circle cx="45" cy="56" r="2.6" fill="#e1b36b"/>
+    </g>
+    <g id="arm">
+      <path d="M61.5 41 81.5 17.5" stroke="#efe6d8" stroke-width="5.6" stroke-linecap="round"/>
+      <circle cx="82" cy="17" r="6.8" fill="#efe6d8"/>
+      <circle cx="82" cy="17" r="2.6" fill="#1b1816"/>
+    </g>
+  </defs>
+</svg>
+
+<header class="top">
+  <div class="wrap top-row">
+    <a class="brand" href="/" aria-label="Needle home">
+      <svg class="brand-mark" viewBox="0 0 100 100" aria-hidden="true"><use href="#record"/><use href="#arm"/></svg>
+      <span>Needle</span>
+    </a>
+    <nav aria-label="Main navigation">
+      <a href="/#features">Features</a>
+      <a href="/plugins">Plugins</a>
+      <a href="/help" aria-current="page">Help</a>
+      <a class="nav-cta" href="/#download">Download</a>
+    </nav>
+  </div>
+</header>
+
+<main id="main" class="doc">
+  <div class="wrap doc-grid">
+    <nav class="doc-toc" aria-label="On this page">
+      <p>On this page</p>
+      <a href="#install">Installing</a>
+      <a href="#music">Your music</a>
+      <a href="#sound">Sound</a>
+      <a href="#speakers">Speakers</a>
+      <a href="#remote">Phone remote</a>
+      <a href="#problems">When something goes wrong</a>
+    </nav>
+
+    <article class="doc-body">
+      <header class="doc-head">
+        <p class="tag">Help</p>
+        <h1>Questions, <em>answered.</em></h1>
+        <p class="lede">How to install Needle, add your music, and fix the most common problems. If your answer is not here, write to <a href="mailto:dot@nnx.fyi">dot@nnx.fyi</a>.</p>
+      </header>
+
+      <section id="install">
+        <h2>Installing</h2>
+        <dl class="api">
+          <dt>Which download do I need?</dt>
+          <dd>The installer is best for most people. It adds Needle to the Start menu and to "Open with" for music files, and it needs no administrator rights. The portable zip runs from any folder, with nothing installed.</dd>
+          <dt>Windows says "Windows protected your PC"</dt>
+          <dd>Windows shows this for apps it does not know yet. Choose <b>More info</b>, then <b>Run anyway</b>. The <a href="/download/SHA256SUMS.txt">SHA-256 checksums</a> let you check that your download is the one we published.</dd>
+          <dt>Can I install it with winget?</dt>
+          <dd>Yes, once Needle is in the winget catalogue: <code>winget install nnxdot.Needle</code>.</dd>
+          <dt>How do I update?</dt>
+          <dd>Needle checks for a new version once a day and tells you when one is out. Install it from <b>Settings › Online services</b>. Needle 1.0.0 cannot find updates by itself; install a newer version from this site once.</dd>
+          <dt>How do I uninstall?</dt>
+          <dd>In Windows Settings, open <b>Apps › Installed apps</b>, find Needle, and choose <b>Uninstall</b>. Your library and history stay in <code>%LOCALAPPDATA%\nnx\Needle\data</code>, in case you come back. Delete that folder to remove them.</dd>
+        </dl>
+      </section>
+
+      <section id="music">
+        <h2>Your music</h2>
+        <dl class="api">
+          <dt>How do I add music?</dt>
+          <dd>Choose a folder in the welcome guide, or in <b>Settings › Library</b>. Needle reads the songs in it and watches it, so new music appears by itself.</dd>
+          <dt>Which formats can Needle play?</dt>
+          <dd>FLAC, ALAC, WAV, AIFF, MP3, AAC, Ogg Vorbis, Opus, WavPack, Monkey's Audio, DSD (DSF), and CUE sheets.</dd>
+          <dt>Will Needle change or move my files?</dt>
+          <dd>Only when you ask, for example when you edit tags or use <b>Fix my library</b>. Before it changes a file's tags, Needle keeps a backup copy, and moves in Fix my library can be undone.</dd>
+          <dt>Where are lyrics and covers?</dt>
+          <dd>Needle always uses covers, <code>.lrc</code> files, and lyrics tags that are with your music. To look up missing ones online, turn on <b>Look things up online</b> in <b>Settings › Library</b>. See the <a href="/privacy">privacy policy</a> for what is sent.</dd>
+          <dt>How do I back up my library?</dt>
+          <dd>Use <b>Settings › Your data › Back up</b>. It saves your history, ratings, and playlists. It does not copy your music files.</dd>
+        </dl>
+      </section>
+
+      <section id="sound">
+        <h2>Sound</h2>
+        <dl class="api">
+          <dt>Where is the equalizer?</dt>
+          <dd>Choose the equalizer button next to the volume, or open <b>Settings › Sound</b>. Choose <b>Graphic</b> for ten sliders, or <b>Parametric</b> to set each band's kind, frequency, gain, and width. <b>Save as preset</b> keeps your own settings.</dd>
+          <dt>Can I use a correction for my headphones?</dt>
+          <dd>Yes. Download your headphones' <code>ParametricEQ.txt</code> from AutoEq, and choose <b>Load EQ file…</b>. Files from Equalizer APO work too.</dd>
+          <dt>What are effects?</dt>
+          <dd>Effects, such as a room sound or an echo, come from plugins. Add the example plugins in <b>Settings › Plugins</b>, turn them on, and add effects in <b>Sound › Effects</b>. See <a href="/plugins">Plugins</a> to write your own.</dd>
+          <dt>Why do the equalizer and effects do nothing?</dt>
+          <dd>Exclusive output is probably on. It sends each file to your sound device unchanged, so the equalizer and effects are skipped. Turn it off in <b>Settings › Playback</b>.</dd>
+        </dl>
+      </section>
+
+      <section id="speakers">
+        <h2>Speakers</h2>
+        <dl class="api">
+          <dt>How do I play on a speaker?</dt>
+          <dd>Choose the speaker button in the player bar. Needle finds Chromecast, AirPlay, and DLNA speakers on your network. The first sound can take a few seconds.</dd>
+          <dt>Can I play on several speakers at once?</dt>
+          <dd>Yes. In the same menu, choose <b>Play on several at once…</b>, pick the speakers (and this computer, if you like), and choose <b>Play on these</b>. Needle lines them up. If one sounds early or late, move its slider in <b>Settings › Playback › Speaker timing</b>.</dd>
+          <dt>Needle does not find my speaker</dt>
+          <dd>Check that the computer and the speaker are on the same network, that no VPN is on, and that Windows lets Needle use private networks. Guest Wi-Fi networks often keep devices apart. AirPlay 2-only speakers are not supported yet.</dd>
+        </dl>
+      </section>
+
+      <section id="remote">
+        <h2>Phone remote</h2>
+        <dl class="api">
+          <dt>How do I control Needle from my phone?</dt>
+          <dd>Turn on <b>Phone remote</b> in <b>Settings › Playback</b>, then point your phone's camera at the code. The page shows what is playing, lets you play, pause, skip, change the volume, pick from Up next, and find music. Add it to your home screen to open it like an app.</dd>
+          <dt>The page does not open on my phone</dt>
+          <dd>The phone must be on the same Wi-Fi as the computer, and not on a guest network. If Windows asked about Needle and the network, allow private networks. Needle must stay open on the computer.</dd>
+          <dt>Is it safe?</dt>
+          <dd>The address holds a long secret, and Needle answers only devices on your own network. Anyone with the address on your Wi-Fi can control the music, so share it only with people you trust. <b>New address</b> locks out every phone that had the old one.</dd>
+        </dl>
+      </section>
+
+      <section id="problems">
+        <h2>When something goes wrong</h2>
+        <dl class="api">
+          <dt>There is no sound</dt>
+          <dd>Check the volume in Needle and in Windows, and which output is chosen in the speaker menu and in <b>Settings › Playback</b>. If a speaker stops answering, Needle goes back to this computer.</dd>
+          <dt>Needle crashed</dt>
+          <dd>Open Needle again. If crash reports are on, the report is sent then, without file paths or your name. See the <a href="/privacy">privacy policy</a>.</dd>
+          <dt>How do I report a problem?</dt>
+          <dd>In <b>Settings › Your data</b>, choose <b>Copy error report</b>. It copies the recent log without file paths or your name. Paste it in an email to <a href="mailto:dot@nnx.fyi">dot@nnx.fyi</a>, and say what you did just before. <b>Open log folder</b> shows the full log.</dd>
+          <dt>How do I see the welcome guide again?</dt>
+          <dd><b>Settings › Your data › Welcome guide</b>.</dd>
+        </dl>
+      </section>
+
+    </article>
+  </div>
+</main>
+
+<footer class="foot">
+  <div class="wrap">
+    <div class="foot-row">
+      <a class="brand big" href="/" aria-label="Needle home">
+        <svg class="brand-mark" viewBox="0 0 100 100" aria-hidden="true"><use href="#record"/><use href="#arm"/></svg>
+        <span>Needle</span>
+      </a>
+      <p>Your music, in its place.<br>Made at <a href="https://nnx.fyi/">NNX</a>.</p>
+    </div>
+    <div class="foot-row small">
+      <span>© 2026 NNX</span>
+      <nav aria-label="Footer navigation">
+        <a href="/plugins">Plugins</a>
+        <a href="/help">Help</a>
+        <a href="/privacy">Privacy</a>
+        <a href="https://nnx.fyi/">NNX</a>
+        <a href="https://nivren.nnx.fyi/">Nivren</a>
+        <a href="https://deadline.nnx.fyi/">Deadline</a>
+        <a href="mailto:dot@nnx.fyi">Contact</a>
+      </nav>
+    </div>
+  </div>
+</footer>
+</body>
+</html>

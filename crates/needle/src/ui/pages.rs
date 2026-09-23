@@ -630,6 +630,7 @@ impl AppView {
                             ),
                     )
                     .children(self.speaker_timing_view(cx))
+                    .child(self.remote_settings(cx))
                     })
                     // Sound: the same tools as the Sound page
                     .when(tab == 1, |el| el.child(self.sound_body(cx)))
@@ -1038,6 +1039,16 @@ Recent log:
                         cx.write_to_clipboard(ClipboardItem::new_string(report));
                         this.notify("Copied an error report, without file paths or your name. Paste it in an email to dot@nnx.fyi.");
                     }))),
+                cx,
+            )
+            .into_any_element(),
+            setting_row(
+                "Welcome guide",
+                "The short guide Needle shows the first time it opens.",
+                small_button("welcome-again", "Show it again").ghost().on_click(cx.listener(|this, _, _, cx| {
+                    this.welcome_step = Some(0);
+                    cx.notify();
+                })),
                 cx,
             )
             .into_any_element(),

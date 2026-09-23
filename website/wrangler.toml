@@ -11,6 +11,10 @@ binding = "ASSETS"
 binding = "DOWNLOADS"
 bucket_name = "needle-downloads"
 
+[[r2_buckets]]
+binding = "CRASHES"
+bucket_name = "needle-crashes"
+
 [[routes]]
 pattern = "needle.nnx.fyi"
 custom_domain = true

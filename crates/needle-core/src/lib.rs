@@ -26,6 +26,7 @@ mod opus;
 pub mod plugins;
 pub mod query;
 pub mod radio;
+pub mod remote;
 pub mod scan;
 mod secrets;
 pub mod stems;

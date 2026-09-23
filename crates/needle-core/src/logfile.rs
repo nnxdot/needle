@@ -299,6 +299,30 @@ mod tests {
     }
 
     #[test]
+    fn a_crash_leaves_a_report_and_the_log_says_so() {
+        let dir = tempfile::tempdir().unwrap();
+        init(dir.path());
+        info("hello from the test");
+        let _ = std::thread::Builder::new()
+            .name("crasher".into())
+            .spawn(|| panic!("the test crashed on purpose"))
+            .unwrap()
+            .join();
+        let reports = pending(dir.path());
+        assert_eq!(reports.len(), 1, "{reports:?}");
+        let report = fs::read_to_string(&reports[0]).unwrap();
+        assert!(
+            report.contains("Panic: the test crashed on purpose"),
+            "{report}"
+        );
+        assert!(report.contains("Thread: crasher"));
+        assert!(report.contains("logfile.rs"));
+        let log = recent(dir.path(), 10);
+        assert!(log.contains("hello from the test"));
+        assert!(log.contains("Crash in crasher"));
+    }
+
+    #[test]
     fn crash_reports_wait_and_old_ones_are_cleared() {
         let dir = tempfile::tempdir().unwrap();
         fs::create_dir_all(crash_folder(dir.path())).unwrap();
