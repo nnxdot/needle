@@ -64,6 +64,8 @@ impl Seek for AudioReader {
 enum Inner {
     Symphonia(Decoder<AudioReader>),
     Opus(Box<crate::opus::OpusSource>),
+    /// WavPack, Monkey's Audio, and DSD (see `formats`).
+    Other(Box<dyn Source + Send>),
 }
 pub struct Decoded {
     inner: Inner,
@@ -75,6 +77,7 @@ impl Decoded {
         match &self.inner {
             Inner::Symphonia(d) => d,
             Inner::Opus(d) => d.as_ref(),
+            Inner::Other(d) => d.as_ref(),
         }
     }
 }
@@ -90,6 +93,7 @@ impl Iterator for Decoded {
         let sample = match &mut self.inner {
             Inner::Symphonia(d) => d.next(),
             Inner::Opus(d) => d.next(),
+            Inner::Other(d) => d.next(),
         }?;
         self.position += 1;
         Some(sample)
@@ -129,6 +133,7 @@ impl Source for Decoded {
         match &mut self.inner {
             Inner::Symphonia(d) => d.try_seek(position + offset)?,
             Inner::Opus(d) => d.try_seek(position + offset)?,
+            Inner::Other(d) => d.try_seek(position + offset)?,
         }
         self.position = (position.as_secs_f64() * self.sample_rate() as f64).round() as u64
             * self.channels() as u64;
@@ -136,6 +141,23 @@ impl Source for Decoded {
     }
 }
 pub fn decode(path: &Path) -> Result<Decoded> {
+    let extension = path
+        .extension()
+        .map(|e| e.to_string_lossy().to_lowercase())
+        .unwrap_or_default();
+    let other: Option<Box<dyn Source + Send>> = match extension.as_str() {
+        "wv" => Some(Box::new(crate::formats::WavPack::open(path)?)),
+        "ape" => Some(Box::new(crate::formats::Ape::open(path)?)),
+        "dsf" => Some(Box::new(crate::formats::Dsf::open(path)?)),
+        _ => None,
+    };
+    if let Some(inner) = other {
+        return Ok(Decoded {
+            inner: Inner::Other(inner),
+            trim: None,
+            position: 0,
+        });
+    }
     if crate::opus::is_ogg_opus(path) {
         return Ok(Decoded {
             inner: Inner::Opus(Box::new(crate::opus::OpusSource::open(path)?)),
@@ -163,6 +185,92 @@ pub fn decode(path: &Path) -> Result<Decoded> {
         trim,
         position: 0,
     })
+}
+
+/// Decode a library track: its file, or its stretch of the album file for a CUE track.
+pub fn decode_track(track: &crate::model::Track) -> Result<Box<dyn Source + Send>> {
+    let decoded = decode(Path::new(track.audio_path()))?;
+    let Some(cue) = &track.cue else {
+        return Ok(Box::new(decoded));
+    };
+    Ok(Box::new(Span::new(decoded, cue.start, cue.end)))
+}
+
+/// Part of a source, from `start` to `end` seconds, with positions counted from `start`.
+struct Span<S> {
+    inner: S,
+    start: f64,
+    remaining: Option<u64>,
+    length: Option<u64>,
+}
+impl<S: Source> Span<S> {
+    fn new(mut inner: S, start: f64, end: Option<f64>) -> Self {
+        if start > 0.
+            && inner
+                .try_seek(std::time::Duration::from_secs_f64(start))
+                .is_err()
+        {
+            // Not seekable: skip ahead sample by sample.
+            let skip = (start * inner.sample_rate() as f64) as u64 * inner.channels() as u64;
+            for _ in 0..skip {
+                if inner.next().is_none() {
+                    break;
+                }
+            }
+        }
+        let length = end.map(|end| {
+            ((end - start).max(0.) * inner.sample_rate() as f64) as u64 * inner.channels() as u64
+        });
+        Self {
+            inner,
+            start,
+            remaining: length,
+            length,
+        }
+    }
+}
+impl<S: Source> Iterator for Span<S> {
+    type Item = f32;
+    fn next(&mut self) -> Option<f32> {
+        if let Some(remaining) = self.remaining.as_mut() {
+            if *remaining == 0 {
+                return None;
+            }
+            *remaining -= 1;
+        }
+        self.inner.next()
+    }
+}
+impl<S: Source> Source for Span<S> {
+    fn current_span_len(&self) -> Option<usize> {
+        None
+    }
+    fn channels(&self) -> u16 {
+        self.inner.channels()
+    }
+    fn sample_rate(&self) -> u32 {
+        self.inner.sample_rate()
+    }
+    fn total_duration(&self) -> Option<std::time::Duration> {
+        self.length.map(|l| {
+            std::time::Duration::from_secs_f64(
+                l as f64 / self.channels() as f64 / self.sample_rate() as f64,
+            )
+        })
+    }
+    fn try_seek(
+        &mut self,
+        position: std::time::Duration,
+    ) -> std::result::Result<(), rodio::source::SeekError> {
+        self.inner
+            .try_seek(position + std::time::Duration::from_secs_f64(self.start))?;
+        if let Some(length) = self.length {
+            let done = (position.as_secs_f64() * self.sample_rate() as f64) as u64
+                * self.channels() as u64;
+            self.remaining = Some(length.saturating_sub(done));
+        }
+        Ok(())
+    }
 }
 
 #[cfg(test)]

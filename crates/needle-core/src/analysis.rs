@@ -15,7 +15,9 @@ pub struct Loudness {
 pub const TARGET_LUFS: f64 = -18.0;
 
 fn meter(path: &Path) -> Result<ebur128::EbuR128> {
-    let decoder = crate::audio_file::decode(path)?;
+    meter_of(crate::audio_file::decode(path)?)
+}
+fn meter_of(decoder: impl rodio::Source) -> Result<ebur128::EbuR128> {
     let channels = decoder.channels() as u32;
     let rate = decoder.sample_rate();
     let mut meter =
@@ -58,7 +60,8 @@ pub fn loudness(path: &Path) -> Result<Loudness> {
 }
 pub fn scan_loudness(library: &Library, id: &str) -> Result<Loudness> {
     let mut track = library.track(id)?.context("Track not found")?;
-    let result = loudness(Path::new(&track.path))?;
+    let meter = meter_of(crate::audio_file::decode_track(&track)?)?;
+    let result = summarize(meter.loudness_global()?, peak(&meter, meter.channels())?)?;
     track.replay_gain = Some(result.replay_gain_db);
     track.replay_peak = Some(result.true_peak);
     library.upsert(&track)?;
@@ -94,11 +97,24 @@ pub struct AlbumLoudness {
     pub tracks: Vec<AlbumTrack>,
 }
 /// Album loudness over several files, plus each file's own loudness.
+#[cfg(test)]
 fn measure_album(paths: &[&Path]) -> Result<(Loudness, Vec<Option<Loudness>>)> {
     let mut meters = vec![];
     for path in paths {
         meters.push(meter(path).with_context(|| format!("Cannot measure {}", path.display()))?);
     }
+    combine(meters)
+}
+fn measure_album_tracks(tracks: &[Track]) -> Result<(Loudness, Vec<Option<Loudness>>)> {
+    let mut meters = vec![];
+    for track in tracks {
+        let source = crate::audio_file::decode_track(track)
+            .with_context(|| format!("Cannot measure {}", track.title))?;
+        meters.push(meter_of(source)?);
+    }
+    combine(meters)
+}
+fn combine(meters: Vec<ebur128::EbuR128>) -> Result<(Loudness, Vec<Option<Loudness>>)> {
     let mut tracks = vec![];
     let mut album_peak = 0f64;
     for meter in &meters {
@@ -134,8 +150,7 @@ pub fn scan_album_loudness(library: &Library, track_id: &str) -> Result<AlbumLou
     if tracks.is_empty() {
         bail!("No playable tracks found for this album")
     }
-    let paths: Vec<&Path> = tracks.iter().map(|t| Path::new(&t.path)).collect();
-    let (album, measured) = measure_album(&paths)?;
+    let (album, measured) = measure_album_tracks(&tracks)?;
     let mut result = AlbumLoudness {
         album: track.album.clone(),
         album_artist: match track.album_artist.as_str() {
@@ -236,6 +251,7 @@ pub fn duplicates(library: &Library, expression: &str) -> Result<Vec<Duplicate>>
             }
             for track in [first, second] {
                 if !fingerprints.contains_key(&track.id)
+                    && track.cue.is_none()
                     && let Ok(f) = fingerprint(Path::new(&track.path))
                 {
                     fingerprints.insert(track.id.clone(), f.raw);

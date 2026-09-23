@@ -128,6 +128,7 @@ impl AppView {
         self.start_import(job, cx);
     }
 
+    #[allow(clippy::too_many_arguments)]
     fn source_card(
         id: &'static str,
         glyph_name: &'static str,
@@ -135,47 +136,63 @@ impl AppView {
         body: &str,
         how: &str,
         action: impl IntoElement,
+        width: f32,
         cx: &App,
     ) -> Stateful<Div> {
         let p = pal(cx);
+        // A column at full card width: text below the header wraps at a known width, so the
+        // card grows to fit it and the button never lands on the edge.
         div()
             .id(id)
+            // A set width: percent widths do not resolve here, and wrapped text needs a
+            // known width to be measured.
+            .w(px(width))
             .p_4()
             .rounded(px(10.))
             .bg(p.chrome)
             .border_1()
             .border_color(p.line_soft)
             .flex()
-            .items_start()
-            .gap_4()
+            .flex_col()
+            .gap_1()
             .child(
                 div()
-                    .size(px(36.))
-                    .rounded(px(8.))
-                    .bg(p.raised)
                     .flex()
                     .items_center()
-                    .justify_center()
-                    .child(glyph(glyph_name).size(px(18.)).text_color(p.accent)),
+                    .gap_3()
+                    .child(
+                        div()
+                            .flex_shrink_0()
+                            .size(px(32.))
+                            .rounded(px(8.))
+                            .bg(p.raised)
+                            .flex()
+                            .items_center()
+                            .justify_center()
+                            .child(glyph(glyph_name).size(px(17.)).text_color(p.accent)),
+                    )
+                    .child(strong(title.to_string())),
             )
             .child(
-                div()
-                    .flex_1()
-                    .min_w_0()
-                    .flex()
-                    .flex_col()
-                    .gap_1()
-                    .child(strong(title.to_string()))
-                    .child(meta(body.to_string(), cx).w_full())
-                    .when(!how.is_empty(), |el| {
-                        el.child(faint(how.to_string(), cx).w_full().mt_1())
-                    })
-                    .child(div().mt_3().child(action)),
+                meta(body.to_string(), cx)
+                    .w(px(width - 34.))
+                    .mt_1()
+                    .line_height(px(18.)),
             )
+            .when(!how.is_empty(), |el| {
+                el.child(
+                    faint(how.to_string(), cx)
+                        .w(px(width - 34.))
+                        .line_height(px(18.)),
+                )
+            })
+            .child(div().mt_2().flex().child(action))
     }
 
-    pub(super) fn import_view(&self, cx: &mut Context<Self>) -> impl IntoElement {
+    pub(super) fn import_view(&self, width: f32, cx: &mut Context<Self>) -> impl IntoElement {
         let p = pal(cx);
+        // The column is up to 760 px wide; cards match the full-width rows above them.
+        let card = width.min(760.) - 56.;
         let busy = self.import.busy.is_some();
         div()
             .id("import-scroll")
@@ -183,6 +200,7 @@ impl AppView {
             .overflow_y_scroll()
             .child(
                 div()
+                    .w_full()
                     .max_w(px(760.))
                     .px_8()
                     .pt_6()
@@ -233,6 +251,7 @@ impl AppView {
                         "Star ratings, play counts, last played and date added, and your playlists.",
                         "Export first. iTunes: File › Library › Export Library. Apple Music: File › Library › Export Library. MusicBee: Preferences › Library › export an iTunes XML file.",
                         small_button("pick-itunes", "Choose library XML…").disabled(busy).on_click(cx.listener(|this, _, _, _| this.pick_and_import(SourceKind::Itunes))),
+                        card,
                         cx,
                     ))
                     .child(Self::source_card(
@@ -242,6 +261,7 @@ impl AppView {
                         "Every stream in your history, and your playlists, matched to the songs you own.",
                         "Ask Spotify for your data at spotify.com/account/privacy. Choose \"Extended streaming history\" for everything since you joined. Then pick the ZIP or folder it sends.",
                         small_button("pick-spotify", "Choose Spotify download…").disabled(busy).on_click(cx.listener(|this, _, _, _| this.pick_and_import(SourceKind::Spotify))),
+                        card,
                         cx,
                     ))
                     .child(Self::source_card(
@@ -261,6 +281,7 @@ impl AppView {
                                 }
                                 this.start_import(Job::Lastfm(user), cx);
                             }))),
+                        card,
                         cx,
                     ))
                     .child(Self::source_card(
@@ -280,6 +301,7 @@ impl AppView {
                                 }
                                 this.start_import(Job::ListenBrainz(user), cx);
                             }))),
+                        card,
                         cx,
                     ))
                     .child(Self::source_card(
@@ -289,6 +311,7 @@ impl AppView {
                         "Every .m3u and .m3u8 file in a folder, for example exported from foobar2000 or MusicBee.",
                         "",
                         small_button("pick-playlists", "Choose folder…").disabled(busy).on_click(cx.listener(|this, _, _, _| this.pick_and_import(SourceKind::PlaylistFolder))),
+                        card,
                         cx,
                     ))
                     .child(faint("Listens for songs you don't have are kept in your history, so your statistics stay complete. Imported listens are never sent to Last.fm or ListenBrainz.", cx).mt_4()),

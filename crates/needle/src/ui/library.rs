@@ -11,10 +11,7 @@ use gpui_component::{
     button::{Button, ButtonVariants},
     input::Input,
 };
-use needle_core::{
-    browse::{AlbumSummary, ArtistSummary},
-    model::format_duration,
-};
+use needle_core::browse::{AlbumSummary, ArtistSummary};
 
 /// A way out of an empty page.
 #[derive(Clone, Copy)]
@@ -136,8 +133,12 @@ impl AppView {
         let body = match self.page {
             Page::Settings => self.settings_view(cx).into_any_element(),
             Page::Sound => self.sound_view(cx).into_any_element(),
-            Page::Import => self.import_view(cx).into_any_element(),
+            Page::Import => self.import_view(width, cx).into_any_element(),
+            Page::Folders => self.folders_view(cx).into_any_element(),
             Page::History => self.history_view(width, cx).into_any_element(),
+            Page::Timing => self.timing_view(cx),
+            Page::Wrapped(year) => self.wrapped_view(year, width, cx),
+            Page::Doctor => self.doctor_view(width, cx),
             _ if self.total == 0 && self.scan.is_none() && !self.loading => {
                 self.onboarding(cx).into_any_element()
             }
@@ -391,6 +392,38 @@ impl AppView {
                                     cx.listener(|this, _, _, cx| this.play_view(0, true, cx)),
                                 ),
                         )
+                        .when_some(
+                            match &self.page {
+                                Page::Artist(name) => Some(name.clone()),
+                                _ => None,
+                            },
+                            |el, artist| {
+                                let blend = artist.clone();
+                                el.child(
+                                    Button::new("artist-radio")
+                                        .icon(icon("radio"))
+                                        .label("Radio")
+                                        .on_click(cx.listener(move |this, _, _, _| {
+                                            this.start_artist_radio(artist.clone())
+                                        })),
+                                )
+                                .child(
+                                    icon_button(
+                                        "artist-blend",
+                                        "blend",
+                                        "Blend with another artist",
+                                    )
+                                    .on_click(cx.listener(
+                                        move |this, _: &ClickEvent, window, cx| {
+                                            // Below the button, clear of its tooltip.
+                                            let position =
+                                                window.mouse_position() + point(px(0.), px(22.));
+                                            this.open_blend_menu(blend.clone(), position, cx)
+                                        },
+                                    )),
+                                )
+                            },
+                        )
                         .when(playlist.is_none(), |el| {
                             el.child(
                                 icon_button("save-view", "plus", "Save as a playlist").on_click(
@@ -587,6 +620,11 @@ impl AppView {
                     "Press the heart on any track, or drag songs onto Favorites.".to_string(),
                     &[Step::Songs],
                 ),
+                Page::Folder(_) => (
+                    "No songs in this folder".into(),
+                    "Needle lists music it has scanned. Check for changes in Settings › Library if you added files here.".into(),
+                    &[Step::Songs],
+                ),
                 Page::Recent => (
                     "Nothing added in the last 30 days".into(),
                     "New files in your music folders appear here automatically.".into(),
@@ -614,6 +652,7 @@ impl AppView {
             .flex()
             .flex_col()
             .child(self.header(cx))
+            .children(self.folder_strip(cx))
             .children(self.playlist_tools(cx))
             .when(self.show_save, |el| el.child(self.save_form(cx)))
             .when_some(
@@ -831,9 +870,20 @@ impl AppView {
     fn table(&self, width: f32, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let p = pal(cx);
         let album_view = matches!(self.page, Page::Album { .. });
-        let show_album = width > 820. && !album_view;
-        let show_quality = width > 680.;
+        let columns = self.visible_columns(width, album_view);
+        let spare = super::columns::spare(width, &columns);
+        // The favorite heart sits just before Time.
+        let (time, before_heart): (Vec<_>, Vec<_>) =
+            columns.iter().cloned().partition(|c| c.key == "time");
+        let show_album = columns.iter().any(|c| c.key == "album");
+        let row_columns = (before_heart.clone(), time.clone());
         div()
+            .on_drop(
+                cx.listener(|this, _: &super::columns::ResizingColumn, _, cx| {
+                    this.finish_column_resize();
+                    cx.notify();
+                }),
+            )
             .flex_1()
             .min_h_0()
             .flex()
@@ -864,7 +914,7 @@ impl AppView {
                                 })),
                         ),
                     )
-                    .when(!album_view, |el| el.child(div().w(px(36.))))
+                    .when(!album_view, |el| el.child(div().w(px(38.))))
                     .child(
                         div()
                             .flex_1()
@@ -881,30 +931,38 @@ impl AppView {
                                 ))
                             }),
                     )
-                    .when(show_album, |el| {
-                        el.child(
-                            div()
-                                .w(relative(0.3))
-                                .flex_shrink_0()
-                                .child(self.sort_label("sort-album", "Album", "album", cx)),
-                        )
-                    })
-                    .when(show_quality, |el| {
-                        el.child(div().w(px(92.)).child(self.sort_label(
-                            "sort-format",
-                            "Quality",
-                            "format",
-                            cx,
-                        )))
-                    })
+                    .children(
+                        before_heart
+                            .iter()
+                            .map(|c| self.column_header(c, spare, cx))
+                            .collect::<Vec<_>>(),
+                    )
                     .child(div().w(px(28.)))
-                    .child(div().w(px(46.)).flex().justify_end().child(self.sort_label(
-                        "sort-time",
-                        "Time",
-                        "duration",
-                        cx,
-                    )))
-                    .child(div().w(px(28.))),
+                    .children(
+                        time.iter()
+                            .map(|c| self.column_header(c, spare, cx))
+                            .collect::<Vec<_>>(),
+                    )
+                    .child(div().w(px(28.)))
+                    .on_mouse_down(
+                        MouseButton::Right,
+                        cx.listener(|this, event: &MouseDownEvent, _, cx| {
+                            this.open_header_menu(event.position, cx)
+                        }),
+                    )
+                    .on_drag_move(cx.listener(
+                        |this, event: &DragMoveEvent<super::columns::ResizingColumn>, _, cx| {
+                            let drag = event.drag(cx).clone();
+                            this.resize_column(&drag, f32::from(event.event.position.x));
+                            cx.notify();
+                        },
+                    ))
+                    .on_drop(
+                        cx.listener(|this, _: &super::columns::ResizingColumn, _, cx| {
+                            this.finish_column_resize();
+                            cx.notify();
+                        }),
+                    ),
             )
             .child(
                 uniform_list(
@@ -913,7 +971,7 @@ impl AppView {
                     cx.processor(move |this, range: std::ops::Range<usize>, _, cx| {
                         range
                             .map(|index| {
-                                this.track_row(index, album_view, show_album, show_quality, cx)
+                                this.track_row(index, album_view, show_album, &row_columns, cx)
                             })
                             .collect::<Vec<_>>()
                     }),
@@ -929,7 +987,10 @@ impl AppView {
         index: usize,
         album_view: bool,
         show_album: bool,
-        show_quality: bool,
+        columns: &(
+            Vec<needle_core::model::ColumnSetting>,
+            Vec<needle_core::model::ColumnSetting>,
+        ),
         cx: &mut Context<Self>,
     ) -> Div {
         let p = pal(cx);
@@ -1075,29 +1136,13 @@ impl AppView {
                         },
                     ),
             )
-            .when(show_album, |el| {
-                el.child(
-                    div()
-                        .w(relative(0.3))
-                        .flex_shrink_0()
-                        .min_w_0()
-                        .truncate()
-                        .text_size(px(12.5))
-                        .text_color(p.ink_2)
-                        .child(track.display_album().to_string()),
-                )
-            })
-            .when(show_quality, |el| {
-                el.child(
-                    div()
-                        .w(px(92.))
-                        .flex_shrink_0()
-                        .truncate()
-                        .text_size(px(11.5))
-                        .text_color(p.ink_3)
-                        .child(quality(track)),
-                )
-            })
+            .children(
+                columns
+                    .0
+                    .iter()
+                    .map(|c| self.column_cell(c, track, cx))
+                    .collect::<Vec<_>>(),
+            )
             .child(
                 div()
                     .id(("row-fav", index))
@@ -1124,14 +1169,12 @@ impl AppView {
                         cx.notify();
                     })),
             )
-            .child(
-                div()
-                    .w(px(46.))
-                    .flex_shrink_0()
-                    .text_right()
-                    .text_size(px(12.5))
-                    .text_color(p.ink_2)
-                    .child(format_duration(track.duration)),
+            .children(
+                columns
+                    .1
+                    .iter()
+                    .map(|c| self.column_cell(c, track, cx))
+                    .collect::<Vec<_>>(),
             )
             .child(
                 div()

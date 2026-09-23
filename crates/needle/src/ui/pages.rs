@@ -553,6 +553,27 @@ impl AppView {
                             cx,
                         ))
                     })
+                    .child(setting_row(
+                        "Crossfade",
+                        "Songs overlap as one ends and the next begins. Tracks that follow each other on an album stay gapless, and exclusive output never crossfades.",
+                        segmented(
+                            "crossfade",
+                            &["Off", "2 s", "4 s", "6 s", "8 s", "12 s"],
+                            [0., 2., 4., 6., 8., 12.].iter().position(|v| (*v - self.settings.crossfade).abs() < 0.1).unwrap_or(0),
+                            cx,
+                            {
+                                let weak = weak.clone();
+                                move |index, _, cx| {
+                                    let _ = weak.update(cx, |this, cx| {
+                                        this.settings.crossfade = [0., 2., 4., 6., 8., 12.][index];
+                                        this.configure();
+                                        cx.notify();
+                                    });
+                                }
+                            },
+                        ),
+                        cx,
+                    ))
                     .child(
                         div()
                             .py_4()
@@ -573,6 +594,9 @@ impl AppView {
                                     }))),
                             )
                             .child(device("device-default".into(), "System default".into(), self.settings.output_device.is_none(), None, cx))
+                            .children(self.current_speaker().map(|s| {
+                                device("device-speaker".into(), format!("{} ({} speaker)", s.name, s.kind.label()), true, Some(s.device_name()), cx)
+                            }))
                             .children(self.output_devices.iter().enumerate().map(|(i, name)| {
                                 device(format!("device-{i}").into(), name.clone(), self.settings.output_device.as_ref() == Some(name), Some(name.clone()), cx)
                             })),
@@ -608,7 +632,7 @@ impl AppView {
                     // Library
                     .when(tab == 1, |el| {
                         el
-                    .child(self.section_title("Music folders", "Needle watches these folders and never moves or deletes your files.", cx))
+                    .child(self.section_title("Music folders", "Needle watches these folders. It moves or removes files only when you ask, in Fix my library.", cx))
                     .child(
                         div()
                             .py_2()
@@ -637,6 +661,19 @@ impl AppView {
                                     .child(small_button("rescan", "Check for changes").ghost().disabled(self.scan.is_some()).on_click(cx.listener(|this, _, _, cx| this.rescan(cx)))),
                             ),
                     )
+                    .child(setting_row(
+                        "Measure songs for radio",
+                        &match self.measured {
+                            Some((done, total)) if done < total => format!("Needle listens to each song on this computer (tempo, key, energy, and tone) to build radio stations. {} of {} measured.", super::widgets::count(done), super::widgets::count(total)),
+                            Some((_, total)) => format!("Needle listens to each song on this computer (tempo, key, energy, and tone) to build radio stations. All {} measured.", super::widgets::count(total)),
+                            None => "Needle listens to each song on this computer (tempo, key, energy, and tone) to build radio stations. Nothing is sent anywhere.".to_string(),
+                        },
+                        Switch::new("sound-analysis").checked(self.settings.sound_analysis).on_click(cx.listener(|this, checked: &bool, _, cx| {
+                            this.set_measuring(*checked);
+                            cx.notify();
+                        })),
+                        cx,
+                    ))
                     })
                     // Appearance
                     .when(tab == 2, |el| {
@@ -832,13 +869,15 @@ impl AppView {
                     // Services
                     .when(tab == 3, |el| {
                         el
+                    .child(self.section_title("Needle", "", cx))
+                    .child(self.updates_view(cx))
                     .child(self.section_title("Listening services", "Optional. Nothing is sent until you connect a service and turn it on.", cx))
                     .child(self.services(cx))
                     })
                     // Discord
                     .when(tab == 4, |el| {
                         el.child(self.section_title("Discord", "Show what you're playing on your Discord profile.", cx))
-                            .child(self.discord_settings(cx))
+                            .children(self.discord_settings(cx))
                     })
                     // Stems
                     .when(tab == 5, |el| {
@@ -932,11 +971,9 @@ impl AppView {
                     )
                     })
                     .child(
+                        // No line on top: the last setting row already ends with one.
                         div()
-                            .mt_10()
-                            .pt_4()
-                            .border_t_1()
-                            .border_color(p.line_soft)
+                            .mt_8()
                             .flex()
                             .flex_col()
                             .gap_1()
@@ -1188,7 +1225,7 @@ impl AppView {
 
 impl AppView {
     /// Discord Rich Presence: one switch. Needle finds Discord by itself.
-    fn discord_settings(&self, cx: &mut Context<Self>) -> impl IntoElement {
+    fn discord_settings(&self, cx: &mut Context<Self>) -> Vec<AnyElement> {
         use needle_core::discord::Field;
         let p = pal(cx);
         let on = self.settings.discord_presence;
@@ -1411,24 +1448,29 @@ impl AppView {
                             }),
                     ),
             );
-        div()
-            .child(switch(
-                "discord-presence",
-                "Show what you're playing on Discord",
-                "When Discord is open on this PC, your profile shows what is playing and a time bar. Needle finds Discord by itself and only talks to the real Discord app on this PC.",
-                on,
-                |t, v| t.settings.discord_presence = v,
-                cx,
-            ))
-            .when(on, |el| {
-                el.child(preview)
-                    .child(title)
-                    .child(top)
-                    .child(middle)
-                    .child(bottom)
-                    .child(covers)
-                    .child(logo)
-            })
+        // Rows go straight into the settings column: a wrapper box would not stretch, and
+        // wrapped descriptions inside it would overlap what comes next.
+        let mut rows = vec![switch(
+            "discord-presence",
+            "Show what you're playing on Discord",
+            "When Discord is open on this PC, your profile shows what is playing and a time bar. Needle finds Discord by itself and only talks to the real Discord app on this PC.",
+            on,
+            |t, v| t.settings.discord_presence = v,
+            cx,
+        )
+        .into_any_element()];
+        if on {
+            rows.extend([
+                preview.into_any_element(),
+                title.into_any_element(),
+                top.into_any_element(),
+                middle.into_any_element(),
+                bottom.into_any_element(),
+                covers.into_any_element(),
+                logo.into_any_element(),
+            ]);
+        }
+        rows
     }
 }
 

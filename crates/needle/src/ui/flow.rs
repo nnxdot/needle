@@ -187,6 +187,7 @@ impl AppView {
                 ),
             ],
             Page::Artist(_) => vec![("Artists".into(), Some(Page::Artists))],
+            Page::Folder(folder) => self.folder_crumbs(folder),
             Page::Playlist(id) => vec![(
                 if self
                     .playlists

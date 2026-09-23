@@ -67,6 +67,7 @@ impl Library {
             );
             CREATE TABLE IF NOT EXISTS settings(key TEXT PRIMARY KEY, value TEXT NOT NULL);
             CREATE TABLE IF NOT EXISTS cache(key TEXT PRIMARY KEY, expires INTEGER NOT NULL, data TEXT NOT NULL);
+            CREATE TABLE IF NOT EXISTS features(track_id TEXT PRIMARY KEY, version INTEGER NOT NULL, data TEXT NOT NULL);
             PRAGMA user_version=1;
         ")?;
         let has_fts: bool = db.query_row(
@@ -115,6 +116,16 @@ impl Library {
                     rusqlite::types::ValueRef::Null => false,
                     other => pattern.is_match(&format!("{other:?}")),
                 })
+            },
+        )?;
+        // `folder = "…"` in rules: the folder a track's file (or CUE sheet) is in.
+        db.create_scalar_function(
+            "needle_folder",
+            1,
+            rusqlite::functions::FunctionFlags::SQLITE_UTF8
+                | rusqlite::functions::FunctionFlags::SQLITE_DETERMINISTIC,
+            |ctx| {
+                Ok(crate::browse::folder_of(&ctx.get::<String>(0).unwrap_or_default()).to_string())
             },
         )?;
         db.execute_batch("PRAGMA foreign_keys=ON; PRAGMA synchronous=NORMAL;")?;
@@ -247,7 +258,7 @@ impl Library {
         )?;
         for track in stmt.query_map([hash], Self::row_track)? {
             let track = track?;
-            if std::fs::metadata(&track.path)
+            if std::fs::metadata(track.file_path())
                 .is_err_and(|e| e.kind() == std::io::ErrorKind::NotFound)
             {
                 return Ok(Some(track));

@@ -169,18 +169,12 @@ impl AppView {
                 )
                 .into_any_element();
         };
-        let reason = self
-            .playback
-            .current
-            .as_ref()
-            .filter(|i| i.track.id == track.id)
-            .map(|i| i.reason.clone());
         let album_page = super::album_page(&track);
         let artist_page = Page::Artist(track.artist.clone());
         let rating = track.rating;
         let id = track.id.clone();
         let (play, queue) = (track.clone(), track.clone());
-        let path = track.path.trim_start_matches("\\\\?\\").to_string();
+        let path = track.file_path().trim_start_matches("\\\\?\\").to_string();
         div()
             .id("details-scroll")
             .flex_1()
@@ -279,19 +273,6 @@ impl AppView {
                     .child(faint("Stems", cx))
                     .child(self.stems_view(Some(track.clone()), false, cx)),
             )
-            .when_some(reason, |el, reason| {
-                el.child(
-                    div()
-                        .p_3()
-                        .rounded(px(8.))
-                        .bg(p.raised)
-                        .flex()
-                        .flex_col()
-                        .gap_1()
-                        .child(faint("Why this track", cx))
-                        .child(div().text_size(px(12.5)).line_height(relative(1.45)).child(reason)),
-                )
-            })
             .child(
                 div()
                     .flex()
@@ -314,7 +295,14 @@ impl AppView {
                     .child(self.fact("Length", format_duration(track.duration), cx))
                     .child(self.fact("Year", if track.year > 0 { track.year.to_string() } else { "—".into() }, cx))
                     .child(self.fact("Genre", if track.genre.is_empty() { "—".into() } else { track.genre.clone() }, cx))
-                    .child(self.fact("Tempo", track.bpm.map(|v| format!("{v:.0} BPM")).unwrap_or_else(|| "—".into()), cx))
+                    .child(self.fact(
+                        "Sound",
+                        match self.sound_of(&track.id) {
+                            Some(sound) => sound.summary(),
+                            None => track.bpm.map(|v| format!("{v:.0} BPM")).unwrap_or_else(|| "Not measured yet".into()),
+                        },
+                        cx,
+                    ))
                     .child(self.fact(
                         "Plays",
                         match (track.play_count, track.last_played) {
@@ -415,7 +403,12 @@ impl AppView {
                                             this.lookup_busy = true;
                                             std::thread::spawn(move || {
                                                 let key = integrations::acoustid_key().unwrap_or_default();
-                                                let result = integrations::acoustid_lookup(&library, &PathBuf::from(&track.path), &key);
+                                                // A CUE track is only part of its file, which would not match.
+                                                let result = if track.cue.is_some() {
+                                                    Err(anyhow::anyhow!("songs from a CUE sheet can't be identified by sound"))
+                                                } else {
+                                                    integrations::acoustid_lookup(&library, &PathBuf::from(&track.path), &key)
+                                                };
                                                 let _ = sender.send(match result {
                                                     Ok(matches) => Event::Matches(track.id, matches),
                                                     Err(error) => Event::Error(format!("AcoustID: {error:#}")),

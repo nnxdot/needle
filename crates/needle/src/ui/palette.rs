@@ -129,6 +129,7 @@ impl AppView {
             page("songs", "Songs", Page::Songs, Some("Ctrl+2")),
             page("albums", "Albums", Page::Albums, Some("Ctrl+3")),
             page("artists", "Artists", Page::Artists, Some("Ctrl+4")),
+            page("folder", "Folders", Page::Folders, None),
             page("heart", "Favorites", Page::Favorites, Some("Ctrl+5")),
             page("recent", "Recently added", Page::Recent, Some("Ctrl+6")),
             page(
@@ -139,6 +140,7 @@ impl AppView {
             ),
             page("eq", "Sound and equalizer", Page::Sound, None),
             page("import", "Import from other apps", Page::Import, None),
+            page("wrench", "Fix my library", Page::Doctor, None),
         ];
         items.extend(self.playlists.iter().map(|p| {
             let target = Page::Playlist(p.id.clone());
@@ -216,6 +218,34 @@ impl AppView {
                     this.big = true;
                     cx.notify();
                 },
+            ),
+            item(
+                "Go to",
+                "history",
+                "Your year in music",
+                "Your top artists, songs, and albums of the year",
+                None,
+                |this, window, cx| this.open_wrapped(window, cx),
+            ),
+            item(
+                "Actions",
+                "radio",
+                "Start radio from this song",
+                "Songs that sound like the one playing",
+                None,
+                |this, _, _| {
+                    if let Some(item) = this.playback.current.clone() {
+                        this.start_radio(item.track);
+                    }
+                },
+            ),
+            item(
+                "Actions",
+                "lyrics",
+                "Time the lyrics of this song",
+                "Tap along to time lines or words",
+                None,
+                |this, window, cx| this.open_timing(window, cx),
             ),
             item(
                 "Actions",

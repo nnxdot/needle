@@ -17,7 +17,8 @@ use std::{
 };
 
 pub const EXTENSIONS: &[&str] = &[
-    "flac", "mp3", "m4a", "mp4", "aac", "wav", "wave", "aif", "aiff", "ogg", "oga", "opus",
+    "flac", "mp3", "m4a", "mp4", "aac", "wav", "wave", "aif", "aiff", "ogg", "oga", "opus", "wv",
+    "ape", "dsf",
 ];
 #[derive(Clone, Debug, Default)]
 pub struct ScanProgress {
@@ -43,6 +44,8 @@ pub fn import(
     }
     fs::read_dir(&root).context("Cannot read this music folder")?;
     let mut state = ScanProgress::default();
+    // Album files split by a CUE sheet are imported as the sheet's tracks, not as one song.
+    let covered = crate::cue::covered_files(&root);
     for entry in walkdir::WalkDir::new(&root).follow_links(false) {
         if cancel.load(Ordering::Relaxed) {
             break;
@@ -60,9 +63,26 @@ pub fn import(
             continue;
         }
         let path = entry.path();
+        if path
+            .extension()
+            .is_some_and(|e| e.eq_ignore_ascii_case("cue"))
+        {
+            state.scanned += 1;
+            match crate::cue::import_sheet(library, path) {
+                Ok(0) => state.unchanged += 1,
+                Ok(_) => state.imported += 1,
+                Err(e) => {
+                    if state.errors.len() < 100 {
+                        state.errors.push(format!("{}: {e:#}", path.display()));
+                    }
+                }
+            }
+            continue;
+        }
         if !path
             .extension()
             .is_some_and(|e| EXTENSIONS.contains(&e.to_string_lossy().to_lowercase().as_str()))
+            || path.canonicalize().is_ok_and(|p| covered.contains(&p))
         {
             continue;
         }
@@ -88,8 +108,8 @@ pub fn import(
     library.add_root(&root.to_string_lossy())?;
     if !cancel.load(Ordering::Relaxed) {
         for track in library.search("")? {
-            if Path::new(&track.path).starts_with(&root)
-                && fs::metadata(&track.path)
+            if Path::new(track.file_path()).starts_with(&root)
+                && fs::metadata(track.file_path())
                     .is_err_and(|e| e.kind() == std::io::ErrorKind::NotFound)
             {
                 library
@@ -101,6 +121,30 @@ pub fn import(
     state.done = true;
     progress(state.clone());
     Ok(state)
+}
+
+/// A DSF file's tags: it keeps a plain ID3v2 tag at the offset its header points to.
+fn dsf_tags(path: &Path) -> Result<lofty::file::TaggedFile> {
+    use lofty::config::ParseOptions;
+    use std::io::{Seek, SeekFrom};
+    let mut file = File::open(path)?;
+    let mut header = [0u8; 28];
+    file.read_exact(&mut header)?;
+    anyhow::ensure!(&header[..4] == b"DSD ", "Not a DSF file");
+    let pointer = u64::from_le_bytes(header[20..28].try_into().unwrap());
+    let empty =
+        || lofty::file::TaggedFile::new(lofty::file::FileType::Mpeg, Default::default(), vec![]);
+    if pointer == 0 {
+        return Ok(empty());
+    }
+    file.seek(SeekFrom::Start(pointer))?;
+    let mut id3 = vec![];
+    file.take(32 * 1024 * 1024).read_to_end(&mut id3)?;
+    let tagged = Probe::new(std::io::Cursor::new(id3))
+        .set_file_type(lofty::file::FileType::Mpeg)
+        .options(ParseOptions::new().read_properties(false))
+        .read();
+    Ok(tagged.unwrap_or_else(|_| empty()))
 }
 
 pub fn import_one(library: &Library, path: &Path) -> Result<bool> {
@@ -122,9 +166,16 @@ pub fn import_one(library: &Library, path: &Path) -> Result<bool> {
     }) {
         return Ok(false);
     }
-    let tagged = Probe::open(&path)?
-        .read()
-        .context("Unable to read audio metadata")?;
+    let dsf = path
+        .extension()
+        .is_some_and(|e| e.eq_ignore_ascii_case("dsf"));
+    let tagged = if dsf {
+        dsf_tags(&path)?
+    } else {
+        Probe::open(&path)?
+            .read()
+            .context("Unable to read audio metadata")?
+    };
     let properties = tagged.properties();
     let mut hasher = blake3::Hasher::new();
     let mut file = File::open(&path)?;
@@ -227,6 +278,14 @@ pub fn import_one(library: &Library, path: &Path) -> Result<bool> {
             track.artwork = Some(destination.to_string_lossy().into());
         }
     }
+    if dsf {
+        let (duration, rate, channels) = crate::formats::dsf_properties(&path)?;
+        track.duration = duration;
+        track.sample_rate = rate as i64;
+        track.bit_depth = 1;
+        track.channels = channels as i64;
+        track.bitrate = (rate as i64 * channels as i64) / 1000;
+    }
     if track.artwork.is_none() {
         track.artwork = folder_cover(path.parent().unwrap_or(&path));
     }
@@ -274,6 +333,11 @@ impl TagEdit {
 }
 
 fn ensure_unchanged(track: &Track) -> Result<()> {
+    if track.cue.is_some() {
+        bail!(
+            "This song comes from a CUE sheet; its details are kept in the .cue file, so edit that file to change them."
+        )
+    }
     let current = fs::metadata(&track.path)?;
     let modified = current
         .modified()?

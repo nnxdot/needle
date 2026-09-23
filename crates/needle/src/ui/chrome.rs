@@ -165,7 +165,9 @@ impl AppView {
         let active = self.page == page
             || matches!(
                 (&self.page, &page),
-                (Page::Album { .. }, Page::Albums) | (Page::Artist(_), Page::Artists)
+                (Page::Album { .. }, Page::Albums)
+                    | (Page::Artist(_), Page::Artists)
+                    | (Page::Folder(_), Page::Folders)
             );
         div()
             .id(id)
@@ -228,6 +230,7 @@ impl AppView {
             .child(self.nav_item("nav-songs", "Songs", "songs", Page::Songs, cx))
             .child(self.nav_item("nav-albums", "Albums", "albums", Page::Albums, cx))
             .child(self.nav_item("nav-artists", "Artists", "artists", Page::Artists, cx))
+            .child(self.nav_item("nav-folders", "Folders", "folder", Page::Folders, cx))
             .child(self.section("Collections", cx))
             .child(
                 self.nav_item("nav-favorites", "Favorites", "heart", Page::Favorites, cx)
@@ -388,6 +391,13 @@ impl AppView {
                             .child("Add music folder")
                             .on_click(cx.listener(|this, _, _, cx| this.import_folder(cx))),
                     )
+                    .child(self.nav_item(
+                        "nav-doctor",
+                        "Fix my library",
+                        "wrench",
+                        Page::Doctor,
+                        cx,
+                    ))
                     .child(self.nav_item("nav-import", "Import", "import", Page::Import, cx))
                     .child(self.nav_item(
                         "nav-settings",
@@ -737,6 +747,24 @@ impl AppView {
                             .when(self.settings.dsp.eq || !self.settings.dsp.is_transparent(), |b| b.text_color(p.accent))
                             .on_click(cx.listener(|this, _, window, cx| this.navigate(Page::Sound, window, cx))),
                     )
+                    .child({
+                        let speaker = self.current_speaker();
+                        icon_button(
+                            "open-speakers",
+                            "cast",
+                            match &speaker {
+                                Some(s) => format!("Playing on {}", s.name),
+                                None => "Play on another speaker".into(),
+                            },
+                        )
+                        .small()
+                        .ml_1()
+                        .when(speaker.is_some(), |b| b.text_color(p.accent))
+                        .on_click(cx.listener(|this, _, window, cx| {
+                            let position = window.mouse_position() - point(px(0.), px(14.));
+                            this.open_speaker_menu(position, cx)
+                        }))
+                    })
                     .child(
                         icon_button("open-mini", "mini", "Mini player · Ctrl+M")
                             .small()

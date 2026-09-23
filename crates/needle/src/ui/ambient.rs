@@ -5,6 +5,7 @@ use super::{
     theme::{self, Base, Palette},
 };
 use gpui::{prelude::*, *};
+use needle_core::audio::QueueItem;
 use std::{
     collections::HashMap,
     hash::{Hash, Hasher},
@@ -137,12 +138,20 @@ pub fn measure(path: &str, cache: &Path) -> Option<Look> {
         .ok()
         .and_then(|m| m.modified().ok())
         .hash(&mut hasher);
-    let out = cache.join(format!("{:016x}.png", hasher.finish()));
+    // "-v2": blurs are now stored large (see below); older small ones are made again.
+    let out = cache.join(format!("{:016x}-v2.png", hasher.finish()));
     let blur = if out.exists() {
         Some(out)
     } else {
         let base = image.thumbnail_exact(72, 72).to_rgb8();
-        let blurred = image::imageops::blur(&base, 7.);
+        // GPUI stretches images without smoothing, so a small blur shows as soft blocks
+        // across a whole window. Blur small (cheap), then enlarge smoothly.
+        let blurred = image::imageops::resize(
+            &image::imageops::blur(&base, 7.),
+            512,
+            512,
+            image::imageops::FilterType::Triangle,
+        );
         std::fs::create_dir_all(cache).ok();
         blurred.save(&out).ok().map(|_| out)
     };
@@ -182,9 +191,36 @@ impl AppView {
         }
     }
 
+    /// The song the interface shows: the one playing, or for a moment after playback
+    /// briefly has none (switching to stems reloads the song), the one before. Without this
+    /// the colours and backgrounds would blink.
+    pub(super) fn shown_item(&mut self) -> Option<QueueItem> {
+        match &self.playback.current {
+            Some(item) => {
+                let same = self
+                    .last_item
+                    .as_ref()
+                    .is_some_and(|(last, _)| last.track.id == item.track.id);
+                if same {
+                    if let Some((_, at)) = self.last_item.as_mut() {
+                        *at = Instant::now();
+                    }
+                } else {
+                    self.last_item = Some((item.clone(), Instant::now()));
+                }
+                Some(item.clone())
+            }
+            None => self
+                .last_item
+                .as_ref()
+                .filter(|(_, at)| at.elapsed() < std::time::Duration::from_millis(1500))
+                .map(|(item, _)| item.clone()),
+        }
+    }
+
     /// The playing song's look.
     pub(super) fn now_look(&mut self) -> Option<Look> {
-        let path = self.playback.current.as_ref()?.track.artwork.clone()?;
+        let path = self.shown_item()?.track.artwork?;
         self.look(&path)
     }
 
@@ -216,7 +252,7 @@ impl AppView {
         let tint = if self.settings.music_colors {
             match self.page_art() {
                 Some(path) => self.look(&path).map(|l| l.vivid),
-                None => match self.playback.current.as_ref().map(|c| c.track.clone()) {
+                None => match self.shown_item().map(|c| c.track) {
                     // No cover at all: use the colour of the made-up one.
                     Some(track) if track.artwork.is_none() => Some(super::widgets::seed_color(
                         &super::widgets::track_seed(&track),
@@ -360,16 +396,13 @@ impl AppView {
             return None;
         }
         let p = theme::pal(cx);
+        let shown = self.shown_item();
         let path = self
             .settings
             .music_colors
             .then(|| {
-                self.page_art().or_else(|| {
-                    self.playback
-                        .current
-                        .as_ref()
-                        .and_then(|c| c.track.artwork.clone())
-                })
+                self.page_art()
+                    .or_else(|| shown.and_then(|c| c.track.artwork))
             })
             .flatten();
         let blur = path.and_then(|path| self.look(&path)).and_then(|look| {
@@ -398,10 +431,12 @@ impl AppView {
         };
         Some(
             layer
+                // On the light look a busy mid-tone background makes grey text hard to read,
+                // so the wash is lighter and more even there.
                 .child(div().absolute().inset_0().bg(linear_gradient(
                     180.,
-                    linear_color_stop(p.chrome.opacity(0.3), 0.),
-                    linear_color_stop(p.chrome.opacity(0.65), 1.),
+                    linear_color_stop(p.chrome.opacity(if p.dark { 0.3 } else { 0.55 }), 0.),
+                    linear_color_stop(p.chrome.opacity(if p.dark { 0.65 } else { 0.8 }), 1.),
                 )))
                 .into_any_element(),
         )
@@ -410,15 +445,11 @@ impl AppView {
     /// The glow behind the current page: an album's or artist's own picture on their pages,
     /// otherwise the playing song's cover.
     pub(super) fn page_backdrop(&mut self, cx: &App) -> AnyElement {
+        let shown = self.shown_item();
         let playing = self
             .settings
             .music_colors
-            .then(|| {
-                self.playback
-                    .current
-                    .as_ref()
-                    .and_then(|c| c.track.artwork.clone())
-            })
+            .then(|| shown.and_then(|c| c.track.artwork))
             .flatten();
         let (path, height, strength) = match &self.page {
             super::Page::Album { .. } | super::Page::Artist(_) if self.page_art().is_some() => {

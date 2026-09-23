@@ -69,6 +69,8 @@ pub struct PlaybackState {
     pub position: f64,
     pub volume: f32,
     pub output: String,
+    /// The output device the player is set to now (it drops a failed speaker).
+    pub output_device: Option<String>,
     pub output_rate: u32,
     pub output_channels: u16,
     pub error: Option<String>,
@@ -205,6 +207,16 @@ pub fn replay_gain_factor(track: &Track, settings: &Settings) -> f64 {
     gain.min(16.0)
 }
 /// Local listening qualification: half the track or four minutes.
+/// How a speaker should describe a song.
+fn speaker_meta(track: &Track) -> crate::cast::Meta {
+    crate::cast::Meta {
+        title: track.title.clone(),
+        artist: track.display_artist().to_string(),
+        album: track.album.clone(),
+        cover: track.artwork.clone(),
+    }
+}
+
 fn qualifies(listened: f64, duration: f64) -> bool {
     duration > 0.0 && listened >= (duration * 0.5).min(240.0)
 }
@@ -529,6 +541,8 @@ struct OpenOutput {
     channels: u16,
     failure: Arc<Mutex<Option<String>>>,
     _stream: Box<dyn Any>,
+    /// For a speaker on the network.
+    network: Option<Arc<crate::cast::output::Control>>,
 }
 trait OutputOpener {
     /// Opens the named device, or the default for `None`. `Ok(None)` means the
@@ -539,6 +553,18 @@ trait OutputOpener {
 struct SystemOutput;
 impl OutputOpener for SystemOutput {
     fn open(&mut self, device: Option<&str>) -> Result<Option<OpenOutput>> {
+        if let Some(speaker) = device.and_then(crate::cast::Speaker::from_device_name) {
+            let network = crate::cast::output::open(&speaker)?;
+            return Ok(Some(OpenOutput {
+                sink: network.sink,
+                name: network.name,
+                rate: network.rate,
+                channels: network.channels,
+                failure: network.failure,
+                _stream: Box::new(network.guard),
+                network: Some(network.control),
+            }));
+        }
         let host = rodio::cpal::default_host();
         let device = match device {
             Some(name) => match host
@@ -571,6 +597,7 @@ impl OutputOpener for SystemOutput {
             channels: stream.config().channel_count(),
             failure,
             _stream: Box::new(stream),
+            network: None,
         }))
     }
     fn default_name(&mut self) -> Option<String> {
@@ -608,6 +635,8 @@ struct Worker {
     dsp: Arc<crate::dsp::DspControl>,
     stem_mix: Arc<crate::stems::StemMix>,
     stems: Option<(String, std::path::PathBuf)>,
+    /// The last queued song's ending, which the next song may crossfade over.
+    ending: Option<(Track, Arc<crate::crossfade::Ending>)>,
 }
 impl Worker {
     fn new(
@@ -641,6 +670,7 @@ impl Worker {
             dsp,
             stem_mix: Arc::default(),
             stems: None,
+            ending: None,
             library,
             state,
             settings,
@@ -721,6 +751,7 @@ impl Worker {
     /// Drops the output device without touching the queue.
     fn release(&mut self) {
         self.epoch += 1;
+        self.ending = None;
         if let Some(sink) = self.sink.take() {
             sink.stop();
         }
@@ -744,8 +775,18 @@ impl Worker {
         self.resume_position = position;
         self.playing = false;
     }
+    /// Whether the output is a speaker on the network.
+    fn speaker(&self) -> bool {
+        self.settings
+            .output_device
+            .as_deref()
+            .is_some_and(|d| d.starts_with(crate::cast::PREFIX))
+    }
+    fn network(&self) -> Option<Arc<crate::cast::output::Control>> {
+        self.output.as_ref().and_then(|o| o.network.clone())
+    }
     fn open(&mut self) -> Result<()> {
-        if self.settings.exclusive {
+        if self.settings.exclusive && !self.speaker() {
             #[cfg(windows)]
             {
                 if self.exclusive.is_some() {
@@ -798,6 +839,9 @@ impl Worker {
         }
         self.sink = Some(output.sink.clone());
         self.progress = (Duration::ZERO, Instant::now());
+        if let (Some(control), Some(item)) = (&output.network, self.queue.pending.front()) {
+            control.set_meta(speaker_meta(&item.track));
+        }
         self.output = Some(output);
         Ok(())
     }
@@ -850,7 +894,15 @@ impl Worker {
             let _ = tx.send(sink.try_seek(Duration::from_secs_f64(position.max(0.0))));
         });
         match rx.recv_timeout(self.seek_timeout) {
-            Ok(result) => result.map_err(|e| anyhow::anyhow!("Seek failed: {e}")),
+            Ok(result) => {
+                // A speaker holds seconds of audio; start it fresh from the new place.
+                if result.is_ok()
+                    && let Some(control) = self.network()
+                {
+                    control.flush();
+                }
+                result.map_err(|e| anyhow::anyhow!("Seek failed: {e}"))
+            }
             Err(_) => {
                 self.lost = Some("Audio output stopped responding".into());
                 bail!("Audio output stopped responding")
@@ -874,8 +926,7 @@ impl Worker {
                 });
             let decoded = match stems {
                 Some(stems) => Ok(Box::new(stems) as Box<dyn Source + Send>),
-                None => crate::audio_file::decode(std::path::Path::new(&item.track.path))
-                    .map(|d| Box::new(d) as Box<dyn Source + Send>),
+                None => crate::audio_file::decode_track(&item.track),
             };
             let source = match decoded {
                 Ok(source) => source,
@@ -900,6 +951,7 @@ impl Worker {
                     self.dsp.clone(),
                 ))
             };
+            let processed = self.crossfade(&item.track, processed);
             let marked = Marked {
                 inner: processed,
                 item: item.clone(),
@@ -917,6 +969,37 @@ impl Worker {
                 .store(true, std::sync::atomic::Ordering::Release);
         }
         Ok(())
+    }
+    /// Blend the start of `track` over the previous song's ending, and set up its own ending
+    /// for the next song. Off on exclusive output, which stays bit-exact, and between
+    /// consecutive tracks of one album, which are often meant to run into each other.
+    fn crossfade(
+        &mut self,
+        track: &Track,
+        source: Box<dyn Source + Send>,
+    ) -> Box<dyn Source + Send> {
+        let fade = self.settings.crossfade as f64;
+        if fade <= 0. || self.settings.exclusive {
+            self.ending = None;
+            return source;
+        }
+        let mut source = source;
+        if let Some((previous, ending)) = self.ending.take() {
+            let same_album = previous.album == track.album
+                && previous.album_artist == track.album_artist
+                && !track.album.is_empty()
+                && track.track_number == previous.track_number + 1;
+            if !same_album && ending.claim() {
+                source = Box::new(crate::crossfade::blend(ending, source));
+            }
+        }
+        if track.duration > fade * 3. {
+            let (head, ending) = crate::crossfade::split(source, track.duration, fade);
+            self.ending = Some((track.clone(), ending));
+            Box::new(head)
+        } else {
+            source
+        }
     }
     fn handle(&mut self, command: Command) -> Result<bool> {
         match command {
@@ -1216,14 +1299,31 @@ impl Worker {
             self.suspend(items, position);
             return;
         }
+        let device = self
+            .output
+            .as_ref()
+            .and_then(|o| o.failure.lock().ok()?.take());
+        if let Some(reason) = device.as_ref()
+            && self.speaker()
+        {
+            // A speaker that fails is left for this computer's own output; retrying would
+            // only fail again.
+            let name = self
+                .output
+                .as_ref()
+                .map(|o| o.name.clone())
+                .unwrap_or_default();
+            self.settings.output_device = None;
+            let _ = self.library.save_settings(&self.settings);
+            self.recover(format!(
+                "{name} stopped playing ({reason}). Playing on this computer"
+            ));
+            return;
+        }
         let failure = self
             .lost
             .take()
-            .or_else(|| {
-                self.output
-                    .as_ref()
-                    .and_then(|o| o.failure.lock().ok()?.take())
-            })
+            .or(device)
             .or_else(|| self.stalled())
             .or_else(|| self.default_changed());
         if let Some(reason) = failure {
@@ -1267,6 +1367,9 @@ impl Worker {
                     qualified: false,
                 });
             }
+            if let Some(control) = self.network() {
+                control.set_meta(speaker_meta(&item.track));
+            }
             self.queue.started(item);
         }
         if self.sink.is_some() {
@@ -1309,8 +1412,11 @@ impl Worker {
         let queue =
             (self.published_version != self.queue.version).then(|| Arc::new(self.queue.upcoming()));
         self.published_version = self.queue.version;
-        let position = self.position();
+        // A speaker plays a little behind; show where it is.
+        let lag = self.network().map_or(0., |c| c.lag());
+        let position = (self.position() - lag).max(0.);
         let mut state = self.state.lock().unwrap();
+        state.output_device = self.settings.output_device.clone();
         state.current = self.queue.active.clone();
         if let Some(queue) = queue {
             state.queue = queue;
@@ -1712,6 +1818,7 @@ mod tests {
                 channels: 2,
                 failure,
                 _stream: Box::new(Running(running)),
+                network: None,
             }))
         }
         fn default_name(&mut self) -> Option<String> {
@@ -1865,6 +1972,33 @@ mod tests {
         rig.until_active("a");
         assert!(rig.worker.playing);
         assert!(rig.worker.position() < 5.0);
+    }
+
+    #[test]
+    fn crossfade_starts_the_next_song_before_the_last_one_ends() {
+        // Time from a seek to 55 s in a 60 s song until the next one starts. The fake output
+        // is not real time, so compare against the same run without crossfade.
+        let wait = |crossfade: f32| {
+            let settings = Settings {
+                crossfade,
+                ..Settings::default()
+            };
+            let mut rig = rig(FakeOpener::with(&[], Some("Speakers")), settings);
+            let list = rig.items(&["a", "b"]);
+            rig.run(Command::Play(list));
+            rig.until_active("a");
+            rig.run(Command::Seek(55.));
+            let seeked = Instant::now();
+            rig.until_active("b");
+            assert!(rig.state().error.is_none());
+            seeked.elapsed().as_secs_f64()
+        };
+        let (plain, faded) = (wait(0.), wait(4.));
+        // Five seconds of song without crossfade, one with a four-second fade.
+        assert!(
+            faded < plain * 0.5,
+            "b started after {faded:.3} s with crossfade, {plain:.3} s without"
+        );
     }
 
     #[test]

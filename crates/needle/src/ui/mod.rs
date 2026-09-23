@@ -1,14 +1,18 @@
 mod ambient;
 mod assets;
 mod chrome;
+mod columns;
 mod discord;
+mod doctor;
 mod flow;
+mod folders;
 mod glass;
 mod history;
 mod home;
 mod importer;
 mod library;
 mod lyrics;
+mod media_keys;
 mod menus;
 mod mini;
 mod motion;
@@ -17,12 +21,17 @@ mod pages;
 mod palette;
 mod panel;
 mod plugin_ui;
+mod radio;
 mod sound;
+mod speakers;
 mod stems_ui;
 mod suggest;
 mod tags;
 mod theme;
+mod timing;
+mod updates;
 mod widgets;
+mod wrapped;
 
 use anyhow::Result;
 use gpui::{prelude::*, *};
@@ -108,6 +117,10 @@ pub enum Page {
     },
     Artists,
     Artist(String),
+    /// The music folders.
+    Folders,
+    /// One folder on disk: its subfolders, and every song in it and below it.
+    Folder(String),
     Favorites,
     Recent,
     History,
@@ -115,6 +128,12 @@ pub enum Page {
     Settings,
     Sound,
     Import,
+    /// The lyric timing editor for the playing song.
+    Timing,
+    /// A year of listening, told back.
+    Wrapped(i32),
+    /// Fix my library: duplicates, covers, tags, and tidy files.
+    Doctor,
 }
 impl Page {
     fn title(&self) -> String {
@@ -130,6 +149,8 @@ impl Page {
                 }
             }
             Self::Artists => "Artists".into(),
+            Self::Folders => "Folders".into(),
+            Self::Folder(path) => folders::name_of(path),
             Self::Artist(name) => name.clone(),
             Self::Favorites => "Favorites".into(),
             Self::Recent => "Recently added".into(),
@@ -138,6 +159,9 @@ impl Page {
             Self::Settings => "Settings".into(),
             Self::Sound => "Sound".into(),
             Self::Import => "Import".into(),
+            Self::Timing => "Lyric timing".into(),
+            Self::Wrapped(year) => format!("{year} in music"),
+            Self::Doctor => "Fix my library".into(),
         }
     }
     /// The rule behind the page, before any search text is applied.
@@ -147,13 +171,26 @@ impl Page {
             Self::Recent => "recent(30d) order by added_at desc".into(),
             Self::Album { query, .. } => query.clone(),
             Self::Artist(name) => format!("artist = {0} or album_artist = {0}", quote(name)),
+            // Everything in the folder and its subfolders, so a whole folder can be played.
+            Self::Folder(path) => format!(
+                "path starts with {} order by path",
+                quote(&folders::with_separator(path))
+            ),
             _ => String::new(),
         }
     }
     fn is_tracks(&self) -> bool {
         !matches!(
             self,
-            Self::Home | Self::History | Self::Settings | Self::Sound | Self::Import
+            Self::Home
+                | Self::Folders
+                | Self::History
+                | Self::Settings
+                | Self::Sound
+                | Self::Import
+                | Self::Timing
+                | Self::Wrapped(_)
+                | Self::Doctor
         )
     }
     pub fn is_grid(&self) -> bool {
@@ -228,10 +265,21 @@ enum Event {
     MoreHistory(usize, Vec<Listen>),
     Look(String, Option<ambient::Look>),
     Home(Box<needle_core::browse::Home>),
+    Subfolders(String, Vec<needle_core::browse::Subfolder>),
+    Wrapped(Box<needle_core::wrapped::Wrapped>, Vec<i32>),
+    Doctor(doctor::Msg),
+    Measured((usize, usize)),
+    BlendChoices(String, Vec<String>),
+    Speakers(Vec<needle_core::cast::Speaker>),
+    /// Files opened with Needle (none: just come to the front).
+    OpenFiles(Vec<std::path::PathBuf>),
+    Update(Result<Option<needle_core::update::Release>, String>, bool),
+    UpdateStarted(Result<(), String>),
     Lyrics(String, Option<needle_core::media::Lyrics>),
     ArtistImage(String, Option<String>),
     ArtistImages(Vec<(String, Option<String>)>),
     ArtFetched,
+    MediaKey(media_keys::Key),
     ImportProgress(String),
     Plugin(needle_core::plugins::HostAction),
     PaletteFound(
@@ -284,6 +332,23 @@ pub struct AppView {
     panel: Panel,
     menu: Option<menus::TrackMenu>,
     playlist_menu: Option<menus::PlaylistMenu>,
+    header_menu: Option<columns::HeaderMenu>,
+    blend_menu: Option<radio::BlendMenu>,
+    speaker_menu: Option<speakers::SpeakerMenu>,
+    update: Option<updates::UpdateState>,
+    measuring: std::sync::Arc<std::sync::atomic::AtomicBool>,
+    measured: Option<(usize, usize)>,
+    sound_cache:
+        std::cell::RefCell<std::collections::HashMap<String, Option<needle_core::radio::Features>>>,
+    doctor: doctor::Doctor,
+    wrapped: Option<needle_core::wrapped::Wrapped>,
+    wrapped_years: Vec<i32>,
+    timing: Option<timing::Timing>,
+    timing_focus: FocusHandle,
+    timing_scroll: ScrollHandle,
+    /// A column resize in progress: drag serial, column, start x, start width.
+    column_resize: Option<(u64, String, f32, f32)>,
+    column_serial: u64,
     menu_serial: usize,
     /// The song whose heart was just filled, and a counter that replays the pop.
     heart_pop: Option<(String, usize)>,
@@ -345,11 +410,13 @@ pub struct AppView {
     fade: ambient::Fade,
     /// The film-grain tile, once written (`Some(None)` if it could not be).
     grain_file: Option<Option<PathBuf>>,
+    media_keys: Option<media_keys::MediaKeys>,
     /// Whether Windows allows transparency, and whether it is Windows 11 (read at start and
     /// when Appearance settings open).
     glass_system: (bool, bool),
     glass_applied: Option<(glass::Material, bool)>,
     home: Option<Box<needle_core::browse::Home>>,
+    subfolders: Option<(String, Vec<needle_core::browse::Subfolder>)>,
     lyrics: Option<(String, Option<needle_core::media::Lyrics>)>,
     lyric_line: Option<usize>,
     lyrics_scroll: ScrollHandle,
@@ -363,6 +430,8 @@ pub struct AppView {
     recent: Vec<Listen>,
     /// The tracks behind `recent`, for covers.
     recent_tracks: std::collections::HashMap<String, Track>,
+    /// The last song that was playing, and when; see `shown_item`.
+    last_item: Option<(QueueItem, Instant)>,
     mini: Option<AnyWindowHandle>,
     sound: sound::SoundControls,
     import: importer::ImportState,
@@ -389,7 +458,7 @@ pub struct AppView {
     discord_sent: Option<(String, bool, i64)>,
 }
 
-pub fn run(library: Library) -> Result<()> {
+pub fn run(library: Library, files: Vec<std::path::PathBuf>) -> Result<()> {
     Application::new()
         .with_assets(assets::Assets)
         .run(move |cx| {
@@ -410,6 +479,7 @@ pub fn run(library: Library) -> Result<()> {
             cx.set_global(motion::Motion {
                 enabled: !settings.reduce_motion && motion::system_allows_animation(),
             });
+            timing::bind_keys(cx);
             let tracks = Some("Needle && !Input");
             cx.bind_keys([
                 KeyBinding::new("space", TogglePlayback, tracks),
@@ -459,6 +529,9 @@ pub fn run(library: Library) -> Result<()> {
             match cx.open_window(options, move |window, cx| {
                 window.set_window_title("Needle");
                 let view = cx.new(|cx| AppView::new(library, window, cx));
+                if !files.is_empty() {
+                    let _ = view.read(cx).sender.send(Event::OpenFiles(files));
+                }
                 cx.new(|cx| Root::new(view, window, cx))
             }) {
                 Ok(_) => cx.activate(true),
@@ -489,6 +562,7 @@ fn watch(
 impl AppView {
     fn new(library: Library, window: &mut Window, cx: &mut Context<Self>) -> Self {
         let mut settings = library.settings().unwrap_or_default();
+        let measure_sound = settings.sound_analysis;
         // Ambient used to be a look of its own; it is now a setting for any look.
         if settings.theme == "ambient" {
             settings.theme = "dark".into();
@@ -524,6 +598,7 @@ impl AppView {
         let listenbrainz_token = secret("ListenBrainz user token", window, cx);
         let acoustid_key = secret("AcoustID application key", window, cx);
         let tags = TagFields::new(window, cx);
+        let doctor = doctor::Doctor::new(window, cx);
         let sound = sound::SoundControls::new(&settings.dsp, cx);
         let import = importer::ImportState::new(window, cx);
         let palette = palette::PaletteState::new(window, cx);
@@ -552,6 +627,7 @@ impl AppView {
         let focus = cx.focus_handle();
         window.focus(&focus);
         let (sender, events) = crossbeam_channel::unbounded();
+        let media_keys = media_keys::MediaKeys::new(window, sender.clone(), &library.directory);
         let plugins = {
             let sender = sender.clone();
             needle_core::plugins::PluginHost::start(library.clone(), move |action| {
@@ -571,6 +647,7 @@ impl AppView {
                                 | Page::Recent
                                 | Page::Playlist(_)
                                 | Page::Album { .. }
+                                | Page::Folder(_)
                                 | Page::Albums
                                 | Page::Artists
                         )
@@ -646,6 +723,21 @@ impl AppView {
             panel: Panel::Details,
             menu: None,
             playlist_menu: None,
+            header_menu: None,
+            blend_menu: None,
+            speaker_menu: None,
+            update: None,
+            measuring: radio::switch(measure_sound),
+            measured: None,
+            sound_cache: Default::default(),
+            doctor,
+            wrapped: None,
+            wrapped_years: vec![],
+            timing: None,
+            timing_focus: cx.focus_handle(),
+            timing_scroll: ScrollHandle::new(),
+            column_resize: None,
+            column_serial: 0,
             menu_serial: 0,
             heart_pop: None,
             settings_tab: 0,
@@ -700,9 +792,11 @@ impl AppView {
             looks: Default::default(),
             fade: ambient::Fade::new(pal(cx)),
             grain_file: None,
+            media_keys,
             glass_system: (glass::system_allows_transparency(), glass::windows_11()),
             glass_applied: None,
             home: None,
+            subfolders: None,
             lyrics: None,
             lyric_line: None,
             lyrics_scroll: ScrollHandle::new(),
@@ -712,6 +806,7 @@ impl AppView {
             artist_images: Default::default(),
             recent: vec![],
             recent_tracks: Default::default(),
+            last_item: None,
             mini: None,
             sound,
             import,
@@ -738,6 +833,16 @@ impl AppView {
         view.refresh(cx);
         view.load_home();
         view.refresh_recent();
+        view.start_measuring();
+        view.check_for_update(false);
+        {
+            let sender = view.sender.clone();
+            if let Err(e) = needle_core::instance::listen(&view.library.directory, move |files| {
+                let _ = sender.send(Event::OpenFiles(files));
+            }) {
+                eprintln!("Other launches cannot reach this Needle: {e:#}");
+            }
+        }
         cx.on_release(|_, cx| cx.quit()).detach();
         cx.spawn_in(window, async move |view, cx| {
             // Poll often while playing so the seek bar glides; rarely while paused.
@@ -844,6 +949,8 @@ impl AppView {
             }
         }
         self.update_discord();
+        self.update_media_keys();
+        self.follow_output();
         self.follow_lyrics();
         // With nothing playing the seek bar rests at the start.
         let value = match &self.playback.current {
@@ -932,6 +1039,23 @@ impl AppView {
                 }
                 Event::Look(path, look) => self.set_look(path, look),
                 Event::Home(home) => self.home = Some(home),
+                Event::Subfolders(path, list) => self.subfolders = Some((path, list)),
+                Event::Wrapped(wrapped, years) => self.wrapped_loaded(*wrapped, years),
+                Event::Doctor(msg) => self.doctor_message(msg),
+                Event::Measured(counts) => {
+                    self.measured = Some(counts);
+                    self.sound_cache.borrow_mut().clear();
+                }
+                Event::BlendChoices(artist, choices) => self.blend_choices(artist, choices),
+                Event::Speakers(found) => self.speakers_found(found),
+                Event::OpenFiles(files) => {
+                    window.activate_window();
+                    if !files.is_empty() {
+                        self.open_files(files);
+                    }
+                }
+                Event::Update(result, asked) => self.update_checked(result, asked),
+                Event::UpdateStarted(result) => self.update_started(result, cx),
                 Event::ImportProgress(message) => self.import.busy = Some(message),
                 Event::Plugin(action) => self.plugin_action(action, cx),
                 Event::PaletteFound(generation, songs, albums, artists) => {
@@ -982,6 +1106,7 @@ impl AppView {
                     self.artist_images.insert(name, path);
                 }
                 Event::ArtistImages(found) => self.artist_images.extend(found),
+                Event::MediaKey(key) => self.media_key(key, window, cx),
                 Event::ArtFetched => {
                     if let Some(item) = self.playback.current.as_ref()
                         && let Ok(Some(track)) = self.library.track(&item.track.id)
@@ -1133,10 +1258,13 @@ impl AppView {
             )
         };
         if let Sort::Asc(field) | Sort::Desc(field) = self.sort
-            && !expression.contains(" order by ")
             && !expression.contains("shuffle")
             && !expression.contains(" limit ")
         {
+            // The chosen sort replaces the page's own order (Folders, Recently added, …).
+            if let Some((rule, _)) = expression.split_once(" order by ") {
+                expression = rule.to_string();
+            }
             let direction = if matches!(self.sort, Sort::Asc(_)) {
                 "asc"
             } else {
@@ -1309,6 +1437,10 @@ impl AppView {
         if self.page == Page::Home {
             self.load_home();
         }
+        if let Page::Folder(path) = &self.page {
+            let path = path.clone();
+            self.load_subfolders(path);
+        }
         if let Page::Artist(name) = &self.page {
             let name = name.clone();
             self.artist_images.remove(&name);
@@ -1316,6 +1448,12 @@ impl AppView {
         }
         if self.page == Page::Import {
             self.refresh_import_sources();
+        }
+        if let Page::Wrapped(year) = self.page {
+            self.load_wrapped(year);
+        }
+        if self.page == Page::Doctor {
+            self.doctor_load();
         }
         if self.page == Page::Settings {
             self.glass_system = (glass::system_allows_transparency(), glass::windows_11());
@@ -1833,6 +1971,10 @@ impl Render for AppView {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         self.update_palette(window, cx);
         self.update_glass(window, cx);
+        // A column resize ends when the drag does, wherever the pointer was let go.
+        if self.column_resize.is_some() && !cx.has_active_drag() {
+            self.finish_column_resize();
+        }
         let p = pal(cx);
         let width = window.viewport_size().width;
         let show_panel = self.settings.show_inspector
@@ -2087,6 +2229,9 @@ impl Render for AppView {
             .children(self.toast(cx))
             .children(self.track_menu(cx))
             .children(self.playlist_menu_view(cx))
+            .children(self.header_menu_view(cx))
+            .children(self.blend_menu_view(cx))
+            .children(self.speaker_menu_view(cx))
             .children(self.palette_view(cx))
     }
 }

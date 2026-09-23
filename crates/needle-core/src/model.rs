@@ -35,14 +35,48 @@ pub struct Track {
     pub last_played: Option<i64>,
     pub missing: bool,
     pub metadata_version: u32,
+    /// For a track of a CUE sheet: the stretch of the album file it plays.
+    pub cue: Option<CueSpan>,
+}
+
+/// Where a CUE sheet's track lives in its album file.
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+pub struct CueSpan {
+    /// The album's audio file.
+    pub audio: String,
+    /// Seconds into it where the track starts, and ends (`None`: at the end of the file).
+    pub start: f64,
+    pub end: Option<f64>,
 }
 
 impl Track {
+    /// The audio file to decode: the album file for a CUE track, else the track's own file.
+    pub fn audio_path(&self) -> &str {
+        self.cue.as_ref().map_or(&self.path, |c| &c.audio)
+    }
+    /// The file on disk this track comes from: the `.cue` sheet for a CUE track.
+    pub fn file_path(&self) -> &str {
+        match &self.cue {
+            Some(_) => self
+                .path
+                .rsplit_once('#')
+                .map_or(&self.path, |(file, _)| file),
+            None => &self.path,
+        }
+    }
     pub fn display_artist(&self) -> &str {
         if self.artist.is_empty() {
             "Unknown artist"
         } else {
             &self.artist
+        }
+    }
+    /// The album's artist: the album artist tag, else the track artist.
+    pub fn display_album_artist(&self) -> &str {
+        if self.album_artist.is_empty() {
+            &self.artist
+        } else {
+            &self.album_artist
         }
     }
     pub fn display_album(&self) -> &str {
@@ -93,6 +127,11 @@ pub struct Settings {
     pub layout: Layout,
     /// Look up lyrics, artist photos, and missing album art online.
     pub online_media: bool,
+    /// Measure each song's sound in the background, for radio.
+    pub sound_analysis: bool,
+    /// Ask GitHub once a day whether a newer Needle is out.
+    pub check_updates: bool,
+    pub last_update_check: i64,
     pub dsp: crate::dsp::Dsp,
     /// Turn off interface animations (Windows' own setting also turns them off).
     pub reduce_motion: bool,
@@ -124,6 +163,17 @@ pub struct Settings {
     pub accent_color: String,
     /// The cover (or the chosen color) fills the whole background, with any look.
     pub ambient: bool,
+    /// Seconds songs overlap as one ends and the next begins (0 = off).
+    pub crossfade: f32,
+    /// The song table's columns, in order, with their widths.
+    pub columns: Vec<ColumnSetting>,
+}
+
+/// One column of the song table.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct ColumnSetting {
+    pub key: String,
+    pub width: f32,
 }
 
 impl Default for Settings {
@@ -141,6 +191,9 @@ impl Default for Settings {
             listenbrainz_enabled: false,
             layout: Layout::default(),
             online_media: false,
+            sound_analysis: true,
+            check_updates: true,
+            last_update_check: 0,
             dsp: crate::dsp::Dsp::default(),
             reduce_motion: false,
             music_colors: true,
@@ -158,6 +211,14 @@ impl Default for Settings {
             display_font: "system".into(),
             accent_color: String::new(),
             ambient: false,
+            crossfade: 0.,
+            columns: [("album", 220.), ("quality", 92.), ("time", 52.)]
+                .into_iter()
+                .map(|(key, width)| ColumnSetting {
+                    key: key.into(),
+                    width,
+                })
+                .collect(),
         }
     }
 }

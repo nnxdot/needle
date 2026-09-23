@@ -138,7 +138,7 @@ fn run() -> Result<()> {
     let cli = Cli::parse();
     let library = Library::open(cli.data_dir.unwrap_or_else(Library::default_directory))?;
     match cli.command {
-        None => ui::run(library),
+        None => ui::run(library, vec![]),
         Some(Commands::Tag {
             expression,
             changes,

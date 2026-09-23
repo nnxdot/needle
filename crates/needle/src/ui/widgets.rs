@@ -170,6 +170,10 @@ pub fn artwork(track: Option<&Track>, size: f32, cx: &App) -> AnyElement {
 
 /// "FLAC 24/96", "MP3 320" — what the file is, in the vocabulary of people who care.
 pub fn quality(track: &Track) -> String {
+    // 1-bit DSD is named by its multiple of 44.1 kHz: DSD64, DSD128, …
+    if track.bit_depth == 1 && track.sample_rate >= 2_822_400 {
+        return format!("DSD{}", track.sample_rate / 44_100);
+    }
     let khz = track.sample_rate as f64 / 1000.;
     let rate = if khz.fract() == 0. {
         format!("{khz:.0}")
