@@ -182,6 +182,9 @@ pub struct Settings {
     pub remote_key: String,
     /// Equalizer presets the listener saved.
     pub eq_presets: Vec<crate::dsp::UserPreset>,
+    /// An icon in the notification area; closing the window hides it there and the music
+    /// plays on.
+    pub tray: bool,
 }
 
 /// One column of the song table.
@@ -241,6 +244,7 @@ impl Default for Settings {
             remote: false,
             remote_key: String::new(),
             eq_presets: vec![],
+            tray: false,
         }
     }
 }

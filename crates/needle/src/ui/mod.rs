@@ -30,6 +30,7 @@ mod suggest;
 mod tags;
 mod theme;
 mod timing;
+mod tray;
 mod updates;
 mod welcome;
 mod widgets;
@@ -285,6 +286,7 @@ enum Event {
     MediaKey(media_keys::Key),
     ImportProgress(String),
     Plugin(needle_core::plugins::HostAction),
+    Tray(tray::TrayAction),
     PaletteFound(
         u64,
         Vec<Track>,
@@ -439,6 +441,10 @@ pub struct AppView {
     sound: sound::SoundControls,
     /// When playback last stopped or paused, for clearing the Discord status after a while.
     discord_idle_since: Option<i64>,
+    /// The tray icon, while hide to tray is on.
+    tray: Option<tray::Tray>,
+    /// The window is hidden in the tray.
+    hidden: bool,
     /// The welcome guide's step, while it is open.
     welcome_step: Option<usize>,
     /// The phone remote, while it is on.
@@ -762,6 +768,8 @@ impl AppView {
             speaker_timing: Default::default(),
             remote: None,
             welcome_step: None,
+            tray: None,
+            hidden: false,
             discord_idle_since: None,
             palette,
             page_serial: 0,
@@ -858,6 +866,7 @@ impl AppView {
         view.start_measuring();
         view.check_for_update(false);
         view.apply_remote();
+        view.apply_tray();
         view.maybe_welcome();
         {
             // Crash reports from earlier runs: send them (unless turned off), in the background.
@@ -875,6 +884,21 @@ impl AppView {
             }
         }
         cx.on_release(|_, cx| cx.quit()).detach();
+        {
+            // With hide to tray on, closing hides the window instead; the music plays on.
+            let weak = cx.entity().downgrade();
+            window.on_window_should_close(cx, move |window, cx| {
+                weak.update(cx, |this, _| {
+                    if this.tray.is_some() {
+                        this.hide_to_tray(window);
+                        false
+                    } else {
+                        true
+                    }
+                })
+                .unwrap_or(true)
+            });
+        }
         cx.spawn_in(window, async move |view, cx| {
             // Poll often while playing so the seek bar glides; rarely while paused.
             let mut every = 120;
@@ -1084,6 +1108,10 @@ impl AppView {
                 Event::BlendChoices(artist, choices) => self.blend_choices(artist, choices),
                 Event::Speakers(found) => self.speakers_found(found),
                 Event::OpenFiles(files) => {
+                    // Opening Needle again (or a file with it) brings it back from the tray.
+                    if self.hidden {
+                        self.show_from_tray(window);
+                    }
                     window.activate_window();
                     if !files.is_empty() {
                         self.open_files(files);
@@ -1093,6 +1121,7 @@ impl AppView {
                 Event::UpdateStarted(result) => self.update_started(result, cx),
                 Event::ImportProgress(message) => self.import.busy = Some(message),
                 Event::Plugin(action) => self.plugin_action(action, cx),
+                Event::Tray(action) => self.tray_action(action, window, cx),
                 Event::PaletteFound(generation, songs, albums, artists) => {
                     self.palette_found(generation, songs, albums, artists)
                 }

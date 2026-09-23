@@ -176,7 +176,23 @@ pub fn decode(path: &Path) -> Result<Decoded> {
     let mut inner = match built {
         Ok(inner) => inner,
         Err(error) => {
-            // Dolby Digital (Plus) and Atmos music: Windows can decode it.
+            // Dolby Digital (Plus) and Atmos music: Needle's own FFmpeg decodes it, and where
+            // that is missing, Windows may.
+            if crate::ffmpeg::executable().is_some() {
+                match crate::ffmpeg::open(path) {
+                    Ok(source) => {
+                        return Ok(Decoded {
+                            inner: Inner::Other(Box::new(source)),
+                            trim: None,
+                            position: 0,
+                        });
+                    }
+                    Err(ffmpeg) => crate::logfile::warn(format!(
+                        "Needle's FFmpeg could not decode {}: {ffmpeg:#}",
+                        path.display()
+                    )),
+                }
+            }
             #[cfg(windows)]
             match crate::mediafoundation::open(path) {
                 Ok(source) => {
