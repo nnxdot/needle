@@ -69,6 +69,9 @@ pub struct Song {
     pub size: i64,
     /// A link to the cover, if the server has one.
     pub cover: String,
+    /// The server's name for the cover. Songs that share it share one download, even when
+    /// their links differ (a link can carry a new sign-in code each time).
+    pub cover_id: String,
     pub musicbrainz_id: String,
 }
 
@@ -103,6 +106,7 @@ impl Song {
             channels: number("channels") as i64,
             size: number("size") as i64,
             cover: text("cover"),
+            cover_id: text("cover_id"),
             musicbrainz_id: text("musicbrainz_id"),
         };
         (!song.id.is_empty() && !song.title.is_empty()).then_some(song)
@@ -187,8 +191,9 @@ pub struct Synced {
     pub updated: usize,
     /// Songs the server no longer has; they stay in the library, marked missing.
     pub gone: usize,
-    /// Tracks without a cover yet, and the link to fetch it from.
-    pub covers: Vec<(String, String)>,
+    /// Tracks without a cover yet: the track, the link to fetch it from, and which cover it is
+    /// (tracks with the same one share a download).
+    pub covers: Vec<(String, String, String)>,
 }
 
 /// Bring the library in step with the full list of a source's songs.
@@ -236,7 +241,14 @@ pub fn apply(library: &Library, plugin: &str, songs: &[Song]) -> Result<Synced> 
             }
         }
         if track.artwork.is_none() && !song.cover.is_empty() {
-            synced.covers.push((track.id.clone(), song.cover.clone()));
+            let key = if song.cover_id.is_empty() {
+                song.cover.clone()
+            } else {
+                song.cover_id.clone()
+            };
+            synced
+                .covers
+                .push((track.id.clone(), song.cover.clone(), key));
         }
     }
     for (id, old) in &existing {
@@ -282,50 +294,77 @@ pub fn status(library: &Library, plugin: &str) -> (usize, Option<i64>) {
     (count as usize, synced)
 }
 
-/// Download covers (one request per link) and give them to their tracks.
-pub fn fetch_covers(library: &Library, covers: &[(String, String)]) -> usize {
+/// Download covers, several at once and one per cover, and give them to their tracks.
+/// `progress` is called every couple of seconds while covers arrive, so views can show them.
+pub fn fetch_covers(
+    library: &Library,
+    covers: &[(String, String, String)],
+    progress: impl Fn() + Sync,
+) -> usize {
     let Ok(client) = crate::integrations::client() else {
         return 0;
     };
-    let mut by_link: HashMap<&str, Vec<&str>> = HashMap::new();
-    for (track, link) in covers {
-        by_link.entry(link).or_default().push(track);
+    let mut by_cover: HashMap<&str, (&str, Vec<&str>)> = HashMap::new();
+    for (track, link, key) in covers {
+        by_cover
+            .entry(key)
+            .or_insert_with(|| (link, vec![]))
+            .1
+            .push(track);
     }
-    let mut done = 0;
-    for (link, tracks) in by_link {
-        let saved = (|| -> Result<PathBuf> {
-            let response = client
-                .get(link)
-                .timeout(Duration::from_secs(20))
-                .send()?
-                .error_for_status()?;
-            let mut bytes = vec![];
-            response.take(20 * 1024 * 1024).read_to_end(&mut bytes)?;
-            if bytes.len() < 64 {
-                bail!("not an image");
-            }
-            let path = library
-                .directory
-                .join("artwork")
-                .join(format!("{}.img", blake3::hash(&bytes).to_hex()));
-            if !path.exists() {
-                std::fs::write(&path, &bytes)?;
-            }
-            Ok(path)
-        })();
-        let Ok(path) = saved else {
-            continue;
-        };
-        for id in tracks {
-            if let Ok(Some(mut track)) = library.track(id) {
-                track.artwork = Some(path.to_string_lossy().into());
-                if library.upsert(&track).is_ok() {
-                    done += 1;
+    let jobs = Mutex::new(by_cover.into_values().collect::<Vec<_>>());
+    let done = std::sync::atomic::AtomicUsize::new(0);
+    let told = Mutex::new(Instant::now());
+    std::thread::scope(|scope| {
+        for _ in 0..6 {
+            scope.spawn(|| {
+                loop {
+                    let Some((link, tracks)) = jobs.lock().unwrap_or_else(|e| e.into_inner()).pop()
+                    else {
+                        break;
+                    };
+                    let saved = (|| -> Result<PathBuf> {
+                        let response = client
+                            .get(link)
+                            .timeout(Duration::from_secs(20))
+                            .send()?
+                            .error_for_status()?;
+                        let mut bytes = vec![];
+                        response.take(20 * 1024 * 1024).read_to_end(&mut bytes)?;
+                        if bytes.len() < 64 {
+                            bail!("not an image");
+                        }
+                        let path = library
+                            .directory
+                            .join("artwork")
+                            .join(format!("{}.img", blake3::hash(&bytes).to_hex()));
+                        if !path.exists() {
+                            std::fs::write(&path, &bytes)?;
+                        }
+                        Ok(path)
+                    })();
+                    let Ok(path) = saved else {
+                        continue;
+                    };
+                    for id in tracks {
+                        if let Ok(Some(mut track)) = library.track(id) {
+                            track.artwork = Some(path.to_string_lossy().into());
+                            if library.upsert(&track).is_ok() {
+                                done.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                            }
+                        }
+                    }
+                    let mut last = told.lock().unwrap_or_else(|e| e.into_inner());
+                    if last.elapsed() > Duration::from_secs(2) {
+                        *last = Instant::now();
+                        drop(last);
+                        progress();
+                    }
                 }
-            }
+            });
         }
-    }
-    done
+    });
+    done.into_inner()
 }
 
 // ---- Streaming ----------------------------------------------------------------------------

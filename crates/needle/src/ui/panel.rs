@@ -254,11 +254,13 @@ impl AppView {
                                     .disabled(track.missing)
                                     .on_click(cx.listener(move |this, _, _, _| this.enqueue(vec![queue.clone()]))),
                             )
-                            .child(
-                                icon_button("details-edit", "edit", "Edit tags · Ctrl+E")
-                                    .small()
-                                    .on_click(cx.listener(|this, _, window, cx| this.edit_tags(window, cx))),
-                            )
+                            .when(!streamed, |el| {
+                                el.child(
+                                    icon_button("details-edit", "edit", "Edit tags · Ctrl+E")
+                                        .small()
+                                        .on_click(cx.listener(|this, _, window, cx| this.edit_tags(window, cx))),
+                                )
+                            })
                             .child(
                                 Button::new("details-play")
                                     .primary()
@@ -271,17 +273,20 @@ impl AppView {
                     ),
             )
             .when(self.editing, |el| el.child(self.tag_editor(cx)))
-            .child(
-                div()
-                    .pt_3()
-                    .border_t_1()
-                    .border_color(p.line_soft)
-                    .flex()
-                    .flex_col()
-                    .gap_2()
-                    .child(faint("Stems", cx))
-                    .child(self.stems_view(Some(track.clone()), false, cx)),
-            )
+            // A song on a music server has no file here to split.
+            .when(!streamed, |el| {
+                el.child(
+                    div()
+                        .pt_3()
+                        .border_t_1()
+                        .border_color(p.line_soft)
+                        .flex()
+                        .flex_col()
+                        .gap_2()
+                        .child(faint("Stems", cx))
+                        .child(self.stems_view(Some(track.clone()), false, cx)),
+                )
+            })
             .child(
                 div()
                     .flex()
