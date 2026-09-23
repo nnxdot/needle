@@ -349,7 +349,8 @@ impl AppView {
                                 Button::new("measure-album")
                                     .ghost()
                                     .xsmall()
-                                    .label("Measure album")
+                                    .label("Measure")
+                                    .tooltip("Measure the whole album")
                                     .on_click({
                                         let id = track.id.clone();
                                         cx.listener(move |this, _, _, cx| {

@@ -21,6 +21,7 @@ impl AppView {
         let p = pal(cx);
         let width = f32::from(window.viewport_size().width);
         let narrow = width < 1100.;
+        let search_focused = self.search.read(cx).focus_handle(cx).is_focused(window);
         // The title bar does not shrink its contents, so size the search field from the room
         // left beside the sidebar column, back button, palette button, and window buttons.
         let search_width =
@@ -83,14 +84,29 @@ impl AppView {
                     .child(
                         self.suggestion_keys(div().id("search-field"), cx)
                             .relative()
-                            .rounded(px(6.))
-                            .when(p.back.a < 1., |el| el.bg(p.raised.opacity(0.7)))
+                            // One clean field: our own fill, edge, and height; the input inside
+                            // draws no box of its own.
+                            .h(px(32.))
+                            .rounded(px(8.))
+                            .bg(if p.back.a < 1. {
+                                p.raised.opacity(0.75)
+                            } else {
+                                p.raised
+                            })
+                            .border_1()
+                            .border_color(if search_focused {
+                                p.accent.opacity(0.6)
+                            } else {
+                                p.line_soft
+                            })
+                            .flex()
+                            .items_center()
                             .w(px(search_width))
                             .flex_shrink_0()
                             .children(self.suggestion_list(px(search_width.max(420.)), cx))
                             .child(
                                 Input::new(&self.search)
-                                    .small()
+                                    .appearance(false)
                                     .cleanable(true)
                                     .prefix(glyph("search").size(px(15.)).text_color(p.ink_3))
                                     .when(rule, |el| {
@@ -145,6 +161,7 @@ impl AppView {
         cx: &mut Context<Self>,
     ) -> Stateful<Div> {
         let p = pal(cx);
+        let glass = p.back.a < 1.;
         let active = self.page == page
             || matches!(
                 (&self.page, &page),
@@ -167,7 +184,10 @@ impl AppView {
                     .font_weight(FontWeight::MEDIUM)
             })
             .when(!active, |el| {
-                el.text_color(p.ink_2)
+                // On glass, grey text over a see-through layer loses its edges: use full ink
+                // and a touch more weight there so labels stay crisp.
+                el.text_color(if glass { p.ink } else { p.ink_2 })
+                    .when(glass, |el| el.font_weight(FontWeight::MEDIUM))
                     .hover(|s| s.bg(p.raised.opacity(0.6)).text_color(p.ink))
             })
             .child(glyph(glyph_name).size(px(17.)).text_color(if active {
@@ -283,6 +303,12 @@ impl AppView {
                             Page::Playlist(playlist.id.clone()),
                             cx,
                         )
+                        .on_mouse_down(MouseButton::Right, {
+                            let id = playlist.id.clone();
+                            cx.listener(move |this, event: &MouseDownEvent, _, cx| {
+                                this.open_playlist_menu(id.clone(), event.position, cx)
+                            })
+                        })
                         .when(playlist.query.is_none(), |el| {
                             let id = playlist.id.clone();
                             el.drag_over::<super::flow::DraggedTracks>(move |s, _, _, _| {
@@ -405,12 +431,11 @@ impl AppView {
         } else {
             let resampled = track.sample_rate as u32 != self.playback.output_rate;
             (
+                // Short enough for the chip; the tooltip tells the whole path.
+                format!("{source} → {rate}"),
                 format!(
-                    "{source} → {rate}{}",
-                    if resampled { " (resampled)" } else { "" }
-                ),
-                format!(
-                    "{source} → {} → Windows mixer at {rate} → {}",
+                    "{source} →{} {} → Windows mixer at {rate} → {}",
+                    if resampled { " resampled →" } else { "" },
                     if self.playback.replay_gain {
                         "ReplayGain and volume"
                     } else {
@@ -644,7 +669,7 @@ impl AppView {
                                 .flex()
                                 .items_center()
                                 .gap(px(5.))
-                                .max_w(px(150.))
+                                .max_w(px(200.))
                                 .text_size(px(11.))
                                 .text_color(if exclusive { p.accent } else { p.ink_2 })
                                 .bg(if exclusive { p.accent_soft } else { p.raised })

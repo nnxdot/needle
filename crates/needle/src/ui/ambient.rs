@@ -19,6 +19,20 @@ pub struct Look {
     pub vivid: Hsla,
     /// A small, heavily blurred copy of the cover for backdrops.
     pub blur: Option<PathBuf>,
+    /// How bright the cover is overall, 0 (black) to 1 (white).
+    pub luma: f32,
+}
+
+impl Look {
+    /// How strongly the blurred cover may show: a dark cover on the light look (or a bright
+    /// one on a dark look) would lay a heavy band over the page, so it is toned down.
+    pub fn strength(&self, dark: bool) -> f32 {
+        if dark {
+            (1.35 - self.luma).clamp(0.35, 1.)
+        } else {
+            (self.luma * 1.5).clamp(0.12, 1.)
+        }
+    }
 }
 
 /// Looks by artwork path. `None` while measuring, or when the image could not be read.
@@ -103,9 +117,20 @@ pub fn vivid_color(image: &image::RgbImage) -> Option<Hsla> {
 
 /// Measure a cover and write its blurred copy into `cache`.
 pub fn measure(path: &str, cache: &Path) -> Option<Look> {
-    let image = image::open(path).ok()?;
+    // Read the type from the file's contents: saved covers use a neutral ".img" ending.
+    let image = image::ImageReader::open(path)
+        .ok()?
+        .with_guessed_format()
+        .ok()?
+        .decode()
+        .ok()?;
     let small = image.thumbnail(48, 48).to_rgb8();
     let vivid = vivid_color(&small)?;
+    let luma = small
+        .pixels()
+        .map(|p| (0.2126 * p[0] as f32 + 0.7152 * p[1] as f32 + 0.0722 * p[2] as f32) / 255.)
+        .sum::<f32>()
+        / (small.width() * small.height()).max(1) as f32;
     let mut hasher = std::collections::hash_map::DefaultHasher::new();
     path.hash(&mut hasher);
     std::fs::metadata(path)
@@ -121,7 +146,7 @@ pub fn measure(path: &str, cache: &Path) -> Option<Look> {
         std::fs::create_dir_all(cache).ok();
         blurred.save(&out).ok().map(|_| out)
     };
-    Some(Look { vivid, blur })
+    Some(Look { vivid, blur, luma })
 }
 
 impl AppView {
@@ -199,7 +224,7 @@ impl AppView {
                 },
             }
         } else {
-            None
+            theme::parse_hex(&self.settings.accent_color)
         };
         let mut target = Palette::build(Base::from_name(&self.settings.theme), tint);
         match self.material() {
@@ -208,7 +233,16 @@ impl AppView {
             super::glass::Material::Clear => {
                 target = target.glass(self.settings.glass_amount, self.settings.glass_page, 0.55)
             }
+            // Light glass washes text out sooner, so it keeps more of the surface too.
+            _ if !target.dark => {
+                target = target.glass(self.settings.glass_amount, self.settings.glass_page, 0.6)
+            }
             _ => target = target.glass(self.settings.glass_amount, self.settings.glass_page, 0.8),
+        }
+        // Ambient: the bars and the page float over the full-window cover, part see-through.
+        if self.ambient_look() {
+            target.back = target.chrome.opacity(0.5);
+            target.canvas = target.canvas.opacity(0.62);
         }
         let shown = theme::pal(cx);
         if target != self.fade.to {
@@ -246,7 +280,8 @@ impl AppView {
         let p = theme::pal(cx);
         let look = path.and_then(|path| self.look(path));
         let fade_to = p.canvas;
-        let base_alpha = (if p.dark { 0.42 } else { 0.34 } * strength).min(0.66);
+        let fit = look.as_ref().map_or(1., |l| l.strength(p.dark));
+        let base_alpha = (if p.dark { 0.42 } else { 0.34 } * strength).min(0.66) * fit;
         let glow = div()
             .absolute()
             .top_0()
@@ -307,6 +342,60 @@ fn make_grain(path: &Path) -> Option<PathBuf> {
 }
 
 impl AppView {
+    pub(super) fn ambient_look(&self) -> bool {
+        Base::from_name(&self.settings.theme) == Base::Ambient
+    }
+
+    /// The Ambient look's background: the page's or the playing song's cover, blurred, over
+    /// the whole window (or the chosen colour as a soft gradient), with a dark wash on top so
+    /// text stays readable on any cover.
+    pub(super) fn ambient_layer(&mut self, cx: &App) -> Option<AnyElement> {
+        if !self.ambient_look() {
+            return None;
+        }
+        let p = theme::pal(cx);
+        let path = self
+            .settings
+            .music_colors
+            .then(|| {
+                self.page_art().or_else(|| {
+                    self.playback
+                        .current
+                        .as_ref()
+                        .and_then(|c| c.track.artwork.clone())
+                })
+            })
+            .flatten();
+        let blur = path
+            .and_then(|path| self.look(&path))
+            .and_then(|look| look.blur.clone().map(|b| (b, look.strength(true).max(0.6))));
+        let layer = div().absolute().inset_0().bg(p.chrome);
+        let layer = match blur {
+            Some((blur, fit)) => layer.child(
+                img(blur)
+                    .absolute()
+                    .inset_0()
+                    .size_full()
+                    .object_fit(ObjectFit::Cover)
+                    .opacity(0.8 * fit),
+            ),
+            None => layer.child(div().absolute().inset_0().bg(linear_gradient(
+                150.,
+                linear_color_stop(p.glow.opacity(0.55), 0.),
+                linear_color_stop(p.glow.opacity(0.08), 1.),
+            ))),
+        };
+        Some(
+            layer
+                .child(div().absolute().inset_0().bg(linear_gradient(
+                    180.,
+                    linear_color_stop(p.chrome.opacity(0.3), 0.),
+                    linear_color_stop(p.chrome.opacity(0.65), 1.),
+                )))
+                .into_any_element(),
+        )
+    }
+
     /// The glow behind the current page: an album's or artist's own picture on their pages,
     /// otherwise the playing song's cover.
     pub(super) fn page_backdrop(&mut self, cx: &App) -> AnyElement {
@@ -328,7 +417,8 @@ impl AppView {
             super::Page::Home => (playing, 440., 1.),
             _ => (playing, 300., 0.55),
         };
-        if path.is_none() && !self.settings.music_colors {
+        // Ambient paints the whole window instead; no band on top of it.
+        if self.ambient_look() || (path.is_none() && !self.settings.music_colors) {
             return div().into_any_element();
         }
         self.backdrop(path.as_deref(), height, strength, cx)
@@ -375,5 +465,28 @@ impl AppView {
                 }))
                 .into_any_element(),
         )
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    // Not `super::*`: that would bring in GPUI's own `test` attribute in place of Rust's.
+    use super::measure;
+
+    /// Saved covers end in ".img"; their colour must still be read.
+    #[test]
+    fn measures_covers_saved_without_an_image_extension() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("cover.img");
+        image::RgbImage::from_pixel(32, 32, image::Rgb([40, 150, 60]))
+            .save_with_format(&path, image::ImageFormat::Jpeg)
+            .unwrap();
+        let look = measure(path.to_str().unwrap(), &dir.path().join("cache")).expect("measured");
+        assert!(
+            (look.vivid.h - 0.37).abs() < 0.05,
+            "green hue, got {:?}",
+            look.vivid
+        );
+        assert!(look.blur.is_some_and(|b| b.exists()));
     }
 }

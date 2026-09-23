@@ -13,11 +13,12 @@ use needle_core::{
 };
 
 /// Settings sections: name and icon.
-pub const SETTINGS_TABS: [(&str, &str); 8] = [
+pub const SETTINGS_TABS: [(&str, &str); 9] = [
     ("Playback", "speaker"),
     ("Library", "folder"),
     ("Appearance", "palette"),
     ("Online services", "globe"),
+    ("Discord", "discord"),
     ("Stems", "stems"),
     ("Plugins", "plugin"),
     ("Your data", "import"),
@@ -495,8 +496,8 @@ impl AppView {
                             }))
                             .child(*name)
                             .on_click(cx.listener(move |this, _, _, cx| {
+                                // Switch sections in place; no page fade, so it doesn't look like a reload.
                                 this.settings_tab = i;
-                                this.page_serial += 1;
                                 cx.notify();
                             }))
                     }),
@@ -686,6 +687,7 @@ impl AppView {
                         })),
                         cx,
                     ))
+                    .when(!self.settings.music_colors, |el| el.child(self.accent_settings(cx)))
                     .child(setting_row(
                         "Reduce motion",
                         if motion::system_allows_animation() {
@@ -701,6 +703,30 @@ impl AppView {
                         })),
                         cx,
                     ))
+                    .child(self.section_title("Fonts", "", cx))
+                    .child(setting_row(
+                        "Titles",
+                        "The font for page titles, album and artist names, and the big player.",
+                        segmented(
+                            "display-font",
+                            &super::theme::DISPLAY_FONTS.map(|(_, label, _)| label),
+                            super::theme::DISPLAY_FONTS.iter().position(|(k, _, _)| *k == self.settings.display_font).unwrap_or(0),
+                            cx,
+                            {
+                                let weak = weak.clone();
+                                move |index, _, cx| {
+                                    let key = super::theme::DISPLAY_FONTS[index].0;
+                                    super::theme::set_display_font(key);
+                                    let _ = weak.update(cx, |this, cx| {
+                                        this.settings.display_font = key.into();
+                                        this.persist_settings();
+                                        cx.notify();
+                                    });
+                                }
+                            },
+                        ),
+                        cx,
+                    ))
                     .child(setting_row(
                         "Density",
                         "Compact fits more tracks on screen.",
@@ -708,7 +734,7 @@ impl AppView {
                             let weak = weak.clone();
                             move |index, _, cx| {
                                 let _ = weak.update(cx, |this, cx| {
-                                    this.settings.layout.row_height = if index == 0 { 44. } else { 56. };
+                                    this.settings.layout.row_height = if index == 0 { 36. } else { 58. };
                                     this.persist_settings();
                                     cx.notify();
                                 });
@@ -794,23 +820,27 @@ impl AppView {
                     .when(tab == 3, |el| {
                         el
                     .child(self.section_title("Listening services", "Optional. Nothing is sent until you connect a service and turn it on.", cx))
-                    .when(Self::discord_available(), |el| el.child(self.discord_settings(cx)))
                     .child(self.services(cx))
                     })
-                    // Stems
+                    // Discord
                     .when(tab == 4, |el| {
+                        el.child(self.section_title("Discord", "Show what you're playing on your Discord profile.", cx))
+                            .child(self.discord_settings(cx))
+                    })
+                    // Stems
+                    .when(tab == 5, |el| {
                         el
                     .child(self.section_title("Stems", "Split songs into drums, bass, vocals, and other, on this computer.", cx))
                     .child(self.stems_settings(cx))
                     })
                     // Plugins
-                    .when(tab == 5, |el| {
+                    .when(tab == 6, |el| {
                         el
                     .child(self.section_title("Plugins", "Add features with small scripts. Each plugin lists what it may do.", cx))
                     .child(self.plugins_section(cx))
                     })
                     // Data
-                    .when(tab == 6, |el| {
+                    .when(tab == 7, |el| {
                         el
                     .child(self.section_title("Your data", "History, ratings, and playlists live in one local database.", cx))
                     .child(setting_row(
@@ -862,7 +892,7 @@ impl AppView {
                     )
                     })
                     // Keyboard
-                    .when(tab == 7, |el| {
+                    .when(tab == 8, |el| {
                         el
                     .child(self.section_title("Keyboard", "", cx))
                     .child(
@@ -949,7 +979,7 @@ impl AppView {
                 .and_then(|a| self.cached_look(a))
                 .map(|l| l.vivid)
         } else {
-            None
+            super::theme::parse_hex(&self.settings.accent_color)
         };
         let look = super::theme::Palette::build(base, tint);
         let bar = |w: f32, color: Hsla| div().h(px(4.)).w(px(w)).rounded(px(2.)).bg(color);
@@ -1104,32 +1134,299 @@ impl AppView {
 impl AppView {
     /// Discord Rich Presence: one switch. Needle finds Discord by itself.
     fn discord_settings(&self, cx: &mut Context<Self>) -> impl IntoElement {
-        let covers = setting_row(
-            "Show covers on Discord",
-            "Discord can only show pictures from the web, so Needle finds the cover in Apple's iTunes catalog by artist and song name. Your files never leave this PC. Without a match, Discord shows the Needle logo.",
-            Switch::new("discord-covers")
-                .checked(self.settings.discord_covers)
-                .on_click(cx.listener(|this, checked: &bool, _, cx| {
-                    this.settings.discord_covers = *checked;
-                    this.discord_sent = None;
-                    this.persist_settings();
-                    cx.notify();
-                })),
+        use needle_core::discord::Field;
+        let p = pal(cx);
+        let on = self.settings.discord_presence;
+        let weak = cx.entity().downgrade();
+        // One row of choices for a part of the card.
+        let choice = |id: &'static str,
+                      title: &'static str,
+                      options: &'static [(&'static str, &'static str)],
+                      current: &str,
+                      set: fn(&mut AppView, String),
+                      cx: &mut Context<Self>| {
+            let weak = weak.clone();
+            let selected = options.iter().position(|(v, _)| *v == current).unwrap_or(0);
+            setting_row(
+                title,
+                "",
+                segmented(
+                    id,
+                    &options.iter().map(|(_, label)| *label).collect::<Vec<_>>(),
+                    selected,
+                    cx,
+                    move |i, _, cx| {
+                        let value = options[i].0.to_string();
+                        let _ = weak.update(cx, |this, cx| {
+                            set(this, value);
+                            this.discord_sent = None;
+                            this.persist_settings();
+                            cx.notify();
+                        });
+                    },
+                ),
+                cx,
+            )
+        };
+        const TITLE: &[(&str, &str)] =
+            &[("song", "Song"), ("artist", "Artist"), ("needle", "Needle")];
+        const TOP: &[(&str, &str)] = &[("artist", "Artist"), ("song", "Song"), ("album", "Album")];
+        const MIDDLE: &[(&str, &str)] = &[
+            ("song", "Song"),
+            ("artist", "Artist"),
+            ("album", "Album"),
+            ("none", "Nothing"),
+        ];
+        const BOTTOM: &[(&str, &str)] = &[
+            ("album", "Album"),
+            ("song", "Song"),
+            ("artist", "Artist"),
+            ("none", "Nothing"),
+        ];
+        let title = choice(
+            "discord-title",
+            "Listening to …",
+            TITLE,
+            &self.settings.discord_title,
+            |t, v| t.settings.discord_title = v,
             cx,
         );
-        div()
-            .child(setting_row(
-                "Show what you're playing on Discord",
-                "When Discord is open on this PC, your profile shows \"Listening to\" the song, with the artist, the album, and a time bar. Needle only talks to the real Discord app on this PC.",
-                Switch::new("discord-presence")
-                    .checked(self.settings.discord_presence)
-                    .on_click(cx.listener(|this, checked: &bool, _, cx| {
-                        this.settings.discord_presence = *checked;
+        let top = choice(
+            "discord-top",
+            "First line",
+            TOP,
+            &self.settings.discord_top,
+            |t, v| t.settings.discord_top = v,
+            cx,
+        );
+        let middle = choice(
+            "discord-middle",
+            "Second line",
+            MIDDLE,
+            &self.settings.discord_middle,
+            |t, v| t.settings.discord_middle = v,
+            cx,
+        );
+        let bottom = choice(
+            "discord-bottom",
+            "Third line",
+            BOTTOM,
+            &self.settings.discord_bottom,
+            |t, v| t.settings.discord_bottom = v,
+            cx,
+        );
+        let switch = |id: &'static str,
+                      title: &'static str,
+                      detail: &'static str,
+                      checked: bool,
+                      set: fn(&mut AppView, bool),
+                      cx: &mut Context<Self>| {
+            setting_row(
+                title,
+                detail,
+                Switch::new(id).checked(checked).on_click(cx.listener(
+                    move |this, checked: &bool, _, cx| {
+                        set(this, *checked);
+                        this.discord_sent = None;
                         this.persist_settings();
                         cx.notify();
-                    })),
+                    },
+                )),
+                cx,
+            )
+        };
+        let covers = switch(
+            "discord-covers",
+            "Look up covers",
+            "Discord can only show pictures from the web, so Needle finds the cover in Apple's iTunes catalog by artist and song name. Your files never leave this PC. Turn this off to send no lookups at all.",
+            self.settings.discord_covers,
+            |t, v| t.settings.discord_covers = v,
+            cx,
+        );
+        let logo = switch(
+            "discord-logo",
+            "Show the Needle logo",
+            "A small badge on the cover, and the picture when there is no cover. With this off and no cover, the card has no picture (and Discord then hides the third line).",
+            self.settings.discord_logo,
+            |t, v| t.settings.discord_logo = v,
+            cx,
+        );
+        // A preview of the card with the song that is playing (or an example).
+        let track = self.playback.current.as_ref().map(|c| c.track.clone());
+        let (song, artist, album) = match &track {
+            Some(t) => (
+                t.title.clone(),
+                t.display_artist().to_string(),
+                t.album.clone(),
+            ),
+            None => (
+                "Song name".to_string(),
+                "Artist".to_string(),
+                "Album".to_string(),
+            ),
+        };
+        let text = |name: &str| match Field::from_name(name) {
+            Field::Song => Some(song.clone()),
+            Field::Artist => Some(artist.clone()),
+            Field::Album => Some(album.clone()).filter(|a| !a.is_empty()),
+            Field::Needle => Some("Needle".to_string()),
+            Field::Nothing => None,
+        };
+        let has_picture = self.settings.discord_covers || self.settings.discord_logo;
+        let picture = if self.settings.discord_covers
+            && track.as_ref().is_some_and(|t| t.artwork.is_some())
+        {
+            div()
+                .rounded(px(8.))
+                .child(super::widgets::artwork(track.as_ref(), 72., cx))
+                .into_any_element()
+        } else if self.settings.discord_logo {
+            div()
+                .size(px(72.))
+                .rounded(px(8.))
+                .bg(gpui::rgb(0x1e1b18))
+                .flex()
+                .items_center()
+                .justify_center()
+                .child(
+                    super::widgets::glyph("logo")
+                        .size(px(40.))
+                        .text_color(gpui::rgb(0xe2b46c)),
+                )
+                .into_any_element()
+        } else {
+            div().into_any_element()
+        };
+        let preview = div()
+            .my_4()
+            .p_3()
+            .w(px(360.))
+            .rounded(px(10.))
+            .bg(p.raised)
+            .border_1()
+            .border_color(p.line_soft)
+            .flex()
+            .flex_col()
+            .gap_2()
+            .child(
+                div()
+                    .text_size(px(12.))
+                    .font_weight(FontWeight::MEDIUM)
+                    .text_color(p.ink_2)
+                    .child(format!(
+                        "Listening to {}",
+                        text(&self.settings.discord_title).unwrap_or_else(|| "Needle".into())
+                    )),
+            )
+            .child(
+                div()
+                    .flex()
+                    .gap_3()
+                    .items_center()
+                    .when(has_picture, |el| el.child(picture))
+                    .child(
+                        div()
+                            .flex_1()
+                            .min_w_0()
+                            .flex()
+                            .flex_col()
+                            .gap(px(2.))
+                            .children(text(&self.settings.discord_top).map(|t| {
+                                div()
+                                    .text_size(px(14.))
+                                    .font_weight(FontWeight::SEMIBOLD)
+                                    .truncate()
+                                    .child(t)
+                            }))
+                            .children(text(&self.settings.discord_middle).map(|t| {
+                                div()
+                                    .text_size(px(13.))
+                                    .text_color(p.ink_2)
+                                    .truncate()
+                                    .child(t)
+                            }))
+                            .when(has_picture, |el| {
+                                el.children(text(&self.settings.discord_bottom).map(|t| {
+                                    div()
+                                        .text_size(px(13.))
+                                        .text_color(p.ink_2)
+                                        .truncate()
+                                        .child(t)
+                                }))
+                            }),
+                    ),
+            );
+        div()
+            .child(switch(
+                "discord-presence",
+                "Show what you're playing on Discord",
+                "When Discord is open on this PC, your profile shows what is playing and a time bar. Needle finds Discord by itself and only talks to the real Discord app on this PC.",
+                on,
+                |t, v| t.settings.discord_presence = v,
                 cx,
             ))
-            .when(self.settings.discord_presence, |el| el.child(covers))
+            .when(on, |el| {
+                el.child(preview)
+                    .child(title)
+                    .child(top)
+                    .child(middle)
+                    .child(bottom)
+                    .child(covers)
+                    .child(logo)
+            })
+    }
+}
+
+impl AppView {
+    /// Swatches for the interface color, shown when colors from the music are off.
+    fn accent_settings(&self, cx: &mut Context<Self>) -> impl IntoElement {
+        let p = pal(cx);
+        setting_row(
+            "Color",
+            "Tints the buttons, highlights, and surfaces.",
+            div()
+                .flex()
+                .gap_2()
+                .children(
+                    super::theme::ACCENTS
+                        .iter()
+                        .enumerate()
+                        .map(|(i, (hex, name))| {
+                            let selected = self.settings.accent_color == *hex;
+                            let look = super::theme::Palette::build(
+                                super::theme::Base::from_name(&self.settings.theme),
+                                super::theme::parse_hex(hex),
+                            );
+                            let hex = hex.to_string();
+                            div()
+                                .id(("accent", i))
+                                .size(px(26.))
+                                .rounded_full()
+                                .p(px(3.))
+                                .border_2()
+                                .border_color(if selected {
+                                    p.ink
+                                } else {
+                                    gpui::transparent_black()
+                                })
+                                .cursor_pointer()
+                                .child(div().size_full().rounded_full().bg(look.accent))
+                                .tooltip({
+                                    let name = name.to_string();
+                                    move |window, cx| {
+                                        gpui_component::tooltip::Tooltip::new(name.clone())
+                                            .build(window, cx)
+                                    }
+                                })
+                                .on_click(cx.listener(move |this, _, _, cx| {
+                                    this.settings.accent_color = hex.clone();
+                                    this.persist_settings();
+                                    cx.notify();
+                                }))
+                                .into_any_element()
+                        }),
+                ),
+            cx,
+        )
     }
 }

@@ -283,6 +283,7 @@ pub struct AppView {
     focused: Option<Track>,
     panel: Panel,
     menu: Option<menus::TrackMenu>,
+    playlist_menu: Option<menus::PlaylistMenu>,
     menu_serial: usize,
     /// The song whose heart was just filled, and a counter that replays the pop.
     heart_pop: Option<(String, usize)>,
@@ -352,6 +353,10 @@ pub struct AppView {
     lyrics: Option<(String, Option<needle_core::media::Lyrics>)>,
     lyric_line: Option<usize>,
     lyrics_scroll: ScrollHandle,
+    /// The mini player's lyrics scroll on their own (a scroll handle shown in two windows
+    /// would mix up their sizes).
+    mini_lyrics_scroll: ScrollHandle,
+    mini_lyric_glide: bool,
     /// The lyrics are easing toward the sung line.
     lyric_glide: bool,
     artist_images: std::collections::HashMap<String, Option<String>>,
@@ -401,6 +406,7 @@ pub fn run(library: Library) -> Result<()> {
                 .ok();
             let settings = library.settings().unwrap_or_default();
             set_theme(&settings.theme, None, cx);
+            theme::set_display_font(&settings.display_font);
             cx.set_global(motion::Motion {
                 enabled: !settings.reduce_motion && motion::system_allows_animation(),
             });
@@ -634,6 +640,7 @@ impl AppView {
             focused: None,
             panel: Panel::Details,
             menu: None,
+            playlist_menu: None,
             menu_serial: 0,
             heart_pop: None,
             settings_tab: 0,
@@ -694,6 +701,8 @@ impl AppView {
             lyrics: None,
             lyric_line: None,
             lyrics_scroll: ScrollHandle::new(),
+            mini_lyrics_scroll: ScrollHandle::new(),
+            mini_lyric_glide: false,
             lyric_glide: false,
             artist_images: Default::default(),
             recent: vec![],
@@ -773,7 +782,8 @@ impl AppView {
     }
     fn configure(&mut self) {
         self.settings.volume = self.playback.volume;
-        self.player.send(Command::Configure(self.settings.clone()));
+        self.player
+            .send(Command::Configure(Box::new(self.settings.clone())));
         self.persist_settings();
     }
 
@@ -1245,6 +1255,14 @@ impl AppView {
     }
 
     fn navigate(&mut self, page: Page, window: &mut Window, cx: &mut Context<Self>) {
+        // Clicking the page you are on keeps it as it is; only a search on it is cleared.
+        if page == self.page {
+            if !self.search_text(cx).is_empty() {
+                self.search.update(cx, |s, cx| s.set_value("", window, cx));
+                self.refresh(cx);
+            }
+            return;
+        }
         self.remember_scroll();
         if page != self.page {
             self.back.push(self.page.clone());
@@ -1823,6 +1841,7 @@ impl Render for AppView {
             f32::from(width) - sidebar - if show_panel { panel_width } else { 0. } - 1.;
         let backdrop = self.page_backdrop(cx);
         let grain = self.grain(window, cx);
+        let ambient_layer = self.ambient_layer(cx);
         self.glide_lyrics(window, cx);
         if self.big != self.big_was {
             self.big_was = self.big;
@@ -2013,6 +2032,7 @@ impl Render for AppView {
             // The title bar must stay outside the focusable body: a focusable element under the
             // pointer consumes the mouse-down, and Windows then never starts a drag, resize, or
             // maximize from the title bar.
+            .children(ambient_layer)
             .child(self.title_bar(sidebar, window, cx))
             .child(
                 div()
@@ -2061,6 +2081,7 @@ impl Render for AppView {
             .children(grain)
             .children(self.toast(cx))
             .children(self.track_menu(cx))
+            .children(self.playlist_menu_view(cx))
             .children(self.palette_view(cx))
     }
 }

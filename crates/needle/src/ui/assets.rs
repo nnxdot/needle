@@ -13,8 +13,8 @@ fn shape(name: &str) -> Option<String> {
     Some(match name {
         "play" => format!("<path d='M7.5 4.8v14.4a.8.8 0 0 0 1.2.7l11.6-7.2a.8.8 0 0 0 0-1.4L8.7 4.1a.8.8 0 0 0-1.2.7z' {FILLED}/>"),
         "pause" => format!("<rect x='6' y='4.5' width='4.2' height='15' rx='1.2' {FILLED}/><rect x='13.8' y='4.5' width='4.2' height='15' rx='1.2' {FILLED}/>"),
-        "next" => format!("<path d='M5 5.6v12.8a.8.8 0 0 0 1.2.7l9.6-6.4a.8.8 0 0 0 0-1.4L6.2 4.9a.8.8 0 0 0-1.2.7z' {FILLED}/><path d='M19 5v14' stroke-width='2.2'/>"),
-        "previous" => format!("<path d='M19 5.6v12.8a.8.8 0 0 1-1.2.7l-9.6-6.4a.8.8 0 0 1 0-1.4l9.6-6.4a.8.8 0 0 1 1.2.7z' {FILLED}/><path d='M5 5v14' stroke-width='2.2'/>"),
+        "next" => format!("<path d='M5.5 5.9v12.2a1 1 0 0 0 1.55.83l9.2-6.1a1 1 0 0 0 0-1.66l-9.2-6.1A1 1 0 0 0 5.5 5.9z' {FILLED}/><path d='M17.8 5.2v13.6' stroke-width='2.4'/>"),
+        "previous" => format!("<path d='M18.5 5.9v12.2a1 1 0 0 1-1.55.83l-9.2-6.1a1 1 0 0 1 0-1.66l9.2-6.1a1 1 0 0 1 1.55.83z' {FILLED}/><path d='M6.2 5.2v13.6' stroke-width='2.4'/>"),
         "shuffle" => "<path d='M16 3h5v5M4 20 21 3M21 16v5h-5M15 15l6 6M4 4l5 5'/>".into(),
         "repeat" => "<path d='m17 2 4 4-4 4'/><path d='M3 11v-1a4 4 0 0 1 4-4h14'/><path d='m7 22-4-4 4-4'/><path d='M21 13v1a4 4 0 0 1-4 4H3'/>".into(),
         "repeat-one" => "<path d='m17 2 4 4-4 4'/><path d='M3 11v-1a4 4 0 0 1 4-4h14'/><path d='m7 22-4-4 4-4'/><path d='M21 13v1a4 4 0 0 1-4 4H3'/><path d='M11 10.5l1.5-1v5'/>".into(),
@@ -30,6 +30,7 @@ fn shape(name: &str) -> Option<String> {
         "heart-fill" => format!("<path d='{heart}' {FILLED}/>"),
         "star" => format!("<path d='{star}'/>"),
         "star-fill" => format!("<path d='{star}' {FILLED}/>"),
+        "discord" => "<rect x='3' y='6' width='18' height='12' rx='5'/><circle cx='9' cy='12' r='1.4' fill='currentColor'/><circle cx='15' cy='12' r='1.4' fill='currentColor'/><path d='M8 6l1-2M16 6l-1-2'/>".into(),
         "home" => "<path d='M3.5 10.5 12 3.5l8.5 7'/><path d='M5.5 9v10.5a1 1 0 0 0 1 1H10v-6h4v6h3.5a1 1 0 0 0 1-1V9'/>".into(),
         "recent" => "<circle cx='12' cy='12' r='9'/><path d='M12 7v5l3.2 2'/>".into(),
         "history" => "<path d='M3 20h18'/><path d='M6.5 16v-4M11 16V6M15.5 16V9.5M20 16v-8'/>".into(),

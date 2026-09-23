@@ -135,7 +135,7 @@ impl AppView {
                 "history",
                 "Listening history",
                 Page::History,
-                Some("Ctrl+6"),
+                Some("Ctrl+7"),
             ),
             page("eq", "Sound and equalizer", Page::Sound, None),
             page("import", "Import from other apps", Page::Import, None),
@@ -665,6 +665,8 @@ impl AppView {
                     .bg(gpui::black().opacity(if p.dark { 0.45 } else { 0.25 }))
                     .flex()
                     .justify_center()
+                    // Don't stretch the panel to the window's height; it is as tall as its list.
+                    .items_start()
                     .pt(px(84.))
                     .child(panel)
                     .on_mouse_down(

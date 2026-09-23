@@ -97,7 +97,7 @@ pub enum Command {
     Previous,
     Seek(f64),
     Volume(f32),
-    Configure(Settings),
+    Configure(Box<Settings>),
     Stop,
     ClearQueue,
     Remove(usize),
@@ -1044,7 +1044,7 @@ impl Worker {
                 let queue = self.queue.tail();
                 let listen = self.listen.take();
                 self.close();
-                self.settings = settings;
+                self.settings = *settings;
                 self.dsp.set(self.settings.dsp.clone());
                 self.library.save_settings(&self.settings)?;
                 if let Some(current) = current {

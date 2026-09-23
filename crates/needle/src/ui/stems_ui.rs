@@ -233,10 +233,28 @@ impl AppView {
                                 })),
                         )
                 }))
-                .child(div().flex().gap_2().children(PRESETS.iter().enumerate().map(|(i, (name, levels))| {
-                    let levels = *levels;
-                    small_button(("stem-preset", i), *name).ghost().on_click(cx.listener(move |this, _, window, cx| this.set_stem_levels(levels, window, cx)))
-                })))
+                // Rows of three in the side panel so the mixes never run past its edge.
+                .child({
+                    let per_row = if big { PRESETS.len() } else { 3 };
+                    let rows: Vec<AnyElement> = PRESETS
+                        .chunks(per_row)
+                        .enumerate()
+                        .map(|(r, row)| {
+                            div()
+                                .flex()
+                                .gap_1()
+                                .children(row.iter().enumerate().map(|(j, (name, levels))| {
+                                    let levels = *levels;
+                                    small_button(("stem-preset", r * per_row + j), *name)
+                                        .ghost()
+                                        .flex_1()
+                                        .on_click(cx.listener(move |this, _, window, cx| this.set_stem_levels(levels, window, cx)))
+                                }))
+                                .into_any_element()
+                        })
+                        .collect();
+                    div().flex().flex_col().gap_1().children(rows)
+                })
                 .child(div().child(small_button("stems-delete", "Delete these stems").ghost().on_click(cx.listener(move |this, _, _, cx| {
                     if this.playback.stems.as_deref() == Some(id.as_str()) {
                         this.player.send(Command::Stems(None));

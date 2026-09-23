@@ -82,6 +82,16 @@ Opening an existing large library for the first time after this change builds th
 - Live requests were made once to LRCLIB (59 timed lines for a known song), MusicBrainz/Wikidata/Commons (an artist photo), and ListenBrainz (listen format). Last.fm import was not run without an API key.
 - In the running app: the title bar drags, the window resizes from its edges including the top, and maximize/restore and double-click work (checked with Windows hit-testing and scripted drags after a fix for a focusable element that swallowed title-bar clicks). The big player showed timed lyrics following playback; the mini player opened, expanded (staying on screen), showed lyrics and the queue, and returned to the main window. The Sound page applied presets that persisted across restarts. The Import page detected an iTunes XML, and importing set ratings, play counts, and a playlist. An example plugin added a track-menu command that rated a song. A demo song was split into stems in the app and played back from its stems with the Karaoke mix.
 
+## 0.8.1 checks
+
+- The command palette again sizes to its list (it had stretched to the window's height), and Listening history shows Ctrl+7. Switching Settings sections no longer replays the page fade, so it no longer looks like a reload. Checked from screenshots.
+
+## 0.8.0 checks
+
+- `cargo test --workspace` passes (101 core tests, 6 ignored, and the UI tests). The contrast test now includes the Ambient look. New tests cover the Discord card layouts (title and lines, paused state, no logo, no picture) and reading covers saved with an ".img" ending (which kept colors from the music from working on covers found in files).
+- Checked from screenshots: the Discord settings section and its preview; compact rows on one line; the title font choice; custom colors with colors from the music off; a nearly black cover no longer laying a dark band over the light look; the bold, glowing sung lyric line in the Day look and the mini player's own lyrics scrolling; stem mixes in two rows inside the side panel; the playlist right-click menu and Play from it; crisper sidebar text on glass; solid previous/next icons; the Ambient look with a cover and with a chosen color, and the big player filled by the cover. Clicking the page you are on no longer reloads it. The mini player's seek and volume sliders are its own, so they no longer drift when both windows are open.
+- A test module that imported everything from a file using GPUI picked up GPUI's own `test` attribute and made the compiler recurse until it ran out of stack; it now imports what it needs by name.
+
 ## 0.7.3 checks
 
 - At narrow window widths the title bar pushed the maximize and close buttons off the window (the title bar component does not shrink its contents). The search field is now sized from the window width, and the palette button shows only its icon below 1,100 px. Checked at the minimum size (916 px), about 1,100 px, and 1,136 px: all three window buttons stay visible; Home, Songs, Artists, Listening history, Settings, and the big player also fit.

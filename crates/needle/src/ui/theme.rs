@@ -2,7 +2,8 @@ use gpui::{App, Global, Hsla, Pixels, Window, hsla, px, rgb};
 use gpui_component::{Theme, ThemeMode};
 
 /// Colours the component theme has no slot for. Read with `pal(cx)`.
-/// The three base looks. Colour from the music tints whichever one is chosen.
+/// The base looks. Colour from the music tints whichever one is chosen; Ambient lets it fill
+/// the whole background.
 #[derive(Clone, Copy, PartialEq, Debug)]
 pub enum Base {
     /// Warm charcoal.
@@ -11,18 +12,23 @@ pub enum Base {
     Midnight,
     /// Light.
     Day,
+    /// The cover (or the chosen colour) fills the whole background, blurred, with the
+    /// interface floating over it.
+    Ambient,
 }
 impl Base {
     /// Settings value and the name people see.
-    pub const ALL: [(&'static str, &'static str); 3] = [
+    pub const ALL: [(&'static str, &'static str); 4] = [
         ("dark", "Night"),
         ("midnight", "Midnight"),
         ("light", "Day"),
+        ("ambient", "Ambient"),
     ];
     pub fn from_name(name: &str) -> Self {
         match name {
             "light" => Self::Day,
             "midnight" => Self::Midnight,
+            "ambient" => Self::Ambient,
             _ => Self::Night,
         }
     }
@@ -65,8 +71,51 @@ fn c(value: u32) -> Hsla {
     rgb(value).into()
 }
 
-/// The font for page titles and big names.
-pub const DISPLAY: &str = "Fraunces 72pt Soft";
+/// Colors to choose from when colors from the music are off ("" is Needle's amber).
+pub const ACCENTS: [(&str, &str); 8] = [
+    ("", "Needle"),
+    ("#e5484d", "Red"),
+    ("#e93d82", "Pink"),
+    ("#8e4ec6", "Purple"),
+    ("#3e63dd", "Blue"),
+    ("#12a594", "Teal"),
+    ("#46a758", "Green"),
+    ("#f76b15", "Orange"),
+];
+
+/// A "#rrggbb" color, if it is one.
+pub fn parse_hex(hex: &str) -> Option<Hsla> {
+    let hex = hex.trim().trim_start_matches('#');
+    (hex.len() == 6)
+        .then(|| u32::from_str_radix(hex, 16).ok())
+        .flatten()
+        .map(|v| rgb(v).into())
+}
+
+/// Fonts for page titles and big names: settings value, name people see, font family.
+pub const DISPLAY_FONTS: [(&str, &str, &str); 3] = [
+    ("system", "Segoe UI", "Segoe UI Variable Display"),
+    ("bahnschrift", "Bahnschrift", "Bahnschrift"),
+    ("fraunces", "Fraunces (Nick's font)", "Fraunces 72pt Soft"),
+];
+
+static DISPLAY_FONT: std::sync::RwLock<&'static str> =
+    std::sync::RwLock::new("Segoe UI Variable Display");
+
+/// The font family for page titles and big names.
+pub fn display_font() -> &'static str {
+    *DISPLAY_FONT.read().unwrap_or_else(|e| e.into_inner())
+}
+
+/// Use the title font with this settings value (unknown values fall back to the first).
+pub fn set_display_font(key: &str) {
+    let family = DISPLAY_FONTS
+        .iter()
+        .find(|(k, _, _)| *k == key)
+        .unwrap_or(&DISPLAY_FONTS[0])
+        .2;
+    *DISPLAY_FONT.write().unwrap_or_else(|e| e.into_inner()) = family;
+}
 
 fn luminance(color: Hsla) -> f32 {
     let rgba = color.to_rgb();
@@ -91,7 +140,9 @@ impl Palette {
         let tint = tint.filter(|t| t.s > 0.14 && t.l > 0.06 && t.l < 0.96);
         let (hue, sat): (f32, f32) = match (tint, base) {
             (Some(t), Base::Day) => (t.h, 0.16),
+            (Some(t), Base::Ambient) => (t.h, 0.34),
             (Some(t), _) => (t.h, 0.13),
+            (None, Base::Ambient) => (0.083, 0.22),
             (None, Base::Midnight) => (0.62, 0.22),
             (None, _) => (0.083, 0.05),
         };
@@ -101,6 +152,7 @@ impl Palette {
             Base::Night => (n(0.05), n(0.082), n(0.118), n(0.152), n(0.165), n(0.125)),
             Base::Midnight => (n(0.028), n(0.052), n(0.088), n(0.122), n(0.14), n(0.098)),
             Base::Day => (n(0.935), n(0.985), n(0.93), n(0.9), n(0.865), n(0.915)),
+            Base::Ambient => (n(0.07), n(0.1), n(0.15), n(0.19), n(0.21), n(0.16)),
         };
         let ink_sat = sat.min(0.1);
         let (ink, ink_2, ink_3) = if dark {
@@ -309,7 +361,7 @@ mod tests {
                 Some(hsla(0.0, 0.0, 0.5, 1.)),
             ]);
         for tint in tints {
-            for base in [Base::Night, Base::Midnight, Base::Day] {
+            for base in [Base::Night, Base::Midnight, Base::Day, Base::Ambient] {
                 let p = Palette::build(base, tint);
                 for (surface_name, surface) in [
                     ("chrome", p.chrome),

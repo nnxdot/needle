@@ -4174,7 +4174,7 @@ dependencies = [
 
 [[package]]
 name = "needle"
-version = "0.7.3"
+version = "0.8.1"
 dependencies = [
  "anyhow",
  "chrono",
@@ -4192,12 +4192,13 @@ dependencies = [
  "schemars",
  "serde",
  "serde_json",
+ "tempfile",
  "windows-sys 0.52.0",
 ]
 
 [[package]]
 name = "needle-core"
-version = "0.7.3"
+version = "0.8.1"
 dependencies = [
  "anyhow",
  "argon2",

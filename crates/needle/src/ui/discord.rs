@@ -1,7 +1,7 @@
 //! Keeps Discord's "Listening to" status in step with playback. Needle finds Discord by
 //! itself; there is nothing to set up.
 use super::AppView;
-use needle_core::discord::{Activity, Presence};
+use needle_core::discord::{Activity, Field, Layout, Presence};
 
 /// The Discord application Needle appears as (discord.com/developers/applications).
 pub const APP_ID: &str = "1552097597454295110";
@@ -35,6 +35,13 @@ impl AppView {
                 paused: !self.playback.playing,
                 find_cover: self.settings.discord_covers,
                 cover: None,
+                layout: Layout {
+                    title: Field::from_name(&self.settings.discord_title),
+                    top: Field::from_name(&self.settings.discord_top),
+                    middle: Field::from_name(&self.settings.discord_middle),
+                    bottom: Field::from_name(&self.settings.discord_bottom),
+                    logo: self.settings.discord_logo,
+                },
             }
         });
         let key = activity
