@@ -217,12 +217,11 @@ impl AppView {
                             .text_size(px(13.))
                             .child(field.label.clone()),
                     )
-                    .child(
-                        div().flex_1().children(
-                            self.source_inputs
-                                .get(&key)
-                                .map(|input| Input::new(input).small()),
-                        ),
+                    // The box itself takes the rest of the row (inside a wrapper it would shrink).
+                    .children(
+                        self.source_inputs
+                            .get(&key)
+                            .map(|input| Input::new(input).small().flex_1()),
                     )
             });
             let plugin = plugin.clone();
