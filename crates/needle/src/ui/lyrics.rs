@@ -195,6 +195,13 @@ impl AppView {
                 },
                 cx,
             )
+            .when(!mini, |el| {
+                el.child(
+                    small_button("write-lyrics", "Write lyrics")
+                        .ghost()
+                        .on_click(cx.listener(|this, _, window, cx| this.open_timing(window, cx))),
+                )
+            })
             .when(!self.settings.online_media, |el| {
                 el.child(
                     small_button("enable-online", "Turn on online lookups")
@@ -238,6 +245,7 @@ impl AppView {
                 .collect()
         } else {
             let active = self.lyric_line;
+            let position = self.playback.position + 0.1;
             lyrics
                 .lines
                 .iter()
@@ -268,17 +276,51 @@ impl AppView {
                             1 => p.ink.opacity(if p.dark { 0.28 } else { 0.4 }),
                             _ => p.ink.opacity(if p.dark { 0.45 } else { 0.58 }),
                         })
-                        .hover(|s| s.text_color(p.ink.opacity(0.8)))
+                        .hover(|s| s.text_color(p.ink.opacity(0.8)));
+                    // Karaoke: in the sung line, words light up as they are sung.
+                    let end = lyrics.lines.get(i + 1).map_or(line.time + 6., |l| l.time);
+                    let karaoke = (state == 0).then(|| line.word_at(position, end)).flatten();
+                    let line_el = match karaoke {
+                        Some((word, progress)) => {
+                            // Highlights paint over the line's colour, so dimming uses fade_out.
+                            let dim = if p.dark { 0.62 } else { 0.55 };
+                            let mut at = 0;
+                            let highlights: Vec<_> = line
+                                .words
+                                .iter()
+                                .enumerate()
+                                .map(|(w, part)| {
+                                    let range = at..at + part.text.len();
+                                    at = range.end;
+                                    let fade = match w.cmp(&word) {
+                                        std::cmp::Ordering::Less => 0.,
+                                        std::cmp::Ordering::Equal => dim * (1. - progress.sqrt()),
+                                        std::cmp::Ordering::Greater => dim,
+                                    };
+                                    (
+                                        range,
+                                        HighlightStyle {
+                                            fade_out: Some(fade),
+                                            ..Default::default()
+                                        },
+                                    )
+                                })
+                                .collect();
+                            line_el.child(
+                                StyledText::new(line.text.clone()).with_highlights(highlights),
+                            )
+                        }
                         // Text straight in the line, so long lines wrap instead of running off.
-                        .child(if line.text.is_empty() {
+                        None => line_el.child(if line.text.is_empty() {
                             "♪".to_string()
                         } else {
                             line.text.clone()
-                        })
-                        .on_click(
-                            cx.listener(move |this, _, _, _| this.player.send(Command::Seek(time))),
-                        );
-                    if state == 0 {
+                        }),
+                    };
+                    let line_el = line_el.on_click(
+                        cx.listener(move |this, _, _, _| this.player.send(Command::Seek(time))),
+                    );
+                    if state == 0 && karaoke.is_none() {
                         // The new line brightens in as it arrives.
                         let (dim, ink) = (p.ink.opacity(0.4), p.ink);
                         motion::animate(line_el, ("lyric-on", i), 380, cx, move |el, t| {
@@ -309,7 +351,30 @@ impl AppView {
             })
             .when(lyrics.lines.is_empty(), |el| el.pb_20())
             .children(lines)
-            .child(faint(source, cx).mt_6())
+            .child(
+                div()
+                    .mt_6()
+                    .flex()
+                    .items_center()
+                    .gap_3()
+                    .child(faint(source, cx))
+                    .when(!mini, |el| {
+                        el.child(
+                            small_button(
+                                "edit-timing",
+                                if lyrics.lines.is_empty() {
+                                    "Time these lyrics"
+                                } else {
+                                    "Edit timing"
+                                },
+                            )
+                            .ghost()
+                            .on_click(
+                                cx.listener(|this, _, window, cx| this.open_timing(window, cx)),
+                            ),
+                        )
+                    }),
+            )
             .into_any_element()
     }
 }

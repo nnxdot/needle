@@ -220,6 +220,14 @@ impl AppView {
             ),
             item(
                 "Actions",
+                "lyrics",
+                "Time the lyrics of this song",
+                "Tap along to time lines or words",
+                None,
+                |this, window, cx| this.open_timing(window, cx),
+            ),
+            item(
+                "Actions",
                 "mini",
                 "Switch to the mini player",
                 "",

@@ -26,6 +26,42 @@ pub struct LyricLine {
     /// Seconds from the start of the track.
     pub time: f64,
     pub text: String,
+    /// Word timing, for karaoke. Empty when only the line is timed. The words' texts joined
+    /// make `text`.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub words: Vec<LyricWord>,
+}
+
+/// One timed word (or syllable), with the spaces after it.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct LyricWord {
+    pub time: f64,
+    pub text: String,
+}
+
+impl LyricLine {
+    pub fn new(time: f64, text: impl Into<String>) -> Self {
+        Self {
+            time,
+            text: text.into(),
+            words: vec![],
+        }
+    }
+    /// The word being sung at `position` and how far through it the singer is (0 to 1).
+    /// `end` is when the line stops: the next line's start.
+    pub fn word_at(&self, position: f64, end: f64) -> Option<(usize, f32)> {
+        let next = self.words.partition_point(|w| w.time <= position);
+        let index = next.checked_sub(1)?;
+        let start = self.words[index].time;
+        let stop = self
+            .words
+            .get(next)
+            .map_or(end, |w| w.time)
+            .max(start + 0.05);
+        // A word is held for at most a second and a half; long gaps are rests, not singing.
+        let length = (stop - start).min(1.5);
+        Some((index, ((position - start) / length).clamp(0., 1.) as f32))
+    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
@@ -89,25 +125,151 @@ pub fn parse_lrc(text: &str) -> Vec<LyricLine> {
             rest = stripped[end + 1..].trim_start();
             if let Some(ms) = tag.strip_prefix("offset:") {
                 offset = ms.trim().parse::<f64>().unwrap_or(0.) / 1000.;
-            } else if let Some((m, s)) = tag.split_once(':')
-                && let (Ok(m), Ok(s)) = (m.trim().parse::<f64>(), s.trim().parse::<f64>())
-            {
-                times.push(m * 60. + s);
+            } else if let Some(time) = stamp(tag) {
+                times.push(time);
             }
         }
+        let (text, words) = parse_words(rest);
         for time in times {
+            let mut words = words.clone();
+            // Words before the first stamp start with the line.
+            for word in &mut words {
+                if word.time < 0. {
+                    word.time = time;
+                }
+            }
             lines.push(LyricLine {
                 time,
-                text: rest.to_string(),
+                text: text.clone(),
+                words,
             });
         }
     }
     // A positive offset makes lyrics appear sooner.
     for line in &mut lines {
         line.time = (line.time - offset).max(0.);
+        for word in &mut line.words {
+            word.time = (word.time - offset).max(0.);
+        }
     }
     lines.sort_by(|a, b| a.time.total_cmp(&b.time));
     lines
+}
+
+/// `mm:ss.xx` as seconds.
+fn stamp(tag: &str) -> Option<f64> {
+    let (m, s) = tag.split_once(':')?;
+    let (m, s) = (m.trim().parse::<f64>().ok()?, s.trim().parse::<f64>().ok()?);
+    (m >= 0. && s >= 0.).then_some(m * 60. + s)
+}
+
+/// Enhanced LRC's word stamps: `<00:12.00>Some <00:12.40>words`. Returns the plain line and
+/// its words (none when the line has no word stamps). A word with no stamp of its own gets
+/// time -1, meaning "when the line starts".
+fn parse_words(rest: &str) -> (String, Vec<LyricWord>) {
+    if !rest.contains('<') {
+        return (rest.to_string(), vec![]);
+    }
+    let mut words: Vec<LyricWord> = vec![];
+    let mut time = -1.;
+    let mut timed = false;
+    let mut text = rest;
+    loop {
+        let (piece, next) = match text.find('<') {
+            Some(open) => (&text[..open], Some(&text[open..])),
+            None => (text, None),
+        };
+        if !piece.is_empty() {
+            // Text after a "<" that was not a stamp joins the word before it.
+            match words.last_mut() {
+                Some(last) if last.text.ends_with('<') => last.text.push_str(piece),
+                _ => words.push(LyricWord {
+                    time,
+                    text: piece.to_string(),
+                }),
+            }
+        }
+        let Some(next) = next else { break };
+        match next
+            .find('>')
+            .and_then(|close| Some((stamp(&next[1..close])?, close)))
+        {
+            Some((stamped, close)) => {
+                time = stamped;
+                timed = true;
+                text = &next[close + 1..];
+            }
+            // A "<" that is not a stamp is just text.
+            None => {
+                match words.last_mut() {
+                    Some(last) => last.text.push('<'),
+                    None => words.push(LyricWord {
+                        time,
+                        text: "<".into(),
+                    }),
+                }
+                text = &next[1..];
+            }
+        }
+    }
+    if !timed {
+        return (rest.to_string(), vec![]);
+    }
+    // Keep it tidy: no spaces before the first word or after the last.
+    if let Some(first) = words.first_mut() {
+        first.text = first.text.trim_start().to_string();
+    }
+    if let Some(last) = words.last_mut() {
+        last.text = last.text.trim_end().to_string();
+    }
+    words.retain(|w| !w.text.is_empty());
+    let line = words.iter().map(|w| w.text.as_str()).collect();
+    (line, words)
+}
+
+/// Seconds as an LRC stamp, `mm:ss.xx`.
+pub fn format_stamp(seconds: f64) -> String {
+    let hundredths = (seconds.max(0.) * 100.).round() as u64;
+    format!(
+        "{:02}:{:02}.{:02}",
+        hundredths / 6000,
+        hundredths / 100 % 60,
+        hundredths % 100
+    )
+}
+
+/// Timed lines as LRC text, with word stamps where words are timed.
+pub fn to_lrc(lines: &[LyricLine]) -> String {
+    let mut out = String::new();
+    for line in lines {
+        out.push('[');
+        out.push_str(&format_stamp(line.time));
+        out.push(']');
+        if line.words.is_empty() {
+            out.push_str(&line.text);
+        } else {
+            for word in &line.words {
+                out.push('<');
+                out.push_str(&format_stamp(word.time));
+                out.push('>');
+                out.push_str(&word.text);
+            }
+        }
+        out.push('\n');
+    }
+    out
+}
+
+/// Write `lines` to an `.lrc` file beside the song, where Needle looks first.
+pub fn save_lrc(track: &Track, lines: &[LyricLine]) -> Result<PathBuf> {
+    if track.cue.is_some() {
+        bail!(
+            "This song is one part of a CUE sheet, so it has no file of its own to put lyrics beside."
+        );
+    }
+    let path = Path::new(track.file_path()).with_extension("lrc");
+    std::fs::write(&path, to_lrc(lines))?;
+    Ok(path)
 }
 
 /// Lyrics from next to the file or inside it. Timed lyrics win over plain ones.
@@ -412,20 +574,50 @@ mod tests {
         assert_eq!(
             lines,
             vec![
-                LyricLine {
-                    time: 4.5,
-                    text: "First line".into()
-                },
-                LyricLine {
-                    time: 12.0,
-                    text: "Chorus".into()
-                },
-                LyricLine {
-                    time: 61.5,
-                    text: "Chorus".into()
-                },
+                LyricLine::new(4.5, "First line"),
+                LyricLine::new(12.0, "Chorus"),
+                LyricLine::new(61.5, "Chorus"),
             ]
         );
+    }
+
+    #[test]
+    fn reads_and_writes_word_timing() {
+        let lines = parse_lrc(
+            "[00:10.00]<00:10.00>Hold <00:10.50>on <00:11.25>tight<00:12.00>\n[00:13.00]plain line\n[00:20.00] Say <00:21.00>it\n",
+        );
+        assert_eq!(lines[0].text, "Hold on tight");
+        let words: Vec<(f64, &str)> = lines[0]
+            .words
+            .iter()
+            .map(|w| (w.time, w.text.as_str()))
+            .collect();
+        assert_eq!(
+            words,
+            vec![(10.0, "Hold "), (10.5, "on "), (11.25, "tight")]
+        );
+        assert!(lines[1].words.is_empty());
+        assert_eq!(lines[1].text, "plain line");
+        // An unstamped first word starts with the line.
+        assert_eq!(lines[2].words[0].time, 20.0);
+        assert_eq!(lines[2].text, "Say it");
+        // The word being sung, and how far into it.
+        assert_eq!(lines[0].word_at(9.0, 13.0), None);
+        assert_eq!(lines[0].word_at(10.25, 13.0), Some((0, 0.5)));
+        assert_eq!(lines[0].word_at(11.25, 13.0).unwrap().0, 2);
+        // Writing and reading back gives the same thing.
+        let text = to_lrc(&lines);
+        assert!(text.starts_with(
+            "[00:10.00]<00:10.00>Hold <00:10.50>on <00:11.25>tight\n[00:13.00]plain line\n"
+        ));
+        assert_eq!(parse_lrc(&text), lines);
+        assert_eq!(format_stamp(59.999), "01:00.00");
+        assert_eq!(format_stamp(83.456), "01:23.46");
+        // A "<" that is not a stamp stays as text.
+        assert_eq!(parse_lrc("[00:01.00]a <3 b")[0].text, "a <3 b");
+        let mixed = parse_lrc("[00:01.00]<00:01.00>a <3 <00:02.00>b");
+        assert_eq!(mixed[0].text, "a <3 b");
+        assert_eq!(mixed[0].words.len(), 2);
     }
 
     #[test]

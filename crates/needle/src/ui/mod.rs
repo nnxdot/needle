@@ -25,6 +25,7 @@ mod stems_ui;
 mod suggest;
 mod tags;
 mod theme;
+mod timing;
 mod widgets;
 
 use anyhow::Result;
@@ -122,6 +123,8 @@ pub enum Page {
     Settings,
     Sound,
     Import,
+    /// The lyric timing editor for the playing song.
+    Timing,
 }
 impl Page {
     fn title(&self) -> String {
@@ -147,6 +150,7 @@ impl Page {
             Self::Settings => "Settings".into(),
             Self::Sound => "Sound".into(),
             Self::Import => "Import".into(),
+            Self::Timing => "Lyric timing".into(),
         }
     }
     /// The rule behind the page, before any search text is applied.
@@ -173,6 +177,7 @@ impl Page {
                 | Self::Settings
                 | Self::Sound
                 | Self::Import
+                | Self::Timing
         )
     }
     pub fn is_grid(&self) -> bool {
@@ -306,6 +311,9 @@ pub struct AppView {
     menu: Option<menus::TrackMenu>,
     playlist_menu: Option<menus::PlaylistMenu>,
     header_menu: Option<columns::HeaderMenu>,
+    timing: Option<timing::Timing>,
+    timing_focus: FocusHandle,
+    timing_scroll: ScrollHandle,
     /// A column resize in progress: drag serial, column, start x, start width.
     column_resize: Option<(u64, String, f32, f32)>,
     column_serial: u64,
@@ -439,6 +447,7 @@ pub fn run(library: Library) -> Result<()> {
             cx.set_global(motion::Motion {
                 enabled: !settings.reduce_motion && motion::system_allows_animation(),
             });
+            timing::bind_keys(cx);
             let tracks = Some("Needle && !Input");
             cx.bind_keys([
                 KeyBinding::new("space", TogglePlayback, tracks),
@@ -678,6 +687,9 @@ impl AppView {
             menu: None,
             playlist_menu: None,
             header_menu: None,
+            timing: None,
+            timing_focus: cx.focus_handle(),
+            timing_scroll: ScrollHandle::new(),
             column_resize: None,
             column_serial: 0,
             menu_serial: 0,

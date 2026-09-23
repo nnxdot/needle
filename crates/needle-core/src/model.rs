@@ -198,7 +198,10 @@ impl Default for Settings {
             crossfade: 0.,
             columns: [("album", 220.), ("quality", 92.), ("time", 52.)]
                 .into_iter()
-                .map(|(key, width)| ColumnSetting { key: key.into(), width })
+                .map(|(key, width)| ColumnSetting {
+                    key: key.into(),
+                    width,
+                })
                 .collect(),
         }
     }
