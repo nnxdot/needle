@@ -1975,7 +1975,7 @@ impl Render for AppView {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         self.update_palette(window, cx);
         self.update_glass(window, cx);
-        if self.page == Page::Sound {
+        if self.page == Page::Sound || (self.page == Page::Settings && self.settings_tab == 1) {
             self.sync_effect_sliders(cx);
         }
         // A column resize ends when the drag does, wherever the pointer was let go.

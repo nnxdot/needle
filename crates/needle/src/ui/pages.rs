@@ -13,8 +13,9 @@ use needle_core::{
 };
 
 /// Settings sections: name and icon.
-pub const SETTINGS_TABS: [(&str, &str); 9] = [
+pub const SETTINGS_TABS: [(&str, &str); 10] = [
     ("Playback", "speaker"),
+    ("Sound", "eq"),
     ("Library", "folder"),
     ("Appearance", "palette"),
     ("Online services", "globe"),
@@ -629,8 +630,10 @@ impl AppView {
                             ),
                     )
                     })
+                    // Sound: the same tools as the Sound page
+                    .when(tab == 1, |el| el.child(self.sound_body(cx)))
                     // Library
-                    .when(tab == 1, |el| {
+                    .when(tab == 2, |el| {
                         el
                     .child(self.section_title("Music folders", "Needle watches these folders. It moves or removes files only when you ask, in Fix my library.", cx))
                     .child(
@@ -676,7 +679,7 @@ impl AppView {
                     ))
                     })
                     // Appearance
-                    .when(tab == 2, |el| {
+                    .when(tab == 3, |el| {
                         let theme_cards: Vec<AnyElement> = super::theme::Base::ALL
                             .iter()
                             .map(|(mode, name, about)| self.theme_card(mode, name, about, cx).into_any_element())
@@ -828,7 +831,7 @@ impl AppView {
                     ))
                     })
                     // Artwork and lyrics
-                    .when(tab == 1, |el| {
+                    .when(tab == 2, |el| {
                         el
                     .child(self.section_title("Artwork and lyrics", "Needle always uses covers, .lrc files, and lyrics tags found with your music.", cx))
                     .child(setting_row(
@@ -867,7 +870,7 @@ impl AppView {
                     })
                     })
                     // Services
-                    .when(tab == 3, |el| {
+                    .when(tab == 4, |el| {
                         el
                     .child(self.section_title("Needle", "", cx))
                     .child(self.updates_view(cx))
@@ -875,24 +878,24 @@ impl AppView {
                     .child(self.services(cx))
                     })
                     // Discord
-                    .when(tab == 4, |el| {
+                    .when(tab == 5, |el| {
                         el.child(self.section_title("Discord", "Show what you're playing on your Discord profile.", cx))
                             .children(self.discord_settings(cx))
                     })
                     // Stems
-                    .when(tab == 5, |el| {
+                    .when(tab == 6, |el| {
                         el
                     .child(self.section_title("Stems", "Split songs into drums, bass, vocals, and other, on this computer.", cx))
                     .child(self.stems_settings(cx))
                     })
                     // Plugins
-                    .when(tab == 6, |el| {
+                    .when(tab == 7, |el| {
                         el
                     .child(self.section_title("Plugins", "Add features with small scripts. Each plugin lists what it may do.", cx))
                     .child(self.plugins_section(cx))
                     })
                     // Data
-                    .when(tab == 7, |el| {
+                    .when(tab == 8, |el| {
                         el
                     .child(self.section_title("Your data", "History, ratings, and playlists live in one local database.", cx))
                     .child(setting_row(
@@ -944,7 +947,7 @@ impl AppView {
                     )
                     })
                     // Keyboard
-                    .when(tab == 8, |el| {
+                    .when(tab == 9, |el| {
                         el
                     .child(self.section_title("Keyboard", "", cx))
                     .child(

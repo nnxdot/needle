@@ -149,10 +149,6 @@ impl AppView {
     }
 
     pub(super) fn sound_view(&self, cx: &mut Context<Self>) -> impl IntoElement {
-        let p = pal(cx);
-        let dsp = self.settings.dsp.clone();
-        let exclusive = self.settings.exclusive;
-        let clip_risk = dsp.eq && dsp.preamp_db > dsp.suggested_preamp() + 0.01;
         div()
             .id("sound-scroll")
             .size_full()
@@ -167,6 +163,64 @@ impl AppView {
                     .flex_col()
                     .gap_2()
                     .child(page_title("Sound"))
+                    .child(self.sound_body(cx)),
+            )
+    }
+
+    /// The equalizer, effects, and listening tools, for the Sound page and Settings › Sound.
+    pub(super) fn sound_body(&self, cx: &mut Context<Self>) -> Div {
+        let p = pal(cx);
+        let dsp = self.settings.dsp.clone();
+        let exclusive = self.settings.exclusive;
+        let clip_risk = dsp.eq && dsp.preamp_db > dsp.suggested_preamp() + 0.01;
+        let mut preset_rows: Vec<Div> = vec![];
+        for (i, (name, preamp, bands)) in PRESETS.iter().enumerate() {
+            if i % 5 == 0 {
+                preset_rows.push(div().w_full().flex().gap(px(6.)));
+            }
+            let active = dsp.preset == *name;
+            let (preamp, bands) = (*preamp, *bands);
+            let chip = div()
+                .id(("preset", i))
+                .px(px(10.))
+                .py(px(5.))
+                .rounded_full()
+                .border_1()
+                .text_size(px(12.5))
+                .cursor_pointer()
+                .when(active, |el| {
+                    el.bg(p.accent_soft)
+                        .border_color(p.accent.opacity(0.5))
+                        .text_color(p.accent)
+                })
+                .when(!active, |el| {
+                    el.border_color(p.line)
+                        .text_color(p.ink_2)
+                        .hover(|s| s.text_color(p.ink).border_color(p.ink_3))
+                })
+                .child(*name)
+                .on_click(cx.listener(move |this, _, window, cx| {
+                    let dsp = Dsp {
+                        eq: true,
+                        preamp_db: preamp,
+                        bands,
+                        preset: name.to_string(),
+                        ..this.settings.dsp.clone()
+                    };
+                    this.apply_dsp(dsp, window, cx);
+                }));
+            let row = preset_rows.pop().unwrap_or_else(div);
+            preset_rows.push(row.child(chip));
+        }
+        div()
+            .flex()
+            .flex_col()
+            .gap_2()
+            .child(
+                div()
+                    .flex()
+                    .flex_col()
+                    .gap_2()
                     .child(meta(
                         if exclusive {
                             "Exclusive output is on, so these tools are bypassed and each file plays bit-for-bit. Turn it off in Settings to use them."
@@ -204,26 +258,8 @@ impl AppView {
                                         cx.notify();
                                     }))),
                             )
-                            // A single row: GPUI's flex_wrap inside a column reports the height of one chip per line.
-                            .child(div().w_full().flex().gap(px(6.)).children(PRESETS.iter().enumerate().map(|(i, (name, preamp, bands))| {
-                                let active = dsp.preset == *name;
-                                let (preamp, bands) = (*preamp, *bands);
-                                div()
-                                    .id(("preset", i))
-                                    .px(px(10.))
-                                    .py(px(5.))
-                                    .rounded_full()
-                                    .border_1()
-                                    .text_size(px(12.5))
-                                    .cursor_pointer()
-                                    .when(active, |el| el.bg(p.accent_soft).border_color(p.accent.opacity(0.5)).text_color(p.accent))
-                                    .when(!active, |el| el.border_color(p.line).text_color(p.ink_2).hover(|s| s.text_color(p.ink).border_color(p.ink_3)))
-                                    .child(*name)
-                                    .on_click(cx.listener(move |this, _, window, cx| {
-                                        let dsp = Dsp { eq: true, preamp_db: preamp, bands, preset: name.to_string(), ..this.settings.dsp.clone() };
-                                        this.apply_dsp(dsp, window, cx);
-                                    }))
-                            })))
+                            // Rows of five: GPUI's flex_wrap inside a column reports the height of one chip per line.
+                            .children(preset_rows)
                             .child(
                                 div()
                                     .flex()
