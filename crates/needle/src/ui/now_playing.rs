@@ -406,7 +406,9 @@ impl AppView {
                                 .flex()
                                 .flex_col()
                                 .child(match side {
-                                    Side::Lyrics => self.lyrics_view(true, cx).into_any_element(),
+                                    Side::Lyrics => {
+                                        self.lyrics_view(true, false, cx).into_any_element()
+                                    }
                                     Side::Stems => div()
                                         .pt_4()
                                         .child(self.stems_view(

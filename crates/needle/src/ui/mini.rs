@@ -270,6 +270,12 @@ impl Render for MiniView {
             self.volume
                 .update(cx, |s, cx| s.set_value(volume, window, cx));
         }
+        if self.expanded
+            && self.tab == Tab::Lyrics
+            && app.update(cx, |a, cx| a.glide_mini_lyrics(cx))
+        {
+            window.request_animation_frame();
+        }
         if self.glass_applied != Some((material, p.dark)) {
             super::glass::apply(window, material, p.dark);
             self.glass_applied = Some((material, p.dark));
@@ -540,9 +546,9 @@ impl Render for MiniView {
             )
             .when(self.expanded, |el| {
                 let body = match tab {
-                    Tab::Lyrics => {
-                        app.update(cx, |a, cx| a.lyrics_view(false, cx).into_any_element())
-                    }
+                    Tab::Lyrics => app.update(cx, |a, cx| {
+                        a.lyrics_view(false, true, cx).into_any_element()
+                    }),
                     Tab::Next => app.update(cx, |a, cx| a.up_next(cx).into_any_element()),
                     Tab::History => app.update(cx, |a, cx| a.recent_listens(cx).into_any_element()),
                 };

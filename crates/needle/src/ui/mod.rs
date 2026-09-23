@@ -352,6 +352,10 @@ pub struct AppView {
     lyrics: Option<(String, Option<needle_core::media::Lyrics>)>,
     lyric_line: Option<usize>,
     lyrics_scroll: ScrollHandle,
+    /// The mini player's lyrics scroll on their own (a scroll handle shown in two windows
+    /// would mix up their sizes).
+    mini_lyrics_scroll: ScrollHandle,
+    mini_lyric_glide: bool,
     /// The lyrics are easing toward the sung line.
     lyric_glide: bool,
     artist_images: std::collections::HashMap<String, Option<String>>,
@@ -695,6 +699,8 @@ impl AppView {
             lyrics: None,
             lyric_line: None,
             lyrics_scroll: ScrollHandle::new(),
+            mini_lyrics_scroll: ScrollHandle::new(),
+            mini_lyric_glide: false,
             lyric_glide: false,
             artist_images: Default::default(),
             recent: vec![],
