@@ -1,6 +1,6 @@
 # Needle
 
-A native Rust/GPUI music player with a local SQLite library. **0.8.0 is a working Windows preview.** [PROPOSAL.md](PROPOSAL.md) is the original product vision; [IMPLEMENTATION.md](IMPLEMENTATION.md) records the implemented scope and remaining work.
+A native Rust/GPUI music player with a local SQLite library. **0.8.1 is a working Windows preview.** [PROPOSAL.md](PROPOSAL.md) is the original product vision; [IMPLEMENTATION.md](IMPLEMENTATION.md) records the implemented scope and remaining work.
 
 ## Run
 

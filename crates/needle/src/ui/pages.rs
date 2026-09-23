@@ -496,8 +496,8 @@ impl AppView {
                             }))
                             .child(*name)
                             .on_click(cx.listener(move |this, _, _, cx| {
+                                // Switch sections in place; no page fade, so it doesn't look like a reload.
                                 this.settings_tab = i;
-                                this.page_serial += 1;
                                 cx.notify();
                             }))
                     }),

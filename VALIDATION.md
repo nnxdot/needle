@@ -82,6 +82,10 @@ Opening an existing large library for the first time after this change builds th
 - Live requests were made once to LRCLIB (59 timed lines for a known song), MusicBrainz/Wikidata/Commons (an artist photo), and ListenBrainz (listen format). Last.fm import was not run without an API key.
 - In the running app: the title bar drags, the window resizes from its edges including the top, and maximize/restore and double-click work (checked with Windows hit-testing and scripted drags after a fix for a focusable element that swallowed title-bar clicks). The big player showed timed lyrics following playback; the mini player opened, expanded (staying on screen), showed lyrics and the queue, and returned to the main window. The Sound page applied presets that persisted across restarts. The Import page detected an iTunes XML, and importing set ratings, play counts, and a playlist. An example plugin added a track-menu command that rated a song. A demo song was split into stems in the app and played back from its stems with the Karaoke mix.
 
+## 0.8.1 checks
+
+- The command palette again sizes to its list (it had stretched to the window's height), and Listening history shows Ctrl+7. Switching Settings sections no longer replays the page fade, so it no longer looks like a reload. Checked from screenshots.
+
 ## 0.8.0 checks
 
 - `cargo test --workspace` passes (101 core tests, 6 ignored, and the UI tests). The contrast test now includes the Ambient look. New tests cover the Discord card layouts (title and lines, paused state, no logo, no picture) and reading covers saved with an ".img" ending (which kept colors from the music from working on covers found in files).
