@@ -23,6 +23,7 @@ mod panel;
 mod plugin_ui;
 mod radio;
 mod sound;
+mod speakers;
 mod stems_ui;
 mod suggest;
 mod tags;
@@ -268,6 +269,7 @@ enum Event {
     Doctor(doctor::Msg),
     Measured((usize, usize)),
     BlendChoices(String, Vec<String>),
+    Speakers(Vec<needle_core::cast::Speaker>),
     Lyrics(String, Option<needle_core::media::Lyrics>),
     ArtistImage(String, Option<String>),
     ArtistImages(Vec<(String, Option<String>)>),
@@ -327,6 +329,7 @@ pub struct AppView {
     playlist_menu: Option<menus::PlaylistMenu>,
     header_menu: Option<columns::HeaderMenu>,
     blend_menu: Option<radio::BlendMenu>,
+    speaker_menu: Option<speakers::SpeakerMenu>,
     measuring: std::sync::Arc<std::sync::atomic::AtomicBool>,
     measured: Option<(usize, usize)>,
     sound_cache:
@@ -713,6 +716,7 @@ impl AppView {
             playlist_menu: None,
             header_menu: None,
             blend_menu: None,
+            speaker_menu: None,
             measuring: radio::switch(measure_sound),
             measured: None,
             sound_cache: Default::default(),
@@ -927,6 +931,7 @@ impl AppView {
         }
         self.update_discord();
         self.update_media_keys();
+        self.follow_output();
         self.follow_lyrics();
         // With nothing playing the seek bar rests at the start.
         let value = match &self.playback.current {
@@ -1023,6 +1028,7 @@ impl AppView {
                     self.sound_cache.borrow_mut().clear();
                 }
                 Event::BlendChoices(artist, choices) => self.blend_choices(artist, choices),
+                Event::Speakers(found) => self.speakers_found(found),
                 Event::ImportProgress(message) => self.import.busy = Some(message),
                 Event::Plugin(action) => self.plugin_action(action, cx),
                 Event::PaletteFound(generation, songs, albums, artists) => {
@@ -2198,6 +2204,7 @@ impl Render for AppView {
             .children(self.playlist_menu_view(cx))
             .children(self.header_menu_view(cx))
             .children(self.blend_menu_view(cx))
+            .children(self.speaker_menu_view(cx))
             .children(self.palette_view(cx))
     }
 }

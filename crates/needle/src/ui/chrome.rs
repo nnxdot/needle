@@ -747,6 +747,24 @@ impl AppView {
                             .when(self.settings.dsp.eq || !self.settings.dsp.is_transparent(), |b| b.text_color(p.accent))
                             .on_click(cx.listener(|this, _, window, cx| this.navigate(Page::Sound, window, cx))),
                     )
+                    .child({
+                        let speaker = self.current_speaker();
+                        icon_button(
+                            "open-speakers",
+                            "cast",
+                            match &speaker {
+                                Some(s) => format!("Playing on {}", s.name),
+                                None => "Play on another speaker".into(),
+                            },
+                        )
+                        .small()
+                        .ml_1()
+                        .when(speaker.is_some(), |b| b.text_color(p.accent))
+                        .on_click(cx.listener(|this, _, window, cx| {
+                            let position = window.mouse_position() - point(px(0.), px(14.));
+                            this.open_speaker_menu(position, cx)
+                        }))
+                    })
                     .child(
                         icon_button("open-mini", "mini", "Mini player · Ctrl+M")
                             .small()

@@ -2,6 +2,7 @@ pub mod analysis;
 pub mod audio;
 pub mod audio_file;
 pub mod browse;
+pub mod cast;
 pub mod crossfade;
 pub mod cue;
 pub mod database;

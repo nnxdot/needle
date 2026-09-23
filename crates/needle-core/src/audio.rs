@@ -69,6 +69,8 @@ pub struct PlaybackState {
     pub position: f64,
     pub volume: f32,
     pub output: String,
+    /// The output device the player is set to now (it drops a failed speaker).
+    pub output_device: Option<String>,
     pub output_rate: u32,
     pub output_channels: u16,
     pub error: Option<String>,
@@ -205,6 +207,16 @@ pub fn replay_gain_factor(track: &Track, settings: &Settings) -> f64 {
     gain.min(16.0)
 }
 /// Local listening qualification: half the track or four minutes.
+/// How a speaker should describe a song.
+fn speaker_meta(track: &Track) -> crate::cast::Meta {
+    crate::cast::Meta {
+        title: track.title.clone(),
+        artist: track.display_artist().to_string(),
+        album: track.album.clone(),
+        cover: track.artwork.clone(),
+    }
+}
+
 fn qualifies(listened: f64, duration: f64) -> bool {
     duration > 0.0 && listened >= (duration * 0.5).min(240.0)
 }
@@ -529,6 +541,8 @@ struct OpenOutput {
     channels: u16,
     failure: Arc<Mutex<Option<String>>>,
     _stream: Box<dyn Any>,
+    /// For a speaker on the network.
+    network: Option<Arc<crate::cast::output::Control>>,
 }
 trait OutputOpener {
     /// Opens the named device, or the default for `None`. `Ok(None)` means the
@@ -539,6 +553,18 @@ trait OutputOpener {
 struct SystemOutput;
 impl OutputOpener for SystemOutput {
     fn open(&mut self, device: Option<&str>) -> Result<Option<OpenOutput>> {
+        if let Some(speaker) = device.and_then(crate::cast::Speaker::from_device_name) {
+            let network = crate::cast::output::open(&speaker)?;
+            return Ok(Some(OpenOutput {
+                sink: network.sink,
+                name: network.name,
+                rate: network.rate,
+                channels: network.channels,
+                failure: network.failure,
+                _stream: Box::new(network.guard),
+                network: Some(network.control),
+            }));
+        }
         let host = rodio::cpal::default_host();
         let device = match device {
             Some(name) => match host
@@ -571,6 +597,7 @@ impl OutputOpener for SystemOutput {
             channels: stream.config().channel_count(),
             failure,
             _stream: Box::new(stream),
+            network: None,
         }))
     }
     fn default_name(&mut self) -> Option<String> {
@@ -748,8 +775,18 @@ impl Worker {
         self.resume_position = position;
         self.playing = false;
     }
+    /// Whether the output is a speaker on the network.
+    fn speaker(&self) -> bool {
+        self.settings
+            .output_device
+            .as_deref()
+            .is_some_and(|d| d.starts_with(crate::cast::PREFIX))
+    }
+    fn network(&self) -> Option<Arc<crate::cast::output::Control>> {
+        self.output.as_ref().and_then(|o| o.network.clone())
+    }
     fn open(&mut self) -> Result<()> {
-        if self.settings.exclusive {
+        if self.settings.exclusive && !self.speaker() {
             #[cfg(windows)]
             {
                 if self.exclusive.is_some() {
@@ -802,6 +839,9 @@ impl Worker {
         }
         self.sink = Some(output.sink.clone());
         self.progress = (Duration::ZERO, Instant::now());
+        if let (Some(control), Some(item)) = (&output.network, self.queue.pending.front()) {
+            control.set_meta(speaker_meta(&item.track));
+        }
         self.output = Some(output);
         Ok(())
     }
@@ -854,7 +894,15 @@ impl Worker {
             let _ = tx.send(sink.try_seek(Duration::from_secs_f64(position.max(0.0))));
         });
         match rx.recv_timeout(self.seek_timeout) {
-            Ok(result) => result.map_err(|e| anyhow::anyhow!("Seek failed: {e}")),
+            Ok(result) => {
+                // A speaker holds seconds of audio; start it fresh from the new place.
+                if result.is_ok()
+                    && let Some(control) = self.network()
+                {
+                    control.flush();
+                }
+                result.map_err(|e| anyhow::anyhow!("Seek failed: {e}"))
+            }
             Err(_) => {
                 self.lost = Some("Audio output stopped responding".into());
                 bail!("Audio output stopped responding")
@@ -1251,14 +1299,31 @@ impl Worker {
             self.suspend(items, position);
             return;
         }
+        let device = self
+            .output
+            .as_ref()
+            .and_then(|o| o.failure.lock().ok()?.take());
+        if let Some(reason) = device.as_ref()
+            && self.speaker()
+        {
+            // A speaker that fails is left for this computer's own output; retrying would
+            // only fail again.
+            let name = self
+                .output
+                .as_ref()
+                .map(|o| o.name.clone())
+                .unwrap_or_default();
+            self.settings.output_device = None;
+            let _ = self.library.save_settings(&self.settings);
+            self.recover(format!(
+                "{name} stopped playing ({reason}). Playing on this computer"
+            ));
+            return;
+        }
         let failure = self
             .lost
             .take()
-            .or_else(|| {
-                self.output
-                    .as_ref()
-                    .and_then(|o| o.failure.lock().ok()?.take())
-            })
+            .or(device)
             .or_else(|| self.stalled())
             .or_else(|| self.default_changed());
         if let Some(reason) = failure {
@@ -1302,6 +1367,9 @@ impl Worker {
                     qualified: false,
                 });
             }
+            if let Some(control) = self.network() {
+                control.set_meta(speaker_meta(&item.track));
+            }
             self.queue.started(item);
         }
         if self.sink.is_some() {
@@ -1344,8 +1412,11 @@ impl Worker {
         let queue =
             (self.published_version != self.queue.version).then(|| Arc::new(self.queue.upcoming()));
         self.published_version = self.queue.version;
-        let position = self.position();
+        // A speaker plays a little behind; show where it is.
+        let lag = self.network().map_or(0., |c| c.lag());
+        let position = (self.position() - lag).max(0.);
         let mut state = self.state.lock().unwrap();
+        state.output_device = self.settings.output_device.clone();
         state.current = self.queue.active.clone();
         if let Some(queue) = queue {
             state.queue = queue;
@@ -1747,6 +1818,7 @@ mod tests {
                 channels: 2,
                 failure,
                 _stream: Box::new(Running(running)),
+                network: None,
             }))
         }
         fn default_name(&mut self) -> Option<String> {

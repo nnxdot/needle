@@ -4267,11 +4267,13 @@ dependencies = [
 name = "needle-core"
 version = "0.9.1"
 dependencies = [
+ "aes",
  "anyhow",
  "ape-decoder",
  "argon2",
  "base64 0.22.1",
  "blake3",
+ "cbc",
  "chacha20poly1305",
  "chrono",
  "crossbeam-channel",
@@ -4282,6 +4284,7 @@ dependencies = [
  "lofty",
  "md5",
  "notify 8.2.0",
+ "num-bigint",
  "opus-decoder",
  "ort",
  "plist",
@@ -4293,9 +4296,11 @@ dependencies = [
  "rodio",
  "rubato",
  "rusqlite",
+ "rustls",
  "rusty-chromaprint",
  "serde",
  "serde_json",
+ "sha1_smol",
  "tempfile",
  "toml 0.9.12+spec-1.1.0",
  "uuid",

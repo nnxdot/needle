@@ -594,6 +594,9 @@ impl AppView {
                                     }))),
                             )
                             .child(device("device-default".into(), "System default".into(), self.settings.output_device.is_none(), None, cx))
+                            .children(self.current_speaker().map(|s| {
+                                device("device-speaker".into(), format!("{} ({} speaker)", s.name, s.kind.label()), true, Some(s.device_name()), cx)
+                            }))
                             .children(self.output_devices.iter().enumerate().map(|(i, name)| {
                                 device(format!("device-{i}").into(), name.clone(), self.settings.output_device.as_ref() == Some(name), Some(name.clone()), cx)
                             })),
