@@ -113,6 +113,10 @@ Opening an existing large library for the first time after this change builds th
 - Film grain is off by default and has a strength slider.
 - Discord Rich Presence uses Needle's own Discord application. A live test with Discord open showed a "Listening" presence named Needle with the uploaded logo and a time bar for eight seconds, confirmed by Discord's reply, and then cleared it. A second live test showed "Listening to Armageddon" with the artist, the album, and the album cover found in the iTunes catalog (Discord proxied the image), with the Needle logo as the small badge. A test checks the cover match: a different artist never counts, and the same song on the same album wins over remixes. It talks only to the local Discord pipe and first checks that the program serving the pipe is a Discord client (Discord, Canary, PTB, Development, Vesktop, Equibop, Legcord, or WebCord); a live check against this PC's Discord passed. Tests cover the activity message (listening type, 2–128 character fields, time bar in milliseconds, paused state without a time bar) and the client name check.
 
+## 1.3.11 checks
+
+- Scrobbles and "now playing" use Apple's spelling of the artist when the tags write it another way, only when Apple has the same song on the same album. A new test covers it: names that already agree stay as tagged, and without the same album a different artist is never taken. The live iTunes search for "키키 Hey Hi" returns KiiiKiii on "WhyKiiiKiii - EP". It was not tried against a real Last.fm account before release.
+
 ## 1.3.1 checks
 
 - The Discord cover search now accepts Apple's result when the artist is written another way (for example 키키 in the tags and KiiiKiii at Apple), if the song and the album both match. A new test covers it; the song name alone is still refused.
