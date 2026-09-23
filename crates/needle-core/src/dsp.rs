@@ -34,6 +34,203 @@ pub struct Dsp {
     pub preset: String,
     /// Effects from plugins, in the order they play.
     pub effects: Vec<crate::effects::EffectSlot>,
+    /// "graphic" (the ten bands) or "parametric" (the bands below).
+    pub mode: String,
+    /// Parametric equalizer bands, used when `mode` is "parametric".
+    pub parametric: Vec<ParamBand>,
+}
+
+/// One band of the parametric equalizer.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct ParamBand {
+    /// Keeps a band's sliders when others are added or removed.
+    pub uid: String,
+    /// "peak", "lowshelf", "highshelf", "lowpass", "highpass", or "notch".
+    pub kind: String,
+    pub frequency: f32,
+    pub gain: f32,
+    pub q: f32,
+    pub on: bool,
+}
+impl Default for ParamBand {
+    fn default() -> Self {
+        Self {
+            uid: uuid::Uuid::new_v4().to_string(),
+            kind: "peak".into(),
+            frequency: 1000.,
+            gain: 0.,
+            q: 1.,
+            on: true,
+        }
+    }
+}
+pub const PARAMETRIC_KINDS: [(&str, &str); 6] = [
+    ("peak", "Peak"),
+    ("lowshelf", "Low shelf"),
+    ("highshelf", "High shelf"),
+    ("lowpass", "Low-pass"),
+    ("highpass", "High-pass"),
+    ("notch", "Notch"),
+];
+pub const MAX_PARAMETRIC: usize = 20;
+impl ParamBand {
+    fn shape(&self) -> crate::effects::Shape {
+        use crate::effects::Shape;
+        match self.kind.as_str() {
+            "lowshelf" => Shape::Lowshelf,
+            "highshelf" => Shape::Highshelf,
+            "lowpass" => Shape::Lowpass,
+            "highpass" => Shape::Highpass,
+            "notch" => Shape::Notch,
+            _ => Shape::Peak,
+        }
+    }
+    /// Whether the band changes the sound at all.
+    fn active(&self) -> bool {
+        self.on
+            && (self.gain != 0. || matches!(self.kind.as_str(), "lowpass" | "highpass" | "notch"))
+    }
+}
+
+/// A listener's own equalizer preset.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct UserPreset {
+    pub name: String,
+    pub mode: String,
+    pub preamp_db: f32,
+    pub bands: [f32; 10],
+    pub parametric: Vec<ParamBand>,
+}
+impl Default for UserPreset {
+    fn default() -> Self {
+        Self {
+            name: String::new(),
+            mode: "graphic".into(),
+            preamp_db: 0.,
+            bands: [0.; 10],
+            parametric: vec![],
+        }
+    }
+}
+impl UserPreset {
+    pub fn from_dsp(name: &str, dsp: &Dsp) -> Self {
+        Self {
+            name: name.into(),
+            mode: dsp.mode.clone(),
+            preamp_db: dsp.preamp_db,
+            bands: dsp.bands,
+            parametric: dsp.parametric.clone(),
+        }
+    }
+    /// `dsp` with this preset's equalizer (and the equalizer turned on).
+    pub fn apply(&self, dsp: &Dsp) -> Dsp {
+        Dsp {
+            eq: true,
+            mode: self.mode.clone(),
+            preamp_db: self.preamp_db,
+            bands: self.bands,
+            parametric: self
+                .parametric
+                .iter()
+                .map(|b| ParamBand {
+                    uid: uuid::Uuid::new_v4().to_string(),
+                    ..b.clone()
+                })
+                .collect(),
+            preset: self.name.clone(),
+            ..dsp.clone()
+        }
+    }
+}
+
+/// Read an Equalizer APO / AutoEq "ParametricEQ.txt" file: a preamp and filter lines such as
+/// `Filter 1: ON PK Fc 105 Hz Gain -2.5 dB Q 0.70`.
+pub fn parse_parametric(text: &str) -> anyhow::Result<(f32, Vec<ParamBand>)> {
+    let mut preamp: f32 = 0.;
+    let mut bands = vec![];
+    for line in text.lines().map(str::trim) {
+        if let Some(rest) = line.strip_prefix("Preamp:") {
+            preamp = rest
+                .split_whitespace()
+                .next()
+                .and_then(|v| v.parse().ok())
+                .ok_or_else(|| anyhow::anyhow!("The preamp line is not a number: {line}"))?;
+            continue;
+        }
+        if !line.starts_with("Filter") {
+            continue;
+        }
+        let Some((_, rest)) = line.split_once(':') else {
+            continue;
+        };
+        let words: Vec<&str> = rest.split_whitespace().collect();
+        let value = |key: &str| -> Option<f32> {
+            let at = words.iter().position(|w| w.eq_ignore_ascii_case(key))?;
+            words.get(at + 1)?.parse().ok()
+        };
+        let on = words.first().is_some_and(|w| w.eq_ignore_ascii_case("ON"));
+        let kind = match words.get(1).map(|w| w.to_uppercase()).as_deref() {
+            Some("PK" | "PEQ" | "MODAL") => "peak",
+            Some("LS" | "LSC" | "LSQ" | "LS 6DB" | "LS 12DB") => "lowshelf",
+            Some("HS" | "HSC" | "HSQ" | "HS 6DB" | "HS 12DB") => "highshelf",
+            Some("LP" | "LPQ") => "lowpass",
+            Some("HP" | "HPQ") => "highpass",
+            Some("NO") => "notch",
+            _ => continue,
+        };
+        let frequency =
+            value("Fc").ok_or_else(|| anyhow::anyhow!("A filter has no frequency: {line}"))?;
+        let (gain, q) = (value("Gain").unwrap_or(0.), value("Q").unwrap_or(0.707));
+        if !(frequency.is_finite() && gain.is_finite() && q.is_finite()) {
+            anyhow::bail!("A filter has a value that is not a number: {line}");
+        }
+        bands.push(ParamBand {
+            kind: kind.into(),
+            frequency: frequency.clamp(10., 24000.),
+            gain: gain.clamp(-24., 24.),
+            q: q.clamp(0.1, 20.),
+            on,
+            ..Default::default()
+        });
+    }
+    if bands.is_empty() {
+        anyhow::bail!(
+            "No filters found. Use a ParametricEQ.txt file from AutoEq or an Equalizer APO configuration."
+        );
+    }
+    if bands.len() > MAX_PARAMETRIC {
+        anyhow::bail!(
+            "Needle takes up to {MAX_PARAMETRIC} filters; this file has {}.",
+            bands.len()
+        );
+    }
+    Ok((preamp.clamp(-24., 12.), bands))
+}
+
+/// Write bands in the Equalizer APO format, which AutoEq and other players read.
+pub fn format_parametric(preamp: f32, bands: &[ParamBand]) -> String {
+    let mut text = format!("Preamp: {preamp:.1} dB\r\n");
+    for (i, band) in bands.iter().enumerate() {
+        let code = match band.kind.as_str() {
+            "lowshelf" => "LSC",
+            "highshelf" => "HSC",
+            "lowpass" => "LPQ",
+            "highpass" => "HPQ",
+            "notch" => "NO",
+            _ => "PK",
+        };
+        text.push_str(&format!(
+            "Filter {}: {} {code} Fc {:.0} Hz Gain {:.1} dB Q {:.2}\r\n",
+            i + 1,
+            if band.on { "ON" } else { "OFF" },
+            band.frequency,
+            band.gain,
+            band.q
+        ));
+    }
+    text
 }
 
 impl Default for Dsp {
@@ -47,6 +244,8 @@ impl Default for Dsp {
             crossfeed: false,
             preset: "Flat".into(),
             effects: vec![],
+            mode: "graphic".into(),
+            parametric: vec![],
         }
     }
 }
@@ -54,16 +253,34 @@ impl Default for Dsp {
 impl Dsp {
     /// True when nothing would change the signal, so playback can skip processing entirely.
     pub fn is_transparent(&self) -> bool {
-        let eq_flat = !self.eq || (self.preamp_db == 0. && self.bands.iter().all(|b| *b == 0.));
+        let eq_flat = !self.eq
+            || (self.preamp_db == 0.
+                && if self.parametric_mode() {
+                    !self.parametric.iter().any(ParamBand::active)
+                } else {
+                    self.bands.iter().all(|b| *b == 0.)
+                });
         eq_flat
             && self.balance == 0.
             && !self.mono
             && !self.crossfeed
             && !self.effects.iter().any(|e| e.on)
     }
+    pub fn parametric_mode(&self) -> bool {
+        self.mode == "parametric"
+    }
     /// The preamp that keeps the loudest boosted band from clipping.
     pub fn suggested_preamp(&self) -> f32 {
-        -self.bands.iter().copied().fold(0., f32::max)
+        if self.parametric_mode() {
+            -self
+                .parametric
+                .iter()
+                .filter(|b| b.on && matches!(b.kind.as_str(), "peak" | "lowshelf" | "highshelf"))
+                .map(|b| b.gain)
+                .fold(0., f32::max)
+        } else {
+            -self.bands.iter().copied().fold(0., f32::max)
+        }
     }
 }
 
@@ -120,36 +337,7 @@ impl DspControl {
     }
 }
 
-/// RBJ "Audio EQ Cookbook" peaking filter, transposed direct form II.
-#[derive(Clone, Copy, Default)]
-struct Biquad {
-    b0: f64,
-    b1: f64,
-    b2: f64,
-    a1: f64,
-    a2: f64,
-}
-impl Biquad {
-    fn peaking(rate: f64, frequency: f64, gain_db: f64, q: f64) -> Self {
-        let a = 10f64.powf(gain_db / 40.);
-        let w = 2. * PI * frequency / rate;
-        let alpha = w.sin() / (2. * q);
-        let a0 = 1. + alpha / a;
-        Self {
-            b0: (1. + alpha * a) / a0,
-            b1: -2. * w.cos() / a0,
-            b2: (1. - alpha * a) / a0,
-            a1: -2. * w.cos() / a0,
-            a2: (1. - alpha / a) / a0,
-        }
-    }
-    fn run(&self, state: &mut [f64; 2], x: f64) -> f64 {
-        let y = self.b0 * x + state[0];
-        state[0] = self.b1 * x - self.a1 * y + state[1];
-        state[1] = self.b2 * x - self.a2 * y;
-        y
-    }
-}
+use crate::effects::{Biquad, Shape};
 
 /// The processing state for one source: filter coefficients and per-channel history.
 pub struct Chain {
@@ -181,22 +369,45 @@ impl Chain {
     pub fn configure(&mut self, settings: Dsp) {
         let active = settings.eq;
         let old_filters = self.filters.len();
-        self.filters = if active {
+        self.filters = if !active {
+            vec![]
+        } else if settings.parametric_mode() {
+            settings
+                .parametric
+                .iter()
+                .filter(|b| {
+                    b.active()
+                        && b.frequency.is_finite()
+                        && b.gain.is_finite()
+                        && b.q.is_finite()
+                        && (b.frequency as f64) < self.rate * 0.49
+                })
+                .take(MAX_PARAMETRIC)
+                .map(|b| {
+                    Biquad::new(
+                        b.shape(),
+                        self.rate,
+                        b.frequency as f64,
+                        b.q.clamp(0.1, 20.) as f64,
+                        b.gain.clamp(-24., 24.) as f64,
+                    )
+                })
+                .collect()
+        } else {
             BANDS
                 .iter()
                 .zip(settings.bands)
                 .filter(|(f, g)| **f < self.rate * 0.45 && *g != 0.)
                 .map(|(f, g)| {
-                    Biquad::peaking(
+                    Biquad::new(
+                        Shape::Peak,
                         self.rate,
                         *f,
-                        g.clamp(-MAX_GAIN_DB, MAX_GAIN_DB) as f64,
                         1.41,
+                        g.clamp(-MAX_GAIN_DB, MAX_GAIN_DB) as f64,
                     )
                 })
                 .collect()
-        } else {
-            vec![]
         };
         // Keep filter history when only gains change, so adjusting a slider does not click.
         if self.filters.len() != old_filters {
@@ -557,6 +768,66 @@ mod tests {
             took < seconds / 2.,
             "10 s of sound took {took:.2} s to process"
         );
+    }
+
+    #[test]
+    fn parametric_bands_shape_the_sound_and_equalizer_apo_files_round_trip() {
+        let text = "Preamp: -6.2 dB\nFilter 1: ON PK Fc 1000 Hz Gain 6 dB Q 1.41\nFilter 2: ON LSC Fc 105 Hz Gain 5.5 dB Q 0.70\nFilter 3: OFF HSC Fc 10000 Hz Gain -2 dB\nFilter 4: ON HPQ Fc 20 Hz Q 0.7\n";
+        let (preamp, bands) = parse_parametric(text).unwrap();
+        assert_eq!(preamp, -6.2);
+        assert_eq!(bands.len(), 4);
+        assert_eq!(
+            (bands[1].kind.as_str(), bands[1].gain, bands[1].q),
+            ("lowshelf", 5.5, 0.7)
+        );
+        assert!(!bands[2].on && bands[2].q == 0.707);
+        let again = parse_parametric(&format_parametric(preamp, &bands)).unwrap();
+        assert_eq!(
+            again
+                .1
+                .iter()
+                .map(|b| (&b.kind, b.frequency, b.gain, b.on))
+                .collect::<Vec<_>>(),
+            bands
+                .iter()
+                .map(|b| (&b.kind, b.frequency, b.gain, b.on))
+                .collect::<Vec<_>>()
+        );
+        assert!(parse_parametric("nothing here").is_err());
+        assert!(parse_parametric("Filter 1: ON PK Fc 100 Hz Gain 3 dB Q NaN").is_err());
+        assert!(parse_parametric("Filter 1: ON PK Fc inf Hz Gain 3 dB Q 1").is_err());
+
+        let settings = Dsp {
+            eq: true,
+            mode: "parametric".into(),
+            parametric: vec![ParamBand {
+                frequency: 1000.,
+                gain: 6.,
+                q: 1.41,
+                ..Default::default()
+            }],
+            ..Default::default()
+        };
+        assert!(!settings.is_transparent());
+        assert_eq!(settings.suggested_preamp(), -6.);
+        let boost = rms(&run(settings.clone(), &sine(1000., 48000., 48000)))
+            / rms(&sine(1000., 48000., 48000));
+        assert!((boost - 2.0).abs() < 0.05, "+6 dB at 1 kHz, got {boost}");
+        // The graphic bands are ignored in parametric mode, and a switched-off band does nothing.
+        let mut off = settings.clone();
+        off.parametric[0].on = false;
+        off.bands[5] = 12.;
+        assert!(off.is_transparent());
+        assert_eq!(
+            run(off, &sine(1000., 48000., 4800)),
+            sine(1000., 48000., 4800)
+        );
+        // A saved preset brings the same sound back.
+        let preset = UserPreset::from_dsp("Mine", &settings);
+        let back = preset.apply(&Dsp::default());
+        assert_eq!(back.parametric[0].gain, 6.);
+        assert_eq!(back.preset, "Mine");
+        assert!(back.eq);
     }
 
     #[test]

@@ -19,10 +19,12 @@ fn main() {
     if needle_core::instance::hand_over(&directory, &options.files) {
         return;
     }
+    needle_core::logfile::init(&directory);
     let files = options.files;
     let result =
         needle_core::database::Library::open(directory).and_then(|library| ui::run(library, files));
     if let Err(error) = result {
+        needle_core::logfile::error(format!("Needle could not start: {error:#}"));
         rfd::MessageDialog::new()
             .set_title("Needle could not start")
             .set_description(format!("{error:#}"))

@@ -629,6 +629,8 @@ impl AppView {
                                     }))),
                             ),
                     )
+                    .children(self.speaker_timing_view(cx))
+                    .child(self.remote_settings(cx))
                     })
                     // Sound: the same tools as the Sound page
                     .when(tab == 1, |el| el.child(self.sound_body(cx)))
@@ -898,6 +900,7 @@ impl AppView {
                     .when(tab == 8, |el| {
                         el
                     .child(self.section_title("Your data", "History, ratings, and playlists live in one local database.", cx))
+                    .children(self.problems_settings(cx))
                     .child(setting_row(
                         "Back up the library",
                         "Saves a consistent copy of the database, including recent changes.",
@@ -985,6 +988,71 @@ impl AppView {
                     ),
             );
         div().size_full().flex().child(nav).child(content)
+    }
+
+    /// Crash reports and the log file, at the top of Settings › Your data.
+    fn problems_settings(&self, cx: &mut Context<Self>) -> Vec<AnyElement> {
+        let crash_reports = self.settings.crash_reports;
+        vec![
+            setting_row(
+                "Send crash reports",
+                "If Needle crashes, it sends a report the next time it starts: the Needle version, Windows, and where in Needle it went wrong. File paths and your name are taken out first, and nothing is sent about your music or listening.",
+                Switch::new("crash-reports").checked(crash_reports).on_click(cx.listener(|this, checked: &bool, _, cx| {
+                    this.settings.crash_reports = *checked;
+                    this.persist_settings();
+                    cx.notify();
+                })),
+                cx,
+            )
+            .into_any_element(),
+            setting_row(
+                "Log file",
+                "Needle writes what it does, and any errors, to a log on this computer. It never leaves this computer unless you share it.",
+                div()
+                    .flex()
+                    .gap_2()
+                    .child(small_button("log-open", "Open log folder").on_click(cx.listener(|this, _, _, _| {
+                        let folder = needle_core::logfile::log_folder(&this.library.directory);
+                        let _ = std::fs::create_dir_all(&folder);
+                        let _ = std::process::Command::new("explorer").arg(folder).spawn();
+                    })))
+                    .child(small_button("log-copy", "Copy error report").ghost().on_click(cx.listener(|this, _, _, cx| {
+                        let data = &this.library.directory;
+                        let crash = needle_core::logfile::pending(data)
+                            .last()
+                            .and_then(|f| std::fs::read_to_string(f).ok())
+                            .map(|t| format!("
+
+Last crash:
+{t}"))
+                            .unwrap_or_default();
+                        let report = needle_core::logfile::prepare(&format!(
+                            "Needle {} on {} {}
+
+Recent log:
+{}{crash}",
+                            env!("CARGO_PKG_VERSION"),
+                            std::env::consts::OS,
+                            std::env::consts::ARCH,
+                            needle_core::logfile::recent(data, 80)
+                        ));
+                        cx.write_to_clipboard(ClipboardItem::new_string(report));
+                        this.notify("Copied an error report, without file paths or your name. Paste it in an email to dot@nnx.fyi.");
+                    }))),
+                cx,
+            )
+            .into_any_element(),
+            setting_row(
+                "Welcome guide",
+                "The short guide Needle shows the first time it opens.",
+                small_button("welcome-again", "Show it again").ghost().on_click(cx.listener(|this, _, _, cx| {
+                    this.welcome_step = Some(0);
+                    cx.notify();
+                })),
+                cx,
+            )
+            .into_any_element(),
+        ]
     }
 
     fn sync_transfer(&mut self, export: bool, cx: &mut Context<Self>) {
