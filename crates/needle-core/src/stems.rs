@@ -114,8 +114,8 @@ pub fn download_model(
 }
 
 /// Decode a file to planar stereo at 44.1 kHz.
-fn load_stereo(path: &Path) -> Result<[Vec<f32>; 2]> {
-    let source = crate::audio_file::decode(path)?;
+fn load_stereo(track: &Track) -> Result<[Vec<f32>; 2]> {
+    let source = crate::audio_file::decode_track(track)?;
     let channels = source.channels().max(1) as usize;
     let rate = source.sample_rate();
     let mut planar = [Vec::new(), Vec::new()];
@@ -214,8 +214,7 @@ pub fn separate(
         bail!("The stem model is not downloaded yet");
     }
     progress(0.);
-    let mix = load_stereo(Path::new(&track.path))
-        .with_context(|| format!("Cannot read {}", track.title))?;
+    let mix = load_stereo(track).with_context(|| format!("Cannot read {}", track.title))?;
     let frames = mix[0].len();
     if frames == 0 {
         bail!("{} has no audio", track.title);

@@ -3,12 +3,14 @@ pub mod audio;
 pub mod audio_file;
 pub mod browse;
 pub mod crossfade;
+pub mod cue;
 pub mod database;
 pub mod demo;
 pub mod discord;
 pub mod dsp;
 #[cfg(windows)]
 mod exclusive;
+pub mod formats;
 pub mod history;
 pub mod import;
 pub mod integrations;

@@ -247,7 +247,7 @@ impl Library {
         )?;
         for track in stmt.query_map([hash], Self::row_track)? {
             let track = track?;
-            if std::fs::metadata(&track.path)
+            if std::fs::metadata(track.file_path())
                 .is_err_and(|e| e.kind() == std::io::ErrorKind::NotFound)
             {
                 return Ok(Some(track));

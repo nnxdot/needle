@@ -35,9 +35,35 @@ pub struct Track {
     pub last_played: Option<i64>,
     pub missing: bool,
     pub metadata_version: u32,
+    /// For a track of a CUE sheet: the stretch of the album file it plays.
+    pub cue: Option<CueSpan>,
+}
+
+/// Where a CUE sheet's track lives in its album file.
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+pub struct CueSpan {
+    /// The album's audio file.
+    pub audio: String,
+    /// Seconds into it where the track starts, and ends (`None`: at the end of the file).
+    pub start: f64,
+    pub end: Option<f64>,
 }
 
 impl Track {
+    /// The audio file to decode: the album file for a CUE track, else the track's own file.
+    pub fn audio_path(&self) -> &str {
+        self.cue.as_ref().map_or(&self.path, |c| &c.audio)
+    }
+    /// The file on disk this track comes from: the `.cue` sheet for a CUE track.
+    pub fn file_path(&self) -> &str {
+        match &self.cue {
+            Some(_) => self
+                .path
+                .rsplit_once('#')
+                .map_or(&self.path, |(file, _)| file),
+            None => &self.path,
+        }
+    }
     pub fn display_artist(&self) -> &str {
         if self.artist.is_empty() {
             "Unknown artist"

@@ -878,8 +878,7 @@ impl Worker {
                 });
             let decoded = match stems {
                 Some(stems) => Ok(Box::new(stems) as Box<dyn Source + Send>),
-                None => crate::audio_file::decode(std::path::Path::new(&item.track.path))
-                    .map(|d| Box::new(d) as Box<dyn Source + Send>),
+                None => crate::audio_file::decode_track(&item.track),
             };
             let source = match decoded {
                 Ok(source) => source,

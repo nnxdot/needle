@@ -112,7 +112,7 @@ pub fn parse_lrc(text: &str) -> Vec<LyricLine> {
 
 /// Lyrics from next to the file or inside it. Timed lyrics win over plain ones.
 pub fn local_lyrics(track: &Track) -> Option<Lyrics> {
-    let path = Path::new(&track.path);
+    let path = Path::new(track.file_path());
     let mut found = vec![];
     for extension in ["lrc", "txt"] {
         if let Ok(text) = std::fs::read_to_string(path.with_extension(extension)) {

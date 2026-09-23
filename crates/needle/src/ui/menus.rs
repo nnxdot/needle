@@ -211,7 +211,7 @@ impl AppView {
                     let album = super::album_page(&track);
                     let artist = Page::Artist(track.artist.clone());
                     let stem_track = track.clone();
-                    let path = track.path.trim_start_matches("\\\\?\\").to_string();
+                    let path = track.file_path().trim_start_matches("\\\\?\\").to_string();
                     let copy = path.clone();
                     entries.extend([
                         Entry::Separator,

@@ -174,7 +174,7 @@ impl AppView {
         let rating = track.rating;
         let id = track.id.clone();
         let (play, queue) = (track.clone(), track.clone());
-        let path = track.path.trim_start_matches("\\\\?\\").to_string();
+        let path = track.file_path().trim_start_matches("\\\\?\\").to_string();
         div()
             .id("details-scroll")
             .flex_1()
@@ -396,7 +396,12 @@ impl AppView {
                                             this.lookup_busy = true;
                                             std::thread::spawn(move || {
                                                 let key = integrations::acoustid_key().unwrap_or_default();
-                                                let result = integrations::acoustid_lookup(&library, &PathBuf::from(&track.path), &key);
+                                                // A CUE track is only part of its file, which would not match.
+                                                let result = if track.cue.is_some() {
+                                                    Err(anyhow::anyhow!("songs from a CUE sheet can't be identified by sound"))
+                                                } else {
+                                                    integrations::acoustid_lookup(&library, &PathBuf::from(&track.path), &key)
+                                                };
                                                 let _ = sender.send(match result {
                                                     Ok(matches) => Event::Matches(track.id, matches),
                                                     Err(error) => Event::Error(format!("AcoustID: {error:#}")),
