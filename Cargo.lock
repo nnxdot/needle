@@ -4286,6 +4286,7 @@ dependencies = [
  "ort",
  "plist",
  "rand 0.8.8",
+ "realfft",
  "regex",
  "reqwest",
  "rhai",

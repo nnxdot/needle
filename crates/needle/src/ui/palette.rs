@@ -229,6 +229,18 @@ impl AppView {
             ),
             item(
                 "Actions",
+                "radio",
+                "Start radio from this song",
+                "Songs that sound like the one playing",
+                None,
+                |this, _, _| {
+                    if let Some(item) = this.playback.current.clone() {
+                        this.start_radio(item.track);
+                    }
+                },
+            ),
+            item(
+                "Actions",
                 "lyrics",
                 "Time the lyrics of this song",
                 "Tap along to time lines or words",

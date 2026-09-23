@@ -295,7 +295,14 @@ impl AppView {
                     .child(self.fact("Length", format_duration(track.duration), cx))
                     .child(self.fact("Year", if track.year > 0 { track.year.to_string() } else { "—".into() }, cx))
                     .child(self.fact("Genre", if track.genre.is_empty() { "—".into() } else { track.genre.clone() }, cx))
-                    .child(self.fact("Tempo", track.bpm.map(|v| format!("{v:.0} BPM")).unwrap_or_else(|| "—".into()), cx))
+                    .child(self.fact(
+                        "Sound",
+                        match self.sound_of(&track.id) {
+                            Some(sound) => sound.summary(),
+                            None => track.bpm.map(|v| format!("{v:.0} BPM")).unwrap_or_else(|| "Not measured yet".into()),
+                        },
+                        cx,
+                    ))
                     .child(self.fact(
                         "Plays",
                         match (track.play_count, track.last_played) {

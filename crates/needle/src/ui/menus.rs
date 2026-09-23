@@ -245,6 +245,10 @@ impl AppView {
                             Some("Ctrl+E"),
                             |this, window, cx| this.edit_tags(window, cx),
                         ),
+                        Entry::item("radio", "Start radio", None, {
+                            let seed = track.clone();
+                            move |this, _, _| this.start_radio(seed.clone())
+                        }),
                         Entry::item("stems", "Split into stems", None, move |this, _, cx| {
                             this.settings.show_inspector = true;
                             this.panel = super::Panel::Details;

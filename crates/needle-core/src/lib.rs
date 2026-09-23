@@ -21,6 +21,7 @@ mod mp4_trim;
 mod opus;
 pub mod plugins;
 pub mod query;
+pub mod radio;
 pub mod scan;
 mod secrets;
 pub mod stems;

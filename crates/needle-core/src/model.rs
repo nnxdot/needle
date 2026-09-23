@@ -127,6 +127,8 @@ pub struct Settings {
     pub layout: Layout,
     /// Look up lyrics, artist photos, and missing album art online.
     pub online_media: bool,
+    /// Measure each song's sound in the background, for radio.
+    pub sound_analysis: bool,
     pub dsp: crate::dsp::Dsp,
     /// Turn off interface animations (Windows' own setting also turns them off).
     pub reduce_motion: bool,
@@ -186,6 +188,7 @@ impl Default for Settings {
             listenbrainz_enabled: false,
             layout: Layout::default(),
             online_media: false,
+            sound_analysis: true,
             dsp: crate::dsp::Dsp::default(),
             reduce_motion: false,
             music_colors: true,

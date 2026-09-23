@@ -392,6 +392,38 @@ impl AppView {
                                     cx.listener(|this, _, _, cx| this.play_view(0, true, cx)),
                                 ),
                         )
+                        .when_some(
+                            match &self.page {
+                                Page::Artist(name) => Some(name.clone()),
+                                _ => None,
+                            },
+                            |el, artist| {
+                                let blend = artist.clone();
+                                el.child(
+                                    Button::new("artist-radio")
+                                        .icon(icon("radio"))
+                                        .label("Radio")
+                                        .on_click(cx.listener(move |this, _, _, _| {
+                                            this.start_artist_radio(artist.clone())
+                                        })),
+                                )
+                                .child(
+                                    icon_button(
+                                        "artist-blend",
+                                        "blend",
+                                        "Blend with another artist",
+                                    )
+                                    .on_click(cx.listener(
+                                        move |this, _: &ClickEvent, window, cx| {
+                                            // Below the button, clear of its tooltip.
+                                            let position =
+                                                window.mouse_position() + point(px(0.), px(22.));
+                                            this.open_blend_menu(blend.clone(), position, cx)
+                                        },
+                                    )),
+                                )
+                            },
+                        )
                         .when(playlist.is_none(), |el| {
                             el.child(
                                 icon_button("save-view", "plus", "Save as a playlist").on_click(

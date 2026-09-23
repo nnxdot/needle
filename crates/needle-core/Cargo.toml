@@ -23,6 +23,7 @@ opus-decoder = "=0.1.1"
 ort = "=2.0.0-rc.13"
 plist = "1"
 rand = "0.8"
+realfft = "3.5"
 regex = "1"
 rubato = "0.16"
 rhai = { version = "1", features = ["serde"] }

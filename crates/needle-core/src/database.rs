@@ -67,6 +67,7 @@ impl Library {
             );
             CREATE TABLE IF NOT EXISTS settings(key TEXT PRIMARY KEY, value TEXT NOT NULL);
             CREATE TABLE IF NOT EXISTS cache(key TEXT PRIMARY KEY, expires INTEGER NOT NULL, data TEXT NOT NULL);
+            CREATE TABLE IF NOT EXISTS features(track_id TEXT PRIMARY KEY, version INTEGER NOT NULL, data TEXT NOT NULL);
             PRAGMA user_version=1;
         ")?;
         let has_fts: bool = db.query_row(

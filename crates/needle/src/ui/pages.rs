@@ -629,7 +629,7 @@ impl AppView {
                     // Library
                     .when(tab == 1, |el| {
                         el
-                    .child(self.section_title("Music folders", "Needle watches these folders and never moves or deletes your files.", cx))
+                    .child(self.section_title("Music folders", "Needle watches these folders. It moves or removes files only when you ask, in Fix my library.", cx))
                     .child(
                         div()
                             .py_2()
@@ -658,6 +658,19 @@ impl AppView {
                                     .child(small_button("rescan", "Check for changes").ghost().disabled(self.scan.is_some()).on_click(cx.listener(|this, _, _, cx| this.rescan(cx)))),
                             ),
                     )
+                    .child(setting_row(
+                        "Measure songs for radio",
+                        &match self.measured {
+                            Some((done, total)) if done < total => format!("Needle listens to each song on this computer (tempo, key, energy, and tone) to build radio stations. {} of {} measured.", super::widgets::count(done), super::widgets::count(total)),
+                            Some((_, total)) => format!("Needle listens to each song on this computer (tempo, key, energy, and tone) to build radio stations. All {} measured.", super::widgets::count(total)),
+                            None => "Needle listens to each song on this computer (tempo, key, energy, and tone) to build radio stations. Nothing is sent anywhere.".to_string(),
+                        },
+                        Switch::new("sound-analysis").checked(self.settings.sound_analysis).on_click(cx.listener(|this, checked: &bool, _, cx| {
+                            this.set_measuring(*checked);
+                            cx.notify();
+                        })),
+                        cx,
+                    ))
                     })
                     // Appearance
                     .when(tab == 2, |el| {

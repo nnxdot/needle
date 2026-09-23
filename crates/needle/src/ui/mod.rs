@@ -21,6 +21,7 @@ mod pages;
 mod palette;
 mod panel;
 mod plugin_ui;
+mod radio;
 mod sound;
 mod stems_ui;
 mod suggest;
@@ -265,6 +266,8 @@ enum Event {
     Subfolders(String, Vec<needle_core::browse::Subfolder>),
     Wrapped(Box<needle_core::wrapped::Wrapped>, Vec<i32>),
     Doctor(doctor::Msg),
+    Measured((usize, usize)),
+    BlendChoices(String, Vec<String>),
     Lyrics(String, Option<needle_core::media::Lyrics>),
     ArtistImage(String, Option<String>),
     ArtistImages(Vec<(String, Option<String>)>),
@@ -323,6 +326,11 @@ pub struct AppView {
     menu: Option<menus::TrackMenu>,
     playlist_menu: Option<menus::PlaylistMenu>,
     header_menu: Option<columns::HeaderMenu>,
+    blend_menu: Option<radio::BlendMenu>,
+    measuring: std::sync::Arc<std::sync::atomic::AtomicBool>,
+    measured: Option<(usize, usize)>,
+    sound_cache:
+        std::cell::RefCell<std::collections::HashMap<String, Option<needle_core::radio::Features>>>,
     doctor: doctor::Doctor,
     wrapped: Option<needle_core::wrapped::Wrapped>,
     wrapped_years: Vec<i32>,
@@ -542,6 +550,7 @@ fn watch(
 impl AppView {
     fn new(library: Library, window: &mut Window, cx: &mut Context<Self>) -> Self {
         let mut settings = library.settings().unwrap_or_default();
+        let measure_sound = settings.sound_analysis;
         // Ambient used to be a look of its own; it is now a setting for any look.
         if settings.theme == "ambient" {
             settings.theme = "dark".into();
@@ -703,6 +712,10 @@ impl AppView {
             menu: None,
             playlist_menu: None,
             header_menu: None,
+            blend_menu: None,
+            measuring: radio::switch(measure_sound),
+            measured: None,
+            sound_cache: Default::default(),
             doctor,
             wrapped: None,
             wrapped_years: vec![],
@@ -806,6 +819,7 @@ impl AppView {
         view.refresh(cx);
         view.load_home();
         view.refresh_recent();
+        view.start_measuring();
         cx.on_release(|_, cx| cx.quit()).detach();
         cx.spawn_in(window, async move |view, cx| {
             // Poll often while playing so the seek bar glides; rarely while paused.
@@ -1004,6 +1018,11 @@ impl AppView {
                 Event::Subfolders(path, list) => self.subfolders = Some((path, list)),
                 Event::Wrapped(wrapped, years) => self.wrapped_loaded(*wrapped, years),
                 Event::Doctor(msg) => self.doctor_message(msg),
+                Event::Measured(counts) => {
+                    self.measured = Some(counts);
+                    self.sound_cache.borrow_mut().clear();
+                }
+                Event::BlendChoices(artist, choices) => self.blend_choices(artist, choices),
                 Event::ImportProgress(message) => self.import.busy = Some(message),
                 Event::Plugin(action) => self.plugin_action(action, cx),
                 Event::PaletteFound(generation, songs, albums, artists) => {
@@ -2178,6 +2197,7 @@ impl Render for AppView {
             .children(self.track_menu(cx))
             .children(self.playlist_menu_view(cx))
             .children(self.header_menu_view(cx))
+            .children(self.blend_menu_view(cx))
             .children(self.palette_view(cx))
     }
 }
