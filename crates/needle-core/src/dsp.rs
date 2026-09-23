@@ -1,5 +1,5 @@
 //! Sound tools for shared output: a 10-band graphic equalizer with preamp, balance, mono,
-//! and headphone crossfeed. Exclusive output never passes through here.
+//! headphone crossfeed, and effects from plugins. Exclusive output never passes through here.
 //!
 //! Settings change live: the playing source re-reads them every few milliseconds.
 use rodio::Source;
@@ -32,6 +32,8 @@ pub struct Dsp {
     /// Blend a little of each channel into the other, as speakers do, for easier headphone listening.
     pub crossfeed: bool,
     pub preset: String,
+    /// Effects from plugins, in the order they play.
+    pub effects: Vec<crate::effects::EffectSlot>,
 }
 
 impl Default for Dsp {
@@ -44,6 +46,7 @@ impl Default for Dsp {
             mono: false,
             crossfeed: false,
             preset: "Flat".into(),
+            effects: vec![],
         }
     }
 }
@@ -52,7 +55,11 @@ impl Dsp {
     /// True when nothing would change the signal, so playback can skip processing entirely.
     pub fn is_transparent(&self) -> bool {
         let eq_flat = !self.eq || (self.preamp_db == 0. && self.bands.iter().all(|b| *b == 0.));
-        eq_flat && self.balance == 0. && !self.mono && !self.crossfeed
+        eq_flat
+            && self.balance == 0.
+            && !self.mono
+            && !self.crossfeed
+            && !self.effects.iter().any(|e| e.on)
     }
     /// The preamp that keeps the loudest boosted band from clipping.
     pub fn suggested_preamp(&self) -> f32 {
@@ -91,12 +98,14 @@ pub const PRESETS: &[(&str, f32, [f32; 10])] = &[
 pub struct DspControl {
     settings: Mutex<Dsp>,
     version: AtomicU64,
+    effects: Arc<crate::effects::Registry>,
 }
 impl DspControl {
-    pub fn new(settings: Dsp) -> Arc<Self> {
+    pub fn new(settings: Dsp, effects: Arc<crate::effects::Registry>) -> Arc<Self> {
         Arc::new(Self {
             settings: Mutex::new(settings),
             version: AtomicU64::new(1),
+            effects,
         })
     }
     pub fn set(&self, settings: Dsp) {
@@ -200,8 +209,15 @@ impl Chain {
         };
         self.settings = settings;
     }
-    /// Process one interleaved frame in place.
+    /// Process one interleaved frame in place, and keep it within full scale.
     pub fn frame(&mut self, frame: &mut [f32]) {
+        self.shape(frame);
+        for sample in frame.iter_mut() {
+            *sample = sample.clamp(-1., 1.);
+        }
+    }
+    /// The equalizer and listening tools, without the final limit.
+    fn shape(&mut self, frame: &mut [f32]) {
         for (channel, sample) in frame.iter_mut().enumerate() {
             let mut x = *sample as f64 * self.preamp;
             for (band, filter) in self.filters.iter().enumerate() {
@@ -229,64 +245,96 @@ impl Chain {
             frame[0] = l as f32;
             frame[1] = r as f32;
         }
-        for sample in frame.iter_mut() {
-            *sample = sample.clamp(-1., 1.);
-        }
     }
 }
 
-/// A source wrapper that runs [`Chain`] and follows live setting changes.
+/// A source wrapper that runs [`Chain`] and the plugin effects, and follows live changes.
+/// It works a block at a time, since effects written in WebAssembly process blocks.
 pub struct Processed<S: Source> {
     inner: S,
     control: Arc<DspControl>,
-    version: u64,
+    version: (u64, u64),
     chain: Chain,
-    frame: Vec<f32>,
+    rack: crate::effects::Rack,
+    channels: usize,
+    block: Vec<f32>,
     position: usize,
-    frames_until_check: usize,
 }
 impl<S: Source> Processed<S> {
     pub fn new(inner: S, control: Arc<DspControl>) -> Self {
-        let chain = Chain::new(control.get(), inner.sample_rate(), inner.channels());
+        let settings = control.get();
+        let chain = Chain::new(settings.clone(), inner.sample_rate(), inner.channels());
+        let mut rack = crate::effects::Rack::new(
+            control.effects.clone(),
+            inner.sample_rate(),
+            inner.channels(),
+        );
+        rack.sync(&settings.effects);
         let channels = inner.channels().max(1) as usize;
         Self {
-            version: control.version.load(Ordering::Acquire),
+            version: (
+                control.version.load(Ordering::Acquire),
+                control.effects.version(),
+            ),
             inner,
             control,
             chain,
-            frame: vec![0.; channels],
-            position: channels,
-            frames_until_check: 0,
+            rack,
+            channels,
+            block: Vec::with_capacity(crate::effects::BLOCK_FRAMES * channels),
+            position: 0,
         }
+    }
+    fn refill(&mut self) -> bool {
+        let version = (
+            self.control.version.load(Ordering::Acquire),
+            self.control.effects.version(),
+        );
+        if version != self.version {
+            self.version = version;
+            let settings = self.control.get();
+            self.chain.configure(settings.clone());
+            self.rack.sync(&settings.effects);
+        }
+        self.block.clear();
+        self.position = 0;
+        'frames: for _ in 0..crate::effects::BLOCK_FRAMES {
+            let start = self.block.len();
+            for _ in 0..self.channels {
+                match self.inner.next() {
+                    Some(sample) => self.block.push(sample),
+                    None => {
+                        self.block.truncate(start);
+                        break 'frames;
+                    }
+                }
+            }
+            self.chain.shape(&mut self.block[start..]);
+        }
+        if !self.rack.is_empty() {
+            self.rack.process(&mut self.block);
+        }
+        for sample in self.block.iter_mut() {
+            *sample = sample.clamp(-1., 1.);
+        }
+        !self.block.is_empty()
     }
 }
 impl<S: Source> Iterator for Processed<S> {
     type Item = f32;
     fn next(&mut self) -> Option<f32> {
-        if self.position >= self.frame.len() {
-            if self.frames_until_check == 0 {
-                self.frames_until_check = 256;
-                let version = self.control.version.load(Ordering::Acquire);
-                if version != self.version {
-                    self.version = version;
-                    self.chain.configure(self.control.get());
-                }
-            }
-            self.frames_until_check -= 1;
-            for slot in self.frame.iter_mut() {
-                *slot = self.inner.next()?;
-            }
-            self.chain.frame(&mut self.frame);
-            self.position = 0;
+        if self.position >= self.block.len() && !self.refill() {
+            return None;
         }
-        let sample = self.frame[self.position];
+        let sample = self.block[self.position];
         self.position += 1;
         Some(sample)
     }
 }
 impl<S: Source> Source for Processed<S> {
     fn current_span_len(&self) -> Option<usize> {
-        self.inner.current_span_len()
+        // Blocks run ahead of the source's own spans; the format does not change mid-song.
+        None
     }
     fn channels(&self) -> u16 {
         self.inner.channels()
@@ -298,7 +346,9 @@ impl<S: Source> Source for Processed<S> {
         self.inner.total_duration()
     }
     fn try_seek(&mut self, pos: Duration) -> Result<(), rodio::source::SeekError> {
-        self.position = self.frame.len();
+        self.block.clear();
+        self.position = 0;
+        self.rack.reset();
         self.inner.try_seek(pos)
     }
 }
@@ -435,8 +485,83 @@ mod tests {
     }
 
     #[test]
+    fn plugin_effects_play_in_the_source_and_follow_changes() {
+        let registry: Arc<crate::effects::Registry> = Arc::default();
+        let half = crate::effects::parse(
+            "p",
+            "P",
+            serde_json::json!([{ "id": "quiet", "name": "Quiet",
+                "params": [{ "id": "db", "name": "Level", "min": -24, "max": 0, "value": -6.0206 }],
+                "blocks": [{ "kind": "gain", "db": "$db" }] }]),
+            |_| anyhow::bail!("no files"),
+        )
+        .unwrap();
+        registry.set(half.into_iter().map(Arc::new).collect());
+        let slot = crate::effects::EffectSlot::new("p", "quiet");
+        let settings = Dsp {
+            effects: vec![slot.clone()],
+            ..Default::default()
+        };
+        assert!(!settings.is_transparent());
+        let control = DspControl::new(settings.clone(), registry.clone());
+        // An odd length: the last block is short, and a half frame at the end is dropped.
+        let source = rodio::buffer::SamplesBuffer::new(2, 48000, vec![0.8f32; 2 * 1300 + 1]);
+        let mut processed = Processed::new(source, control.clone());
+        let first: Vec<f32> = processed.by_ref().take(4).collect();
+        assert!(first.iter().all(|s| (*s - 0.4).abs() < 1e-3), "{first:?}");
+        let mut louder = slot.clone();
+        louder.params.insert("db".into(), 0.);
+        control.set(Dsp {
+            effects: vec![louder],
+            ..settings.clone()
+        });
+        let rest: Vec<f32> = processed.collect();
+        assert_eq!(rest.len() + 4, 2 * 1300);
+        assert!((rest[rest.len() - 1] - 0.8).abs() < 1e-3);
+        // Turning the plugin off removes its effect from songs already playing.
+        let source = rodio::buffer::SamplesBuffer::new(2, 48000, vec![0.8f32; 4096]);
+        let mut processed = Processed::new(source, control.clone());
+        registry.set(vec![]);
+        let later: Vec<f32> = processed.by_ref().skip(2048).take(2).collect();
+        assert_eq!(later, vec![0.8, 0.8]);
+    }
+
+    #[test]
+    fn webassembly_effects_keep_up_with_the_music() {
+        let dir = tempfile::tempdir().unwrap();
+        let library = crate::database::Library::open(dir.path()).unwrap();
+        crate::plugins::install_examples(&library).unwrap();
+        let folder = library.directory.join("plugins/bitcrusher");
+        let definitions = crate::effects::load(
+            "bitcrusher",
+            "Bitcrusher",
+            &folder,
+            serde_json::json!([{ "id": "crush", "name": "Bitcrusher", "wasm": "crush.wat",
+                "params": [{ "id": "bits", "name": "Bits", "min": 2, "max": 16, "value": 6 }] }]),
+        )
+        .unwrap();
+        let registry: Arc<crate::effects::Registry> = Arc::default();
+        registry.set(definitions.into_iter().map(Arc::new).collect());
+        let mut rack = crate::effects::Rack::new(registry.clone(), 48000, 2);
+        rack.sync(&[crate::effects::EffectSlot::new("bitcrusher", "crush")]);
+        let mut block = vec![0.3f32; crate::effects::BLOCK_FRAMES * 2];
+        let seconds = 10.;
+        let blocks = (48000. * seconds / crate::effects::BLOCK_FRAMES as f64) as usize;
+        let start = std::time::Instant::now();
+        for _ in 0..blocks {
+            rack.process(&mut block);
+        }
+        let took = start.elapsed().as_secs_f64();
+        assert_eq!(registry.failure("bitcrusher", "crush"), None);
+        assert!(
+            took < seconds / 2.,
+            "10 s of sound took {took:.2} s to process"
+        );
+    }
+
+    #[test]
     fn live_changes_reach_a_playing_source() {
-        let control = DspControl::new(Dsp::default());
+        let control = DspControl::new(Dsp::default(), Default::default());
         let source = rodio::buffer::SamplesBuffer::new(2, 48000, vec![0.5f32; 4096]);
         let mut processed = Processed::new(source, control.clone());
         assert_eq!(processed.next(), Some(0.5));

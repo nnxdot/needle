@@ -265,6 +265,50 @@ code { font-family: ui-monospace, "Cascadia Code", Consolas, monospace; font-siz
 .foot nav { display: flex; gap: 6px; }
 .foot nav a { color: var(--ink-2); text-decoration: none; padding: 10px; }
 
+/* ---------- plugin docs */
+.top nav a[aria-current="page"] { color: var(--amber); }
+.doc { padding: 64px 0 104px; }
+.doc-grid { display: grid; grid-template-columns: 200px minmax(0, 1fr); gap: clamp(32px, 6vw, 88px); align-items: start; }
+.doc-toc { position: sticky; top: 96px; display: flex; flex-direction: column; gap: 2px; font-size: 15px; }
+.doc-toc p { margin: 0 0 8px; font-size: 13px; font-weight: 600; color: var(--ink-3); }
+.doc-toc a { color: var(--ink-2); text-decoration: none; padding: 6px 12px; border-radius: 8px; }
+.doc-toc a:hover { color: var(--ink); background: var(--raised); }
+.doc-body { max-width: 760px; }
+.doc-head { padding-bottom: 40px; }
+.doc-head h1 { font-size: clamp(2.6rem, 6vw, 4rem); text-align: left; margin: 0 0 20px; }
+.doc-head .lede { margin: 0; max-width: 56ch; text-wrap: pretty; }
+.doc section { padding: 48px 0 8px; border-top: 1px solid var(--line); scroll-margin-top: 72px; }
+.doc h2 { font-size: clamp(1.8rem, 3.4vw, 2.4rem); margin-bottom: 18px; }
+.doc h3 { font-size: 1.3rem; letter-spacing: -.005em; margin: 36px 0 12px; }
+.doc p, .doc li, .doc dd { color: var(--ink-2); text-wrap: pretty; }
+.doc p { margin: 0 0 16px; max-width: 68ch; }
+.doc b { color: var(--ink); font-weight: 600; }
+.doc a:not(.brand) { color: var(--amber); text-underline-offset: 3px; }
+.doc a code { color: inherit; }
+.steps { padding-left: 1.4em; margin: 0 0 20px; }
+.steps li { margin-bottom: 14px; padding-left: 4px; }
+.steps li::marker { color: var(--amber); font-weight: 600; }
+.points { padding: 0; margin: 0 0 20px; list-style: none; }
+.points li { position: relative; padding-left: 22px; margin-bottom: 10px; }
+.points li::before { content: ""; position: absolute; left: 2px; top: .62em; width: 7px; height: 7px; border-radius: 50%; background: var(--amber); }
+pre {
+  margin: 12px 0 24px; padding: 18px 20px; overflow-x: auto; border-radius: 14px;
+  background: var(--canvas); border: 1px solid var(--line); line-height: 1.55; font-size: 15px;
+}
+pre code { background: none; padding: 0; color: var(--cream); font-size: inherit; }
+.table { overflow-x: auto; margin: 8px 0 24px; border: 1px solid var(--line); border-radius: 14px; }
+.doc table { width: 100%; border-collapse: collapse; font-size: 15px; }
+.doc th { text-align: left; font-weight: 600; color: var(--ink-3); font-size: 13px; background: var(--canvas); }
+.doc th, .doc td { padding: 12px 16px; vertical-align: top; border-bottom: 1px solid var(--line); }
+.doc tr:last-child td { border-bottom: 0; }
+.doc td { color: var(--ink-2); }
+.doc td:first-child { white-space: nowrap; }
+.api, .fields { margin: 0 0 20px; }
+.api dt, .fields dt { color: var(--ink); font-weight: 600; margin-top: 16px; }
+.api dd, .fields dd { margin: 4px 0 0; font-size: 16px; }
+.two { display: grid; grid-template-columns: 1fr 1fr; gap: 40px; }
+.two h3 { margin-top: 8px; }
+
 /* ---------- smaller screens */
 @media (max-width: 860px) {
   .top nav a:not(.nav-cta) { display: none; }
@@ -278,6 +322,11 @@ code { font-family: ui-monospace, "Cascadia Code", Consolas, monospace; font-siz
   .grid { grid-template-columns: repeat(3, 1fr); }
   .grid figure:nth-child(n+7) { display: none; }
   .foot-row p { text-align: left; }
+  .doc-grid { grid-template-columns: 1fr; }
+  .doc-toc { position: static; flex-direction: row; flex-wrap: wrap; gap: 4px; }
+  .doc-toc p { width: 100%; }
+  .doc-toc a { background: var(--raised); }
+  .two { grid-template-columns: 1fr; gap: 0; }
 }
 @media (max-width: 560px) {
   body { font-size: 16px; }

@@ -41,6 +41,53 @@ impl AppView {
                 self.playlists = self.library.playlists().unwrap_or_default();
                 self.refresh(cx);
             }
+            HostAction::EffectParam {
+                plugin,
+                effect,
+                param,
+                value,
+            } => {
+                let mut changed = false;
+                for slot in self
+                    .settings
+                    .dsp
+                    .effects
+                    .iter_mut()
+                    .filter(|s| s.plugin == plugin && s.effect == effect)
+                {
+                    slot.params.insert(param.clone(), value);
+                    // The slider is made again, at the new value, when Sound is drawn next.
+                    self.sound.forget_slider(&slot.uid, &param);
+                    changed = true;
+                }
+                if changed {
+                    self.player.send(Command::Dsp(self.settings.dsp.clone()));
+                    cx.notify();
+                }
+            }
+            HostAction::EffectOn { plugin, effect, on } => {
+                let mut found = false;
+                for slot in self
+                    .settings
+                    .dsp
+                    .effects
+                    .iter_mut()
+                    .filter(|s| s.plugin == plugin && s.effect == effect)
+                {
+                    slot.on = on;
+                    found = true;
+                }
+                if !found && on {
+                    self.settings
+                        .dsp
+                        .effects
+                        .push(needle_core::effects::EffectSlot::new(&plugin, &effect));
+                }
+                if found || on {
+                    self.player.send(Command::Dsp(self.settings.dsp.clone()));
+                    cx.notify();
+                }
+            }
         }
     }
 
@@ -146,6 +193,7 @@ impl AppView {
                     )
                     .when(plugin.manifest.permissions.is_empty(), |el| el.child(faint("Needs no permissions.", cx)))
                     .when(!enabled && !plugin.manifest.permissions.is_empty(), |el| el.child(faint("Turning it on allows everything listed above.", cx)))
+                    .when(enabled && !plugin.effects.is_empty(), |el| el.child(faint(format!("Adds to Sound › Effects: {}.", plugin.effects.join(", ")), cx).w_full()))
                     .when_some(plugin.error.clone(), |el, error| el.child(meta(error, cx).w_full().text_color(p.danger)))
                     .when(enabled, |el| {
                         el.child(div().flex().gap_2().children(plugin.commands.iter().filter(|c| !c.for_tracks).enumerate().map(|(j, command)| {
@@ -156,6 +204,6 @@ impl AppView {
                         })))
                     })
             }))
-            .child(faint("Plugins are Rhai scripts in their own folders. Each one lists what it may do, and nothing runs until you turn it on. See README for how to write one.", cx).w_full())
+            .child(faint("Plugins are Rhai scripts in their own folders. Each one lists what it may do, and nothing runs until you turn it on. Learn to write one at needle.nnx.fyi/plugins.", cx).w_full())
     }
 }

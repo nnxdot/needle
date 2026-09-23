@@ -44,6 +44,8 @@ uuid = { version = "1", features = ["v4", "serde"] }
 walkdir = "2"
 wavicle = "0.1"
 zip = { version = "2", default-features = false, features = ["deflate"] }
+wasmi = { version = "2.0.0", default-features = false, features = ["std", "validate", "portable-dispatch"] }
+wat = { version = "1.259.0", default-features = false }
 
 [target.'cfg(windows)'.dependencies]
 wasapi = "=0.24.0"

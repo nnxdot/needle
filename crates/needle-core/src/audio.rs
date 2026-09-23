@@ -116,6 +116,7 @@ pub enum Command {
 #[derive(Clone)]
 pub struct Player {
     stem_mix: Arc<crate::stems::StemMix>,
+    effects: Arc<crate::effects::Registry>,
     tx: Sender<Command>,
     state: Arc<Mutex<PlaybackState>>,
     worker: Arc<Mutex<Option<std::thread::JoinHandle<()>>>>,
@@ -131,17 +132,21 @@ impl Player {
         let worker_state = state.clone();
         let stem_mix = Arc::new(crate::stems::StemMix::default());
         let mix = stem_mix.clone();
+        let effects = Arc::new(crate::effects::Registry::default());
+        let registry = effects.clone();
         let worker = std::thread::Builder::new()
             .name("needle-playback".into())
             .spawn(move || {
                 let mut worker =
                     Worker::new(library, worker_state, settings, Box::new(SystemOutput));
                 worker.stem_mix = mix;
+                worker.dsp = crate::dsp::DspControl::new(worker.settings.dsp.clone(), registry);
                 worker.run(rx)
             })
             .expect("start audio worker");
         Self {
             stem_mix,
+            effects,
             tx,
             state,
             worker: Arc::new(Mutex::new(Some(worker))),
@@ -149,6 +154,10 @@ impl Player {
     }
     pub fn send(&self, command: Command) {
         let _ = self.tx.send(command);
+    }
+    /// The effects plugins offer; the plugin host fills it.
+    pub fn effects(&self) -> &Arc<crate::effects::Registry> {
+        &self.effects
     }
     /// Live stem volumes for the track playing from stems.
     pub fn stem_mix(&self) -> &Arc<crate::stems::StemMix> {
@@ -665,7 +674,7 @@ impl Worker {
         let items = session.resolve(&library);
         let (queue, resume_position) = Queue::restore(&session, items);
         let saved_version = queue.version;
-        let dsp = crate::dsp::DspControl::new(settings.dsp.clone());
+        let dsp = crate::dsp::DspControl::new(settings.dsp.clone(), Default::default());
         Self {
             dsp,
             stem_mix: Arc::default(),

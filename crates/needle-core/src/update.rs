@@ -1,11 +1,12 @@
-//! Updates: ask GitHub for Needle's latest release, and install a newer one with its
+//! Updates: ask needle.nnx.fyi for Needle's latest release, and install a newer one with its
 //! installer after checking the download against the release's SHA-256 list.
 use anyhow::{Context, Result, bail};
 use serde_json::Value;
 use sha2::{Digest, Sha256};
 use std::path::{Path, PathBuf};
 
-pub const REPOSITORY: &str = "nnxdot/needle";
+/// Describes the latest release in the shape of a GitHub release (`tag_name`, `assets`).
+pub const LATEST: &str = "https://needle.nnx.fyi/latest.json";
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct Release {
@@ -62,13 +63,10 @@ pub(crate) fn from_json(current: &str, release: &Value) -> Option<Release> {
     })
 }
 
-/// Ask GitHub whether a newer Needle is out. Sends nothing but the request itself.
+/// Ask needle.nnx.fyi whether a newer Needle is out. Sends nothing but the request itself.
 pub fn check(current: &str) -> Result<Option<Release>> {
     let latest: Value = crate::integrations::client()?
-        .get(format!(
-            "https://api.github.com/repos/{REPOSITORY}/releases/latest"
-        ))
-        .header("Accept", "application/vnd.github+json")
+        .get(LATEST)
         .send()?
         .error_for_status()?
         .json()?;

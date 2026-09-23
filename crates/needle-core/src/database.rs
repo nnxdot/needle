@@ -242,8 +242,10 @@ impl Library {
             .optional()?)
     }
     pub fn track_by_path(&self, path: &str) -> Result<Option<Track>> {
-        Ok(self
-            .connection()?
+        Self::track_by_path_on(&self.connection()?, path)
+    }
+    pub fn track_by_path_on(db: &Connection, path: &str) -> Result<Option<Track>> {
+        Ok(db
             .query_row(
                 "SELECT data,rating,play_count,last_played,missing FROM tracks WHERE path=?",
                 [path],
@@ -252,7 +254,9 @@ impl Library {
             .optional()?)
     }
     pub fn moved_track(&self, hash: &str) -> Result<Option<Track>> {
-        let db = self.connection()?;
+        Self::moved_track_on(&self.connection()?, hash)
+    }
+    pub fn moved_track_on(db: &Connection, hash: &str) -> Result<Option<Track>> {
         let mut stmt = db.prepare(
             "SELECT data,rating,play_count,last_played,missing FROM tracks WHERE content_hash=?",
         )?;

@@ -62,7 +62,7 @@ impl AppView {
         });
     }
 
-    /// Once a day at most, ask GitHub whether a newer Needle is out.
+    /// Once a day at most, ask needle.nnx.fyi whether a newer Needle is out.
     pub(super) fn check_for_update(&mut self, force: bool) {
         let now = chrono::Utc::now().timestamp();
         if !force
@@ -138,7 +138,7 @@ impl AppView {
             }
             Some(UpdateState::Failed(e)) => format!("The update did not work: {e}"),
             None => format!(
-                "You have Needle {}. Needle asks GitHub for a newer version once a day; nothing else is sent.",
+                "You have Needle {}. Needle asks needle.nnx.fyi for a newer version once a day; nothing else is sent.",
                 env!("CARGO_PKG_VERSION")
             ),
         };
