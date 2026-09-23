@@ -270,7 +270,7 @@ $('search').oninput = () => {
         const li = document.createElement('li'); li.className = 'empty'; li.textContent = 'No songs found.';
         list.append(li);
       }
-    } catch (e) { $('offline').classList.add('show'); }
+    } catch (e) { if (version === searchVersion) $('offline').classList.add('show'); }
   }, 250);
 };
 

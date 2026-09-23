@@ -42,11 +42,15 @@ pub fn new_key() -> String {
         .collect()
 }
 
-/// This computer's address on the local network.
+/// This computer's address on the local network: IPv4 when it has one, else IPv6.
 pub fn local_ip() -> IpAddr {
-    crate::cast::local_ip_for("192.168.1.1:9".parse().unwrap())
-        .ok()
-        .filter(|ip| !ip.is_unspecified())
+    ["192.168.1.1:9", "[fd00::1]:9", "[2001:db8::1]:9"]
+        .iter()
+        .find_map(|probe| {
+            crate::cast::local_ip_for(probe.parse().unwrap())
+                .ok()
+                .filter(|ip| !ip.is_unspecified() && !ip.is_loopback())
+        })
         .unwrap_or(IpAddr::from([127, 0, 0, 1]))
 }
 
@@ -62,7 +66,10 @@ pub struct Server {
 impl Server {
     /// The address to open on a phone.
     pub fn address(&self) -> String {
-        format!("http://{}:{}/r/{}/", local_ip(), self.port, self.key)
+        match local_ip() {
+            IpAddr::V6(ip) => format!("http://[{ip}]:{}/r/{}/", self.port, self.key),
+            ip => format!("http://{ip}:{}/r/{}/", self.port, self.key),
+        }
     }
 }
 
@@ -82,6 +89,12 @@ pub fn start(player: Player, library: Library, key: String) -> Result<Server> {
         .context("Could not start the phone remote")?;
     listener.set_nonblocking(true)?;
     let port = listener.local_addr()?.port();
+    // The same port on IPv6, for networks that have it (Windows keeps the two apart).
+    let mut listeners = vec![listener];
+    if let Ok(v6) = TcpListener::bind(("::", port)) {
+        v6.set_nonblocking(true)?;
+        listeners.push(v6);
+    }
     let stop = Arc::new(AtomicBool::new(false));
     let (flag, prefix) = (stop.clone(), format!("/r/{key}/"));
     let open = Arc::new(AtomicUsize::new(0));
@@ -90,8 +103,14 @@ pub fn start(player: Player, library: Library, key: String) -> Result<Server> {
         .spawn(move || {
             crate::logfile::info(format!("Phone remote listening on port {port}"));
             while !flag.load(Ordering::Relaxed) {
-                match listener.accept() {
+                let accepted = listeners
+                    .iter()
+                    .map(|l| l.accept())
+                    .find(|r| !matches!(r, Err(e) if e.kind() == std::io::ErrorKind::WouldBlock))
+                    .unwrap_or_else(|| Err(std::io::ErrorKind::WouldBlock.into()));
+                match accepted {
                     Ok((stream, peer)) => {
+                        let _ = stream.set_nonblocking(false);
                         // Only private-network, link-local, and loopback addresses (a VPN that
                         // uses private addresses counts too; the key still guards the page).
                         let local = match peer.ip() {
@@ -272,31 +291,38 @@ fn serve(
         }
         ("GET", cover) if cover.starts_with("api/cover/") => {
             let id = &cover["api/cover/".len()..];
-            let image = library
+            // The cover is sent straight from its file, a little at a time, so many phones
+            // asking at once never hold whole images in memory.
+            let file = library
                 .track(id)
                 .ok()
                 .flatten()
                 .and_then(|t| t.artwork)
-                .and_then(|path| {
-                    // Never read more than 20 MB, however big the file is.
-                    let mut bytes = Vec::new();
-                    std::fs::File::open(path)
-                        .ok()?
-                        .take((20 << 20) + 1)
-                        .read_to_end(&mut bytes)
-                        .ok()?;
-                    (bytes.len() <= 20 << 20).then_some(bytes)
+                .and_then(|path| std::fs::File::open(path).ok())
+                .and_then(|file| {
+                    let length = file.metadata().ok()?.len();
+                    (length <= 20 << 20).then_some((file, length))
                 });
-            match image {
-                Some(bytes) => {
-                    let kind = if bytes.starts_with(&[0x89, b'P', b'N', b'G']) {
+            match file {
+                Some((mut file, length)) => {
+                    let mut head = [0u8; 12];
+                    let read = file.read(&mut head)?;
+                    let head = &head[..read];
+                    let kind = if head.starts_with(&[0x89, b'P', b'N', b'G']) {
                         "image/png"
-                    } else if bytes.starts_with(b"RIFF") {
+                    } else if head.starts_with(b"RIFF") {
                         "image/webp"
                     } else {
                         "image/jpeg"
                     };
-                    respond(&stream, "200 OK", kind, &bytes)
+                    let mut out = &stream;
+                    write!(
+                        out,
+                        "HTTP/1.1 200 OK\r\nContent-Type: {kind}\r\nContent-Length: {length}\r\nCache-Control: no-store\r\nX-Content-Type-Options: nosniff\r\nConnection: close\r\n\r\n"
+                    )?;
+                    out.write_all(head)?;
+                    std::io::copy(&mut file.take(length - read as u64), &mut out)?;
+                    Ok(())
                 }
                 None => respond(&stream, "404 Not Found", "text/plain", b"No cover"),
             }
@@ -447,6 +473,13 @@ mod tests {
                 title: "Harbor Lights".into(),
                 artist: "Mara Quinn".into(),
                 duration: 200.,
+                artwork: Some({
+                    let cover = dir.path().join("cover.png");
+                    let mut png = vec![0x89, b'P', b'N', b'G'];
+                    png.extend(std::iter::repeat_n(7u8, 100_000));
+                    std::fs::write(&cover, png).unwrap();
+                    cover.to_string_lossy().into()
+                }),
                 ..Default::default()
             })
             .unwrap();
@@ -465,6 +498,16 @@ mod tests {
         assert_eq!(status, 200);
         let state: Value = serde_json::from_str(&state).unwrap();
         assert_eq!(state["playing"], false);
+        // The cover comes whole, with its type.
+        let cover = reqwest::blocking::get(format!("http://127.0.0.1:{port}/r/{key}/api/cover/t1"))
+            .unwrap();
+        assert_eq!(cover.headers()["content-type"], "image/png");
+        assert_eq!(cover.bytes().unwrap().len(), 100_004);
+        assert_eq!(get(port, &format!("/r/{key}/api/cover/none")).0, 404);
+        // IPv6 works too, where the computer has it.
+        if let Ok(response) = reqwest::blocking::get(format!("http://[::1]:{port}/r/{key}/")) {
+            assert_eq!(response.status(), 200);
+        }
         let (_, found) = get(port, &format!("/r/{key}/api/search?q=harbor+lights"));
         let found: Value = serde_json::from_str(&found).unwrap();
         assert_eq!(found[0]["title"], "Harbor Lights");

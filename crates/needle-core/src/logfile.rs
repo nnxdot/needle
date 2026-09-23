@@ -193,8 +193,11 @@ pub fn scrub(text: &str) -> String {
             // Keep the names of source files: they say where the crash was.
             let path = &rest[..end];
             let name = path.rsplit(['\\', '/']).next().unwrap_or_default();
-            let file = name.split(':').next().unwrap_or_default();
-            if file.ends_with(".rs") {
+            let mut parts = name.trim_end().split(':');
+            let file = parts.next().unwrap_or_default();
+            let line = parts.next().unwrap_or_default();
+            if file.ends_with(".rs") && !line.is_empty() && line.bytes().all(|b| b.is_ascii_digit())
+            {
                 out.push_str("<src>/");
                 out.push_str(name.trim_end());
             } else {
@@ -334,6 +337,8 @@ mod tests {
             scrub("open /home/alice/Music/private.flac: no\n\"/Users/bob/x.mp3\" 24/96 kHz and/or");
         assert!(!unix.contains("alice") && !unix.contains("bob"), "{unix}");
         assert!(unix.contains("24/96 kHz and/or"), "{unix}");
+        let named = scrub("C:\\Users\\ann\\private-playlist.rs could not be read");
+        assert!(!named.contains("private-playlist"), "{named}");
         assert!(!out.contains("Secret Song"), "{out}");
         assert!(!out.contains("nas\\share"), "{out}");
         assert!(out.contains("<path>"));
