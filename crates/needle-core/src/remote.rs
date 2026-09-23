@@ -407,13 +407,13 @@ pub fn act(action: &str, body: &[u8], player: &Player, library: &Library) -> Res
         "seek" if body.seconds.is_finite() && body.seconds >= 0. => Command::Seek(body.seconds),
         "volume" if (0.0..=1.0).contains(&body.value) => Command::Volume(body.value),
         "jump" => {
-            let queue = player.state().queue;
-            let at = if queue.get(body.index).is_some_and(|q| q.track.id == body.id) {
-                Some(body.index)
-            } else {
-                queue.iter().position(|q| q.track.id == body.id)
-            };
-            Command::Jump(at.context("That song is no longer up next")?)
+            // Checked now for a clear answer, and again by the player when it jumps, in case
+            // the queue changes in between.
+            anyhow::ensure!(
+                player.state().queue.iter().any(|q| q.track.id == body.id),
+                "That song is no longer up next"
+            );
+            Command::JumpTo(body.id, body.index)
         }
         "play" => Command::Play(items(&body.ids)?),
         "next-up" => Command::PlayNext(items(&body.ids)?),

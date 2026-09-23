@@ -94,6 +94,9 @@ pub enum Command {
     PlayNext(Vec<QueueItem>),
     /// Skip directly to an index of the upcoming queue.
     Jump(usize),
+    /// Skip to this song in the upcoming queue: the one at the index if it is still there,
+    /// else its first place. Nothing happens when it is no longer up next.
+    JumpTo(String, usize),
     Toggle,
     Next,
     Previous,
@@ -1055,6 +1058,22 @@ impl Worker {
                     self.fill()?
                 }
             }
+            Command::JumpTo(id, hint) => {
+                let upcoming = self.queue.upcoming();
+                let at = if upcoming.get(hint).is_some_and(|q| q.track.id == id) {
+                    Some(hint)
+                } else {
+                    upcoming.iter().position(|q| q.track.id == id)
+                };
+                if let Some(index) = at {
+                    let cycle = self.queue.cycle.clone();
+                    if let Some(items) = self.queue.jump(index) {
+                        self.loop_range = None;
+                        self.play(items)?;
+                        self.queue.cycle = cycle;
+                    }
+                }
+            }
             Command::Jump(index) => {
                 let cycle = self.queue.cycle.clone();
                 if let Some(items) = self.queue.jump(index) {
@@ -1988,6 +2007,24 @@ mod tests {
         rig.until_active("c");
         assert_eq!(ids(rig.state().queue.iter()), ["e"]);
         assert!(rig.worker.handle(Command::PlayAt(vec![], 0)).is_err());
+    }
+
+    #[test]
+    fn jumping_to_a_song_follows_it_when_the_queue_changed() {
+        let opener = FakeOpener::with(&["Speakers"], Some("Speakers"));
+        let mut rig = rig(opener, Settings::default());
+        let list = rig.items(&["a", "b", "c", "d"]);
+        rig.run(Command::PlayAt(list, 0));
+        rig.until_active("a");
+        // A phone saw "d" at place 2, but "x" was put first since.
+        let next = rig.items(&["x"]);
+        rig.run(Command::PlayNext(next));
+        assert_eq!(ids(rig.state().queue.iter()), ["x", "b", "c", "d"]);
+        rig.run(Command::JumpTo("d".into(), 2));
+        rig.until_active("d");
+        // A song no longer up next does nothing.
+        rig.run(Command::JumpTo("gone".into(), 0));
+        assert_eq!(rig.active().as_deref(), Some("d"));
     }
 
     #[test]

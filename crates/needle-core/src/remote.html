@@ -105,6 +105,7 @@ li button { color: var(--amber); font-size: 13px; font-weight: 600; padding: 8px
   </section>
 </main>
 <div class="offline" id="offline">Can't reach Needle. Is it still open?</div>
+<div class="offline" id="notice" role="status" aria-live="polite"></div>
 
 <script>
 const base = location.pathname.endsWith('/') ? location.pathname : location.pathname + '/';
@@ -117,9 +118,25 @@ function time(s) {
   const h = Math.floor(s / 3600), m = Math.floor(s / 60) % 60, sec = String(s % 60).padStart(2, '0');
   return h ? `${h}:${String(m).padStart(2, '0')}:${sec}` : `${m}:${sec}`;
 }
+// A short message at the bottom, for requests Needle refused.
+let noticeTimer = 0;
+function notice(text) {
+  const box = $('notice');
+  box.textContent = text;
+  box.classList.add('show');
+  clearTimeout(noticeTimer);
+  noticeTimer = setTimeout(() => box.classList.remove('show'), 3000);
+}
+async function refused(response) {
+  if (response.ok) return;
+  let text = 'Needle could not do that.';
+  try { text = (await response.json()).error || text; } catch (e) {}
+  notice(text);
+}
 async function send(action, body) {
   try {
-    await fetch(base + 'api/' + action, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body || {}) });
+    const response = await fetch(base + 'api/' + action, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body || {}) });
+    await refused(response);
   } catch (e) { $('offline').classList.add('show'); }
   setTimeout(refresh, 150);
 }
@@ -200,7 +217,8 @@ async function sendVolume() {
   const value = volumeWanted;
   volumeWanted = null;
   try {
-    await fetch(base + 'api/volume', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ value }) });
+    const response = await fetch(base + 'api/volume', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ value }) });
+    await refused(response);
   } catch (e) { $('offline').classList.add('show'); }
   volumeSending = false;
   if (volumeWanted !== null) sendVolume();
@@ -221,11 +239,23 @@ function seekTo(event, commit) {
   setSlider(seconds, state.current.duration);
   if (commit) send('seek', { seconds });
 }
-$('bar').addEventListener('pointerdown', e => { dragging = true; $('bar').setPointerCapture(e.pointerId); seekTo(e, false); });
-$('bar').addEventListener('pointermove', e => { if (dragging) seekTo(e, false); });
-$('bar').addEventListener('pointerup', e => { if (dragging) { dragging = false; seekTo(e, true); } });
+// Only the finger (or pointer) that started the drag moves or ends it.
+let dragPointer = null;
+$('bar').addEventListener('pointerdown', e => {
+  if (dragging) return;
+  dragging = true;
+  dragPointer = e.pointerId;
+  $('bar').setPointerCapture(e.pointerId);
+  seekTo(e, false);
+});
+$('bar').addEventListener('pointermove', e => { if (dragging && e.pointerId === dragPointer) seekTo(e, false); });
+$('bar').addEventListener('pointerup', e => {
+  if (dragging && e.pointerId === dragPointer) { dragging = false; dragPointer = null; seekTo(e, true); }
+});
 // A cancelled touch (a scroll, a call) ends the drag without seeking.
-$('bar').addEventListener('pointercancel', () => { dragging = false; if (state) draw(); });
+$('bar').addEventListener('pointercancel', e => {
+  if (dragging && e.pointerId === dragPointer) { dragging = false; dragPointer = null; if (state) draw(); }
+});
 // Keys: arrows move 5 seconds (Page Up/Down 30), Home and End go to the start and end.
 $('bar').addEventListener('keydown', e => {
   if (!state || !state.current) return;
