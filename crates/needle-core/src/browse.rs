@@ -50,6 +50,22 @@ pub struct Home {
     pub artists: Vec<ArtistSummary>,
 }
 
+/// The folder part of a track path ("C:\\Music\\Album\\01.flac" → "C:\\Music\\Album"); a CUE
+/// track's "sheet.cue#3" counts as the sheet.
+pub fn folder_of(path: &str) -> &str {
+    path.rfind(['\\', '/']).map_or("", |i| &path[..i])
+}
+
+/// A folder inside another, and what it holds.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct Subfolder {
+    pub path: String,
+    pub name: String,
+    /// Songs in it and in its own subfolders.
+    pub tracks: usize,
+    pub artwork: Option<String>,
+}
+
 pub(crate) fn migrate(db: &Connection) -> Result<()> {
     db.execute_batch(
         "CREATE INDEX IF NOT EXISTS tracks_genre ON tracks(genre COLLATE NOCASE);
@@ -358,6 +374,52 @@ impl Library {
             artists,
         })
     }
+    /// The folders directly inside `parent` that hold music, with how many songs each holds.
+    /// Reads only the paths under `parent`, through the path index.
+    pub fn subfolders(&self, parent: &str) -> Result<Vec<Subfolder>> {
+        let separator = if parent.contains('/') && !parent.contains('\\') {
+            '/'
+        } else {
+            '\\'
+        };
+        let prefix = format!("{}{separator}", parent.trim_end_matches(['\\', '/']));
+        // Everything that starts with the prefix sorts between it and the prefix with its last
+        // character raised by one.
+        let mut upper = prefix.clone();
+        let last = upper.pop().unwrap_or(separator);
+        upper.push(char::from_u32(last as u32 + 1).unwrap_or(last));
+        let db = self.connection()?;
+        let mut stmt = db.prepare(
+            "SELECT path, json_extract(data,'$.artwork') FROM tracks WHERE path >= ?1 AND path < ?2 AND missing = 0",
+        )?;
+        let mut folders: Vec<Subfolder> = vec![];
+        let mut index: std::collections::HashMap<String, usize> = Default::default();
+        for row in stmt.query_map([&prefix, &upper], |r| {
+            Ok((r.get::<_, String>(0)?, r.get::<_, Option<String>>(1)?))
+        })? {
+            let (path, artwork) = row?;
+            let rest = &path[prefix.len()..];
+            let Some(cut) = rest.find(['\\', '/']) else {
+                continue;
+            };
+            let name = &rest[..cut];
+            let at = *index.entry(name.to_lowercase()).or_insert_with(|| {
+                folders.push(Subfolder {
+                    path: format!("{prefix}{name}"),
+                    name: name.to_string(),
+                    ..Default::default()
+                });
+                folders.len() - 1
+            });
+            let folder = &mut folders[at];
+            folder.tracks += 1;
+            if folder.artwork.is_none() {
+                folder.artwork = artwork;
+            }
+        }
+        folders.sort_by_cached_key(|f| f.name.to_lowercase());
+        Ok(folders)
+    }
     /// An artist's most played tracks, then highest rated.
     pub fn top_tracks(&self, artist: &str, limit: usize) -> Result<Vec<Track>> {
         let db = self.connection()?;
@@ -496,6 +558,56 @@ mod tests {
         assert_eq!(limited.len(), 1);
         assert_eq!(limited[0].album, "Second");
         assert!(library.albums("year >").is_err());
+    }
+
+    #[test]
+    fn folders_list_their_subfolders_and_filter_by_folder() {
+        let dir = tempfile::tempdir().unwrap();
+        let library = Library::open(dir.path()).unwrap();
+        for (id, path) in [
+            ("a", r"C:\Music\Alpha\Disc 1\01.flac"),
+            ("b", r"C:\Music\Alpha\Disc 2\01.flac"),
+            ("c", r"C:\Music\Beta\01.flac"),
+            ("d", r"C:\Music\loose.mp3"),
+            ("e", r"C:\Musical\other.mp3"),
+            ("f", r"C:\Music\Gamma\album.cue#2"),
+        ] {
+            library
+                .upsert(&Track {
+                    id: id.into(),
+                    path: path.into(),
+                    title: id.into(),
+                    ..Default::default()
+                })
+                .unwrap();
+        }
+        let names = |parent: &str| {
+            library
+                .subfolders(parent)
+                .unwrap()
+                .iter()
+                .map(|f| (f.name.clone(), f.tracks))
+                .collect::<Vec<_>>()
+        };
+        assert_eq!(
+            names(r"C:\Music"),
+            [
+                ("Alpha".to_string(), 2),
+                ("Beta".to_string(), 1),
+                ("Gamma".to_string(), 1)
+            ]
+        );
+        assert_eq!(
+            names(r"C:\Music\Alpha"),
+            [("Disc 1".to_string(), 1), ("Disc 2".to_string(), 1)]
+        );
+        let here = library.search(r#"folder = "C:\\Music""#).unwrap();
+        assert_eq!(
+            here.iter().map(|t| t.id.as_str()).collect::<Vec<_>>(),
+            ["d"]
+        );
+        let cue = library.search(r#"folder = "C:\\Music\\Gamma""#).unwrap();
+        assert_eq!(cue.len(), 1);
     }
 
     #[test]

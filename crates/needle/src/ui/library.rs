@@ -137,6 +137,7 @@ impl AppView {
             Page::Settings => self.settings_view(cx).into_any_element(),
             Page::Sound => self.sound_view(cx).into_any_element(),
             Page::Import => self.import_view(width, cx).into_any_element(),
+            Page::Folders => self.folders_view(cx).into_any_element(),
             Page::History => self.history_view(width, cx).into_any_element(),
             _ if self.total == 0 && self.scan.is_none() && !self.loading => {
                 self.onboarding(cx).into_any_element()
@@ -587,6 +588,11 @@ impl AppView {
                     "Press the heart on any track, or drag songs onto Favorites.".to_string(),
                     &[Step::Songs],
                 ),
+                Page::Folder(_) => (
+                    "No songs in this folder".into(),
+                    "Needle lists music it has scanned. Check for changes in Settings › Library if you added files here.".into(),
+                    &[Step::Songs],
+                ),
                 Page::Recent => (
                     "Nothing added in the last 30 days".into(),
                     "New files in your music folders appear here automatically.".into(),
@@ -614,6 +620,7 @@ impl AppView {
             .flex()
             .flex_col()
             .child(self.header(cx))
+            .children(self.folder_strip(cx))
             .children(self.playlist_tools(cx))
             .when(self.show_save, |el| el.child(self.save_form(cx)))
             .when_some(

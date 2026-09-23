@@ -3,6 +3,7 @@ mod assets;
 mod chrome;
 mod discord;
 mod flow;
+mod folders;
 mod glass;
 mod history;
 mod home;
@@ -109,6 +110,10 @@ pub enum Page {
     },
     Artists,
     Artist(String),
+    /// The music folders.
+    Folders,
+    /// One folder on disk: its subfolders, and every song in it and below it.
+    Folder(String),
     Favorites,
     Recent,
     History,
@@ -131,6 +136,8 @@ impl Page {
                 }
             }
             Self::Artists => "Artists".into(),
+            Self::Folders => "Folders".into(),
+            Self::Folder(path) => folders::name_of(path),
             Self::Artist(name) => name.clone(),
             Self::Favorites => "Favorites".into(),
             Self::Recent => "Recently added".into(),
@@ -148,13 +155,23 @@ impl Page {
             Self::Recent => "recent(30d) order by added_at desc".into(),
             Self::Album { query, .. } => query.clone(),
             Self::Artist(name) => format!("artist = {0} or album_artist = {0}", quote(name)),
+            // Everything in the folder and its subfolders, so a whole folder can be played.
+            Self::Folder(path) => format!(
+                "path starts with {} order by path",
+                quote(&folders::with_separator(path))
+            ),
             _ => String::new(),
         }
     }
     fn is_tracks(&self) -> bool {
         !matches!(
             self,
-            Self::Home | Self::History | Self::Settings | Self::Sound | Self::Import
+            Self::Home
+                | Self::Folders
+                | Self::History
+                | Self::Settings
+                | Self::Sound
+                | Self::Import
         )
     }
     pub fn is_grid(&self) -> bool {
@@ -229,6 +246,7 @@ enum Event {
     MoreHistory(usize, Vec<Listen>),
     Look(String, Option<ambient::Look>),
     Home(Box<needle_core::browse::Home>),
+    Subfolders(String, Vec<needle_core::browse::Subfolder>),
     Lyrics(String, Option<needle_core::media::Lyrics>),
     ArtistImage(String, Option<String>),
     ArtistImages(Vec<(String, Option<String>)>),
@@ -353,6 +371,7 @@ pub struct AppView {
     glass_system: (bool, bool),
     glass_applied: Option<(glass::Material, bool)>,
     home: Option<Box<needle_core::browse::Home>>,
+    subfolders: Option<(String, Vec<needle_core::browse::Subfolder>)>,
     lyrics: Option<(String, Option<needle_core::media::Lyrics>)>,
     lyric_line: Option<usize>,
     lyrics_scroll: ScrollHandle,
@@ -577,6 +596,7 @@ impl AppView {
                                 | Page::Recent
                                 | Page::Playlist(_)
                                 | Page::Album { .. }
+                                | Page::Folder(_)
                                 | Page::Albums
                                 | Page::Artists
                         )
@@ -710,6 +730,7 @@ impl AppView {
             glass_system: (glass::system_allows_transparency(), glass::windows_11()),
             glass_applied: None,
             home: None,
+            subfolders: None,
             lyrics: None,
             lyric_line: None,
             lyrics_scroll: ScrollHandle::new(),
@@ -941,6 +962,7 @@ impl AppView {
                 }
                 Event::Look(path, look) => self.set_look(path, look),
                 Event::Home(home) => self.home = Some(home),
+                Event::Subfolders(path, list) => self.subfolders = Some((path, list)),
                 Event::ImportProgress(message) => self.import.busy = Some(message),
                 Event::Plugin(action) => self.plugin_action(action, cx),
                 Event::PaletteFound(generation, songs, albums, artists) => {
@@ -1318,6 +1340,10 @@ impl AppView {
         }
         if self.page == Page::Home {
             self.load_home();
+        }
+        if let Page::Folder(path) = &self.page {
+            let path = path.clone();
+            self.load_subfolders(path);
         }
         if let Page::Artist(name) = &self.page {
             let name = name.clone();

@@ -117,6 +117,16 @@ impl Library {
                 })
             },
         )?;
+        // `folder = "…"` in rules: the folder a track's file (or CUE sheet) is in.
+        db.create_scalar_function(
+            "needle_folder",
+            1,
+            rusqlite::functions::FunctionFlags::SQLITE_UTF8
+                | rusqlite::functions::FunctionFlags::SQLITE_DETERMINISTIC,
+            |ctx| {
+                Ok(crate::browse::folder_of(&ctx.get::<String>(0).unwrap_or_default()).to_string())
+            },
+        )?;
         db.execute_batch("PRAGMA foreign_keys=ON; PRAGMA synchronous=NORMAL;")?;
         Ok(db)
     }

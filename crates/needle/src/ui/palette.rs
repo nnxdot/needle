@@ -129,6 +129,7 @@ impl AppView {
             page("songs", "Songs", Page::Songs, Some("Ctrl+2")),
             page("albums", "Albums", Page::Albums, Some("Ctrl+3")),
             page("artists", "Artists", Page::Artists, Some("Ctrl+4")),
+            page("folder", "Folders", Page::Folders, None),
             page("heart", "Favorites", Page::Favorites, Some("Ctrl+5")),
             page("recent", "Recently added", Page::Recent, Some("Ctrl+6")),
             page(

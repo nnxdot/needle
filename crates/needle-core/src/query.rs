@@ -103,6 +103,7 @@ const FIELDS: &[(&str, &str, bool)] = &[
     ("genre", "t.genre", false),
     ("format", "t.format", false),
     ("path", "t.path", false),
+    ("folder", "needle_folder(t.path)", false),
     ("year", "t.year", true),
     ("bpm", "t.bpm", true),
     ("rating", "t.rating", true),

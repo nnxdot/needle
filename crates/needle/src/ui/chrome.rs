@@ -165,7 +165,9 @@ impl AppView {
         let active = self.page == page
             || matches!(
                 (&self.page, &page),
-                (Page::Album { .. }, Page::Albums) | (Page::Artist(_), Page::Artists)
+                (Page::Album { .. }, Page::Albums)
+                    | (Page::Artist(_), Page::Artists)
+                    | (Page::Folder(_), Page::Folders)
             );
         div()
             .id(id)
@@ -228,6 +230,7 @@ impl AppView {
             .child(self.nav_item("nav-songs", "Songs", "songs", Page::Songs, cx))
             .child(self.nav_item("nav-albums", "Albums", "albums", Page::Albums, cx))
             .child(self.nav_item("nav-artists", "Artists", "artists", Page::Artists, cx))
+            .child(self.nav_item("nav-folders", "Folders", "folder", Page::Folders, cx))
             .child(self.section("Collections", cx))
             .child(
                 self.nav_item("nav-favorites", "Favorites", "heart", Page::Favorites, cx)
