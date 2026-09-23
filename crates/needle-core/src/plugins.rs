@@ -511,7 +511,9 @@ fn run(
                         if !synced.covers.is_empty() {
                             let (library, actions) = (library.clone(), actions.clone());
                             std::thread::spawn(move || {
-                                if crate::sources::fetch_covers(&library, &synced.covers) > 0 {
+                                let shown = || actions(HostAction::LibraryChanged);
+                                if crate::sources::fetch_covers(&library, &synced.covers, shown) > 0
+                                {
                                     actions(HostAction::LibraryChanged);
                                 }
                             });
@@ -1560,6 +1562,7 @@ fn songs(page) {
             channels: song.channelCount,
             size: song.size,
             musicbrainz_id: song.musicBrainzId,
+            cover_id: song.coverArt,
             cover: if song.coverArt != () {
                 link("getCoverArt", #{ id: song.coverArt, size: 600 }, cover_auth)
             } else {
@@ -1670,6 +1673,10 @@ const EARLIER_EXAMPLES: &[(&str, &str)] = &[
     (
         "subsonic",
         "41f1421aee56cf12d4febbab87f2f6216d888fb7d563dfcfb133eb036307818f",
+    ),
+    (
+        "subsonic",
+        "57942e2acdcd0a0e376c59d7dc4dabc05c3c990394c10673a8e5c29207881862",
     ),
 ];
 
