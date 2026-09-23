@@ -9,6 +9,7 @@ mod home;
 mod importer;
 mod library;
 mod lyrics;
+mod media_keys;
 mod menus;
 mod mini;
 mod motion;
@@ -232,6 +233,7 @@ enum Event {
     ArtistImage(String, Option<String>),
     ArtistImages(Vec<(String, Option<String>)>),
     ArtFetched,
+    MediaKey(media_keys::Key),
     ImportProgress(String),
     Plugin(needle_core::plugins::HostAction),
     PaletteFound(
@@ -345,6 +347,7 @@ pub struct AppView {
     fade: ambient::Fade,
     /// The film-grain tile, once written (`Some(None)` if it could not be).
     grain_file: Option<Option<PathBuf>>,
+    media_keys: Option<media_keys::MediaKeys>,
     /// Whether Windows allows transparency, and whether it is Windows 11 (read at start and
     /// when Appearance settings open).
     glass_system: (bool, bool),
@@ -554,6 +557,7 @@ impl AppView {
         let focus = cx.focus_handle();
         window.focus(&focus);
         let (sender, events) = crossbeam_channel::unbounded();
+        let media_keys = media_keys::MediaKeys::new(window, sender.clone(), &library.directory);
         let plugins = {
             let sender = sender.clone();
             needle_core::plugins::PluginHost::start(library.clone(), move |action| {
@@ -702,6 +706,7 @@ impl AppView {
             looks: Default::default(),
             fade: ambient::Fade::new(pal(cx)),
             grain_file: None,
+            media_keys,
             glass_system: (glass::system_allows_transparency(), glass::windows_11()),
             glass_applied: None,
             home: None,
@@ -847,6 +852,7 @@ impl AppView {
             }
         }
         self.update_discord();
+        self.update_media_keys();
         self.follow_lyrics();
         // With nothing playing the seek bar rests at the start.
         let value = match &self.playback.current {
@@ -985,6 +991,7 @@ impl AppView {
                     self.artist_images.insert(name, path);
                 }
                 Event::ArtistImages(found) => self.artist_images.extend(found),
+                Event::MediaKey(key) => self.media_key(key, window, cx),
                 Event::ArtFetched => {
                     if let Some(item) = self.playback.current.as_ref()
                         && let Ok(Some(track)) = self.library.track(&item.track.id)
