@@ -110,6 +110,13 @@ pub struct Settings {
     pub discord_presence: bool,
     /// Look up covers online (artist and song name only) so Discord can show them.
     pub discord_covers: bool,
+    /// Discord card: "Listening to <title>", then three lines ("song", "artist", "album",
+    /// "needle", or "none"), and whether to show the Needle logo.
+    pub discord_title: String,
+    pub discord_top: String,
+    pub discord_middle: String,
+    pub discord_bottom: String,
+    pub discord_logo: bool,
 }
 
 impl Default for Settings {
@@ -136,6 +143,11 @@ impl Default for Settings {
             grain: 0.,
             discord_presence: true,
             discord_covers: true,
+            discord_title: "song".into(),
+            discord_top: "artist".into(),
+            discord_middle: "song".into(),
+            discord_bottom: "album".into(),
+            discord_logo: true,
         }
     }
 }

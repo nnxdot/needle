@@ -103,7 +103,13 @@ pub fn vivid_color(image: &image::RgbImage) -> Option<Hsla> {
 
 /// Measure a cover and write its blurred copy into `cache`.
 pub fn measure(path: &str, cache: &Path) -> Option<Look> {
-    let image = image::open(path).ok()?;
+    // Read the type from the file's contents: saved covers use a neutral ".img" ending.
+    let image = image::ImageReader::open(path)
+        .ok()?
+        .with_guessed_format()
+        .ok()?
+        .decode()
+        .ok()?;
     let small = image.thumbnail(48, 48).to_rgb8();
     let vivid = vivid_color(&small)?;
     let mut hasher = std::collections::hash_map::DefaultHasher::new();
@@ -375,5 +381,27 @@ impl AppView {
                 }))
                 .into_any_element(),
         )
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Saved covers end in ".img"; their colour must still be read.
+    #[test]
+    fn measures_covers_saved_without_an_image_extension() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("cover.img");
+        image::RgbImage::from_pixel(32, 32, image::Rgb([40, 150, 60]))
+            .save_with_format(&path, image::ImageFormat::Jpeg)
+            .unwrap();
+        let look = measure(path.to_str().unwrap(), &dir.path().join("cache")).expect("measured");
+        assert!(
+            (look.vivid.h - 0.37).abs() < 0.05,
+            "green hue, got {:?}",
+            look.vivid
+        );
+        assert!(look.blur.is_some_and(|b| b.exists()));
     }
 }

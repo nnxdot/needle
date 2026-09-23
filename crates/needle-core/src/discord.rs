@@ -24,6 +24,7 @@ pub struct Activity {
     pub find_cover: bool,
     /// The cover's public link, once known.
     pub cover: Option<String>,
+    pub layout: Layout,
 }
 
 enum Message {
@@ -111,53 +112,126 @@ impl Drop for Presence {
 }
 
 /// The JSON Discord expects for an activity (or `null` to clear it).
+/// What one part of the Discord card shows.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Field {
+    Song,
+    Artist,
+    Album,
+    Needle,
+    Nothing,
+}
+
+impl Field {
+    /// The settings value for this field.
+    pub fn name(self) -> &'static str {
+        match self {
+            Self::Song => "song",
+            Self::Artist => "artist",
+            Self::Album => "album",
+            Self::Needle => "needle",
+            Self::Nothing => "none",
+        }
+    }
+    pub fn from_name(name: &str) -> Self {
+        match name {
+            "song" => Self::Song,
+            "artist" => Self::Artist,
+            "album" => Self::Album,
+            "needle" => Self::Needle,
+            _ => Self::Nothing,
+        }
+    }
+}
+
+/// How the card is laid out: "Listening to <title>", then three lines.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Layout {
+    pub title: Field,
+    pub top: Field,
+    pub middle: Field,
+    /// The third line (Discord shows it only when there is a picture).
+    pub bottom: Field,
+    /// The Needle logo: as a badge on the cover, and as the picture when there is no cover.
+    pub logo: bool,
+}
+
+impl Default for Layout {
+    fn default() -> Self {
+        Self {
+            title: Field::Song,
+            top: Field::Artist,
+            middle: Field::Song,
+            bottom: Field::Album,
+            logo: true,
+        }
+    }
+}
+
+/// Discord needs 2–128 characters in each text field.
+fn clip(s: &str) -> String {
+    let mut s: String = s.trim().chars().take(128).collect();
+    while s.chars().count() < 2 {
+        s.push(' ');
+    }
+    s
+}
+
+impl Activity {
+    fn text(&self, field: Field) -> Option<String> {
+        let value = match field {
+            Field::Song => self.title.as_str(),
+            Field::Artist => self.artist.as_str(),
+            Field::Album => self.album.as_str(),
+            Field::Needle => "Needle",
+            Field::Nothing => return None,
+        };
+        (!value.trim().is_empty()).then(|| clip(value))
+    }
+}
+
+/// The JSON Discord expects for an activity (or `null` to clear it).
 pub fn activity_json(activity: Option<&Activity>) -> Value {
     let Some(a) = activity else {
         return Value::Null;
     };
-    // Discord needs 2–128 characters in each text field.
-    let text = |s: &str, fallback: &str| {
-        let s = if s.trim().is_empty() {
-            fallback
-        } else {
-            s.trim()
-        };
-        let mut s: String = s.chars().take(128).collect();
-        while s.chars().count() < 2 {
-            s.push(' ');
-        }
-        s
-    };
-    // Header "Listening to <song>", then the artist, then the album (or "Paused").
-    let album = if a.album.trim().is_empty() {
-        None
-    } else {
-        Some(text(&a.album, ""))
-    };
+    let layout = a.layout;
     let mut value = json!({
-        "name": text(&a.title, "Needle"),
+        "name": a.text(layout.title).unwrap_or_else(|| "Needle".into()),
         "type": 2,
         "status_display_type": 0,
-        "details": text(&a.artist, "Unknown artist"),
-        "assets": {
-            "large_image": a.cover.clone().unwrap_or_else(|| "needle".into()),
-            "large_text": album.clone().unwrap_or_else(|| "Needle".into()),
-            "small_image": if a.cover.is_some() { json!("needle") } else { Value::Null },
-            "small_text": if a.cover.is_some() { json!("Needle") } else { Value::Null },
-        },
     });
-    let state = match (a.paused, album) {
-        (true, Some(album)) => Some(format!("Paused · {album}")),
-        (true, None) => Some("Paused".to_string()),
-        (false, album) => album,
-    };
-    if let Some(state) = state {
-        value["state"] = json!(state);
+    let top = a.text(layout.top);
+    // When paused, say so on the second line (or the first, if the second is empty).
+    let mut middle = a.text(layout.middle);
+    let mut first = top;
+    if a.paused {
+        match (&middle, &first) {
+            (Some(m), _) => middle = Some(clip(&format!("Paused · {m}"))),
+            (None, Some(f)) => first = Some(clip(&format!("Paused · {f}"))),
+            (None, None) => middle = Some("Paused".into()),
+        }
     }
-    if a.cover.is_none() {
-        let assets = value["assets"].as_object_mut().unwrap();
-        assets.remove("small_image");
-        assets.remove("small_text");
+    if let Some(first) = first {
+        value["details"] = json!(first);
+    }
+    if let Some(middle) = middle {
+        value["state"] = json!(middle);
+    }
+    let picture = a
+        .cover
+        .clone()
+        .or_else(|| layout.logo.then(|| "needle".to_string()));
+    if let Some(picture) = picture {
+        let mut assets = json!({ "large_image": picture });
+        if let Some(bottom) = a.text(layout.bottom) {
+            assets["large_text"] = json!(bottom);
+        }
+        if a.cover.is_some() && layout.logo {
+            assets["small_image"] = json!("needle");
+            assets["small_text"] = json!("Needle");
+        }
+        value["assets"] = assets;
     }
     if !a.paused {
         let mut timestamps = json!({ "start": a.started * 1000 });
@@ -382,25 +456,27 @@ mod tests {
         let a = Activity {
             title: "Armageddon".into(),
             artist: "aespa".into(),
-            album: "".into(),
+            album: "Armageddon - The 1st Album".into(),
             started: 1_000,
             ends: Some(1_196),
             paused: false,
             find_cover: true,
             cover: None,
+            layout: Layout::default(),
         };
+        // Default: "Listening to Armageddon", artist, song, album; Needle logo as the picture.
         let v = activity_json(Some(&a));
         assert_eq!(v["type"], 2);
         assert_eq!(v["name"], "Armageddon");
         assert_eq!(v["details"], "aespa");
-        assert!(v.get("state").is_none());
+        assert_eq!(v["state"], "Armageddon");
         assert_eq!(v["assets"]["large_image"], "needle");
-        assert_eq!(v["assets"]["large_text"], "Needle");
+        assert_eq!(v["assets"]["large_text"], "Armageddon - The 1st Album");
         assert!(v["assets"].get("small_image").is_none());
         assert_eq!(v["timestamps"]["start"], 1_000_000);
         assert_eq!(v["timestamps"]["end"], 1_196_000);
+        // With a cover the logo becomes the small badge.
         let with_cover = activity_json(Some(&Activity {
-            album: "Armageddon - The 1st Album".into(),
             cover: Some("https://example.com/c.jpg".into()),
             ..a.clone()
         }));
@@ -409,16 +485,44 @@ mod tests {
             "https://example.com/c.jpg"
         );
         assert_eq!(with_cover["assets"]["small_image"], "needle");
-        assert_eq!(with_cover["state"], "Armageddon - The 1st Album");
-        let paused = activity_json(Some(&Activity {
-            paused: true,
-            title: "X".into(),
-            ..a
+        // Without the logo: no badge, and no picture at all when there is no cover.
+        let no_logo = Layout {
+            logo: false,
+            ..Layout::default()
+        };
+        let v = activity_json(Some(&Activity {
+            cover: Some("https://example.com/c.jpg".into()),
+            layout: no_logo,
+            ..a.clone()
         }));
-        assert_eq!(paused["name"], "X ");
-        assert_eq!(paused["state"], "Paused");
-        assert!(paused.get("timestamps").is_none());
+        assert!(v["assets"].get("small_image").is_none());
+        let v = activity_json(Some(&Activity {
+            layout: no_logo,
+            ..a.clone()
+        }));
+        assert!(v.get("assets").is_none());
+        // Other layouts, and paused.
+        let custom = Layout {
+            title: Field::Needle,
+            top: Field::Song,
+            middle: Field::Nothing,
+            bottom: Field::Artist,
+            logo: true,
+        };
+        let v = activity_json(Some(&Activity {
+            layout: custom,
+            paused: true,
+            ..a.clone()
+        }));
+        assert_eq!(v["name"], "Needle");
+        assert_eq!(v["details"], "Paused · Armageddon");
+        assert!(v.get("state").is_none());
+        assert_eq!(v["assets"]["large_text"], "aespa");
+        assert!(v.get("timestamps").is_none());
+        let paused = activity_json(Some(&Activity { paused: true, ..a }));
+        assert_eq!(paused["state"], "Paused · Armageddon");
         assert_eq!(activity_json(None), Value::Null);
+        assert_eq!(Field::from_name(Field::Album.name()), Field::Album);
     }
 
     #[test]
@@ -471,6 +575,7 @@ mod tests {
                 paused: false,
                 find_cover: false,
                 cover: find_cover("aespa", "Armageddon", "Armageddon - The 1st Album"),
+                layout: Layout::default(),
             }))
             .unwrap();
         println!("{reply}");

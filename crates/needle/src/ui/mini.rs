@@ -3,7 +3,10 @@ use super::{
     widgets::{artwork, faint, glyph, icon_button, meta},
 };
 use gpui::{prelude::*, *};
-use gpui_component::{Root, Sizable, slider::Slider};
+use gpui_component::{
+    Root, Sizable,
+    slider::{Slider, SliderEvent, SliderState},
+};
 use needle_core::{audio::Command, model::format_duration};
 
 pub const COMPACT: Size<Pixels> = Size {
@@ -30,7 +33,12 @@ pub struct MiniView {
     tab: Tab,
     pinned: bool,
     glass_applied: Option<(super::glass::Material, bool)>,
+    /// The mini player's own sliders. Sharing the main window's would mix up their sizes, so
+    /// the thumb and the filled part drift apart when both windows are open.
+    seek: Entity<SliderState>,
+    volume: Entity<SliderState>,
     _observe: Option<Subscription>,
+    _sliders: Vec<Subscription>,
 }
 
 impl AppView {
@@ -63,14 +71,45 @@ impl AppView {
             let weak = app.downgrade();
             let opened = cx.open_window(options, |window, cx| {
                 window.set_window_title("Needle mini player");
-                let view = cx.new(|cx| MiniView {
-                    _observe: Some(cx.observe(&app, |_, _, cx| cx.notify())),
-                    app: weak.clone(),
-                    main,
-                    expanded: false,
-                    tab: Tab::Next,
-                    pinned: false,
-                    glass_applied: None,
+                let view = cx.new(|cx| {
+                    let seek = cx.new(|_| SliderState::new().min(0.).max(1000.).step(1.));
+                    let volume = cx.new(|_| SliderState::new().min(0.).max(1.).step(0.01));
+                    let sliders = vec![
+                        cx.subscribe(&seek, |this: &mut MiniView, _, event: &SliderEvent, cx| {
+                            let SliderEvent::Change(value) = event;
+                            let Some(app) = this.app.upgrade() else {
+                                return;
+                            };
+                            let a = app.read(cx);
+                            if let Some(item) = &a.playback.current {
+                                a.player.send(Command::Seek(
+                                    value.start() as f64 / 1000.0 * item.track.duration,
+                                ));
+                            }
+                        }),
+                        cx.subscribe(
+                            &volume,
+                            |this: &mut MiniView, _, event: &SliderEvent, cx| {
+                                let SliderEvent::Change(value) = event;
+                                let volume = value.start();
+                                if let Some(app) = this.app.upgrade() {
+                                    app.read(cx).player.send(Command::Volume(volume));
+                                }
+                            },
+                        ),
+                    ];
+                    MiniView {
+                        seek,
+                        volume,
+                        _sliders: sliders,
+                        _observe: Some(cx.observe(&app, |_, _, cx| cx.notify())),
+                        app: weak.clone(),
+                        main,
+                        expanded: false,
+                        tab: Tab::Next,
+                        pinned: false,
+                        glass_applied: None,
+                    }
                 });
                 cx.new(|cx| Root::new(view, window, cx))
             });
@@ -206,12 +245,28 @@ impl Render for MiniView {
                 a.playback.playing,
                 a.playback.position,
                 a.playback.volume,
-                a.seek.clone(),
-                a.volume.clone(),
+                self.seek.clone(),
+                self.volume.clone(),
                 blur,
                 material,
             )
         };
+        // Follow playback, changing the sliders only when they are off, so a frame is not
+        // redrawn for nothing.
+        let seek_value = match &current {
+            Some(item) if item.track.duration > 0.0 => {
+                (position / item.track.duration * 1000.0) as f32
+            }
+            _ => 0.,
+        };
+        if (self.seek.read(cx).value().start() - seek_value).abs() > 0.5 {
+            self.seek
+                .update(cx, |s, cx| s.set_value(seek_value, window, cx));
+        }
+        if (self.volume.read(cx).value().start() - volume).abs() > 0.001 {
+            self.volume
+                .update(cx, |s, cx| s.set_value(volume, window, cx));
+        }
         if self.glass_applied != Some((material, p.dark)) {
             super::glass::apply(window, material, p.dark);
             self.glass_applied = Some((material, p.dark));
