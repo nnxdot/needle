@@ -1,0 +1,236 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Needle — Your music, in its place.</title>
+<meta name="description" content="Needle is a music player for Windows, for the music you own. Lossless playback, karaoke lyrics, radio from your own library, and every speaker in your home. Made at NNX.">
+<meta property="og:title" content="Needle — Your music, in its place.">
+<meta property="og:description" content="A music player for Windows, for the music you own. Made at NNX.">
+<meta property="og:url" content="https://needle.nnx.fyi/">
+<meta name="theme-color" content="#ffffff">
+<link rel="icon" href="/favicon.svg" type="image/svg+xml">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/style.css">
+</head>
+<body>
+<a class="skip" href="#main">Skip to content</a>
+
+<header class="top">
+  <div class="wrap top-row">
+    <a class="mark" href="#" aria-label="Needle home">needle<span class="dot">.</span></a>
+    <nav aria-label="Main navigation">
+      <a href="#features">Features</a>
+      <a href="#private">Privacy</a>
+      <a href="#download">Download</a>
+      <a href="https://nnx.fyi/">NNX</a>
+    </nav>
+  </div>
+</header>
+
+<main id="main">
+  <section class="hero" aria-labelledby="hero-title">
+    <p class="kicker"><span class="kicker-dot" aria-hidden="true"></span>A music player by NNX</p>
+    <h1 id="hero-title">Your music,<br><span class="soft">in its place</span><span class="dot">.</span></h1>
+    <p class="lede">A fast, careful player for the music you own.<br>Lossless, private, and yours to arrange.</p>
+    <div class="actions">
+      <a class="button primary" href="#download">Download for Windows
+        <svg viewBox="0 0 20 20" aria-hidden="true"><path d="M10 3v10m0 0-4-4m4 4 4-4M4 16h12"/></svg></a>
+      <a class="button quiet" href="#features">See what it does</a>
+    </div>
+    <p class="fine">Version 1.0.0 · Windows 10 and 11 · Free</p>
+  </section>
+
+  <!-- A drawing of the app, with made-up albums. -->
+  <section class="stage" aria-label="Needle's album view">
+    <div class="app" role="img" aria-label="Needle showing a grid of albums, with a song playing.">
+      <div class="app-title">
+        <span class="app-name"><i class="app-logo"></i>Needle</span>
+        <span class="app-search">Search, or write a rule like  rating &gt;= 4</span>
+        <span class="app-win"><i></i><i></i><i></i></span>
+      </div>
+      <div class="app-body">
+        <aside class="app-side">
+          <b class="on">Home</b><b>Songs</b><b class="sel">Albums</b><b>Artists</b><b>Folders</b>
+          <em>Collections</em><b>Favorites</b><b>Recently added</b><b>Listening history</b>
+          <span class="grow"></span><b>Fix my library</b><b>Settings</b>
+        </aside>
+        <div class="app-main">
+          <h3>Albums</h3>
+          <p>8 albums</p>
+          <div class="grid">
+            <figure><span class="cover c-sun"></span><figcaption>Harbor Lights<small>Mara Quinn · 2021</small></figcaption></figure>
+            <figure><span class="cover c-tide"></span><figcaption>Tidewater<small>Mara Quinn · 2024</small></figcaption></figure>
+            <figure><span class="cover c-arcade"></span><figcaption>Afterglow Arcade<small>Pixel Choir · 2023</small></figcaption></figure>
+            <figure><span class="cover c-record"></span><figcaption>Single Needle<small>The Pressings · 1998</small></figcaption></figure>
+            <figure><span class="cover c-citrus"></span><figcaption>Citrus Season<small>Juniper Bay · 2022</small></figcaption></figure>
+            <figure><span class="cover c-forest"></span><figcaption>Understory<small>Fern &amp; Field · 2019</small></figcaption></figure>
+            <figure><span class="cover c-grey"></span><figcaption>Grey Weather<small>Low Ceiling · 2017</small></figcaption></figure>
+            <figure><span class="cover c-red"></span><figcaption>Red Light Only<small>Darkroom · 2020</small></figcaption></figure>
+          </div>
+        </div>
+      </div>
+      <div class="app-player">
+        <span class="now"><span class="cover c-sun small"></span><span>Opening<small>Mara Quinn</small></span></span>
+        <span class="controls"><i></i><i></i><i class="play"></i><i></i><i></i></span>
+        <span class="bar"><span class="fill"></span></span>
+        <span class="signal">FLAC 24/44.1</span>
+      </div>
+    </div>
+  </section>
+
+  <section id="features" class="features" aria-labelledby="features-title">
+    <div class="wrap">
+      <div class="section-head">
+        <h2 id="features-title">Made for the music you own<span class="dot">.</span></h2>
+        <p>Your files, played properly. Everything below runs on your computer.</p>
+      </div>
+
+      <article class="feature">
+        <div class="copy">
+          <p class="tag">Speakers</p>
+          <h3>Play it in every room.</h3>
+          <p>Send what you're playing to a Chromecast, a DLNA speaker, or an AirPlay receiver. Your queue, crossfade, and equalizer come along.</p>
+        </div>
+        <div class="demo">
+          <div class="menu" role="img" aria-label="A Play on menu listing this computer, a living room speaker, a kitchen speaker, and a bedroom TV.">
+            <p class="menu-title">Play on</p>
+            <p class="menu-row"><span class="tick">✓</span>This computer</p>
+            <p class="menu-row">Living Room<small>Chromecast</small></p>
+            <p class="menu-row">Kitchen<small>AirPlay</small></p>
+            <p class="menu-row">Bedroom TV<small>DLNA</small></p>
+          </div>
+        </div>
+      </article>
+
+      <article class="feature flip">
+        <div class="copy">
+          <p class="tag">Radio</p>
+          <h3>A radio station made from your shelves.</h3>
+          <p>Needle listens to each song for its tempo, key, and energy, then builds stations from songs that belong together. Start one from a song or an artist, or blend two artists.</p>
+        </div>
+        <div class="demo">
+          <div class="radio" role="img" aria-label="A song measured at 112 BPM, A minor, upbeat, followed by a queue of similar songs by different artists.">
+            <p class="chips"><span>112 BPM</span><span>A minor</span><span>Upbeat</span></p>
+            <ol>
+              <li><span class="cover c-tide small"></span><span>Middle Distance<small>Mara Quinn</small></span></li>
+              <li><span class="cover c-arcade small"></span><span>Coming Home<small>Pixel Choir</small></span></li>
+              <li><span class="cover c-citrus small"></span><span>Opening<small>Juniper Bay</small></span></li>
+              <li><span class="cover c-record small"></span><span>Middle Distance<small>The Pressings</small></span></li>
+            </ol>
+          </div>
+        </div>
+      </article>
+
+      <article class="feature">
+        <div class="copy">
+          <p class="tag">Lyrics</p>
+          <h3>Sing along, word by word.</h3>
+          <p>Timed lyrics follow the song, and words light up as they're sung. No timing for a song? Tap along once, and Needle saves it next to the file.</p>
+        </div>
+        <div class="demo">
+          <div class="lyrics" role="img" aria-label="Lyrics, with the current line lighting up word by word.">
+            <p class="past">Harbor lights are coming on</p>
+            <p class="past">The tide is turning slow</p>
+            <p class="sung"><span>Every</span> <span>song</span> <span>I</span> <span>ever</span> <span>kept</span></p>
+            <p class="next">Is right where I left it</p>
+            <p class="next">Put the needle down again</p>
+          </div>
+        </div>
+      </article>
+
+      <article class="feature flip">
+        <div class="copy">
+          <p class="tag">Your year</p>
+          <h3>Your year in music, told back.</h3>
+          <p>Your artist of the year, the songs you had on repeat, the albums you lived in, and when you listen most. Play your top songs or save them as a playlist.</p>
+        </div>
+        <div class="demo">
+          <div class="year" role="img" aria-label="Your year in music: 40 hours with your music, 795 plays of 24 songs by 7 artists.">
+            <p class="year-num">2026</p>
+            <p class="year-line">You spent <b>40 hours</b> with your music: <b>795 plays</b> of <b>24 songs</b> by <b>7 artists</b>.</p>
+            <p class="year-rhythm"><span style="--h:.35"></span><span style="--h:.1"></span><span style="--h:.05"></span><span style="--h:.3"></span><span style="--h:.45"></span><span style="--h:.2"></span><span style="--h:.55"></span><span style="--h:.8"></span><span style="--h:1"></span></p>
+            <p class="year-foot">You listen most around <b>11 PM</b>. A night owl.</p>
+          </div>
+        </div>
+      </article>
+
+      <article class="feature">
+        <div class="copy">
+          <p class="tag">Fix my library</p>
+          <h3>Tidy, without the dread.</h3>
+          <p>Merge duplicates and keep the best-sounding copy. Fill in missing covers. Match albums on MusicBrainz, with every change shown before anything is written. Rename and move files by a pattern, and undo it if you change your mind.</p>
+        </div>
+        <div class="demo">
+          <div class="dupes" role="img" aria-label="Two copies of a song. The FLAC copy is kept, and the MP3 copy is merged into it.">
+            <p class="dupe-head"><span class="cover c-red small"></span>Middle Distance<small>Darkroom</small></p>
+            <p class="dupe keep"><i></i>FLAC 24/44.1<small>Red Light Only\02 Middle Distance.flac</small></p>
+            <p class="dupe"><i></i>MP3 320<small>Downloads\middle distance (1).mp3</small></p>
+            <p class="merge">Merge<span>Plays, ratings, and playlists move to the copy you keep.</span></p>
+          </div>
+        </div>
+      </article>
+    </div>
+  </section>
+
+  <section class="more" aria-labelledby="more-title">
+    <div class="wrap">
+      <h2 id="more-title">And the rest<span class="dot">.</span></h2>
+      <dl class="list">
+        <div><dt>Every format you have</dt><dd>FLAC, ALAC, WAV, AIFF, MP3, AAC, Ogg, Opus, WavPack, Monkey's Audio, DSD, and CUE sheets.</dd></div>
+        <div><dt>Sound, done right</dt><dd>Gapless playback, crossfade, ReplayGain, an equalizer, and exclusive output for your DAC.</dd></div>
+        <div><dt>Stems</dt><dd>Split any song into vocals, drums, bass, and the rest, on your computer, then mix them live.</dd></div>
+        <div><dt>Rules, not folders</dt><dd>Search with rules like <code>rating &gt;= 4 and year &lt; 2000</code>, and save them as playlists that keep themselves up to date.</dd></div>
+        <div><dt>Your way to browse</dt><dd>Albums, artists, folders on disk, and a song table with the columns you choose.</dd></div>
+        <div><dt>At home in Windows</dt><dd>Media keys, the lock screen, a mini player, and "Open with Needle" for your music files.</dd></div>
+      </dl>
+    </div>
+  </section>
+
+  <section id="private" class="private" aria-labelledby="private-title">
+    <div class="wrap private-row">
+      <h2 id="private-title">Yours stays yours<span class="dot">.</span></h2>
+      <div>
+        <p>Needle works without an account and keeps your library on your computer. Looking up lyrics and covers online is off until you turn it on, and then it sends only the artist, album, and title.</p>
+        <p>Your files are never moved or changed unless you ask. When you do, Needle keeps a backup.</p>
+        <p>Once a day, Needle asks for news of a newer version. You can turn that off in Settings.</p>
+      </div>
+    </div>
+  </section>
+
+  <section id="download" class="download" aria-labelledby="download-title">
+    <div class="wrap">
+      <p class="kicker"><span class="kicker-dot" aria-hidden="true"></span>Needle 1.0.0</p>
+      <h2 id="download-title">Bring your music home<span class="dot">.</span></h2>
+      <p class="lede">For Windows 10 and 11, 64-bit. No administrator needed.</p>
+      <div class="actions">
+        <a class="button primary" href="/download/Needle-Setup-1.0.0.exe">Download the installer
+          <svg viewBox="0 0 20 20" aria-hidden="true"><path d="M10 3v10m0 0-4-4m4 4 4-4M4 16h12"/></svg></a>
+        <a class="button quiet" href="/download/Needle-1.0.0-windows-x64.zip">Or the portable zip</a>
+      </div>
+      <p class="fine">48 MB installer · 63 MB zip · <a href="/download/SHA256SUMS.txt">SHA-256 checksums</a></p>
+    </div>
+  </section>
+</main>
+
+<footer class="foot">
+  <div class="wrap">
+    <div class="foot-row">
+      <a class="mark big" href="#" aria-label="Needle home">needle<span class="dot">.</span></a>
+      <p>A music player.<br>Made at <a href="https://nnx.fyi/">NNX</a>.</p>
+    </div>
+    <div class="foot-row small">
+      <span>© 2026 NNX</span>
+      <nav aria-label="Footer navigation">
+        <a href="https://nnx.fyi/">NNX</a>
+        <a href="https://nivren.nnx.fyi/">Nivren</a>
+        <a href="https://deadline.nnx.fyi/">Deadline</a>
+        <a href="mailto:dot@nnx.fyi">Contact</a>
+      </nav>
+    </div>
+  </div>
+</footer>
+</body>
+</html>
