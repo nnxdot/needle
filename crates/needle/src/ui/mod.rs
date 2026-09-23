@@ -476,6 +476,8 @@ pub struct AppView {
     /// A Discord setting changed: tell Discord again even if nothing else did (including
     /// clearing the status).
     discord_refresh: bool,
+    /// The song Last.fm and ListenBrainz were last told is playing now.
+    now_playing_sent: Option<String>,
 }
 
 pub fn run(library: Library, files: Vec<std::path::PathBuf>) -> Result<()> {
@@ -863,6 +865,7 @@ impl AppView {
             discord: None,
             discord_sent: None,
             discord_refresh: false,
+            now_playing_sent: None,
         };
         view.refresh(cx);
         view.load_home();
@@ -1012,6 +1015,7 @@ impl AppView {
             }
         }
         self.update_discord();
+        self.update_now_playing();
         self.update_media_keys();
         self.follow_output();
         self.follow_lyrics();
