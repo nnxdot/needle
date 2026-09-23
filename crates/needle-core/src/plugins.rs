@@ -109,6 +109,10 @@ pub struct PluginInfo {
     pub source: Option<SourceInfo>,
     /// A bundled plugin someone changed: the newer version this build of Needle has.
     pub update: Option<String>,
+    /// One of the plugins that come with Needle (in its own folder, under its own id).
+    pub official: bool,
+    /// Official, and its files exactly as Needle wrote them.
+    pub verified: bool,
 }
 
 /// A music source a plugin brings: what to ask for to sign in, and how it is doing.
@@ -772,6 +776,8 @@ fn load_all(
                         effects: vec![],
                         source: None,
                         update: None,
+                        official: false,
+                        verified: false,
                     },
                     engine: Engine::new_raw(),
                     ast: None,
@@ -802,6 +808,9 @@ fn load_all(
                 effects: vec![],
                 source: None,
                 update: bundled_update(&dir, &manifest.id),
+                official: is_official(&dir, &manifest.id),
+                verified: is_official(&dir, &manifest.id)
+                    && unedited_version(&dir, &manifest.id).is_some(),
             },
             engine,
             ast: None,
@@ -1742,6 +1751,15 @@ fn bundled_files(name: &str) -> Vec<(&'static str, &'static str)> {
     files
 }
 
+/// Whether the plugin in `dir` is one Needle ships: its id is a bundled plugin's, in the
+/// folder of that name.
+pub fn is_official(dir: &Path, id: &str) -> bool {
+    EXAMPLES.iter().any(|(name, ..)| *name == id)
+        && dir
+            .file_name()
+            .is_some_and(|f| f == std::ffi::OsStr::new(id))
+}
+
 /// The version a bundled plugin has in this build of Needle.
 fn bundled_version(name: &str) -> String {
     bundled_files(name)
@@ -2392,6 +2410,11 @@ version = \"1.0.0\"",
         keep_changed_plugin(&plugin, "subsonic").unwrap();
         assert_eq!(bundled_update(&plugin, "subsonic"), None);
         assert!(read("main.rhai").ends_with("// mine"));
+
+        // Official either way; verified only while unchanged.
+        assert!(is_official(&plugin, "subsonic"));
+        assert!(!is_official(&folder.join("copycat"), "subsonic"));
+        assert!(unedited_version(&plugin, "subsonic").is_none());
 
         // Taking it replaces the files and keeps the changed script as main.rhai.mine.
         take_bundled_update(&plugin, "subsonic").unwrap();
