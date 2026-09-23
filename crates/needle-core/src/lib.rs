@@ -7,6 +7,7 @@ pub mod cue;
 pub mod database;
 pub mod demo;
 pub mod discord;
+pub mod doctor;
 pub mod dsp;
 #[cfg(windows)]
 mod exclusive;

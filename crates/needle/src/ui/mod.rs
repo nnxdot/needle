@@ -3,6 +3,7 @@ mod assets;
 mod chrome;
 mod columns;
 mod discord;
+mod doctor;
 mod flow;
 mod folders;
 mod glass;
@@ -128,6 +129,8 @@ pub enum Page {
     Timing,
     /// A year of listening, told back.
     Wrapped(i32),
+    /// Fix my library: duplicates, covers, tags, and tidy files.
+    Doctor,
 }
 impl Page {
     fn title(&self) -> String {
@@ -155,6 +158,7 @@ impl Page {
             Self::Import => "Import".into(),
             Self::Timing => "Lyric timing".into(),
             Self::Wrapped(year) => format!("{year} in music"),
+            Self::Doctor => "Fix my library".into(),
         }
     }
     /// The rule behind the page, before any search text is applied.
@@ -183,6 +187,7 @@ impl Page {
                 | Self::Import
                 | Self::Timing
                 | Self::Wrapped(_)
+                | Self::Doctor
         )
     }
     pub fn is_grid(&self) -> bool {
@@ -259,6 +264,7 @@ enum Event {
     Home(Box<needle_core::browse::Home>),
     Subfolders(String, Vec<needle_core::browse::Subfolder>),
     Wrapped(Box<needle_core::wrapped::Wrapped>, Vec<i32>),
+    Doctor(doctor::Msg),
     Lyrics(String, Option<needle_core::media::Lyrics>),
     ArtistImage(String, Option<String>),
     ArtistImages(Vec<(String, Option<String>)>),
@@ -317,6 +323,7 @@ pub struct AppView {
     menu: Option<menus::TrackMenu>,
     playlist_menu: Option<menus::PlaylistMenu>,
     header_menu: Option<columns::HeaderMenu>,
+    doctor: doctor::Doctor,
     wrapped: Option<needle_core::wrapped::Wrapped>,
     wrapped_years: Vec<i32>,
     timing: Option<timing::Timing>,
@@ -570,6 +577,7 @@ impl AppView {
         let listenbrainz_token = secret("ListenBrainz user token", window, cx);
         let acoustid_key = secret("AcoustID application key", window, cx);
         let tags = TagFields::new(window, cx);
+        let doctor = doctor::Doctor::new(window, cx);
         let sound = sound::SoundControls::new(&settings.dsp, cx);
         let import = importer::ImportState::new(window, cx);
         let palette = palette::PaletteState::new(window, cx);
@@ -695,6 +703,7 @@ impl AppView {
             menu: None,
             playlist_menu: None,
             header_menu: None,
+            doctor,
             wrapped: None,
             wrapped_years: vec![],
             timing: None,
@@ -994,6 +1003,7 @@ impl AppView {
                 Event::Home(home) => self.home = Some(home),
                 Event::Subfolders(path, list) => self.subfolders = Some((path, list)),
                 Event::Wrapped(wrapped, years) => self.wrapped_loaded(*wrapped, years),
+                Event::Doctor(msg) => self.doctor_message(msg),
                 Event::ImportProgress(message) => self.import.busy = Some(message),
                 Event::Plugin(action) => self.plugin_action(action, cx),
                 Event::PaletteFound(generation, songs, albums, artists) => {
@@ -1389,6 +1399,9 @@ impl AppView {
         }
         if let Page::Wrapped(year) = self.page {
             self.load_wrapped(year);
+        }
+        if self.page == Page::Doctor {
+            self.doctor_load();
         }
         if self.page == Page::Settings {
             self.glass_system = (glass::system_allows_transparency(), glass::windows_11());

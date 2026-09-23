@@ -71,6 +71,14 @@ impl Track {
             &self.artist
         }
     }
+    /// The album's artist: the album artist tag, else the track artist.
+    pub fn display_album_artist(&self) -> &str {
+        if self.album_artist.is_empty() {
+            &self.artist
+        } else {
+            &self.album_artist
+        }
+    }
     pub fn display_album(&self) -> &str {
         if self.album.is_empty() {
             "Unknown album"

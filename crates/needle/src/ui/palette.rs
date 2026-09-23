@@ -140,6 +140,7 @@ impl AppView {
             ),
             page("eq", "Sound and equalizer", Page::Sound, None),
             page("import", "Import from other apps", Page::Import, None),
+            page("wrench", "Fix my library", Page::Doctor, None),
         ];
         items.extend(self.playlists.iter().map(|p| {
             let target = Page::Playlist(p.id.clone());
