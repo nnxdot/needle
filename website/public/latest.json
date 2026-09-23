@@ -1,11 +1,20 @@
 {
-  "tag_name": "v1.0.0",
   "html_url": "https://needle.nnx.fyi/",
-  "draft": false,
-  "prerelease": false,
+  "tag_name": "v1.1.0",
   "assets": [
-    { "name": "Needle-Setup-1.0.0.exe", "browser_download_url": "https://needle.nnx.fyi/download/Needle-Setup-1.0.0.exe" },
-    { "name": "Needle-1.0.0-windows-x64.zip", "browser_download_url": "https://needle.nnx.fyi/download/Needle-1.0.0-windows-x64.zip" },
-    { "name": "SHA256SUMS.txt", "browser_download_url": "https://needle.nnx.fyi/download/SHA256SUMS.txt" }
-  ]
+    {
+      "name": "Needle-1.1.0-windows-x64.zip",
+      "browser_download_url": "https://needle.nnx.fyi/download/Needle-1.1.0-windows-x64.zip"
+    },
+    {
+      "name": "Needle-Setup-1.1.0.exe",
+      "browser_download_url": "https://needle.nnx.fyi/download/Needle-Setup-1.1.0.exe"
+    },
+    {
+      "name": "SHA256SUMS.txt",
+      "browser_download_url": "https://needle.nnx.fyi/download/SHA256SUMS.txt"
+    }
+  ],
+  "prerelease": false,
+  "draft": false
 }

@@ -64,7 +64,10 @@ try {
             $name = Split-Path $_ -Leaf
             @{ name = $name; browser_download_url = "$site/download/$name" }
         })
-    } | ConvertTo-Json -Depth 4 | Set-Content -LiteralPath (Join-Path $workspace 'dist\latest.json') -Encoding utf8
+    } | ConvertTo-Json -Depth 4 | ForEach-Object {
+        # Without a byte-order mark, which JSON readers (Needle's included) reject.
+        [System.IO.File]::WriteAllText((Join-Path $workspace 'dist\latest.json'), $_, (New-Object System.Text.UTF8Encoding $false))
+    }
 
     # winget manifests, ready to submit to microsoft/winget-pkgs once the release is published.
     if ($iscc) {
