@@ -1323,7 +1323,7 @@ impl AppView {
                         let value = options[i].0.to_string();
                         let _ = weak.update(cx, |this, cx| {
                             set(this, value);
-                            this.discord_sent = None;
+                            this.discord_refresh = true;
                             this.persist_settings();
                             cx.notify();
                         });
@@ -1391,7 +1391,7 @@ impl AppView {
                 Switch::new(id).checked(checked).on_click(cx.listener(
                     move |this, checked: &bool, _, cx| {
                         set(this, *checked);
-                        this.discord_sent = None;
+                        this.discord_refresh = true;
                         this.persist_settings();
                         cx.notify();
                     },
@@ -1447,7 +1447,7 @@ impl AppView {
                     move |index, _, cx| {
                         let _ = weak.update(cx, |this, cx| {
                             this.settings.discord_idle_minutes = IDLE[index].0;
-                            this.discord_sent = None;
+                            this.discord_refresh = true;
                             this.persist_settings();
                             cx.notify();
                         });

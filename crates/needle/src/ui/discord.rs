@@ -64,15 +64,17 @@ impl AppView {
         let key = activity
             .as_ref()
             .map(|a| (format!("{}\u{1}{}", a.title, a.artist), a.paused, a.started));
-        let changed = match (&self.discord_sent, &key) {
-            (None, None) => false,
-            (Some((song, paused, started)), Some((new_song, new_paused, new_started))) => {
-                song != new_song
-                    || paused != new_paused
-                    || (!new_paused && (started - new_started).abs() > 2)
-            }
-            _ => true,
-        };
+        let refresh = std::mem::take(&mut self.discord_refresh);
+        let changed = refresh
+            || match (&self.discord_sent, &key) {
+                (None, None) => false,
+                (Some((song, paused, started)), Some((new_song, new_paused, new_started))) => {
+                    song != new_song
+                        || paused != new_paused
+                        || (!new_paused && (started - new_started).abs() > 2)
+                }
+                _ => true,
+            };
         if changed {
             presence.set(activity);
             self.discord_sent = key;

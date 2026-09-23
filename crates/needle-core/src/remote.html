@@ -162,7 +162,8 @@ function row(title, artist, onPlay, extra) {
   li.tabIndex = 0;
   li.setAttribute('aria-label', `Play ${title}${artist ? ' by ' + artist : ''}`);
   li.onclick = onPlay;
-  li.onkeydown = e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onPlay(); } };
+  // Keys on the row itself play it; keys on its + button are the button's.
+  li.onkeydown = e => { if (e.target !== li) return; if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onPlay(); } };
   const text = document.createElement('div');
   text.className = 'text';
   const b = document.createElement('b'); b.textContent = title;

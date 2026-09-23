@@ -473,6 +473,9 @@ pub struct AppView {
     discord: Option<needle_core::discord::Presence>,
     /// What Discord was last told: song, paused, and start second.
     discord_sent: Option<(String, bool, i64)>,
+    /// A Discord setting changed: tell Discord again even if nothing else did (including
+    /// clearing the status).
+    discord_refresh: bool,
 }
 
 pub fn run(library: Library, files: Vec<std::path::PathBuf>) -> Result<()> {
@@ -859,6 +862,7 @@ impl AppView {
             acoustid_key,
             discord: None,
             discord_sent: None,
+            discord_refresh: false,
         };
         view.refresh(cx);
         view.load_home();
