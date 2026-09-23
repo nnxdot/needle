@@ -69,9 +69,112 @@ pub struct TrackMenu {
     pub highlight: Option<usize>,
     /// Changes whenever the menu or submenu opens, to replay the entrance animation.
     pub serial: usize,
+    /// A song that is not a row of the list: the one playing, from the player bar.
+    pub track: Option<needle_core::model::Track>,
 }
 
 impl AppView {
+    /// The menu of the song playing, opened by right-clicking it in the player bar.
+    pub(super) fn open_playing_menu(
+        &mut self,
+        track: needle_core::model::Track,
+        position: Point<Pixels>,
+        cx: &mut Context<Self>,
+    ) {
+        self.menu_serial += 1;
+        self.menu = Some(TrackMenu {
+            position,
+            index: 0,
+            sub: None,
+            highlight: None,
+            serial: self.menu_serial,
+            track: Some(track),
+        });
+        cx.notify();
+    }
+
+    /// Entries for the playing song: what makes sense for one song that is already playing.
+    fn playing_entries(&self, track: needle_core::model::Track, sub: Option<&str>) -> Vec<Entry> {
+        if sub == Some("playlists") {
+            return self
+                .playlists
+                .iter()
+                .filter(|p| p.query.is_none())
+                .cloned()
+                .map(|playlist| {
+                    let (id, song) = (playlist.id.clone(), track.clone());
+                    Entry::item("playlist", playlist.name, None, move |this, _, _| {
+                        this.add_to_playlist(&id, vec![song.clone()]);
+                    })
+                })
+                .collect();
+        }
+        let favorite = self
+            .tracks
+            .iter()
+            .find(|t| t.id == track.id)
+            .map_or(track.rating, |t| t.rating)
+            >= 4;
+        let id = track.id.clone();
+        let mut entries = vec![Entry::item(
+            if favorite { "heart-fill" } else { "heart" },
+            if favorite {
+                "Remove from favorites"
+            } else {
+                "Add to favorites"
+            },
+            None,
+            move |this, _, _| {
+                this.set_rating(std::slice::from_ref(&id), if favorite { 0 } else { 5 })
+            },
+        )];
+        if self.playlists.iter().any(|p| p.query.is_none()) {
+            entries.push(Entry::Sub {
+                icon: "playlist",
+                label: "Add to playlist".into(),
+                key: "playlists",
+            });
+        }
+        let album = super::album_page(&track);
+        let artist = Page::Artist(track.artist.clone());
+        let seed = track.clone();
+        entries.extend([
+            Entry::Separator,
+            Entry::item("albums", "Go to album", None, move |this, window, cx| {
+                this.navigate(album.clone(), window, cx)
+            }),
+            Entry::item("artists", "Go to artist", None, move |this, window, cx| {
+                this.navigate(artist.clone(), window, cx)
+            }),
+            Entry::item("radio", "Start radio", None, move |this, _, _| {
+                this.start_radio(seed.clone())
+            }),
+            Entry::Separator,
+        ]);
+        if track.is_streamed() {
+            let id = track.id.clone();
+            entries.push(Entry::item(
+                "import",
+                "Save to my music",
+                None,
+                move |this, _, _| this.save_streamed(std::slice::from_ref(&id)),
+            ));
+        } else {
+            let path = track.file_path().trim_start_matches("\\\\?\\").to_string();
+            let copy = path.clone();
+            entries.extend([
+                Entry::item("folder", "Show in File Explorer", None, move |_, _, _| {
+                    let _ = std::process::Command::new("explorer")
+                        .arg(format!("/select,{path}"))
+                        .spawn();
+                }),
+                Entry::item("copy", "Copy file path", None, move |_, _, cx| {
+                    cx.write_to_clipboard(ClipboardItem::new_string(copy.clone()))
+                }),
+            ]);
+        }
+        entries
+    }
     pub(super) fn open_menu(
         &mut self,
         index: usize,
@@ -90,6 +193,7 @@ impl AppView {
             sub: None,
             highlight: None,
             serial: self.menu_serial,
+            track: None,
         });
         cx.notify();
     }
@@ -98,6 +202,9 @@ impl AppView {
         let Some(menu) = &self.menu else {
             return vec![];
         };
+        if let Some(track) = menu.track.clone() {
+            return self.playing_entries(track, menu.sub);
+        }
         let Some(track) = self.tracks.get(menu.index).cloned() else {
             return vec![];
         };
@@ -445,7 +552,9 @@ impl AppView {
 
     pub(super) fn track_menu(&self, cx: &mut Context<Self>) -> Option<impl IntoElement> {
         let menu = self.menu.as_ref()?;
-        self.tracks.get(menu.index)?;
+        if menu.track.is_none() {
+            self.tracks.get(menu.index)?;
+        }
         let p = pal(cx);
         let entries = self.menu_entries();
         let highlight = menu.highlight;
