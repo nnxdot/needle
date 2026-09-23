@@ -137,6 +137,7 @@ impl AppView {
             Page::Folders => self.folders_view(cx).into_any_element(),
             Page::History => self.history_view(width, cx).into_any_element(),
             Page::Timing => self.timing_view(cx),
+            Page::Wrapped(year) => self.wrapped_view(year, width, cx),
             _ if self.total == 0 && self.scan.is_none() && !self.loading => {
                 self.onboarding(cx).into_any_element()
             }

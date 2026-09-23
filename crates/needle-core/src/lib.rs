@@ -24,3 +24,4 @@ pub mod scan;
 mod secrets;
 pub mod stems;
 pub mod sync;
+pub mod wrapped;

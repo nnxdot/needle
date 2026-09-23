@@ -5,6 +5,7 @@ use super::{
     widgets::{count, faint, glyph, meta, page_title, segmented, strong},
 };
 use gpui::{prelude::*, *};
+use gpui_component::button::ButtonVariants;
 use needle_core::{
     history::{HistoryStats, HistoryTop},
     model::format_duration,
@@ -64,7 +65,13 @@ impl AppView {
         });
     }
 
-    fn bars(&self, id: &'static str, values: Vec<(String, f64)>, height: f32, cx: &App) -> Div {
+    pub(super) fn bars(
+        &self,
+        id: &'static str,
+        values: Vec<(String, f64)>,
+        height: f32,
+        cx: &App,
+    ) -> Div {
         let p = pal(cx);
         let peak = values.iter().map(|v| v.1).fold(0., f64::max).max(1.);
         div().h(px(height)).flex().items_end().gap(px(2.)).children(
@@ -417,6 +424,14 @@ impl AppView {
                             .gap_1()
                             .child(page_title("Listening history"))
                             .child(meta(summary, cx)),
+                    )
+                    .child(div().flex_1())
+                    .child(
+                        super::widgets::small_button("open-wrapped", "Your year in music")
+                            .ghost()
+                            .on_click(
+                                cx.listener(|this, _, window, cx| this.open_wrapped(window, cx)),
+                            ),
                     )
                     .child(segmented(
                         "history-range",

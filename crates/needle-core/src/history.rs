@@ -103,9 +103,18 @@ impl Library {
     }
     /// Aggregates listens that started at or after `since` (Unix seconds), or all listens.
     pub fn history_stats(&self, since: Option<i64>) -> Result<HistoryStats> {
+        self.history_stats_between(since, None)
+    }
+    /// The same for listens that started before `until` too.
+    pub fn history_stats_between(
+        &self,
+        since: Option<i64>,
+        until: Option<i64>,
+    ) -> Result<HistoryStats> {
         let db = self.connection()?;
         db.execute_batch("PRAGMA temp_store=MEMORY;")?;
         let from = since.unwrap_or(i64::MIN);
+        let to = until.unwrap_or(i64::MAX);
         let mut stats = HistoryStats {
             since,
             hours: (0..24)
@@ -119,7 +128,7 @@ impl Library {
         // UTC offsets and their transitions are multiples of 15 minutes, so each
         // 15-minute bucket of a time-ordered scan maps to one local day and hour.
         let mut stmt = db.prepare(
-            "SELECT started_at, seconds, qualified FROM listens INDEXED BY listens_range_stats WHERE started_at >= ? ORDER BY started_at",
+            "SELECT started_at, seconds, qualified FROM listens INDEXED BY listens_range_stats WHERE started_at >= ? AND started_at < ? ORDER BY started_at",
         )?;
         let mut days: BTreeMap<NaiveDate, (f64, usize)> = BTreeMap::new();
         let mut clock = LocalClock {
@@ -128,7 +137,7 @@ impl Library {
         };
         let mut bucket = None;
         let mut local = None;
-        let mut rows = stmt.query([from])?;
+        let mut rows = stmt.query([from, to])?;
         while let Some(row) = rows.next()? {
             let (started, seconds, qualified): (i64, f64, bool) =
                 (row.get(0)?, row.get(1)?, row.get(2)?);
@@ -154,10 +163,12 @@ impl Library {
         };
         if let Some(mut date) = start {
             let today = Local::now().date_naive();
-            let end = days
-                .keys()
-                .next_back()
-                .map_or(today, |last| (*last).max(today));
+            let last = days.keys().next_back().copied();
+            // Up to today, or to the end of a range that is already over.
+            let end = match until.and_then(|u| clock.local(u - 1)).map(|t| t.date()) {
+                Some(limit) => limit.min(today).max(last.unwrap_or(limit)),
+                None => last.map_or(today, |last| last.max(today)),
+            };
             while date <= end {
                 let (seconds, listens) = days.get(&date).copied().unwrap_or_default();
                 stats.days.push(DayStat {
@@ -170,13 +181,13 @@ impl Library {
             }
         }
         // A short range is cheaper to sort than scanning every listen in track order.
-        let index = if since.is_some() && stats.listens < 200_000 {
+        let index = if (since.is_some() || until.is_some()) && stats.listens < 200_000 {
             "listens_range_stats"
         } else {
             "listens_track_stats"
         };
         let mut stmt = db.prepare(&format!(
-            "SELECT track_id, sum(qualified), count(*), sum(seconds), max(artist), max(album) FROM listens INDEXED BY {index} WHERE started_at >= ? GROUP BY track_id"
+            "SELECT track_id, sum(qualified), count(*), sum(seconds), max(artist), max(album) FROM listens INDEXED BY {index} WHERE started_at >= ? AND started_at < ? GROUP BY track_id"
         ))?;
         type Totals = (usize, usize, f64);
         let add = |into: &mut Totals, from: Totals| {
@@ -187,7 +198,7 @@ impl Library {
         let mut tracks: Vec<HistoryTop> = vec![];
         let mut artists: HashMap<String, Totals> = HashMap::new();
         let mut albums: HashMap<String, HashMap<String, Totals>> = HashMap::new();
-        let mut rows = stmt.query([from])?;
+        let mut rows = stmt.query([from, to])?;
         while let Some(row) = rows.next()? {
             stats.distinct_tracks += 1;
             let totals: Totals = (
@@ -264,10 +275,10 @@ impl Library {
         stats.top_albums = rank(folded.into_values().collect());
         stats.top_tracks = rank(tracks);
         let mut title = db.prepare(
-            "SELECT title FROM listens INDEXED BY listens_track_stats WHERE track_id=? AND started_at >= ? ORDER BY started_at DESC LIMIT 1",
+            "SELECT title FROM listens INDEXED BY listens_track_stats WHERE track_id=? AND started_at >= ? AND started_at < ? ORDER BY started_at DESC LIMIT 1",
         )?;
         for top in &mut stats.top_tracks {
-            top.title = title.query_row(params![top.track_id, from], |r| r.get(0))?;
+            top.title = title.query_row(params![top.track_id, from, to], |r| r.get(0))?;
         }
         Ok(stats)
     }

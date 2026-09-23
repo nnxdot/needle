@@ -27,6 +27,7 @@ mod tags;
 mod theme;
 mod timing;
 mod widgets;
+mod wrapped;
 
 use anyhow::Result;
 use gpui::{prelude::*, *};
@@ -125,6 +126,8 @@ pub enum Page {
     Import,
     /// The lyric timing editor for the playing song.
     Timing,
+    /// A year of listening, told back.
+    Wrapped(i32),
 }
 impl Page {
     fn title(&self) -> String {
@@ -151,6 +154,7 @@ impl Page {
             Self::Sound => "Sound".into(),
             Self::Import => "Import".into(),
             Self::Timing => "Lyric timing".into(),
+            Self::Wrapped(year) => format!("{year} in music"),
         }
     }
     /// The rule behind the page, before any search text is applied.
@@ -178,6 +182,7 @@ impl Page {
                 | Self::Sound
                 | Self::Import
                 | Self::Timing
+                | Self::Wrapped(_)
         )
     }
     pub fn is_grid(&self) -> bool {
@@ -253,6 +258,7 @@ enum Event {
     Look(String, Option<ambient::Look>),
     Home(Box<needle_core::browse::Home>),
     Subfolders(String, Vec<needle_core::browse::Subfolder>),
+    Wrapped(Box<needle_core::wrapped::Wrapped>, Vec<i32>),
     Lyrics(String, Option<needle_core::media::Lyrics>),
     ArtistImage(String, Option<String>),
     ArtistImages(Vec<(String, Option<String>)>),
@@ -311,6 +317,8 @@ pub struct AppView {
     menu: Option<menus::TrackMenu>,
     playlist_menu: Option<menus::PlaylistMenu>,
     header_menu: Option<columns::HeaderMenu>,
+    wrapped: Option<needle_core::wrapped::Wrapped>,
+    wrapped_years: Vec<i32>,
     timing: Option<timing::Timing>,
     timing_focus: FocusHandle,
     timing_scroll: ScrollHandle,
@@ -687,6 +695,8 @@ impl AppView {
             menu: None,
             playlist_menu: None,
             header_menu: None,
+            wrapped: None,
+            wrapped_years: vec![],
             timing: None,
             timing_focus: cx.focus_handle(),
             timing_scroll: ScrollHandle::new(),
@@ -983,6 +993,7 @@ impl AppView {
                 Event::Look(path, look) => self.set_look(path, look),
                 Event::Home(home) => self.home = Some(home),
                 Event::Subfolders(path, list) => self.subfolders = Some((path, list)),
+                Event::Wrapped(wrapped, years) => self.wrapped_loaded(*wrapped, years),
                 Event::ImportProgress(message) => self.import.busy = Some(message),
                 Event::Plugin(action) => self.plugin_action(action, cx),
                 Event::PaletteFound(generation, songs, albums, artists) => {
@@ -1375,6 +1386,9 @@ impl AppView {
         }
         if self.page == Page::Import {
             self.refresh_import_sources();
+        }
+        if let Page::Wrapped(year) = self.page {
+            self.load_wrapped(year);
         }
         if self.page == Page::Settings {
             self.glass_system = (glass::system_allows_transparency(), glass::windows_11());

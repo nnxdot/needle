@@ -219,6 +219,14 @@ impl AppView {
                 },
             ),
             item(
+                "Go to",
+                "history",
+                "Your year in music",
+                "Your top artists, songs, and albums of the year",
+                None,
+                |this, window, cx| this.open_wrapped(window, cx),
+            ),
+            item(
                 "Actions",
                 "lyrics",
                 "Time the lyrics of this song",
