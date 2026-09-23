@@ -128,6 +128,7 @@ impl AppView {
         self.start_import(job, cx);
     }
 
+    #[allow(clippy::too_many_arguments)]
     fn source_card(
         id: &'static str,
         glyph_name: &'static str,
