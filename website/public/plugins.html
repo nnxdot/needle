@@ -1,0 +1,359 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Plugins — Needle</title>
+<meta name="description" content="Write plugins for Needle: small Rhai scripts that react to what you play, add commands, and use only the permissions they ask for.">
+<meta property="og:title" content="Plugins — Needle">
+<meta property="og:description" content="Write plugins for Needle, the music player for the music you own.">
+<meta property="og:url" content="https://needle.nnx.fyi/plugins">
+<meta property="og:image" content="https://needle.nnx.fyi/icon-512.png">
+<meta name="theme-color" content="#171514">
+<link rel="icon" href="/favicon-64.png" type="image/png">
+<link rel="apple-touch-icon" href="/apple-touch-icon.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght,SOFT@9..144,500..700,0..100&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/style.css">
+</head>
+<body>
+<a class="skip" href="#main">Skip to content</a>
+
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <defs>
+    <g id="record">
+      <circle cx="45" cy="56" r="31" fill="#e1b36b"/>
+      <g fill="none" stroke="#c6944e" stroke-width="1.7">
+        <circle cx="45" cy="56" r="26.5"/><circle cx="45" cy="56" r="22.3"/><circle cx="45" cy="56" r="18.1"/>
+      </g>
+      <circle cx="45" cy="56" r="10.2" fill="#1b1816"/>
+      <circle cx="45" cy="56" r="2.6" fill="#e1b36b"/>
+    </g>
+    <g id="arm">
+      <path d="M61.5 41 81.5 17.5" stroke="#efe6d8" stroke-width="5.6" stroke-linecap="round"/>
+      <circle cx="82" cy="17" r="6.8" fill="#efe6d8"/>
+      <circle cx="82" cy="17" r="2.6" fill="#1b1816"/>
+    </g>
+  </defs>
+</svg>
+
+<header class="top">
+  <div class="wrap top-row">
+    <a class="brand" href="/" aria-label="Needle home">
+      <svg class="brand-mark" viewBox="0 0 100 100" aria-hidden="true"><use href="#record"/><use href="#arm"/></svg>
+      <span>Needle</span>
+    </a>
+    <nav aria-label="Main navigation">
+      <a href="/#features">Features</a>
+      <a href="/plugins" aria-current="page">Plugins</a>
+      <a class="nav-cta" href="/#download">Download</a>
+    </nav>
+  </div>
+</header>
+
+<main id="main" class="doc">
+  <div class="wrap doc-grid">
+    <nav class="doc-toc" aria-label="On this page">
+      <p>On this page</p>
+      <a href="#start">Your first plugin</a>
+      <a href="#manifest">plugin.toml</a>
+      <a href="#events">Events</a>
+      <a href="#commands">Commands</a>
+      <a href="#functions">Functions</a>
+      <a href="#data">Songs and listens</a>
+      <a href="#limits">Limits and safety</a>
+      <a href="#examples">Examples</a>
+      <a href="#trouble">When something goes wrong</a>
+    </nav>
+
+    <article class="doc-body">
+      <header class="doc-head">
+        <p class="tag">Plugins</p>
+        <h1>Teach Needle <em>new tricks.</em></h1>
+        <p class="lede">A plugin is a small script in its own folder. It can react to what you play, add commands to menus, and use your library, but only in the ways it asks for. Nothing runs until you turn it on.</p>
+      </header>
+
+      <section id="start">
+        <h2>Your first plugin</h2>
+        <p>Plugins are written in <a href="https://rhai.rs/book/">Rhai</a>, a small scripting language that looks like JavaScript or Rust. You need a text editor and nothing else.</p>
+        <ol class="steps">
+          <li>In Needle, open <b>Settings</b>, then <b>Plugins</b>, and press <b>Open plugins folder</b>.</li>
+          <li>Make a new folder in it, for example <code>hello</code>.</li>
+          <li>In that folder, make a file named <code>plugin.toml</code>:
+<pre><code>id = "hello"
+name = "Hello"
+version = "1.0.0"
+description = "Says the name of each song as it starts."
+author = "you"</code></pre></li>
+          <li>Next to it, make a file named <code>main.rhai</code>:
+<pre><code>fn on_track_start(track) {
+    notify(`Now playing ${track.title} by ${track.artist}`);
+}</code></pre></li>
+          <li>Back in Needle, press <b>Reload</b>. Your plugin shows in the list. Turn it on, then play a song.</li>
+        </ol>
+        <p>Every time you change a file, press <b>Reload</b> to load it again. To see finished plugins, press <b>Add example plugins</b>. Needle then copies four examples into the folder (see <a href="#examples">Examples</a>).</p>
+      </section>
+
+      <section id="manifest">
+        <h2>plugin.toml</h2>
+        <p>This file tells Needle what the plugin is and what it may do.</p>
+        <div class="table">
+          <table>
+            <thead><tr><th>Key</th><th>Needed</th><th>What it is</th></tr></thead>
+            <tbody>
+              <tr><td><code>id</code></td><td>Yes</td><td>A short name that never changes. Use only letters, digits, <code>-</code> and <code>_</code>. Needle keeps the plugin's on/off state and its settings under this name.</td></tr>
+              <tr><td><code>name</code></td><td>Yes</td><td>The name people see.</td></tr>
+              <tr><td><code>version</code></td><td>No</td><td>Your version, such as <code>"1.0.0"</code>.</td></tr>
+              <tr><td><code>description</code></td><td>No</td><td>One or two sentences about what it does.</td></tr>
+              <tr><td><code>author</code></td><td>No</td><td>Your name.</td></tr>
+              <tr><td><code>entry</code></td><td>No</td><td>The script file. The default is <code>"main.rhai"</code>. It must be inside the plugin folder.</td></tr>
+              <tr><td><code>permissions</code></td><td>No</td><td>A list of what the plugin may do. The default is none.</td></tr>
+            </tbody>
+          </table>
+        </div>
+        <h3>Permissions</h3>
+        <p>Ask only for what you use. Needle shows the list before someone turns the plugin on. Turning it on allows everything on the list.</p>
+        <div class="table">
+          <table>
+            <thead><tr><th>Permission</th><th>Allows</th></tr></thead>
+            <tbody>
+              <tr><td><code>"library.read"</code></td><td>Searching songs and reading listening history.</td></tr>
+              <tr><td><code>"library.write"</code></td><td>Changing ratings and saving playlists.</td></tr>
+              <tr><td><code>"playback"</code></td><td>Playing, pausing, skipping, and adding to the queue.</td></tr>
+              <tr><td><code>"network"</code></td><td>Web requests.</td></tr>
+              <tr><td><code>"files"</code></td><td>Reading and writing files inside the plugin's own folder.</td></tr>
+            </tbody>
+          </table>
+        </div>
+<pre><code>permissions = ["library.read", "playback"]</code></pre>
+      </section>
+
+      <section id="events">
+        <h2>Events</h2>
+        <p>Define any of these functions, and Needle calls them at the right time. You can leave out the ones you do not need.</p>
+        <div class="table">
+          <table>
+            <thead><tr><th>Function</th><th>Called when</th></tr></thead>
+            <tbody>
+              <tr><td><code>on_load()</code></td><td>The plugin is turned on, and when Needle starts or reloads plugins.</td></tr>
+              <tr><td><code>on_track_start(track)</code></td><td>A song starts. <code>track</code> is a <a href="#data">song</a>.</td></tr>
+              <tr><td><code>on_listen(listen)</code></td><td>Needle records a listen in your history. <code>listen</code> is a <a href="#data">listen</a>.</td></tr>
+              <tr><td><code>on_pause()</code></td><td>Playback pauses.</td></tr>
+              <tr><td><code>on_resume()</code></td><td>Playback starts again after a pause.</td></tr>
+            </tbody>
+          </table>
+        </div>
+        <p>Code outside functions runs once, when the plugin loads. Rhai functions cannot see variables made outside them, so to remember something between calls, use <a href="#functions"><code>set_setting</code> and <code>setting</code></a>.</p>
+      </section>
+
+      <section id="commands">
+        <h2>Commands</h2>
+        <p>A plugin can add commands that people choose. <code>commands()</code> returns a list of them. <code>run(command, ids)</code> is called when one is chosen.</p>
+<pre><code>fn commands() {
+    [
+        #{ id: "five", title: "Rate five stars", scope: "track" },
+        #{ id: "tidy", title: "Tidy my queue", scope: "global" },
+    ]
+}
+
+fn run(command, ids) {
+    if command == "five" {
+        for id in ids { set_rating(id, 5); }
+        notify(`Rated ${ids.len()} songs.`);
+    }
+}</code></pre>
+        <ul class="points">
+          <li><b><code>"track"</code> commands</b> show in the menu of selected songs, under <b>Plugins</b>. <code>ids</code> holds the selected songs' ids.</li>
+          <li><b><code>"global"</code> commands</b> show in the command palette. <code>ids</code> is empty.</li>
+          <li>A plugin can have at most 32 commands. Needle asks for the list when the plugin loads, so press <b>Reload</b> after you change it.</li>
+        </ul>
+      </section>
+
+      <section id="functions">
+        <h2>Functions</h2>
+        <p>These are the functions your script can call. A function that needs a permission fails with a clear message if the plugin did not ask for that permission.</p>
+
+        <h3>Always allowed</h3>
+        <dl class="api">
+          <dt><code>notify(text)</code></dt><dd>Shows a short message in Needle, with your plugin's name in front.</dd>
+          <dt><code>log(text)</code></dt><dd>Writes a line to Needle's error output. Needle's window does not show it, so use <code>notify</code> while you test.</dd>
+          <dt><code>now()</code></dt><dd>The current time, in seconds since 1 January 1970 (UTC).</dd>
+          <dt><code>now_playing()</code></dt><dd>The <a href="#data">song</a> playing now, or <code>()</code> if none.</dd>
+          <dt><code>setting(key)</code></dt><dd>A value this plugin saved earlier, or <code>()</code> if there is none.</dd>
+          <dt><code>set_setting(key, value)</code></dt><dd>Saves a value for this plugin. It is kept when Needle closes. Each plugin has its own settings.</dd>
+          <dt><code>parse_json(text)</code></dt><dd>Turns JSON text into Rhai maps and arrays.</dd>
+        </dl>
+
+        <h3>library.read</h3>
+        <dl class="api">
+          <dt><code>library_search(rule)</code></dt><dd>Songs that match a search or a rule, the same as the search box in Needle. For example: <code>"rating &gt;= 4 and year &lt; 2000"</code>, or <code>"played(7d) order by play_count desc limit 25"</code>. Gives at most 10,000 songs. An empty rule gives all songs.</dd>
+          <dt><code>recent_listens(count)</code></dt><dd>Your most recent <a href="#data">listens</a>, newest first, from 1 to 1,000.</dd>
+        </dl>
+
+        <h3>library.write</h3>
+        <dl class="api">
+          <dt><code>set_rating(id, stars)</code></dt><dd>Sets a song's rating, from 0 (none) to 5.</dd>
+          <dt><code>save_playlist(name, ids)</code></dt><dd>Saves a playlist with these songs. If your plugin saves a playlist with the same name again, Needle updates it and does not make a second one.</dd>
+        </dl>
+
+        <h3>playback</h3>
+        <dl class="api">
+          <dt><code>play(ids)</code></dt><dd>Plays these songs now.</dd>
+          <dt><code>play_next(ids)</code></dt><dd>Puts these songs next in the queue.</dd>
+          <dt><code>enqueue(ids)</code></dt><dd>Adds these songs to the end of the queue.</dd>
+          <dt><code>toggle_playback()</code></dt><dd>Pauses, or plays again.</dd>
+          <dt><code>next_track()</code>, <code>previous_track()</code></dt><dd>Skips forward or back.</dd>
+        </dl>
+
+        <h3>network</h3>
+        <dl class="api">
+          <dt><code>http_get(url)</code></dt><dd>Fetches a web address and gives its text.</dd>
+          <dt><code>http_post_json(url, value)</code></dt><dd>Sends <code>value</code> as JSON and gives the reply's text.</dd>
+        </dl>
+        <p>A request stops after 15 seconds. A reply is cut at 1 MB. A reply that is not a success fails with the server's status.</p>
+
+        <h3>files</h3>
+        <dl class="api">
+          <dt><code>read_file(name)</code></dt><dd>Reads a text file in the plugin's folder.</dd>
+          <dt><code>write_file(name, text)</code></dt><dd>Writes a text file in the plugin's folder, and replaces what was there.</dd>
+        </dl>
+        <p>Use a plain file name, such as <code>"now-playing.txt"</code>. Folders, <code>..</code>, and full paths are refused, so a plugin cannot touch files outside its folder.</p>
+      </section>
+
+      <section id="data">
+        <h2>Songs and listens</h2>
+        <p>Songs and listens are Rhai maps. Read a field with a dot, such as <code>track.title</code>.</p>
+        <div class="two">
+          <div>
+            <h3>Song</h3>
+            <dl class="fields">
+              <dt><code>id</code></dt><dd>Needle's id for the song. Use it with the functions above.</dd>
+              <dt><code>title</code>, <code>artist</code>, <code>album</code>, <code>album_artist</code>, <code>genre</code></dt><dd>Text. Empty when the file has none.</dd>
+              <dt><code>year</code></dt><dd>A number. 0 when unknown.</dd>
+              <dt><code>duration</code></dt><dd>Length in seconds, with decimals.</dd>
+              <dt><code>rating</code></dt><dd>0 to 5.</dd>
+              <dt><code>play_count</code></dt><dd>How many times it was played.</dd>
+              <dt><code>format</code></dt><dd>Such as <code>"FLAC"</code> or <code>"MP3"</code>.</dd>
+              <dt><code>path</code></dt><dd>Where the file is on this computer.</dd>
+            </dl>
+          </div>
+          <div>
+            <h3>Listen</h3>
+            <dl class="fields">
+              <dt><code>track_id</code></dt><dd>The song's id.</dd>
+              <dt><code>title</code>, <code>artist</code>, <code>album</code></dt><dd>As they were when it was played.</dd>
+              <dt><code>started_at</code></dt><dd>When it started, in seconds since 1970 (UTC).</dd>
+              <dt><code>seconds</code></dt><dd>How long it was heard.</dd>
+              <dt><code>qualified</code></dt><dd><code>true</code> when it counts as a play: half the song or four minutes, whichever is shorter.</dd>
+            </dl>
+          </div>
+        </div>
+      </section>
+
+      <section id="limits">
+        <h2>Limits and safety</h2>
+        <ul class="points">
+          <li>Plugins start turned off. A new or changed plugin does nothing until someone turns it on.</li>
+          <li>Plugins run on their own thread. A slow plugin cannot freeze Needle's window or make the music skip.</li>
+          <li>Each call can do about 2 million steps. After that, Needle stops it and shows a message, so a loop that never ends cannot hang Needle.</li>
+          <li>Other limits: calls 48 deep, text up to 1 MB, lists up to 50,000 items, maps up to 10,000 keys. <code>eval</code> is not available.</li>
+          <li>An error in one plugin stays in that plugin. Needle shows it under the plugin's name in Settings, and the other plugins keep working.</li>
+        </ul>
+      </section>
+
+      <section id="examples">
+        <h2>Examples</h2>
+        <p>Press <b>Add example plugins</b> in Settings to get these four. Open their folders to read or change them.</p>
+
+        <h3>Now playing to a file</h3>
+        <p>Keeps <code>now-playing.txt</code> up to date, for streaming software such as OBS. Needs <code>"files"</code>.</p>
+<pre><code>fn on_track_start(track) {
+    write_file("now-playing.txt", `${track.artist} — ${track.title}`);
+}
+fn on_pause() {
+    write_file("now-playing.txt", "");
+}</code></pre>
+
+        <h3>This week's favourites</h3>
+        <p>A command that makes a playlist of your 25 most played songs of the last 7 days. Needs <code>"library.read"</code> and <code>"library.write"</code>.</p>
+<pre><code>fn commands() {
+    [ #{ id: "build", title: "Build “This week” playlist", scope: "global" } ]
+}
+fn run(command, ids) {
+    let songs = library_search("played(7d) order by play_count desc limit 25");
+    if songs.len() == 0 {
+        notify("Nothing played in the last 7 days yet.");
+        return;
+    }
+    save_playlist("This week", songs.map(|t| t.id));
+    notify(`Made “This week” with ${songs.len()} songs.`);
+}</code></pre>
+
+        <h3>Skip very short tracks</h3>
+        <p>Skips intros and interludes under 30 seconds, and remembers a setting. Needs <code>"playback"</code>.</p>
+<pre><code>fn on_track_start(track) {
+    let limit = setting("seconds");
+    if limit == () { limit = 30; }
+    if track.duration &gt; 0.0 &amp;&amp; track.duration &lt; limit {
+        next_track();
+    }
+}
+fn commands() {
+    [ #{ id: "toggle", title: "Skip tracks under 60 seconds instead of 30", scope: "global" } ]
+}
+fn run(command, ids) {
+    let now = setting("seconds");
+    let next = if now == 60 { 30 } else { 60 };
+    set_setting("seconds", next);
+    notify(`Now skipping tracks under ${next} seconds.`);
+}</code></pre>
+
+        <h3>Quick five stars</h3>
+        <p>Adds <b>Rate five stars</b> to the menu of selected songs. Needs <code>"library.write"</code>.</p>
+<pre><code>fn commands() {
+    [ #{ id: "five", title: "Rate five stars", scope: "track" } ]
+}
+fn run(command, ids) {
+    for id in ids { set_rating(id, 5); }
+    notify(`Rated ${ids.len()} songs.`);
+}</code></pre>
+      </section>
+
+      <section id="trouble">
+        <h2>When something goes wrong</h2>
+        <dl class="api">
+          <dt>The plugin is not in the list</dt><dd>Its folder must be directly inside the plugins folder and hold a file named exactly <code>plugin.toml</code>. Press <b>Reload</b>.</dd>
+          <dt>It shows an error under its name</dt><dd>Needle shows the first problem it found, such as a typing mistake in the script, a bad <code>id</code>, or a missing entry file. Fix it and press <b>Reload</b>.</dd>
+          <dt>“did not ask for permission”</dt><dd>Add the permission to <code>plugin.toml</code>, press <b>Reload</b>, and turn the plugin on again.</dd>
+          <dt>A command does not show</dt><dd>Check that the plugin is on, and that each item in <code>commands()</code> has an <code>id</code> and a <code>title</code>. <code>"track"</code> commands show only in the menu of selected songs.</dd>
+          <dt>Two plugins have the same <code>id</code></dt><dd>Needle loads only the first one, in folder-name order. Give each plugin its own <code>id</code>.</dd>
+        </dl>
+      </section>
+    </article>
+  </div>
+</main>
+
+<footer class="foot">
+  <div class="wrap">
+    <div class="foot-row">
+      <a class="brand big" href="/" aria-label="Needle home">
+        <svg class="brand-mark" viewBox="0 0 100 100" aria-hidden="true"><use href="#record"/><use href="#arm"/></svg>
+        <span>Needle</span>
+      </a>
+      <p>Your music, in its place.<br>Made at <a href="https://nnx.fyi/">NNX</a>.</p>
+    </div>
+    <div class="foot-row small">
+      <span>© 2026 NNX</span>
+      <nav aria-label="Footer navigation">
+        <a href="/plugins">Plugins</a>
+        <a href="https://nnx.fyi/">NNX</a>
+        <a href="https://nivren.nnx.fyi/">Nivren</a>
+        <a href="https://deadline.nnx.fyi/">Deadline</a>
+        <a href="mailto:dot@nnx.fyi">Contact</a>
+      </nav>
+    </div>
+  </div>
+</footer>
+</body>
+</html>

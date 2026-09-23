@@ -129,7 +129,7 @@ pub struct Settings {
     pub online_media: bool,
     /// Measure each song's sound in the background, for radio.
     pub sound_analysis: bool,
-    /// Ask GitHub once a day whether a newer Needle is out.
+    /// Ask needle.nnx.fyi once a day whether a newer Needle is out.
     pub check_updates: bool,
     pub last_update_check: i64,
     pub dsp: crate::dsp::Dsp,

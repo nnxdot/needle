@@ -156,6 +156,6 @@ impl AppView {
                         })))
                     })
             }))
-            .child(faint("Plugins are Rhai scripts in their own folders. Each one lists what it may do, and nothing runs until you turn it on. See README for how to write one.", cx).w_full())
+            .child(faint("Plugins are Rhai scripts in their own folders. Each one lists what it may do, and nothing runs until you turn it on. Learn to write one at needle.nnx.fyi/plugins.", cx).w_full())
     }
 }

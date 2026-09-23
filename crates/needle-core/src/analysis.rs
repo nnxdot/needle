@@ -234,13 +234,27 @@ pub fn duplicates(library: &Library, expression: &str) -> Result<Vec<Duplicate>>
         bail!("Narrow the duplicate scan to at most 5,000 tracks using a query")
     }
     let mut fingerprints = std::collections::HashMap::new();
+    let mut whole_files = std::collections::HashMap::new();
     let mut result = vec![];
     for (a, first) in tracks.iter().enumerate() {
         for second in tracks.iter().skip(a + 1) {
             if first.missing || second.missing || (first.duration - second.duration).abs() > 2.0 {
                 continue;
             }
-            if first.content_hash == second.content_hash && !first.content_hash.is_empty() {
+            // A quick hash reads only part of each file; the whole files must match too.
+            let identical = first.content_hash == second.content_hash
+                && !first.content_hash.is_empty()
+                && (!first.content_hash.starts_with("q1:") || {
+                    let mut whole = |t: &Track| {
+                        whole_files
+                            .entry(t.id.clone())
+                            .or_insert_with(|| crate::scan::full_hash(Path::new(&t.path)).ok())
+                            .clone()
+                    };
+                    let (a, b) = (whole(first), whole(second));
+                    a.is_some() && a == b
+                });
+            if identical {
                 result.push(Duplicate {
                     first: first.id.clone(),
                     second: second.id.clone(),

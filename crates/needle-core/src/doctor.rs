@@ -105,7 +105,20 @@ pub fn find_duplicates(tracks: &[Track]) -> Vec<DuplicateGroup> {
             by_hash.entry(&track.content_hash).or_default().push(track);
         }
     }
-    groups.extend(by_hash.into_values().filter(|l| l.len() > 1));
+    for list in by_hash.into_values().filter(|l| l.len() > 1) {
+        if !list[0].content_hash.starts_with("q1:") {
+            groups.push(list);
+            continue;
+        }
+        // A quick hash reads only part of each file; the whole files must match too.
+        let mut by_file: HashMap<String, Vec<&Track>> = HashMap::new();
+        for track in list {
+            if let Ok(hash) = crate::scan::full_hash(Path::new(&track.path)) {
+                by_file.entry(hash).or_default().push(track);
+            }
+        }
+        groups.extend(by_file.into_values().filter(|l| l.len() > 1));
+    }
     let mut groups: Vec<DuplicateGroup> = groups
         .into_iter()
         .map(|list| {
@@ -951,6 +964,35 @@ mod tests {
             content_hash: id.into(),
             ..Default::default()
         }
+    }
+
+    #[test]
+    fn quick_hash_matches_are_confirmed_with_the_whole_file() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut bytes = vec![7u8; 3 << 20];
+        let write = |name: &str, bytes: &[u8]| {
+            let path = dir.path().join(name);
+            std::fs::write(&path, bytes).unwrap();
+            path.to_string_lossy().to_string()
+        };
+        let (a, b) = (write("a.flac", &bytes), write("b.flac", &bytes));
+        bytes[3 << 19] = 8; // the middle, which a quick hash does not read
+        let c = write("c.flac", &bytes);
+        let quick = crate::scan::quick_hash(Path::new(&a), bytes.len() as u64).unwrap();
+        assert_eq!(
+            quick,
+            crate::scan::quick_hash(Path::new(&c), bytes.len() as u64).unwrap()
+        );
+        let with = |id: &str, path: &str| Track {
+            path: path.into(),
+            content_hash: quick.clone(),
+            ..track(id, id, id, 100., "FLAC")
+        };
+        let groups = find_duplicates(&[with("a", &a), with("b", &b), with("c", &c)]);
+        assert_eq!(groups.len(), 1);
+        let mut ids: Vec<&str> = groups[0].tracks.iter().map(|t| t.id.as_str()).collect();
+        ids.sort();
+        assert_eq!(ids, ["a", "b"]);
     }
 
     #[test]

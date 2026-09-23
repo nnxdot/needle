@@ -46,6 +46,7 @@ pub fn import(
     let mut state = ScanProgress::default();
     // Album files split by a CUE sheet are imported as the sheet's tracks, not as one song.
     let covered = crate::cue::covered_files(&root);
+    let (mut files, mut sheets) = (vec![], vec![]);
     for entry in walkdir::WalkDir::new(&root).follow_links(false) {
         if cancel.load(Ordering::Relaxed) {
             break;
@@ -67,42 +68,29 @@ pub fn import(
             .extension()
             .is_some_and(|e| e.eq_ignore_ascii_case("cue"))
         {
-            state.scanned += 1;
-            match crate::cue::import_sheet(library, path) {
-                Ok(0) => state.unchanged += 1,
-                Ok(_) => state.imported += 1,
-                Err(e) => {
-                    if state.errors.len() < 100 {
-                        state.errors.push(format!("{}: {e:#}", path.display()));
-                    }
-                }
-            }
-            continue;
-        }
-        if !path
+            sheets.push(path.to_path_buf());
+        } else if path
             .extension()
             .is_some_and(|e| EXTENSIONS.contains(&e.to_string_lossy().to_lowercase().as_str()))
-            || path.canonicalize().is_ok_and(|p| covered.contains(&p))
+            && (covered.is_empty() || !path.canonicalize().is_ok_and(|p| covered.contains(&p)))
         {
-            continue;
+            files.push(path.to_path_buf());
+        }
+    }
+    import_files(library, files, &cancel, &mut state, &mut progress)?;
+    for sheet in sheets {
+        if cancel.load(Ordering::Relaxed) {
+            break;
         }
         state.scanned += 1;
-        state.current = path
-            .file_name()
-            .unwrap_or_default()
-            .to_string_lossy()
-            .into();
-        match import_one(library, path) {
-            Ok(true) => state.imported += 1,
-            Ok(false) => state.unchanged += 1,
+        match crate::cue::import_sheet(library, &sheet) {
+            Ok(0) => state.unchanged += 1,
+            Ok(_) => state.imported += 1,
             Err(e) => {
                 if state.errors.len() < 100 {
-                    state.errors.push(format!("{}: {e:#}", path.display()));
+                    state.errors.push(format!("{}: {e:#}", sheet.display()));
                 }
             }
-        }
-        if state.scanned % 10 == 0 || state.scanned == 1 {
-            progress(state.clone());
         }
     }
     library.add_root(&root.to_string_lossy())?;
@@ -147,7 +135,167 @@ fn dsf_tags(path: &Path) -> Result<lofty::file::TaggedFile> {
     Ok(tagged.unwrap_or_else(|_| empty()))
 }
 
+/// Files are read on several threads; the database is written from this one, in batches.
+fn import_files(
+    library: &Library,
+    files: Vec<PathBuf>,
+    cancel: &AtomicBool,
+    state: &mut ScanProgress,
+    progress: &mut impl FnMut(ScanProgress),
+) -> Result<()> {
+    let workers = std::thread::available_parallelism()
+        .map_or(4, |n| n.get())
+        .clamp(2, 8);
+    let (job_tx, job_rx) = crossbeam_channel::bounded::<PathBuf>(256);
+    let (done_tx, done_rx) = crossbeam_channel::unbounded::<(PathBuf, Result<Option<Track>>)>();
+    std::thread::scope(|scope| {
+        for _ in 0..workers {
+            let (jobs, done) = (job_rx.clone(), done_tx.clone());
+            scope.spawn(move || {
+                let db = library.connection();
+                for path in jobs {
+                    if cancel.load(Ordering::Relaxed) {
+                        break;
+                    }
+                    let result = match &db {
+                        Ok(db) => read_track(library, db, &path),
+                        Err(e) => Err(anyhow::anyhow!("{e:#}")),
+                    };
+                    if done.send((path, result)).is_err() {
+                        break;
+                    }
+                }
+            });
+        }
+        drop((job_rx, done_tx));
+        scope.spawn(move || {
+            for path in files {
+                if job_tx.send(path).is_err() {
+                    break;
+                }
+            }
+        });
+        let mut db = library.connection()?;
+        let mut batch: Vec<Track> = vec![];
+        let mut claimed = std::collections::HashSet::new();
+        let mut written = std::time::Instant::now();
+        let mut flush = |batch: &mut Vec<Track>| -> Result<()> {
+            let tx = db.transaction()?;
+            for track in batch.drain(..) {
+                Library::upsert_on(&tx, &track)?;
+            }
+            tx.commit()?;
+            Ok(())
+        };
+        for (path, result) in done_rx {
+            state.scanned += 1;
+            state.current = path
+                .file_name()
+                .unwrap_or_default()
+                .to_string_lossy()
+                .into();
+            match result {
+                Ok(Some(mut track)) => {
+                    // Two new files can match the same moved song; only the first takes it over.
+                    if !claimed.insert(track.id.clone()) {
+                        track.id = uuid::Uuid::new_v4().to_string();
+                        track.rating = 0;
+                        track.play_count = 0;
+                        track.last_played = None;
+                        track.added_at = chrono::Utc::now().timestamp();
+                        claimed.insert(track.id.clone());
+                    }
+                    batch.push(track);
+                    state.imported += 1;
+                }
+                Ok(None) => state.unchanged += 1,
+                Err(e) => {
+                    if state.errors.len() < 100 {
+                        state.errors.push(format!("{}: {e:#}", path.display()));
+                    }
+                }
+            }
+            if batch.len() >= 500
+                || (!batch.is_empty() && written.elapsed() > std::time::Duration::from_secs(1))
+            {
+                flush(&mut batch)?;
+                written = std::time::Instant::now();
+            }
+            if state.scanned.is_multiple_of(10) || state.scanned == 1 {
+                progress(state.clone());
+            }
+        }
+        flush(&mut batch)
+    })
+}
+
+/// How a file's identity is recorded. Only its size and first and last megabyte are read,
+/// so adding a large library is fast; `full_hash` confirms identical files when it matters.
+pub(crate) fn quick_hash(path: &Path, size: u64) -> Result<String> {
+    use std::io::{Seek, SeekFrom};
+    const SAMPLE: usize = 1 << 20;
+    let mut hasher = blake3::Hasher::new();
+    hasher.update(&size.to_le_bytes());
+    let mut file = File::open(path)?;
+    if size <= 2 * SAMPLE as u64 {
+        std::io::copy(&mut file, &mut hasher)?;
+    } else {
+        let mut buffer = vec![0u8; SAMPLE];
+        file.read_exact(&mut buffer)?;
+        hasher.update(&buffer);
+        file.seek(SeekFrom::End(-(SAMPLE as i64)))?;
+        file.read_exact(&mut buffer)?;
+        hasher.update(&buffer);
+    }
+    Ok(format!("q1:{}", hasher.finalize().to_hex()))
+}
+
+/// A hash of the whole file.
+pub fn full_hash(path: &Path) -> Result<String> {
+    let mut hasher = blake3::Hasher::new();
+    std::io::copy(&mut File::open(path)?, &mut hasher)?;
+    Ok(hasher.finalize().to_hex().to_string())
+}
+
+/// A song recorded before quick hashes, now missing, that is this same file.
+fn moved_before_quick_hashes(
+    db: &rusqlite::Connection,
+    path: &Path,
+    size: u64,
+) -> Result<Option<Track>> {
+    let mut statement = db.prepare(
+        "SELECT data,rating,play_count,last_played,missing FROM tracks
+         WHERE content_hash NOT LIKE 'q1:%' AND json_extract(data,'$.cue') IS NULL
+         AND json_extract(data,'$.file_size')=?",
+    )?;
+    let candidates: Vec<Track> = statement
+        .query_map([size as i64], Library::row_track)?
+        .collect::<rusqlite::Result<_>>()?;
+    let candidates: Vec<Track> = candidates
+        .into_iter()
+        .filter(|t| {
+            fs::metadata(t.file_path()).is_err_and(|e| e.kind() == std::io::ErrorKind::NotFound)
+        })
+        .collect();
+    if candidates.is_empty() {
+        return Ok(None);
+    }
+    let hash = full_hash(path)?;
+    Ok(candidates.into_iter().find(|t| t.content_hash == hash))
+}
+
 pub fn import_one(library: &Library, path: &Path) -> Result<bool> {
+    match read_track(library, &library.connection()?, path)? {
+        Some(track) => {
+            library.upsert(&track)?;
+            Ok(true)
+        }
+        None => Ok(false),
+    }
+}
+
+/// Read a file's details; `None` when the library already has it as it is.
+fn read_track(library: &Library, db: &rusqlite::Connection, path: &Path) -> Result<Option<Track>> {
     let path = path.canonicalize()?;
     let path_string = path.to_string_lossy().to_string();
     let metadata = fs::metadata(&path)?;
@@ -157,14 +305,14 @@ pub fn import_one(library: &Library, path: &Path) -> Result<bool> {
         .unwrap_or_default()
         .as_nanos()
         .min(i64::MAX as u128) as i64;
-    let previous = library.track_by_path(&path_string)?;
+    let previous = Library::track_by_path_on(db, &path_string)?;
     if previous.as_ref().is_some_and(|t| {
         t.modified_at == modified
             && t.file_size == metadata.len() as i64
             && !t.missing
-            && t.metadata_version == 1
+            && t.metadata_version == 2
     }) {
-        return Ok(false);
+        return Ok(None);
     }
     let dsf = path
         .extension()
@@ -177,20 +325,13 @@ pub fn import_one(library: &Library, path: &Path) -> Result<bool> {
             .context("Unable to read audio metadata")?
     };
     let properties = tagged.properties();
-    let mut hasher = blake3::Hasher::new();
-    let mut file = File::open(&path)?;
-    let mut buffer = [0u8; 65536];
-    loop {
-        let count = file.read(&mut buffer)?;
-        if count == 0 {
-            break;
-        }
-        hasher.update(&buffer[..count]);
-    }
-    let hash = hasher.finalize().to_hex().to_string();
+    let hash = quick_hash(&path, metadata.len())?;
     let previous = match previous {
         Some(t) => Some(t),
-        None => library.moved_track(&hash)?,
+        None => match Library::moved_track_on(db, &hash)? {
+            Some(t) => Some(t),
+            None => moved_before_quick_hashes(db, &path, metadata.len())?,
+        },
     };
     let now = chrono::Utc::now().timestamp();
     let mut track = Track {
@@ -221,7 +362,7 @@ pub fn import_one(library: &Library, path: &Path) -> Result<bool> {
         rating: previous.as_ref().map(|t| t.rating).unwrap_or(0),
         play_count: previous.as_ref().map(|t| t.play_count).unwrap_or(0),
         last_played: previous.as_ref().and_then(|t| t.last_played),
-        metadata_version: 1,
+        metadata_version: 2,
         ..Default::default()
     };
     if let Some(tag) = tagged.primary_tag().or_else(|| tagged.first_tag()) {
@@ -273,7 +414,12 @@ pub fn import_one(library: &Library, path: &Path) -> Result<bool> {
             let filename = format!("{}.img", blake3::hash(picture.data()).to_hex());
             let destination = library.directory.join("artwork").join(filename);
             if !destination.exists() {
-                fs::write(&destination, picture.data())?;
+                // Several files are read at once and may share a cover, so write it whole.
+                let temporary = destination.with_extension(format!("{}.tmp", uuid::Uuid::new_v4()));
+                fs::write(&temporary, picture.data())?;
+                if fs::rename(&temporary, &destination).is_err() {
+                    let _ = fs::remove_file(&temporary);
+                }
             }
             track.artwork = Some(destination.to_string_lossy().into());
         }
@@ -289,8 +435,7 @@ pub fn import_one(library: &Library, path: &Path) -> Result<bool> {
     if track.artwork.is_none() {
         track.artwork = folder_cover(path.parent().unwrap_or(&path));
     }
-    library.upsert(&track)?;
-    Ok(true)
+    Ok(Some(track))
 }
 
 fn parse_gain(value: &str) -> Option<f64> {
@@ -831,6 +976,82 @@ mod tests {
         assert_eq!(first.id, second.id);
         assert_eq!(second.rating, 4);
         assert_eq!(library.count().unwrap(), 1);
+        assert!(second.content_hash.starts_with("q1:"));
+
+        // A song recorded with a whole-file hash by an older Needle is still found after a move.
+        let mut old = second.clone();
+        old.content_hash = full_hash(&moved).unwrap();
+        old.metadata_version = 1;
+        library.upsert(&old).unwrap();
+        let again = music.join("again.wav");
+        fs::rename(&moved, &again).unwrap();
+        import_one(&library, &again).unwrap();
+        let third = library.search("").unwrap().remove(0);
+        assert_eq!(third.id, first.id);
+        assert_eq!(third.rating, 4);
+        assert_eq!(library.count().unwrap(), 1);
+    }
+
+    #[test]
+    fn imports_many_files_at_once_and_gives_a_moved_song_to_one_copy() {
+        let dir = tempfile::tempdir().unwrap();
+        let music = dir.path().join("music");
+        fs::create_dir(&music).unwrap();
+        let spec = hound::WavSpec {
+            channels: 1,
+            sample_rate: 8000,
+            bits_per_sample: 16,
+            sample_format: hound::SampleFormat::Int,
+        };
+        for n in 0..60 {
+            let mut writer =
+                hound::WavWriter::create(music.join(format!("{n:02}.wav")), spec).unwrap();
+            for i in 0..800 {
+                writer.write_sample((i * (n + 1)) as i16).unwrap();
+            }
+            writer.finalize().unwrap();
+        }
+        let library = Library::open(dir.path().join("db")).unwrap();
+        let mut reports = 0;
+        let state = import(&library, &music, Arc::new(AtomicBool::new(false)), |_| {
+            reports += 1
+        })
+        .unwrap();
+        assert_eq!(
+            (state.scanned, state.imported, state.errors.len()),
+            (60, 60, 0)
+        );
+        assert!(reports > 1);
+        assert_eq!(library.count().unwrap(), 60);
+        let again = import(&library, &music, Arc::new(AtomicBool::new(false)), |_| {}).unwrap();
+        assert_eq!((again.imported, again.unchanged), (0, 60));
+
+        // The song "00.wav" goes missing and two copies of it appear; one keeps its rating.
+        let song = library
+            .track_by_path(
+                &music
+                    .join("00.wav")
+                    .canonicalize()
+                    .unwrap()
+                    .to_string_lossy(),
+            )
+            .unwrap()
+            .unwrap();
+        library.rate(&song.id, 5).unwrap();
+        fs::copy(music.join("00.wav"), music.join("copy a.wav")).unwrap();
+        fs::rename(music.join("00.wav"), music.join("copy b.wav")).unwrap();
+        import(&library, &music, Arc::new(AtomicBool::new(false)), |_| {}).unwrap();
+        let tracks = library.search("").unwrap();
+        let copies: Vec<&Track> = tracks.iter().filter(|t| t.path.contains("copy ")).collect();
+        assert_eq!(copies.len(), 2);
+        assert_eq!(
+            copies
+                .iter()
+                .filter(|t| t.id == song.id && t.rating == 5)
+                .count(),
+            1
+        );
+        assert_eq!(tracks.iter().filter(|t| !t.missing).count(), 61);
     }
     fn demo_library() -> (tempfile::TempDir, Library, Vec<Track>) {
         let dir = tempfile::tempdir().unwrap();

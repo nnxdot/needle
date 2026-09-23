@@ -52,13 +52,27 @@ try {
     $sums = Join-Path $workspace 'dist\SHA256SUMS.txt'
     Get-FileHash -Algorithm SHA256 -LiteralPath $artifacts | ForEach-Object { '{0}  {1}' -f $_.Hash.ToLower(), (Split-Path $_.Path -Leaf) } | Set-Content -LiteralPath $sums
 
+    # latest.json for needle.nnx.fyi, where Needle checks for updates. Upload the files to the
+    # needle-downloads bucket first, then copy this into website\public and deploy the site.
+    $site = 'https://needle.nnx.fyi'
+    @{
+        tag_name = "v$version"
+        html_url = "$site/"
+        draft = $false
+        prerelease = $false
+        assets = @(($artifacts + $sums) | ForEach-Object {
+            $name = Split-Path $_ -Leaf
+            @{ name = $name; browser_download_url = "$site/download/$name" }
+        })
+    } | ConvertTo-Json -Depth 4 | Set-Content -LiteralPath (Join-Path $workspace 'dist\latest.json') -Encoding utf8
+
     # winget manifests, ready to submit to microsoft/winget-pkgs once the release is published.
     if ($iscc) {
         $hash = (Get-FileHash -Algorithm SHA256 -LiteralPath $setup).Hash
         $manifests = Join-Path $workspace "dist\winget\$version"
         New-Item -ItemType Directory -Path $manifests -Force | Out-Null
         $id = 'nnxdot.Needle'
-        $url = "https://github.com/nnxdot/needle/releases/download/v$version/Needle-Setup-$version.exe"
+        $url = "https://needle.nnx.fyi/download/Needle-Setup-$version.exe"
         @"
 PackageIdentifier: $id
 PackageVersion: $version
@@ -89,7 +103,7 @@ PackageVersion: $version
 PackageLocale: en-US
 Publisher: nnxdot
 PackageName: Needle
-PackageUrl: https://github.com/nnxdot/needle
+PackageUrl: https://needle.nnx.fyi/
 License: See THIRD-PARTY-NOTICES.md
 ShortDescription: A local music player for Windows.
 Tags: [music, player, flac, lyrics, chromecast, dlna, airplay]
