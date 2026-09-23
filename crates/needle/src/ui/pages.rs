@@ -687,6 +687,7 @@ impl AppView {
                         })),
                         cx,
                     ))
+                    .when(!self.settings.music_colors, |el| el.child(self.accent_settings(cx)))
                     .child(setting_row(
                         "Reduce motion",
                         if motion::system_allows_animation() {
@@ -702,6 +703,30 @@ impl AppView {
                         })),
                         cx,
                     ))
+                    .child(self.section_title("Fonts", "", cx))
+                    .child(setting_row(
+                        "Titles",
+                        "The font for page titles, album and artist names, and the big player.",
+                        segmented(
+                            "display-font",
+                            &super::theme::DISPLAY_FONTS.map(|(_, label, _)| label),
+                            super::theme::DISPLAY_FONTS.iter().position(|(k, _, _)| *k == self.settings.display_font).unwrap_or(0),
+                            cx,
+                            {
+                                let weak = weak.clone();
+                                move |index, _, cx| {
+                                    let key = super::theme::DISPLAY_FONTS[index].0;
+                                    super::theme::set_display_font(key);
+                                    let _ = weak.update(cx, |this, cx| {
+                                        this.settings.display_font = key.into();
+                                        this.persist_settings();
+                                        cx.notify();
+                                    });
+                                }
+                            },
+                        ),
+                        cx,
+                    ))
                     .child(setting_row(
                         "Density",
                         "Compact fits more tracks on screen.",
@@ -709,7 +734,7 @@ impl AppView {
                             let weak = weak.clone();
                             move |index, _, cx| {
                                 let _ = weak.update(cx, |this, cx| {
-                                    this.settings.layout.row_height = if index == 0 { 44. } else { 56. };
+                                    this.settings.layout.row_height = if index == 0 { 36. } else { 58. };
                                     this.persist_settings();
                                     cx.notify();
                                 });
@@ -954,7 +979,7 @@ impl AppView {
                 .and_then(|a| self.cached_look(a))
                 .map(|l| l.vivid)
         } else {
-            None
+            super::theme::parse_hex(&self.settings.accent_color)
         };
         let look = super::theme::Palette::build(base, tint);
         let bar = |w: f32, color: Hsla| div().h(px(4.)).w(px(w)).rounded(px(2.)).bg(color);
@@ -1349,5 +1374,59 @@ impl AppView {
                     .child(covers)
                     .child(logo)
             })
+    }
+}
+
+impl AppView {
+    /// Swatches for the interface color, shown when colors from the music are off.
+    fn accent_settings(&self, cx: &mut Context<Self>) -> impl IntoElement {
+        let p = pal(cx);
+        setting_row(
+            "Color",
+            "Tints the buttons, highlights, and surfaces.",
+            div()
+                .flex()
+                .gap_2()
+                .children(
+                    super::theme::ACCENTS
+                        .iter()
+                        .enumerate()
+                        .map(|(i, (hex, name))| {
+                            let selected = self.settings.accent_color == *hex;
+                            let look = super::theme::Palette::build(
+                                super::theme::Base::from_name(&self.settings.theme),
+                                super::theme::parse_hex(hex),
+                            );
+                            let hex = hex.to_string();
+                            div()
+                                .id(("accent", i))
+                                .size(px(26.))
+                                .rounded_full()
+                                .p(px(3.))
+                                .border_2()
+                                .border_color(if selected {
+                                    p.ink
+                                } else {
+                                    gpui::transparent_black()
+                                })
+                                .cursor_pointer()
+                                .child(div().size_full().rounded_full().bg(look.accent))
+                                .tooltip({
+                                    let name = name.to_string();
+                                    move |window, cx| {
+                                        gpui_component::tooltip::Tooltip::new(name.clone())
+                                            .build(window, cx)
+                                    }
+                                })
+                                .on_click(cx.listener(move |this, _, _, cx| {
+                                    this.settings.accent_color = hex.clone();
+                                    this.persist_settings();
+                                    cx.notify();
+                                }))
+                                .into_any_element()
+                        }),
+                ),
+            cx,
+        )
     }
 }

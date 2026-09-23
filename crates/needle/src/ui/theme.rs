@@ -65,8 +65,51 @@ fn c(value: u32) -> Hsla {
     rgb(value).into()
 }
 
-/// The font for page titles and big names.
-pub const DISPLAY: &str = "Fraunces 72pt Soft";
+/// Colors to choose from when colors from the music are off ("" is Needle's amber).
+pub const ACCENTS: [(&str, &str); 8] = [
+    ("", "Needle"),
+    ("#e5484d", "Red"),
+    ("#e93d82", "Pink"),
+    ("#8e4ec6", "Purple"),
+    ("#3e63dd", "Blue"),
+    ("#12a594", "Teal"),
+    ("#46a758", "Green"),
+    ("#f76b15", "Orange"),
+];
+
+/// A "#rrggbb" color, if it is one.
+pub fn parse_hex(hex: &str) -> Option<Hsla> {
+    let hex = hex.trim().trim_start_matches('#');
+    (hex.len() == 6)
+        .then(|| u32::from_str_radix(hex, 16).ok())
+        .flatten()
+        .map(|v| rgb(v).into())
+}
+
+/// Fonts for page titles and big names: settings value, name people see, font family.
+pub const DISPLAY_FONTS: [(&str, &str, &str); 3] = [
+    ("system", "Segoe UI", "Segoe UI Variable Display"),
+    ("bahnschrift", "Bahnschrift", "Bahnschrift"),
+    ("fraunces", "Fraunces (Nick's font)", "Fraunces 72pt Soft"),
+];
+
+static DISPLAY_FONT: std::sync::RwLock<&'static str> =
+    std::sync::RwLock::new("Segoe UI Variable Display");
+
+/// The font family for page titles and big names.
+pub fn display_font() -> &'static str {
+    *DISPLAY_FONT.read().unwrap_or_else(|e| e.into_inner())
+}
+
+/// Use the title font with this settings value (unknown values fall back to the first).
+pub fn set_display_font(key: &str) {
+    let family = DISPLAY_FONTS
+        .iter()
+        .find(|(k, _, _)| *k == key)
+        .unwrap_or(&DISPLAY_FONTS[0])
+        .2;
+    *DISPLAY_FONT.write().unwrap_or_else(|e| e.into_inner()) = family;
+}
 
 fn luminance(color: Hsla) -> f32 {
     let rgba = color.to_rgb();

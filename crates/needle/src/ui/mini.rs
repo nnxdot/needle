@@ -239,7 +239,10 @@ impl Render for MiniView {
                 })
                 .flatten()
                 .and_then(|art| a.cached_look(art))
-                .and_then(|look| look.blur);
+                .and_then(|look| {
+                    let fit = look.strength(p.dark);
+                    look.blur.map(|b| (b, fit))
+                });
             (
                 a.playback.current.clone(),
                 a.playback.playing,
@@ -311,14 +314,14 @@ impl Render for MiniView {
             .flex()
             .flex_col()
             // The cover, blurred, glowing behind everything.
-            .when_some(blur, |el, blur| {
+            .when_some(blur, |el, (blur, fit)| {
                 el.child(
                     img(blur)
                         .absolute()
                         .inset_0()
                         .size_full()
                         .object_fit(ObjectFit::Cover)
-                        .opacity(if p.dark { 0.55 } else { 0.4 } * (0.4 + 0.6 * p.back.a)),
+                        .opacity(if p.dark { 0.55 } else { 0.4 } * (0.4 + 0.6 * p.back.a) * fit),
                 )
                 .child(div().absolute().inset_0().bg(linear_gradient(
                     180.,

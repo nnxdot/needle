@@ -401,6 +401,7 @@ pub fn run(library: Library) -> Result<()> {
                 .ok();
             let settings = library.settings().unwrap_or_default();
             set_theme(&settings.theme, None, cx);
+            theme::set_display_font(&settings.display_font);
             cx.set_global(motion::Motion {
                 enabled: !settings.reduce_motion && motion::system_allows_animation(),
             });
@@ -1245,6 +1246,14 @@ impl AppView {
     }
 
     fn navigate(&mut self, page: Page, window: &mut Window, cx: &mut Context<Self>) {
+        // Clicking the page you are on keeps it as it is; only a search on it is cleared.
+        if page == self.page {
+            if !self.search_text(cx).is_empty() {
+                self.search.update(cx, |s, cx| s.set_value("", window, cx));
+                self.refresh(cx);
+            }
+            return;
+        }
         self.remember_scroll();
         if page != self.page {
             self.back.push(self.page.clone());

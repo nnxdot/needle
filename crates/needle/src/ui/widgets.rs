@@ -1,4 +1,4 @@
-use super::theme::{DISPLAY, Palette, pal};
+use super::theme::{Palette, display_font, pal};
 use gpui::{prelude::*, *};
 use gpui_component::{
     Icon, Sizable,
@@ -56,7 +56,7 @@ pub fn page_title(text: impl Into<SharedString>) -> Div {
 /// Big names in the display face: page titles, album and artist names, the big player.
 pub fn display(text: impl Into<SharedString>, size: f32) -> Div {
     div()
-        .font_family(DISPLAY)
+        .font_family(display_font())
         .text_size(px(size))
         .line_height(px(size * 1.18))
         .font_weight(FontWeight::SEMIBOLD)
@@ -126,7 +126,7 @@ pub fn generated_cover(seed: &str, size: f32, round: bool, p: &Palette) -> Div {
         if round {
             el.flex().items_center().justify_center().child(
                 div()
-                    .font_family(DISPLAY)
+                    .font_family(display_font())
                     .font_weight(FontWeight::SEMIBOLD)
                     .text_size(px(size * 0.42))
                     .text_color(ink.opacity(if p.dark { 0.75 } else { 0.6 }))
@@ -138,7 +138,7 @@ pub fn generated_cover(seed: &str, size: f32, round: bool, p: &Palette) -> Div {
                     .absolute()
                     .left(px(size * 0.08))
                     .bottom(px(-size * 0.2))
-                    .font_family(DISPLAY)
+                    .font_family(display_font())
                     .font_weight(FontWeight::SEMIBOLD)
                     .text_size(px(size * 0.78))
                     .line_height(px(size * 0.9))

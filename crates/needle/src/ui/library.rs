@@ -943,7 +943,9 @@ impl AppView {
             .is_some_and(|i| i.track.id == track.id);
         let favorite = track.rating >= 4;
         let id = track.id.clone();
-        let height = self.settings.layout.row_height.clamp(44., 76.);
+        let height = self.settings.layout.row_height.clamp(32., 76.);
+        // Compact rows hold one line: a small cover, then the title and artist side by side.
+        let compact = height < 50.;
         let number = if album_view && track.track_number > 0 {
             track.track_number.to_string()
         } else {
@@ -1008,7 +1010,9 @@ impl AppView {
                         )
                     }),
             )
-            .when(!album_view, |el| el.child(artwork(Some(track), 36., cx)))
+            .when(!album_view, |el| {
+                el.child(artwork(Some(track), if compact { 24. } else { 38. }, cx))
+            })
             .child(
                 div()
                     .flex_1()
@@ -1016,6 +1020,7 @@ impl AppView {
                     .flex()
                     .flex_col()
                     .gap(px(2.))
+                    .when(compact, |el| el.flex_row().items_center().gap_2())
                     .child(
                         div()
                             .flex()

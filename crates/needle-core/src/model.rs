@@ -117,6 +117,11 @@ pub struct Settings {
     pub discord_middle: String,
     pub discord_bottom: String,
     pub discord_logo: bool,
+    /// Font for page titles: "system", "bahnschrift", or "fraunces".
+    pub display_font: String,
+    /// Color for the interface when colors from the music are off: a hex color like
+    /// "#3e63dd", or empty for Needle's amber.
+    pub accent_color: String,
 }
 
 impl Default for Settings {
@@ -148,6 +153,8 @@ impl Default for Settings {
             discord_middle: "song".into(),
             discord_bottom: "album".into(),
             discord_logo: true,
+            display_font: "system".into(),
+            accent_color: String::new(),
         }
     }
 }
@@ -179,7 +186,7 @@ impl Layout {
         for (name, value, min, max) in [
             ("sidebar_width", self.sidebar_width, 175., 260.),
             ("inspector_width", self.inspector_width, 240., 340.),
-            ("row_height", self.row_height, 44., 76.),
+            ("row_height", self.row_height, 32., 76.),
         ] {
             if !value.is_finite() || value < min || value > max {
                 anyhow::bail!("{name} must be between {min} and {max}");

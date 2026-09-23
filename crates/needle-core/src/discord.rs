@@ -111,7 +111,6 @@ impl Drop for Presence {
     }
 }
 
-/// The JSON Discord expects for an activity (or `null` to clear it).
 /// What one part of the Discord card shows.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Field {

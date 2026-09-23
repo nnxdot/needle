@@ -19,6 +19,20 @@ pub struct Look {
     pub vivid: Hsla,
     /// A small, heavily blurred copy of the cover for backdrops.
     pub blur: Option<PathBuf>,
+    /// How bright the cover is overall, 0 (black) to 1 (white).
+    pub luma: f32,
+}
+
+impl Look {
+    /// How strongly the blurred cover may show: a dark cover on the light look (or a bright
+    /// one on a dark look) would lay a heavy band over the page, so it is toned down.
+    pub fn strength(&self, dark: bool) -> f32 {
+        if dark {
+            (1.35 - self.luma).clamp(0.35, 1.)
+        } else {
+            (self.luma * 1.5).clamp(0.12, 1.)
+        }
+    }
 }
 
 /// Looks by artwork path. `None` while measuring, or when the image could not be read.
@@ -112,6 +126,11 @@ pub fn measure(path: &str, cache: &Path) -> Option<Look> {
         .ok()?;
     let small = image.thumbnail(48, 48).to_rgb8();
     let vivid = vivid_color(&small)?;
+    let luma = small
+        .pixels()
+        .map(|p| (0.2126 * p[0] as f32 + 0.7152 * p[1] as f32 + 0.0722 * p[2] as f32) / 255.)
+        .sum::<f32>()
+        / (small.width() * small.height()).max(1) as f32;
     let mut hasher = std::collections::hash_map::DefaultHasher::new();
     path.hash(&mut hasher);
     std::fs::metadata(path)
@@ -127,7 +146,7 @@ pub fn measure(path: &str, cache: &Path) -> Option<Look> {
         std::fs::create_dir_all(cache).ok();
         blurred.save(&out).ok().map(|_| out)
     };
-    Some(Look { vivid, blur })
+    Some(Look { vivid, blur, luma })
 }
 
 impl AppView {
@@ -205,7 +224,7 @@ impl AppView {
                 },
             }
         } else {
-            None
+            theme::parse_hex(&self.settings.accent_color)
         };
         let mut target = Palette::build(Base::from_name(&self.settings.theme), tint);
         match self.material() {
@@ -252,7 +271,8 @@ impl AppView {
         let p = theme::pal(cx);
         let look = path.and_then(|path| self.look(path));
         let fade_to = p.canvas;
-        let base_alpha = (if p.dark { 0.42 } else { 0.34 } * strength).min(0.66);
+        let fit = look.as_ref().map_or(1., |l| l.strength(p.dark));
+        let base_alpha = (if p.dark { 0.42 } else { 0.34 } * strength).min(0.66) * fit;
         let glow = div()
             .absolute()
             .top_0()
