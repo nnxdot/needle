@@ -18,6 +18,7 @@ pub mod history;
 pub mod import;
 pub mod instance;
 pub mod integrations;
+pub mod logfile;
 pub mod media;
 pub mod model;
 mod mp4_trim;

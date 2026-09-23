@@ -167,6 +167,16 @@ pub struct Settings {
     pub crossfade: f32,
     /// The song table's columns, in order, with their widths.
     pub columns: Vec<ColumnSetting>,
+    /// Send crash reports (without file paths or names) to needle.nnx.fyi.
+    pub crash_reports: bool,
+    /// The welcome guide was shown (or skipped).
+    pub welcomed: bool,
+    /// Let phones on this network control Needle from a web page.
+    pub remote: bool,
+    /// The secret in the remote's address; a new one locks out phones that had the old one.
+    pub remote_key: String,
+    /// Equalizer presets the listener saved.
+    pub eq_presets: Vec<crate::dsp::UserPreset>,
 }
 
 /// One column of the song table.
@@ -219,6 +229,11 @@ impl Default for Settings {
                     width,
                 })
                 .collect(),
+            crash_reports: true,
+            welcomed: false,
+            remote: false,
+            remote_key: String::new(),
+            eq_presets: vec![],
         }
     }
 }

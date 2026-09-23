@@ -434,6 +434,8 @@ pub struct AppView {
     last_item: Option<(QueueItem, Instant)>,
     mini: Option<AnyWindowHandle>,
     sound: sound::SoundControls,
+    /// Timing sliders for the members of a speaker group, by address.
+    speaker_timing: std::collections::HashMap<String, (Entity<SliderState>, Subscription)>,
     import: importer::ImportState,
     plugins: needle_core::plugins::PluginHost,
     stems: stems_ui::StemsState,
@@ -599,7 +601,7 @@ impl AppView {
         let acoustid_key = secret("AcoustID application key", window, cx);
         let tags = TagFields::new(window, cx);
         let doctor = doctor::Doctor::new(window, cx);
-        let sound = sound::SoundControls::new(&settings.dsp, cx);
+        let sound = sound::SoundControls::new(&settings.dsp, window, cx);
         let import = importer::ImportState::new(window, cx);
         let palette = palette::PaletteState::new(window, cx);
         let volume = cx.new(|_| {
@@ -745,6 +747,7 @@ impl AppView {
             menu_serial: 0,
             heart_pop: None,
             settings_tab: 0,
+            speaker_timing: Default::default(),
             palette,
             page_serial: 0,
             sort: Sort::Default,
@@ -840,11 +843,18 @@ impl AppView {
         view.start_measuring();
         view.check_for_update(false);
         {
+            // Crash reports from earlier runs: send them (unless turned off), in the background.
+            let (data, send) = (view.library.directory.clone(), view.settings.crash_reports);
+            std::thread::spawn(move || needle_core::logfile::send_pending(&data, send));
+        }
+        {
             let sender = view.sender.clone();
             if let Err(e) = needle_core::instance::listen(&view.library.directory, move |files| {
                 let _ = sender.send(Event::OpenFiles(files));
             }) {
-                eprintln!("Other launches cannot reach this Needle: {e:#}");
+                needle_core::logfile::warn(format!(
+                    "Other launches cannot reach this Needle: {e:#}"
+                ));
             }
         }
         cx.on_release(|_, cx| cx.quit()).detach();
@@ -1975,6 +1985,9 @@ impl Render for AppView {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         self.update_palette(window, cx);
         self.update_glass(window, cx);
+        if self.page == Page::Settings && self.settings_tab == 0 {
+            self.sync_timing_sliders(cx);
+        }
         if self.page == Page::Sound || (self.page == Page::Settings && self.settings_tab == 1) {
             self.sync_effect_sliders(cx);
         }

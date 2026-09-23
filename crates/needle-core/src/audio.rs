@@ -108,6 +108,8 @@ pub enum Command {
     Loop(Option<(f64, f64)>),
     /// Change the equalizer and sound tools; applies to the playing track without a restart.
     Dsp(crate::dsp::Dsp),
+    /// Line up the speakers of a group again, in milliseconds by address, without a restart.
+    SpeakerDelays(std::collections::BTreeMap<String, i32>),
     /// Play this track from its stem folder (with the live mix), or `None` to go back to the file.
     Stems(Option<(String, std::path::PathBuf)>),
     Shutdown,
@@ -562,8 +564,14 @@ trait OutputOpener {
 struct SystemOutput;
 impl OutputOpener for SystemOutput {
     fn open(&mut self, device: Option<&str>) -> Result<Option<OpenOutput>> {
-        if let Some(speaker) = device.and_then(crate::cast::Speaker::from_device_name) {
-            let network = crate::cast::output::open(&speaker)?;
+        let group = device.and_then(crate::cast::Group::from_device_name);
+        let speaker = device.and_then(crate::cast::Speaker::from_device_name);
+        if group.is_some() || speaker.is_some() {
+            let network = match (group, speaker) {
+                (Some(group), _) => crate::cast::output::open_group(&group)?,
+                (_, Some(speaker)) => crate::cast::output::open(&speaker)?,
+                _ => unreachable!(),
+            };
             return Ok(Some(OpenOutput {
                 sink: network.sink,
                 name: network.name,
@@ -745,6 +753,7 @@ impl Worker {
         )
     }
     fn fail(&mut self, error: anyhow::Error) {
+        crate::logfile::error(format!("Playback: {error:#}"));
         self.state.lock().unwrap().error = Some(format!("{error:#}"));
     }
     fn finish_listen(&mut self) {
@@ -789,7 +798,7 @@ impl Worker {
         self.settings
             .output_device
             .as_deref()
-            .is_some_and(|d| d.starts_with(crate::cast::PREFIX))
+            .is_some_and(crate::cast::is_network)
     }
     fn network(&self) -> Option<Arc<crate::cast::output::Control>> {
         self.output.as_ref().and_then(|o| o.network.clone())
@@ -1144,6 +1153,21 @@ impl Worker {
                     items.extend(queue);
                     self.listen = listen;
                     self.restart(items, position, was_playing)?;
+                }
+            }
+            Command::SpeakerDelays(delays) => {
+                if let Some(control) = self.network() {
+                    control.set_delays(delays.clone());
+                }
+                if let Some(mut group) = self
+                    .settings
+                    .output_device
+                    .as_deref()
+                    .and_then(crate::cast::Group::from_device_name)
+                {
+                    group.delays = delays;
+                    self.settings.output_device = Some(group.device_name());
+                    self.library.save_settings(&self.settings)?;
                 }
             }
             Command::Dsp(dsp) => {

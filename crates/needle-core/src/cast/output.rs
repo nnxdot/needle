@@ -30,6 +30,8 @@ pub trait Destination: Send {
     fn stop(&mut self);
     /// Roughly how many seconds the speaker plays behind what was sent.
     fn lag(&self) -> f64;
+    /// New extra delays for the members of a group, in milliseconds by address.
+    fn set_delays(&mut self, _delays: &std::collections::BTreeMap<String, i32>) {}
 }
 
 /// Shared between the player and the pump.
@@ -40,6 +42,7 @@ pub struct Control {
     meta: Mutex<Meta>,
     described: AtomicBool,
     lag: Mutex<f64>,
+    delays: Mutex<Option<std::collections::BTreeMap<String, i32>>>,
 }
 
 impl Control {
@@ -55,6 +58,10 @@ impl Control {
     /// Seconds the speaker plays behind the player.
     pub fn lag(&self) -> f64 {
         *self.lag.lock().unwrap()
+    }
+    /// Line up the members of a group again, while playing.
+    pub fn set_delays(&self, delays: std::collections::BTreeMap<String, i32>) {
+        *self.delays.lock().unwrap() = Some(delays);
     }
 }
 
@@ -205,6 +212,348 @@ impl Destination for UrlSpeaker {
     }
 }
 
+// ---------------------------------------------------------------- this computer
+
+/// This computer's own speakers as a member of a group: it plays what the pump sends, from
+/// a small buffer, so it can wait for the network speakers.
+struct LocalSpeaker {
+    shared: Arc<LocalShared>,
+}
+
+#[derive(Default)]
+struct LocalShared {
+    buffer: Mutex<std::collections::VecDeque<f32>>,
+    paused: AtomicBool,
+    stop: AtomicBool,
+    failure: Mutex<Option<String>>,
+}
+
+struct LocalSource {
+    shared: Arc<LocalShared>,
+    chunk: Vec<f32>,
+    at: usize,
+}
+
+impl Iterator for LocalSource {
+    type Item = f32;
+    fn next(&mut self) -> Option<f32> {
+        if self.shared.stop.load(Ordering::Relaxed) {
+            return None;
+        }
+        if self.shared.paused.load(Ordering::Relaxed) {
+            return Some(0.);
+        }
+        if self.at >= self.chunk.len() {
+            self.chunk.clear();
+            self.at = 0;
+            let mut buffer = self.shared.buffer.lock().unwrap();
+            let take = buffer.len().min(1024);
+            self.chunk.extend(buffer.drain(..take));
+            if self.chunk.is_empty() {
+                return Some(0.);
+            }
+        }
+        self.at += 1;
+        Some(self.chunk[self.at - 1])
+    }
+}
+
+impl rodio::Source for LocalSource {
+    fn current_span_len(&self) -> Option<usize> {
+        None
+    }
+    fn channels(&self) -> u16 {
+        CHANNELS
+    }
+    fn sample_rate(&self) -> u32 {
+        RATE
+    }
+    fn total_duration(&self) -> Option<Duration> {
+        None
+    }
+}
+
+impl LocalSpeaker {
+    fn new() -> Self {
+        Self {
+            shared: Arc::default(),
+        }
+    }
+}
+
+impl Destination for LocalSpeaker {
+    fn start(&mut self, _meta: &Meta) -> Result<()> {
+        let shared = self.shared.clone();
+        std::thread::Builder::new()
+            .name("needle-local-speaker".into())
+            .spawn(move || {
+                let stream = match rodio::OutputStreamBuilder::open_default_stream() {
+                    Ok(mut stream) => {
+                        stream.log_on_drop(false);
+                        stream
+                    }
+                    Err(error) => {
+                        *shared.failure.lock().unwrap() = Some(format!("{error}"));
+                        return;
+                    }
+                };
+                stream.mixer().add(LocalSource {
+                    shared: shared.clone(),
+                    chunk: Vec::with_capacity(1024),
+                    at: 0,
+                });
+                while !shared.stop.load(Ordering::Relaxed) {
+                    std::thread::sleep(Duration::from_millis(50));
+                }
+                drop(stream);
+            })
+            .context("Could not start this computer's output")?;
+        Ok(())
+    }
+    fn push(&mut self, samples: &[i16]) -> Result<()> {
+        if let Some(error) = self.shared.failure.lock().unwrap().clone() {
+            anyhow::bail!("This computer's output failed: {error}");
+        }
+        let mut buffer = self.shared.buffer.lock().unwrap();
+        buffer.extend(samples.iter().map(|s| *s as f32 / 32768.));
+        // Never hold more than ten seconds.
+        let limit = RATE as usize * CHANNELS as usize * 10;
+        if buffer.len() > limit {
+            let extra = buffer.len() - limit;
+            buffer.drain(..extra);
+        }
+        Ok(())
+    }
+    fn pause(&mut self) -> Result<()> {
+        self.shared.paused.store(true, Ordering::Relaxed);
+        Ok(())
+    }
+    fn resume(&mut self) -> Result<()> {
+        self.shared.paused.store(false, Ordering::Relaxed);
+        Ok(())
+    }
+    fn flush(&mut self, _meta: &Meta) -> Result<()> {
+        self.shared.buffer.lock().unwrap().clear();
+        Ok(())
+    }
+    fn tick(&mut self) -> Result<()> {
+        Ok(())
+    }
+    fn stop(&mut self) {
+        self.shared.stop.store(true, Ordering::Relaxed);
+    }
+    fn lag(&self) -> f64 {
+        LEAD + 0.05
+    }
+}
+
+// ---------------------------------------------------------------- groups
+
+/// One output of a group.
+struct Member {
+    key: String,
+    name: String,
+    destination: Box<dyn Destination>,
+    alive: bool,
+    /// Frames of delay this member has now.
+    delay: i64,
+    /// Frames of silence to add (or, when negative, of sound to skip) before the next push.
+    pending: i64,
+}
+
+/// Several outputs at once. Each gets extra delay so that all of them play in step with
+/// the slowest, plus any delay the listener set to line them up by ear.
+struct GroupOut {
+    members: Vec<Member>,
+    delays: std::collections::BTreeMap<String, i32>,
+    silence: Vec<i16>,
+}
+
+impl GroupOut {
+    /// Seconds each member should be delayed by.
+    fn targets(&self) -> Vec<f64> {
+        let alive = || self.members.iter().filter(|m| m.alive);
+        let slowest = alive().map(|m| m.destination.lag()).fold(0., f64::max);
+        let wanted: Vec<f64> = self
+            .members
+            .iter()
+            .map(|m| {
+                slowest - m.destination.lag()
+                    + *self.delays.get(&m.key).unwrap_or(&0) as f64 / 1000.
+            })
+            .collect();
+        // A negative delay for one member means everyone else waits a little longer.
+        let shift = alive()
+            .zip(wanted.iter())
+            .map(|(_, w)| -w)
+            .fold(0., f64::max);
+        wanted.iter().map(|w| w + shift).collect()
+    }
+    /// Work out each member's delay again; `fresh` after the members dropped what they held.
+    fn align(&mut self, fresh: bool) {
+        let targets = self.targets();
+        for (member, target) in self.members.iter_mut().zip(targets) {
+            let frames = (target * RATE as f64).round() as i64;
+            if fresh {
+                member.delay = 0;
+                member.pending = 0;
+            }
+            member.pending += frames - member.delay;
+            member.delay = frames;
+        }
+    }
+    /// Run `action` on every member still playing. A member that fails is dropped; the group
+    /// fails only when none is left.
+    fn each(&mut self, mut action: impl FnMut(&mut Member) -> Result<()>) -> Result<()> {
+        let mut last = None;
+        for member in self.members.iter_mut().filter(|m| m.alive) {
+            if let Err(error) = action(member) {
+                crate::logfile::warn(format!("{} stopped playing: {error:#}", member.name));
+                member.alive = false;
+                member.destination.stop();
+                last = Some(error);
+            }
+        }
+        // The others keep their timing: lining them up again would make them jump.
+        match (self.members.iter().any(|m| m.alive), last) {
+            (false, Some(error)) => Err(error),
+            (false, None) => anyhow::bail!("No speaker in the group is playing"),
+            _ => Ok(()),
+        }
+    }
+}
+
+impl Destination for GroupOut {
+    fn start(&mut self, meta: &Meta) -> Result<()> {
+        self.each(|m| m.destination.start(meta))?;
+        self.align(true);
+        Ok(())
+    }
+    fn push(&mut self, samples: &[i16]) -> Result<()> {
+        let silence = &mut self.silence;
+        let result = {
+            let mut last = None;
+            for member in self.members.iter_mut().filter(|m| m.alive) {
+                let mut sound = samples;
+                if member.pending > 0 {
+                    let count = member.pending as usize * CHANNELS as usize;
+                    if silence.len() < count {
+                        silence.resize(count, 0);
+                    }
+                    if let Err(e) = member.destination.push(&silence[..count]) {
+                        last = Some((member.name.clone(), e));
+                        member.alive = false;
+                        continue;
+                    }
+                    member.pending = 0;
+                } else if member.pending < 0 {
+                    let skip = ((-member.pending) as usize * CHANNELS as usize).min(sound.len());
+                    sound = &sound[skip..];
+                    member.pending += (skip / CHANNELS as usize) as i64;
+                }
+                if !sound.is_empty()
+                    && let Err(e) = member.destination.push(sound)
+                {
+                    last = Some((member.name.clone(), e));
+                    member.alive = false;
+                }
+            }
+            last
+        };
+        if let Some((name, error)) = result {
+            crate::logfile::warn(format!("{name} stopped playing: {error:#}"));
+            for member in self.members.iter_mut().filter(|m| !m.alive) {
+                member.destination.stop();
+            }
+            if !self.members.iter().any(|m| m.alive) {
+                return Err(error);
+            }
+        }
+        Ok(())
+    }
+    fn pause(&mut self) -> Result<()> {
+        self.each(|m| m.destination.pause())
+    }
+    fn resume(&mut self) -> Result<()> {
+        self.each(|m| m.destination.resume())
+    }
+    fn flush(&mut self, meta: &Meta) -> Result<()> {
+        self.each(|m| m.destination.flush(meta))?;
+        self.align(true);
+        Ok(())
+    }
+    fn tick(&mut self) -> Result<()> {
+        self.each(|m| m.destination.tick())
+    }
+    fn stop(&mut self) {
+        for member in self.members.iter_mut().filter(|m| m.alive) {
+            member.destination.stop();
+        }
+    }
+    fn lag(&self) -> f64 {
+        // When the members are heard, with the delays they have now.
+        self.members
+            .iter()
+            .filter(|m| m.alive)
+            .map(|m| m.destination.lag() + (m.delay - m.pending.min(0)) as f64 / RATE as f64)
+            .fold(0., f64::max)
+    }
+    fn set_delays(&mut self, delays: &std::collections::BTreeMap<String, i32>) {
+        self.delays = delays.clone();
+        self.align(false);
+    }
+}
+
+/// Open several speakers (and maybe this computer) as one output.
+pub fn open_group(group: &super::Group) -> Result<Network> {
+    let mut members = vec![];
+    let mut problems = vec![];
+    for speaker in &group.speakers {
+        let destination: Result<Box<dyn Destination>> = match speaker.kind {
+            Kind::AirPlay => super::airplay::Receiver::new(speaker).map(|r| Box::new(r) as _),
+            _ => UrlSpeaker::new(speaker).map(|s| Box::new(s) as _),
+        };
+        match destination {
+            Ok(destination) => members.push(Member {
+                key: speaker.address.clone(),
+                name: speaker.name.clone(),
+                destination,
+                alive: true,
+                delay: 0,
+                pending: 0,
+            }),
+            Err(error) => problems.push(format!("{}: {error:#}", speaker.name)),
+        }
+    }
+    if group.this_computer {
+        members.push(Member {
+            key: String::new(),
+            name: "This computer".into(),
+            destination: Box::new(LocalSpeaker::new()),
+            alive: true,
+            delay: 0,
+            pending: 0,
+        });
+    }
+    for problem in &problems {
+        crate::logfile::warn(format!("Left out of the group: {problem}"));
+    }
+    if members.is_empty() {
+        anyhow::bail!(
+            "None of the speakers could be reached. {}",
+            problems.join(" ")
+        );
+    }
+    Ok(start(
+        group.name(),
+        Box::new(GroupOut {
+            members,
+            delays: group.delays.clone(),
+            silence: vec![],
+        }),
+    ))
+}
+
 // ---------------------------------------------------------------- the pump
 
 /// Open a speaker as an output.
@@ -264,6 +613,10 @@ pub(crate) fn start(name: String, mut destination: Box<dyn Destination>) -> Netw
                     if let Err(e) = result {
                         fail(e);
                     }
+                }
+                if let Some(delays) = shared.delays.lock().unwrap().take() {
+                    destination.set_delays(&delays);
+                    *shared.lag.lock().unwrap() = destination.lag();
                 }
                 if shared.flush.swap(false, Ordering::Relaxed) {
                     let meta = shared.meta.lock().unwrap().clone();
@@ -357,6 +710,112 @@ mod tests {
         fn lag(&self) -> f64 {
             1.
         }
+    }
+
+    /// A member that records what reaches it, with a fixed lag.
+    #[derive(Clone)]
+    struct Timed(Arc<Mutex<Vec<i16>>>, f64, Arc<AtomicBool>);
+    impl Destination for Timed {
+        fn start(&mut self, _: &Meta) -> Result<()> {
+            Ok(())
+        }
+        fn push(&mut self, samples: &[i16]) -> Result<()> {
+            if self.2.load(Ordering::Relaxed) {
+                anyhow::bail!("gone");
+            }
+            self.0.lock().unwrap().extend_from_slice(samples);
+            Ok(())
+        }
+        fn pause(&mut self) -> Result<()> {
+            Ok(())
+        }
+        fn resume(&mut self) -> Result<()> {
+            Ok(())
+        }
+        fn flush(&mut self, _: &Meta) -> Result<()> {
+            self.0.lock().unwrap().clear();
+            Ok(())
+        }
+        fn tick(&mut self) -> Result<()> {
+            Ok(())
+        }
+        fn stop(&mut self) {}
+        fn lag(&self) -> f64 {
+            self.1
+        }
+    }
+
+    #[test]
+    fn groups_line_up_their_members_and_survive_one_failing() {
+        let slow = Timed(Arc::default(), 2.0, Arc::default());
+        let fast = Timed(Arc::default(), 0.5, Arc::default());
+        let member = |key: &str, t: &Timed| Member {
+            key: key.into(),
+            name: key.into(),
+            destination: Box::new(t.clone()),
+            alive: true,
+            delay: 0,
+            pending: 0,
+        };
+        let mut group = GroupOut {
+            members: vec![member("slow", &slow), member("fast", &fast)],
+            delays: Default::default(),
+            silence: vec![],
+        };
+        group.start(&Meta::default()).unwrap();
+        let sound = vec![1000i16; 2 * 100];
+        group.push(&sound).unwrap();
+        // The fast member waits 1.5 s so both are heard at 2 s.
+        let fast_got = fast.0.lock().unwrap().clone();
+        let lead = (1.5 * RATE as f64) as usize * 2;
+        assert_eq!(fast_got.len(), lead + sound.len());
+        assert!(fast_got[..lead].iter().all(|s| *s == 0));
+        assert_eq!(slow.0.lock().unwrap().len(), sound.len());
+        assert!((group.lag() - 2.0).abs() < 1e-9);
+        // The listener delays the slow one by 100 ms: it gets 100 ms of silence.
+        let before = slow.0.lock().unwrap().len();
+        group.set_delays(&[("slow".to_string(), 100)].into());
+        group.push(&sound).unwrap();
+        let added = slow.0.lock().unwrap().len() - before;
+        assert_eq!(added, (0.1 * RATE as f64) as usize * 2 + sound.len());
+        assert!((group.lag() - 2.1).abs() < 1e-9);
+        // A negative delay on the fast one: it skips sound instead.
+        group.set_delays(&[("slow".to_string(), 100), ("fast".to_string(), -50)].into());
+        let before = fast.0.lock().unwrap().len();
+        group.push(&vec![1i16; 2 * 10_000]).unwrap();
+        let added = fast.0.lock().unwrap().len() - before;
+        assert_eq!(
+            added,
+            2 * 10_000 - (0.05 * RATE as f64).round() as usize * 2
+        );
+        // One member fails: the other plays on; when both fail, the group fails.
+        slow.2.store(true, Ordering::Relaxed);
+        group.push(&sound).unwrap();
+        assert!(!group.members[0].alive && group.members[1].alive);
+        fast.2.store(true, Ordering::Relaxed);
+        assert!(group.push(&sound).is_err());
+    }
+
+    #[test]
+    fn groups_round_trip_through_device_names() {
+        let group = crate::cast::Group {
+            speakers: vec![Speaker {
+                kind: Kind::Chromecast,
+                name: "Kitchen".into(),
+                address: "192.168.1.30:8009".into(),
+            }],
+            this_computer: true,
+            delays: [("".to_string(), 120)].into(),
+        };
+        let name = group.device_name();
+        assert!(crate::cast::is_network(&name));
+        assert_eq!(
+            crate::cast::Group::from_device_name(&name),
+            Some(group.clone())
+        );
+        assert_eq!(Speaker::from_device_name(&name), None);
+        assert_eq!(group.name(), "Kitchen + This computer");
+        assert_eq!(group.len(), 2);
     }
 
     #[test]
