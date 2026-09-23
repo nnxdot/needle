@@ -7,15 +7,21 @@ use clap::Parser;
 struct Options {
     #[arg(long)]
     data_dir: Option<std::path::PathBuf>,
+    /// Music files to play (as File Explorer passes them).
+    files: Vec<std::path::PathBuf>,
 }
 fn main() {
     let options = Options::parse();
-    let result = needle_core::database::Library::open(
-        options
-            .data_dir
-            .unwrap_or_else(needle_core::database::Library::default_directory),
-    )
-    .and_then(ui::run);
+    let directory = options
+        .data_dir
+        .unwrap_or_else(needle_core::database::Library::default_directory);
+    // Needle is already open: give it the files, and let it come to the front.
+    if needle_core::instance::hand_over(&directory, &options.files) {
+        return;
+    }
+    let files = options.files;
+    let result =
+        needle_core::database::Library::open(directory).and_then(|library| ui::run(library, files));
     if let Err(error) = result {
         rfd::MessageDialog::new()
             .set_title("Needle could not start")

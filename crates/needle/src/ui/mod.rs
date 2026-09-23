@@ -29,6 +29,7 @@ mod suggest;
 mod tags;
 mod theme;
 mod timing;
+mod updates;
 mod widgets;
 mod wrapped;
 
@@ -270,6 +271,10 @@ enum Event {
     Measured((usize, usize)),
     BlendChoices(String, Vec<String>),
     Speakers(Vec<needle_core::cast::Speaker>),
+    /// Files opened with Needle (none: just come to the front).
+    OpenFiles(Vec<std::path::PathBuf>),
+    Update(Result<Option<needle_core::update::Release>, String>, bool),
+    UpdateStarted(Result<(), String>),
     Lyrics(String, Option<needle_core::media::Lyrics>),
     ArtistImage(String, Option<String>),
     ArtistImages(Vec<(String, Option<String>)>),
@@ -330,6 +335,7 @@ pub struct AppView {
     header_menu: Option<columns::HeaderMenu>,
     blend_menu: Option<radio::BlendMenu>,
     speaker_menu: Option<speakers::SpeakerMenu>,
+    update: Option<updates::UpdateState>,
     measuring: std::sync::Arc<std::sync::atomic::AtomicBool>,
     measured: Option<(usize, usize)>,
     sound_cache:
@@ -452,7 +458,7 @@ pub struct AppView {
     discord_sent: Option<(String, bool, i64)>,
 }
 
-pub fn run(library: Library) -> Result<()> {
+pub fn run(library: Library, files: Vec<std::path::PathBuf>) -> Result<()> {
     Application::new()
         .with_assets(assets::Assets)
         .run(move |cx| {
@@ -523,6 +529,9 @@ pub fn run(library: Library) -> Result<()> {
             match cx.open_window(options, move |window, cx| {
                 window.set_window_title("Needle");
                 let view = cx.new(|cx| AppView::new(library, window, cx));
+                if !files.is_empty() {
+                    let _ = view.read(cx).sender.send(Event::OpenFiles(files));
+                }
                 cx.new(|cx| Root::new(view, window, cx))
             }) {
                 Ok(_) => cx.activate(true),
@@ -717,6 +726,7 @@ impl AppView {
             header_menu: None,
             blend_menu: None,
             speaker_menu: None,
+            update: None,
             measuring: radio::switch(measure_sound),
             measured: None,
             sound_cache: Default::default(),
@@ -824,6 +834,15 @@ impl AppView {
         view.load_home();
         view.refresh_recent();
         view.start_measuring();
+        view.check_for_update(false);
+        {
+            let sender = view.sender.clone();
+            if let Err(e) = needle_core::instance::listen(&view.library.directory, move |files| {
+                let _ = sender.send(Event::OpenFiles(files));
+            }) {
+                eprintln!("Other launches cannot reach this Needle: {e:#}");
+            }
+        }
         cx.on_release(|_, cx| cx.quit()).detach();
         cx.spawn_in(window, async move |view, cx| {
             // Poll often while playing so the seek bar glides; rarely while paused.
@@ -1029,6 +1048,14 @@ impl AppView {
                 }
                 Event::BlendChoices(artist, choices) => self.blend_choices(artist, choices),
                 Event::Speakers(found) => self.speakers_found(found),
+                Event::OpenFiles(files) => {
+                    window.activate_window();
+                    if !files.is_empty() {
+                        self.open_files(files);
+                    }
+                }
+                Event::Update(result, asked) => self.update_checked(result, asked),
+                Event::UpdateStarted(result) => self.update_started(result, cx),
                 Event::ImportProgress(message) => self.import.busy = Some(message),
                 Event::Plugin(action) => self.plugin_action(action, cx),
                 Event::PaletteFound(generation, songs, albums, artists) => {

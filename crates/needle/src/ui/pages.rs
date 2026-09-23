@@ -869,6 +869,8 @@ impl AppView {
                     // Services
                     .when(tab == 3, |el| {
                         el
+                    .child(self.section_title("Needle", "", cx))
+                    .child(self.updates_view(cx))
                     .child(self.section_title("Listening services", "Optional. Nothing is sent until you connect a service and turn it on.", cx))
                     .child(self.services(cx))
                     })

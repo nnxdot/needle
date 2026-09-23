@@ -113,6 +113,20 @@ Opening an existing large library for the first time after this change builds th
 - Film grain is off by default and has a strength slider.
 - Discord Rich Presence uses Needle's own Discord application. A live test with Discord open showed a "Listening" presence named Needle with the uploaded logo and a time bar for eight seconds, confirmed by Discord's reply, and then cleared it. A second live test showed "Listening to Armageddon" with the artist, the album, and the album cover found in the iTunes catalog (Discord proxied the image), with the Needle logo as the small badge. A test checks the cover match: a different artist never counts, and the same song on the same album wins over remixes. It talks only to the local Discord pipe and first checks that the program serving the pipe is a Discord client (Discord, Canary, PTB, Development, Vesktop, Equibop, Legcord, or WebCord); a live check against this PC's Discord passed. Tests cover the activity message (listening type, 2–128 character fields, time bar in milliseconds, paused state without a time bar) and the client name check.
 
+## 1.0.0 checks
+
+- `cargo test --workspace` passes (138 core tests, 8 ignored, plus 8 UI tests); `cargo clippy --workspace --all-targets -- -D warnings` is clean. The release build and installer were not built for this record.
+- **Windows media controls:** title, artist, album, and cover showed in the Windows media flyout; play/pause and next worked from it (checked with a script reading the system media session).
+- **Crossfade:** a test compares when the next song starts with and without crossfade.
+- **Formats:** WavPack, Monkey's Audio, DSF (as PCM), and CUE sheets decode in tests; the CUE album and the three formats were imported and played in the app.
+- **Folders and columns:** checked from screenshots: folder pages with subfolders, resizing columns from their left edge, reordering, sorting, and the column menu.
+- **Karaoke lyrics and timing editor:** word timing reads and writes back unchanged (enhanced LRC); in the app, words of a real song were tapped in, saved as an .lrc beside the file (then removed), and lit up word by word in the big player.
+- **Your year in music:** tested on a library with two synthetic years of listening (totals, top artists and songs, streaks, genres, new artists).
+- **Fix my library:** duplicates were merged in a copy of the test music (one extra copy went to the Recycle Bin; plays, history, and playlists moved); files were moved by pattern with their covers and lyrics and then undone; a real MusicBrainz lookup matched "Abbey Road" and wrote tags to test copies, with backups.
+- **Offline radio:** tempo and key are found on generated test signals; a real song measured as 112 BPM, A minor. Radio from a song, from an artist, and a blend of two artists were played in the app.
+- **Speakers:** DLNA control, Chromecast messages, and AirPlay's RTSP and audio packets are tested against pretend devices; a test plays a real song through the player to a pretend DLNA speaker that downloads the live stream; Chromium played Needle's live WAV stream in real time (muted). No real Chromecast, DLNA, or AirPlay device was on the test network, so none was tried. AirPlay uses the older RAOP protocol; AirPlay 2 pairing is not supported.
+- **Opening files and updates:** a second launch handed a song to the running Needle, which played it; only one Needle stayed open. The update check compares versions and verifies downloads against SHA256SUMS.txt in tests; no real update was installed. The Inno Setup installer script and winget manifests were written but not compiled (Inno Setup is not installed on the build machine).
+
 ## 0.6.0 checks
 
 - `cargo test --workspace` passes, including a new test that glass only thins the back layer (and the page when asked) and never changes text colors.
@@ -144,7 +158,7 @@ The Windows app was opened and inspected directly. The first-run screen created 
 
 ## Not verified
 
-macOS/Linux builds and playback; exhaustive codec/container metadata; unusual MP4 timelines; physical device hot-plug (recovery is tested only with a simulated device); listening to stem separation quality on real music; GPU-accelerated separation; Last.fm history import; screen-reader operation (GPUI 0.2.2 exposes no accessibility tree on Windows); Last.fm and ListenBrainz sign-in screens against the live services; external DAC sample capture; real Last.fm/ListenBrainz submissions; an authenticated AcoustID response; production signing, installer, auto-update, and commercial service setup.
+macOS/Linux builds and playback; exhaustive codec/container metadata; unusual MP4 timelines; physical device hot-plug (recovery is tested only with a simulated device); listening to stem separation quality on real music; GPU-accelerated separation; Last.fm history import; screen-reader operation (GPUI 0.2.2 exposes no accessibility tree on Windows); Last.fm and ListenBrainz sign-in screens against the live services; external DAC sample capture; real Last.fm/ListenBrainz submissions; an authenticated AcoustID response; production signing; a compiled installer and a real auto-update; Chromecast, DLNA, and AirPlay hardware; and commercial service setup.
 
 ## Packaged release checks
 

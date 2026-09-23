@@ -129,6 +129,9 @@ pub struct Settings {
     pub online_media: bool,
     /// Measure each song's sound in the background, for radio.
     pub sound_analysis: bool,
+    /// Ask GitHub once a day whether a newer Needle is out.
+    pub check_updates: bool,
+    pub last_update_check: i64,
     pub dsp: crate::dsp::Dsp,
     /// Turn off interface animations (Windows' own setting also turns them off).
     pub reduce_motion: bool,
@@ -189,6 +192,8 @@ impl Default for Settings {
             layout: Layout::default(),
             online_media: false,
             sound_analysis: true,
+            check_updates: true,
+            last_update_check: 0,
             dsp: crate::dsp::Dsp::default(),
             reduce_motion: false,
             music_colors: true,
