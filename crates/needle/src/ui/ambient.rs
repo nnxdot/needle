@@ -226,7 +226,11 @@ impl AppView {
         } else {
             theme::parse_hex(&self.settings.accent_color)
         };
-        let mut target = Palette::build(Base::from_name(&self.settings.theme), tint);
+        let mut target = Palette::build(
+            Base::from_name(&self.settings.theme),
+            tint,
+            self.ambient_look(),
+        );
         match self.material() {
             super::glass::Material::Solid => {}
             // Clear glass shows the desktop unblurred, so it keeps more of the surface.
@@ -241,8 +245,8 @@ impl AppView {
         }
         // Ambient: the bars and the page float over the full-window cover, part see-through.
         if self.ambient_look() {
-            target.back = target.chrome.opacity(0.5);
-            target.canvas = target.canvas.opacity(0.62);
+            target.back = target.chrome.opacity(if target.dark { 0.5 } else { 0.55 });
+            target.canvas = target.canvas.opacity(if target.dark { 0.62 } else { 0.7 });
         }
         let shown = theme::pal(cx);
         if target != self.fade.to {
@@ -342,8 +346,9 @@ fn make_grain(path: &Path) -> Option<PathBuf> {
 }
 
 impl AppView {
+    /// Whether the cover fills the whole background ("ambient" was once a look of its own).
     pub(super) fn ambient_look(&self) -> bool {
-        Base::from_name(&self.settings.theme) == Base::Ambient
+        self.settings.ambient || self.settings.theme == "ambient"
     }
 
     /// The Ambient look's background: the page's or the playing song's cover, blurred, over
@@ -366,9 +371,14 @@ impl AppView {
                 })
             })
             .flatten();
-        let blur = path
-            .and_then(|path| self.look(&path))
-            .and_then(|look| look.blur.clone().map(|b| (b, look.strength(true).max(0.6))));
+        let blur = path.and_then(|path| self.look(&path)).and_then(|look| {
+            look.blur.clone().map(|b| {
+                (
+                    b,
+                    look.strength(p.dark).max(if p.dark { 0.6 } else { 0.35 }),
+                )
+            })
+        });
         let layer = div().absolute().inset_0().bg(p.chrome);
         let layer = match blur {
             Some((blur, fit)) => layer.child(

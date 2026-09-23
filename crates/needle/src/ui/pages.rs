@@ -642,7 +642,7 @@ impl AppView {
                     .when(tab == 2, |el| {
                         let theme_cards: Vec<AnyElement> = super::theme::Base::ALL
                             .iter()
-                            .map(|(mode, name)| self.theme_card(mode, name, cx).into_any_element())
+                            .map(|(mode, name, about)| self.theme_card(mode, name, about, cx).into_any_element())
                             .collect();
                         el
                     .child(self.section_title("Appearance", "", cx))
@@ -657,6 +657,19 @@ impl AppView {
                             .child(super::widgets::strong("Look"))
                             .child(div().flex().gap_4().children(theme_cards)),
                     )
+                    .child(setting_row(
+                        "Ambient background",
+                        "The cover that is playing (or your chosen color) fills the whole background, blurred, and fills the whole screen in the big player. Works with every look.",
+                        Switch::new("ambient").checked(self.ambient_look()).on_click(cx.listener(|this, checked: &bool, _, cx| {
+                            this.settings.ambient = *checked;
+                            if this.settings.theme == "ambient" {
+                                this.settings.theme = "dark".into();
+                            }
+                            this.persist_settings();
+                            cx.notify();
+                        })),
+                        cx,
+                    ))
                     .child(self.glass_settings(cx))
                     .child(setting_row(
                         "Film grain",
@@ -961,16 +974,19 @@ impl AppView {
 }
 
 impl AppView {
-    /// A small picture of a base look, in today's colours, that switches to it when clicked.
+    /// A small picture of a base look, in today's colors (and with the ambient background when
+    /// that is on), that switches to it when clicked.
     fn theme_card(
         &self,
         mode: &'static str,
         name: &'static str,
+        about: &'static str,
         cx: &mut Context<Self>,
     ) -> impl IntoElement {
         let p = pal(cx);
         let base = super::theme::Base::from_name(mode);
         let active = super::theme::Base::from_name(&self.settings.theme) == base;
+        let ambient = self.ambient_look();
         let tint = if self.settings.music_colors {
             self.playback
                 .current
@@ -981,72 +997,97 @@ impl AppView {
         } else {
             super::theme::parse_hex(&self.settings.accent_color)
         };
-        let look = super::theme::Palette::build(base, tint);
+        let look = super::theme::Palette::build(base, tint, ambient);
         let bar = |w: f32, color: Hsla| div().h(px(4.)).w(px(w)).rounded(px(2.)).bg(color);
+        // The window: the back layer, or with Ambient a wash of the music's color behind it all.
+        let window_bg = if ambient {
+            linear_gradient(
+                150.,
+                linear_color_stop(look.glow.opacity(if look.dark { 0.7 } else { 0.45 }), 0.),
+                linear_color_stop(look.chrome, 0.9),
+            )
+        } else {
+            linear_gradient(
+                180.,
+                linear_color_stop(look.chrome, 0.),
+                linear_color_stop(look.chrome, 1.),
+            )
+        };
+        let sheet = if ambient {
+            look.canvas.opacity(0.7)
+        } else {
+            look.canvas
+        };
+        let tile = |shade: f32| {
+            div().size(px(22.)).rounded(px(4.)).bg(linear_gradient(
+                135.,
+                linear_color_stop(look.glow.opacity(0.9), 0.),
+                linear_color_stop(super::motion::mix(look.glow, look.chrome, shade), 1.),
+            ))
+        };
         div()
             .id(SharedString::from(format!("theme-{mode}")))
             .flex()
             .flex_col()
-            .gap_2()
+            .gap(px(6.))
             .cursor_pointer()
             .child(
                 div()
-                    .w(px(150.))
-                    .h(px(96.))
+                    .w(px(172.))
+                    .h(px(108.))
                     .rounded(px(10.))
                     .border_2()
                     .border_color(if active { p.accent } else { p.line })
-                    .bg(look.chrome)
+                    .bg(window_bg)
                     .p(px(6.))
                     .flex()
                     .gap(px(6.))
                     .overflow_hidden()
                     .child(
                         div()
-                            .w(px(28.))
+                            .w(px(30.))
                             .flex()
                             .flex_col()
                             .gap(px(5.))
                             .pt_1()
                             .child(bar(22., look.accent))
                             .child(bar(18., look.ink_3))
-                            .child(bar(20., look.ink_3)),
+                            .child(bar(20., look.ink_3))
+                            .child(bar(16., look.ink_3)),
                     )
                     .child(
                         div()
                             .flex_1()
                             .rounded(px(6.))
-                            .bg(linear_gradient(
-                                180.,
-                                linear_color_stop(
-                                    super::motion::mix(look.canvas, look.glow, 0.3),
-                                    0.,
-                                ),
-                                linear_color_stop(look.canvas, 0.7),
-                            ))
+                            .bg(sheet)
+                            .border_1()
+                            .border_color(look.line_soft)
                             .p(px(7.))
                             .flex()
                             .flex_col()
                             .gap(px(5.))
-                            .child(bar(46., look.ink))
-                            .child(bar(30., look.ink_2))
+                            .child(bar(52., look.ink))
+                            .child(bar(34., look.ink_2))
                             .child(
                                 div()
-                                    .mt_1()
-                                    .h(px(12.))
-                                    .w(px(28.))
-                                    .rounded(px(4.))
-                                    .bg(look.accent),
-                            ),
+                                    .mt(px(3.))
+                                    .flex()
+                                    .gap(px(5.))
+                                    .child(tile(0.3))
+                                    .child(tile(0.6))
+                                    .child(tile(0.45)),
+                            )
+                            .child(div().h(px(9.)).w(px(30.)).rounded(px(4.)).bg(look.accent)),
                     ),
             )
             .child(
                 div()
                     .text_size(px(13.))
-                    .when(active, |el| el.font_weight(FontWeight::MEDIUM))
+                    .when(active, |el| el.font_weight(FontWeight::SEMIBOLD))
                     .text_color(if active { p.ink } else { p.ink_2 })
                     .child(name),
             )
+            .child(div().text_size(px(11.5)).text_color(p.ink_3).child(about))
             .on_click(cx.listener(move |this, _, window, cx| {
                 set_theme(mode, Some(window), cx);
                 this.settings.theme = mode.into();
@@ -1396,6 +1437,7 @@ impl AppView {
                             let look = super::theme::Palette::build(
                                 super::theme::Base::from_name(&self.settings.theme),
                                 super::theme::parse_hex(hex),
+                                false,
                             );
                             let hex = hex.to_string();
                             div()

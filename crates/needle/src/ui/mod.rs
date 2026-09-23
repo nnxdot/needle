@@ -488,7 +488,12 @@ fn watch(
 
 impl AppView {
     fn new(library: Library, window: &mut Window, cx: &mut Context<Self>) -> Self {
-        let settings = library.settings().unwrap_or_default();
+        let mut settings = library.settings().unwrap_or_default();
+        // Ambient used to be a look of its own; it is now a setting for any look.
+        if settings.theme == "ambient" {
+            settings.theme = "dark".into();
+            settings.ambient = true;
+        }
         let player = Player::new(library.clone());
         let search = cx.new(|cx| {
             InputState::new(window, cx).placeholder("Search, or write a rule like  rating >= 4")
