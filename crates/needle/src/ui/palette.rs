@@ -175,6 +175,16 @@ impl AppView {
             )
         }));
         let playing = self.playback.playing;
+        if self.tray.is_some() {
+            items.push(item(
+                "Actions",
+                "mini",
+                "Hide to tray",
+                "The music plays on",
+                None,
+                |this, window, _| this.hide_to_tray(window),
+            ));
+        }
         items.extend([
             item(
                 "Actions",

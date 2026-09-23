@@ -44,6 +44,17 @@ impl AppView {
             .flex_col()
             .gap_2()
             .child(setting_row(
+                "Hide to tray",
+                "Puts Needle in the notification area by the clock. Closing the window hides it there and the music plays on; click the icon to bring Needle back, or right-click it to play, pause, skip, or quit.",
+                Switch::new("tray-on").checked(self.settings.tray).on_click(cx.listener(|this, checked: &bool, _, cx| {
+                    this.settings.tray = *checked;
+                    this.persist_settings();
+                    this.apply_tray();
+                    cx.notify();
+                })),
+                cx,
+            ))
+            .child(setting_row(
                 "Phone remote",
                 "Control Needle from a phone's web browser on the same Wi-Fi. Nothing to install on the phone.",
                 Switch::new("remote-on").checked(self.settings.remote).on_click(cx.listener(|this, checked: &bool, _, cx| {
