@@ -197,6 +197,35 @@ impl AppView {
                     .when(enabled && !plugin.effects.is_empty(), |el| el.child(faint(format!("Adds to Sound › Effects: {}.", plugin.effects.join(", ")), cx).w_full()))
                     .when_some(plugin.error.clone(), |el, error| el.child(meta(error, cx).w_full().text_color(p.danger)))
                     .children(self.source_block(&plugin, cx))
+                    .when_some(plugin.update.clone(), |el, version| {
+                        let (take, keep) = (plugin.manifest.id.clone(), plugin.manifest.id.clone());
+                        el.child(
+                            div()
+                                .p_3()
+                                .rounded(px(8.))
+                                .bg(p.raised)
+                                .flex()
+                                .items_center()
+                                .gap_3()
+                                .child(
+                                    meta(
+                                        format!("Version {version} is out. You changed this plugin, so Needle left it alone. Updating keeps your changed files next to it as .mine files."),
+                                        cx,
+                                    )
+                                    .flex_1()
+                                    .min_w_0()
+                                    .w_full(),
+                                )
+                                .child(small_button(("plugin-update", i), "Update").on_click(cx.listener(move |this, _, _, cx| {
+                                    this.plugins.send(PluginEvent::TakeUpdate(take.clone()));
+                                    cx.notify();
+                                })))
+                                .child(small_button(("plugin-keep", i), "Keep mine").ghost().on_click(cx.listener(move |this, _, _, cx| {
+                                    this.plugins.send(PluginEvent::KeepChanged(keep.clone()));
+                                    cx.notify();
+                                }))),
+                        )
+                    })
                     .when(enabled, |el| {
                         el.child(div().flex().gap_2().children(plugin.commands.iter().filter(|c| !c.for_tracks).enumerate().map(|(j, command)| {
                             let (plugin, command_id) = (command.plugin.clone(), command.id.clone());

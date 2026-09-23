@@ -107,6 +107,8 @@ pub struct PluginInfo {
     pub effects: Vec<String>,
     /// Set when the plugin is a music source (it defines `source()`).
     pub source: Option<SourceInfo>,
+    /// A bundled plugin someone changed: the newer version this build of Needle has.
+    pub update: Option<String>,
 }
 
 /// A music source a plugin brings: what to ask for to sign in, and how it is doing.
@@ -194,6 +196,11 @@ pub enum PluginEvent {
         id: String,
         reply: Sender<Result<String, String>>,
     },
+    /// Replace a changed bundled plugin with this build's version (the changes are kept as
+    /// `.mine` files).
+    TakeUpdate(String),
+    /// Keep a changed bundled plugin, and stop offering this version.
+    KeepChanged(String),
     /// A song was rated in Needle.
     Rated {
         track_id: String,
@@ -382,6 +389,29 @@ fn run(
                         call_source(plugin, "played", vec![id.into(), listen.started_at.into()]);
                 }
                 publish(&loaded);
+            }
+            PluginEvent::TakeUpdate(ref id) | PluginEvent::KeepChanged(ref id) => {
+                let take = matches!(event, PluginEvent::TakeUpdate(_));
+                if let Some(plugin) = loaded.iter().find(|p| p.info.manifest.id == *id) {
+                    let dir = plugin.info.folder.clone();
+                    let result = if take {
+                        take_bundled_update(&dir, id)
+                    } else {
+                        keep_changed_plugin(&dir, id)
+                    };
+                    match result {
+                        Ok(()) if take => actions(HostAction::Notify(format!(
+                            "Updated {}. Your changes are kept next to it as .mine files.",
+                            plugin.info.manifest.name
+                        ))),
+                        Ok(()) => {}
+                        Err(error) => actions(HostAction::Notify(format!("{error:#}"))),
+                    }
+                }
+                loaded = load_all(&library, &actions, &now_playing);
+                start_sources(&mut loaded, &syncing);
+                publish(&loaded);
+                offer(&loaded);
             }
             PluginEvent::Rated { track_id, stars } => {
                 if let Ok(Some(track)) = library.track(&track_id)
@@ -741,6 +771,7 @@ fn load_all(
                         commands: vec![],
                         effects: vec![],
                         source: None,
+                        update: None,
                     },
                     engine: Engine::new_raw(),
                     ast: None,
@@ -770,6 +801,7 @@ fn load_all(
                 commands: vec![],
                 effects: vec![],
                 source: None,
+                update: bundled_update(&dir, &manifest.id),
             },
             engine,
             ast: None,
@@ -1412,7 +1444,7 @@ fn effects() {
         "subsonic",
         r#"id = "subsonic"
 name = "Navidrome / Subsonic"
-version = "1.0.0"
+version = "1.1.0"
 author = "nnx"
 description = "Plays the music on your Navidrome or other Subsonic server. Songs are listed with your own and streamed; plays and ratings are saved on the server."
 permissions = ["network"]
@@ -1658,10 +1690,8 @@ pub const EXAMPLE_FILES: &[(&str, &str, &str)] = &[(
 "#,
 )];
 
-/// Copy the example plugins into the plugin folder, leaving any that already exist.
-/// Earlier versions of the bundled plugins' scripts (SHA-256), replaced by the current
-/// version when a copy on disk still matches one exactly, so fixes reach people who never
-/// edited them.
+/// Scripts of the Navidrome / Subsonic plugin from before bundled plugins kept a record
+/// (SHA-256). A copy that still matches one exactly was never edited, so it is updated.
 const EARLIER_EXAMPLES: &[(&str, &str)] = &[
     (
         "subsonic",
@@ -1685,42 +1715,212 @@ const EARLIER_EXAMPLES: &[(&str, &str)] = &[
     ),
 ];
 
-/// Bring unedited copies of the bundled plugins up to date. Returns how many changed.
-pub fn update_examples(folder: &Path) -> usize {
+/// What Needle installed in a bundled plugin's folder, kept in `.bundled.json`: its
+/// version, a fingerprint of its files as written, and a newer version the person chose not
+/// to take over their own changes.
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+struct Bundled {
+    version: String,
+    hash: String,
+    #[serde(default)]
+    kept: Option<String>,
+}
+const BUNDLED_RECORD: &str = ".bundled.json";
+
+/// The files of a bundled plugin, as Needle ships them.
+fn bundled_files(name: &str) -> Vec<(&'static str, &'static str)> {
+    let Some((_, manifest, script)) = EXAMPLES.iter().find(|(n, ..)| *n == name) else {
+        return vec![];
+    };
+    let mut files = vec![("plugin.toml", *manifest), ("main.rhai", *script)];
+    files.extend(
+        EXAMPLE_FILES
+            .iter()
+            .filter(|(n, ..)| *n == name)
+            .map(|(_, file, contents)| (*file, *contents)),
+    );
+    files
+}
+
+/// The version a bundled plugin has in this build of Needle.
+fn bundled_version(name: &str) -> String {
+    bundled_files(name)
+        .first()
+        .and_then(|(_, manifest)| toml::from_str::<Manifest>(manifest).ok())
+        .map(|m| m.version)
+        .unwrap_or_default()
+}
+
+/// A fingerprint of these files' contents (a missing file counts as empty).
+fn fingerprint<'a>(files: impl Iterator<Item = (&'a str, Vec<u8>)>) -> String {
     use sha2::{Digest, Sha256};
+    let mut hasher = Sha256::new();
+    for (name, contents) in files {
+        hasher.update(name.as_bytes());
+        hasher.update((contents.len() as u64).to_le_bytes());
+        hasher.update(&contents);
+    }
+    format!("{:x}", hasher.finalize())
+}
+
+/// The fingerprint of a bundled plugin's files as they are on disk now.
+fn fingerprint_on_disk(dir: &Path, name: &str) -> String {
+    fingerprint(
+        bundled_files(name)
+            .into_iter()
+            .map(|(file, _)| (file, std::fs::read(dir.join(file)).unwrap_or_default())),
+    )
+}
+
+/// "1.2.0" is newer than "1.1.9"; missing parts count as 0.
+fn newer_version(candidate: &str, than: &str) -> bool {
+    let parts = |v: &str| -> Vec<u64> {
+        v.trim()
+            .trim_start_matches('v')
+            .split('.')
+            .map(|p| p.parse().unwrap_or(0))
+            .collect()
+    };
+    let (mut a, mut b) = (parts(candidate), parts(than));
+    let length = a.len().max(b.len());
+    a.resize(length, 0);
+    b.resize(length, 0);
+    a > b
+}
+
+fn read_record(dir: &Path) -> Option<Bundled> {
+    serde_json::from_str(&std::fs::read_to_string(dir.join(BUNDLED_RECORD)).ok()?).ok()
+}
+
+/// Write this build's version of a bundled plugin into `dir`, and record it. With
+/// `keep_copy`, the files it replaces are kept first as `<name>.mine`.
+fn write_bundled(dir: &Path, name: &str, keep_copy: bool) -> Result<()> {
+    std::fs::create_dir_all(dir)?;
+    let files = bundled_files(name);
+    for (file, contents) in &files {
+        let path = dir.join(file);
+        if keep_copy && path.is_file() && std::fs::read(&path)? != contents.as_bytes() {
+            std::fs::copy(&path, dir.join(format!("{file}.mine")))?;
+        }
+        std::fs::write(path, contents)?;
+    }
+    let record = Bundled {
+        version: bundled_version(name),
+        hash: fingerprint(files.iter().map(|(f, c)| (*f, c.as_bytes().to_vec()))),
+        kept: None,
+    };
+    std::fs::write(
+        dir.join(BUNDLED_RECORD),
+        serde_json::to_string_pretty(&record)?,
+    )?;
+    Ok(())
+}
+
+/// Whether a bundled plugin's files on disk are exactly as some version of Needle wrote
+/// them, and which version that was.
+fn unedited_version(dir: &Path, name: &str) -> Option<String> {
+    if let Some(record) = read_record(dir) {
+        return (fingerprint_on_disk(dir, name) == record.hash).then_some(record.version);
+    }
+    // Installed before records were kept.
+    let script = std::fs::read(dir.join("main.rhai")).ok()?;
+    let hash = {
+        use sha2::{Digest, Sha256};
+        format!("{:x}", Sha256::digest(&script))
+    };
+    if fingerprint_on_disk(dir, name)
+        == fingerprint(
+            bundled_files(name)
+                .iter()
+                .map(|(f, c)| (*f, c.as_bytes().to_vec())),
+        )
+    {
+        Some(bundled_version(name))
+    } else if EARLIER_EXAMPLES.contains(&(name, hash.as_str()))
+        || bundled_files(name)
+            .iter()
+            .any(|(file, contents)| *file == "main.rhai" && script == contents.as_bytes())
+    {
+        // An earlier script, or this one with an earlier plugin.toml.
+        Some("0".into())
+    } else {
+        None
+    }
+}
+
+/// Bring bundled plugins up to date: ones nobody edited are replaced by this build's newer
+/// version. Edited ones are left alone (see `bundled_update`). Returns how many changed.
+pub fn update_examples(folder: &Path) -> usize {
     let mut updated = 0;
-    for (name, manifest, script) in EXAMPLES {
-        let path = folder.join(name).join("main.rhai");
-        let Ok(current) = std::fs::read(&path) else {
+    for (name, ..) in EXAMPLES {
+        let dir = folder.join(name);
+        if !dir.join("plugin.toml").is_file() {
             continue;
-        };
-        let hash = format!("{:x}", Sha256::digest(&current));
-        if current != script.as_bytes()
-            && EARLIER_EXAMPLES.contains(&(name, hash.as_str()))
-            && std::fs::write(&path, script).is_ok()
-        {
-            let _ = std::fs::write(folder.join(name).join("plugin.toml"), manifest);
-            crate::logfile::info(format!("Updated the bundled plugin {name}"));
-            updated += 1;
+        }
+        let current = bundled_version(name);
+        match unedited_version(&dir, name) {
+            Some(version) if newer_version(&current, &version) => {
+                if write_bundled(&dir, name, false).is_ok() {
+                    crate::logfile::info(format!("Updated the bundled plugin {name} to {current}"));
+                    updated += 1;
+                }
+            }
+            // The same version as this build, never edited: make sure it has a record.
+            Some(_) if read_record(&dir).is_none() => {
+                let _ = write_bundled(&dir, name, false);
+            }
+            _ => {}
         }
     }
     updated
 }
 
+/// For a bundled plugin someone changed: the newer version this build of Needle has, unless
+/// they chose to keep theirs over that version.
+pub fn bundled_update(dir: &Path, id: &str) -> Option<String> {
+    let current = bundled_version(id);
+    if current.is_empty() || unedited_version(dir, id).is_some() {
+        return None;
+    }
+    let installed = read_record(dir)
+        .map(|r| (r.version, r.kept))
+        .or_else(|| read_manifest(dir).ok().map(|m| (m.version, None)))?;
+    if installed.1.as_deref() == Some(current.as_str()) {
+        return None;
+    }
+    newer_version(&current, &installed.0).then_some(current)
+}
+
+/// Replace a changed bundled plugin with this build's version, keeping the changed files as
+/// `<name>.mine`.
+pub fn take_bundled_update(dir: &Path, id: &str) -> Result<()> {
+    write_bundled(dir, id, true)
+}
+
+/// Keep a changed bundled plugin as it is, and stop offering this build's version.
+pub fn keep_changed_plugin(dir: &Path, id: &str) -> Result<()> {
+    let mut record = read_record(dir).unwrap_or_else(|| Bundled {
+        version: read_manifest(dir).map(|m| m.version).unwrap_or_default(),
+        ..Default::default()
+    });
+    record.kept = Some(bundled_version(id));
+    std::fs::write(
+        dir.join(BUNDLED_RECORD),
+        serde_json::to_string_pretty(&record)?,
+    )?;
+    Ok(())
+}
+
+/// Copy the example plugins into the plugin folder, leaving any that already exist.
 pub fn install_examples(library: &Library) -> Result<usize> {
     let folder = library.directory.join("plugins");
     let mut installed = 0;
-    for (name, manifest, script) in EXAMPLES {
+    for (name, ..) in EXAMPLES {
         let dir = folder.join(name);
         if dir.exists() {
             continue;
         }
-        std::fs::create_dir_all(&dir)?;
-        std::fs::write(dir.join("plugin.toml"), manifest)?;
-        std::fs::write(dir.join("main.rhai"), script)?;
-        for (_, file, contents) in EXAMPLE_FILES.iter().filter(|(f, ..)| f == name) {
-            std::fs::write(dir.join(file), contents)?;
-        }
+        write_bundled(&dir, name, false)?;
         installed += 1;
     }
     Ok(installed)
@@ -2119,38 +2319,96 @@ mod tests {
         assert_eq!(synced.songs, 250);
     }
 
-    /// Unedited copies of an earlier bundled plugin are brought up to date; edited ones are not.
+    /// Unedited bundled plugins update to a newer version; changed ones are offered the
+    /// update, which keeps the changes as `.mine`, or can be kept as they are.
     #[test]
-    fn bundled_plugins_update_unless_edited() {
+    fn bundled_plugins_update_unless_changed() {
         let dir = tempfile::tempdir().unwrap();
         let folder = dir.path();
-        let earlier = include_str!("../testdata/subsonic-1.0.0.rhai");
-        std::fs::create_dir_all(folder.join("subsonic")).unwrap();
-        std::fs::write(folder.join("subsonic/main.rhai"), earlier).unwrap();
-        assert_eq!(update_examples(folder), 1);
+        let plugin = folder.join("subsonic");
+        let read = |file: &str| std::fs::read_to_string(plugin.join(file)).unwrap();
+
+        // Installed before records were kept, still as shipped: updated, and recorded.
+        std::fs::create_dir_all(&plugin).unwrap();
         std::fs::write(
-            folder.join("subsonic/main.rhai"),
+            plugin.join("plugin.toml"),
+            "id = \"subsonic\"\nname = \"S\"\nversion = \"1.0.0\"",
+        )
+        .unwrap();
+        std::fs::write(
+            plugin.join("main.rhai"),
             include_str!("../testdata/subsonic-1.0.1.rhai"),
         )
         .unwrap();
         assert_eq!(update_examples(folder), 1);
-        let now = std::fs::read_to_string(folder.join("subsonic/main.rhai")).unwrap();
-        assert!(now.contains("Navidrome uses :4533"));
-        assert!(now.contains("\"http://\" + typed"));
+        assert!(read("main.rhai").contains("Navidrome uses :4533"));
+        assert_eq!(read_record(&plugin).unwrap().version, "1.1.0");
+        assert_eq!(update_examples(folder), 0, "already up to date");
+        assert_eq!(bundled_update(&plugin, "subsonic"), None);
+
+        // Before records, with the current script but an older plugin.toml: updated.
+        std::fs::remove_file(plugin.join(BUNDLED_RECORD)).unwrap();
         std::fs::write(
-            folder.join("subsonic/main.rhai"),
-            format!(
-                "{earlier}
-// mine"
-            ),
+            plugin.join("plugin.toml"),
+            "id = \"subsonic\"
+name = \"S\"
+version = \"1.0.0\"",
+        )
+        .unwrap();
+        assert_eq!(update_examples(folder), 1);
+        assert!(read("plugin.toml").contains("1.1.0"));
+
+        // An older recorded version nobody changed: updated.
+        let mut record = read_record(&plugin).unwrap();
+        record.version = "1.0.5".into();
+        std::fs::write(
+            plugin.join(BUNDLED_RECORD),
+            serde_json::to_string(&record).unwrap(),
+        )
+        .unwrap();
+        assert_eq!(update_examples(folder), 1);
+
+        // Changed by hand, with an older version recorded: left alone, and offered.
+        std::fs::write(
+            plugin.join("main.rhai"),
+            format!("{}\n// mine", read("main.rhai")),
+        )
+        .unwrap();
+        let mut record = read_record(&plugin).unwrap();
+        record.version = "1.0.5".into();
+        std::fs::write(
+            plugin.join(BUNDLED_RECORD),
+            serde_json::to_string(&record).unwrap(),
         )
         .unwrap();
         assert_eq!(update_examples(folder), 0);
-        assert!(
-            std::fs::read_to_string(folder.join("subsonic/main.rhai"))
-                .unwrap()
-                .ends_with("// mine")
+        assert!(read("main.rhai").ends_with("// mine"));
+        assert_eq!(
+            bundled_update(&plugin, "subsonic").as_deref(),
+            Some("1.1.0")
         );
+
+        // Keeping it stops the offer for this version.
+        keep_changed_plugin(&plugin, "subsonic").unwrap();
+        assert_eq!(bundled_update(&plugin, "subsonic"), None);
+        assert!(read("main.rhai").ends_with("// mine"));
+
+        // Taking it replaces the files and keeps the changed script as main.rhai.mine.
+        take_bundled_update(&plugin, "subsonic").unwrap();
+        assert!(!read("main.rhai").ends_with("// mine"));
+        assert!(read("main.rhai.mine").ends_with("// mine"));
+        assert_eq!(
+            unedited_version(&plugin, "subsonic").as_deref(),
+            Some("1.1.0")
+        );
+    }
+
+    #[test]
+    fn versions_compare_by_number() {
+        assert!(newer_version("1.10.0", "1.9.9"));
+        assert!(newer_version("1.1", "1.0.9"));
+        assert!(!newer_version("1.0", "1.0.0"));
+        assert!(newer_version("1.0.0", "0"));
     }
 
     /// Network errors say what happened without the link, which can carry a sign-in token.
