@@ -366,7 +366,7 @@ fn run(command, ids) {
               <tr><td><code>signed_in()</code></td><td>Yes</td><td>Returns <code>true</code> when the plugin has what it needs to reach the server.</td></tr>
               <tr><td><code>sign_in(fields)</code></td><td>Yes</td><td>Gets a map of what was typed, by field id. Save it (the password with <code>set_secret</code>), check it with the server, and <code>throw</code> a message if it is wrong. Needle shows the message under the form.</td></tr>
               <tr><td><code>sign_out()</code></td><td>No</td><td>Forget what <code>sign_in</code> saved. The source's songs stay in the library, marked missing, with their ratings and plays, until you sign in again.</td></tr>
-              <tr><td><code>songs(page)</code></td><td>Yes</td><td>Returns one page of songs, from page 0, as a list of <a href="#source-song">source songs</a>. Needle asks for the next page until one is empty. A page of 500 songs is a good size.</td></tr>
+              <tr><td><code>songs(page)</code></td><td>Yes</td><td>Returns one page of songs, from page 0, as a list of <a href="#source-song">source songs</a>. Needle asks for the next page until one is empty. A page of 250 songs is a good size.</td></tr>
               <tr><td><code>stream(id)</code></td><td>Yes</td><td>Returns an <code>http://</code> or <code>https://</code> link to the song's audio.</td></tr>
               <tr><td><code>playing(id)</code></td><td>No</td><td>A song from this source started.</td></tr>
               <tr><td><code>played(id, started_at)</code></td><td>No</td><td>A song from this source counts as played (half of it, or 4 minutes). <code>started_at</code> is in seconds since 1970.</td></tr>
@@ -402,7 +402,7 @@ fn run(command, ids) {
           <li>Plugins start turned off. A new or changed plugin does nothing until someone turns it on.</li>
           <li>Plugins run on their own thread. A slow plugin cannot freeze Needle's window or make the music skip.</li>
           <li>Each call can do about 2 million steps. After that, Needle stops it and shows a message, so a loop that never ends cannot hang Needle.</li>
-          <li>Other limits: calls 48 deep, text up to 1 MB, lists up to 50,000 items, maps up to 10,000 keys. <code>eval</code> is not available.</li>
+          <li>Other limits: calls 48 deep, text up to 1 MB, lists up to 50,000 items, maps up to 200,000 keys (counting everything inside them). <code>eval</code> is not available.</li>
           <li>An error in one plugin stays in that plugin. Needle shows it under the plugin's name in Settings, and the other plugins keep working.</li>
         </ul>
       </section>
