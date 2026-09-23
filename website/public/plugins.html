@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Plugins — Needle</title>
-<meta name="description" content="Write plugins for Needle: small Rhai scripts that react to what you play, add commands, and use only the permissions they ask for.">
+<meta name="description" content="Write plugins for Needle: small Rhai scripts that react to what you play, add commands and sound effects, and use only the permissions they ask for. DSP code runs as sandboxed WebAssembly.">
 <meta property="og:title" content="Plugins — Needle">
 <meta property="og:description" content="Write plugins for Needle, the music player for the music you own.">
 <meta property="og:url" content="https://needle.nnx.fyi/plugins">
@@ -60,6 +60,8 @@
       <a href="#manifest">plugin.toml</a>
       <a href="#events">Events</a>
       <a href="#commands">Commands</a>
+      <a href="#effects">Sound effects</a>
+      <a href="#dsp">DSP code</a>
       <a href="#functions">Functions</a>
       <a href="#data">Songs and listens</a>
       <a href="#limits">Limits and safety</a>
@@ -71,7 +73,7 @@
       <header class="doc-head">
         <p class="tag">Plugins</p>
         <h1>Teach Needle <em>new tricks.</em></h1>
-        <p class="lede">A plugin is a small script in its own folder. It can react to what you play, add commands to menus, and use your library, but only in the ways it asks for. Nothing runs until you turn it on.</p>
+        <p class="lede">A plugin is a small script in its own folder. It can react to what you play, add commands to menus, add sound effects, and use your library, but only in the ways it asks for. Nothing runs until you turn it on.</p>
       </header>
 
       <section id="start">
@@ -92,7 +94,7 @@ author = "you"</code></pre></li>
 }</code></pre></li>
           <li>Back in Needle, press <b>Reload</b>. Your plugin shows in the list. Turn it on, then play a song.</li>
         </ol>
-        <p>Every time you change a file, press <b>Reload</b> to load it again. To see finished plugins, press <b>Add example plugins</b>. Needle then copies four examples into the folder (see <a href="#examples">Examples</a>).</p>
+        <p>Every time you change a file, press <b>Reload</b> to load it again. To see finished plugins, press <b>Add example plugins</b>. Needle then copies six examples into the folder (see <a href="#examples">Examples</a>).</p>
       </section>
 
       <section id="manifest">
@@ -123,6 +125,7 @@ author = "you"</code></pre></li>
               <tr><td><code>"playback"</code></td><td>Playing, pausing, skipping, and adding to the queue.</td></tr>
               <tr><td><code>"network"</code></td><td>Web requests.</td></tr>
               <tr><td><code>"files"</code></td><td>Reading and writing files inside the plugin's own folder.</td></tr>
+              <tr><td><code>"audio"</code></td><td>Moving the sliders of its own effects, and turning them on or off. A plugin needs no permission just to offer effects.</td></tr>
             </tbody>
           </table>
         </div>
@@ -141,6 +144,7 @@ author = "you"</code></pre></li>
               <tr><td><code>on_listen(listen)</code></td><td>Needle records a listen in your history. <code>listen</code> is a <a href="#data">listen</a>.</td></tr>
               <tr><td><code>on_pause()</code></td><td>Playback pauses.</td></tr>
               <tr><td><code>on_resume()</code></td><td>Playback starts again after a pause.</td></tr>
+              <tr><td><code>effects()</code></td><td>The plugin loads. Returns its <a href="#effects">sound effects</a>.</td></tr>
             </tbody>
           </table>
         </div>
@@ -167,6 +171,96 @@ fn run(command, ids) {
           <li><b><code>"track"</code> commands</b> show in the menu of selected songs, under <b>Plugins</b>. <code>ids</code> holds the selected songs' ids.</li>
           <li><b><code>"global"</code> commands</b> show in the command palette. <code>ids</code> is empty.</li>
           <li>A plugin can have at most 32 commands. Needle asks for the list when the plugin loads, so press <b>Reload</b> after you change it.</li>
+        </ul>
+      </section>
+
+      <section id="effects">
+        <h2>Sound effects</h2>
+        <p>A plugin can add effects to <b>Sound › Effects</b>. There, people add them to their chain, put them in order, turn them on or off, and move their sliders. Effects play after the equalizer, on every song, and on other speakers too. They are skipped when exclusive output is on, so that each file plays bit for bit.</p>
+        <p><code>effects()</code> returns a list of effects. Most effects are a chain of Needle's built-in <b>blocks</b>, so they need no DSP code at all:</p>
+<pre><code>fn effects() {
+    [
+        #{ id: "room", name: "Room", description: "Places the music in a room.",
+           params: [
+               #{ id: "size", name: "Size", min: 0.0, max: 1.0, value: 0.5, unit: "%" },
+               #{ id: "mix", name: "Amount", min: 0.0, max: 0.6, value: 0.2, unit: "%" },
+           ],
+           blocks: [ #{ kind: "reverb", size: "$size", mix: "$mix", damping: 0.5 } ] },
+    ]
+}</code></pre>
+        <div class="table">
+          <table>
+            <thead><tr><th>Key</th><th>What it is</th></tr></thead>
+            <tbody>
+              <tr><td><code>id</code></td><td>A short name that never changes, with letters, digits, <code>-</code> and <code>_</code>. Needed.</td></tr>
+              <tr><td><code>name</code></td><td>The name people see. Needed.</td></tr>
+              <tr><td><code>description</code></td><td>One sentence about the sound.</td></tr>
+              <tr><td><code>params</code></td><td>Up to 16 sliders. Each has an <code>id</code>, a <code>name</code>, <code>min</code>, <code>max</code>, and a starting <code>value</code>. It can also have a <code>step</code>, and a <code>unit</code> to show after the number, such as <code>"dB"</code>, <code>"ms"</code>, or <code>"Hz"</code>. With <code>"%"</code>, a value from 0 to 1 shows as 0–100%.</td></tr>
+              <tr><td><code>blocks</code></td><td>Up to 16 blocks, played in order. Or use <code>wasm</code> for <a href="#dsp">your own DSP code</a>.</td></tr>
+            </tbody>
+          </table>
+        </div>
+        <p>A block has a <code>kind</code> and its settings. A setting is a number, or <code>"$id"</code> to follow the slider with that id. Settings you leave out use the starting value, and every value is kept between the lowest and highest shown.</p>
+        <div class="table">
+          <table>
+            <thead><tr><th>Kind</th><th>Settings (starting value)</th></tr></thead>
+            <tbody>
+              <tr><td><code>"gain"</code></td><td><code>db</code> (0), from −60 to 24.</td></tr>
+              <tr><td><code>"filter"</code></td><td><code>shape</code>: <code>"lowpass"</code>, <code>"highpass"</code>, <code>"bandpass"</code>, <code>"notch"</code>, <code>"peak"</code>, <code>"lowshelf"</code>, or <code>"highshelf"</code>. Needed, and not a slider. <code>frequency</code> in Hz (1000), <code>q</code> (0.707), <code>gain</code> in dB (0), for peak and shelves.</td></tr>
+              <tr><td><code>"compressor"</code></td><td><code>threshold</code> in dB (−18), <code>ratio</code> (4), <code>attack</code> in ms (10), <code>release</code> in ms (120), <code>makeup</code> in dB (0).</td></tr>
+              <tr><td><code>"limiter"</code></td><td><code>ceiling</code> in dB (−1), <code>release</code> in ms (80).</td></tr>
+              <tr><td><code>"delay"</code></td><td><code>time</code> in ms (350, up to 2000), <code>feedback</code> (0.35, up to 0.95), <code>mix</code> (0.3).</td></tr>
+              <tr><td><code>"reverb"</code></td><td><code>size</code> (0.6), <code>damping</code> (0.4), <code>mix</code> (0.25), <code>width</code> (1). All from 0 to 1.</td></tr>
+              <tr><td><code>"chorus"</code></td><td><code>rate</code> in Hz (0.8), <code>depth</code> in ms (3), <code>mix</code> (0.4).</td></tr>
+              <tr><td><code>"tremolo"</code></td><td><code>rate</code> in Hz (5), <code>depth</code> (0.5).</td></tr>
+              <tr><td><code>"saturate"</code></td><td><code>drive</code> in dB (6), <code>mix</code> (1). Soft, tape-like clipping.</td></tr>
+              <tr><td><code>"width"</code></td><td><code>amount</code> (1): 0 is mono, 1 is unchanged, 2 is extra wide.</td></tr>
+              <tr><td><code>"pan"</code></td><td><code>position</code> (0), from −1 (left) to 1 (right).</td></tr>
+            </tbody>
+          </table>
+        </div>
+        <p>Blocks run as Needle's own code on the audio thread, never as script. A script with the <code>"audio"</code> permission can still change them while music plays, with <a href="#functions"><code>set_effect</code> and <code>effect_on</code></a>. For example, it can turn on a night-time effect after 11 PM.</p>
+      </section>
+
+      <section id="dsp">
+        <h2>DSP code</h2>
+        <p>For a sound the blocks cannot make, write the DSP code yourself and give Needle a WebAssembly module. You can write it in Rust, C, C++, Zig, or AssemblyScript and build a <code>.wasm</code> file. For small effects, you can also write WebAssembly text (<code>.wat</code>) by hand, and Needle reads it as it is.</p>
+<pre><code>fn effects() {
+    [ #{ id: "crush", name: "Bitcrusher", wasm: "crush.wasm",
+         params: [ #{ id: "bits", name: "Bits", min: 2.0, max: 16.0, value: 8.0, step: 1.0 } ] } ]
+}</code></pre>
+        <p>The module works on blocks of interleaved 32-bit float samples, from −1 to 1. It must export:</p>
+        <dl class="api">
+          <dt><code>memory</code></dt><dd>Its memory.</dd>
+          <dt><code>init(rate: i32, channels: i32, max_frames: i32) -&gt; i32</code></dt><dd>Called once for each song. Returns the address in its memory of a buffer with room for <code>max_frames × channels</code> samples. <code>max_frames</code> is 512.</dd>
+          <dt><code>process(frames: i32)</code></dt><dd>Needle fills the buffer with <code>frames</code> frames and calls this. Change the samples in place. Needle then reads them back.</dd>
+        </dl>
+        <p>It can also export:</p>
+        <dl class="api">
+          <dt><code>param(index: i32, value: f32)</code></dt><dd>A slider's value, by its place in <code>params</code>, counted from 0. Needle calls it after <code>init</code> for every slider, and again whenever one moves.</dd>
+          <dt><code>reset()</code></dt><dd>Called after a seek. Clear delay lines and other kept sound here.</dd>
+        </dl>
+        <p>Here is a whole effect in WebAssembly text. It halves the volume of stereo sound:</p>
+<pre><code>(module
+  (memory (export "memory") 1)
+  (func (export "init") (param i32 i32 i32) (result i32) (i32.const 1024))
+  (func (export "process") (param $frames i32)
+    (local $at i32) (local $end i32)
+    (local.set $at (i32.const 1024))
+    ;; 2 channels × 4 bytes a sample
+    (local.set $end (i32.add (i32.const 1024) (i32.shl (local.get $frames) (i32.const 3))))
+    (block $done (loop $next
+      (br_if $done (i32.ge_u (local.get $at) (local.get $end)))
+      (f32.store (local.get $at) (f32.mul (f32.load (local.get $at)) (f32.const 0.5)))
+      (local.set $at (i32.add (local.get $at) (i32.const 4)))
+      (br $next)))))</code></pre>
+        <p>The <b>Bitcrusher</b> example plugin is a longer one, with three sliders and <code>reset</code>. Open its <code>crush.wat</code> to read it.</p>
+        <h3>The sandbox</h3>
+        <ul class="points">
+          <li>A module cannot import anything. It has no files, network, clock, or system calls. It gets samples, and it gives samples back.</li>
+          <li>Its memory can grow to 32 MB. The file can be up to 8 MB.</li>
+          <li>Each block has a work budget. A module that runs out, stops with an error, or cannot keep up with the music is stopped for the rest of the song. The music plays on without it, and <b>Sound › Effects</b> shows why.</li>
+          <li>Needle checks the module when the plugin loads. A module without <code>init</code>, <code>process</code>, or <code>memory</code>, or whose buffer does not fit its memory, shows an error in Settings and never plays.</li>
         </ul>
       </section>
 
@@ -204,6 +298,12 @@ fn run(command, ids) {
           <dt><code>enqueue(ids)</code></dt><dd>Adds these songs to the end of the queue.</dd>
           <dt><code>toggle_playback()</code></dt><dd>Pauses, or plays again.</dd>
           <dt><code>next_track()</code>, <code>previous_track()</code></dt><dd>Skips forward or back.</dd>
+        </dl>
+
+        <h3>audio</h3>
+        <dl class="api">
+          <dt><code>set_effect(effect, slider, value)</code></dt><dd>Moves a slider of one of this plugin's effects, in every place the effect is in the chain.</dd>
+          <dt><code>effect_on(effect, on)</code></dt><dd>Turns one of this plugin's effects on or off. Turning on an effect that is not in the chain adds it at the end.</dd>
         </dl>
 
         <h3>network</h3>
@@ -264,7 +364,7 @@ fn run(command, ids) {
 
       <section id="examples">
         <h2>Examples</h2>
-        <p>Press <b>Add example plugins</b> in Settings to get these four. Open their folders to read or change them.</p>
+        <p>Press <b>Add example plugins</b> in Settings to get these six. Open their folders to read or change them. The last two add sound effects: <b>Studio effects</b> (Room, Echo, Night mode, and Old radio, made from blocks) and <b>Bitcrusher</b> (DSP code in WebAssembly text).</p>
 
         <h3>Now playing to a file</h3>
         <p>Keeps <code>now-playing.txt</code> up to date, for streaming software such as OBS. Needs <code>"files"</code>.</p>
@@ -326,6 +426,7 @@ fn run(command, ids) {
           <dt>The plugin is not in the list</dt><dd>Its folder must be directly inside the plugins folder and hold a file named exactly <code>plugin.toml</code>. Press <b>Reload</b>.</dd>
           <dt>It shows an error under its name</dt><dd>Needle shows the first problem it found, such as a typing mistake in the script, a bad <code>id</code>, or a missing entry file. Fix it and press <b>Reload</b>.</dd>
           <dt>“did not ask for permission”</dt><dd>Add the permission to <code>plugin.toml</code>, press <b>Reload</b>, and turn the plugin on again.</dd>
+          <dt>An effect does not show in Sound</dt><dd>Check that the plugin is on and has no error in Settings. Effects of a plugin that is off stay in the chain, marked as not available, until it is on again.</dd>
           <dt>A command does not show</dt><dd>Check that the plugin is on, and that each item in <code>commands()</code> has an <code>id</code> and a <code>title</code>. <code>"track"</code> commands show only in the menu of selected songs.</dd>
           <dt>Two plugins have the same <code>id</code></dt><dd>Needle loads only the first one, in folder-name order. Give each plugin its own <code>id</code>.</dd>
         </dl>

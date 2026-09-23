@@ -15,9 +15,11 @@
 //!
 //! Scripts may define `on_load()`, `on_track_start(track)`, `on_listen(listen)`,
 //! `on_pause()`, `on_resume()`, `commands()` (an array of `#{ id, title, scope }` where scope
-//! is "track" or "global"), and `run(command, track_ids)`. Plugins start disabled; enabling one
-//! grants the permissions it declares. Every call is bounded in operations, depth, and size,
-//! and runs on the plugin thread, never the interface or audio threads.
+//! is "track" or "global"), `run(command, track_ids)`, and `effects()` (sound effects, see
+//! [`crate::effects`]). Plugins start disabled; enabling one grants the permissions it declares.
+//! Every call is bounded in operations, depth, and size, and runs on the plugin thread, never
+//! the interface or audio threads. Effects run on the audio thread as native blocks or as
+//! sandboxed WebAssembly, never as script.
 use crate::{
     database::Library,
     integrations::client,
@@ -49,6 +51,8 @@ pub enum Permission {
     Network,
     /// Read and write files inside the plugin's own folder.
     Files,
+    /// Change its effects' sliders and turn its effects on or off.
+    Audio,
 }
 
 impl Permission {
@@ -59,6 +63,7 @@ impl Permission {
             Self::Playback => "Control playback",
             Self::Network => "Use the internet",
             Self::Files => "Use files in its own folder",
+            Self::Audio => "Change its sound effects",
         }
     }
 }
@@ -98,6 +103,8 @@ pub struct PluginInfo {
     pub enabled: bool,
     pub error: Option<String>,
     pub commands: Vec<Command>,
+    /// Names of the sound effects it adds.
+    pub effects: Vec<String>,
 }
 
 /// What a plugin asks the application to do.
@@ -112,6 +119,19 @@ pub enum HostAction {
     Previous,
     /// Ratings or playlists changed; refresh views.
     LibraryChanged,
+    /// Set a slider of one of the plugin's effects, wherever it is in the listener's chain.
+    EffectParam {
+        plugin: String,
+        effect: String,
+        param: String,
+        value: f32,
+    },
+    /// Turn one of the plugin's effects on (adding it to the chain if needed) or off.
+    EffectOn {
+        plugin: String,
+        effect: String,
+        on: bool,
+    },
 }
 
 pub enum PluginEvent {
@@ -136,6 +156,7 @@ struct Loaded {
     engine: Engine,
     ast: Option<AST>,
     scope: Scope<'static>,
+    effects: Vec<Arc<crate::effects::EffectDef>>,
 }
 
 /// Runs plugins on their own thread. Clone freely; all clones talk to the same thread.
@@ -147,7 +168,11 @@ pub struct PluginHost {
 }
 
 impl PluginHost {
-    pub fn start(library: Library, actions: impl Fn(HostAction) + Send + Sync + 'static) -> Self {
+    pub fn start(
+        library: Library,
+        effects: Arc<crate::effects::Registry>,
+        actions: impl Fn(HostAction) + Send + Sync + 'static,
+    ) -> Self {
         let (tx, rx) = crossbeam_channel::unbounded();
         let infos = Arc::new(Mutex::new(vec![]));
         let folder = library.directory.join("plugins");
@@ -159,7 +184,7 @@ impl PluginHost {
         let actions: Arc<dyn Fn(HostAction) + Send + Sync> = Arc::new(actions);
         std::thread::Builder::new()
             .name("needle-plugins".into())
-            .spawn(move || run(library, rx, infos, actions))
+            .spawn(move || run(library, rx, infos, effects, actions))
             .expect("start plugin thread");
         let _ = host.tx.send(PluginEvent::Reload);
         host
@@ -186,6 +211,7 @@ fn run(
     library: Library,
     rx: Receiver<PluginEvent>,
     infos: Arc<Mutex<Vec<PluginInfo>>>,
+    effects: Arc<crate::effects::Registry>,
     actions: Arc<dyn Fn(HostAction) + Send + Sync>,
 ) {
     let now_playing: Arc<Mutex<Option<Track>>> = Arc::default();
@@ -194,12 +220,22 @@ fn run(
         *infos.lock().unwrap_or_else(|p| p.into_inner()) =
             loaded.iter().map(|l| l.info.clone()).collect();
     };
+    let offer = |loaded: &Vec<Loaded>| {
+        effects.set(
+            loaded
+                .iter()
+                .filter(|l| l.info.enabled)
+                .flat_map(|l| l.effects.iter().cloned())
+                .collect(),
+        );
+    };
     while let Ok(event) = rx.recv() {
         match event {
             PluginEvent::Shutdown => break,
             PluginEvent::Reload => {
                 loaded = load_all(&library, &actions, &now_playing);
                 publish(&loaded);
+                offer(&loaded);
             }
             PluginEvent::Enable(id, on) => {
                 let mut enabled: BTreeSet<String> = library
@@ -215,6 +251,7 @@ fn run(
                 let _ = library.set_json(ENABLED_KEY, &enabled);
                 loaded = load_all(&library, &actions, &now_playing);
                 publish(&loaded);
+                offer(&loaded);
             }
             PluginEvent::TrackStarted(track) => {
                 *now_playing.lock().unwrap_or_else(|p| p.into_inner()) = Some((*track).clone());
@@ -338,10 +375,12 @@ fn load_all(
                         enabled: false,
                         error: Some(format!("{error:#}")),
                         commands: vec![],
+                        effects: vec![],
                     },
                     engine: Engine::new_raw(),
                     ast: None,
                     scope: Scope::new(),
+                    effects: vec![],
                 });
                 continue;
             }
@@ -364,10 +403,12 @@ fn load_all(
                 enabled: is_enabled,
                 error: None,
                 commands: vec![],
+                effects: vec![],
             },
             engine,
             ast: None,
             scope: Scope::new(),
+            effects: vec![],
         };
         match std::fs::read_to_string(dir.join(&manifest.entry))
             .context("Cannot read the script")
@@ -388,6 +429,25 @@ fn load_all(
                     let _ = call(&mut plugin, "on_load", vec![]);
                     if let Ok(list) = call(&mut plugin, "commands", vec![]) {
                         plugin.info.commands = commands_from(&manifest.id, list);
+                    }
+                    if let Ok(list) = call(&mut plugin, "effects", vec![])
+                        && !list.is_unit()
+                    {
+                        let effects = serde_json::to_value(&list)
+                            .map_err(anyhow::Error::from)
+                            .and_then(|value| {
+                                crate::effects::load(&manifest.id, &manifest.name, &dir, value)
+                            });
+                        match effects {
+                            Ok(effects) => {
+                                plugin.info.effects =
+                                    effects.iter().map(|e| e.name.clone()).collect();
+                                plugin.effects = effects.into_iter().map(Arc::new).collect();
+                            }
+                            Err(error) => {
+                                plugin.info.error = Some(format!("effects: {error:#}"));
+                            }
+                        }
                     }
                 }
             }
@@ -620,6 +680,41 @@ fn engine_for(
             Ok(())
         });
     }
+    // Sound effects
+    {
+        let (allowed, actions, plugin) = (allowed.clone(), actions.clone(), id.clone());
+        engine.register_fn(
+            "set_effect",
+            move |effect: &str, param: &str, value: f64| -> Result<(), Fail> {
+                allowed(Permission::Audio)?;
+                if !value.is_finite() {
+                    return Err(fail("The value must be a number"));
+                }
+                actions(HostAction::EffectParam {
+                    plugin: plugin.clone(),
+                    effect: effect.into(),
+                    param: param.into(),
+                    value: value as f32,
+                });
+                Ok(())
+            },
+        );
+    }
+    {
+        let (allowed, actions, plugin) = (allowed.clone(), actions.clone(), id.clone());
+        engine.register_fn(
+            "effect_on",
+            move |effect: &str, on: bool| -> Result<(), Fail> {
+                allowed(Permission::Audio)?;
+                actions(HostAction::EffectOn {
+                    plugin: plugin.clone(),
+                    effect: effect.into(),
+                    on,
+                });
+                Ok(())
+            },
+        );
+    }
     // Network
     {
         let allowed = allowed.clone();
@@ -818,7 +913,134 @@ fn run(command, ids) {
 }
 "#,
     ),
+    (
+        "studio-effects",
+        r#"id = "studio-effects"
+name = "Studio effects"
+version = "1.0.0"
+author = "nnx"
+description = "Adds Room, Echo, Night mode, and Old radio to Sound › Effects, made from Needle's built-in blocks."
+permissions = ["audio"]
+"#,
+        r#"// Each effect is a chain of built-in blocks. "$name" follows the slider with that id.
+fn effects() {
+    [
+        #{ id: "room", name: "Room", description: "Places the music in a room.",
+           params: [ #{ id: "size", name: "Size", min: 0.0, max: 1.0, value: 0.5, unit: "%" },
+                     #{ id: "mix", name: "Amount", min: 0.0, max: 0.6, value: 0.2, unit: "%" } ],
+           blocks: [ #{ kind: "reverb", size: "$size", mix: "$mix", damping: 0.5 } ] },
+        #{ id: "echo", name: "Echo", description: "Repeats the sound after a short time.",
+           params: [ #{ id: "time", name: "Time", min: 50.0, max: 1000.0, value: 320.0, unit: "ms" },
+                     #{ id: "feedback", name: "Repeats", min: 0.0, max: 0.9, value: 0.35, unit: "%" },
+                     #{ id: "mix", name: "Amount", min: 0.0, max: 1.0, value: 0.25, unit: "%" } ],
+           blocks: [ #{ kind: "delay", time: "$time", feedback: "$feedback", mix: "$mix" } ] },
+        #{ id: "night", name: "Night mode", description: "Makes quiet parts louder and loud parts quieter, for listening at low volume.",
+           params: [ #{ id: "ratio", name: "Strength", min: 1.0, max: 10.0, value: 4.0, step: 0.5 } ],
+           blocks: [ #{ kind: "compressor", threshold: -30.0, ratio: "$ratio", attack: 5.0, release: 250.0, makeup: 8.0 },
+                     #{ kind: "limiter", ceiling: -1.0 } ] },
+        #{ id: "radio", name: "Old radio", description: "A small, narrow speaker.",
+           blocks: [ #{ kind: "filter", shape: "highpass", frequency: 400.0 },
+                     #{ kind: "filter", shape: "lowpass", frequency: 3200.0 },
+                     #{ kind: "saturate", drive: 9.0 },
+                     #{ kind: "width", amount: 0.0 } ] },
+    ]
+}
+
+// With the "audio" permission, a script can turn its effects on and move their sliders.
+fn commands() {
+    [ #{ id: "night", title: "Turn on Night mode", scope: "global" } ]
+}
+fn run(command, ids) {
+    effect_on("night", true);
+    notify("Night mode is on. Change it in Sound.");
+}
+"#,
+    ),
+    (
+        "bitcrusher",
+        r#"id = "bitcrusher"
+name = "Bitcrusher"
+version = "1.0.0"
+author = "nnx"
+description = "A DSP plugin with its own sound code, in WebAssembly (crush.wat): fewer bits and a lower sample rate, for a lo-fi sound."
+"#,
+        r#"// The sound code is in crush.wat. Needle runs it in a sandbox, a block of sound at a time.
+fn effects() {
+    [
+        #{ id: "crush", name: "Bitcrusher", description: "Fewer bits and a lower sample rate, for a lo-fi sound.",
+           wasm: "crush.wat",
+           params: [ #{ id: "bits", name: "Bits", min: 2.0, max: 16.0, value: 8.0, step: 1.0 },
+                     #{ id: "hold", name: "Rate divider", min: 1.0, max: 16.0, value: 1.0, step: 1.0 },
+                     #{ id: "mix", name: "Amount", min: 0.0, max: 1.0, value: 1.0, unit: "%" } ] },
+    ]
+}
+"#,
+    ),
 ];
+
+/// Extra files for the example plugins: (folder, file name, contents).
+pub const EXAMPLE_FILES: &[(&str, &str, &str)] = &[(
+    "bitcrusher",
+    "crush.wat",
+    r#";; A bitcrusher in WebAssembly text. Needle calls:
+;;   init(rate, channels, max_frames) -> the address of a buffer of max_frames * channels f32s
+;;   param(index, value)              for each slider, in the order effects() lists them
+;;   process(frames)                  after filling the buffer; change the samples in place
+;;   reset()                          after a seek (optional)
+(module
+  (memory (export "memory") 1)
+  (global $step (mut f32) (f32.const 0.0078125)) ;; 2 / 2^bits
+  (global $hold (mut i32) (i32.const 1))
+  (global $mix (mut f32) (f32.const 1))
+  (global $channels (mut i32) (i32.const 2))
+  (global $count (mut i32) (i32.const 0))
+
+  (func (export "init") (param $rate i32) (param $channels i32) (param $max i32) (result i32)
+    (global.set $channels (local.get $channels))
+    (i32.const 1024))
+
+  (func (export "param") (param $index i32) (param $value f32)
+    (if (i32.eqz (local.get $index))
+      (then (global.set $step
+        (f32.div (f32.const 2)
+          (f32.convert_i32_s (i32.shl (i32.const 1) (i32.trunc_f32_s (local.get $value))))))))
+    (if (i32.eq (local.get $index) (i32.const 1))
+      (then (global.set $hold (i32.trunc_f32_s (local.get $value)))))
+    (if (i32.eq (local.get $index) (i32.const 2))
+      (then (global.set $mix (local.get $value)))))
+
+  (func (export "reset") (global.set $count (i32.const 0)))
+
+  (func (export "process") (param $frames i32)
+    (local $at i32) (local $end i32) (local $c i32) (local $x f32) (local $held i32)
+    (local.set $at (i32.const 1024))
+    (local.set $end (i32.add (i32.const 1024)
+      (i32.shl (i32.mul (local.get $frames) (global.get $channels)) (i32.const 2))))
+    (block $done (loop $frame
+      (br_if $done (i32.ge_u (local.get $at) (local.get $end)))
+      (local.set $c (i32.const 0))
+      (block $next (loop $channel
+        (br_if $next (i32.ge_u (local.get $c) (global.get $channels)))
+        (local.set $x (f32.load (local.get $at)))
+        ;; the value held for this channel, at 64 + channel * 4
+        (local.set $held (i32.add (i32.const 64)
+          (i32.shl (i32.and (local.get $c) (i32.const 7)) (i32.const 2))))
+        (if (i32.eqz (global.get $count))
+          (then (f32.store (local.get $held)
+            (f32.mul (f32.nearest (f32.div (local.get $x) (global.get $step))) (global.get $step)))))
+        (f32.store (local.get $at)
+          (f32.add (f32.mul (local.get $x) (f32.sub (f32.const 1) (global.get $mix)))
+                   (f32.mul (f32.load (local.get $held)) (global.get $mix))))
+        (local.set $at (i32.add (local.get $at) (i32.const 4)))
+        (local.set $c (i32.add (local.get $c) (i32.const 1)))
+        (br $channel)))
+      (global.set $count (i32.add (global.get $count) (i32.const 1)))
+      (if (i32.ge_s (global.get $count) (global.get $hold))
+        (then (global.set $count (i32.const 0))))
+      (br $frame))))
+)
+"#,
+)];
 
 /// Copy the example plugins into the plugin folder, leaving any that already exist.
 pub fn install_examples(library: &Library) -> Result<usize> {
@@ -832,6 +1054,9 @@ pub fn install_examples(library: &Library) -> Result<usize> {
         std::fs::create_dir_all(&dir)?;
         std::fs::write(dir.join("plugin.toml"), manifest)?;
         std::fs::write(dir.join("main.rhai"), script)?;
+        for (_, file, contents) in EXAMPLE_FILES.iter().filter(|(f, ..)| f == name) {
+            std::fs::write(dir.join(file), contents)?;
+        }
         installed += 1;
     }
     Ok(installed)
@@ -873,7 +1098,9 @@ mod tests {
         install_examples(&library).unwrap();
         let seen: Arc<Mutex<Vec<HostAction>>> = Arc::default();
         let sink = seen.clone();
-        let host = PluginHost::start(library.clone(), move |a| sink.lock().unwrap().push(a));
+        let host = PluginHost::start(library.clone(), Default::default(), move |a| {
+            sink.lock().unwrap().push(a)
+        });
         (dir, library, host, seen)
     }
 
@@ -915,6 +1142,63 @@ mod tests {
                 .contains(&HostAction::LibraryChanged)
                 .then_some(())
         });
+    }
+
+    #[test]
+    fn effect_plugins_offer_their_effects_only_while_on() {
+        let dir = tempfile::tempdir().unwrap();
+        let library = Library::open(dir.path()).unwrap();
+        install_examples(&library).unwrap();
+        let registry: Arc<crate::effects::Registry> = Arc::default();
+        let seen: Arc<Mutex<Vec<HostAction>>> = Arc::default();
+        let sink = seen.clone();
+        let host = PluginHost::start(library.clone(), registry.clone(), move |a| {
+            sink.lock().unwrap().push(a)
+        });
+        wait(|| Some(host.plugins()).filter(|p| p.len() == EXAMPLES.len()));
+        assert!(registry.all().is_empty());
+        host.send(PluginEvent::Enable("studio-effects".into(), true));
+        host.send(PluginEvent::Enable("bitcrusher".into(), true));
+        wait(|| (registry.all().len() == 5).then_some(()));
+        let plugins = host.plugins();
+        for id in ["studio-effects", "bitcrusher"] {
+            let plugin = plugins.iter().find(|p| p.manifest.id == id).unwrap();
+            assert!(plugin.error.is_none(), "{:?}", plugin.error);
+        }
+        assert!(registry.find("bitcrusher", "crush").unwrap().is_wasm());
+
+        // The bitcrusher's WebAssembly runs: at 2 bits, a quiet ramp becomes a few steps.
+        let mut rack = crate::effects::Rack::new(registry.clone(), 48000, 2);
+        rack.sync(&[crate::effects::EffectSlot {
+            uid: "1".into(),
+            plugin: "bitcrusher".into(),
+            effect: "crush".into(),
+            on: true,
+            params: [("bits".to_string(), 2.)].into(),
+        }]);
+        let mut block: Vec<f32> = (0..512).flat_map(|i| [i as f32 / 512., 0.]).collect();
+        rack.process(&mut block);
+        let mut levels: Vec<i32> = block.iter().map(|s| (s * 1000.) as i32).collect();
+        levels.sort();
+        levels.dedup();
+        assert!(levels.len() <= 3, "{levels:?}");
+        assert!(registry.failure("bitcrusher", "crush").is_none());
+
+        // A script with the audio permission can turn its effect on.
+        host.send(PluginEvent::Run {
+            plugin: "studio-effects".into(),
+            command: "night".into(),
+            track_ids: vec![],
+        });
+        wait(|| {
+            seen.lock()
+                .unwrap()
+                .iter()
+                .any(|a| matches!(a, HostAction::EffectOn { effect, on: true, .. } if effect == "night"))
+                .then_some(())
+        });
+        host.send(PluginEvent::Enable("bitcrusher".into(), false));
+        wait(|| (registry.all().len() == 4).then_some(()));
     }
 
     #[test]
@@ -975,7 +1259,9 @@ fn run(command, ids) {
             .unwrap();
         let seen: Arc<Mutex<Vec<HostAction>>> = Arc::default();
         let sink = seen.clone();
-        let host = PluginHost::start(library.clone(), move |a| sink.lock().unwrap().push(a));
+        let host = PluginHost::start(library.clone(), Default::default(), move |a| {
+            sink.lock().unwrap().push(a)
+        });
         let plugins = wait(|| Some(host.plugins()).filter(|p| p.len() == 2));
         assert!(plugins.iter().any(|p| {
             p.error

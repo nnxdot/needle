@@ -10,6 +10,7 @@ pub mod demo;
 pub mod discord;
 pub mod doctor;
 pub mod dsp;
+pub mod effects;
 #[cfg(windows)]
 mod exclusive;
 pub mod formats;

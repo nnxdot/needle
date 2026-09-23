@@ -630,9 +630,13 @@ impl AppView {
         let media_keys = media_keys::MediaKeys::new(window, sender.clone(), &library.directory);
         let plugins = {
             let sender = sender.clone();
-            needle_core::plugins::PluginHost::start(library.clone(), move |action| {
-                let _ = sender.send(Event::Plugin(action));
-            })
+            needle_core::plugins::PluginHost::start(
+                library.clone(),
+                player.effects().clone(),
+                move |action| {
+                    let _ = sender.send(Event::Plugin(action));
+                },
+            )
         };
         let subscriptions = vec![
             cx.subscribe_in(&search, window, |this, _, event, window, cx| match event {
@@ -1971,6 +1975,9 @@ impl Render for AppView {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         self.update_palette(window, cx);
         self.update_glass(window, cx);
+        if self.page == Page::Sound {
+            self.sync_effect_sliders(cx);
+        }
         // A column resize ends when the drag does, wherever the pointer was let go.
         if self.column_resize.is_some() && !cx.has_active_drag() {
             self.finish_column_resize();
