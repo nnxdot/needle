@@ -670,7 +670,7 @@ impl AppView {
                         })),
                         cx,
                     ))
-                    .child(self.glass_settings(cx))
+                    .children(self.glass_settings(cx))
                     .child(setting_row(
                         "Film grain",
                         "A fine texture over the whole window. Off by default.",
@@ -1099,7 +1099,8 @@ impl AppView {
 
 impl AppView {
     /// Window glass: which material, how see-through, and whether the page shows it too.
-    fn glass_settings(&self, cx: &mut Context<Self>) -> impl IntoElement {
+    /// The rows go straight into the Appearance column (a wrapper box would not stretch).
+    fn glass_settings(&self, cx: &mut Context<Self>) -> Vec<AnyElement> {
         use super::glass::Material;
         let p = pal(cx);
         let (allowed, win11) = self.glass_system;
@@ -1108,19 +1109,23 @@ impl AppView {
             .iter()
             .position(|(name, _, _)| Material::from_name(name) == chosen)
             .unwrap_or(0);
-        let detail = if !allowed {
+        // Ambient paints its own background over the whole window, so no glass can show.
+        let ambient = self.ambient_look();
+        let detail = if ambient {
+            "Ambient background fills the window, so glass is off while it is on.".to_string()
+        } else if !allowed {
             "Windows' Transparency effects setting is off, so Needle stays solid. Turn it on in Windows Settings › Personalization › Colors.".to_string()
         } else if chosen == Material::Mica && !win11 {
             "Mica needs Windows 11, so Needle uses Acrylic here.".to_string()
         } else {
             Material::ALL[index].2.to_string()
         };
-        let solid = chosen == Material::Solid || !allowed;
-        div()
-            .child(setting_row(
+        let solid = chosen == Material::Solid || !allowed || ambient;
+        let mut rows = vec![
+            setting_row(
                 "Window glass",
                 &detail,
-                segmented(
+                div().when(ambient, |el| el.opacity(0.4)).child(segmented(
                     "window-material",
                     &Material::ALL.map(|(_, label, _)| label),
                     index,
@@ -1129,17 +1134,23 @@ impl AppView {
                         let weak = cx.entity().downgrade();
                         move |i, _, cx| {
                             let _ = weak.update(cx, |this, cx| {
+                                if this.ambient_look() {
+                                    return;
+                                }
                                 this.settings.window_material = Material::ALL[i].0.into();
                                 this.persist_settings();
                                 cx.notify();
                             });
                         }
                     },
-                ),
+                )),
                 cx,
-            ))
-            .when(!solid, |el| {
-                el.child(setting_row(
+            )
+            .into_any_element(),
+        ];
+        if !solid {
+            rows.push(
+                setting_row(
                     "See-through",
                     "How much the glass shows through the sidebar, title bar, and player.",
                     div()
@@ -1157,8 +1168,10 @@ impl AppView {
                                 .child(format!("{:.0}%", self.settings.glass_amount * 100.)),
                         ),
                     cx,
-                ))
-                .child(setting_row(
+                )
+                .into_any_element(),
+            );
+            rows.push(setting_row(
                     "Glass behind the page",
                     "Let a little of the glass show through the page as well. Text stays on a mostly solid surface.",
                     Switch::new("glass-page").checked(self.settings.glass_page).on_click(cx.listener(|this, checked: &bool, _, cx| {
@@ -1167,8 +1180,9 @@ impl AppView {
                         cx.notify();
                     })),
                     cx,
-                ))
-            })
+                ).into_any_element());
+        }
+        rows
     }
 }
 
