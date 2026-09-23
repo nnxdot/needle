@@ -554,8 +554,8 @@ impl AppView {
                     div()
                         .flex()
                         .gap_3()
-                        .child(div().flex_1().child(Input::new(&editor.name).small()))
-                        .child(div().flex_1().child(Input::new(&editor.author).small())),
+                        .child(Input::new(&editor.name).small().flex_1())
+                        .child(Input::new(&editor.author).small().flex_1()),
                 )
                 .child(
                     div()
