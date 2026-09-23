@@ -193,7 +193,8 @@ impl AppView {
         use super::glass::Material;
         let (allowed, win11) = self.glass_system;
         match Material::from_name(&self.settings.window_material) {
-            _ if !allowed => Material::Solid,
+            // Ambient covers the whole window with its own background.
+            _ if !allowed || self.ambient_look() => Material::Solid,
             Material::Mica if !win11 => Material::Acrylic,
             m => m,
         }

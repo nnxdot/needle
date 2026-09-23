@@ -16,7 +16,7 @@ pub enum Base {
 impl Base {
     /// Settings value, the name people see, and a few words about it.
     pub const ALL: [(&'static str, &'static str, &'static str); 3] = [
-        ("dark", "Night", "Warm charcoal"),
+        ("dark", "Night", "Charcoal grey"),
         ("midnight", "Midnight", "True black"),
         ("light", "Day", "Light and airy"),
     ];
@@ -148,7 +148,8 @@ impl Palette {
         let n = |l: f32| hsla(hue, sat, l, 1.);
         let dark = base != Base::Day;
         let (chrome, canvas, raised, raised_hover, line, line_soft) = match base {
-            Base::Night => (n(0.05), n(0.082), n(0.118), n(0.152), n(0.165), n(0.125)),
+            // Charcoal grey: clearly lighter than Midnight's true black.
+            Base::Night => (n(0.085), n(0.12), n(0.16), n(0.195), n(0.21), n(0.165)),
             Base::Midnight => (n(0.0), n(0.03), n(0.07), n(0.105), n(0.125), n(0.085)),
             Base::Day => (n(0.935), n(0.985), n(0.93), n(0.9), n(0.865), n(0.915)),
         };
