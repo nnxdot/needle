@@ -4,13 +4,17 @@ use super::{
 };
 use gpui::{prelude::*, *};
 use gpui_component::{
+    Sizable,
     button::ButtonVariants,
+    input::{Input, InputState},
     slider::{Slider, SliderEvent, SliderState},
     switch::Switch,
 };
 use needle_core::{
     audio::Command,
-    dsp::{BANDS, Dsp, MAX_GAIN_DB, PRESETS},
+    dsp::{
+        BANDS, Dsp, MAX_GAIN_DB, MAX_PARAMETRIC, PARAMETRIC_KINDS, PRESETS, ParamBand, UserPreset,
+    },
     effects::EffectSlot,
 };
 use std::collections::HashMap;
@@ -21,7 +25,32 @@ pub struct SoundControls {
     bands: Vec<Entity<SliderState>>,
     /// Effect sliders by (slot uid, parameter id), made when an effect first shows.
     effect_sliders: HashMap<(String, String), (Entity<SliderState>, Subscription)>,
+    /// Parametric band sliders by (band uid, "frequency" | "gain" | "q").
+    band_sliders: HashMap<(String, &'static str), (Entity<SliderState>, Subscription)>,
+    preset_name: Entity<InputState>,
     _subscriptions: Vec<Subscription>,
+}
+
+/// Parametric sliders run from 0 to 1000 on a log scale: 10 Hz to 24 kHz (all a band can
+/// hold), and Q 0.1 to 20.
+fn to_frequency(v: f32) -> f32 {
+    10. * 2400f32.powf(v / 1000.)
+}
+fn from_frequency(f: f32) -> f32 {
+    (1000. * (f.max(10.) / 10.).ln() / 2400f32.ln()).clamp(0., 1000.)
+}
+fn to_q(v: f32) -> f32 {
+    0.1 * 200f32.powf(v / 1000.)
+}
+fn from_q(q: f32) -> f32 {
+    (1000. * (q.max(0.1) / 0.1).ln() / 200f32.ln()).clamp(0., 1000.)
+}
+fn hertz(f: f32) -> String {
+    if f >= 1000. {
+        format!("{:.1} kHz", f / 1000.)
+    } else {
+        format!("{f:.0} Hz")
+    }
 }
 
 fn band_label(frequency: f64) -> String {
@@ -33,7 +62,7 @@ fn band_label(frequency: f64) -> String {
 }
 
 impl SoundControls {
-    pub fn new(dsp: &Dsp, cx: &mut Context<AppView>) -> Self {
+    pub fn new(dsp: &Dsp, window: &mut Window, cx: &mut Context<AppView>) -> Self {
         let slider = |min: f32, max: f32, step: f32, value: f32, cx: &mut Context<AppView>| {
             cx.new(|_| {
                 SliderState::new()
@@ -71,11 +100,15 @@ impl SoundControls {
                 });
             }));
         }
+        let preset_name =
+            cx.new(|cx| InputState::new(window, cx).placeholder("Name for this sound"));
         Self {
             preamp,
             balance,
             bands,
             effect_sliders: HashMap::new(),
+            band_sliders: HashMap::new(),
+            preset_name,
             _subscriptions: subscriptions,
         }
     }
@@ -86,8 +119,54 @@ impl SoundControls {
 }
 
 impl AppView {
+    /// Make sliders for parametric bands that do not have them yet, and drop old ones.
+    fn sync_band_sliders(&mut self, cx: &mut Context<Self>) {
+        let bands = self.settings.dsp.parametric.clone();
+        self.sound
+            .band_sliders
+            .retain(|(uid, _), _| bands.iter().any(|b| b.uid == *uid));
+        for band in bands {
+            for (which, value) in [
+                ("frequency", from_frequency(band.frequency)),
+                ("gain", band.gain),
+                ("q", from_q(band.q)),
+            ] {
+                let key = (band.uid.clone(), which);
+                if self.sound.band_sliders.contains_key(&key) {
+                    continue;
+                }
+                let slider = cx.new(|_| {
+                    let state = SliderState::new();
+                    if which == "gain" {
+                        state.min(-24.).max(24.).step(0.5).default_value(value)
+                    } else {
+                        state.min(0.).max(1000.).step(1.).default_value(value)
+                    }
+                });
+                let uid = band.uid.clone();
+                let subscription = cx.subscribe(&slider, move |this, _, event, cx| {
+                    let SliderEvent::Change(value) = event;
+                    let value = value.start();
+                    this.edit_dsp(|d| {
+                        if let Some(band) = d.parametric.iter_mut().find(|b| b.uid == uid) {
+                            match which {
+                                "frequency" => band.frequency = to_frequency(value),
+                                "gain" => band.gain = value,
+                                _ => band.q = to_q(value),
+                            }
+                            d.preset = "Custom".into();
+                        }
+                    });
+                    cx.notify();
+                });
+                self.sound.band_sliders.insert(key, (slider, subscription));
+            }
+        }
+    }
+
     /// Make sliders for effects that do not have them yet, and drop those of removed effects.
     pub(super) fn sync_effect_sliders(&mut self, cx: &mut Context<Self>) {
+        self.sync_band_sliders(cx);
         let registry = self.player.effects().clone();
         let slots = self.settings.dsp.effects.clone();
         self.sound
@@ -134,6 +213,8 @@ impl AppView {
 
     /// Move every slider to match `dsp` (after choosing a preset or resetting).
     fn apply_dsp(&mut self, dsp: Dsp, window: &mut Window, cx: &mut Context<Self>) {
+        // Parametric sliders are made again from the new bands when Sound is drawn next.
+        self.sound.band_sliders.clear();
         self.sound
             .preamp
             .update(cx, |s, cx| s.set_value(dsp.preamp_db, window, cx));
@@ -202,6 +283,7 @@ impl AppView {
                 .on_click(cx.listener(move |this, _, window, cx| {
                     let dsp = Dsp {
                         eq: true,
+                        mode: "graphic".into(),
                         preamp_db: preamp,
                         bands,
                         preset: name.to_string(),
@@ -248,8 +330,7 @@ impl AppView {
                                     .gap_4()
                                     .child(div().flex_1().flex().flex_col().gap_1().child(heading("Equalizer")).child(meta(format!("Preset: {}", dsp.preset), cx)))
                                     .child(small_button("eq-reset", "Reset").ghost().on_click(cx.listener(|this, _, window, cx| {
-                                        let dsp = Dsp { eq: this.settings.dsp.eq, ..this.settings.dsp.clone() };
-                                        let dsp = Dsp { preamp_db: 0., bands: [0.; 10], preset: "Flat".into(), ..dsp };
+                                        let dsp = Dsp { preamp_db: 0., bands: [0.; 10], parametric: vec![], preset: "Flat".into(), ..this.settings.dsp.clone() };
                                         this.apply_dsp(dsp, window, cx);
                                     })))
                                     .child(Switch::new("eq-on").checked(dsp.eq).on_click(cx.listener(|this, checked: &bool, _, cx| {
@@ -258,17 +339,22 @@ impl AppView {
                                         cx.notify();
                                     }))),
                             )
+                            .child(self.eq_mode_row(&dsp, cx))
                             // Rows of five: GPUI's flex_wrap inside a column reports the height of one chip per line.
                             .children(preset_rows)
-                            .child(
-                                div()
-                                    .flex()
-                                    .gap_2()
-                                    .when(!dsp.eq, |el| el.opacity(0.45))
-                                    .child(self.band_column("Preamp", &self.sound.preamp, dsp.preamp_db, true, cx))
-                                    .child(div().w(px(1.)).h(px(210.)).bg(p.line).mx_2())
-                                    .children(BANDS.iter().enumerate().map(|(i, f)| self.band_column(&band_label(*f), &self.sound.bands[i], dsp.bands[i], false, cx))),
-                            )
+                            .children(self.user_preset_rows(&dsp, cx))
+                            .when(!dsp.parametric_mode(), |el| {
+                                el.child(
+                                    div()
+                                        .flex()
+                                        .gap_2()
+                                        .when(!dsp.eq, |el| el.opacity(0.45))
+                                        .child(self.band_column("Preamp", &self.sound.preamp, dsp.preamp_db, true, cx))
+                                        .child(div().w(px(1.)).h(px(210.)).bg(p.line).mx_2())
+                                        .children(BANDS.iter().enumerate().map(|(i, f)| self.band_column(&band_label(*f), &self.sound.bands[i], dsp.bands[i], false, cx))),
+                                )
+                            })
+                            .when(dsp.parametric_mode(), |el| el.child(self.parametric_view(&dsp, cx)))
                             .when(clip_risk, |el| {
                                 el.child(
                                     div()
@@ -319,6 +405,296 @@ impl AppView {
                         cx,
                     ))
                     .child(faint("ReplayGain, album gain, and loudness measurement are in Settings › Playback.", cx).mt_4()),
+            )
+    }
+
+    fn chip(
+        id: impl Into<ElementId>,
+        label: impl Into<SharedString>,
+        active: bool,
+        cx: &App,
+    ) -> Stateful<Div> {
+        let p = pal(cx);
+        div()
+            .id(id)
+            .px(px(10.))
+            .py(px(5.))
+            .rounded_full()
+            .border_1()
+            .text_size(px(12.5))
+            .cursor_pointer()
+            .when(active, |el| {
+                el.bg(p.accent_soft)
+                    .border_color(p.accent.opacity(0.5))
+                    .text_color(p.accent)
+            })
+            .when(!active, |el| {
+                el.border_color(p.line)
+                    .text_color(p.ink_2)
+                    .hover(|s| s.text_color(p.ink).border_color(p.ink_3))
+            })
+            .child(label.into())
+    }
+
+    /// Graphic or parametric, and loading or saving Equalizer APO / AutoEq files.
+    fn eq_mode_row(&self, dsp: &Dsp, cx: &mut Context<Self>) -> Div {
+        let parametric = dsp.parametric_mode();
+        div()
+            .flex()
+            .items_center()
+            .gap(px(6.))
+            .child(Self::chip("eq-graphic", "Graphic", !parametric, cx).on_click(cx.listener(|this, _, _, cx| {
+                this.edit_dsp(|d| d.mode = "graphic".into());
+                cx.notify();
+            })))
+            .child(Self::chip("eq-parametric", "Parametric", parametric, cx).on_click(cx.listener(|this, _, _, cx| {
+                this.edit_dsp(|d| {
+                    d.mode = "parametric".into();
+                    if d.parametric.is_empty() {
+                        // Start from the graphic bands, so switching keeps the sound.
+                        d.parametric = BANDS
+                            .iter()
+                            .zip(d.bands)
+                            .map(|(f, g)| ParamBand { frequency: *f as f32, gain: g, q: 1.41, ..Default::default() })
+                            .collect();
+                    }
+                });
+                cx.notify();
+            })))
+            .child(div().flex_1())
+            .child(small_button("eq-import", "Load EQ file…").ghost().on_click(cx.listener(|this, _, window, cx| {
+                let Some(path) = rfd::FileDialog::new()
+                    .set_title("Load a ParametricEQ.txt from AutoEq, or an Equalizer APO configuration")
+                    .add_filter("Equalizer settings", &["txt"])
+                    .pick_file()
+                else {
+                    return;
+                };
+                let loaded = std::fs::read_to_string(&path)
+                    .map_err(anyhow::Error::from)
+                    .and_then(|text| needle_core::dsp::parse_parametric(&text));
+                match loaded {
+                    Ok((preamp, bands)) => {
+                        let name = path.file_stem().map(|n| n.to_string_lossy().to_string()).unwrap_or_default();
+                        let count = bands.len();
+                        let dsp = Dsp { eq: true, mode: "parametric".into(), preamp_db: preamp, parametric: bands, preset: name, ..this.settings.dsp.clone() };
+                        this.apply_dsp(dsp, window, cx);
+                        this.notify(format!("Loaded {count} filters."));
+                    }
+                    Err(error) => this.fail(format!("{error:#}")),
+                }
+            })))
+            .child(small_button("eq-export", "Save EQ file…").ghost().on_click(cx.listener(|this, _, _, _| {
+                let dsp = this.settings.dsp.clone();
+                let bands: Vec<ParamBand> = if dsp.parametric_mode() {
+                    dsp.parametric.clone()
+                } else {
+                    BANDS
+                        .iter()
+                        .zip(dsp.bands)
+                        .filter(|(_, g)| *g != 0.)
+                        .map(|(f, g)| ParamBand { frequency: *f as f32, gain: g, q: 1.41, ..Default::default() })
+                        .collect()
+                };
+                let Some(path) = rfd::FileDialog::new().set_file_name("ParametricEQ.txt").add_filter("Equalizer settings", &["txt"]).save_file() else {
+                    return;
+                };
+                match std::fs::write(&path, needle_core::dsp::format_parametric(dsp.preamp_db, &bands)) {
+                    Ok(()) => this.notify("Saved in the Equalizer APO format."),
+                    Err(error) => this.fail(format!("Could not save: {error}")),
+                }
+            })))
+    }
+
+    /// The listener's own presets, and saving the current sound as one.
+    fn user_preset_rows(&self, dsp: &Dsp, cx: &mut Context<Self>) -> Vec<Div> {
+        let p = pal(cx);
+        let mut rows: Vec<Div> = vec![];
+        for (i, preset) in self.settings.eq_presets.iter().enumerate() {
+            if i % 4 == 0 {
+                rows.push(div().w_full().flex().gap(px(6.)));
+            }
+            let (apply, remove) = (preset.clone(), preset.name.clone());
+            let chip = div()
+                .flex()
+                .items_center()
+                .child(
+                    Self::chip(
+                        ("user-preset", i),
+                        preset.name.clone(),
+                        dsp.preset == preset.name,
+                        cx,
+                    )
+                    .on_click(cx.listener(move |this, _, window, cx| {
+                        let dsp = apply.apply(&this.settings.dsp);
+                        this.apply_dsp(dsp, window, cx);
+                    })),
+                )
+                .child(
+                    div()
+                        .id(("user-preset-remove", i))
+                        .px(px(5.))
+                        .text_size(px(12.))
+                        .text_color(p.ink_3)
+                        .cursor_pointer()
+                        .hover(|s| s.text_color(p.danger))
+                        .child("×")
+                        .on_click(cx.listener(move |this, _, _, cx| {
+                            this.settings.eq_presets.retain(|p| p.name != remove);
+                            this.persist_settings();
+                            cx.notify();
+                        })),
+                );
+            let row = rows.pop().unwrap_or_else(div);
+            rows.push(row.child(chip));
+        }
+        rows.push(
+            div()
+                .flex()
+                .items_center()
+                .gap_2()
+                .child(
+                    div()
+                        .w(px(220.))
+                        .child(Input::new(&self.sound.preset_name).small()),
+                )
+                .child(
+                    small_button("eq-save-preset", "Save as preset")
+                        .ghost()
+                        .on_click(cx.listener(|this, _, window, cx| {
+                            let typed = this.sound.preset_name.read(cx).value().trim().to_string();
+                            let name = if typed.is_empty() {
+                                format!("My sound {}", this.settings.eq_presets.len() + 1)
+                            } else {
+                                typed
+                            };
+                            let preset = UserPreset::from_dsp(&name, &this.settings.dsp);
+                            match this.settings.eq_presets.iter_mut().find(|p| p.name == name) {
+                                Some(existing) => *existing = preset,
+                                None => this.settings.eq_presets.push(preset),
+                            }
+                            this.settings.dsp.preset = name.clone();
+                            this.player.send(Command::Dsp(this.settings.dsp.clone()));
+                            this.persist_settings();
+                            this.sound
+                                .preset_name
+                                .update(cx, |input, cx| input.set_value("", window, cx));
+                            this.notify(format!("Saved \"{name}\"."));
+                            cx.notify();
+                        })),
+                ),
+        );
+        rows
+    }
+
+    /// The parametric equalizer: a row per band with its kind, frequency, gain, and width.
+    fn parametric_view(&self, dsp: &Dsp, cx: &mut Context<Self>) -> Div {
+        let p = pal(cx);
+        let count = dsp.parametric.len();
+        div()
+            .flex()
+            .flex_col()
+            .gap_3()
+            .when(!dsp.eq, |el| el.opacity(0.45))
+            .child(
+                div()
+                    .flex()
+                    .items_center()
+                    .gap_3()
+                    .child(div().w(px(96.)).text_size(px(13.)).text_color(p.ink_2).child("Preamp"))
+                    .child(Slider::new(&self.sound.preamp).flex_1())
+                    .child(div().w(px(64.)).text_size(px(12.5)).child(format!("{:+.1} dB", dsp.preamp_db))),
+            )
+            .children(dsp.parametric.iter().enumerate().map(|(i, band)| {
+                let kind_name = PARAMETRIC_KINDS.iter().find(|(k, _)| *k == band.kind).map_or("Peak", |(_, n)| *n);
+                let has_gain = matches!(band.kind.as_str(), "peak" | "lowshelf" | "highshelf");
+                let slider = |which: &'static str| self.sound.band_sliders.get(&(band.uid.clone(), which)).map(|(s, _)| s.clone());
+                let column = |label: String, which: &'static str| {
+                    div()
+                        .flex_1()
+                        .min_w_0()
+                        .flex()
+                        .flex_col()
+                        .gap_1()
+                        .child(div().text_size(px(12.)).text_color(p.ink_2).child(label))
+                        .children(slider(which).map(|s| Slider::new(&s)))
+                };
+                let (cycle, toggle, remove) = (band.uid.clone(), band.uid.clone(), band.uid.clone());
+                div()
+                    .id(("band", i))
+                    .p_3()
+                    .rounded(px(8.))
+                    .bg(p.canvas)
+                    .border_1()
+                    .border_color(p.line_soft)
+                    .flex()
+                    .items_center()
+                    .gap_3()
+                    .when(!band.on, |el| el.opacity(0.5))
+                    .child(
+                        Self::chip(("band-kind", i), kind_name, false, cx)
+                            .w(px(96.))
+                            .flex()
+                            .justify_center()
+                            .on_click(cx.listener(move |this, _, _, cx| {
+                                this.edit_dsp(|d| {
+                                    if let Some(band) = d.parametric.iter_mut().find(|b| b.uid == cycle) {
+                                        let at = PARAMETRIC_KINDS.iter().position(|(k, _)| *k == band.kind).unwrap_or(0);
+                                        band.kind = PARAMETRIC_KINDS[(at + 1) % PARAMETRIC_KINDS.len()].0.into();
+                                        d.preset = "Custom".into();
+                                    }
+                                });
+                                cx.notify();
+                            })),
+                    )
+                    .child(column(hertz(band.frequency), "frequency"))
+                    .child(if has_gain {
+                        column(format!("{:+.1} dB", band.gain), "gain").into_any_element()
+                    } else {
+                        div().flex_1().into_any_element()
+                    })
+                    .child(column(format!("Q {:.2}", band.q), "q"))
+                    .child(Switch::new(("band-on", i)).checked(band.on).on_click(cx.listener(move |this, checked: &bool, _, cx| {
+                        let on = *checked;
+                        this.edit_dsp(|d| {
+                            if let Some(band) = d.parametric.iter_mut().find(|b| b.uid == toggle) {
+                                band.on = on;
+                            }
+                        });
+                        cx.notify();
+                    })))
+                    .child(
+                        div()
+                            .id(("band-remove", i))
+                            .px_1()
+                            .text_color(p.ink_3)
+                            .cursor_pointer()
+                            .hover(|s| s.text_color(p.danger))
+                            .child("×")
+                            .on_click(cx.listener(move |this, _, _, cx| {
+                                this.edit_dsp(|d| {
+                                    d.parametric.retain(|b| b.uid != remove);
+                                    d.preset = "Custom".into();
+                                });
+                                cx.notify();
+                            })),
+                    )
+            }))
+            .child(
+                div()
+                    .flex()
+                    .items_center()
+                    .gap_3()
+                    .when(count < MAX_PARAMETRIC, |el| {
+                        el.child(small_button("band-add", "Add band").on_click(cx.listener(|this, _, _, cx| {
+                            this.edit_dsp(|d| {
+                                d.parametric.push(ParamBand::default());
+                                d.preset = "Custom".into();
+                            });
+                            cx.notify();
+                        })))
+                    })
+                    .child(faint("Click a band's kind to change it. Peak, shelf, and notch bands follow Q; a higher Q is narrower.", cx)),
             )
     }
 

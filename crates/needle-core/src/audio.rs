@@ -94,6 +94,9 @@ pub enum Command {
     PlayNext(Vec<QueueItem>),
     /// Skip directly to an index of the upcoming queue.
     Jump(usize),
+    /// Skip to this song in the upcoming queue: the one at the index if it is still there,
+    /// else its first place. Nothing happens when it is no longer up next.
+    JumpTo(String, usize),
     Toggle,
     Next,
     Previous,
@@ -108,6 +111,8 @@ pub enum Command {
     Loop(Option<(f64, f64)>),
     /// Change the equalizer and sound tools; applies to the playing track without a restart.
     Dsp(crate::dsp::Dsp),
+    /// Line up the speakers of a group again, in milliseconds by address, without a restart.
+    SpeakerDelays(std::collections::BTreeMap<String, i32>),
     /// Play this track from its stem folder (with the live mix), or `None` to go back to the file.
     Stems(Option<(String, std::path::PathBuf)>),
     Shutdown,
@@ -562,8 +567,14 @@ trait OutputOpener {
 struct SystemOutput;
 impl OutputOpener for SystemOutput {
     fn open(&mut self, device: Option<&str>) -> Result<Option<OpenOutput>> {
-        if let Some(speaker) = device.and_then(crate::cast::Speaker::from_device_name) {
-            let network = crate::cast::output::open(&speaker)?;
+        let group = device.and_then(crate::cast::Group::from_device_name);
+        let speaker = device.and_then(crate::cast::Speaker::from_device_name);
+        if group.is_some() || speaker.is_some() {
+            let network = match (group, speaker) {
+                (Some(group), _) => crate::cast::output::open_group(&group)?,
+                (_, Some(speaker)) => crate::cast::output::open(&speaker)?,
+                _ => unreachable!(),
+            };
             return Ok(Some(OpenOutput {
                 sink: network.sink,
                 name: network.name,
@@ -745,6 +756,7 @@ impl Worker {
         )
     }
     fn fail(&mut self, error: anyhow::Error) {
+        crate::logfile::error(format!("Playback: {error:#}"));
         self.state.lock().unwrap().error = Some(format!("{error:#}"));
     }
     fn finish_listen(&mut self) {
@@ -789,7 +801,7 @@ impl Worker {
         self.settings
             .output_device
             .as_deref()
-            .is_some_and(|d| d.starts_with(crate::cast::PREFIX))
+            .is_some_and(crate::cast::is_network)
     }
     fn network(&self) -> Option<Arc<crate::cast::output::Control>> {
         self.output.as_ref().and_then(|o| o.network.clone())
@@ -1046,6 +1058,22 @@ impl Worker {
                     self.fill()?
                 }
             }
+            Command::JumpTo(id, hint) => {
+                let upcoming = self.queue.upcoming();
+                let at = if upcoming.get(hint).is_some_and(|q| q.track.id == id) {
+                    Some(hint)
+                } else {
+                    upcoming.iter().position(|q| q.track.id == id)
+                };
+                if let Some(index) = at {
+                    let cycle = self.queue.cycle.clone();
+                    if let Some(items) = self.queue.jump(index) {
+                        self.loop_range = None;
+                        self.play(items)?;
+                        self.queue.cycle = cycle;
+                    }
+                }
+            }
             Command::Jump(index) => {
                 let cycle = self.queue.cycle.clone();
                 if let Some(items) = self.queue.jump(index) {
@@ -1144,6 +1172,21 @@ impl Worker {
                     items.extend(queue);
                     self.listen = listen;
                     self.restart(items, position, was_playing)?;
+                }
+            }
+            Command::SpeakerDelays(delays) => {
+                if let Some(control) = self.network() {
+                    control.set_delays(delays.clone());
+                }
+                if let Some(mut group) = self
+                    .settings
+                    .output_device
+                    .as_deref()
+                    .and_then(crate::cast::Group::from_device_name)
+                {
+                    group.delays = delays;
+                    self.settings.output_device = Some(group.device_name());
+                    self.library.save_settings(&self.settings)?;
                 }
             }
             Command::Dsp(dsp) => {
@@ -1964,6 +2007,24 @@ mod tests {
         rig.until_active("c");
         assert_eq!(ids(rig.state().queue.iter()), ["e"]);
         assert!(rig.worker.handle(Command::PlayAt(vec![], 0)).is_err());
+    }
+
+    #[test]
+    fn jumping_to_a_song_follows_it_when_the_queue_changed() {
+        let opener = FakeOpener::with(&["Speakers"], Some("Speakers"));
+        let mut rig = rig(opener, Settings::default());
+        let list = rig.items(&["a", "b", "c", "d"]);
+        rig.run(Command::PlayAt(list, 0));
+        rig.until_active("a");
+        // A phone saw "d" at place 2, but "x" was put first since.
+        let next = rig.items(&["x"]);
+        rig.run(Command::PlayNext(next));
+        assert_eq!(ids(rig.state().queue.iter()), ["x", "b", "c", "d"]);
+        rig.run(Command::JumpTo("d".into(), 2));
+        rig.until_active("d");
+        // A song no longer up next does nothing.
+        rig.run(Command::JumpTo("gone".into(), 0));
+        assert_eq!(rig.active().as_deref(), Some("d"));
     }
 
     #[test]

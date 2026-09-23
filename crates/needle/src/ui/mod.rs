@@ -22,6 +22,7 @@ mod palette;
 mod panel;
 mod plugin_ui;
 mod radio;
+mod remote_ui;
 mod sound;
 mod speakers;
 mod stems_ui;
@@ -30,6 +31,7 @@ mod tags;
 mod theme;
 mod timing;
 mod updates;
+mod welcome;
 mod widgets;
 mod wrapped;
 
@@ -434,6 +436,12 @@ pub struct AppView {
     last_item: Option<(QueueItem, Instant)>,
     mini: Option<AnyWindowHandle>,
     sound: sound::SoundControls,
+    /// The welcome guide's step, while it is open.
+    welcome_step: Option<usize>,
+    /// The phone remote, while it is on.
+    remote: Option<needle_core::remote::Server>,
+    /// Timing sliders for the members of a speaker group, by address.
+    speaker_timing: std::collections::HashMap<String, (Entity<SliderState>, Subscription)>,
     import: importer::ImportState,
     plugins: needle_core::plugins::PluginHost,
     stems: stems_ui::StemsState,
@@ -569,6 +577,8 @@ impl AppView {
             settings.ambient = true;
         }
         let player = Player::new(library.clone());
+        // The player's state holds the saved volume, which saving settings keeps.
+        let playback = player.state();
         let search = cx.new(|cx| {
             InputState::new(window, cx).placeholder("Search, or write a rule like  rating >= 4")
         });
@@ -599,7 +609,7 @@ impl AppView {
         let acoustid_key = secret("AcoustID application key", window, cx);
         let tags = TagFields::new(window, cx);
         let doctor = doctor::Doctor::new(window, cx);
-        let sound = sound::SoundControls::new(&settings.dsp, cx);
+        let sound = sound::SoundControls::new(&settings.dsp, window, cx);
         let import = importer::ImportState::new(window, cx);
         let palette = palette::PaletteState::new(window, cx);
         let volume = cx.new(|_| {
@@ -717,7 +727,7 @@ impl AppView {
             history_loading: false,
             library,
             player,
-            playback: PlaybackState::default(),
+            playback,
             settings,
             page: Page::Home,
             back: vec![],
@@ -745,6 +755,9 @@ impl AppView {
             menu_serial: 0,
             heart_pop: None,
             settings_tab: 0,
+            speaker_timing: Default::default(),
+            remote: None,
+            welcome_step: None,
             palette,
             page_serial: 0,
             sort: Sort::Default,
@@ -839,12 +852,21 @@ impl AppView {
         view.refresh_recent();
         view.start_measuring();
         view.check_for_update(false);
+        view.apply_remote();
+        view.maybe_welcome();
+        {
+            // Crash reports from earlier runs: send them (unless turned off), in the background.
+            let (data, send) = (view.library.directory.clone(), view.settings.crash_reports);
+            std::thread::spawn(move || needle_core::logfile::send_pending(&data, send));
+        }
         {
             let sender = view.sender.clone();
             if let Err(e) = needle_core::instance::listen(&view.library.directory, move |files| {
                 let _ = sender.send(Event::OpenFiles(files));
             }) {
-                eprintln!("Other launches cannot reach this Needle: {e:#}");
+                needle_core::logfile::warn(format!(
+                    "Other launches cannot reach this Needle: {e:#}"
+                ));
             }
         }
         cx.on_release(|_, cx| cx.quit()).detach();
@@ -1975,6 +1997,9 @@ impl Render for AppView {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         self.update_palette(window, cx);
         self.update_glass(window, cx);
+        if self.page == Page::Settings && self.settings_tab == 0 {
+            self.sync_timing_sliders(cx);
+        }
         if self.page == Page::Sound || (self.page == Page::Settings && self.settings_tab == 1) {
             self.sync_effect_sliders(cx);
         }
@@ -2240,5 +2265,6 @@ impl Render for AppView {
             .children(self.blend_menu_view(cx))
             .children(self.speaker_menu_view(cx))
             .children(self.palette_view(cx))
+            .children(self.welcome_view(window, cx))
     }
 }

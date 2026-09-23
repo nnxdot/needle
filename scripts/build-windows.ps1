@@ -104,12 +104,19 @@ ManifestVersion: 1.6.0
 PackageIdentifier: $id
 PackageVersion: $version
 PackageLocale: en-US
-Publisher: nnxdot
+Publisher: NNX
+PublisherUrl: https://nnx.fyi/
+PublisherSupportUrl: https://needle.nnx.fyi/help
+PrivacyUrl: https://needle.nnx.fyi/privacy
+Author: NNX
 PackageName: Needle
 PackageUrl: https://needle.nnx.fyi/
-License: See THIRD-PARTY-NOTICES.md
-ShortDescription: A local music player for Windows.
-Tags: [music, player, flac, lyrics, chromecast, dlna, airplay]
+License: Freeware
+Copyright: Copyright (c) 2026 NNX
+ShortDescription: A music player for the music you own.
+Description: Needle plays the music files you own, with lossless playback, a parametric equalizer, karaoke lyrics, radio from your own library, sound effects from plugins, and every speaker in your home.
+Moniker: needle
+Tags: [music, player, flac, lyrics, equalizer, chromecast, dlna, airplay]
 ManifestType: defaultLocale
 ManifestVersion: 1.6.0
 "@ | Set-Content -LiteralPath (Join-Path $manifests "$id.locale.en-US.yaml")

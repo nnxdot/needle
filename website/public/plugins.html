@@ -47,6 +47,7 @@
     <nav aria-label="Main navigation">
       <a href="/#features">Features</a>
       <a href="/plugins" aria-current="page">Plugins</a>
+      <a href="/help">Help</a>
       <a class="nav-cta" href="/#download">Download</a>
     </nav>
   </div>
@@ -271,7 +272,7 @@ fn run(command, ids) {
         <h3>Always allowed</h3>
         <dl class="api">
           <dt><code>notify(text)</code></dt><dd>Shows a short message in Needle, with your plugin's name in front.</dd>
-          <dt><code>log(text)</code></dt><dd>Writes a line to Needle's error output. Needle's window does not show it, so use <code>notify</code> while you test.</dd>
+          <dt><code>log(text)</code></dt><dd>Writes a line to Needle's log file, with your plugin's id. Open it from <b>Settings › Your data › Open log folder</b>.</dd>
           <dt><code>now()</code></dt><dd>The current time, in seconds since 1 January 1970 (UTC).</dd>
           <dt><code>now_playing()</code></dt><dd>The <a href="#data">song</a> playing now, or <code>()</code> if none.</dd>
           <dt><code>setting(key)</code></dt><dd>A value this plugin saved earlier, or <code>()</code> if there is none.</dd>
@@ -448,6 +449,8 @@ fn run(command, ids) {
       <span>© 2026 NNX</span>
       <nav aria-label="Footer navigation">
         <a href="/plugins">Plugins</a>
+        <a href="/help">Help</a>
+        <a href="/privacy">Privacy</a>
         <a href="https://nnx.fyi/">NNX</a>
         <a href="https://nivren.nnx.fyi/">Nivren</a>
         <a href="https://deadline.nnx.fyi/">Deadline</a>

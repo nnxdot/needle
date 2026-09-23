@@ -107,6 +107,19 @@ pub fn import(
         }
     }
     state.done = true;
+    crate::logfile::info(format!(
+        "Scanned {}: {} files, {} added or changed, {} unchanged, {} errors{}",
+        root.display(),
+        state.scanned,
+        state.imported,
+        state.unchanged,
+        state.errors.len(),
+        state
+            .errors
+            .first()
+            .map(|e| format!(" (first: {e})"))
+            .unwrap_or_default()
+    ));
     progress(state.clone());
     Ok(state)
 }

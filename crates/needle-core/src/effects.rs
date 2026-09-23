@@ -501,7 +501,7 @@ fn parse_block(
 // ---------------------------------------------------------------- built-in blocks
 
 #[derive(Clone, Copy, Default)]
-struct Biquad {
+pub(crate) struct Biquad {
     b0: f64,
     b1: f64,
     b2: f64,
@@ -510,7 +510,7 @@ struct Biquad {
 }
 impl Biquad {
     /// RBJ Audio EQ Cookbook.
-    fn new(shape: Shape, rate: f64, frequency: f64, q: f64, gain_db: f64) -> Self {
+    pub(crate) fn new(shape: Shape, rate: f64, frequency: f64, q: f64, gain_db: f64) -> Self {
         let frequency = frequency.clamp(10., rate * 0.49);
         let w = 2. * PI * frequency / rate;
         let (sin, cos) = w.sin_cos();
@@ -564,7 +564,7 @@ impl Biquad {
             a2: a2 / a0,
         }
     }
-    fn run(&self, state: &mut [f64; 2], x: f64) -> f64 {
+    pub(crate) fn run(&self, state: &mut [f64; 2], x: f64) -> f64 {
         let y = self.b0 * x + state[0];
         state[0] = self.b1 * x - self.a1 * y + state[1];
         state[1] = self.b2 * x - self.a2 * y;

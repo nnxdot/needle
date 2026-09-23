@@ -40,6 +40,64 @@ pub struct Speaker {
 
 /// Output device names that mean a speaker start with this.
 pub const PREFIX: &str = "speaker:";
+/// Output device names that mean several speakers at once start with this.
+pub const GROUP_PREFIX: &str = "speakers:";
+
+/// Whether an output device name is a speaker, or a group of them, on the network.
+pub fn is_network(device: &str) -> bool {
+    device.starts_with(PREFIX) || device.starts_with(GROUP_PREFIX)
+}
+
+/// Several outputs playing the same thing at once, lined up in time.
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+pub struct Group {
+    pub speakers: Vec<Speaker>,
+    /// Also play on this computer's default output.
+    pub this_computer: bool,
+    /// Extra delay for each member in milliseconds, by speaker address ("" for this
+    /// computer), to line them up by ear.
+    #[serde(default)]
+    pub delays: std::collections::BTreeMap<String, i32>,
+}
+
+impl Group {
+    pub fn device_name(&self) -> String {
+        format!(
+            "{GROUP_PREFIX}{}",
+            serde_json::to_string(self).unwrap_or_default()
+        )
+    }
+    pub fn from_device_name(name: &str) -> Option<Self> {
+        serde_json::from_str(name.strip_prefix(GROUP_PREFIX)?).ok()
+    }
+    /// How many outputs play.
+    pub fn len(&self) -> usize {
+        self.speakers.len() + self.this_computer as usize
+    }
+    pub fn is_empty(&self) -> bool {
+        self.len() == 0
+    }
+    /// Members as (address key, name).
+    pub fn members(&self) -> Vec<(String, String)> {
+        let mut members: Vec<(String, String)> = self
+            .speakers
+            .iter()
+            .map(|s| (s.address.clone(), s.name.clone()))
+            .collect();
+        if self.this_computer {
+            members.push((String::new(), "This computer".into()));
+        }
+        members
+    }
+    pub fn name(&self) -> String {
+        let names: Vec<String> = self.members().into_iter().map(|(_, n)| n).collect();
+        match names.len() {
+            0 => "No speakers".into(),
+            1..=3 => names.join(" + "),
+            n => format!("{} + {} more", names[..2].join(" + "), n - 2),
+        }
+    }
+}
 
 impl Speaker {
     /// The speaker as an output device name, for the settings.
@@ -193,6 +251,92 @@ mod tests {
             }
         });
         (format!("http://127.0.0.1:{port}/desc.xml"), heard)
+    }
+
+    #[test]
+    fn the_player_plays_on_two_speakers_at_once() {
+        use crate::{
+            audio::{Command, Player, QueueItem},
+            database::Library,
+            model::{Settings, Track},
+        };
+        let dir = tempfile::tempdir().unwrap();
+        let song = dir.path().join("song.wav");
+        let spec = hound::WavSpec {
+            channels: 2,
+            sample_rate: 44_100,
+            bits_per_sample: 16,
+            sample_format: hound::SampleFormat::Int,
+        };
+        let mut writer = hound::WavWriter::create(&song, spec).unwrap();
+        for i in 0..44_100 * 5 {
+            let v = ((i as f32 * 440. * std::f32::consts::TAU / 44_100.).sin() * 8000.) as i16;
+            writer.write_sample(v).unwrap();
+            writer.write_sample(v).unwrap();
+        }
+        writer.finalize().unwrap();
+        let library = Library::open(dir.path().join("data")).unwrap();
+        let track = Track {
+            id: "t".into(),
+            path: song.to_string_lossy().into(),
+            title: "Tone".into(),
+            duration: 5.,
+            format: "WAV".into(),
+            ..Default::default()
+        };
+        library.upsert(&track).unwrap();
+        let (kitchen, heard_kitchen) = listening_renderer();
+        let (hall, heard_hall) = listening_renderer();
+        let group = Group {
+            speakers: vec![
+                Speaker {
+                    kind: Kind::Dlna,
+                    name: "Kitchen".into(),
+                    address: kitchen,
+                },
+                Speaker {
+                    kind: Kind::Dlna,
+                    name: "Hall".into(),
+                    address: hall,
+                },
+            ],
+            this_computer: false,
+            delays: [(String::new(), 0)].into(),
+        };
+        library
+            .save_settings(&Settings {
+                output_device: Some(group.device_name()),
+                ..Default::default()
+            })
+            .unwrap();
+        let player = Player::new(library);
+        player.send(Command::Play(vec![QueueItem {
+            track,
+            reason: String::new(),
+        }]));
+        let heard = |h: &std::sync::Arc<std::sync::atomic::AtomicUsize>| {
+            h.load(std::sync::atomic::Ordering::Relaxed)
+        };
+        let start = std::time::Instant::now();
+        while (heard(&heard_kitchen) < 176_400 || heard(&heard_hall) < 176_400)
+            && start.elapsed().as_secs() < 10
+        {
+            std::thread::sleep(std::time::Duration::from_millis(100));
+        }
+        let state = player.state();
+        player.shutdown();
+        assert!(
+            heard(&heard_kitchen) >= 176_400,
+            "kitchen got {}",
+            heard(&heard_kitchen)
+        );
+        assert!(
+            heard(&heard_hall) >= 176_400,
+            "hall got {}",
+            heard(&heard_hall)
+        );
+        assert_eq!(state.output, "Kitchen + Hall");
+        assert!(state.playing);
     }
 
     #[test]

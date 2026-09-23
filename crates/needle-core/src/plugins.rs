@@ -321,6 +321,10 @@ fn call(plugin: &mut Loaded, name: &str, args: Vec<Dynamic>) -> Result<Dynamic, 
         Ok(value) => Ok(value),
         Err(error) => {
             let message = error.to_string();
+            crate::logfile::warn(format!(
+                "Plugin {} failed in {name}: {message}",
+                plugin.info.manifest.id
+            ));
             plugin.info.error = Some(format!("{name}: {message}"));
             Err(message)
         }
@@ -574,7 +578,12 @@ fn engine_for(
             actions(HostAction::Notify(format!("{label}: {text}")))
         });
     }
-    engine.register_fn("log", |text: &str| eprintln!("[plugin] {text}"));
+    {
+        let id = manifest.id.clone();
+        engine.register_fn("log", move |text: &str| {
+            crate::logfile::info(format!("[plugin {id}] {text}"))
+        });
+    }
     engine.register_fn("now", || chrono::Utc::now().timestamp());
     {
         let now_playing = now_playing.clone();
