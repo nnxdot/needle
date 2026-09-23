@@ -82,6 +82,12 @@ Opening an existing large library for the first time after this change builds th
 - Live requests were made once to LRCLIB (59 timed lines for a known song), MusicBrainz/Wikidata/Commons (an artist photo), and ListenBrainz (listen format). Last.fm import was not run without an API key.
 - In the running app: the title bar drags, the window resizes from its edges including the top, and maximize/restore and double-click work (checked with Windows hit-testing and scripted drags after a fix for a focusable element that swallowed title-bar clicks). The big player showed timed lyrics following playback; the mini player opened, expanded (staying on screen), showed lyrics and the queue, and returned to the main window. The Sound page applied presets that persisted across restarts. The Import page detected an iTunes XML, and importing set ratings, play counts, and a playlist. An example plugin added a track-menu command that rated a song. A demo song was split into stems in the app and played back from its stems with the Karaoke mix.
 
+## 0.9.0 checks
+
+- Soft edges (text and rounded corners) on the see-through glass layer showed fringes, because GPUI's Windows renderer added coverage to the window's alpha instead of blending it. Needle now builds with a patched gpui 0.2.2 that blends alpha "over"; zoomed screenshots of the sidebar text, the search field, and the signal chip on Acrylic show clean edges.
+- Ambient is now a setting that works with Night, Midnight, and Day (an old "ambient" look setting becomes Night with Ambient on). Midnight is neutral true black, so the three look previews differ clearly; each has a short description. The contrast test covers every look with and without Ambient.
+- The stems mixer was redesigned: one compact colored row per stem with icon, level, slider, live meter, Solo and Mute; mixes are chips that light up when they match. Checked in the big player.
+
 ## 0.8.1 checks
 
 - The command palette again sizes to its list (it had stretched to the window's height), and Listening history shows Ctrl+7. Switching Settings sections no longer replays the page fade, so it no longer looks like a reload. Checked from screenshots.

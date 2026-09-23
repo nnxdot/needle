@@ -62,13 +62,24 @@ impl StemsState {
     }
 }
 
-const PRESETS: [(&str, [f32; 4]); 5] = [
-    ("Full mix", [1., 1., 1., 1.]),
-    ("Karaoke", [1., 1., 1., 0.]),
-    ("Vocals only", [0., 0., 0., 1.]),
-    ("No drums", [0., 1., 1., 1.]),
-    ("Bass only", [0., 1., 0., 0.]),
+/// Ready-made mixes: name, icon, and levels for drums, bass, other, vocals.
+const PRESETS: [(&str, &str, [f32; 4]); 5] = [
+    ("Full mix", "stems", [1., 1., 1., 1.]),
+    ("Karaoke", "lyrics", [1., 1., 1., 0.]),
+    ("Vocals only", "artists", [0., 0., 0., 1.]),
+    ("No drums", "drum", [0., 1., 1., 1.]),
+    ("Bass only", "wave", [0., 1., 0., 0.]),
 ];
+
+/// Each stem's name, icon, and hue (so its card and meter are recognisable at a glance).
+fn stem_style(name: &str) -> (&'static str, &'static str, f32) {
+    match name {
+        "drums" => ("Drums", "drum", 0.01),
+        "bass" => ("Bass", "wave", 0.74),
+        "vocals" => ("Vocals", "artists", 0.12),
+        _ => ("Other", "smart", 0.47),
+    }
+}
 
 impl AppView {
     fn set_stem_levels(&mut self, levels: [f32; 4], window: &mut Window, cx: &mut Context<Self>) {
@@ -146,6 +157,19 @@ impl AppView {
         let job = self.stems.job.clone().filter(|(id, _, _)| *id == track.id);
         let busy_elsewhere = self.stems.job.is_some() && job.is_none();
         let exclusive = self.settings.exclusive;
+        let channels: Vec<AnyElement> = if ready {
+            STEMS
+                .iter()
+                .enumerate()
+                .map(|(i, name)| {
+                    self.stem_channel(i, name, active, big, cx)
+                        .into_any_element()
+                })
+                .collect()
+        } else {
+            vec![]
+        };
+        let presets = ready.then(|| self.stem_presets(cx).into_any_element());
         div()
             .flex()
             .flex_col()
@@ -199,62 +223,8 @@ impl AppView {
                             })
                         })),
                 )
-                .children(STEMS.iter().enumerate().map(|(i, name)| {
-                    let level = self.player.stem_mix().get(i);
-                    div()
-                        .flex()
-                        .items_center()
-                        .gap_3()
-                        .when(!active, |el| el.opacity(0.5))
-                        .child(div().w(px(56.)).text_size(px(13.)).child(match *name {
-                            "drums" => "Drums",
-                            "bass" => "Bass",
-                            "vocals" => "Vocals",
-                            _ => "Other",
-                        }))
-                        .child(Slider::new(&self.stems.sliders[i]).flex_1())
-                        .child(faint(format!("{:.0}%", level * 100.), cx).w(px(40.)).text_right())
-                        .child(
-                            div()
-                                .id(("stem-solo", i))
-                                .px_2()
-                                .rounded(px(4.))
-                                .text_size(px(11.))
-                                .cursor_pointer()
-                                .border_1()
-                                .border_color(p.line)
-                                .text_color(p.ink_2)
-                                .hover(|s| s.text_color(p.ink))
-                                .child("Solo")
-                                .on_click(cx.listener(move |this, _, window, cx| {
-                                    let mut levels = [0.; 4];
-                                    levels[i] = 1.;
-                                    this.set_stem_levels(levels, window, cx);
-                                })),
-                        )
-                }))
-                // Rows of three in the side panel so the mixes never run past its edge.
-                .child({
-                    let per_row = if big { PRESETS.len() } else { 3 };
-                    let rows: Vec<AnyElement> = PRESETS
-                        .chunks(per_row)
-                        .enumerate()
-                        .map(|(r, row)| {
-                            div()
-                                .flex()
-                                .gap_1()
-                                .children(row.iter().enumerate().map(|(j, (name, levels))| {
-                                    let levels = *levels;
-                                    small_button(("stem-preset", r * per_row + j), *name)
-                                        .ghost()
-                                        .flex_1()
-                                        .on_click(cx.listener(move |this, _, window, cx| this.set_stem_levels(levels, window, cx)))
-                                }))
-                                .into_any_element()
-                        })
-                        .collect();
-                    div().flex().flex_col().gap_1().children(rows)
-                })
+                .children(channels)
+                .children(presets)
                 .child(div().child(small_button("stems-delete", "Delete these stems").ghost().on_click(cx.listener(move |this, _, _, cx| {
                     if this.playback.stems.as_deref() == Some(id.as_str()) {
                         this.player.send(Command::Stems(None));
@@ -301,5 +271,198 @@ impl AppView {
                         cx.notify();
                     }))),
             )
+    }
+}
+
+impl AppView {
+    /// One stem as a small channel card: coloured icon, name and level, a live meter while it
+    /// plays, the level slider, and Solo / Mute.
+    fn stem_channel(
+        &self,
+        i: usize,
+        name: &str,
+        active: bool,
+        big: bool,
+        cx: &mut Context<Self>,
+    ) -> impl IntoElement {
+        let p = pal(cx);
+        let (label, icon, hue) = stem_style(name);
+        let color = hsla(hue, 0.72, if p.dark { 0.66 } else { 0.44 }, 1.);
+        let levels: Vec<f32> = (0..STEMS.len())
+            .map(|k| self.player.stem_mix().get(k))
+            .collect();
+        let level = levels[i];
+        let muted = level <= 0.001;
+        let soloed = level > 0.001
+            && levels
+                .iter()
+                .enumerate()
+                .all(|(k, l)| k == i || *l <= 0.001);
+        let live = active && self.playback.playing && !muted;
+        let pill = |id: &'static str, text: &'static str, tip: &'static str, on: bool| {
+            div()
+                .id((id, i))
+                .size(px(22.))
+                .flex_shrink_0()
+                .flex()
+                .items_center()
+                .justify_center()
+                .rounded(px(6.))
+                .text_size(px(11.))
+                .font_weight(FontWeight::SEMIBOLD)
+                .cursor_pointer()
+                .when(on, |el| {
+                    el.bg(color)
+                        .text_color(if p.dark { gpui::black() } else { gpui::white() })
+                })
+                .when(!on, |el| {
+                    el.text_color(p.ink_3)
+                        .hover(|s| s.bg(p.ink.opacity(0.08)).text_color(p.ink))
+                })
+                .child(text)
+                .tooltip(move |window, cx| {
+                    gpui_component::tooltip::Tooltip::new(tip).build(window, cx)
+                })
+        };
+        // One compact row per stem: coloured icon, name and level, slider, live meter, S and M.
+        div()
+            .h(px(if big { 46. } else { 42. }))
+            .px_2()
+            .rounded(px(10.))
+            .bg(color.opacity(if live { 0.1 } else { 0.05 }))
+            .border_1()
+            .border_color(color.opacity(if live { 0.35 } else { 0.12 }))
+            .flex()
+            .items_center()
+            .gap_2()
+            .when(!active, |el| el.opacity(0.55))
+            .child(
+                div()
+                    .size(px(24.))
+                    .flex_shrink_0()
+                    .rounded(px(7.))
+                    .bg(color.opacity(0.18))
+                    .flex()
+                    .items_center()
+                    .justify_center()
+                    .child(glyph(icon).size(px(14.)).text_color(color)),
+            )
+            .child(
+                div()
+                    .w(px(52.))
+                    .flex_shrink_0()
+                    .child(
+                        div()
+                            .text_size(px(12.5))
+                            .font_weight(FontWeight::MEDIUM)
+                            .child(label),
+                    )
+                    .child(
+                        div()
+                            .text_size(px(10.5))
+                            .text_color(p.ink_3)
+                            .child(if muted {
+                                "Muted".to_string()
+                            } else {
+                                format!("{:.0}%", level * 100.)
+                            }),
+                    ),
+            )
+            .child(
+                div()
+                    .flex_1()
+                    .min_w_0()
+                    .child(Slider::new(&self.stems.sliders[i])),
+            )
+            .child(
+                div()
+                    .opacity(if muted { 0.3 } else { 0.4 + 0.6 * level })
+                    .child(super::motion::equalizer(
+                        format!("stem-meter-{i}"),
+                        color,
+                        live,
+                        cx,
+                    )),
+            )
+            .child(pill("stem-solo", "S", "Solo", soloed).on_click(cx.listener(
+                move |this, _, window, cx| {
+                    // Solo again to bring everything back.
+                    let mut levels = [0.; 4];
+                    if soloed {
+                        levels = [1.; 4];
+                    } else {
+                        levels[i] = 1.;
+                    }
+                    this.set_stem_levels(levels, window, cx);
+                },
+            )))
+            .child(pill("stem-mute", "M", "Mute", muted).on_click(cx.listener(
+                move |this, _, window, cx| {
+                    let mut levels: [f32; 4] =
+                        std::array::from_fn(|k| this.player.stem_mix().get(k));
+                    levels[i] = if levels[i] <= 0.001 { 1. } else { 0. };
+                    this.set_stem_levels(levels, window, cx);
+                },
+            )))
+    }
+
+    /// The ready-made mixes as chips; the one matching the current levels is lit.
+    fn stem_presets(&self, cx: &mut Context<Self>) -> impl IntoElement {
+        let p = pal(cx);
+        let current: Vec<f32> = (0..STEMS.len())
+            .map(|k| self.player.stem_mix().get(k))
+            .collect();
+        let per_row = 3;
+        let rows: Vec<AnyElement> = PRESETS
+            .chunks(per_row)
+            .enumerate()
+            .map(|(r, row)| {
+                div()
+                    .flex()
+                    .gap_1()
+                    .children(row.iter().enumerate().map(|(j, (name, icon, levels))| {
+                        let levels = *levels;
+                        let on = current
+                            .iter()
+                            .zip(levels)
+                            .all(|(a, b)| (a - b).abs() < 0.01);
+                        div()
+                            .id(("stem-preset", r * per_row + j))
+                            .flex_1()
+                            .h(px(28.))
+                            .px_2()
+                            .rounded(px(8.))
+                            .flex()
+                            .items_center()
+                            .justify_center()
+                            .gap(px(6.))
+                            .cursor_pointer()
+                            .text_size(px(11.5))
+                            .font_weight(FontWeight::MEDIUM)
+                            .when(on, |el| el.bg(p.accent).text_color(p.accent_ink))
+                            .when(!on, |el| {
+                                el.bg(p.raised)
+                                    .text_color(p.ink_2)
+                                    .hover(|s| s.bg(p.raised_hover).text_color(p.ink))
+                            })
+                            .child(glyph(icon).size(px(14.)).text_color(if on {
+                                p.accent_ink
+                            } else {
+                                p.ink_3
+                            }))
+                            .child(div().truncate().child(*name))
+                            .on_click(cx.listener(move |this, _, window, cx| {
+                                this.set_stem_levels(levels, window, cx)
+                            }))
+                    }))
+                    .into_any_element()
+            })
+            .collect();
+        div()
+            .flex()
+            .flex_col()
+            .gap_1()
+            .child(faint("Mixes", cx))
+            .children(rows)
     }
 }

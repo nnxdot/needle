@@ -31,6 +31,8 @@ fn shape(name: &str) -> Option<String> {
         "star" => format!("<path d='{star}'/>"),
         "star-fill" => format!("<path d='{star}' {FILLED}/>"),
         "discord" => "<rect x='3' y='6' width='18' height='12' rx='5'/><circle cx='9' cy='12' r='1.4' fill='currentColor'/><circle cx='15' cy='12' r='1.4' fill='currentColor'/><path d='M8 6l1-2M16 6l-1-2'/>".into(),
+        "drum" => "<ellipse cx='12' cy='8' rx='8' ry='3'/><path d='M4 8v7c0 1.7 3.6 3 8 3s8-1.3 8-3V8'/><path d='M8 10.8V18M16 10.8V18'/><path d='m15 2 3 4M9 2 6 6' />".into(),
+        "wave" => "<path d='M3 12h2M7 8v8M11 5v14M15 9v6M19 7v10M21 12h0'/>".into(),
         "home" => "<path d='M3.5 10.5 12 3.5l8.5 7'/><path d='M5.5 9v10.5a1 1 0 0 0 1 1H10v-6h4v6h3.5a1 1 0 0 0 1-1V9'/>".into(),
         "recent" => "<circle cx='12' cy='12' r='9'/><path d='M12 7v5l3.2 2'/>".into(),
         "history" => "<path d='M3 20h18'/><path d='M6.5 16v-4M11 16V6M15.5 16V9.5M20 16v-8'/>".into(),

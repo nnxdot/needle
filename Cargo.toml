@@ -3,7 +3,7 @@ members = ["crates/needle-core", "crates/needle"]
 resolver = "2"
 
 [workspace.package]
-version = "0.8.1"
+version = "0.9.0"
 edition = "2024"
 license = "LicenseRef-Proprietary"
 
@@ -24,3 +24,5 @@ strip = "debuginfo"
 # Pure-Rust Opus decoder with a faster MDCT FFT; see THIRD-PARTY-NOTICES.md.
 [patch.crates-io]
 opus-decoder = { path = "third-party/patched/opus-decoder-0.1.1" }
+# Blends soft edges correctly on see-through (glass) windows; see third-party/patched/gpui-0.2.2.
+gpui = { path = "third-party/patched/gpui-0.2.2" }

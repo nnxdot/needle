@@ -2,7 +2,7 @@
 
 Needle uses the packages below. This conservative Cargo inventory includes runtime, build, and development dependencies for the Windows resolution. Each retains its own license. Exact versions are locked in Cargo.lock. Regenerate this file with `python scripts/third_party.py`.
 
-Bundled license texts are in `third-party/licenses.txt`. Original, unmodified MPL-2.0 crate source archives are in `third-party/sources/`; they can also be obtained from each linked crates.io release. Needle's application source does not modify these dependencies, with one exception: `third-party/patched/opus-decoder-0.1.1/` is the published opus-decoder 0.1.1 crate with its O(n²) MDCT DFT replaced by a `rustfft` transform (`src/celt/kiss_fft.rs`), its tests and dev-dependencies removed, and upstream license files added. Cargo uses it through `[patch.crates-io]`.
+Bundled license texts are in `third-party/licenses.txt`. Original, unmodified MPL-2.0 crate source archives are in `third-party/sources/`; they can also be obtained from each linked crates.io release. Needle's application source does not modify these dependencies, with two exceptions. `third-party/patched/gpui-0.2.2/` is the published gpui 0.2.2 crate (Apache-2.0) with two blend-state lines in `src/platform/windows/directx_renderer.rs` changed so soft edges blend correctly on see-through windows, and two float literals typed in `src/taffy.rs`. `third-party/patched/opus-decoder-0.1.1/` is the published opus-decoder 0.1.1 crate with its O(n²) MDCT DFT replaced by a `rustfft` transform (`src/celt/kiss_fft.rs`), its tests and dev-dependencies removed, and upstream license files added. Cargo uses both through `[patch.crates-io]`.
 
 ## Components that are not Cargo packages
 
@@ -197,7 +197,7 @@ Bundled license texts are in `third-party/licenses.txt`. Original, unmodified MP
 | gpu-alloc-0.6.2 | MIT OR Apache-2.0 | [crates.io](https://crates.io/crates/gpu-alloc/0.6.2) |
 | gpu-alloc-ash-0.7.1 | MIT OR Apache-2.0 | [crates.io](https://crates.io/crates/gpu-alloc-ash/0.7.1) |
 | gpu-alloc-types-0.3.1 | MIT OR Apache-2.0 | [crates.io](https://crates.io/crates/gpu-alloc-types/0.3.1) |
-| gpui-0.2.2 | Apache-2.0 | [crates.io](https://crates.io/crates/gpui/0.2.2) |
+| gpui-0.2.2 (patched copy in third-party/patched) | Apache-2.0 | [crates.io](https://crates.io/crates/gpui/0.2.2) |
 | gpui-component-0.5.1 | Apache-2.0 | [crates.io](https://crates.io/crates/gpui-component/0.5.1) |
 | gpui-component-assets-0.5.1 | Apache-2.0 | [crates.io](https://crates.io/crates/gpui-component-assets/0.5.1) |
 | gpui-component-macros-0.5.1 | Apache-2.0 | [crates.io](https://crates.io/crates/gpui-component-macros/0.5.1) |
