@@ -233,6 +233,10 @@ impl AppView {
             super::glass::Material::Clear => {
                 target = target.glass(self.settings.glass_amount, self.settings.glass_page, 0.55)
             }
+            // Light glass washes text out sooner, so it keeps more of the surface too.
+            _ if !target.dark => {
+                target = target.glass(self.settings.glass_amount, self.settings.glass_page, 0.6)
+            }
             _ => target = target.glass(self.settings.glass_amount, self.settings.glass_page, 0.8),
         }
         let shown = theme::pal(cx);
@@ -406,7 +410,8 @@ impl AppView {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
+    // Not `super::*`: that would bring in GPUI's own `test` attribute in place of Rust's.
+    use super::measure;
 
     /// Saved covers end in ".img"; their colour must still be read.
     #[test]

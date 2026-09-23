@@ -4192,6 +4192,7 @@ dependencies = [
  "schemars",
  "serde",
  "serde_json",
+ "tempfile",
  "windows-sys 0.52.0",
 ]
 

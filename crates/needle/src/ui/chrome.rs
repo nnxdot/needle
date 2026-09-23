@@ -161,6 +161,7 @@ impl AppView {
         cx: &mut Context<Self>,
     ) -> Stateful<Div> {
         let p = pal(cx);
+        let glass = p.back.a < 1.;
         let active = self.page == page
             || matches!(
                 (&self.page, &page),
@@ -183,7 +184,10 @@ impl AppView {
                     .font_weight(FontWeight::MEDIUM)
             })
             .when(!active, |el| {
-                el.text_color(p.ink_2)
+                // On glass, grey text over a see-through layer loses its edges: use full ink
+                // and a touch more weight there so labels stay crisp.
+                el.text_color(if glass { p.ink } else { p.ink_2 })
+                    .when(glass, |el| el.font_weight(FontWeight::MEDIUM))
                     .hover(|s| s.bg(p.raised.opacity(0.6)).text_color(p.ink))
             })
             .child(glyph(glyph_name).size(px(17.)).text_color(if active {

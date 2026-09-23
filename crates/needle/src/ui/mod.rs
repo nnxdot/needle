@@ -782,7 +782,8 @@ impl AppView {
     }
     fn configure(&mut self) {
         self.settings.volume = self.playback.volume;
-        self.player.send(Command::Configure(self.settings.clone()));
+        self.player
+            .send(Command::Configure(Box::new(self.settings.clone())));
         self.persist_settings();
     }
 
