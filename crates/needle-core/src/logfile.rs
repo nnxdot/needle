@@ -151,10 +151,19 @@ fn install_panic_hook() {
 pub fn scrub(text: &str) -> String {
     let mut out = String::with_capacity(text.len());
     let mut rest = text;
-    let starts_path = |s: &str| -> Option<usize> {
+    let mut previous = ' ';
+    let starts_path = |s: &str, previous: char| -> Option<usize> {
         let b = s.as_bytes();
         if s.starts_with("\\\\") || s.starts_with("//") {
             return Some(2);
+        }
+        // A Unix path such as /home/ann/Music: a slash at the start of a word, then a name.
+        if b.len() >= 2
+            && b[0] == b'/'
+            && (b[1].is_ascii_alphanumeric() || matches!(b[1], b'.' | b'_' | b'~'))
+            && (previous.is_whitespace() || matches!(previous, '"' | '\'' | '(' | '=' | ':'))
+        {
+            return Some(1);
         }
         if b.len() >= 3
             && b[0].is_ascii_alphabetic()
@@ -166,7 +175,7 @@ pub fn scrub(text: &str) -> String {
         None
     };
     while !rest.is_empty() {
-        if starts_path(rest).is_some() {
+        if starts_path(rest, previous).is_some() {
             // A path runs to the end of the line, or to a quote or bracket.
             let end = rest
                 .find(['\n', '"', '\'', '<', '>', '|', ')', '('])
@@ -182,9 +191,11 @@ pub fn scrub(text: &str) -> String {
                 out.push_str("<path>");
             }
             rest = &rest[end..];
+            previous = '/';
         } else {
             let c = rest.chars().next().unwrap();
             out.push(c);
+            previous = c;
             rest = &rest[c.len_utf8()..];
         }
     }
@@ -243,7 +254,9 @@ pub fn send_pending(data: &Path, send: bool) -> usize {
             .ok()
             .and_then(|t| SystemTime::now().duration_since(t).ok())
             .is_some_and(|age| age > KEEP_UNSENT);
+        // Reports older than 30 days are never sent.
         if send
+            && !old
             && let Ok(text) = fs::read_to_string(&file)
             && post(&text).is_ok()
         {
@@ -291,6 +304,10 @@ mod tests {
     fn scrubbing_removes_paths_and_names_but_keeps_source_places() {
         let text = "Cannot open C:\\Users\\Ann\\Music\\Secret Song.flac\nnot found: \\\\nas\\share\\x.mp3 (os error 2)\nAt: crates\\needle-core\\src\\audio.rs:120\n at C:\\Users\\build\\.cargo\\registry\\src\\rodio-0.21\\src\\sink.rs:40";
         let out = scrub(text);
+        let unix =
+            scrub("open /home/alice/Music/private.flac: no\n\"/Users/bob/x.mp3\" 24/96 kHz and/or");
+        assert!(!unix.contains("alice") && !unix.contains("bob"), "{unix}");
+        assert!(unix.contains("24/96 kHz and/or"), "{unix}");
         assert!(!out.contains("Secret Song"), "{out}");
         assert!(!out.contains("nas\\share"), "{out}");
         assert!(out.contains("<path>"));

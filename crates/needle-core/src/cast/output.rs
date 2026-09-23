@@ -383,8 +383,11 @@ impl GroupOut {
             })
             .collect();
         // A negative delay for one member means everyone else waits a little longer.
-        let shift = alive()
-            .zip(wanted.iter())
+        let shift = self
+            .members
+            .iter()
+            .zip(&wanted)
+            .filter(|(m, _)| m.alive)
             .map(|(_, w)| -w)
             .fold(0., f64::max);
         wanted.iter().map(|w| w + shift).collect()
@@ -636,10 +639,12 @@ pub(crate) fn start(name: String, mut destination: Box<dyn Destination>) -> Netw
                         let sample = source.next().unwrap_or(0.);
                         samples.push((sample.clamp(-1., 1.) * i16::MAX as f32) as i16);
                     }
-                    if !samples.is_empty()
-                        && let Err(e) = destination.push(&samples)
-                    {
-                        fail(e);
+                    if !samples.is_empty() {
+                        if let Err(e) = destination.push(&samples) {
+                            fail(e);
+                        }
+                        // A group may have just used up a timing change.
+                        *shared.lag.lock().unwrap() = destination.lag();
                     }
                 }
                 last = now;
@@ -794,6 +799,46 @@ mod tests {
         assert!(!group.members[0].alive && group.members[1].alive);
         fast.2.store(true, Ordering::Relaxed);
         assert!(group.push(&sound).is_err());
+    }
+
+    #[test]
+    fn timing_changes_after_a_member_dropped_use_the_right_members() {
+        let make = |lag: f64| Timed(Arc::default(), lag, Arc::default());
+        let (slow, fast, mid) = (make(2.0), make(0.5), make(1.0));
+        let member = |key: &str, t: &Timed| Member {
+            key: key.into(),
+            name: key.into(),
+            destination: Box::new(t.clone()),
+            alive: true,
+            delay: 0,
+            pending: 0,
+        };
+        let mut group = GroupOut {
+            members: vec![
+                member("slow", &slow),
+                member("fast", &fast),
+                member("mid", &mid),
+            ],
+            delays: Default::default(),
+            silence: vec![],
+        };
+        group.start(&Meta::default()).unwrap();
+        slow.2.store(true, Ordering::Relaxed);
+        group.push(&[0; 2]).unwrap();
+        assert!(!group.members[0].alive);
+        // Now the slowest one playing is `mid` (1 s). Moving `mid` 600 ms earlier means `fast`
+        // waits 1.1 s and `mid` none.
+        group.set_delays(&[("mid".to_string(), -600)].into());
+        let second = RATE as f64;
+        assert_eq!(group.members[1].delay, (1.1 * second).round() as i64);
+        assert_eq!(group.members[2].delay, 0);
+        assert!(
+            group
+                .members
+                .iter()
+                .filter(|m| m.alive)
+                .all(|m| m.delay >= 0)
+        );
     }
 
     #[test]

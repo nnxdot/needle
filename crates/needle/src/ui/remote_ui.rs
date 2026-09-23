@@ -100,7 +100,7 @@ impl AppView {
                                             cx.notify();
                                         }))),
                                 )
-                                .child(faint("Anyone who has the address and is on your Wi-Fi can control Needle. Choose New address to lock them out. If Windows asks, allow Needle on private networks.", cx)),
+                                .child(faint("Anyone who has the address and can reach this computer on a private network (your Wi-Fi, or a VPN) can control Needle. Choose New address to lock them out. If Windows asks, allow Needle on private networks.", cx)),
                         ),
                 )
             })

@@ -3,7 +3,7 @@
 //!
 //! Every address holds a long random key (`/r/<key>/`), so only phones given the address (by
 //! its QR code in Settings) can use it. The remote is off until turned on, and it answers
-//! only on the local network.
+//! only private-network addresses (which include VPNs that use them).
 use crate::{
     audio::{Command, Player, QueueItem, Repeat},
     database::Library,
@@ -24,6 +24,8 @@ use std::{
 /// The port Needle tries first, so a phone's bookmark keeps working.
 pub const PORT: u16 = 47380;
 const MAX_BODY: usize = 64 * 1024;
+const MAX_LINE: usize = 8 * 1024;
+const MAX_HEADERS: usize = 64;
 const MAX_CONNECTIONS: usize = 32;
 
 /// A new random key for the remote's address.
@@ -46,11 +48,13 @@ pub fn local_ip() -> IpAddr {
         .unwrap_or(IpAddr::from([127, 0, 0, 1]))
 }
 
-/// The running remote. Dropping it stops it.
+/// The running remote. Dropping it stops it: the old address stops working at once, even
+/// for requests already on their way.
 pub struct Server {
     pub port: u16,
     key: String,
     stop: Arc<AtomicBool>,
+    thread: Option<std::thread::JoinHandle<()>>,
 }
 
 impl Server {
@@ -63,6 +67,9 @@ impl Server {
 impl Drop for Server {
     fn drop(&mut self) {
         self.stop.store(true, Ordering::Relaxed);
+        if let Some(thread) = self.thread.take() {
+            let _ = thread.join();
+        }
     }
 }
 
@@ -76,14 +83,15 @@ pub fn start(player: Player, library: Library, key: String) -> Result<Server> {
     let stop = Arc::new(AtomicBool::new(false));
     let (flag, prefix) = (stop.clone(), format!("/r/{key}/"));
     let open = Arc::new(AtomicUsize::new(0));
-    std::thread::Builder::new()
+    let thread = std::thread::Builder::new()
         .name("needle-remote".into())
         .spawn(move || {
             crate::logfile::info(format!("Phone remote listening on port {port}"));
             while !flag.load(Ordering::Relaxed) {
                 match listener.accept() {
                     Ok((stream, peer)) => {
-                        // Only the local network: private, link-local, and loopback addresses.
+                        // Only private-network, link-local, and loopback addresses (a VPN that
+                        // uses private addresses counts too; the key still guards the page).
                         let local = match peer.ip() {
                             IpAddr::V4(ip) => {
                                 ip.is_private() || ip.is_loopback() || ip.is_link_local()
@@ -97,15 +105,16 @@ pub fn start(player: Player, library: Library, key: String) -> Result<Server> {
                         if !local || open.load(Ordering::Relaxed) >= MAX_CONNECTIONS {
                             continue;
                         }
-                        let (player, library, prefix, open) = (
+                        let (player, library, prefix, open, revoked) = (
                             player.clone(),
                             library.clone(),
                             prefix.clone(),
                             open.clone(),
+                            flag.clone(),
                         );
                         open.fetch_add(1, Ordering::Relaxed);
                         std::thread::spawn(move || {
-                            let _ = serve(stream, &player, &library, &prefix);
+                            let _ = serve(stream, &player, &library, &prefix, &revoked);
                             open.fetch_sub(1, Ordering::Relaxed);
                         });
                     }
@@ -117,7 +126,12 @@ pub fn start(player: Player, library: Library, key: String) -> Result<Server> {
             }
             crate::logfile::info("Phone remote stopped");
         })?;
-    Ok(Server { port, key, stop })
+    Ok(Server {
+        port,
+        key,
+        stop,
+        thread: Some(thread),
+    })
 }
 
 struct Request {
@@ -127,18 +141,26 @@ struct Request {
     body: Vec<u8>,
 }
 
+/// One line of the request, refusing lines longer than `MAX_LINE`.
+fn read_line(reader: &mut impl BufRead) -> Result<String> {
+    let mut line = String::new();
+    reader.take(MAX_LINE as u64 + 1).read_line(&mut line)?;
+    anyhow::ensure!(line.len() <= MAX_LINE, "Request line too long");
+    Ok(line)
+}
+
 fn read_request(stream: &TcpStream) -> Result<Request> {
     stream.set_read_timeout(Some(Duration::from_secs(10)))?;
     let mut reader = BufReader::new(stream);
-    let mut line = String::new();
-    reader.read_line(&mut line)?;
+    let line = read_line(&mut reader)?;
     let mut parts = line.split_whitespace();
     let method = parts.next().unwrap_or_default().to_string();
     let target = parts.next().unwrap_or_default().to_string();
     let mut length = 0usize;
-    loop {
-        let mut header = String::new();
-        if reader.read_line(&mut header)? == 0 || header.trim().is_empty() {
+    for count in 0.. {
+        anyhow::ensure!(count < MAX_HEADERS, "Too many headers");
+        let header = read_line(&mut reader)?;
+        if header.trim().is_empty() {
             break;
         }
         if let Some((name, value)) = header.split_once(':')
@@ -172,9 +194,19 @@ fn respond(mut stream: &TcpStream, status: &str, kind: &str, body: &[u8]) -> Res
     Ok(())
 }
 
-fn serve(stream: TcpStream, player: &Player, library: &Library, prefix: &str) -> Result<()> {
+fn serve(
+    stream: TcpStream,
+    player: &Player,
+    library: &Library,
+    prefix: &str,
+    revoked: &AtomicBool,
+) -> Result<()> {
     let request = read_request(&stream)?;
-    let Some(route) = request.path.strip_prefix(prefix) else {
+    let route = request
+        .path
+        .strip_prefix(prefix)
+        .filter(|_| !revoked.load(Ordering::Relaxed));
+    let Some(route) = route else {
         // A wrong key looks the same as a page that does not exist.
         std::thread::sleep(Duration::from_millis(300));
         return respond(&stream, "404 Not Found", "text/plain", b"Not found");
@@ -414,7 +446,16 @@ mod tests {
             std::thread::sleep(Duration::from_millis(20));
         }
         assert!((player.state().volume - 0.3).abs() < 1e-6);
+        // Very long lines are refused.
+        let long = format!("/r/{key}/{}", "a".repeat(MAX_LINE * 2));
+        let refused = reqwest::blocking::get(format!("http://127.0.0.1:{port}{long}"))
+            .map_or(true, |r| r.status() != 200);
+        assert!(refused);
+        // A new address locks the old one out at once.
         drop(server);
+        let locked = reqwest::blocking::get(format!("http://127.0.0.1:{port}/r/{key}/api/state"))
+            .map_or(true, |r| r.status() != 200);
+        assert!(locked);
         player.shutdown();
         assert_eq!(decode("a%20b+c%C3%A9%"), "a b cé%");
     }

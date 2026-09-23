@@ -212,6 +212,8 @@ impl AppView {
 
     /// Move every slider to match `dsp` (after choosing a preset or resetting).
     fn apply_dsp(&mut self, dsp: Dsp, window: &mut Window, cx: &mut Context<Self>) {
+        // Parametric sliders are made again from the new bands when Sound is drawn next.
+        self.sound.band_sliders.clear();
         self.sound
             .preamp
             .update(cx, |s, cx| s.set_value(dsp.preamp_db, window, cx));

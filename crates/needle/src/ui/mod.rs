@@ -577,6 +577,8 @@ impl AppView {
             settings.ambient = true;
         }
         let player = Player::new(library.clone());
+        // The player's state holds the saved volume, which saving settings keeps.
+        let playback = player.state();
         let search = cx.new(|cx| {
             InputState::new(window, cx).placeholder("Search, or write a rule like  rating >= 4")
         });
@@ -725,7 +727,7 @@ impl AppView {
             history_loading: false,
             library,
             player,
-            playback: PlaybackState::default(),
+            playback,
             settings,
             page: Page::Home,
             back: vec![],

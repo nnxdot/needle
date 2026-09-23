@@ -182,11 +182,15 @@ pub fn parse_parametric(text: &str) -> anyhow::Result<(f32, Vec<ParamBand>)> {
         };
         let frequency =
             value("Fc").ok_or_else(|| anyhow::anyhow!("A filter has no frequency: {line}"))?;
+        let (gain, q) = (value("Gain").unwrap_or(0.), value("Q").unwrap_or(0.707));
+        if !(frequency.is_finite() && gain.is_finite() && q.is_finite()) {
+            anyhow::bail!("A filter has a value that is not a number: {line}");
+        }
         bands.push(ParamBand {
             kind: kind.into(),
             frequency: frequency.clamp(10., 24000.),
-            gain: value("Gain").unwrap_or(0.).clamp(-24., 24.),
-            q: value("Q").unwrap_or(0.707).clamp(0.1, 20.),
+            gain: gain.clamp(-24., 24.),
+            q: q.clamp(0.1, 20.),
             on,
             ..Default::default()
         });
@@ -371,7 +375,13 @@ impl Chain {
             settings
                 .parametric
                 .iter()
-                .filter(|b| b.active() && (b.frequency as f64) < self.rate * 0.49)
+                .filter(|b| {
+                    b.active()
+                        && b.frequency.is_finite()
+                        && b.gain.is_finite()
+                        && b.q.is_finite()
+                        && (b.frequency as f64) < self.rate * 0.49
+                })
                 .take(MAX_PARAMETRIC)
                 .map(|b| {
                     Biquad::new(
@@ -784,6 +794,8 @@ mod tests {
                 .collect::<Vec<_>>()
         );
         assert!(parse_parametric("nothing here").is_err());
+        assert!(parse_parametric("Filter 1: ON PK Fc 100 Hz Gain 3 dB Q NaN").is_err());
+        assert!(parse_parametric("Filter 1: ON PK Fc inf Hz Gain 3 dB Q 1").is_err());
 
         let settings = Dsp {
             eq: true,

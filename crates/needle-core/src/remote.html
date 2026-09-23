@@ -83,7 +83,7 @@ li button { color: var(--amber); font-size: 13px; font-weight: 600; padding: 8px
   <h1 id="title">Nothing playing</h1>
   <p class="artist" id="artist">Choose a song below, or on the computer.</p>
 
-  <div class="bar" id="bar" role="slider" aria-label="Position" tabindex="0"><div class="track"><div class="fill" id="fill"></div></div></div>
+  <div class="bar" id="bar" role="slider" aria-label="Position" tabindex="0" aria-valuemin="0" aria-valuemax="0" aria-valuenow="0" aria-valuetext="0:00 of 0:00"><div class="track"><div class="fill" id="fill"></div></div></div>
   <div class="times"><span id="now">0:00</span><span id="length">0:00</span></div>
 
   <div class="controls">
@@ -155,6 +155,7 @@ function draw() {
   if (!dragging) {
     $('fill').style.width = length ? Math.min(100, s.position / length * 100) + '%' : '0';
     $('now').textContent = time(s.position);
+    setSlider(s.position, length);
   }
   $('length').textContent = time(length);
   $('toggle').setAttribute('aria-label', s.playing ? 'Pause' : 'Play');
@@ -167,19 +168,48 @@ function draw() {
     list.append(li);
   }
 }
+function setSlider(position, length) {
+  const bar = $('bar');
+  bar.setAttribute('aria-valuemax', String(Math.floor(length)));
+  bar.setAttribute('aria-valuenow', String(Math.floor(Math.min(position, length))));
+  bar.setAttribute('aria-valuetext', `${time(position)} of ${time(length)}`);
+}
+// Only the newest answer counts: an older one arriving late must not undo a newer one.
+let refreshes = 0;
 async function refresh() {
+  const request = ++refreshes;
   try {
     const response = await fetch(base + 'api/state', { cache: 'no-store' });
     if (!response.ok) throw new Error();
-    state = await response.json();
+    const next = await response.json();
+    if (request !== refreshes) return;
+    state = next;
     $('offline').classList.remove('show');
     draw();
-  } catch (e) { $('offline').classList.add('show'); }
+  } catch (e) { if (request === refreshes) $('offline').classList.add('show'); }
 }
 $('toggle').onclick = () => send('toggle');
 $('next').onclick = () => send('next');
 $('previous').onclick = () => send('previous');
-$('volume').oninput = e => { volumeBusy = Date.now(); send('volume', { value: Number(e.target.value) }); };
+
+// Volume: one change on its way at a time, and the last value always sent last.
+let volumeWanted = null, volumeSending = false;
+async function sendVolume() {
+  if (volumeSending || volumeWanted === null) return;
+  volumeSending = true;
+  const value = volumeWanted;
+  volumeWanted = null;
+  try {
+    await fetch(base + 'api/volume', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ value }) });
+  } catch (e) { $('offline').classList.add('show'); }
+  volumeSending = false;
+  if (volumeWanted !== null) sendVolume();
+}
+$('volume').oninput = e => {
+  volumeBusy = Date.now();
+  volumeWanted = Number(e.target.value);
+  sendVolume();
+};
 
 function seekTo(event, commit) {
   if (!state || !state.current) return;
@@ -188,11 +218,30 @@ function seekTo(event, commit) {
   const seconds = x * state.current.duration;
   $('fill').style.width = x * 100 + '%';
   $('now').textContent = time(seconds);
+  setSlider(seconds, state.current.duration);
   if (commit) send('seek', { seconds });
 }
 $('bar').addEventListener('pointerdown', e => { dragging = true; $('bar').setPointerCapture(e.pointerId); seekTo(e, false); });
 $('bar').addEventListener('pointermove', e => { if (dragging) seekTo(e, false); });
 $('bar').addEventListener('pointerup', e => { if (dragging) { dragging = false; seekTo(e, true); } });
+// A cancelled touch (a scroll, a call) ends the drag without seeking.
+$('bar').addEventListener('pointercancel', () => { dragging = false; if (state) draw(); });
+// Keys: arrows move 5 seconds (Page Up/Down 30), Home and End go to the start and end.
+$('bar').addEventListener('keydown', e => {
+  if (!state || !state.current) return;
+  const length = state.current.duration;
+  const steps = { ArrowLeft: -5, ArrowDown: -5, ArrowRight: 5, ArrowUp: 5, PageDown: -30, PageUp: 30 };
+  let seconds;
+  if (e.key in steps) seconds = state.position + steps[e.key];
+  else if (e.key === 'Home') seconds = 0;
+  else if (e.key === 'End') seconds = Math.max(0, length - 1);
+  else return;
+  e.preventDefault();
+  seconds = Math.min(Math.max(0, seconds), length);
+  state.position = seconds;
+  draw();
+  send('seek', { seconds });
+});
 
 function tab(which) {
   $('tab-queue').classList.toggle('on', which === 'queue');
@@ -204,15 +253,18 @@ function tab(which) {
 $('tab-queue').onclick = () => tab('queue');
 $('tab-search').onclick = () => tab('search');
 
-let searchTimer = 0;
+let searchTimer = 0, searchVersion = 0;
 $('search').oninput = () => {
   clearTimeout(searchTimer);
+  const version = ++searchVersion;
   searchTimer = setTimeout(async () => {
     const q = $('search').value.trim();
     const list = $('results');
     if (!q) { list.replaceChildren(); return; }
     try {
       const found = await (await fetch(base + 'api/search?q=' + encodeURIComponent(q))).json();
+      // Results for an older search arrive too late to show.
+      if (version !== searchVersion) return;
       list.replaceChildren(...found.map(t => row(t.title, [t.artist, t.album].filter(Boolean).join(' · '), 'Play', () => send('play', { ids: [t.id] }))));
       if (!found.length) {
         const li = document.createElement('li'); li.className = 'empty'; li.textContent = 'No songs found.';
