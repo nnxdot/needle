@@ -85,6 +85,7 @@ actions!(
         VolumeUp,
         VolumeDown,
         ToggleQueue,
+        ToggleSidebar,
         GoBack,
         FocusNext,
         FocusPrevious,
@@ -436,6 +437,8 @@ pub struct AppView {
     last_item: Option<(QueueItem, Instant)>,
     mini: Option<AnyWindowHandle>,
     sound: sound::SoundControls,
+    /// When playback last stopped or paused, for clearing the Discord status after a while.
+    discord_idle_since: Option<i64>,
     /// The welcome guide's step, while it is open.
     welcome_step: Option<usize>,
     /// The phone remote, while it is on.
@@ -513,6 +516,7 @@ pub fn run(library: Library, files: Vec<std::path::PathBuf>) -> Result<()> {
                 KeyBinding::new("ctrl-k", OpenPalette, Some("Needle")),
                 KeyBinding::new("ctrl-o", ImportFolder, Some("Needle")),
                 KeyBinding::new("ctrl-j", ToggleQueue, Some("Needle")),
+                KeyBinding::new("ctrl-b", ToggleSidebar, Some("Needle")),
                 KeyBinding::new("escape", EscapePanel, Some("Needle")),
                 KeyBinding::new("tab", FocusNext, tracks),
                 KeyBinding::new("ctrl-p", ToggleBigPlayer, Some("Needle")),
@@ -758,6 +762,7 @@ impl AppView {
             speaker_timing: Default::default(),
             remote: None,
             welcome_step: None,
+            discord_idle_since: None,
             palette,
             page_serial: 0,
             sort: Sort::Default,
@@ -910,6 +915,10 @@ impl AppView {
         self.scrobble_summary = integrations::scrobble_summary(&self.library).ok();
     }
 
+    fn toggle_sidebar(&mut self) {
+        self.settings.layout.sidebar_hidden = !self.settings.layout.sidebar_hidden;
+        self.persist_settings();
+    }
     fn persist_settings(&mut self) {
         self.settings.volume = self.playback.volume;
         if let Err(e) = self.library.save_settings(&self.settings) {
@@ -2009,12 +2018,19 @@ impl Render for AppView {
         }
         let p = pal(cx);
         let width = window.viewport_size().width;
+        let sidebar_open = !self.settings.layout.sidebar_hidden;
+        let sidebar = if sidebar_open {
+            self.settings.layout.sidebar_width.clamp(200., 260.)
+        } else {
+            0.
+        };
+        let panel_width = self.settings.layout.inspector_width.clamp(280., 340.) + 16.;
+        // The side panel shows when the page keeps at least 360 px beside it, so a narrow
+        // window with the sidebar folded away still has room for the queue.
         let show_panel = self.settings.show_inspector
-            && width > px(1080.)
+            && f32::from(width) - sidebar - panel_width >= 360.
             && self.total > 0
             && (self.page.is_tracks() || self.panel == Panel::Queue);
-        let sidebar = self.settings.layout.sidebar_width.clamp(200., 260.);
-        let panel_width = self.settings.layout.inspector_width.clamp(280., 340.) + 16.;
         // The page and the side panel share one content surface to the right of the sidebar.
         let content_width =
             f32::from(width) - sidebar - if show_panel { panel_width } else { 0. } - 1.;
@@ -2148,6 +2164,10 @@ impl Render for AppView {
                 this.set_rating(&ids, rating);
                 cx.notify();
             }))
+            .on_action(cx.listener(|this, _: &ToggleSidebar, _, cx| {
+                this.toggle_sidebar();
+                cx.notify();
+            }))
             .on_action(cx.listener(|this, _: &ToggleQueue, _, cx| {
                 if this.settings.show_inspector && this.panel == Panel::Queue {
                     this.settings.show_inspector = false;
@@ -2229,7 +2249,7 @@ impl Render for AppView {
                                 .min_h_0()
                                 .flex()
                                 .bg(p.back)
-                                .child(self.sidebar(sidebar, cx))
+                                .when(sidebar_open, |el| el.child(self.sidebar(sidebar, cx)))
                                 .child(
                                     // The content surface: flush with the window's right edge
                                     // and the player, one hairline and a rounded corner where it

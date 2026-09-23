@@ -4317,6 +4317,7 @@ dependencies = [
  "wasmi",
  "wat",
  "wavicle",
+ "windows 0.61.3",
  "windows-sys 0.52.0",
  "zip",
 ]

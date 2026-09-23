@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
 <meta name="theme-color" content="#171615">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="mobile-web-app-capable" content="yes">
@@ -14,9 +14,15 @@
   --amber: #e2b46c; --amber-ink: #231a0c; --amber-soft: rgb(226 180 108 / .14);
 }
 * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
-html, body { margin: 0; background: var(--chrome); color: var(--ink); }
+/* Like an app: taps do not zoom or select text; the search box still selects. */
+html, body {
+  margin: 0; background: var(--chrome); color: var(--ink);
+  touch-action: manipulation; -webkit-user-select: none; user-select: none;
+  -webkit-touch-callout: none; -webkit-text-size-adjust: 100%;
+}
+input { -webkit-user-select: text; user-select: text; }
 body {
-  font: 16px/1.4 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  font: 17px/1.4 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
   min-height: 100vh; padding: env(safe-area-inset-top) 0 env(safe-area-inset-bottom);
 }
 main { max-width: 480px; margin: 0 auto; padding: 16px 20px 32px; }
@@ -36,7 +42,11 @@ h1 { font-size: 22px; margin: 18px 0 2px; overflow-wrap: anywhere; }
 .track { position: relative; width: 100%; height: 5px; border-radius: 3px; background: var(--raised); }
 .fill { position: absolute; inset: 0 auto 0 0; width: 0; border-radius: 3px; background: var(--amber); }
 .times { display: flex; justify-content: space-between; color: var(--ink-3); font-size: 13px; font-variant-numeric: tabular-nums; }
-.controls { display: flex; justify-content: center; align-items: center; gap: 28px; margin: 18px 0 10px; }
+.controls { display: flex; justify-content: center; align-items: center; gap: 18px; margin: 18px 0 10px; }
+.controls .mode { width: 44px; height: 44px; position: relative; }
+.controls .mode svg { width: 22px; height: 22px; fill: none; stroke: var(--ink-3); stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+.controls .mode.on svg { stroke: var(--amber); }
+.controls .mode b { position: absolute; right: 7px; bottom: 7px; font-size: 10px; color: var(--amber); }
 button {
   font: inherit; color: inherit; background: none; border: 0; padding: 0; cursor: pointer;
 }
@@ -52,12 +62,15 @@ nav button { flex: 1; padding: 10px; border-radius: 999px; background: var(--rai
 nav button.on { background: var(--amber-soft); color: var(--amber); }
 .search { width: 100%; padding: 12px 14px; border-radius: 12px; border: 1px solid var(--line); background: var(--canvas); color: var(--ink); font: inherit; margin-bottom: 8px; }
 ol { list-style: none; margin: 0; padding: 0; }
-li { display: flex; align-items: center; gap: 10px; padding: 10px 4px; border-bottom: 1px solid var(--line); }
+li { display: flex; align-items: center; gap: 10px; padding: 12px 6px; border-bottom: 1px solid var(--line); cursor: pointer; border-radius: 8px; }
+li:active { background: var(--raised); }
+li.now b { color: var(--amber); }
 li .text { flex: 1; min-width: 0; }
 li .text b, li .text span { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 li .text b { font-weight: 600; font-size: 15px; }
 li .text span { color: var(--ink-3); font-size: 13px; }
-li button { color: var(--amber); font-size: 13px; font-weight: 600; padding: 8px 10px; border-radius: 8px; background: var(--amber-soft); }
+li button { color: var(--ink-2); font-size: 22px; line-height: 1; width: 40px; height: 40px; border-radius: 50%; }
+li button:active { background: var(--amber-soft); color: var(--amber); }
 .empty { color: var(--ink-3); padding: 16px 4px; }
 .offline { position: fixed; left: 50%; bottom: 20px; transform: translateX(-50%); background: var(--raised); color: var(--ink-2); padding: 10px 16px; border-radius: 999px; font-size: 14px; display: none; }
 .offline.show { display: block; }
@@ -87,9 +100,11 @@ li button { color: var(--amber); font-size: 13px; font-weight: 600; padding: 8px
   <div class="times"><span id="now">0:00</span><span id="length">0:00</span></div>
 
   <div class="controls">
+    <button id="shuffle" class="mode" aria-label="Shuffle up next"><svg viewBox="0 0 24 24"><path d="M16 3h5v5M4 20 21 3M21 16v5h-5M15 15l6 6M4 4l5 5"/></svg></button>
     <button id="previous" aria-label="Previous"><svg viewBox="0 0 24 24"><path d="M6 5h2v14H6zM20 5v14L9 12z"/></svg></button>
     <button id="toggle" class="play" aria-label="Play"><svg viewBox="0 0 24 24" id="toggle-icon"><path d="M7 4v16l13-8z"/></svg></button>
     <button id="next" aria-label="Next"><svg viewBox="0 0 24 24"><path d="M16 5h2v14h-2zM4 5v14l11-7z"/></svg></button>
+    <button id="repeat" class="mode" aria-label="Repeat: off"><svg viewBox="0 0 24 24"><path d="M17 2l4 4-4 4M3 11V9a3 3 0 0 1 3-3h15M7 22l-4-4 4-4M21 13v2a3 3 0 0 1-3 3H3"/></svg><b id="repeat-one"></b></button>
   </div>
 
   <label class="volume"><span aria-hidden="true">🔈</span><input type="range" id="volume" min="0" max="1" step="0.01" aria-label="Volume"><span aria-hidden="true">🔊</span></label>
@@ -140,18 +155,25 @@ async function send(action, body) {
   } catch (e) { $('offline').classList.add('show'); }
   setTimeout(refresh, 150);
 }
-function row(title, artist, label, onClick) {
+// A song row: tap it to play; the optional small button does something else (play next).
+function row(title, artist, onPlay, extra) {
   const li = document.createElement('li');
+  li.setAttribute('role', 'button');
+  li.tabIndex = 0;
+  li.setAttribute('aria-label', `Play ${title}${artist ? ' by ' + artist : ''}`);
+  li.onclick = onPlay;
+  li.onkeydown = e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onPlay(); } };
   const text = document.createElement('div');
   text.className = 'text';
   const b = document.createElement('b'); b.textContent = title;
   const span = document.createElement('span'); span.textContent = artist;
   text.append(b, span);
   li.append(text);
-  if (label) {
+  if (extra) {
     const button = document.createElement('button');
-    button.textContent = label;
-    button.onclick = onClick;
+    button.textContent = extra.symbol;
+    button.setAttribute('aria-label', extra.label);
+    button.onclick = e => { e.stopPropagation(); extra.run(); };
     li.append(button);
   }
   return li;
@@ -179,7 +201,11 @@ function draw() {
   $('toggle-icon').innerHTML = s.playing ? '<path d="M6 4h4v16H6zM14 4h4v16h-4z"/>' : '<path d="M7 4v16l13-8z"/>';
   if (Date.now() - volumeBusy > 1500) $('volume').value = s.volume;
   const list = $('queue');
-  list.replaceChildren(...s.queue.map(q => row(q.title, q.artist, 'Play', () => send('jump', { index: q.index, id: q.id }))));
+  list.replaceChildren(...s.queue.map(q => row(q.title, q.artist, () => send('jump', { index: q.index, id: q.id }))));
+  const repeat = s.repeat || 'off';
+  $('repeat').classList.toggle('on', repeat !== 'off');
+  $('repeat-one').textContent = repeat === 'one' ? '1' : '';
+  $('repeat').setAttribute('aria-label', `Repeat: ${repeat}`);
   if (!s.queue.length) {
     const li = document.createElement('li'); li.className = 'empty'; li.textContent = 'Nothing is up next.';
     list.append(li);
@@ -206,6 +232,14 @@ async function refresh() {
   } catch (e) { if (request === refreshes) $('offline').classList.add('show'); }
 }
 $('toggle').onclick = () => send('toggle');
+$('shuffle').onclick = () => { send('shuffle'); notice('Up next is shuffled.'); };
+$('repeat').onclick = () => {
+  const order = ['off', 'all', 'one'];
+  const now = state && state.repeat ? state.repeat : 'off';
+  const mode = order[(order.indexOf(now) + 1) % order.length];
+  if (state) { state.repeat = mode; draw(); }
+  send('repeat', { mode });
+};
 $('next').onclick = () => send('next');
 $('previous').onclick = () => send('previous');
 
@@ -295,7 +329,9 @@ $('search').oninput = () => {
       const found = await (await fetch(base + 'api/search?q=' + encodeURIComponent(q))).json();
       // Results for an older search arrive too late to show.
       if (version !== searchVersion) return;
-      list.replaceChildren(...found.map(t => row(t.title, [t.artist, t.album].filter(Boolean).join(' · '), 'Play', () => send('play', { ids: [t.id] }))));
+      list.replaceChildren(...found.map(t => row(t.title, [t.artist, t.album].filter(Boolean).join(' · '),
+        () => send('play', { ids: [t.id] }),
+        { symbol: '+', label: `Play ${t.title} next`, run: () => { send('next-up', { ids: [t.id] }); notice(`${t.title} plays next.`); } })));
       if (!found.length) {
         const li = document.createElement('li'); li.className = 'empty'; li.textContent = 'No songs found.';
         list.append(li);
