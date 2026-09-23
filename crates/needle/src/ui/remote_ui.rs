@@ -30,6 +30,7 @@ impl AppView {
             Err(error) => {
                 needle_core::logfile::error(format!("Phone remote: {error:#}"));
                 self.settings.remote = false;
+                self.persist_settings();
                 self.fail(format!("The phone remote could not start: {error:#}"));
             }
         }

@@ -106,7 +106,9 @@ impl AppView {
                 Ok(tray) => self.tray = Some(tray),
                 Err(error) => {
                     needle_core::logfile::error(format!("Tray icon: {error:#}"));
+                    // Saved off, so the next start does not fail the same way again.
                     self.settings.tray = false;
+                    self.persist_settings();
                     self.fail(format!("Needle could not add its tray icon: {error:#}"));
                 }
             }
