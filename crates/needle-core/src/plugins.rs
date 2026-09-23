@@ -924,8 +924,10 @@ fn engine_for(
     engine.set_max_call_levels(48);
     engine.set_max_expr_depths(64, 32);
     engine.set_max_string_size(1 << 20);
+    // Sizes count everything inside a value: a page of songs from a server, each with a few
+    // dozen fields, is one value.
     engine.set_max_array_size(50_000);
-    engine.set_max_map_size(10_000);
+    engine.set_max_map_size(200_000);
     engine.disable_symbol("eval");
     let permissions = manifest.permissions.clone();
     let name = manifest.name.clone();
@@ -1462,7 +1464,17 @@ fn link(method, params, auth) {
 }
 
 fn ask(method, params) {
-    let answer = parse_json(http_get(link(method, params, auth())));
+    let text = "";
+    try {
+        text = http_get(link(method, params, auth()));
+    } catch (error) {
+        // Something answered, but not a music server: often the port is missing.
+        if type_of(error) == "string" && error.contains("404") {
+            throw "No music server at this address. Check it, and the port: Navidrome uses :4533 unless it was changed";
+        }
+        throw error;
+    }
+    let answer = parse_json(text);
     let reply = answer["subsonic-response"];
     if reply == () {
         throw "That address did not answer like a Subsonic server";
@@ -1517,10 +1529,10 @@ fn sign_out() {
     delete_secret("password");
 }
 
-// 500 songs a page, until a page comes back empty.
+// 250 songs a page, until a page comes back empty.
 fn songs(page) {
     let reply = ask("search3", #{
-        query: "", songCount: 500, songOffset: page * 500, artistCount: 0, albumCount: 0
+        query: "", songCount: 250, songOffset: page * 250, artistCount: 0, albumCount: 0
     });
     let found = if reply.searchResult3 != () { reply.searchResult3.song } else { () };
     if found == () {
@@ -1646,10 +1658,20 @@ pub const EXAMPLE_FILES: &[(&str, &str, &str)] = &[(
 /// Earlier versions of the bundled plugins' scripts (SHA-256), replaced by the current
 /// version when a copy on disk still matches one exactly, so fixes reach people who never
 /// edited them.
-const EARLIER_EXAMPLES: &[(&str, &str)] = &[(
-    "subsonic",
-    "62f1f6b31fb90aa09fd19f8aee0ee31b40437b696474135b3f121de2c812bebd",
-)];
+const EARLIER_EXAMPLES: &[(&str, &str)] = &[
+    (
+        "subsonic",
+        "62f1f6b31fb90aa09fd19f8aee0ee31b40437b696474135b3f121de2c812bebd",
+    ),
+    (
+        "subsonic",
+        "1c7ea98aca006966d667d45e3192de3ed661e9424896d9404fb60c3e7c9e1e5b",
+    ),
+    (
+        "subsonic",
+        "41f1421aee56cf12d4febbab87f2f6216d888fb7d563dfcfb133eb036307818f",
+    ),
+];
 
 /// Bring unedited copies of the bundled plugins up to date. Returns how many changed.
 pub fn update_examples(folder: &Path) -> usize {
@@ -1777,6 +1799,15 @@ mod tests {
     /// A pretend Subsonic server on this computer: it checks the salted password, lists two
     /// songs, streams a WAV, and records every request.
     fn fake_subsonic(password: &'static str) -> (String, Arc<Mutex<Vec<String>>>) {
+        fake_subsonic_with(password, 0)
+    }
+
+    /// `fake_subsonic`, with `filler` more songs on the first page, each with the many extra
+    /// fields a real Navidrome sends.
+    fn fake_subsonic_with(
+        password: &'static str,
+        filler: usize,
+    ) -> (String, Arc<Mutex<Vec<String>>>) {
         use std::io::{BufRead, BufReader, Write};
         let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
         let address = format!("http://{}", listener.local_addr().unwrap());
@@ -1833,6 +1864,11 @@ mod tests {
                         "{{\"subsonic-response\":{{\"status\":\"ok\",\"version\":\"1.16.1\"{body}}}}}"
                     )
                 };
+                let status = if path.starts_with("/rest/") {
+                    "200 OK"
+                } else {
+                    "404 Not Found"
+                };
                 let (kind, body): (&str, Vec<u8>) = if !authorised {
                     ("application/json", br#"{"subsonic-response":{"status":"failed","error":{"code":40,"message":"Wrong username or password"}}}"#.to_vec())
                 } else if path.ends_with("/stream.view") {
@@ -1841,10 +1877,27 @@ mod tests {
                     ("image/png", vec![7u8; 500])
                 } else if path.ends_with("/search3.view") {
                     if param("songOffset") == "0" {
-                        ("application/json", ok(r#","searchResult3":{"song":[
-                            {"id":"s1","title":"Hey Hi","artist":"KiiiKiii","album":"WhyKiiiKiii - EP","year":2026,"track":2,"duration":1,"suffix":"wav","bitRate":1411,"coverArt":"al-1"},
-                            {"id":"s2","title":"Sweet Sour","artist":"KiiiKiii","album":"WhyKiiiKiii - EP","track":4,"duration":1,"suffix":"wav","coverArt":"al-1"}
-                        ]}"#).into_bytes())
+                        let mut songs = vec![
+                            r#"{"id":"s1","title":"Hey Hi","artist":"KiiiKiii","album":"WhyKiiiKiii - EP","year":2026,"track":2,"duration":1,"suffix":"wav","bitRate":1411,"coverArt":"al-1"}"#.to_string(),
+                            r#"{"id":"s2","title":"Sweet Sour","artist":"KiiiKiii","album":"WhyKiiiKiii - EP","track":4,"duration":1,"suffix":"wav","coverArt":"al-1"}"#.to_string(),
+                        ];
+                        for n in 0..filler {
+                            let extra: Vec<String> = (0..40)
+                                .map(|f| format!(r#""extra{f}":"value {f}""#))
+                                .collect();
+                            songs.push(format!(
+                                r#"{{"id":"f{n}","title":"Filler {n}","artist":"A","album":"B","suffix":"flac","genres":[{{"name":"Pop"}}],"artists":[{{"id":"a","name":"A"}}],{}}}"#,
+                                extra.join(",")
+                            ));
+                        }
+                        (
+                            "application/json",
+                            ok(&format!(
+                                r#","searchResult3":{{"song":[{}]}}"#,
+                                songs.join(",")
+                            ))
+                            .into_bytes(),
+                        )
                     } else {
                         (
                             "application/json",
@@ -1857,7 +1910,7 @@ mod tests {
                 let mut stream = stream;
                 let _ = write!(
                     stream,
-                    "HTTP/1.1 200 OK\r\nContent-Type: {kind}\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+                    "HTTP/1.1 {status}\r\nContent-Type: {kind}\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
                     body.len()
                 );
                 let _ = stream.write_all(&body);
@@ -1901,16 +1954,28 @@ mod tests {
                 .into(),
             })
         };
+        // An address with something else on it (a missing port, usually) says so.
+        host.send(PluginEvent::SourceSignIn {
+            plugin: "subsonic".into(),
+            fields: [
+                ("server".to_string(), format!("{server}/other")),
+                ("username".to_string(), "willow".to_string()),
+                ("password".to_string(), "hunter2".to_string()),
+            ]
+            .into(),
+        });
+        let lost = wait(|| source().and_then(|s| s.error));
+        assert!(
+            lost.starts_with("No music server at this address"),
+            "{lost}"
+        );
         sign_in("wrong");
-        let refused = wait(|| source().and_then(|s| s.error));
+        let refused = wait(|| {
+            source()
+                .and_then(|s| s.error)
+                .filter(|e| !e.starts_with("No music"))
+        });
         assert_eq!(refused, "Wrong username or password");
-        let first = requests
-            .lock()
-            .unwrap()
-            .first()
-            .cloned()
-            .unwrap_or_default();
-        assert!(first.contains("/rest/ping.view"), "{first}");
         assert!(!source().unwrap().signed_in);
 
         sign_in("hunter2");
@@ -2009,6 +2074,37 @@ mod tests {
         assert!(library.track(&hey.id).unwrap().unwrap().missing);
     }
 
+    /// A full page from a real server (250 songs with dozens of fields each) fits in a plugin.
+    #[test]
+    fn a_full_page_of_server_songs_fits() {
+        let (server, _) = fake_subsonic_with("pw", 248);
+        let dir = tempfile::tempdir().unwrap();
+        let library = Library::open(dir.path()).unwrap();
+        install_examples(&library).unwrap();
+        let host = PluginHost::start(library.clone(), Arc::default(), |_| {});
+        wait(|| Some(host.plugins()).filter(|p| p.len() == EXAMPLES.len()));
+        host.send(PluginEvent::Enable("subsonic".into(), true));
+        let source = || {
+            host.plugins()
+                .into_iter()
+                .find(|p| p.manifest.id == "subsonic")
+                .and_then(|p| p.source)
+        };
+        wait(source);
+        host.send(PluginEvent::SourceSignIn {
+            plugin: "subsonic".into(),
+            fields: [
+                ("server".to_string(), server),
+                ("username".to_string(), "mei".to_string()),
+                ("password".to_string(), "pw".to_string()),
+            ]
+            .into(),
+        });
+        let synced = wait(|| source().filter(|s| s.synced_at.is_some() || s.error.is_some()));
+        assert_eq!(synced.error, None);
+        assert_eq!(synced.songs, 250);
+    }
+
     /// Unedited copies of an earlier bundled plugin are brought up to date; edited ones are not.
     #[test]
     fn bundled_plugins_update_unless_edited() {
@@ -2018,7 +2114,14 @@ mod tests {
         std::fs::create_dir_all(folder.join("subsonic")).unwrap();
         std::fs::write(folder.join("subsonic/main.rhai"), earlier).unwrap();
         assert_eq!(update_examples(folder), 1);
+        std::fs::write(
+            folder.join("subsonic/main.rhai"),
+            include_str!("../testdata/subsonic-1.0.1.rhai"),
+        )
+        .unwrap();
+        assert_eq!(update_examples(folder), 1);
         let now = std::fs::read_to_string(folder.join("subsonic/main.rhai")).unwrap();
+        assert!(now.contains("Navidrome uses :4533"));
         assert!(now.contains("\"http://\" + typed"));
         std::fs::write(
             folder.join("subsonic/main.rhai"),

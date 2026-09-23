@@ -143,12 +143,23 @@ pub fn redact(text: &str, secrets: &[&str]) -> String {
 pub mod plugin {
     use anyhow::Result;
 
-    #[cfg(any(test, not(windows)))]
+    #[cfg(all(not(test), not(windows)))]
     fn memory() -> &'static std::sync::Mutex<std::collections::HashMap<String, String>> {
         static STORE: std::sync::LazyLock<
             std::sync::Mutex<std::collections::HashMap<String, String>>,
         > = std::sync::LazyLock::new(Default::default);
         &STORE
+    }
+
+    /// In tests, one store per thread: each plugin host runs its plugins on its own thread, so
+    /// tests running side by side do not share (or sign out) each other's passwords.
+    #[cfg(test)]
+    fn memory() -> &'static std::sync::Mutex<std::collections::HashMap<String, String>> {
+        thread_local! {
+            static STORE: &'static std::sync::Mutex<std::collections::HashMap<String, String>> =
+                Box::leak(Box::default());
+        }
+        STORE.with(|store| *store)
     }
 
     fn account(plugin: &str, key: &str) -> String {
