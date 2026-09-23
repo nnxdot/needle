@@ -286,15 +286,16 @@ pub fn best_cover(results: &[Value], artist: &str, title: &str, album: &str) -> 
         let found = norm(r["artistName"].as_str().unwrap_or_default());
         !found.is_empty() && (found.contains(&artist) || artist.contains(&found))
     };
-    let score = |r: &Value| {
-        let same_title = norm(r["trackName"].as_str().unwrap_or_default()) == title;
-        let same_album =
-            !album.is_empty() && norm(r["collectionName"].as_str().unwrap_or_default()) == album;
-        same_title as u8 * 2 + same_album as u8
+    let same_title = |r: &Value| norm(r["trackName"].as_str().unwrap_or_default()) == title;
+    let same_album = |r: &Value| {
+        !album.is_empty() && norm(r["collectionName"].as_str().unwrap_or_default()) == album
     };
+    let score = |r: &Value| same_title(r) as u8 * 2 + same_album(r) as u8;
+    // The artist can be written another way (키키 in the tags, KiiiKiii at Apple); the same
+    // song on the same album is then enough.
     let best = results
         .iter()
-        .filter(|r| artist_ok(r))
+        .filter(|r| artist_ok(r) || (same_title(r) && same_album(r)))
         .max_by_key(|r| score(r))?;
     let url = best["artworkUrl100"].as_str()?;
     Some(url.replace("100x100bb", "600x600bb"))
@@ -542,6 +543,17 @@ mod tests {
             Some("https://a/album/600x600bb.jpg")
         );
         assert_eq!(best_cover(&results[..1], "aespa", "Armageddon", ""), None);
+        // The artist in another script: the same song on the same album still counts, but the
+        // song alone does not.
+        let kiiikiii: Vec<Value> = serde_json::from_str(r#"[
+            {"artistName":"KiiiKiii","trackName":"Hey Hi","collectionName":"WhyKiiiKiii - EP","artworkUrl100":"https://a/hey/100x100bb.jpg"}
+        ]"#).unwrap();
+        assert_eq!(
+            best_cover(&kiiikiii, "키키", "Hey Hi", "WhyKiiiKiii - EP").as_deref(),
+            Some("https://a/hey/600x600bb.jpg")
+        );
+        assert_eq!(best_cover(&kiiikiii, "키키", "Hey Hi", "Other"), None);
+        assert_eq!(best_cover(&kiiikiii, "키키", "Hey Hi", ""), None);
     }
 
     #[test]
