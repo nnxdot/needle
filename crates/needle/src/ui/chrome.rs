@@ -523,10 +523,18 @@ impl AppView {
             .flex()
             .items_center()
             .gap_4()
-            // Now playing
+            // Now playing (right-click for the song's menu)
             .child(
                 div()
                     .w(px(if wide { 320. } else { 250. }))
+                    .when_some(current.clone(), |el, track| {
+                        el.on_mouse_down(
+                            MouseButton::Right,
+                            cx.listener(move |this, event: &MouseDownEvent, _, cx| {
+                                this.open_playing_menu(track.clone(), event.position, cx)
+                            }),
+                        )
+                    })
                     .flex_shrink_0()
                     .flex()
                     .items_center()
