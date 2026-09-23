@@ -226,12 +226,15 @@ struct LocalShared {
     paused: AtomicBool,
     stop: AtomicBool,
     failure: Mutex<Option<String>>,
+    /// Bumped by a flush, so the source also drops the samples it already took.
+    flushes: std::sync::atomic::AtomicU64,
 }
 
 struct LocalSource {
     shared: Arc<LocalShared>,
     chunk: Vec<f32>,
     at: usize,
+    flushes: u64,
 }
 
 impl Iterator for LocalSource {
@@ -242,6 +245,12 @@ impl Iterator for LocalSource {
         }
         if self.shared.paused.load(Ordering::Relaxed) {
             return Some(0.);
+        }
+        let flushes = self.shared.flushes.load(Ordering::Relaxed);
+        if flushes != self.flushes {
+            self.flushes = flushes;
+            self.chunk.clear();
+            self.at = 0;
         }
         if self.at >= self.chunk.len() {
             self.chunk.clear();
@@ -301,6 +310,7 @@ impl Destination for LocalSpeaker {
                     shared: shared.clone(),
                     chunk: Vec::with_capacity(1024),
                     at: 0,
+                    flushes: shared.flushes.load(Ordering::Relaxed),
                 });
                 while !shared.stop.load(Ordering::Relaxed) {
                     std::thread::sleep(Duration::from_millis(50));
@@ -333,7 +343,9 @@ impl Destination for LocalSpeaker {
         Ok(())
     }
     fn flush(&mut self, _meta: &Meta) -> Result<()> {
-        self.shared.buffer.lock().unwrap().clear();
+        let mut buffer = self.shared.buffer.lock().unwrap();
+        buffer.clear();
+        self.shared.flushes.fetch_add(1, Ordering::Relaxed);
         Ok(())
     }
     fn tick(&mut self) -> Result<()> {

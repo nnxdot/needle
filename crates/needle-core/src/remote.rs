@@ -25,6 +25,8 @@ use std::{
 pub const PORT: u16 = 47380;
 const MAX_BODY: usize = 64 * 1024;
 const MAX_LINE: usize = 8 * 1024;
+/// A whole request must arrive within this, and an answer be taken within it too.
+const DEADLINE: Duration = Duration::from_secs(10);
 const MAX_HEADERS: usize = 64;
 const MAX_CONNECTIONS: usize = 32;
 
@@ -149,9 +151,30 @@ fn read_line(reader: &mut impl BufRead) -> Result<String> {
     Ok(line)
 }
 
+/// Reads from the connection until a deadline for the whole request, so a slow client cannot
+/// hold a connection by trickling bytes.
+struct Deadline<'a> {
+    stream: &'a TcpStream,
+    until: std::time::Instant,
+}
+impl Read for Deadline<'_> {
+    fn read(&mut self, buffer: &mut [u8]) -> std::io::Result<usize> {
+        let left = self
+            .until
+            .checked_duration_since(std::time::Instant::now())
+            .filter(|d| !d.is_zero())
+            .ok_or_else(|| std::io::Error::new(std::io::ErrorKind::TimedOut, "Request too slow"))?;
+        self.stream.set_read_timeout(Some(left))?;
+        (&*self.stream).read(buffer)
+    }
+}
+
 fn read_request(stream: &TcpStream) -> Result<Request> {
-    stream.set_read_timeout(Some(Duration::from_secs(10)))?;
-    let mut reader = BufReader::new(stream);
+    stream.set_write_timeout(Some(DEADLINE))?;
+    let mut reader = BufReader::new(Deadline {
+        stream,
+        until: std::time::Instant::now() + DEADLINE,
+    });
     let line = read_line(&mut reader)?;
     let mut parts = line.split_whitespace();
     let method = parts.next().unwrap_or_default().to_string();
@@ -207,8 +230,8 @@ fn serve(
         .strip_prefix(prefix)
         .filter(|_| !revoked.load(Ordering::Relaxed));
     let Some(route) = route else {
-        // A wrong key looks the same as a page that does not exist.
-        std::thread::sleep(Duration::from_millis(300));
+        // A wrong key looks the same as a page that does not exist. The key is too long to
+        // guess, so there is no need to slow down wrong ones.
         return respond(&stream, "404 Not Found", "text/plain", b"Not found");
     };
     match (request.method.as_str(), route) {
@@ -254,8 +277,16 @@ fn serve(
                 .ok()
                 .flatten()
                 .and_then(|t| t.artwork)
-                .and_then(|path| std::fs::read(path).ok())
-                .filter(|bytes| bytes.len() < 20 << 20);
+                .and_then(|path| {
+                    // Never read more than 20 MB, however big the file is.
+                    let mut bytes = Vec::new();
+                    std::fs::File::open(path)
+                        .ok()?
+                        .take((20 << 20) + 1)
+                        .read_to_end(&mut bytes)
+                        .ok()?;
+                    (bytes.len() <= 20 << 20).then_some(bytes)
+                });
             match image {
                 Some(bytes) => {
                     let kind = if bytes.starts_with(&[0x89, b'P', b'N', b'G']) {
@@ -320,6 +351,8 @@ struct Body {
     seconds: f64,
     value: f32,
     index: usize,
+    /// The song picked from Up next, so a queue that changed since still plays it.
+    id: String,
     ids: Vec<String>,
 }
 
@@ -347,7 +380,15 @@ pub fn act(action: &str, body: &[u8], player: &Player, library: &Library) -> Res
         "previous" => Command::Previous,
         "seek" if body.seconds.is_finite() && body.seconds >= 0. => Command::Seek(body.seconds),
         "volume" if (0.0..=1.0).contains(&body.value) => Command::Volume(body.value),
-        "jump" => Command::Jump(body.index),
+        "jump" => {
+            let queue = player.state().queue;
+            let at = if queue.get(body.index).is_some_and(|q| q.track.id == body.id) {
+                Some(body.index)
+            } else {
+                queue.iter().position(|q| q.track.id == body.id)
+            };
+            Command::Jump(at.context("That song is no longer up next")?)
+        }
         "play" => Command::Play(items(&body.ids)?),
         "next-up" => Command::PlayNext(items(&body.ids)?),
         "enqueue" => Command::Enqueue(items(&body.ids)?),
@@ -441,6 +482,8 @@ mod tests {
         assert_eq!(post("volume", r#"{"value":7}"#), 400);
         assert_eq!(post("enqueue", r#"{"ids":["t1"]}"#), 200);
         assert_eq!(post("explode", ""), 400);
+        // Up next is picked by song, not only by place: a song no longer there is refused.
+        assert_eq!(post("jump", r#"{"index":0,"id":"not-up-next"}"#), 400);
         let start = std::time::Instant::now();
         while (player.state().volume - 0.3).abs() > 1e-6 && start.elapsed().as_secs() < 5 {
             std::thread::sleep(Duration::from_millis(20));

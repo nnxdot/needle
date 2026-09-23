@@ -31,12 +31,13 @@ pub struct SoundControls {
     _subscriptions: Vec<Subscription>,
 }
 
-/// Parametric sliders run from 0 to 1000 on a log scale: 20 Hz to 20 kHz, and Q 0.1 to 20.
+/// Parametric sliders run from 0 to 1000 on a log scale: 10 Hz to 24 kHz (all a band can
+/// hold), and Q 0.1 to 20.
 fn to_frequency(v: f32) -> f32 {
-    20. * 1000f32.powf(v / 1000.)
+    10. * 2400f32.powf(v / 1000.)
 }
 fn from_frequency(f: f32) -> f32 {
-    (1000. * (f.max(20.) / 20.).ln() / 1000f32.ln()).clamp(0., 1000.)
+    (1000. * (f.max(10.) / 10.).ln() / 2400f32.ln()).clamp(0., 1000.)
 }
 fn to_q(v: f32) -> f32 {
     0.1 * 200f32.powf(v / 1000.)

@@ -162,7 +162,7 @@ function draw() {
   $('toggle-icon').innerHTML = s.playing ? '<path d="M6 4h4v16H6zM14 4h4v16h-4z"/>' : '<path d="M7 4v16l13-8z"/>';
   if (Date.now() - volumeBusy > 1500) $('volume').value = s.volume;
   const list = $('queue');
-  list.replaceChildren(...s.queue.map(q => row(q.title, q.artist, 'Play', () => send('jump', { index: q.index }))));
+  list.replaceChildren(...s.queue.map(q => row(q.title, q.artist, 'Play', () => send('jump', { index: q.index, id: q.id }))));
   if (!s.queue.length) {
     const li = document.createElement('li'); li.className = 'empty'; li.textContent = 'Nothing is up next.';
     list.append(li);

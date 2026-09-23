@@ -135,11 +135,21 @@ fn install_panic_hook() {
         );
         error(format!("Crash in {thread}: {message} at {place}"));
         if let Some(folder) = CRASHES.get() {
-            let name = format!(
-                "crash-{}.txt",
-                chrono::Local::now().format("%Y%m%d-%H%M%S-%3f")
-            );
-            let _ = fs::write(folder.join(name), &report);
+            // Two crashes in the same moment still get a file each.
+            static SERIAL: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
+            let stamp = chrono::Local::now().format("%Y%m%d-%H%M%S-%3f");
+            for _ in 0..8 {
+                let serial = SERIAL.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                let name = format!("crash-{stamp}-{}-{serial}.txt", std::process::id());
+                if let Ok(mut file) = OpenOptions::new()
+                    .write(true)
+                    .create_new(true)
+                    .open(folder.join(name))
+                {
+                    let _ = file.write_all(report.as_bytes());
+                    break;
+                }
+            }
         }
         previous(info);
     }));
@@ -274,15 +284,31 @@ pub fn send_pending(data: &Path, send: bool) -> usize {
     sent
 }
 
+/// The request body, kept under the site's 32 KB limit even after JSON escaping.
+fn crash_json(text: &str) -> Result<String> {
+    let mut report = prepare(text);
+    loop {
+        let body = serde_json::to_string(&Report {
+            version: env!("CARGO_PKG_VERSION"),
+            os: format!("{} {}", std::env::consts::OS, std::env::consts::ARCH),
+            report: report.clone(),
+        })?;
+        if body.len() <= 30 * 1024 {
+            return Ok(body);
+        }
+        let mut cut = report.len() * 3 / 4;
+        while !report.is_char_boundary(cut) {
+            cut -= 1;
+        }
+        report.truncate(cut);
+    }
+}
+
 fn post(text: &str) -> Result<()> {
-    let body = Report {
-        version: env!("CARGO_PKG_VERSION"),
-        os: format!("{} {}", std::env::consts::OS, std::env::consts::ARCH),
-        report: prepare(text),
-    };
     crate::integrations::client()?
         .post(CRASH_URL)
-        .json(&body)
+        .header("Content-Type", "application/json")
+        .body(crash_json(text)?)
         .timeout(Duration::from_secs(15))
         .send()?
         .error_for_status()?;
@@ -325,8 +351,13 @@ mod tests {
             .spawn(|| panic!("the test crashed on purpose"))
             .unwrap()
             .join();
+        let _ = std::thread::Builder::new()
+            .name("crasher".into())
+            .spawn(|| panic!("the test crashed on purpose"))
+            .unwrap()
+            .join();
         let reports = pending(dir.path());
-        assert_eq!(reports.len(), 1, "{reports:?}");
+        assert_eq!(reports.len(), 2, "two crashes, two reports: {reports:?}");
         let report = fs::read_to_string(&reports[0]).unwrap();
         assert!(
             report.contains("Panic: the test crashed on purpose"),
@@ -350,5 +381,8 @@ mod tests {
         assert_eq!(pending(dir.path()).len(), 1);
         let long = "a".repeat(MAX_REPORT * 2);
         assert!(prepare(&long).len() <= MAX_REPORT + 4);
+        // Quotes and backslashes double in JSON; the body still fits.
+        let escapes = "\"\\\n".repeat(MAX_REPORT);
+        assert!(crash_json(&escapes).unwrap().len() <= 30 * 1024);
     }
 }
