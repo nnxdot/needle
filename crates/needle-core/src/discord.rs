@@ -251,9 +251,8 @@ fn cover_key(a: &Activity) -> String {
     )
 }
 
-/// Find a public link to the song's cover in Apple's iTunes catalog, searching by artist and
-/// song name only. Returns `None` unless the artist matches, so a wrong cover is never shown.
-pub fn find_cover(artist: &str, title: &str, album: &str) -> Option<String> {
+/// Search Apple's iTunes catalog for a song by artist and song name.
+fn itunes_songs(artist: &str, title: &str) -> Option<Vec<Value>> {
     if artist.trim().is_empty() || title.trim().is_empty() {
         return None;
     }
@@ -270,33 +269,88 @@ pub fn find_cover(artist: &str, title: &str, album: &str) -> Option<String> {
         .ok()?
         .json()
         .ok()?;
-    best_cover(response["results"].as_array()?, artist, title, album)
+    response["results"].as_array().cloned()
 }
 
-/// Pick the best result: the artist must match; then prefer the same song on the same album.
-pub fn best_cover(results: &[Value], artist: &str, title: &str, album: &str) -> Option<String> {
-    let norm = |s: &str| {
-        s.to_lowercase()
-            .chars()
-            .filter(|c| c.is_alphanumeric())
-            .collect::<String>()
-    };
-    let (artist, title, album) = (norm(artist), norm(title), norm(album));
-    let artist_ok = |r: &Value| {
+/// Find a public link to the song's cover in Apple's iTunes catalog, searching by artist and
+/// song name only. Returns `None` unless the artist matches, so a wrong cover is never shown.
+pub fn find_cover(artist: &str, title: &str, album: &str) -> Option<String> {
+    best_cover(&itunes_songs(artist, title)?, artist, title, album)
+}
+
+/// The artist's name as Apple writes it, when the tags write it another way (키키 for
+/// KiiiKiii). Only when Apple has the same song on the same album; `None` when the names
+/// already agree or nothing matches.
+pub fn find_artist_spelling(artist: &str, title: &str, album: &str) -> Option<String> {
+    artist_spelling(&itunes_songs(artist, title)?, artist, title, album)
+}
+
+pub fn artist_spelling(
+    results: &[Value],
+    artist: &str,
+    title: &str,
+    album: &str,
+) -> Option<String> {
+    let best = best_song(results, artist, title, album)?;
+    let n = Names::new(artist, title, album);
+    if n.artist_ok(best) {
+        return None;
+    }
+    best["artistName"].as_str().map(str::to_string)
+}
+
+/// Names reduced to lowercase letters and digits, to compare tags with Apple's.
+struct Names {
+    artist: String,
+    title: String,
+    album: String,
+}
+fn norm(s: &str) -> String {
+    s.to_lowercase()
+        .chars()
+        .filter(|c| c.is_alphanumeric())
+        .collect()
+}
+impl Names {
+    fn new(artist: &str, title: &str, album: &str) -> Self {
+        Self {
+            artist: norm(artist),
+            title: norm(title),
+            album: norm(album),
+        }
+    }
+    fn artist_ok(&self, r: &Value) -> bool {
         let found = norm(r["artistName"].as_str().unwrap_or_default());
-        !found.is_empty() && (found.contains(&artist) || artist.contains(&found))
-    };
-    let same_title = |r: &Value| norm(r["trackName"].as_str().unwrap_or_default()) == title;
-    let same_album = |r: &Value| {
-        !album.is_empty() && norm(r["collectionName"].as_str().unwrap_or_default()) == album
-    };
-    let score = |r: &Value| same_title(r) as u8 * 2 + same_album(r) as u8;
-    // The artist can be written another way (키키 in the tags, KiiiKiii at Apple); the same
-    // song on the same album is then enough.
-    let best = results
+        !found.is_empty() && (found.contains(&self.artist) || self.artist.contains(&found))
+    }
+    fn same_title(&self, r: &Value) -> bool {
+        norm(r["trackName"].as_str().unwrap_or_default()) == self.title
+    }
+    fn same_album(&self, r: &Value) -> bool {
+        !self.album.is_empty()
+            && norm(r["collectionName"].as_str().unwrap_or_default()) == self.album
+    }
+}
+
+/// The best result: the artist must match, or (when the artist is written another way, like
+/// 키키 in the tags and KiiiKiii at Apple) the same song on the same album; then prefer the
+/// same song on the same album.
+fn best_song<'a>(
+    results: &'a [Value],
+    artist: &str,
+    title: &str,
+    album: &str,
+) -> Option<&'a Value> {
+    let n = Names::new(artist, title, album);
+    results
         .iter()
-        .filter(|r| artist_ok(r) || (same_title(r) && same_album(r)))
-        .max_by_key(|r| score(r))?;
+        .filter(|r| n.artist_ok(r) || (n.same_title(r) && n.same_album(r)))
+        .max_by_key(|r| n.same_title(r) as u8 * 2 + n.same_album(r) as u8)
+}
+
+/// Pick the best result's cover, at 600 × 600.
+pub fn best_cover(results: &[Value], artist: &str, title: &str, album: &str) -> Option<String> {
+    let best = best_song(results, artist, title, album)?;
     let url = best["artworkUrl100"].as_str()?;
     Some(url.replace("100x100bb", "600x600bb"))
 }
@@ -554,6 +608,31 @@ mod tests {
         );
         assert_eq!(best_cover(&kiiikiii, "키키", "Hey Hi", "Other"), None);
         assert_eq!(best_cover(&kiiikiii, "키키", "Hey Hi", ""), None);
+    }
+
+    #[test]
+    fn spells_the_artist_as_apple_does() {
+        let results: Vec<Value> = serde_json::from_str(
+            r#"[
+            {"artistName":"KiiiKiii","trackName":"Hey Hi","collectionName":"WhyKiiiKiii - EP"}
+        ]"#,
+        )
+        .unwrap();
+        assert_eq!(
+            artist_spelling(&results, "키키", "Hey Hi", "WhyKiiiKiii - EP").as_deref(),
+            Some("KiiiKiii")
+        );
+        // Names that already agree stay as tagged (no change of case or spacing).
+        assert_eq!(
+            artist_spelling(&results, "kiiikiii", "Hey Hi", "WhyKiiiKiii - EP"),
+            None
+        );
+        // Without the same album, a different artist is never taken.
+        assert_eq!(artist_spelling(&results, "키키", "Hey Hi", ""), None);
+        assert_eq!(
+            artist_spelling(&results, "Someone", "Hey Hi", "Other"),
+            None
+        );
     }
 
     #[test]

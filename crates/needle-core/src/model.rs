@@ -124,6 +124,9 @@ pub struct Settings {
     pub show_inspector: bool,
     pub lastfm_enabled: bool,
     pub listenbrainz_enabled: bool,
+    /// Scrobble with the artist's name as Apple Music writes it when the tags write it
+    /// another way (키키 → KiiiKiii), so Last.fm files the song under the right artist.
+    pub scrobble_corrections: bool,
     pub layout: Layout,
     /// Look up lyrics, artist photos, and missing album art online.
     pub online_media: bool,
@@ -207,6 +210,7 @@ impl Default for Settings {
             show_inspector: true,
             lastfm_enabled: false,
             listenbrainz_enabled: false,
+            scrobble_corrections: true,
             layout: Layout::default(),
             online_media: false,
             sound_analysis: true,

@@ -852,7 +852,7 @@ pub fn flush_scrobbles(library: &Library, credentials: &Credentials) -> Result<u
         {
             continue;
         }
-        let listen: crate::model::Listen = serde_json::from_str(&data)?;
+        let mut listen: crate::model::Listen = serde_json::from_str(&data)?;
         if (service == "listenbrainz" && credentials.listenbrainz_token.is_empty())
             || (service == "lastfm"
                 && (credentials.lastfm_session.is_empty()
@@ -862,6 +862,7 @@ pub fn flush_scrobbles(library: &Library, credentials: &Credentials) -> Result<u
         {
             continue;
         }
+        listen.artist = scrobble_artist(&settings, &listen.artist, &listen.title, &listen.album);
         let outcome = if listen.artist.trim().is_empty() || listen.title.trim().is_empty() {
             Outcome::Failed("Artist and title tags are required".into())
         } else {
@@ -921,6 +922,29 @@ pub fn flush_scrobbles(library: &Library, credentials: &Credentials) -> Result<u
     Ok(sent)
 }
 
+/// The artist name to scrobble: Apple's spelling when the tags write the artist another way
+/// and the correction is on (see `Settings::scrobble_corrections`), otherwise the tags'. Each
+/// song is looked up once while Needle runs.
+fn scrobble_artist(
+    settings: &crate::model::Settings,
+    artist: &str,
+    title: &str,
+    album: &str,
+) -> String {
+    type Found = std::collections::HashMap<String, Option<String>>;
+    static FOUND: std::sync::LazyLock<Mutex<Found>> = std::sync::LazyLock::new(Default::default);
+    if !settings.scrobble_corrections || artist.trim().is_empty() || title.trim().is_empty() {
+        return artist.to_string();
+    }
+    let key = format!("{artist}\u{1}{title}\u{1}{album}").to_lowercase();
+    if let Some(found) = FOUND.lock().unwrap().get(&key) {
+        return found.clone().unwrap_or_else(|| artist.to_string());
+    }
+    let found = crate::discord::find_artist_spelling(artist, title, album);
+    FOUND.lock().unwrap().insert(key, found.clone());
+    found.unwrap_or_else(|| artist.to_string())
+}
+
 /// The song that is playing now, for Last.fm's "Scrobbling now" and ListenBrainz's
 /// "Playing now". Nothing is kept or retried: the next song replaces it anyway.
 #[derive(Clone, Debug, PartialEq)]
@@ -940,6 +964,11 @@ pub fn send_now_playing(
     if song.artist.trim().is_empty() || song.title.trim().is_empty() {
         return Ok(());
     }
+    let artist = scrobble_artist(settings, &song.artist, &song.title, &song.album);
+    let song = &NowPlaying {
+        artist,
+        ..song.clone()
+    };
     let mut errors = vec![];
     if settings.lastfm_enabled
         && !credentials.lastfm_session.is_empty()
