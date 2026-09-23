@@ -1,6 +1,6 @@
 //! Bound AIFF decoding to its sound-data chunk. Some demuxers otherwise read
 //! trailing ID3 chunks as PCM; metadata must never become audible samples.
-use anyhow::{Context, Result};
+use anyhow::Result;
 use rodio::{Decoder, Source};
 use std::{
     fs::File,
@@ -167,13 +167,56 @@ pub fn decode(path: &Path) -> Result<Decoded> {
     }
     let input = AudioReader::open(path)?;
     let length = input.length;
-    let mut inner = Decoder::builder()
+    let built = Decoder::builder()
         .with_data(input)
         .with_byte_len(length)
         .with_seekable(true)
         .with_gapless(true)
-        .build()
-        .context("Unable to decode audio")?;
+        .build();
+    let mut inner = match built {
+        Ok(inner) => inner,
+        Err(error) => {
+            // Dolby Digital (Plus) and Atmos music: Needle's own FFmpeg decodes it, and where
+            // that is missing, Windows may.
+            if crate::ffmpeg::executable().is_some() {
+                match crate::ffmpeg::open(path) {
+                    Ok(source) => {
+                        return Ok(Decoded {
+                            inner: Inner::Other(Box::new(source)),
+                            trim: None,
+                            position: 0,
+                        });
+                    }
+                    Err(ffmpeg) => crate::logfile::warn(format!(
+                        "Needle's FFmpeg could not decode {}: {ffmpeg:#}",
+                        path.display()
+                    )),
+                }
+            }
+            #[cfg(windows)]
+            match crate::mediafoundation::open(path) {
+                Ok(source) => {
+                    return Ok(Decoded {
+                        inner: Inner::Other(Box::new(source)),
+                        trim: None,
+                        position: 0,
+                    });
+                }
+                Err(windows) => {
+                    crate::logfile::warn(format!(
+                        "Windows could not decode {} either: {windows:#}",
+                        path.display()
+                    ));
+                    // Windows knew what it was, which says more than "unrecognized format".
+                    let reason = format!("{windows:#}");
+                    if reason.contains("Dolby") {
+                        return Err(windows);
+                    }
+                }
+            }
+            return Err(anyhow::Error::new(error).context("Unable to decode audio"));
+        }
+    };
     let trim = crate::mp4_trim::aac_trim(path, inner.sample_rate());
     if let Some((first, _)) = trim {
         for _ in 0..first * inner.channels() as u64 {

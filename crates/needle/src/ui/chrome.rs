@@ -21,11 +21,14 @@ impl AppView {
         let p = pal(cx);
         let width = f32::from(window.viewport_size().width);
         let narrow = width < 1100.;
+        let hidden = self.settings.layout.sidebar_hidden;
+        // With the sidebar folded away, the name gives way to a smaller corner.
+        let corner = if hidden { 92. } else { sidebar };
         let search_focused = self.search.read(cx).focus_handle(cx).is_focused(window);
         // The title bar does not shrink its contents, so size the search field from the room
         // left beside the sidebar column, back button, palette button, and window buttons.
         let search_width =
-            (width - sidebar - 32. - 36. - if narrow { 44. } else { 96. } - 170.).clamp(140., 520.);
+            (width - corner - 32. - 36. - if narrow { 44. } else { 96. } - 170.).clamp(140., 520.);
         let rule = self
             .explanation
             .as_deref()
@@ -51,19 +54,39 @@ impl AppView {
             })
             .child(
                 div()
-                    .w(px(sidebar))
+                    .w(px(corner))
                     .flex_shrink_0()
                     .h_full()
                     .pl_4()
+                    .pr_2()
                     .flex()
                     .items_center()
                     .gap_2()
                     .child(glyph("logo").size(px(20.)).text_color(p.accent))
+                    .when(!hidden, |el| {
+                        el.child(
+                            div()
+                                .flex_1()
+                                .text_size(px(15.))
+                                .font_weight(FontWeight::SEMIBOLD)
+                                .child("Needle"),
+                        )
+                    })
                     .child(
-                        div()
-                            .text_size(px(15.))
-                            .font_weight(FontWeight::SEMIBOLD)
-                            .child("Needle"),
+                        icon_button(
+                            "toggle-sidebar",
+                            "panel",
+                            if hidden {
+                                "Show the sidebar (Ctrl+B)"
+                            } else {
+                                "Hide the sidebar (Ctrl+B)"
+                            },
+                        )
+                        .small()
+                        .on_click(cx.listener(|this, _, _, cx| {
+                            this.toggle_sidebar();
+                            cx.notify();
+                        })),
                     ),
             )
             .child(

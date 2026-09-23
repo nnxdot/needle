@@ -13,6 +13,7 @@ pub mod dsp;
 pub mod effects;
 #[cfg(windows)]
 mod exclusive;
+pub mod ffmpeg;
 pub mod formats;
 pub mod history;
 pub mod import;
@@ -20,6 +21,8 @@ pub mod instance;
 pub mod integrations;
 pub mod logfile;
 pub mod media;
+#[cfg(windows)]
+pub mod mediafoundation;
 pub mod model;
 mod mp4_trim;
 mod opus;

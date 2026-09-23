@@ -217,19 +217,24 @@ impl AppView {
                 .child(
                     div()
                         .flex_1()
+                        .min_w_0()
                         .flex()
                         .flex_col()
                         .gap_1()
                         .child(strong(title))
-                        .child(meta(about, cx)),
+                        .child(meta(about, cx).w_full()),
                 )
-                .child(Switch::new(id).checked(on).on_click(cx.listener(
-                    move |this, checked: &bool, _, cx| {
-                        set(this, *checked);
-                        this.persist_settings();
-                        cx.notify();
-                    },
-                )))
+                .child(
+                    div()
+                        .flex_none()
+                        .child(Switch::new(id).checked(on).on_click(cx.listener(
+                            move |this, checked: &bool, _, cx| {
+                                set(this, *checked);
+                                this.persist_settings();
+                                cx.notify();
+                            },
+                        ))),
+                )
         };
         div()
             .flex()

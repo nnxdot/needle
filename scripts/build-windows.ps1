@@ -21,6 +21,10 @@ try {
     New-Item -ItemType Directory -Path $package -Force | Out-Null
     Copy-Item -LiteralPath (Join-Path $workspace 'target\release\needle-desktop.exe') -Destination (Join-Path $package 'Needle.exe')
     Copy-Item -LiteralPath (Join-Path $workspace 'target\release\needle.exe') -Destination (Join-Path $package 'needle-cli.exe')
+    # Needle's FFmpeg, for Dolby Digital (Plus) and Atmos music (scripts/build-ffmpeg.sh).
+    $ffmpeg = Join-Path $workspace 'third-party\ffmpeg\needle-ffmpeg.exe'
+    if (-not (Test-Path -LiteralPath $ffmpeg)) { throw 'third-party\ffmpeg\needle-ffmpeg.exe is missing. Build it with scripts/build-ffmpeg.sh in MSYS2.' }
+    Copy-Item -LiteralPath $ffmpeg -Destination (Join-Path $package 'needle-ffmpeg.exe')
     # Runtime libraries the build placed next to the executables (ONNX Runtime's DirectML).
     Get-ChildItem -Path (Join-Path $workspace 'target\release') -Filter '*.dll' | Copy-Item -Destination $package
     foreach ($document in @('README.md','PROPOSAL.md','IMPLEMENTATION.md','VALIDATION.md','THIRD-PARTY-NOTICES.md')) {

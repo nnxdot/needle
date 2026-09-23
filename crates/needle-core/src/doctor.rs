@@ -35,6 +35,82 @@ fn simple(text: &str) -> String {
     out
 }
 
+/// Remarks that name the same recording: "(2011 Remaster)", "[Explicit]", "(Album Version)".
+/// Any other remark — "(Off Vocal)", "(Instrumental)", "(Japanese ver.)", "(Live)",
+/// "(Remix)" — makes a different song.
+fn same_recording(remark: &str) -> bool {
+    let remark = remark.to_lowercase();
+    let words: Vec<&str> = remark
+        .split(|c: char| !c.is_alphanumeric())
+        .filter(|w| !w.is_empty())
+        .collect();
+    !words.is_empty()
+        && words.iter().all(|w| {
+            w.chars().all(|c| c.is_ascii_digit())
+                || matches!(
+                    *w,
+                    "remaster"
+                        | "remastered"
+                        | "remasterd"
+                        | "digital"
+                        | "digitally"
+                        | "explicit"
+                        | "clean"
+                        | "album"
+                        | "lp"
+                        | "version"
+                        | "ver"
+                        | "edition"
+                        | "mastered"
+                        | "for"
+                        | "the"
+                        | "stereo"
+                        | "hd"
+                        | "hi"
+                        | "res"
+                        | "hires"
+                        | "24bit"
+                        | "bit"
+                        | "khz"
+                        | "original"
+                )
+        })
+        && (words
+            .iter()
+            .any(|w| w.starts_with("remaster") || *w == "explicit" || *w == "clean")
+            || remark.contains("album version")
+            || remark.contains("lp version"))
+}
+
+/// The title as duplicate finding compares it: `simple`, but a remark in brackets that is not
+/// about the same recording stays part of it, so "Song (Off Vocal)" is not "Song".
+fn title_key(title: &str) -> String {
+    let mut out = String::new();
+    let mut remark = String::new();
+    let mut depth = 0usize;
+    for c in title.chars() {
+        match c {
+            '(' | '[' | '（' | '［' | '【' | '「' | '『' => {
+                depth += 1;
+                if depth == 1 {
+                    remark.clear();
+                }
+            }
+            ')' | ']' | '）' | '］' | '】' | '」' | '』' if depth > 0 => {
+                depth -= 1;
+                if depth == 0 && !same_recording(&remark) {
+                    out.push('|');
+                    out.push_str(&simple(&remark));
+                }
+            }
+            c if depth > 0 => remark.push(c),
+            c if c.is_alphanumeric() => out.extend(c.to_lowercase()),
+            _ => {}
+        }
+    }
+    out
+}
+
 /// Higher is better: lossless first, then bit depth, sample rate, bitrate, and size. Between
 /// equals: the file named after its song, the most played, the one added first.
 pub fn quality_rank(track: &Track) -> (bool, bool, i64, i64, i64, i64, bool, i64, i64) {
@@ -62,12 +138,13 @@ pub fn quality_rank(track: &Track) -> (bool, bool, i64, i64, i64, i64, bool, i64
 
 /// Group the library's songs that are the same recording: the same file contents, or the same
 /// artist, title, and album within two seconds of each other's length. (The same song on two
-/// albums may be a different recording, so it is left alone.)
+/// albums may be a different recording, so it is left alone, and so are versions such as
+/// "(Off Vocal)" or "(Instrumental)": see `title_key`.)
 pub fn find_duplicates(tracks: &[Track]) -> Vec<DuplicateGroup> {
     let mut by_name: HashMap<(String, String, String), Vec<&Track>> = HashMap::new();
     for track in tracks.iter().filter(|t| !t.missing && t.cue.is_none()) {
-        let title = simple(&track.title);
-        if title.is_empty() {
+        let title = title_key(&track.title);
+        if simple(&track.title).is_empty() {
             continue;
         }
         by_name
@@ -993,6 +1070,44 @@ mod tests {
         let mut ids: Vec<&str> = groups[0].tracks.iter().map(|t| t.id.as_str()).collect();
         ids.sort();
         assert_eq!(ids, ["a", "b"]);
+    }
+
+    #[test]
+    fn versions_of_a_song_are_not_duplicates() {
+        let on_album = |id: &str, title: &str| Track {
+            album: "Aozora Jumping Heart".into(),
+            ..track(id, "Aqours", title, 262., "MP3")
+        };
+        let tracks = vec![
+            on_album("a", "Aozora Jumping Heart"),
+            on_album("b", "Aozora Jumping Heart (Off Vocal)"),
+            on_album("c", "Aozora Jumping Heart (Instrumental)"),
+            on_album("d", "Aozora Jumping Heart (Japanese ver.)"),
+            on_album("e", "Aozora Jumping Heart [Live]"),
+            on_album("f", "Aozora Jumping Heart（Off Vocal）"),
+            on_album("g", "Aozora Jumping Heart - Instrumental"),
+        ];
+        let groups = find_duplicates(&tracks);
+        // Only "(Off Vocal)" and "（Off Vocal）" (full-width brackets) are the same song.
+        assert_eq!(groups.len(), 1, "{groups:?}");
+        let mut ids: Vec<&str> = groups[0].tracks.iter().map(|t| t.id.as_str()).collect();
+        ids.sort();
+        assert_eq!(ids, ["b", "f"]);
+        // Remasters and explicit tags still count as the same recording.
+        for remark in [
+            "(2011 Remaster)",
+            "[Explicit]",
+            "(Remastered 2009)",
+            "(Album Version)",
+        ] {
+            let pair = vec![
+                on_album("x", "Song"),
+                on_album("y", &format!("Song {remark}")),
+            ];
+            assert_eq!(find_duplicates(&pair).len(), 1, "{remark}");
+        }
+        assert!(!same_recording("Remix"));
+        assert!(!same_recording("Taylor's Version"));
     }
 
     #[test]

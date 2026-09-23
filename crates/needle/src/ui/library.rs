@@ -1078,17 +1078,22 @@ impl AppView {
                 div()
                     .flex_1()
                     .min_w_0()
+                    .overflow_hidden()
                     .flex()
                     .flex_col()
                     .gap(px(2.))
                     .when(compact, |el| el.flex_row().items_center().gap_2())
                     .child(
                         div()
+                            .min_w_0()
+                            .flex_shrink()
+                            .overflow_hidden()
                             .flex()
                             .items_center()
                             .gap_2()
                             .child(
                                 div()
+                                    .min_w_0()
                                     .truncate()
                                     .text_size(px(13.5))
                                     .font_weight(FontWeight::MEDIUM)
@@ -1120,6 +1125,8 @@ impl AppView {
                         |el| {
                             el.child(
                                 div()
+                                    .min_w_0()
+                                    .flex_shrink()
                                     .truncate()
                                     .text_size(px(12.))
                                     .text_color(p.ink_2)
@@ -1304,11 +1311,17 @@ impl AppView {
     pub(super) fn artist_photo(&self, name: &str, size: f32, cx: &App) -> AnyElement {
         let p = pal(cx);
         if let Some(Some(path)) = self.artist_images.get(name) {
-            return img(std::path::PathBuf::from(path))
+            // The picture is cut to its circle, whatever its shape.
+            return div()
                 .size(px(size))
                 .flex_shrink_0()
                 .rounded_full()
-                .object_fit(ObjectFit::Cover)
+                .overflow_hidden()
+                .child(
+                    img(std::path::PathBuf::from(path))
+                        .size_full()
+                        .object_fit(ObjectFit::Cover),
+                )
                 .into_any_element();
         }
         super::widgets::generated_cover(&initials(name), size, true, &p).into_any_element()
