@@ -379,6 +379,8 @@ struct Body {
     index: usize,
     /// The song picked from Up next, so a queue that changed since still plays it.
     id: String,
+    /// Repeat: "off", "all", or "one".
+    mode: String,
     ids: Vec<String>,
 }
 
@@ -417,6 +419,13 @@ pub fn act(action: &str, body: &[u8], player: &Player, library: &Library) -> Res
         }
         "play" => Command::Play(items(&body.ids)?),
         "next-up" => Command::PlayNext(items(&body.ids)?),
+        "shuffle" => Command::Shuffle,
+        "repeat" => Command::Repeat(match body.mode.as_str() {
+            "all" => Repeat::All,
+            "one" => Repeat::One,
+            "off" => Repeat::Off,
+            _ => anyhow::bail!("Repeat is off, all, or one"),
+        }),
         "enqueue" => Command::Enqueue(items(&body.ids)?),
         _ => anyhow::bail!("Unknown action"),
     };
@@ -525,6 +534,9 @@ mod tests {
         assert_eq!(post("volume", r#"{"value":7}"#), 400);
         assert_eq!(post("enqueue", r#"{"ids":["t1"]}"#), 200);
         assert_eq!(post("explode", ""), 400);
+        assert_eq!(post("repeat", r#"{"mode":"one"}"#), 200);
+        assert_eq!(post("repeat", r#"{"mode":"twice"}"#), 400);
+        assert_eq!(post("shuffle", ""), 200);
         // Up next is picked by song, not only by place: a song no longer there is refused.
         assert_eq!(post("jump", r#"{"index":0,"id":"not-up-next"}"#), 400);
         let start = std::time::Instant::now();

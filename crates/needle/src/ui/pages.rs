@@ -446,6 +446,7 @@ impl AppView {
             ("Ctrl + E", "Edit tags"),
             ("Ctrl + D", "Favorite"),
             ("Ctrl + J", "Show the queue"),
+            ("Ctrl + B", "Show or hide the sidebar"),
             ("Ctrl + O", "Add a music folder"),
             ("Ctrl + P", "Big player"),
             ("Ctrl + M", "Mini player"),
@@ -1414,6 +1415,47 @@ impl AppView {
             |t, v| t.settings.discord_logo = v,
             cx,
         );
+        let paused = switch(
+            "discord-paused",
+            "Show while paused",
+            "Keeps the song on your profile, marked Paused, while the music is paused. Off, the status goes away as soon as you pause.",
+            self.settings.discord_paused,
+            |t, v| t.settings.discord_paused = v,
+            cx,
+        );
+        const IDLE: [(u32, &str); 5] = [
+            (5, "5 min"),
+            (10, "10 min"),
+            (30, "30 min"),
+            (60, "1 hour"),
+            (0, "Never"),
+        ];
+        let idle_now = IDLE
+            .iter()
+            .position(|(m, _)| *m == self.settings.discord_idle_minutes)
+            .unwrap_or(1);
+        let idle = setting_row(
+            "Clear when nothing plays",
+            "After this long paused or stopped, the status goes away. It comes back when you play again.",
+            segmented(
+                "discord-idle",
+                &IDLE.map(|(_, label)| label),
+                idle_now,
+                cx,
+                {
+                    let weak = cx.entity().downgrade();
+                    move |index, _, cx| {
+                        let _ = weak.update(cx, |this, cx| {
+                            this.settings.discord_idle_minutes = IDLE[index].0;
+                            this.discord_sent = None;
+                            this.persist_settings();
+                            cx.notify();
+                        });
+                    }
+                },
+            ),
+            cx,
+        );
         // A preview of the card with the song that is playing (or an example).
         let track = self.playback.current.as_ref().map(|c| c.track.clone());
         let (song, artist, album) = match &track {
@@ -1539,6 +1581,8 @@ impl AppView {
                 bottom.into_any_element(),
                 covers.into_any_element(),
                 logo.into_any_element(),
+                paused.into_any_element(),
+                idle.into_any_element(),
             ]);
         }
         rows

@@ -94,6 +94,9 @@ pub enum Command {
     PlayNext(Vec<QueueItem>),
     /// Skip directly to an index of the upcoming queue.
     Jump(usize),
+    /// Put the songs up next in a random order. The very next one, already being prepared,
+    /// stays, and the playing song is not interrupted.
+    Shuffle,
     /// Skip to this song in the upcoming queue: the one at the index if it is still there,
     /// else its first place. Nothing happens when it is no longer up next.
     JumpTo(String, usize),
@@ -1242,6 +1245,13 @@ impl Worker {
                     self.rebuild_tail(queue)?;
                 }
             }
+            Command::Shuffle => {
+                use rand::seq::SliceRandom;
+                let mut pending: Vec<QueueItem> = self.queue.pending.drain(..).collect();
+                pending.shuffle(&mut rand::thread_rng());
+                self.queue.pending = pending.into();
+                self.queue.touch();
+            }
             Command::Repeat(repeat) => {
                 if let Some(queue) = self.queue.set_repeat(repeat) {
                     self.rebuild_tail(queue)?;
@@ -2025,6 +2035,25 @@ mod tests {
         // A song no longer up next does nothing.
         rig.run(Command::JumpTo("gone".into(), 0));
         assert_eq!(rig.active().as_deref(), Some("d"));
+    }
+
+    #[test]
+    fn shuffling_keeps_the_song_and_the_same_songs_up_next() {
+        let opener = FakeOpener::with(&["Speakers"], Some("Speakers"));
+        let mut rig = rig(opener, Settings::default());
+        let names: Vec<String> = (0..30).map(|n| format!("s{n:02}")).collect();
+        let list = rig.items(&names.iter().map(String::as_str).collect::<Vec<_>>());
+        rig.run(Command::PlayAt(list, 0));
+        rig.until_active("s00");
+        let before = ids(rig.state().queue.iter());
+        rig.run(Command::Shuffle);
+        let after = ids(rig.state().queue.iter());
+        assert_eq!(rig.active().as_deref(), Some("s00"));
+        assert_ne!(before, after, "30 songs should not stay in order");
+        let (mut a, mut b) = (before.clone(), after.clone());
+        a.sort();
+        b.sort();
+        assert_eq!(a, b);
     }
 
     #[test]

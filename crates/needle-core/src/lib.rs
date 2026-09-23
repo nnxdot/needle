@@ -20,6 +20,8 @@ pub mod instance;
 pub mod integrations;
 pub mod logfile;
 pub mod media;
+#[cfg(windows)]
+pub mod mediafoundation;
 pub mod model;
 mod mp4_trim;
 mod opus;
