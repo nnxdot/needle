@@ -136,7 +136,7 @@ impl AppView {
         let body = match self.page {
             Page::Settings => self.settings_view(cx).into_any_element(),
             Page::Sound => self.sound_view(cx).into_any_element(),
-            Page::Import => self.import_view(cx).into_any_element(),
+            Page::Import => self.import_view(width, cx).into_any_element(),
             Page::History => self.history_view(width, cx).into_any_element(),
             _ if self.total == 0 && self.scan.is_none() && !self.loading => {
                 self.onboarding(cx).into_any_element()

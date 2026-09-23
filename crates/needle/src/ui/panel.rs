@@ -169,12 +169,6 @@ impl AppView {
                 )
                 .into_any_element();
         };
-        let reason = self
-            .playback
-            .current
-            .as_ref()
-            .filter(|i| i.track.id == track.id)
-            .map(|i| i.reason.clone());
         let album_page = super::album_page(&track);
         let artist_page = Page::Artist(track.artist.clone());
         let rating = track.rating;
@@ -279,19 +273,6 @@ impl AppView {
                     .child(faint("Stems", cx))
                     .child(self.stems_view(Some(track.clone()), false, cx)),
             )
-            .when_some(reason, |el, reason| {
-                el.child(
-                    div()
-                        .p_3()
-                        .rounded(px(8.))
-                        .bg(p.raised)
-                        .flex()
-                        .flex_col()
-                        .gap_1()
-                        .child(faint("Why this track", cx))
-                        .child(div().text_size(px(12.5)).line_height(relative(1.45)).child(reason)),
-                )
-            })
             .child(
                 div()
                     .flex()

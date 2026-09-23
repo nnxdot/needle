@@ -363,6 +363,8 @@ pub struct AppView {
     recent: Vec<Listen>,
     /// The tracks behind `recent`, for covers.
     recent_tracks: std::collections::HashMap<String, Track>,
+    /// The last song that was playing, and when; see `shown_item`.
+    last_item: Option<(QueueItem, Instant)>,
     mini: Option<AnyWindowHandle>,
     sound: sound::SoundControls,
     import: importer::ImportState,
@@ -712,6 +714,7 @@ impl AppView {
             artist_images: Default::default(),
             recent: vec![],
             recent_tracks: Default::default(),
+            last_item: None,
             mini: None,
             sound,
             import,

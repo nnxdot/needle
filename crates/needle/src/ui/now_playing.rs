@@ -53,7 +53,7 @@ impl AppView {
         let size = window.viewport_size();
         let (w, h) = (f32::from(size.width), f32::from(size.height));
         let side = if w < 1000. { Side::None } else { self.big_side };
-        let current = self.playback.current.clone();
+        let current = self.shown_item();
         let playing = self.playback.playing;
         let repeat = self.playback.repeat;
         let left_w = if side == Side::None { w } else { w - 440. };
@@ -104,7 +104,9 @@ impl AppView {
                 .h(px(h * 1.2))
                 .object_fit(ObjectFit::Cover)
                 .opacity(
-                    if ambient {
+                    if ambient && !p.dark {
+                        0.55
+                    } else if ambient {
                         1.
                     } else if p.dark {
                         0.85
@@ -215,7 +217,9 @@ impl AppView {
                                         color: gpui::black().opacity(if p.dark {
                                             0.55
                                         } else {
-                                            0.25
+                                            // Softer on light backgrounds, where the shadow's
+                                            // steps would show.
+                                            0.14
                                         }),
                                         offset: point(px(0.), px(18.)),
                                         blur_radius: px(48.),

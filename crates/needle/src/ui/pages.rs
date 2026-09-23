@@ -838,7 +838,7 @@ impl AppView {
                     // Discord
                     .when(tab == 4, |el| {
                         el.child(self.section_title("Discord", "Show what you're playing on your Discord profile.", cx))
-                            .child(self.discord_settings(cx))
+                            .children(self.discord_settings(cx))
                     })
                     // Stems
                     .when(tab == 5, |el| {
@@ -932,11 +932,9 @@ impl AppView {
                     )
                     })
                     .child(
+                        // No line on top: the last setting row already ends with one.
                         div()
-                            .mt_10()
-                            .pt_4()
-                            .border_t_1()
-                            .border_color(p.line_soft)
+                            .mt_8()
                             .flex()
                             .flex_col()
                             .gap_1()
@@ -1188,7 +1186,7 @@ impl AppView {
 
 impl AppView {
     /// Discord Rich Presence: one switch. Needle finds Discord by itself.
-    fn discord_settings(&self, cx: &mut Context<Self>) -> impl IntoElement {
+    fn discord_settings(&self, cx: &mut Context<Self>) -> Vec<AnyElement> {
         use needle_core::discord::Field;
         let p = pal(cx);
         let on = self.settings.discord_presence;
@@ -1411,24 +1409,29 @@ impl AppView {
                             }),
                     ),
             );
-        div()
-            .child(switch(
-                "discord-presence",
-                "Show what you're playing on Discord",
-                "When Discord is open on this PC, your profile shows what is playing and a time bar. Needle finds Discord by itself and only talks to the real Discord app on this PC.",
-                on,
-                |t, v| t.settings.discord_presence = v,
-                cx,
-            ))
-            .when(on, |el| {
-                el.child(preview)
-                    .child(title)
-                    .child(top)
-                    .child(middle)
-                    .child(bottom)
-                    .child(covers)
-                    .child(logo)
-            })
+        // Rows go straight into the settings column: a wrapper box would not stretch, and
+        // wrapped descriptions inside it would overlap what comes next.
+        let mut rows = vec![switch(
+            "discord-presence",
+            "Show what you're playing on Discord",
+            "When Discord is open on this PC, your profile shows what is playing and a time bar. Needle finds Discord by itself and only talks to the real Discord app on this PC.",
+            on,
+            |t, v| t.settings.discord_presence = v,
+            cx,
+        )
+        .into_any_element()];
+        if on {
+            rows.extend([
+                preview.into_any_element(),
+                title.into_any_element(),
+                top.into_any_element(),
+                middle.into_any_element(),
+                bottom.into_any_element(),
+                covers.into_any_element(),
+                logo.into_any_element(),
+            ]);
+        }
+        rows
     }
 }
 

@@ -249,8 +249,8 @@ impl AppView {
                         Some(a) if i < a => 1,
                         _ => 2,
                     };
-                    // Like Apple Music: the sung line is bold and full strength with a soft glow
-                    // of the music's colour behind it; the rest fade back, the sung-past most.
+                    // Like Apple Music: the sung line is bold and full strength; the rest fade
+                    // back, the sung-past most.
                     let line_el = div()
                         .id(("lyric", i))
                         .pb(px(gap))
@@ -264,28 +264,17 @@ impl AppView {
                         .cursor_pointer()
                         .text_color(match state {
                             0 => p.ink,
-                            1 => p.ink.opacity(if p.dark { 0.24 } else { 0.28 }),
-                            _ => p.ink.opacity(if p.dark { 0.4 } else { 0.42 }),
+                            // Light backgrounds need darker faded lines to stay legible.
+                            1 => p.ink.opacity(if p.dark { 0.28 } else { 0.4 }),
+                            _ => p.ink.opacity(if p.dark { 0.45 } else { 0.58 }),
                         })
                         .hover(|s| s.text_color(p.ink.opacity(0.8)))
-                        // The glow sits on the words themselves, not the whole row.
-                        .flex()
-                        .child(
-                            div()
-                                .when(state == 0, |el| {
-                                    el.shadow(vec![BoxShadow {
-                                        color: p.glow.opacity(if p.dark { 0.38 } else { 0.24 }),
-                                        offset: point(px(0.), px(0.)),
-                                        blur_radius: px(if big { 30. } else { 20. }),
-                                        spread_radius: px(-4.),
-                                    }])
-                                })
-                                .child(if line.text.is_empty() {
-                                    "♪".to_string()
-                                } else {
-                                    line.text.clone()
-                                }),
-                        )
+                        // Text straight in the line, so long lines wrap instead of running off.
+                        .child(if line.text.is_empty() {
+                            "♪".to_string()
+                        } else {
+                            line.text.clone()
+                        })
                         .on_click(
                             cx.listener(move |this, _, _, _| this.player.send(Command::Seek(time))),
                         );
@@ -314,8 +303,9 @@ impl AppView {
             .pr_2()
             // Room above and below so any line can glide to the reading spot.
             .when(!lyrics.lines.is_empty(), |el| {
+                // Enough room below for the last lines to move up, not a screenful of nothing.
                 el.pt(px(if big { 140. } else { 48. }))
-                    .pb(px(if big { 360. } else { 200. }))
+                    .pb(px(if big { 140. } else { 60. }))
             })
             .when(lyrics.lines.is_empty(), |el| el.pb_20())
             .children(lines)
