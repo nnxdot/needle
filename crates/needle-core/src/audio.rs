@@ -1250,6 +1250,8 @@ impl Worker {
                 let mut pending: Vec<QueueItem> = self.queue.pending.drain(..).collect();
                 pending.shuffle(&mut rand::thread_rng());
                 self.queue.pending = pending.into();
+                // With Repeat One on, Up next waits here instead.
+                self.queue.repeat_tail.shuffle(&mut rand::thread_rng());
                 self.queue.touch();
             }
             Command::Repeat(repeat) => {
@@ -2051,6 +2053,19 @@ mod tests {
         assert_eq!(rig.active().as_deref(), Some("s00"));
         assert_ne!(before, after, "30 songs should not stay in order");
         let (mut a, mut b) = (before.clone(), after.clone());
+        a.sort();
+        b.sort();
+        assert_eq!(a, b);
+        // With Repeat One on, Up next is kept elsewhere; shuffling reorders it too.
+        rig.run(Command::Repeat(Repeat::One));
+        let held = ids(rig.state().queue.iter());
+        rig.run(Command::Shuffle);
+        let shuffled = ids(rig.state().queue.iter());
+        assert_ne!(
+            held, shuffled,
+            "Up next should change order under Repeat One"
+        );
+        let (mut a, mut b) = (held, shuffled);
         a.sort();
         b.sort();
         assert_eq!(a, b);

@@ -49,6 +49,8 @@ pub struct FfmpegSource {
     duration: Option<Duration>,
     child: Option<Child>,
     messages: Option<Receiver<Message>>,
+    /// The last of what the decoder said, for the log when it fails.
+    said: std::sync::Arc<std::sync::Mutex<String>>,
     generation: u64,
     chunk: Vec<f32>,
     at: usize,
@@ -71,6 +73,7 @@ pub fn open(path: &Path) -> Result<FfmpegSource> {
         duration,
         child: None,
         messages: None,
+        said: Default::default(),
         generation: 0,
         chunk: vec![],
         at: 0,
@@ -125,6 +128,32 @@ impl FfmpegSource {
             .spawn()
             .context("Could not start Needle's Dolby decoder")?;
         let mut stdout = child.stdout.take().context("No output from the decoder")?;
+        // Read its messages as they come: a damaged file can make it say something for every
+        // frame, and a full pipe would stop it decoding.
+        if let Some(mut stderr) = child.stderr.take() {
+            let said = self.said.clone();
+            said.lock().unwrap().clear();
+            std::thread::Builder::new()
+                .name("needle-ffmpeg-messages".into())
+                .spawn(move || {
+                    let mut buffer = [0u8; 4096];
+                    while let Ok(n) = stderr.read(&mut buffer) {
+                        if n == 0 {
+                            break;
+                        }
+                        let mut text = said.lock().unwrap();
+                        text.push_str(&String::from_utf8_lossy(&buffer[..n]));
+                        // Keep the last few lines only.
+                        if text.len() > 4096 {
+                            let mut cut = text.len() - 2048;
+                            while !text.is_char_boundary(cut) {
+                                cut += 1;
+                            }
+                            text.drain(..cut);
+                        }
+                    }
+                })?;
+        }
         let (tx, rx) = crossbeam_channel::bounded(16);
         let generation = self.generation;
         std::thread::Builder::new()
@@ -184,12 +213,11 @@ impl FfmpegSource {
         self.messages = None;
         let mut child = self.child.take()?;
         let _ = child.kill();
-        let mut reason = String::new();
-        if let Some(mut stderr) = child.stderr.take() {
-            let _ = stderr.read_to_string(&mut reason);
-        }
         let _ = child.wait();
-        Some(reason.trim().to_string())
+        // Give the message reader a moment to take the last words.
+        std::thread::sleep(Duration::from_millis(20));
+        let reason = self.said.lock().unwrap().trim().to_string();
+        Some(reason)
     }
 }
 

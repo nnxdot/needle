@@ -152,6 +152,7 @@ unsafe fn decode(
             .GetUINT32(&MF_MT_AUDIO_BITS_PER_SAMPLE)
             .unwrap_or(32);
         let float = current.GetGUID(&MF_MT_SUBTYPE)? == MFAudioFormat_Float;
+        let mask = current.GetUINT32(&MF_MT_AUDIO_CHANNEL_MASK).ok();
         let duration = reader
             .GetPresentationAttribute(MF_SOURCE_READER_MEDIASOURCE.0 as u32, &MF_PD_DURATION)
             .ok()
@@ -208,7 +209,7 @@ unsafe fn decode(
             buffer.Unlock()?;
             let mut message = Message::Chunk {
                 generation,
-                samples: stereo(&decoded, channels),
+                samples: stereo(&decoded, channels, mask),
             };
             // Wait for room, still listening for a seek or the end.
             loop {
@@ -264,35 +265,71 @@ fn samples(bytes: &[u8], float: bool, bits: u32) -> Vec<f32> {
     }
 }
 
-/// Mix interleaved audio down to stereo. Channels come in Windows' order: front left and
-/// right, centre, low frequency, then left–right pairs (back, then side). The low-frequency
-/// channel is left out, as players do when mixing down.
-pub(crate) fn stereo(samples: &[f32], channels: usize) -> Vec<f32> {
+/// The usual Windows speaker layout (`WAVEFORMATEXTENSIBLE` channel mask) for a channel
+/// count, when the file does not say: 5.0 has no low-frequency channel, 5.1 and 7.1 have one.
+fn default_mask(channels: usize) -> u32 {
     match channels {
-        2 => samples.to_vec(),
-        1 => samples.iter().flat_map(|s| [*s, *s]).collect(),
-        _ => {
-            let pairs = channels.saturating_sub(4) / 2;
-            let centre = if channels >= 3 { 0.707 } else { 0. };
-            let scale = 1. / (1. + centre + 0.707 * pairs as f32);
-            samples
-                .chunks_exact(channels)
-                .flat_map(|frame| {
-                    let mut left = frame[0];
-                    let mut right = frame[1];
-                    if channels >= 3 {
-                        left += centre * frame[2];
-                        right += centre * frame[2];
-                    }
-                    for pair in 0..pairs {
-                        left += 0.707 * frame[4 + pair * 2];
-                        right += 0.707 * frame[5 + pair * 2];
-                    }
-                    [left * scale, right * scale]
-                })
-                .collect()
-        }
+        1 => 0x4,   // centre
+        2 => 0x3,   // front left, right
+        3 => 0x7,   // + centre
+        4 => 0x33,  // front and back pairs (quad)
+        5 => 0x37,  // 5.0: front pair, centre, back pair
+        6 => 0x3f,  // 5.1
+        7 => 0x70f, // 6.1: 5.1 without backs, back centre, side pair
+        _ => 0x63f, // 7.1: 5.1 + side pair
     }
+}
+
+/// How much of each speaker goes to the left and right: (left, right). Speakers come in
+/// the order of their bits in the channel mask. The low-frequency speaker is left out, as
+/// players do when mixing down.
+fn weights(bit: u32) -> (f32, f32) {
+    const HALF: f32 = 0.707;
+    match bit {
+        0x1 | 0x40 => (1., 0.), // front left, front left of centre
+        0x2 | 0x80 => (0., 1.), // front right, front right of centre
+        0x4 => (HALF, HALF),    // front centre
+        0x8 => (0., 0.),        // low frequency
+        0x10 | 0x200 | 0x800 | 0x1000 => (HALF, 0.), // back, side, top front and top left
+        0x20 | 0x400 | 0x4000 | 0x8000 => (0., HALF), // back, side, top front and top right
+        0x100 | 0x2000 | 0x10000 => (0.5, 0.5), // back centre, top centre, top back centre
+        _ => (0.5, 0.5),
+    }
+}
+
+/// Mix interleaved audio down to stereo, using the speaker layout in `mask` (or the usual
+/// one for the channel count). The result is scaled so a sound in every speaker stays in
+/// range.
+pub(crate) fn stereo(samples: &[f32], channels: usize, mask: Option<u32>) -> Vec<f32> {
+    match channels {
+        2 => return samples.to_vec(),
+        1 => return samples.iter().flat_map(|s| [*s, *s]).collect(),
+        0 => return vec![],
+        _ => {}
+    }
+    let mask = mask
+        .filter(|m| m.count_ones() as usize == channels)
+        .unwrap_or_else(|| default_mask(channels));
+    let mut speakers: Vec<(f32, f32)> = (0..32)
+        .map(|n| 1u32 << n)
+        .filter(|bit| mask & bit != 0)
+        .map(weights)
+        .collect();
+    speakers.resize(channels, (0.5, 0.5));
+    let left_total: f32 = speakers.iter().map(|w| w.0).sum();
+    let right_total: f32 = speakers.iter().map(|w| w.1).sum();
+    let scale = 1. / left_total.max(right_total).max(1.);
+    samples
+        .chunks_exact(channels)
+        .flat_map(|frame| {
+            let (mut left, mut right) = (0., 0.);
+            for (sample, (to_left, to_right)) in frame.iter().zip(&speakers) {
+                left += sample * to_left;
+                right += sample * to_right;
+            }
+            [left * scale, right * scale]
+        })
+        .collect()
 }
 
 impl Iterator for MfSource {
@@ -419,10 +456,22 @@ mod tests {
     fn surround_mixes_down_without_clipping() {
         // 5.1: front left and right, centre, low frequency, back left and right.
         let frame = [1.0, 0.0, 1.0, 1.0, 1.0, 0.0];
-        let mixed = stereo(&frame, 6);
+        let mixed = stereo(&frame, 6, None);
         assert!(mixed[0] <= 1.0 && mixed[0] > 0.9, "{mixed:?}");
         assert!(mixed[1] > 0.2 && mixed[1] < 0.4, "{mixed:?}");
-        assert_eq!(stereo(&[0.5], 1), vec![0.5, 0.5]);
+        assert_eq!(stereo(&[0.5], 1, None), vec![0.5, 0.5]);
+        // 5.0 has no low-frequency channel: its surround pair still reaches both sides.
+        let five = stereo(&[0.0, 0.0, 0.0, 1.0, 1.0], 5, None);
+        assert!(five[0] > 0.2 && five[1] > 0.2, "{five:?}");
+        // The same five channels with a side pair in the mask.
+        let sides = stereo(&[0.0, 0.0, 0.0, 1.0, 0.0], 5, Some(0x607));
+        assert!(sides[0] > 0.2 && sides[1] == 0.0, "{sides:?}");
+        // Quad: the back pair is not taken for centre and low frequency.
+        let quad = stereo(&[0.0, 0.0, 1.0, 0.0], 4, None);
+        assert!(quad[0] > 0.2 && quad[1] == 0.0, "{quad:?}");
+        // A sound in every speaker of 7.1 stays in range.
+        let full = stereo(&[1.0; 8], 8, None);
+        assert!(full.iter().all(|s| *s <= 1.0 + 1e-6), "{full:?}");
     }
 
     /// `NEEDLE_DOLBY_FILE=<path> cargo test -p needle-core dolby_file -- --ignored`
