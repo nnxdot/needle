@@ -117,6 +117,7 @@ Opening an existing large library for the first time after this change builds th
 
 - The Discord cover search now accepts Apple's result when the artist is written another way (for example 키키 in the tags and KiiiKiii at Apple), if the song and the album both match. A new test covers it; the song name alone is still refused.
 - A live iTunes search for "키키 Hey Hi" returned "Hey Hi" on "WhyKiiiKiii - EP" by KiiiKiii, which the new rule accepts.
+- Last.fm (track.updateNowPlaying) and ListenBrainz (playing_now) are told when a song starts or plays again after a pause, so they show it live. A test checks that nothing is sent when the service is off or the song has no artist. It was not tried against a real Last.fm account before release.
 
 ## 1.3.0 checks
 

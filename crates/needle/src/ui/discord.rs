@@ -12,6 +12,41 @@ impl AppView {
         !APP_ID.is_empty()
     }
 
+    /// Tells Last.fm and ListenBrainz what is playing when a song starts or plays again after
+    /// a pause, so they show it live. Played songs are still scrobbled when they finish.
+    pub(super) fn update_now_playing(&mut self) {
+        let enabled = self.settings.lastfm_enabled || self.settings.listenbrainz_enabled;
+        let song = self
+            .playback
+            .current
+            .as_ref()
+            .filter(|_| enabled && self.playback.playing)
+            .map(|item| &item.track);
+        let key = song.map(|t| t.id.clone());
+        if key == self.now_playing_sent {
+            return;
+        }
+        self.now_playing_sent = key;
+        let Some(track) = song else {
+            return;
+        };
+        let song = needle_core::integrations::NowPlaying {
+            artist: track.display_artist().to_string(),
+            title: track.title.clone(),
+            album: track.album.clone(),
+            duration: track.duration,
+        };
+        let settings = self.settings.clone();
+        std::thread::spawn(move || {
+            let credentials = needle_core::integrations::Credentials::load();
+            if let Err(error) =
+                needle_core::integrations::send_now_playing(&settings, &credentials, &song)
+            {
+                needle_core::logfile::error(format!("Now playing: {error:#}"));
+            }
+        });
+    }
+
     /// Called on every poll; tells Discord only when the song, pause state, or position jumps.
     pub(super) fn update_discord(&mut self) {
         if !self.settings.discord_presence || !Self::discord_available() {

@@ -921,6 +921,90 @@ pub fn flush_scrobbles(library: &Library, credentials: &Credentials) -> Result<u
     Ok(sent)
 }
 
+/// The song that is playing now, for Last.fm's "Scrobbling now" and ListenBrainz's
+/// "Playing now". Nothing is kept or retried: the next song replaces it anyway.
+#[derive(Clone, Debug, PartialEq)]
+pub struct NowPlaying {
+    pub artist: String,
+    pub title: String,
+    pub album: String,
+    pub duration: f64,
+}
+
+/// Tell each turned-on service what is playing. Errors are only returned, not queued.
+pub fn send_now_playing(
+    settings: &crate::model::Settings,
+    credentials: &Credentials,
+    song: &NowPlaying,
+) -> Result<()> {
+    if song.artist.trim().is_empty() || song.title.trim().is_empty() {
+        return Ok(());
+    }
+    let mut errors = vec![];
+    if settings.lastfm_enabled
+        && !credentials.lastfm_session.is_empty()
+        && !credentials.lastfm_api_key.is_empty()
+        && !credentials.lastfm_secret.is_empty()
+        && rejected("lastfm", credentials).is_none()
+    {
+        let mut fields = BTreeMap::from([
+            ("method".into(), "track.updateNowPlaying".into()),
+            ("api_key".into(), credentials.lastfm_api_key.clone()),
+            ("sk".into(), credentials.lastfm_session.clone()),
+            ("artist".into(), song.artist.clone()),
+            ("track".into(), song.title.clone()),
+        ]);
+        if !song.album.trim().is_empty() {
+            fields.insert("album".into(), song.album.clone());
+        }
+        if song.duration > 0.0 {
+            fields.insert("duration".into(), (song.duration as i64).to_string());
+        }
+        let result = client()?
+            .post("https://ws.audioscrobbler.com/2.0/")
+            .form(&signed(fields, &credentials.lastfm_secret))
+            .send()
+            .map_err(transport)
+            .and_then(read_json);
+        match result {
+            Ok((_, Some(body))) if body["error"].is_i64() => errors.push(format!(
+                "Last.fm: {} (code {})",
+                body["message"].as_str().unwrap_or("request rejected"),
+                body["error"]
+            )),
+            Ok((status, _)) if status >= 400 => {
+                errors.push(format!("Last.fm returned HTTP {status}"))
+            }
+            Ok(_) => {}
+            Err(error) => errors.push(format!("{error:#}")),
+        }
+    }
+    if settings.listenbrainz_enabled
+        && !credentials.listenbrainz_token.is_empty()
+        && rejected("listenbrainz", credentials).is_none()
+    {
+        let result = client()?
+            .post("https://api.listenbrainz.org/1/submit-listens")
+            .header("Authorization", format!("Token {}", credentials.listenbrainz_token))
+            .json(&json!({"listen_type":"playing_now","payload":[{"track_metadata":{"artist_name":song.artist,"track_name":song.title,"release_name":song.album,"additional_info":{"submission_client":"Needle","duration":song.duration as i64}}}]}))
+            .send()
+            .map_err(transport)
+            .and_then(read_json);
+        match result {
+            Ok((status, _)) if status >= 400 => {
+                errors.push(format!("ListenBrainz returned HTTP {status}"))
+            }
+            Ok(_) => {}
+            Err(error) => errors.push(format!("{error:#}")),
+        }
+    }
+    if errors.is_empty() {
+        Ok(())
+    } else {
+        bail!("{}", redact(&errors.join("; "), &credentials.secrets()))
+    }
+}
+
 pub fn scrobble_status(library: &Library) -> Result<Vec<(String, String, i64)>> {
     let db = library.connection()?;
     let mut statement =
@@ -1191,6 +1275,35 @@ mod tests {
         store.delete(SecretKind::LastfmSession).unwrap();
         assert!(!secret_status_from(&store, |_| None).lastfm.configured);
         assert!(finish_lastfm(&store, |_| None, &pending(), json!({"session":{}})).is_err());
+    }
+
+    #[test]
+    fn now_playing_sends_nothing_without_a_service() {
+        let song = NowPlaying {
+            artist: "KiiiKiii".into(),
+            title: "Hey Hi".into(),
+            album: "WhyKiiiKiii - EP".into(),
+            duration: 170.0,
+        };
+        let credentials = Credentials {
+            lastfm_api_key: "key".into(),
+            lastfm_secret: "secret".into(),
+            lastfm_session: "session".into(),
+            ..Default::default()
+        };
+        // Last.fm is signed in but turned off, and a song without an artist is skipped:
+        // neither makes a request (there is no server here to answer one).
+        let off = crate::model::Settings::default();
+        assert!(send_now_playing(&off, &credentials, &song).is_ok());
+        let on = crate::model::Settings {
+            lastfm_enabled: true,
+            ..Default::default()
+        };
+        let untitled = NowPlaying {
+            artist: " ".into(),
+            ..song.clone()
+        };
+        assert!(send_now_playing(&on, &credentials, &untitled).is_ok());
     }
 
     #[test]
