@@ -182,6 +182,16 @@ impl AppView {
                     })
                     .when_some(summary.as_ref().map(|s| s.lastfm.clone()), |el, queue| self.queue_summary(el, "lastfm", queue, cx)),
             )
+            .child(setting_row(
+                "Fix artist names for scrobbles",
+                "When your tags write an artist another way than Apple Music does (키키 for KiiiKiii), scrobble Apple's spelling, so Last.fm and ListenBrainz file the song under the right artist. Your files are not changed. Looks up the artist, song, and album on Apple's iTunes catalog.",
+                Switch::new("scrobble-corrections").checked(self.settings.scrobble_corrections).on_click(cx.listener(|this, checked: &bool, _, cx| {
+                    this.settings.scrobble_corrections = *checked;
+                    this.persist_settings();
+                    cx.notify();
+                })),
+                cx,
+            ))
             // ListenBrainz
             .child(
                 div()
