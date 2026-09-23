@@ -1,6 +1,7 @@
 mod ambient;
 mod assets;
 mod chrome;
+mod columns;
 mod discord;
 mod flow;
 mod folders;
@@ -304,6 +305,10 @@ pub struct AppView {
     panel: Panel,
     menu: Option<menus::TrackMenu>,
     playlist_menu: Option<menus::PlaylistMenu>,
+    header_menu: Option<columns::HeaderMenu>,
+    /// A column resize in progress: drag serial, column, start x, start width.
+    column_resize: Option<(u64, String, f32, f32)>,
+    column_serial: u64,
     menu_serial: usize,
     /// The song whose heart was just filled, and a counter that replays the pop.
     heart_pop: Option<(String, usize)>,
@@ -672,6 +677,9 @@ impl AppView {
             panel: Panel::Details,
             menu: None,
             playlist_menu: None,
+            header_menu: None,
+            column_resize: None,
+            column_serial: 0,
             menu_serial: 0,
             heart_pop: None,
             settings_tab: 0,
@@ -1165,10 +1173,13 @@ impl AppView {
             )
         };
         if let Sort::Asc(field) | Sort::Desc(field) = self.sort
-            && !expression.contains(" order by ")
             && !expression.contains("shuffle")
             && !expression.contains(" limit ")
         {
+            // The chosen sort replaces the page's own order (Folders, Recently added, …).
+            if let Some((rule, _)) = expression.split_once(" order by ") {
+                expression = rule.to_string();
+            }
             let direction = if matches!(self.sort, Sort::Asc(_)) {
                 "asc"
             } else {
@@ -1869,6 +1880,10 @@ impl Render for AppView {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         self.update_palette(window, cx);
         self.update_glass(window, cx);
+        // A column resize ends when the drag does, wherever the pointer was let go.
+        if self.column_resize.is_some() && !cx.has_active_drag() {
+            self.finish_column_resize();
+        }
         let p = pal(cx);
         let width = window.viewport_size().width;
         let show_panel = self.settings.show_inspector
@@ -2123,6 +2138,7 @@ impl Render for AppView {
             .children(self.toast(cx))
             .children(self.track_menu(cx))
             .children(self.playlist_menu_view(cx))
+            .children(self.header_menu_view(cx))
             .children(self.palette_view(cx))
     }
 }

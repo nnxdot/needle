@@ -152,6 +152,15 @@ pub struct Settings {
     pub ambient: bool,
     /// Seconds songs overlap as one ends and the next begins (0 = off).
     pub crossfade: f32,
+    /// The song table's columns, in order, with their widths.
+    pub columns: Vec<ColumnSetting>,
+}
+
+/// One column of the song table.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct ColumnSetting {
+    pub key: String,
+    pub width: f32,
 }
 
 impl Default for Settings {
@@ -187,6 +196,10 @@ impl Default for Settings {
             accent_color: String::new(),
             ambient: false,
             crossfade: 0.,
+            columns: [("album", 220.), ("quality", 92.), ("time", 52.)]
+                .into_iter()
+                .map(|(key, width)| ColumnSetting { key: key.into(), width })
+                .collect(),
         }
     }
 }

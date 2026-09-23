@@ -14,6 +14,8 @@ pub enum Entry {
         label: SharedString,
         hint: Option<&'static str>,
         action: Action,
+        /// Stay open after choosing (for check lists).
+        keep: bool,
     },
     Sub {
         icon: &'static str,
@@ -24,7 +26,7 @@ pub enum Entry {
     Separator,
 }
 impl Entry {
-    fn item(
+    pub(super) fn item(
         icon: &'static str,
         label: impl Into<SharedString>,
         hint: Option<&'static str>,
@@ -35,6 +37,22 @@ impl Entry {
             label: label.into(),
             hint,
             action: Rc::new(action),
+            keep: false,
+        }
+    }
+    /// An item that leaves the menu open, for turning several things on or off.
+    pub fn item_keep(
+        icon: &'static str,
+        label: impl Into<SharedString>,
+        hint: Option<&'static str>,
+        action: impl Fn(&mut AppView, &mut Window, &mut Context<AppView>) + 'static,
+    ) -> Self {
+        Self::Item {
+            icon,
+            label: label.into(),
+            hint,
+            action: Rc::new(action),
+            keep: true,
         }
     }
     fn selectable(&self) -> bool {
@@ -255,9 +273,12 @@ impl AppView {
 
     fn activate(&mut self, entry: Entry, window: &mut Window, cx: &mut Context<Self>) {
         match entry {
-            Entry::Item { action, .. } => {
-                self.menu = None;
-                self.playlist_menu = None;
+            Entry::Item { action, keep, .. } => {
+                if !keep {
+                    self.menu = None;
+                    self.playlist_menu = None;
+                    self.header_menu = None;
+                }
                 action(self, window, cx);
             }
             Entry::Sub { key, .. } => {
@@ -320,7 +341,7 @@ impl AppView {
     }
 
     /// The rows of a menu, in the one menu style: icon, label, shortcut hint, and "›".
-    fn menu_rows(
+    pub(super) fn menu_rows(
         entries: &[Entry],
         highlight: Option<usize>,
         cx: &mut Context<Self>,
