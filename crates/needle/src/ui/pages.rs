@@ -553,6 +553,27 @@ impl AppView {
                             cx,
                         ))
                     })
+                    .child(setting_row(
+                        "Crossfade",
+                        "Songs overlap as one ends and the next begins. Tracks that follow each other on an album stay gapless, and exclusive output never crossfades.",
+                        segmented(
+                            "crossfade",
+                            &["Off", "2 s", "4 s", "6 s", "8 s", "12 s"],
+                            [0., 2., 4., 6., 8., 12.].iter().position(|v| (*v - self.settings.crossfade).abs() < 0.1).unwrap_or(0),
+                            cx,
+                            {
+                                let weak = weak.clone();
+                                move |index, _, cx| {
+                                    let _ = weak.update(cx, |this, cx| {
+                                        this.settings.crossfade = [0., 2., 4., 6., 8., 12.][index];
+                                        this.configure();
+                                        cx.notify();
+                                    });
+                                }
+                            },
+                        ),
+                        cx,
+                    ))
                     .child(
                         div()
                             .py_4()

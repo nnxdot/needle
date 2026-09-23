@@ -124,6 +124,8 @@ pub struct Settings {
     pub accent_color: String,
     /// The cover (or the chosen color) fills the whole background, with any look.
     pub ambient: bool,
+    /// Seconds songs overlap as one ends and the next begins (0 = off).
+    pub crossfade: f32,
 }
 
 impl Default for Settings {
@@ -158,6 +160,7 @@ impl Default for Settings {
             display_font: "system".into(),
             accent_color: String::new(),
             ambient: false,
+            crossfade: 0.,
         }
     }
 }

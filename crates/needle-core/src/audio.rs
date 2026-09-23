@@ -608,6 +608,8 @@ struct Worker {
     dsp: Arc<crate::dsp::DspControl>,
     stem_mix: Arc<crate::stems::StemMix>,
     stems: Option<(String, std::path::PathBuf)>,
+    /// The last queued song's ending, which the next song may crossfade over.
+    ending: Option<(Track, Arc<crate::crossfade::Ending>)>,
 }
 impl Worker {
     fn new(
@@ -641,6 +643,7 @@ impl Worker {
             dsp,
             stem_mix: Arc::default(),
             stems: None,
+            ending: None,
             library,
             state,
             settings,
@@ -721,6 +724,7 @@ impl Worker {
     /// Drops the output device without touching the queue.
     fn release(&mut self) {
         self.epoch += 1;
+        self.ending = None;
         if let Some(sink) = self.sink.take() {
             sink.stop();
         }
@@ -900,6 +904,7 @@ impl Worker {
                     self.dsp.clone(),
                 ))
             };
+            let processed = self.crossfade(&item.track, processed);
             let marked = Marked {
                 inner: processed,
                 item: item.clone(),
@@ -917,6 +922,37 @@ impl Worker {
                 .store(true, std::sync::atomic::Ordering::Release);
         }
         Ok(())
+    }
+    /// Blend the start of `track` over the previous song's ending, and set up its own ending
+    /// for the next song. Off on exclusive output, which stays bit-exact, and between
+    /// consecutive tracks of one album, which are often meant to run into each other.
+    fn crossfade(
+        &mut self,
+        track: &Track,
+        source: Box<dyn Source + Send>,
+    ) -> Box<dyn Source + Send> {
+        let fade = self.settings.crossfade as f64;
+        if fade <= 0. || self.settings.exclusive {
+            self.ending = None;
+            return source;
+        }
+        let mut source = source;
+        if let Some((previous, ending)) = self.ending.take() {
+            let same_album = previous.album == track.album
+                && previous.album_artist == track.album_artist
+                && !track.album.is_empty()
+                && track.track_number == previous.track_number + 1;
+            if !same_album && ending.claim() {
+                source = Box::new(crate::crossfade::blend(ending, source));
+            }
+        }
+        if track.duration > fade * 3. {
+            let (head, ending) = crate::crossfade::split(source, track.duration, fade);
+            self.ending = Some((track.clone(), ending));
+            Box::new(head)
+        } else {
+            source
+        }
     }
     fn handle(&mut self, command: Command) -> Result<bool> {
         match command {
@@ -1865,6 +1901,33 @@ mod tests {
         rig.until_active("a");
         assert!(rig.worker.playing);
         assert!(rig.worker.position() < 5.0);
+    }
+
+    #[test]
+    fn crossfade_starts_the_next_song_before_the_last_one_ends() {
+        // Time from a seek to 55 s in a 60 s song until the next one starts. The fake output
+        // is not real time, so compare against the same run without crossfade.
+        let wait = |crossfade: f32| {
+            let settings = Settings {
+                crossfade,
+                ..Settings::default()
+            };
+            let mut rig = rig(FakeOpener::with(&[], Some("Speakers")), settings);
+            let list = rig.items(&["a", "b"]);
+            rig.run(Command::Play(list));
+            rig.until_active("a");
+            rig.run(Command::Seek(55.));
+            let seeked = Instant::now();
+            rig.until_active("b");
+            assert!(rig.state().error.is_none());
+            seeked.elapsed().as_secs_f64()
+        };
+        let (plain, faded) = (wait(0.), wait(4.));
+        // Five seconds of song without crossfade, one with a four-second fade.
+        assert!(
+            faded < plain * 0.5,
+            "b started after {faded:.3} s with crossfade, {plain:.3} s without"
+        );
     }
 
     #[test]
