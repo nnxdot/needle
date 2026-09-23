@@ -451,67 +451,64 @@ impl AppView {
             .iter()
             .position(|b| *b == theme.base)
             .unwrap_or(0);
-        let rows = editor.pickers.iter().map(|(slot, picker)| {
-            let slot = *slot;
-            let own = theme.colors.contains_key(&slot);
-            let moved = adjusted.contains(&slot);
-            div()
-                .py_2()
-                .flex()
-                .items_center()
-                .gap_3()
-                .child(ColorPicker::new(picker).small().flex_none())
-                .child(
-                    div()
-                        .flex_1()
-                        .min_w_0()
-                        .flex()
-                        .flex_col()
-                        .child(strong(slot.name()))
-                        .child(
-                            meta(
-                                if moved {
-                                    format!(
-                                        "{} Moved a little so text stays readable.",
-                                        slot.about()
-                                    )
-                                } else if own {
-                                    slot.about().to_string()
-                                } else {
-                                    format!("{} Follows the other colors.", slot.about())
-                                },
-                                cx,
-                            )
-                            .w_full(),
-                        ),
-                )
-                .when(own, |el| {
-                    el.child(
-                        small_button(
-                            SharedString::from(format!("theme-reset-{}", slot.key())),
-                            "Reset",
-                        )
-                        .ghost()
-                        .tooltip("Let this color follow the base look and the others")
-                        .on_click(cx.listener(
-                            move |this, _, window, cx| {
-                                this.edit_theme(window, cx, move |t| {
-                                    t.colors.remove(&slot);
-                                });
-                            },
-                        )),
+        // One line per color, each the same height: wrapped text in two columns was measured
+        // as one line, so the list spilled over the settings below it.
+        let rows: Vec<_> = editor
+            .pickers
+            .iter()
+            .map(|(slot, picker)| {
+                let slot = *slot;
+                let own = theme.colors.contains_key(&slot);
+                let moved = adjusted.contains(&slot);
+                div()
+                    .h(px(34.))
+                    .flex()
+                    .items_center()
+                    .gap_3()
+                    .child(ColorPicker::new(picker).small().flex_none())
+                    .child(
+                        div()
+                            .w(px(150.))
+                            .flex_none()
+                            .text_size(px(13.))
+                            .font_weight(FontWeight::SEMIBOLD)
+                            .truncate()
+                            .child(slot.name()),
                     )
-                })
-        });
-        let mut grid = div().flex().gap_6();
-        let rows: Vec<_> = rows.collect();
-        let half = rows.len().div_ceil(2);
-        let mut rows = rows.into_iter();
-        let left: Vec<_> = rows.by_ref().take(half).collect();
-        let right: Vec<_> = rows.collect();
-        grid = grid
-            .child(div().flex_1().min_w_0().flex().flex_col().children(left))
-            .child(div().flex_1().min_w_0().flex().flex_col().children(right));
+                    .child(
+                        div()
+                            .flex_1()
+                            .min_w_0()
+                            .text_size(px(12.))
+                            .truncate()
+                            .text_color(if moved { p.accent } else { p.ink_3 })
+                            .child(if moved {
+                                "Moved a little so text stays readable".to_string()
+                            } else {
+                                slot.about().to_string()
+                            }),
+                    )
+                    .when(own, |el| {
+                        el.child(
+                            small_button(
+                                SharedString::from(format!("theme-reset-{}", slot.key())),
+                                "Reset",
+                            )
+                            .ghost()
+                            .flex_none()
+                            .tooltip("Let this color follow the base look and the others")
+                            .on_click(cx.listener(
+                                move |this, _, window, cx| {
+                                    this.edit_theme(window, cx, move |t| {
+                                        t.colors.remove(&slot);
+                                    });
+                                },
+                            )),
+                        )
+                    })
+            })
+            .collect();
+        let grid = div().flex().flex_col().children(rows);
         Some(
             div()
                 .mt_3()
