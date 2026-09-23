@@ -25,6 +25,27 @@ pub const CACHE_LIMIT: u64 = 2 << 30;
 /// How long a stream may stall before playback gives up.
 const STALL: Duration = Duration::from_secs(30);
 
+/// A network error in plain words, without the link: a source's links carry sign-in tokens,
+/// which must not end up on screen or in the log.
+pub fn http_error(error: &reqwest::Error) -> String {
+    let host = error
+        .url()
+        .and_then(|u| {
+            u.host_str()
+                .map(|h| u.port().map_or(h.to_string(), |p| format!("{h}:{p}")))
+        })
+        .unwrap_or_else(|| "the server".into());
+    if error.is_timeout() {
+        format!("{host} did not answer in time")
+    } else if error.is_connect() {
+        format!("Could not connect to {host}")
+    } else if let Some(status) = error.status() {
+        format!("{host} answered {status}")
+    } else {
+        format!("The connection to {host} failed")
+    }
+}
+
 /// A song as a source plugin describes it.
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct Song {
@@ -458,7 +479,10 @@ fn download(
                 let client = reqwest::blocking::Client::builder()
                     .connect_timeout(Duration::from_secs(15))
                     .build()?;
-                let mut response = client.get(&link).send()?;
+                let mut response = client
+                    .get(&link)
+                    .send()
+                    .map_err(|e| anyhow::anyhow!(http_error(&e)))?;
                 if !response.status().is_success() {
                     bail!("The server answered {}", response.status());
                 }
@@ -484,7 +508,9 @@ fn download(
                 let mut file = File::create(&job.part)?;
                 let mut buffer = vec![0u8; 64 * 1024];
                 loop {
-                    let n = response.read(&mut buffer)?;
+                    let n = response
+                        .read(&mut buffer)
+                        .map_err(|_| anyhow::anyhow!("The server stopped sending the song"))?;
                     if n == 0 {
                         break;
                     }

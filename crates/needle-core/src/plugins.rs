@@ -696,6 +696,7 @@ fn load_all(
 ) -> Vec<Loaded> {
     let folder = library.directory.join("plugins");
     let _ = std::fs::create_dir_all(&folder);
+    update_examples(&folder);
     let enabled: BTreeSet<String> = library
         .get_json(ENABLED_KEY)
         .ok()
@@ -1226,9 +1227,11 @@ fn web(request: reqwest::blocking::RequestBuilder) -> Result<String, Fail> {
     let response = request
         .timeout(Duration::from_secs(15))
         .send()
-        .map_err(|e| fail(e.to_string()))?;
+        .map_err(|e| fail(crate::sources::http_error(&e)))?;
     let status = response.status();
-    let text = response.text().map_err(|e| fail(e.to_string()))?;
+    let text = response
+        .text()
+        .map_err(|e| fail(crate::sources::http_error(&e)))?;
     if !status.is_success() {
         return Err(fail(format!("The server answered {status}")));
     }
@@ -1430,15 +1433,12 @@ fn signed_in() {
     server != () && server != "" && secret("password") != ()
 }
 
-// "music.example.com/" becomes "https://music.example.com".
+// "music.example.com/" becomes "music.example.com".
 fn address(typed) {
     let server = typed;
     server.trim();
     while server.ends_with("/") {
         server.pop();
-    }
-    if server != "" && !server.starts_with("http://") && !server.starts_with("https://") {
-        server = "https://" + server;
     }
     server
 }
@@ -1475,18 +1475,40 @@ fn ask(method, params) {
 }
 
 fn sign_in(fields) {
-    let server = address(fields.server);
-    if server == "" {
+    let typed = address(fields.server);
+    if typed == "" {
         throw "Type your server's address";
     }
-    set_setting("server", server);
     set_setting("username", fields.username);
     set_secret("password", fields.password);
-    try {
-        ask("ping", #{});
-    } catch (error) {
+    // Without http:// or https://, try the secure address first, then the plain one (many
+    // home servers, such as Navidrome on port 4533, answer only plain http).
+    let choices = if typed.starts_with("http://") || typed.starts_with("https://") {
+        [typed]
+    } else {
+        ["https://" + typed, "http://" + typed]
+    };
+    let done = false;
+    let last = ();
+    for server in choices {
+        if done {
+            break;
+        }
+        set_setting("server", server);
+        try {
+            ask("ping", #{});
+            done = true;
+        } catch (error) {
+            last = error;
+            // A wrong password is an answer: only a failed connection tries the next address.
+            if !(type_of(error) == "string" && error.contains("Could not connect")) {
+                break;
+            }
+        }
+    }
+    if !done {
         sign_out();
-        throw error;
+        throw last;
     }
 }
 
@@ -1621,6 +1643,36 @@ pub const EXAMPLE_FILES: &[(&str, &str, &str)] = &[(
 )];
 
 /// Copy the example plugins into the plugin folder, leaving any that already exist.
+/// Earlier versions of the bundled plugins' scripts (SHA-256), replaced by the current
+/// version when a copy on disk still matches one exactly, so fixes reach people who never
+/// edited them.
+const EARLIER_EXAMPLES: &[(&str, &str)] = &[(
+    "subsonic",
+    "62f1f6b31fb90aa09fd19f8aee0ee31b40437b696474135b3f121de2c812bebd",
+)];
+
+/// Bring unedited copies of the bundled plugins up to date. Returns how many changed.
+pub fn update_examples(folder: &Path) -> usize {
+    use sha2::{Digest, Sha256};
+    let mut updated = 0;
+    for (name, manifest, script) in EXAMPLES {
+        let path = folder.join(name).join("main.rhai");
+        let Ok(current) = std::fs::read(&path) else {
+            continue;
+        };
+        let hash = format!("{:x}", Sha256::digest(&current));
+        if current != script.as_bytes()
+            && EARLIER_EXAMPLES.contains(&(name, hash.as_str()))
+            && std::fs::write(&path, script).is_ok()
+        {
+            let _ = std::fs::write(folder.join(name).join("plugin.toml"), manifest);
+            crate::logfile::info(format!("Updated the bundled plugin {name}"));
+            updated += 1;
+        }
+    }
+    updated
+}
+
 pub fn install_examples(library: &Library) -> Result<usize> {
     let folder = library.directory.join("plugins");
     let mut installed = 0;
@@ -1838,7 +1890,11 @@ mod tests {
             host.send(PluginEvent::SourceSignIn {
                 plugin: "subsonic".into(),
                 fields: [
-                    ("server".to_string(), format!("{server}/")),
+                    // Typed without http://: the plugin tries https first, then plain http.
+                    (
+                        "server".to_string(),
+                        format!("{}/", server.trim_start_matches("http://")),
+                    ),
                     ("username".to_string(), "willow".to_string()),
                     ("password".to_string(), password.to_string()),
                 ]
@@ -1848,6 +1904,13 @@ mod tests {
         sign_in("wrong");
         let refused = wait(|| source().and_then(|s| s.error));
         assert_eq!(refused, "Wrong username or password");
+        let first = requests
+            .lock()
+            .unwrap()
+            .first()
+            .cloned()
+            .unwrap_or_default();
+        assert!(first.contains("/rest/ping.view"), "{first}");
         assert!(!source().unwrap().signed_in);
 
         sign_in("hunter2");
@@ -1944,6 +2007,46 @@ mod tests {
         host.send(PluginEvent::SourceSignOut("subsonic".into()));
         wait(|| source().filter(|s| !s.signed_in && s.songs == 0));
         assert!(library.track(&hey.id).unwrap().unwrap().missing);
+    }
+
+    /// Unedited copies of an earlier bundled plugin are brought up to date; edited ones are not.
+    #[test]
+    fn bundled_plugins_update_unless_edited() {
+        let dir = tempfile::tempdir().unwrap();
+        let folder = dir.path();
+        let earlier = include_str!("../testdata/subsonic-1.0.0.rhai");
+        std::fs::create_dir_all(folder.join("subsonic")).unwrap();
+        std::fs::write(folder.join("subsonic/main.rhai"), earlier).unwrap();
+        assert_eq!(update_examples(folder), 1);
+        let now = std::fs::read_to_string(folder.join("subsonic/main.rhai")).unwrap();
+        assert!(now.contains("\"http://\" + typed"));
+        std::fs::write(
+            folder.join("subsonic/main.rhai"),
+            format!(
+                "{earlier}
+// mine"
+            ),
+        )
+        .unwrap();
+        assert_eq!(update_examples(folder), 0);
+        assert!(
+            std::fs::read_to_string(folder.join("subsonic/main.rhai"))
+                .unwrap()
+                .ends_with("// mine")
+        );
+    }
+
+    /// Network errors say what happened without the link, which can carry a sign-in token.
+    #[test]
+    fn network_errors_leave_out_the_link() {
+        let error = reqwest::blocking::Client::new()
+            .get("http://127.0.0.1:9/rest/ping.view?u=mei&t=secrettoken&s=salt")
+            .timeout(Duration::from_secs(5))
+            .send()
+            .unwrap_err();
+        let text = crate::sources::http_error(&error);
+        assert_eq!(text, "Could not connect to 127.0.0.1:9");
+        assert!(!text.contains("secrettoken"));
     }
 
     /// A plugin that did not ask to use the internet cannot be a source: Needle would fetch
