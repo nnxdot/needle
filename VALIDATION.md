@@ -113,6 +113,10 @@ Opening an existing large library for the first time after this change builds th
 - Film grain is off by default and has a strength slider.
 - Discord Rich Presence uses Needle's own Discord application. A live test with Discord open showed a "Listening" presence named Needle with the uploaded logo and a time bar for eight seconds, confirmed by Discord's reply, and then cleared it. A second live test showed "Listening to Armageddon" with the artist, the album, and the album cover found in the iTunes catalog (Discord proxied the image), with the Needle logo as the small badge. A test checks the cover match: a different artist never counts, and the same song on the same album wins over remixes. It talks only to the local Discord pipe and first checks that the program serving the pipe is a Discord client (Discord, Canary, PTB, Development, Vesktop, Equibop, Legcord, or WebCord); a live check against this PC's Discord passed. Tests cover the activity message (listening type, 2–128 character fields, time bar in milliseconds, paused state without a time bar) and the client name check.
 
+## 1.4.3 checks
+
+- Plugins: a test plugin with `ask` and `opens = ["json"]` gets a typed answer from `ask_text` (with its starting text passed on), and a dropped `.json` file through `on_file_dropped`, from which it writes `themes/<name>.toml` (the folder is made); files over 1 MB are refused. The file picker, the text box on screen, and dropping a file on the window were not tried by hand. `cargo test --workspace` passes.
+
 ## 1.4.2 checks
 
 - Player bar: the quality chip is on its own line above the controls and the volume slider is 150 px (wide windows) or 110 px; a screenshot of a separate copy (its own data folder, playing a generated test tone) shows the chip above a longer slider. The scroll wheel over the volume changes it in 5% steps while the window is active; this was not tried with a real mouse. `cargo test --workspace` passes.

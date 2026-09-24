@@ -11,7 +11,12 @@ use needle_core::{
 
 impl AppView {
     /// Carry out something a plugin asked for.
-    pub(super) fn plugin_action(&mut self, action: HostAction, cx: &mut Context<Self>) {
+    pub(super) fn plugin_action(
+        &mut self,
+        action: HostAction,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
         let items = |this: &Self, ids: Vec<String>| -> Vec<QueueItem> {
             this.library
                 .tracks_by_ids(&ids)
@@ -26,6 +31,11 @@ impl AppView {
         };
         match action {
             HostAction::Notify(text) => self.notify(text),
+            HostAction::Ask {
+                id,
+                plugin,
+                question,
+            } => self.plugin_asks(id, plugin, question, window, cx),
             HostAction::Play(ids) => {
                 let items = items(self, ids);
                 if !items.is_empty() {

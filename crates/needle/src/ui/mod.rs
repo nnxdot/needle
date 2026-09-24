@@ -20,6 +20,7 @@ mod now_playing;
 mod pages;
 mod palette;
 mod panel;
+mod plugin_ask;
 mod plugin_ui;
 mod radio;
 mod remote_ui;
@@ -503,6 +504,8 @@ pub struct AppView {
     theme_editor: Option<themes_ui::Editor>,
     /// The theme whose Delete button was clicked once.
     theme_delete_armed: Option<String>,
+    /// A plugin's question on screen (a box to type in).
+    asking: Option<plugin_ask::Asking>,
     /// Part of a volume step from touchpad scrolling, kept until it makes a whole step.
     volume_scroll: f32,
     /// Songs kept on this computer for each source (counted on another thread).
@@ -908,6 +911,7 @@ impl AppView {
             source_inputs: std::collections::HashMap::new(),
             kept_usage: std::collections::HashMap::new(),
             volume_scroll: 0.,
+            asking: None,
             kept_checked: Instant::now(),
             kept_checking: Default::default(),
         };
@@ -1176,7 +1180,7 @@ impl AppView {
                 Event::Update(result, asked) => self.update_checked(result, asked),
                 Event::UpdateStarted(result) => self.update_started(result, cx),
                 Event::ImportProgress(message) => self.import.busy = Some(message),
-                Event::Plugin(action) => self.plugin_action(action, cx),
+                Event::Plugin(action) => self.plugin_action(action, window, cx),
                 Event::Tray(action) => self.tray_action(action, window, cx),
                 Event::PaletteFound(generation, songs, albums, artists) => {
                     self.palette_found(generation, songs, albums, artists)
@@ -2165,16 +2169,22 @@ impl Render for AppView {
         div()
             .id("needle-app")
             .key_context("Needle")
-            // A theme file dropped on the window is added and chosen.
+            // A theme file dropped on the window is added and chosen; other files go to the
+            // plugin that opens their type.
             .on_drop(cx.listener(|this, paths: &ExternalPaths, window, cx| {
+                let mut others = vec![];
                 for path in paths.paths() {
                     if path
                         .extension()
                         .is_some_and(|e| e.eq_ignore_ascii_case("toml"))
                     {
                         this.import_theme(path, window, cx);
+                    } else {
+                        others.push(path.clone());
                     }
                 }
+                this.drop_to_plugins(&others);
+                cx.notify();
             }))
             .size_full()
             .when(p.back.a >= 1., |el| el.bg(p.canvas))
@@ -2395,5 +2405,6 @@ impl Render for AppView {
             .children(self.speaker_menu_view(cx))
             .children(self.palette_view(cx))
             .children(self.welcome_view(window, cx))
+            .children(self.asking_view(cx))
     }
 }
