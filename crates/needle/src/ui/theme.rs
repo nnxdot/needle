@@ -311,10 +311,11 @@ impl Palette {
             Slot::TextFaint,
             Slot::Accent,
             Slot::Danger,
+            Slot::Success,
         ];
         let mut fixed = None;
         for _ in 0..24 {
-            let surfaces = [p.chrome, p.canvas, p.raised];
+            let surfaces = [p.chrome, p.canvas, p.raised, p.raised_hover];
             let found: Option<Vec<Hsla>> = texts
                 .iter()
                 .map(|slot| readable_version(slot.get(&p), &surfaces, dark))

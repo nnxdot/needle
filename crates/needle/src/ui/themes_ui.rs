@@ -34,28 +34,93 @@ fn all_themes(cx: &App) -> Themes {
 }
 
 impl AppView {
-    /// Read every theme again; re-apply the chosen one if it is custom.
+    /// Read every theme again (after a change Needle made itself).
     pub(super) fn reload_themes(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        cx.set_global(themes::load(&themes::sources(&self.library)));
+        let themes = themes::load(&themes::sources(&self.library));
+        self.use_themes(themes, window, cx);
+    }
+
+    /// Use a fresh reading of the themes: re-apply the chosen one if it is custom, with its
+    /// grain and title font.
+    pub(super) fn use_themes(
+        &mut self,
+        themes: Themes,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        cx.set_global(themes);
         self.themes_checked = Instant::now();
         let mode = self.settings.theme.clone();
         if mode.starts_with("custom:") {
             set_theme(&mode, Some(window), cx);
+            if self.apply_theme_extras(window, cx) {
+                self.persist_settings();
+            }
         }
         self.sync_theme_pickers(window, cx);
         cx.notify();
     }
 
     /// Called from the poll: notice theme files added, changed, or removed outside Needle.
-    pub(super) fn check_themes(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        if self.themes_checked.elapsed().as_millis() < 1500 {
+    /// The files are read on another thread, so a slow disk never holds up the window.
+    pub(super) fn check_themes(&mut self, cx: &mut Context<Self>) {
+        if self.themes_checked.elapsed().as_millis() < 1500
+            || self
+                .themes_checking
+                .swap(true, std::sync::atomic::Ordering::AcqRel)
+        {
             return;
         }
         self.themes_checked = Instant::now();
-        let sources = themes::sources(&self.library);
-        if themes::changed(&all_themes(cx), &sources) {
-            self.reload_themes(window, cx);
-        }
+        let (library, current, sender, busy) = (
+            self.library.clone(),
+            all_themes(cx),
+            self.sender.clone(),
+            self.themes_checking.clone(),
+        );
+        std::thread::spawn(move || {
+            let sources = themes::sources(&library);
+            if themes::changed(&current, &sources) {
+                let _ = sender.send(super::Event::Themes(Box::new(themes::load(&sources))));
+            }
+            busy.store(false, std::sync::atomic::Ordering::Release);
+        });
+    }
+
+    /// Give the chosen custom theme's grain and title font, keeping what was there before
+    /// to put back later; or put that back when the theme has neither. Returns whether
+    /// anything changed.
+    fn apply_theme_extras(&mut self, window: &mut Window, cx: &mut Context<Self>) -> bool {
+        let chosen = all_themes(cx).find(&self.settings.theme).cloned();
+        let extras = chosen
+            .as_ref()
+            .filter(|t| t.grain.is_some() || t.font.is_some());
+        let (grain, font) = match extras {
+            None => match self.settings.theme_extras_before.take() {
+                Some(before) => before,
+                None => return false,
+            },
+            Some(theme) => {
+                if self.settings.theme_extras_before.is_none() {
+                    self.settings.theme_extras_before =
+                        Some((self.settings.grain, self.settings.display_font.clone()));
+                }
+                (
+                    theme.grain.unwrap_or(self.settings.grain),
+                    theme
+                        .font
+                        .clone()
+                        .unwrap_or_else(|| self.settings.display_font.clone()),
+                )
+            }
+        };
+        let changed = grain != self.settings.grain || font != self.settings.display_font;
+        self.settings.grain = grain;
+        self.grain_slider
+            .update(cx, |s, cx| s.set_value(grain, window, cx));
+        theme::set_display_font(&font);
+        self.settings.display_font = font;
+        changed
     }
 
     /// Switch to a look (a built-in one or `custom:<id>`). A custom theme's extras (grain,
@@ -63,17 +128,9 @@ impl AppView {
     pub(super) fn choose_look(&mut self, mode: &str, window: &mut Window, cx: &mut Context<Self>) {
         set_theme(mode, Some(window), cx);
         self.settings.theme = mode.into();
-        if let Some(chosen) = all_themes(cx).find(mode).cloned() {
-            if let Some(grain) = chosen.grain {
-                self.settings.grain = grain;
-                self.grain_slider
-                    .update(cx, |s, cx| s.set_value(grain, window, cx));
-            }
-            if let Some(font) = &chosen.font {
-                theme::set_display_font(font);
-                self.settings.display_font = font.clone();
-            }
-        }
+        // This theme's grain and font come in, or, when it has none, the person's own come
+        // back (the ones kept when a theme first set its own).
+        self.apply_theme_extras(window, cx);
         if self
             .theme_editor
             .as_ref()
@@ -232,15 +289,14 @@ impl AppView {
             return;
         };
         let (look, _) = Palette::custom(&theme, None, false);
+        // Every swatch, including set ones: the file may have been changed elsewhere.
         for (slot, picker) in &editor.pickers {
-            if !theme.colors.contains_key(slot) {
-                let color = slot.get(&look);
-                picker.update(cx, |p, cx| {
-                    if p.value().map(themes::hex) != Some(themes::hex(color)) {
-                        p.set_value(color, window, cx);
-                    }
-                });
-            }
+            let color = slot.get(&look);
+            picker.update(cx, |p, cx| {
+                if p.value().map(themes::hex) != Some(themes::hex(color)) {
+                    p.set_value(color, window, cx);
+                }
+            });
         }
     }
 
@@ -274,7 +330,8 @@ impl AppView {
         cx: &mut Context<Self>,
     ) {
         let result = (|| -> anyhow::Result<CustomTheme> {
-            let text = std::fs::read_to_string(path)?;
+            // Refuses big files before reading them, so this stays quick.
+            let text = themes::read_theme_file(path)?;
             let folder = themes::folder(&self.library.directory);
             let probe = CustomTheme::parse(&text, "import", path)?;
             let id = themes::free_id(&folder, &probe.name);

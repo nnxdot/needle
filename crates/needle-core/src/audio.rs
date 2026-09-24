@@ -794,6 +794,7 @@ impl Worker {
         self.release();
         self.queue.clear_playing();
         self.playing = false;
+        self.loading = None;
     }
     /// Keeps `items` as a paused queue at `position` with no output open.
     /// Toggle resumes from there.

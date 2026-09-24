@@ -212,6 +212,10 @@ pub enum PluginEvent {
     },
 }
 
+/// A source's list stops after this many pages, and nothing is changed: only a plugin
+/// that keeps sending the same page gets there.
+const MAX_SYNC_PAGES: i64 = 100_000;
+
 /// Sources are synced again on start when their last sync is older than this.
 const RESYNC_AFTER: i64 = 30 * 60;
 
@@ -318,7 +322,10 @@ fn run(
                     source.syncing = syncing.contains_key(&id);
                     if source.signed_in
                         && !source.syncing
-                        && source.synced_at.is_none_or(|at| now - at > RESYNC_AFTER)
+                        // A time in the future (the clock went back) counts as stale too.
+                        && source
+                            .synced_at
+                            .is_none_or(|at| at > now || now - at > RESYNC_AFTER)
                     {
                         let _ = tx.send(PluginEvent::SourceSync(id));
                     }
@@ -504,7 +511,9 @@ fn run(
                 let error = result.err();
                 let songs = syncing.entry(plugin.clone()).or_default();
                 songs.extend(list.iter().filter_map(crate::sources::Song::from_value));
-                if error.is_none() && !list.is_empty() && page < 1000 {
+                // Pages until an empty one. The limit only stops a plugin that never ends.
+                let endless = page >= MAX_SYNC_PAGES;
+                if error.is_none() && !list.is_empty() && !endless {
                     let _ = tx.send(PluginEvent::SourceSyncPage {
                         plugin,
                         page: page + 1,
@@ -512,14 +521,13 @@ fn run(
                     continue;
                 }
                 let songs = syncing.remove(&plugin).unwrap_or_default();
-                let (before, _) = crate::sources::status(&library, &plugin);
+                // A server with no songs is a valid answer: its songs are marked missing (not
+                // deleted), and come back with their ratings when it lists them again.
                 let outcome = match error {
                     Some(error) => Err(error),
-                    // An empty answer from a server that had songs is more likely a problem
-                    // than an emptied library, so nothing is marked missing.
-                    None if songs.is_empty() && before > 0 => {
-                        Err("The server sent no songs; nothing was changed".to_string())
-                    }
+                    None if endless && !list.is_empty() => Err(format!(
+                        "The plugin sent more than {MAX_SYNC_PAGES} pages; nothing was changed"
+                    )),
                     None => crate::sources::apply(&library, &plugin, &songs)
                         .map_err(|e| format!("{e:#}")),
                 };
@@ -1453,7 +1461,7 @@ fn effects() {
         "subsonic",
         r#"id = "subsonic"
 name = "Navidrome / Subsonic"
-version = "1.1.0"
+version = "1.2.0"
 author = "nnx"
 description = "Plays the music on your Navidrome or other Subsonic server. Songs are listed with your own and streamed; plays and ratings are saved on the server."
 permissions = ["network"]
@@ -1534,36 +1542,22 @@ fn sign_in(fields) {
     if typed == "" {
         throw "Type your server's address";
     }
+    // Without http:// or https://, only the secure address is tried: the sign-in part of
+    // each request could be copied off a plain-http connection and used again.
+    let plain = typed.starts_with("http://");
+    let server = if plain || typed.starts_with("https://") { typed } else { "https://" + typed };
+    set_setting("server", server);
     set_setting("username", fields.username);
+    set_setting("list_by", "");
     set_secret("password", fields.password);
-    // Without http:// or https://, try the secure address first, then the plain one (many
-    // home servers, such as Navidrome on port 4533, answer only plain http).
-    let choices = if typed.starts_with("http://") || typed.starts_with("https://") {
-        [typed]
-    } else {
-        ["https://" + typed, "http://" + typed]
-    };
-    let done = false;
-    let last = ();
-    for server in choices {
-        if done {
-            break;
-        }
-        set_setting("server", server);
-        try {
-            ask("ping", #{});
-            done = true;
-        } catch (error) {
-            last = error;
-            // A wrong password is an answer: only a failed connection tries the next address.
-            if !(type_of(error) == "string" && error.contains("Could not connect")) {
-                break;
-            }
-        }
-    }
-    if !done {
+    try {
+        ask("ping", #{});
+    } catch (error) {
         sign_out();
-        throw last;
+        if !plain && type_of(error) == "string" && error.contains("Could not connect") {
+            throw `${error} over https. If your server only uses plain http (Navidrome on :4533 often does), type http:// in front of the address. Plain http is not encrypted, so only use it at home or through a VPN.`;
+        }
+        throw error;
     }
 }
 
@@ -1572,15 +1566,8 @@ fn sign_out() {
     delete_secret("password");
 }
 
-// 250 songs a page, until a page comes back empty.
-fn songs(page) {
-    let reply = ask("search3", #{
-        query: "", songCount: 250, songOffset: page * 250, artistCount: 0, albumCount: 0
-    });
-    let found = if reply.searchResult3 != () { reply.searchResult3.song } else { () };
-    if found == () {
-        return [];
-    }
+// The songs of a page, as Needle wants them.
+fn to_songs(found) {
     // One sign-in for all the cover links of this page, so an album's songs share one link.
     let cover_auth = auth();
     let list = [];
@@ -1613,6 +1600,39 @@ fn songs(page) {
         });
     }
     list
+}
+
+// 250 songs a page, until a page comes back empty. Some servers (Ampache) find nothing for
+// an empty search; for those, 20 albums a page with their songs.
+fn songs(page) {
+    if setting("list_by") != "albums" {
+        let reply = ask("search3", #{
+            query: "", songCount: 250, songOffset: page * 250, artistCount: 0, albumCount: 0
+        });
+        let found = if reply.searchResult3 != () { reply.searchResult3.song } else { () };
+        if found != () && found.len() > 0 {
+            return to_songs(found);
+        }
+        if page > 0 {
+            return [];
+        }
+        set_setting("list_by", "albums");
+    }
+    let reply = ask("getAlbumList2", #{ type: "alphabeticalByName", size: 20, offset: page * 20 });
+    let albums = if reply.albumList2 != () { reply.albumList2.album } else { () };
+    if albums == () || albums.len() == 0 {
+        return [];
+    }
+    let found = [];
+    for album in albums {
+        let full = ask("getAlbum", #{ id: album.id });
+        if full.album != () && full.album.song != () {
+            for song in full.album.song {
+                found.push(song);
+            }
+        }
+    }
+    to_songs(found)
 }
 
 // The original file, not a smaller copy.
@@ -1722,6 +1742,10 @@ const EARLIER_EXAMPLES: &[(&str, &str)] = &[
         "subsonic",
         "6ed2b6a5b1f7c0d6018af622b35ccf394ab7dc083ae6c9ed9e895e9b1f22cce8",
     ),
+    (
+        "subsonic",
+        "f66bd34adddf7ee5561fbe38c18ba3a14cb02ff8532b4b5f68921ab7426ce4b1",
+    ),
 ];
 
 /// What Needle installed in a bundled plugin's folder, kept in `.bundled.json`: its
@@ -1733,6 +1757,9 @@ struct Bundled {
     hash: String,
     #[serde(default)]
     kept: Option<String>,
+    /// The files that fingerprint covers (a later version may add files).
+    #[serde(default)]
+    files: Vec<String>,
 }
 const BUNDLED_RECORD: &str = ".bundled.json";
 
@@ -1783,11 +1810,45 @@ fn fingerprint<'a>(files: impl Iterator<Item = (&'a str, Vec<u8>)>) -> String {
 
 /// The fingerprint of a bundled plugin's files as they are on disk now.
 fn fingerprint_on_disk(dir: &Path, name: &str) -> String {
+    let files: Vec<&str> = bundled_files(name).into_iter().map(|(f, _)| f).collect();
+    fingerprint_files(dir, &files)
+}
+
+/// The fingerprint of these files in `dir` as they are now.
+fn fingerprint_files(dir: &Path, files: &[&str]) -> String {
     fingerprint(
-        bundled_files(name)
-            .into_iter()
-            .map(|(file, _)| (file, std::fs::read(dir.join(file)).unwrap_or_default())),
+        files
+            .iter()
+            .map(|file| (*file, std::fs::read(dir.join(file)).unwrap_or_default())),
     )
+}
+
+/// A name for a copy of `file` that no earlier copy has, so no copy is ever replaced:
+/// `main.rhai.mine`, then `main.rhai.mine-2`, and so on.
+fn free_copy_name(dir: &Path, file: &str) -> PathBuf {
+    let mut path = dir.join(format!("{file}.mine"));
+    let mut n = 2;
+    while path.exists() {
+        path = dir.join(format!("{file}.mine-{n}"));
+        n += 1;
+    }
+    path
+}
+
+/// Whether a plugin.toml is the bundled one apart from its version (as in every version of
+/// Needle before records were kept).
+fn manifest_unchanged(dir: &Path, name: &str) -> bool {
+    let bundled = bundled_files(name)
+        .first()
+        .and_then(|(_, m)| toml::from_str::<Manifest>(m).ok());
+    let on_disk = read_manifest(dir).ok();
+    match (bundled, on_disk) {
+        (Some(mut bundled), Some(on_disk)) => {
+            bundled.version = on_disk.version.clone();
+            bundled == on_disk
+        }
+        _ => false,
+    }
 }
 
 /// "1.2.0" is newer than "1.1.9"; missing parts count as 0.
@@ -1818,7 +1879,7 @@ fn write_bundled(dir: &Path, name: &str, keep_copy: bool) -> Result<()> {
     for (file, contents) in &files {
         let path = dir.join(file);
         if keep_copy && path.is_file() && std::fs::read(&path)? != contents.as_bytes() {
-            std::fs::copy(&path, dir.join(format!("{file}.mine")))?;
+            std::fs::copy(&path, free_copy_name(dir, file))?;
         }
         std::fs::write(path, contents)?;
     }
@@ -1826,6 +1887,7 @@ fn write_bundled(dir: &Path, name: &str, keep_copy: bool) -> Result<()> {
         version: bundled_version(name),
         hash: fingerprint(files.iter().map(|(f, c)| (*f, c.as_bytes().to_vec()))),
         kept: None,
+        files: files.iter().map(|(f, _)| f.to_string()).collect(),
     };
     std::fs::write(
         dir.join(BUNDLED_RECORD),
@@ -1838,7 +1900,14 @@ fn write_bundled(dir: &Path, name: &str, keep_copy: bool) -> Result<()> {
 /// them, and which version that was.
 fn unedited_version(dir: &Path, name: &str) -> Option<String> {
     if let Some(record) = read_record(dir) {
-        return (fingerprint_on_disk(dir, name) == record.hash).then_some(record.version);
+        // Compare the files that were written then; a later version may have more.
+        let on_disk = if record.files.is_empty() {
+            fingerprint_on_disk(dir, name)
+        } else {
+            let files: Vec<&str> = record.files.iter().map(String::as_str).collect();
+            fingerprint_files(dir, &files)
+        };
+        return (on_disk == record.hash).then_some(record.version);
     }
     // Installed before records were kept.
     let script = std::fs::read(dir.join("main.rhai")).ok()?;
@@ -1854,10 +1923,12 @@ fn unedited_version(dir: &Path, name: &str) -> Option<String> {
         )
     {
         Some(bundled_version(name))
-    } else if EARLIER_EXAMPLES.contains(&(name, hash.as_str()))
+    } else if (EARLIER_EXAMPLES.contains(&(name, hash.as_str()))
         || bundled_files(name)
             .iter()
-            .any(|(file, contents)| *file == "main.rhai" && script == contents.as_bytes())
+            .any(|(file, contents)| *file == "main.rhai" && script == contents.as_bytes()))
+        // Updating writes plugin.toml too, so it must be unchanged as well.
+        && manifest_unchanged(dir, name)
     {
         // An earlier script, or this one with an earlier plugin.toml.
         Some("0".into())
@@ -1927,6 +1998,16 @@ pub fn keep_changed_plugin(dir: &Path, id: &str) -> Result<()> {
         serde_json::to_string_pretty(&record)?,
     )?;
     Ok(())
+}
+
+/// Install one bundled plugin, unless its folder is already there. Returns whether it was.
+pub fn install_example(library: &Library, name: &str) -> Result<bool> {
+    let dir = library.directory.join("plugins").join(name);
+    if dir.exists() || bundled_files(name).is_empty() {
+        return Ok(false);
+    }
+    write_bundled(&dir, name, false)?;
+    Ok(true)
 }
 
 /// Copy the example plugins into the plugin folder, leaving any that already exist.
@@ -2029,14 +2110,17 @@ mod tests {
     /// A pretend Subsonic server on this computer: it checks the salted password, lists two
     /// songs, streams a WAV, and records every request.
     fn fake_subsonic(password: &'static str) -> (String, Arc<Mutex<Vec<String>>>) {
-        fake_subsonic_with(password, 0)
+        fake_subsonic_with(password, 0, false)
     }
 
     /// `fake_subsonic`, with `filler` more songs on the first page, each with the many extra
     /// fields a real Navidrome sends.
+    /// With `albums_only`, it finds nothing for an empty search (as Ampache does) and lists
+    /// its songs through albums instead.
     fn fake_subsonic_with(
         password: &'static str,
         filler: usize,
+        albums_only: bool,
     ) -> (String, Arc<Mutex<Vec<String>>>) {
         use std::io::{BufRead, BufReader, Write};
         let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
@@ -2105,6 +2189,26 @@ mod tests {
                     ("audio/wav", wav.clone())
                 } else if path.ends_with("/getCoverArt.view") {
                     ("image/png", vec![7u8; 500])
+                } else if path.ends_with("/getAlbumList2.view") {
+                    let list = if param("offset") == "0" {
+                        r#"[{"id":"al-1","name":"WhyKiiiKiii - EP"}]"#
+                    } else {
+                        "[]"
+                    };
+                    (
+                        "application/json",
+                        ok(&format!(r#","albumList2":{{"album":{list}}}"#)).into_bytes(),
+                    )
+                } else if path.ends_with("/getAlbum.view") {
+                    ("application/json", ok(r#","album":{"id":"al-1","song":[
+                        {"id":"s1","title":"Hey Hi","artist":"KiiiKiii","album":"WhyKiiiKiii - EP","albumId":"al-1","suffix":"wav","coverArt":"al-1"},
+                        {"id":"s2","title":"Sweet Sour","artist":"KiiiKiii","album":"WhyKiiiKiii - EP","albumId":"al-1","suffix":"wav","coverArt":"al-1"}
+                    ]}"#).into_bytes())
+                } else if path.ends_with("/search3.view") && albums_only {
+                    (
+                        "application/json",
+                        ok(r#","searchResult3":{}"#).into_bytes(),
+                    )
                 } else if path.ends_with("/search3.view") {
                     if param("songOffset") == "0" {
                         let mut songs = vec![
@@ -2173,17 +2277,30 @@ mod tests {
             host.send(PluginEvent::SourceSignIn {
                 plugin: "subsonic".into(),
                 fields: [
-                    // Typed without http://: the plugin tries https first, then plain http.
-                    (
-                        "server".to_string(),
-                        format!("{}/", server.trim_start_matches("http://")),
-                    ),
+                    // Plain http only when typed (the pretend server has no https).
+                    ("server".to_string(), format!("{server}/")),
                     ("username".to_string(), "willow".to_string()),
                     ("password".to_string(), password.to_string()),
                 ]
                 .into(),
             })
         };
+        // Without http://, only https is tried, and the message says how to use plain http.
+        host.send(PluginEvent::SourceSignIn {
+            plugin: "subsonic".into(),
+            fields: [
+                ("server".to_string(), "127.0.0.1:9".to_string()),
+                ("username".to_string(), "willow".to_string()),
+                ("password".to_string(), "hunter2".to_string()),
+            ]
+            .into(),
+        });
+        let hint = wait(|| source().and_then(|s| s.error));
+        assert!(hint.contains("type http:// in front"), "{hint}");
+        assert!(
+            requests.lock().unwrap().is_empty(),
+            "nothing went over plain http"
+        );
         // An address with something else on it (a missing port, usually) says so.
         host.send(PluginEvent::SourceSignIn {
             plugin: "subsonic".into(),
@@ -2194,7 +2311,11 @@ mod tests {
             ]
             .into(),
         });
-        let lost = wait(|| source().and_then(|s| s.error));
+        let lost = wait(|| {
+            source()
+                .and_then(|s| s.error)
+                .filter(|e| !e.contains("https"))
+        });
         assert!(
             lost.starts_with("No music server at this address"),
             "{lost}"
@@ -2306,10 +2427,48 @@ mod tests {
         assert!(library.track(&hey.id).unwrap().unwrap().missing);
     }
 
+    /// A server that finds nothing for an empty search (Ampache) is listed album by album.
+    #[test]
+    fn servers_without_an_empty_search_are_read_by_album() {
+        let (server, requests) = fake_subsonic_with("pw", 0, true);
+        let dir = tempfile::tempdir().unwrap();
+        let library = Library::open(dir.path()).unwrap();
+        install_examples(&library).unwrap();
+        let host = PluginHost::start(library.clone(), Arc::default(), |_| {});
+        wait(|| Some(host.plugins()).filter(|p| p.len() == EXAMPLES.len()));
+        host.send(PluginEvent::Enable("subsonic".into(), true));
+        let source = || {
+            host.plugins()
+                .into_iter()
+                .find(|p| p.manifest.id == "subsonic")
+                .and_then(|p| p.source)
+        };
+        wait(source);
+        host.send(PluginEvent::SourceSignIn {
+            plugin: "subsonic".into(),
+            fields: [
+                ("server".to_string(), server),
+                ("username".to_string(), "mei".to_string()),
+                ("password".to_string(), "pw".to_string()),
+            ]
+            .into(),
+        });
+        let synced = wait(|| source().filter(|s| s.synced_at.is_some() || s.error.is_some()));
+        assert_eq!(synced.error, None);
+        assert_eq!(synced.songs, 2);
+        assert!(
+            requests
+                .lock()
+                .unwrap()
+                .iter()
+                .any(|r| r.contains("getAlbum.view"))
+        );
+    }
+
     /// A full page from a real server (250 songs with dozens of fields each) fits in a plugin.
     #[test]
     fn a_full_page_of_server_songs_fits() {
-        let (server, _) = fake_subsonic_with("pw", 248);
+        let (server, _) = fake_subsonic_with("pw", 248, false);
         let dir = tempfile::tempdir().unwrap();
         let library = Library::open(dir.path()).unwrap();
         install_examples(&library).unwrap();
@@ -2345,14 +2504,15 @@ mod tests {
         let folder = dir.path();
         let plugin = folder.join("subsonic");
         let read = |file: &str| std::fs::read_to_string(plugin.join(file)).unwrap();
+        let current = bundled_version("subsonic");
 
         // Installed before records were kept, still as shipped: updated, and recorded.
         std::fs::create_dir_all(&plugin).unwrap();
-        std::fs::write(
-            plugin.join("plugin.toml"),
-            "id = \"subsonic\"\nname = \"S\"\nversion = \"1.0.0\"",
-        )
-        .unwrap();
+        // The bundled plugin.toml as it was then: the same but for its version.
+        let old_manifest = bundled_files("subsonic")[0]
+            .1
+            .replace(&format!("version = \"{current}\""), "version = \"1.0.0\"");
+        std::fs::write(plugin.join("plugin.toml"), &old_manifest).unwrap();
         std::fs::write(
             plugin.join("main.rhai"),
             include_str!("../testdata/subsonic-1.0.1.rhai"),
@@ -2360,21 +2520,24 @@ mod tests {
         .unwrap();
         assert_eq!(update_examples(folder), 1);
         assert!(read("main.rhai").contains("Navidrome uses :4533"));
-        assert_eq!(read_record(&plugin).unwrap().version, "1.1.0");
+        assert_eq!(read_record(&plugin).unwrap().version, current);
         assert_eq!(update_examples(folder), 0, "already up to date");
         assert_eq!(bundled_update(&plugin, "subsonic"), None);
 
         // Before records, with the current script but an older plugin.toml: updated.
         std::fs::remove_file(plugin.join(BUNDLED_RECORD)).unwrap();
-        std::fs::write(
-            plugin.join("plugin.toml"),
-            "id = \"subsonic\"
-name = \"S\"
-version = \"1.0.0\"",
-        )
-        .unwrap();
+        std::fs::write(plugin.join("plugin.toml"), &old_manifest).unwrap();
         assert_eq!(update_examples(folder), 1);
-        assert!(read("plugin.toml").contains("1.1.0"));
+        assert!(read("plugin.toml").contains(&current));
+
+        // Before records, with a plugin.toml someone changed (its name): left alone, since
+        // updating would overwrite it.
+        std::fs::remove_file(plugin.join(BUNDLED_RECORD)).unwrap();
+        let renamed = old_manifest.replace("Navidrome / Subsonic", "My server");
+        std::fs::write(plugin.join("plugin.toml"), &renamed).unwrap();
+        assert_eq!(update_examples(folder), 0);
+        assert_eq!(read("plugin.toml"), renamed);
+        write_bundled(&plugin, "subsonic", false).unwrap();
 
         // An older recorded version nobody changed: updated.
         let mut record = read_record(&plugin).unwrap();
@@ -2403,7 +2566,7 @@ version = \"1.0.0\"",
         assert!(read("main.rhai").ends_with("// mine"));
         assert_eq!(
             bundled_update(&plugin, "subsonic").as_deref(),
-            Some("1.1.0")
+            Some(current.as_str())
         );
 
         // Keeping it stops the offer for this version.
@@ -2416,13 +2579,16 @@ version = \"1.0.0\"",
         assert!(!is_official(&folder.join("copycat"), "subsonic"));
         assert!(unedited_version(&plugin, "subsonic").is_none());
 
-        // Taking it replaces the files and keeps the changed script as main.rhai.mine.
+        // Taking it replaces the files and keeps the changed script as main.rhai.mine; a
+        // second update keeps the first copy and adds another.
+        std::fs::write(plugin.join("main.rhai.mine"), "first copy").unwrap();
         take_bundled_update(&plugin, "subsonic").unwrap();
         assert!(!read("main.rhai").ends_with("// mine"));
-        assert!(read("main.rhai.mine").ends_with("// mine"));
+        assert_eq!(read("main.rhai.mine"), "first copy");
+        assert!(read("main.rhai.mine-2").ends_with("// mine"));
         assert_eq!(
             unedited_version(&plugin, "subsonic").as_deref(),
-            Some("1.1.0")
+            Some(current.as_str())
         );
     }
 

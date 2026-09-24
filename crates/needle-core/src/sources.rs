@@ -223,6 +223,7 @@ pub fn apply(library: &Library, plugin: &str, songs: &[Song]) -> Result<Synced> 
         match existing.get(&track.id) {
             Some(old) => {
                 track.added_at = old.added_at;
+                track.modified_at = old.modified_at;
                 track.rating = old.rating;
                 track.play_count = old.play_count;
                 track.last_played = old.last_played;
@@ -232,6 +233,7 @@ pub fn apply(library: &Library, plugin: &str, songs: &[Song]) -> Result<Synced> 
                 track.bpm = old.bpm;
                 if track != *old {
                     synced.updated += 1;
+                    track.modified_at = now;
                     Library::upsert_on(&tx, &track)?;
                 }
             }
@@ -618,7 +620,7 @@ fn download(
     active.insert(target.to_path_buf(), job.clone());
     drop(active);
     let (thread_job, cache) = (job.clone(), cache.to_path_buf());
-    std::thread::Builder::new()
+    let spawned = std::thread::Builder::new()
         .name("needle-stream".into())
         .spawn(move || {
             let job = thread_job;
@@ -637,16 +639,27 @@ fn download(
                 .lock()
                 .unwrap_or_else(|e| e.into_inner())
                 .remove(&job.target);
-            prune(&cache, CACHE_LIMIT);
-        })?;
+            prune_except(&cache, CACHE_LIMIT, Some(&job.target));
+        });
+    if let Err(error) = spawned {
+        // Nothing will ever finish this download: forget it, so the next try starts afresh.
+        ACTIVE
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .remove(&job.target);
+        return Err(error.into());
+    }
     Ok(job)
 }
 
 /// Download the song into its `.part` file, jumping to where a reader waits when the server
 /// can send part of a file, then filling the gaps. Renames it to the cache file when whole.
 fn fetch(job: &Download, link: &str) -> Result<()> {
+    // `timeout` bounds each read of the answer, so a server that goes quiet ends the
+    // download (and frees its place for the next try) instead of hanging it.
     let client = reqwest::blocking::Client::builder()
         .connect_timeout(Duration::from_secs(15))
+        .timeout(STALL)
         .build()?;
     let mut file = std::fs::OpenOptions::new()
         .create(true)
@@ -719,6 +732,15 @@ fn fetch(job: &Download, link: &str) -> Result<()> {
             file.write_all(&buffer[..n])?;
             file.flush()?;
             let mut progress = job.lock();
+            // No song is bigger than the whole cache; a server that keeps sending is wrong.
+            if progress.received + n as u64 > CACHE_LIMIT
+                || progress.total.is_some_and(|t| t > CACHE_LIMIT)
+            {
+                bail!(
+                    "The server sent more than {} GB for one song",
+                    CACHE_LIMIT >> 30
+                );
+            }
             progress.add(at, at + n as u64);
             progress.received += n as u64;
             at += n as u64;
@@ -764,11 +786,18 @@ fn fetch(job: &Download, link: &str) -> Result<()> {
 
 /// Keep the cache under `limit` bytes, removing the files used longest ago.
 pub fn prune(dir: &Path, limit: u64) {
+    prune_except(dir, limit, None);
+}
+
+/// `prune`, leaving `keep` alone (a song that just finished downloading, which the one
+/// waiting for it is about to open).
+fn prune_except(dir: &Path, limit: u64, keep: Option<&Path>) {
     let mut files: Vec<(SystemTime, u64, PathBuf)> = walkdir::WalkDir::new(dir)
         .into_iter()
         .flatten()
         .filter(|e| e.file_type().is_file())
         .filter(|e| e.path().extension().is_none_or(|x| x != "part"))
+        .filter(|e| keep.is_none_or(|keep| e.path() != keep))
         .filter_map(|e| {
             let meta = e.metadata().ok()?;
             Some((
@@ -1063,13 +1092,30 @@ pub fn save_to(track: &Track, folder: &Path) -> Result<PathBuf> {
         .join(clean(track.display_album_artist(), "Unknown artist"))
         .join(clean(&track.album, "Unknown album"));
     std::fs::create_dir_all(&dir)?;
-    let mut destination = dir.join(format!("{name}.{extension}"));
-    let mut n = 2;
-    while destination.exists() {
-        destination = dir.join(format!("{name} ({n}).{extension}"));
-        n += 1;
+    // Claim the name by creating the file, so two saves at once never pick the same one.
+    let mut n = 1;
+    let (destination, mut file) = loop {
+        let path = if n == 1 {
+            dir.join(format!("{name}.{extension}"))
+        } else {
+            dir.join(format!("{name} ({n}).{extension}"))
+        };
+        match std::fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(&path)
+        {
+            Ok(file) => break (path, file),
+            Err(error) if error.kind() == io::ErrorKind::AlreadyExists => n += 1,
+            Err(error) => return Err(error.into()),
+        }
+    };
+    let copied = io::copy(&mut File::open(&local)?, &mut file).and_then(|_| file.sync_all());
+    if let Err(error) = copied {
+        drop(file);
+        let _ = std::fs::remove_file(&destination);
+        return Err(error.into());
     }
-    std::fs::copy(&local, &destination)?;
     Ok(destination)
 }
 
@@ -1132,6 +1178,9 @@ mod tests {
         };
         let first = apply(&library, "sub", &[song("1", "One"), song("2", "Two")]).unwrap();
         assert_eq!((first.added, first.updated, first.gone), (2, 0, 0));
+        // The same list again changes nothing.
+        let same = apply(&library, "sub", &[song("1", "One"), song("2", "Two")]).unwrap();
+        assert_eq!((same.added, same.updated, same.gone), (0, 0, 0));
         assert_eq!(first.covers.len(), 2);
         let id = track_id("sub", "1");
         library

@@ -297,6 +297,10 @@ enum Event {
     ImportProgress(String),
     Plugin(needle_core::plugins::HostAction),
     Tray(tray::TrayAction),
+    /// Theme files changed on disk: the new reading.
+    Themes(Box<themes::Themes>),
+    /// Songs kept on this computer for each source: how many, and bytes.
+    KeptUsage(std::collections::HashMap<String, (usize, u64)>),
     PaletteFound(
         u64,
         Vec<Track>,
@@ -490,10 +494,16 @@ pub struct AppView {
     now_playing_sent: Option<String>,
     /// When the theme files were last looked at.
     themes_checked: Instant,
+    /// A look at the theme files is under way on another thread.
+    themes_checking: std::sync::Arc<std::sync::atomic::AtomicBool>,
     /// The custom theme open in Settings › Appearance.
     theme_editor: Option<themes_ui::Editor>,
     /// The theme whose Delete button was clicked once.
     theme_delete_armed: Option<String>,
+    /// Songs kept on this computer for each source (counted on another thread).
+    kept_usage: std::collections::HashMap<String, (usize, u64)>,
+    kept_checked: Instant,
+    kept_checking: std::sync::Arc<std::sync::atomic::AtomicBool>,
     /// Text boxes of music sources' sign-in forms, by `plugin/field`.
     source_inputs: std::collections::HashMap<String, Entity<InputState>>,
 }
@@ -886,9 +896,13 @@ impl AppView {
             discord_refresh: false,
             now_playing_sent: None,
             themes_checked: Instant::now(),
+            themes_checking: Default::default(),
             theme_editor: None,
             theme_delete_armed: None,
             source_inputs: std::collections::HashMap::new(),
+            kept_usage: std::collections::HashMap::new(),
+            kept_checked: Instant::now(),
+            kept_checking: Default::default(),
         };
         view.refresh(cx);
         view.load_home();
@@ -1039,8 +1053,9 @@ impl AppView {
         }
         self.update_discord();
         self.update_now_playing();
-        self.check_themes(window, cx);
+        self.check_themes(cx);
         self.ensure_source_inputs(window, cx);
+        self.refresh_kept_usage();
         self.update_media_keys();
         self.follow_output();
         self.follow_lyrics();
@@ -1204,6 +1219,8 @@ impl AppView {
                 }
                 Event::ArtistImages(found) => self.artist_images.extend(found),
                 Event::MediaKey(key) => self.media_key(key, window, cx),
+                Event::Themes(themes) => self.use_themes(*themes, window, cx),
+                Event::KeptUsage(usage) => self.kept_usage = usage,
                 Event::ArtFetched => {
                     if let Some(item) = self.playback.current.as_ref()
                         && let Ok(Some(track)) = self.library.track(&item.track.id)
