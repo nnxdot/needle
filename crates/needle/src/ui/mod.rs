@@ -124,6 +124,10 @@ fn without_repeats(text: &str) -> String {
     parts.join(": ")
 }
 
+/// Needle's id on Linux: the window's app id and the launcher's name
+/// (packaging/linux/fyi.nnx.Needle.desktop).
+pub const APP_ID: &str = "fyi.nnx.Needle";
+
 /// The main window's smallest size.
 const MIN_WINDOW: (f32, f32) = (900., 620.);
 
@@ -617,6 +621,8 @@ pub fn run(library: Library, files: Vec<std::path::PathBuf>) -> Result<()> {
                 titlebar: Some(TitleBar::title_bar_options()),
                 // Linux: Needle draws its own title bar, so ask the desktop not to add one.
                 window_decorations: cfg!(target_os = "linux").then_some(WindowDecorations::Client),
+                // Linux desktops find the name and icon through the launcher of this id.
+                app_id: Some(APP_ID.into()),
                 ..Default::default()
             };
             match cx.open_window(options, move |window, cx| {

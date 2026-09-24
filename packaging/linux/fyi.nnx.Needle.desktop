@@ -1,0 +1,13 @@
+[Desktop Entry]
+Type=Application
+Name=Needle
+GenericName=Music Player
+Comment=Your music, in its place
+Exec=needle-desktop %F
+Icon=fyi.nnx.Needle
+Terminal=false
+Categories=AudioVideo;Audio;Player;Music;
+Keywords=music;player;audio;flac;lyrics;
+MimeType=audio/flac;audio/mpeg;audio/mp4;audio/x-m4a;audio/ogg;audio/opus;audio/x-wav;audio/wav;audio/aac;audio/x-aiff;audio/x-ape;audio/x-wavpack;audio/x-dsf;
+StartupWMClass=fyi.nnx.Needle
+StartupNotify=true
