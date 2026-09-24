@@ -278,6 +278,19 @@ impl AppView {
                 Page::History,
                 cx,
             ))
+            .children({
+                let sources = self.signed_in_sources();
+                (!sources.is_empty()).then(|| self.section("Servers", cx))
+            })
+            .children(self.signed_in_sources().into_iter().map(|(plugin, name)| {
+                self.nav_item(
+                    SharedString::from(format!("nav-source-{plugin}")),
+                    name.clone(),
+                    "globe",
+                    Page::Source { plugin, name },
+                    cx,
+                )
+            }))
             .child(
                 self.section("Playlists", cx)
                     .justify_between()
@@ -510,10 +523,18 @@ impl AppView {
             .flex()
             .items_center()
             .gap_4()
-            // Now playing
+            // Now playing (right-click for the song's menu)
             .child(
                 div()
                     .w(px(if wide { 320. } else { 250. }))
+                    .when_some(current.clone(), |el, track| {
+                        el.on_mouse_down(
+                            MouseButton::Right,
+                            cx.listener(move |this, event: &MouseDownEvent, _, cx| {
+                                this.open_playing_menu(track.clone(), event.position, cx)
+                            }),
+                        )
+                    })
                     .flex_shrink_0()
                     .flex()
                     .items_center()

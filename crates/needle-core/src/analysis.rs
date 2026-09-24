@@ -229,7 +229,8 @@ pub struct Duplicate {
     pub exact_file: bool,
 }
 pub fn duplicates(library: &Library, expression: &str) -> Result<Vec<Duplicate>> {
-    let tracks = library.search(expression)?;
+    let mut tracks = library.search(expression)?;
+    tracks.retain(|t| !t.is_streamed());
     if tracks.len() > 5000 {
         bail!("Narrow the duplicate scan to at most 5,000 tracks using a query")
     }

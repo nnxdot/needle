@@ -32,6 +32,7 @@ pub mod radio;
 pub mod remote;
 pub mod scan;
 mod secrets;
+pub mod sources;
 pub mod stems;
 pub mod sync;
 pub mod update;

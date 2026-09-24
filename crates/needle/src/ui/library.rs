@@ -392,6 +392,31 @@ impl AppView {
                                     cx.listener(|this, _, _, cx| this.play_view(0, true, cx)),
                                 ),
                         )
+                        .when(
+                            matches!(self.page, Page::Album { .. })
+                                && !self.tracks.is_empty()
+                                && self.tracks.iter().all(|t| t.is_streamed()),
+                            |el| {
+                                let kept = self.tracks.iter().all(needle_core::sources::is_kept);
+                                let ids: Vec<String> =
+                                    self.tracks.iter().map(|t| t.id.clone()).collect();
+                                el.child(
+                                    icon_button(
+                                        "album-keep",
+                                        if kept { "pin-fill" } else { "pin" },
+                                        if kept {
+                                            "Stop keeping this album on this computer"
+                                        } else {
+                                            "Keep this album on this computer, to play without the network"
+                                        },
+                                    )
+                                    .on_click(cx.listener(move |this, _, _, cx| {
+                                        this.keep_streamed(&ids, !kept);
+                                        cx.notify();
+                                    })),
+                                )
+                            },
+                        )
                         .when_some(
                             match &self.page {
                                 Page::Artist(name) => Some(name.clone()),
@@ -629,6 +654,11 @@ impl AppView {
                     "Nothing added in the last 30 days".into(),
                     "New files in your music folders appear here automatically.".into(),
                     &[Step::AddFolder],
+                ),
+                Page::Source { name, .. } => (
+                    format!("No songs from {name} yet"),
+                    "Needle is getting the list of songs, or the server has none. Check Settings › Plugins.".into(),
+                    &[Step::Songs],
                 ),
                 Page::Playlist(_) => (
                     "This playlist is empty".into(),
@@ -964,7 +994,7 @@ impl AppView {
                         }),
                     ),
             )
-            .child(
+            .child(with_scrollbar(
                 uniform_list(
                     "track-list",
                     self.tracks.len(),
@@ -979,7 +1009,8 @@ impl AppView {
                 .track_scroll(self.list_scroll.clone())
                 .flex_1()
                 .pb_4(),
-            )
+                &self.list_scroll,
+            ))
     }
 
     fn track_row(
@@ -1241,7 +1272,7 @@ impl AppView {
         let columns = ((inner + gap) / (172. + gap)).floor().max(1.) as usize;
         let tile = (inner - gap * (columns as f32 - 1.)) / columns as f32;
         let rows = self.groups.len().div_ceil(columns);
-        uniform_list(
+        let list = uniform_list(
             "group-grid",
             rows,
             cx.processor(move |this, range: std::ops::Range<usize>, _, cx| {
@@ -1256,7 +1287,8 @@ impl AppView {
             }),
         )
         .track_scroll(self.grid_scroll.clone())
-        .flex_1()
+        .flex_1();
+        with_scrollbar(list, &self.grid_scroll)
     }
 
     fn tile(&self, index: usize, size: f32, round: bool, cx: &mut Context<Self>) -> Stateful<Div> {
@@ -1335,4 +1367,17 @@ pub fn human_duration(seconds: f64) -> String {
     } else {
         format!("{minutes} min")
     }
+}
+
+/// A long list with a scrollbar on its right that can be dragged (the wheel still works).
+fn with_scrollbar(list: impl IntoElement, handle: &UniformListScrollHandle) -> Div {
+    use gpui_component::scroll::{Scrollbar, ScrollbarShow};
+    div()
+        .relative()
+        .flex_1()
+        .min_h_0()
+        .flex()
+        .flex_col()
+        .child(list)
+        .child(Scrollbar::vertical(handle).scrollbar_show(ScrollbarShow::Always))
 }

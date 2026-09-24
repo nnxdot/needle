@@ -92,6 +92,10 @@ impl AppView {
 
     /// Download the model if needed, then split `track`. Runs in the background.
     pub(super) fn separate(&mut self, track: Track, cx: &mut Context<Self>) {
+        if track.is_streamed() {
+            return self
+                .fail("Songs on a music server cannot be split. Save it to your music first.");
+        }
         if self.stems.job.is_some() {
             return self.fail("Another song is being split. Wait for it, or stop it first.");
         }

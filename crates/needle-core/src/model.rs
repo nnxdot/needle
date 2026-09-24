@@ -1,6 +1,6 @@
 use serde::{Deserialize, Serialize};
 
-#[derive(Clone, Debug, Default, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct Track {
     pub id: String,
@@ -53,6 +53,15 @@ impl Track {
     /// The audio file to decode: the album file for a CUE track, else the track's own file.
     pub fn audio_path(&self) -> &str {
         self.cue.as_ref().map_or(&self.path, |c| &c.audio)
+    }
+    /// A song from a music source (a server a plugin connects to), streamed rather than a file
+    /// on this computer. Its path is `source://<plugin>/<id>`.
+    pub fn is_streamed(&self) -> bool {
+        self.path.starts_with(crate::sources::SCHEME)
+    }
+    /// For a streamed song: the plugin that brings it, and its id on the server.
+    pub fn source(&self) -> Option<(&str, String)> {
+        crate::sources::parse_path(&self.path)
     }
     /// The file on disk this track comes from: the `.cue` sheet for a CUE track.
     pub fn file_path(&self) -> &str {
@@ -166,6 +175,9 @@ pub struct Settings {
     pub discord_idle_minutes: u32,
     /// Font for page titles: "system", "bahnschrift", or "fraunces".
     pub display_font: String,
+    /// The grain and title font someone had before a custom theme set its own; put back
+    /// when they choose a look without them.
+    pub theme_extras_before: Option<(f32, String)>,
     /// Color for the interface when colors from the music are off: a hex color like
     /// "#3e63dd", or empty for Needle's amber.
     pub accent_color: String,
@@ -233,6 +245,7 @@ impl Default for Settings {
             discord_paused: true,
             discord_idle_minutes: 10,
             display_font: "system".into(),
+            theme_extras_before: None,
             accent_color: String::new(),
             ambient: false,
             crossfade: 0.,

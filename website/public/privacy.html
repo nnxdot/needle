@@ -47,6 +47,7 @@
     <nav aria-label="Main navigation">
       <a href="/#features">Features</a>
       <a href="/plugins">Plugins</a>
+      <a href="/themes">Themes</a>
       <a href="/help">Help</a>
       <a class="nav-cta" href="/#download">Download</a>
     </nav>
@@ -108,10 +109,11 @@
             <tbody>
               <tr><td>Lyrics, covers, and artist photos</td><td>LRCLIB, Apple (iTunes Search), MusicBrainz, Cover Art Archive, Wikidata, Wikimedia Commons</td><td>The artist, album, and song title, and the song's length for lyrics.</td></tr>
               <tr><td>Discord status</td><td>Discord, on your computer. For covers, Apple (iTunes Search).</td><td>What you are playing, to the Discord app on your computer. For covers: the artist and song title.</td></tr>
-              <tr><td>Scrobbling</td><td>Last.fm, ListenBrainz</td><td>The songs you listen to, and when, to the account you connect.</td></tr>
+              <tr><td>Scrobbling</td><td>Last.fm, ListenBrainz. For fixing artist names, Apple (iTunes Search).</td><td>The songs you listen to, and when, and the song playing now, to the account you connect. To fix artist names: the artist, song, and album.</td></tr>
               <tr><td>Fix my library</td><td>MusicBrainz, Cover Art Archive</td><td>The album and artist names you look up.</td></tr>
               <tr><td>Identify a song</td><td>AcoustID</td><td>A fingerprint of the sound (not the sound itself) and its length, with your own AcoustID key.</td></tr>
               <tr><td>Stems</td><td>Hugging Face</td><td>A download of the stem model, once. Nothing about your music.</td></tr>
+              <tr><td>Music servers</td><td>Your own server (Navidrome or another Subsonic server)</td><td>Your user name and a salted token (never the password itself), what you play and when, and your ratings of its songs. Songs stream from your server; the last 2 GB played are kept on this computer.</td></tr>
               <tr><td>Plugins</td><td>What the plugin uses</td><td>Only plugins you turn on that ask for the "network" permission can go online. Check a plugin before you turn it on.</td></tr>
             </tbody>
           </table>
@@ -130,7 +132,7 @@
       <section id="data">
         <h2>Your data</h2>
         <p>Needle's data folder is <code>%LOCALAPPDATA%\nnx\Needle\data</code>. It holds the library database, covers, backups of tags Needle changed, plugins, and logs. The log file is <code>logs\needle.log</code>. It stays on your computer unless you share it. Uninstalling Needle leaves this folder, so you do not lose your history; delete it to remove everything.</p>
-        <p>Passwords and keys for Last.fm, ListenBrainz, and AcoustID are kept in Windows Credential Manager, not in Needle's files.</p>
+        <p>Passwords and keys for Last.fm, ListenBrainz, AcoustID, and music servers are kept in Windows Credential Manager, not in Needle's files.</p>
       </section>
 
       <section id="changes">
@@ -155,6 +157,7 @@
       <span>© 2026 NNX</span>
       <nav aria-label="Footer navigation">
         <a href="/plugins">Plugins</a>
+        <a href="/themes">Themes</a>
         <a href="/help">Help</a>
         <a href="/privacy">Privacy</a>
         <a href="https://nnx.fyi/">NNX</a>

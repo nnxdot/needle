@@ -111,6 +111,7 @@ impl AppView {
             .flex()
             .flex_col()
             .gap_3()
+            .children(self.music_server_card(cx))
             .child(
                 div()
                     .flex()
@@ -140,7 +141,11 @@ impl AppView {
             .when(list.is_empty(), |el| {
                 el.child(meta("No plugins yet. Add the examples, or put a plugin folder in the plugins folder and press Reload.", cx))
             })
-            .children(list.into_iter().enumerate().map(|(i, plugin)| {
+            .children({
+                // Official plugins first, then the ones people added, each under a heading.
+                let mut list = list;
+                list.sort_by_key(|plugin| !plugin.official);
+                let mut card = |i: usize, plugin: plugins::PluginInfo| {
                 let id = plugin.manifest.id.clone();
                 let enabled = plugin.enabled;
                 div()
@@ -171,7 +176,32 @@ impl AppView {
                                         if plugin.manifest.version.is_empty() { String::new() } else { format!("  {}", plugin.manifest.version) }
                                     )))
                                     .when(!plugin.manifest.description.is_empty(), |el| el.child(meta(plugin.manifest.description.clone(), cx).w_full()))
-                                    .when(!plugin.manifest.author.is_empty(), |el| el.child(faint(format!("By {}", plugin.manifest.author), cx))),
+                                    .when(!plugin.manifest.author.is_empty(), |el| {
+                                        el.child(
+                                            div()
+                                                .id(("plugin-author", i))
+                                                .flex()
+                                                .items_center()
+                                                .gap_1()
+                                                .child(faint(format!("By {}", plugin.manifest.author), cx))
+                                                .when(plugin.verified, |el| {
+                                                    el.child(
+                                                        super::widgets::glyph("check")
+                                                            .size(px(13.))
+                                                            .text_color(p.accent),
+                                                    )
+                                                    .tooltip(|window, cx| {
+                                                        gpui_component::tooltip::Tooltip::new(
+                                                            "Verified: comes with Needle and is unchanged",
+                                                        )
+                                                        .build(window, cx)
+                                                    })
+                                                })
+                                                .when(plugin.official && !plugin.verified, |el| {
+                                                    el.child(faint("· changed by you", cx))
+                                                }),
+                                        )
+                                    }),
                             )
                             .child(Switch::new(("plugin-on", i)).checked(enabled).on_click(cx.listener(move |this, checked: &bool, _, cx| {
                                 this.plugins.send(PluginEvent::Enable(id.clone(), *checked));
@@ -195,6 +225,36 @@ impl AppView {
                     .when(!enabled && !plugin.manifest.permissions.is_empty(), |el| el.child(faint("Turning it on allows everything listed above.", cx)))
                     .when(enabled && !plugin.effects.is_empty(), |el| el.child(faint(format!("Adds to Sound › Effects: {}.", plugin.effects.join(", ")), cx).w_full()))
                     .when_some(plugin.error.clone(), |el, error| el.child(meta(error, cx).w_full().text_color(p.danger)))
+                    .children(self.source_block(&plugin, cx))
+                    .when_some(plugin.update.clone(), |el, version| {
+                        let (take, keep) = (plugin.manifest.id.clone(), plugin.manifest.id.clone());
+                        el.child(
+                            div()
+                                .p_3()
+                                .rounded(px(8.))
+                                .bg(p.raised)
+                                .flex()
+                                .items_center()
+                                .gap_3()
+                                .child(
+                                    meta(
+                                        format!("Version {version} is out. You changed this plugin, so Needle left it alone. Updating keeps your changed files next to it as .mine files."),
+                                        cx,
+                                    )
+                                    .flex_1()
+                                    .min_w_0()
+                                    .w_full(),
+                                )
+                                .child(small_button(("plugin-update", i), "Update").on_click(cx.listener(move |this, _, _, cx| {
+                                    this.plugins.send(PluginEvent::TakeUpdate(take.clone()));
+                                    cx.notify();
+                                })))
+                                .child(small_button(("plugin-keep", i), "Keep mine").ghost().on_click(cx.listener(move |this, _, _, cx| {
+                                    this.plugins.send(PluginEvent::KeepChanged(keep.clone()));
+                                    cx.notify();
+                                }))),
+                        )
+                    })
                     .when(enabled, |el| {
                         el.child(div().flex().gap_2().children(plugin.commands.iter().filter(|c| !c.for_tracks).enumerate().map(|(j, command)| {
                             let (plugin, command_id) = (command.plugin.clone(), command.id.clone());
@@ -203,7 +263,26 @@ impl AppView {
                             }))
                         })))
                     })
-            }))
+                };
+                let mut out: Vec<AnyElement> = vec![];
+                let mut heading = None;
+                for (i, plugin) in list.into_iter().enumerate() {
+                    if heading != Some(plugin.official) {
+                        heading = Some(plugin.official);
+                        out.push(
+                            div()
+                                .mt_2()
+                                .text_size(px(12.))
+                                .font_weight(FontWeight::SEMIBOLD)
+                                .text_color(p.ink_3)
+                                .child(if plugin.official { "Official" } else { "Community" })
+                                .into_any_element(),
+                        );
+                    }
+                    out.push(card(i, plugin).into_any_element());
+                }
+                out
+            })
             .child(faint("Plugins are Rhai scripts in their own folders. Each one lists what it may do, and nothing runs until you turn it on. Learn to write one at needle.nnx.fyi/plugins.", cx).w_full())
     }
 }

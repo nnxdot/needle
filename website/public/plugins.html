@@ -47,6 +47,7 @@
     <nav aria-label="Main navigation">
       <a href="/#features">Features</a>
       <a href="/plugins" aria-current="page">Plugins</a>
+      <a href="/themes">Themes</a>
       <a href="/help">Help</a>
       <a class="nav-cta" href="/#download">Download</a>
     </nav>
@@ -65,6 +66,7 @@
       <a href="#dsp">DSP code</a>
       <a href="#functions">Functions</a>
       <a href="#data">Songs and listens</a>
+      <a href="#sources">Music sources</a>
       <a href="#limits">Limits and safety</a>
       <a href="#examples">Examples</a>
       <a href="#trouble">When something goes wrong</a>
@@ -95,7 +97,7 @@ author = "you"</code></pre></li>
 }</code></pre></li>
           <li>Back in Needle, press <b>Reload</b>. Your plugin shows in the list. Turn it on, then play a song.</li>
         </ol>
-        <p>Every time you change a file, press <b>Reload</b> to load it again. To see finished plugins, press <b>Add example plugins</b>. Needle then copies six examples into the folder (see <a href="#examples">Examples</a>).</p>
+        <p>Every time you change a file, press <b>Reload</b> to load it again. To see finished plugins, press <b>Add example plugins</b>. Needle then copies seven examples into the folder (see <a href="#examples">Examples</a>).</p>
       </section>
 
       <section id="manifest">
@@ -336,7 +338,7 @@ fn run(command, ids) {
               <dt><code>rating</code></dt><dd>0 to 5.</dd>
               <dt><code>play_count</code></dt><dd>How many times it was played.</dd>
               <dt><code>format</code></dt><dd>Such as <code>"FLAC"</code> or <code>"MP3"</code>.</dd>
-              <dt><code>path</code></dt><dd>Where the file is on this computer.</dd>
+              <dt><code>path</code></dt><dd>Where the file is on this computer. For a song from a <a href="#sources">source</a>, <code>source://plugin/id</code>, and the map also has <code>source</code> (the plugin's id) and <code>source_id</code> (the server's id).</dd>
             </dl>
           </div>
           <div>
@@ -352,20 +354,64 @@ fn run(command, ids) {
         </div>
       </section>
 
+      <section id="sources">
+        <h2>Music sources</h2>
+        <p>A source plugin brings songs from a server: its songs show in Needle next to your own files, stream when they play, and can be queued, cast, rated, scrobbled, and added to playlists. Needle comes with one for Navidrome and other Subsonic servers; press <b>Set up</b> at the top of <b>Settings › Plugins</b>, or read its <code>main.rhai</code> after <b>Add example plugins</b>.</p>
+        <p>A source needs the <code>"network"</code> permission, because Needle downloads the links it gives. Sources are for music you own, bought, or that is free to stream. Do not write one for services with copy protection or terms that forbid other players, such as Spotify, Apple Music, Tidal, or YouTube Music.</p>
+        <div class="table">
+          <table>
+            <thead><tr><th>Function</th><th>Needed</th><th>What it does</th></tr></thead>
+            <tbody>
+              <tr><td><code>source()</code></td><td>Yes</td><td>Returns <code>#{ name, fields }</code>: the name people see, and the boxes of the sign-in form. Each field is <code>#{ id, label, placeholder, secret }</code>; typed text in a <code>secret</code> field is hidden.</td></tr>
+              <tr><td><code>signed_in()</code></td><td>Yes</td><td>Returns <code>true</code> when the plugin has what it needs to reach the server.</td></tr>
+              <tr><td><code>sign_in(fields)</code></td><td>Yes</td><td>Gets a map of what was typed, by field id. Save it (the password with <code>set_secret</code>), check it with the server, and <code>throw</code> a message if it is wrong. Needle shows the message under the form.</td></tr>
+              <tr><td><code>sign_out()</code></td><td>No</td><td>Forget what <code>sign_in</code> saved. The source's songs stay in the library, marked missing, with their ratings and plays, until you sign in again.</td></tr>
+              <tr><td><code>songs(page)</code></td><td>Yes</td><td>Returns one page of songs, from page 0, as a list of <a href="#source-song">source songs</a>. Needle asks for the next page until one is empty. A page of 250 songs is a good size.</td></tr>
+              <tr><td><code>stream(id)</code></td><td>Yes</td><td>Returns an <code>http://</code> or <code>https://</code> link to the song's audio.</td></tr>
+              <tr><td><code>playing(id)</code></td><td>No</td><td>A song from this source started.</td></tr>
+              <tr><td><code>played(id, started_at)</code></td><td>No</td><td>A song from this source counts as played (half of it, or 4 minutes). <code>started_at</code> is in seconds since 1970.</td></tr>
+              <tr><td><code>rate(id, stars)</code></td><td>No</td><td>A song from this source was rated in Needle, from 0 to 5.</td></tr>
+            </tbody>
+          </table>
+        </div>
+        <p>Needle gets the whole list of songs when someone signs in, when Needle starts (at most every 30 minutes), and when they press <b>Update now</b>. A song the server no longer lists is marked missing, never deleted. Songs stream into a cache as they play; the last 2 GB played stay on the computer and play again without the network. Jumping ahead in a song that is still downloading asks the server for that part first, when the server allows it. The song after the next one downloads ahead of time. <b>Keep on this computer</b> (in a song's menu, or the pin on a server album's page) downloads songs to play without the network and never clears them. Tag editing, stems, Fix my library, and measuring for radio skip server songs; <b>Save to my music</b> in a song's menu downloads it into the first music folder as a normal file.</p>
+        <h3 id="source-song">Source song</h3>
+        <dl class="fields">
+          <dt><code>id</code>, <code>title</code></dt><dd>Needed. The server's id for the song (text or a number), and its title.</dd>
+          <dt><code>artist</code>, <code>album</code>, <code>album_artist</code>, <code>genre</code></dt><dd>Text.</dd>
+          <dt><code>year</code>, <code>track</code>, <code>disc</code></dt><dd>Numbers.</dd>
+          <dt><code>duration</code></dt><dd>Length in seconds.</dd>
+          <dt><code>format</code></dt><dd>The file type, such as <code>"flac"</code>, <code>"mp3"</code>, or <code>"m4a"</code>. FLAC, MP3, WAV, AAC (ADTS), M4A, MP4, M4B, ALAC, and Ogg Vorbis (OGA) start playing while they download; other types download first.</dd>
+          <dt><code>bitrate</code>, <code>sample_rate</code>, <code>bit_depth</code>, <code>channels</code>, <code>size</code></dt><dd>Numbers, shown in Needle's quality column (kbit/s, Hz, bits, channels, bytes).</dd>
+          <dt><code>cover</code></dt><dd>A link to the cover. Songs with the same link share one download.</dd>
+          <dt><code>musicbrainz_id</code></dt><dd>The MusicBrainz recording id, if the server knows it.</dd>
+        </dl>
+        <p>Numbers may also be text; empty or missing fields are fine.</p>
+        <h3>Helpers for servers</h3>
+        <dl class="api">
+          <dt><code>secret(key)</code>, <code>set_secret(key, value)</code>, <code>delete_secret(key)</code></dt><dd>Keep a password or token in Windows Credential Manager, under this plugin's name, instead of in Needle's files. Always allowed.</dd>
+          <dt><code>md5(text)</code></dt><dd>The MD5 hash of the text, as 32 hex digits (Subsonic's salted sign-in uses it).</dd>
+          <dt><code>random_text(length)</code></dt><dd>Random letters and digits.</dd>
+          <dt><code>url_encode(text)</code></dt><dd>Text made safe for a web address.</dd>
+        </dl>
+      </section>
+
       <section id="limits">
         <h2>Limits and safety</h2>
         <ul class="points">
           <li>Plugins start turned off. A new or changed plugin does nothing until someone turns it on.</li>
           <li>Plugins run on their own thread. A slow plugin cannot freeze Needle's window or make the music skip.</li>
           <li>Each call can do about 2 million steps. After that, Needle stops it and shows a message, so a loop that never ends cannot hang Needle.</li>
-          <li>Other limits: calls 48 deep, text up to 1 MB, lists up to 50,000 items, maps up to 10,000 keys. <code>eval</code> is not available.</li>
+          <li>Other limits: calls 48 deep, text up to 1 MB, lists up to 50,000 items, maps up to 200,000 keys (counting everything inside them). <code>eval</code> is not available.</li>
           <li>An error in one plugin stays in that plugin. Needle shows it under the plugin's name in Settings, and the other plugins keep working.</li>
         </ul>
       </section>
 
       <section id="examples">
         <h2>Examples</h2>
-        <p>Press <b>Add example plugins</b> in Settings to get these six. Open their folders to read or change them. The last two add sound effects: <b>Studio effects</b> (Room, Echo, Night mode, and Old radio, made from blocks) and <b>Bitcrusher</b> (DSP code in WebAssembly text).</p>
+        <p>Press <b>Add example plugins</b> in Settings to get these seven. Open their folders to read or change them. Two add sound effects: <b>Studio effects</b> (Room, Echo, Night mode, and Old radio, made from blocks) and <b>Bitcrusher</b> (DSP code in WebAssembly text). <b>Navidrome / Subsonic</b> is a <a href="#sources">music source</a>.</p>
+        <p>Needle updates these plugins by itself when a new version of Needle has a newer one, as long as you have not changed them. If you have, Settings shows <b>Update</b>, which keeps your changed files next to the new ones as <code>.mine</code> files, and <b>Keep mine</b>.</p>
+        <p>Settings lists these under <b>Official</b>, and plugins you add under <b>Community</b>. An official plugin whose files are exactly as Needle installed them has a check mark next to its author. Once you change it, it says <i>changed by you</i> instead.</p>
 
         <h3>Now playing to a file</h3>
         <p>Keeps <code>now-playing.txt</code> up to date, for streaming software such as OBS. Needs <code>"files"</code>.</p>
@@ -449,6 +495,7 @@ fn run(command, ids) {
       <span>© 2026 NNX</span>
       <nav aria-label="Footer navigation">
         <a href="/plugins">Plugins</a>
+        <a href="/themes">Themes</a>
         <a href="/help">Help</a>
         <a href="/privacy">Privacy</a>
         <a href="https://nnx.fyi/">NNX</a>

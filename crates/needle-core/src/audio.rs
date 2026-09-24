@@ -660,6 +660,9 @@ struct Worker {
     stems: Option<(String, std::path::PathBuf)>,
     /// The last queued song's ending, which the next song may crossfade over.
     ending: Option<(Track, Arc<crate::crossfade::Ending>)>,
+    /// A song from a music server that is connecting: shown as playing (at 0:00) until its
+    /// first samples arrive, so the old song does not stay on screen meanwhile.
+    loading: Option<QueueItem>,
 }
 impl Worker {
     fn new(
@@ -705,6 +708,7 @@ impl Worker {
             started_rx,
             epoch: 0,
             listen: None,
+            loading: None,
             last_tick: Instant::now(),
             playing: false,
             loop_range: None,
@@ -790,6 +794,7 @@ impl Worker {
         self.release();
         self.queue.clear_playing();
         self.playing = false;
+        self.loading = None;
     }
     /// Keeps `items` as a paused queue at `position` with no output open.
     /// Toggle resumes from there.
@@ -871,6 +876,7 @@ impl Worker {
     }
     fn play(&mut self, items: Vec<QueueItem>) -> Result<()> {
         self.close();
+        self.loading = None;
         self.queue.load(items);
         if self.queue.pending.is_empty() {
             return Ok(());
@@ -941,6 +947,18 @@ impl Worker {
             let Some(item) = self.queue.pending.pop_front() else {
                 break;
             };
+            // The song that plays next is on a server and not kept here yet: connecting can
+            // take a moment, so show it straight away.
+            if self.sink.as_ref().unwrap().empty()
+                && item.track.is_streamed()
+                && !crate::sources::is_cached(&item.track)
+            {
+                self.loading = Some(item.clone());
+                let mut state = self.state.lock().unwrap();
+                state.current = Some(item.clone());
+                state.position = 0.;
+                state.error = None;
+            }
             let stems = self
                 .stems
                 .as_ref()
@@ -955,6 +973,7 @@ impl Worker {
             let source = match decoded {
                 Ok(source) => source,
                 Err(error) => {
+                    self.loading = None;
                     self.queue.touch();
                     self.fail(anyhow::anyhow!(
                         "Cannot decode {}: {error}",
@@ -1434,7 +1453,19 @@ impl Worker {
             if let Some(control) = self.network() {
                 control.set_meta(speaker_meta(&item.track));
             }
+            if self
+                .loading
+                .as_ref()
+                .is_some_and(|l| l.track.id == item.track.id)
+            {
+                self.loading = None;
+            }
             self.queue.started(item);
+            // The next song is already loading for a gapless start; fetch the one after it
+            // too if it is on a server, so skipping ahead does not wait for the network.
+            if let Some(after) = self.queue.pending.front().filter(|i| i.track.is_streamed()) {
+                crate::sources::prefetch(&after.track);
+            }
         }
         if self.sink.is_some() {
             if self.playing
@@ -1478,10 +1509,14 @@ impl Worker {
         self.published_version = self.queue.version;
         // A speaker plays a little behind; show where it is.
         let lag = self.network().map_or(0., |c| c.lag());
-        let position = (self.position() - lag).max(0.);
+        let position = if self.loading.is_some() {
+            0.
+        } else {
+            (self.position() - lag).max(0.)
+        };
         let mut state = self.state.lock().unwrap();
         state.output_device = self.settings.output_device.clone();
-        state.current = self.queue.active.clone();
+        state.current = self.loading.clone().or_else(|| self.queue.active.clone());
         if let Some(queue) = queue {
             state.queue = queue;
             state.queue_version = self.queue.version;

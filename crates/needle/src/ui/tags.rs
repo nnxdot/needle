@@ -88,6 +88,10 @@ impl AppView {
         } else {
             return;
         };
+        if tracks.iter().any(|t| t.is_streamed()) {
+            self.fail("Songs on a music server cannot be edited here. Change them on the server, or save them to your music first.");
+            return;
+        }
         let common = scan::common_tags(&tracks);
         let zero_is_empty = |v: Option<String>| v.filter(|v| v != "0");
         let start = [
