@@ -352,6 +352,10 @@ pub struct AppView {
     /// The track the details panel describes: the last one clicked.
     focused: Option<Track>,
     panel: Panel,
+    /// The side panel as last drawn (`None` when hidden), and a count that goes up each time
+    /// it opens or changes tab, so its content slides in once.
+    panel_shown: Option<Panel>,
+    panel_serial: u64,
     menu: Option<menus::TrackMenu>,
     playlist_menu: Option<menus::PlaylistMenu>,
     header_menu: Option<columns::HeaderMenu>,
@@ -792,6 +796,8 @@ impl AppView {
             selection: Selection::default(),
             focused: None,
             panel: Panel::Details,
+            panel_shown: None,
+            panel_serial: 0,
             menu: None,
             playlist_menu: None,
             header_menu: None,
@@ -2151,6 +2157,13 @@ impl Render for AppView {
             && f32::from(width) - sidebar - panel_width >= 360.
             && self.total > 0
             && (self.page.is_tracks() || self.panel != Panel::Details);
+        let shown = show_panel.then_some(self.panel);
+        if shown != self.panel_shown {
+            self.panel_shown = shown;
+            if shown.is_some() {
+                self.panel_serial += 1;
+            }
+        }
         // The page and the side panel share one content surface to the right of the sidebar.
         let content_width =
             f32::from(width) - sidebar - if show_panel { panel_width } else { 0. } - 1.;
