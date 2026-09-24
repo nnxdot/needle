@@ -584,6 +584,8 @@ pub fn run(library: Library, files: Vec<std::path::PathBuf>) -> Result<()> {
                 window_bounds: Some(WindowBounds::Windowed(bounds)),
                 window_min_size: Some(size(px(900.), px(620.))),
                 titlebar: Some(TitleBar::title_bar_options()),
+                // Linux: Needle draws its own title bar, so ask the desktop not to add one.
+                window_decorations: cfg!(target_os = "linux").then_some(WindowDecorations::Client),
                 ..Default::default()
             };
             match cx.open_window(options, move |window, cx| {

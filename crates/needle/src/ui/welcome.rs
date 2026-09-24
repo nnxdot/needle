@@ -291,6 +291,7 @@ impl AppView {
                 .child(
                     div()
                         .flex_1()
+                        .min_w_0()
                         .text_size(px(13.5))
                         .text_color(p.ink_2)
                         .child(text),
