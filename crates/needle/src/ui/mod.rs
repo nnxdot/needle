@@ -909,6 +909,7 @@ impl AppView {
             kept_checking: Default::default(),
         };
         view.refresh(cx);
+        view.start_theme_extras(window, cx);
         view.load_home();
         view.refresh_recent();
         view.start_measuring();
