@@ -392,6 +392,31 @@ impl AppView {
                                     cx.listener(|this, _, _, cx| this.play_view(0, true, cx)),
                                 ),
                         )
+                        .when(
+                            matches!(self.page, Page::Album { .. })
+                                && !self.tracks.is_empty()
+                                && self.tracks.iter().all(|t| t.is_streamed()),
+                            |el| {
+                                let kept = self.tracks.iter().all(needle_core::sources::is_kept);
+                                let ids: Vec<String> =
+                                    self.tracks.iter().map(|t| t.id.clone()).collect();
+                                el.child(
+                                    icon_button(
+                                        "album-keep",
+                                        if kept { "pin-fill" } else { "pin" },
+                                        if kept {
+                                            "Stop keeping this album on this computer"
+                                        } else {
+                                            "Keep this album on this computer, to play without the network"
+                                        },
+                                    )
+                                    .on_click(cx.listener(move |this, _, _, cx| {
+                                        this.keep_streamed(&ids, !kept);
+                                        cx.notify();
+                                    })),
+                                )
+                            },
+                        )
                         .when_some(
                             match &self.page {
                                 Page::Artist(name) => Some(name.clone()),

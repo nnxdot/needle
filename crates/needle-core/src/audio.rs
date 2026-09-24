@@ -1460,6 +1460,11 @@ impl Worker {
                 self.loading = None;
             }
             self.queue.started(item);
+            // The next song is already loading for a gapless start; fetch the one after it
+            // too if it is on a server, so skipping ahead does not wait for the network.
+            if let Some(after) = self.queue.pending.front().filter(|i| i.track.is_streamed()) {
+                crate::sources::prefetch(&after.track);
+            }
         }
         if self.sink.is_some() {
             if self.playing

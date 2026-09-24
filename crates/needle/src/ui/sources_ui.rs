@@ -158,13 +158,42 @@ impl AppView {
                     .unwrap_or_default();
                 format!("Signed in. {} songs{when}.", count(source.songs))
             };
-            let (show, sync, out) = (id.clone(), id.clone(), id.clone());
+            let (kept_songs, kept_bytes) = needle_core::sources::kept_usage(&id);
+            let (show, sync, out, unkeep) = (id.clone(), id.clone(), id.clone(), id.clone());
             let name = source.name.clone();
             div()
                 .flex()
                 .flex_col()
                 .gap_2()
                 .child(strong(status))
+                .when(kept_songs > 0, |el| {
+                    el.child(
+                        div()
+                            .flex()
+                            .items_center()
+                            .gap_3()
+                            .child(meta(
+                                format!(
+                                    "{} songs kept on this computer ({:.1} GB).",
+                                    count(kept_songs),
+                                    kept_bytes as f64 / 1e9
+                                ),
+                                cx,
+                            ))
+                            .child(
+                                small_button(SharedString::from(format!("source-unkeep-{id}")), "Stop keeping them")
+                                    .ghost()
+                                    .tooltip("They stay until the song cache needs the room")
+                                    .on_click(cx.listener(move |this, _, _, cx| {
+                                        match needle_core::sources::forget_kept(&unkeep) {
+                                            Ok(n) => this.notify(format!("{n} songs are no longer kept on this computer.")),
+                                            Err(error) => this.fail(format!("{error:#}")),
+                                        }
+                                        cx.notify();
+                                    })),
+                            ),
+                    )
+                })
                 .child(
                     div()
                         .flex()
@@ -270,6 +299,58 @@ impl AppView {
                 )
                 .into_any_element(),
         )
+    }
+
+    /// Keep server songs on this computer (downloading them), or stop keeping them.
+    pub(super) fn keep_streamed(&mut self, ids: &[String], keep: bool) {
+        let tracks: Vec<_> = self
+            .library
+            .tracks_by_ids(ids)
+            .unwrap_or_default()
+            .into_iter()
+            .filter(|t| t.is_streamed())
+            .collect();
+        if tracks.is_empty() {
+            return;
+        }
+        let total = tracks.len();
+        let songs = if total == 1 {
+            tracks[0].title.clone()
+        } else {
+            format!("{total} songs")
+        };
+        if !keep {
+            for track in &tracks {
+                if let Err(error) = needle_core::sources::unkeep(track) {
+                    self.fail(format!("{error:#}"));
+                    return;
+                }
+            }
+            self.notify(format!("{songs} will no longer be kept on this computer."));
+            return;
+        }
+        self.notify(format!("Downloading {songs} to keep on this computer…"));
+        self.background(move || {
+            let mut failed = 0;
+            for track in &tracks {
+                if needle_core::sources::keep(track).is_err() {
+                    failed += 1;
+                }
+            }
+            if failed == total {
+                anyhow::bail!(
+                    "{songs} could not be downloaded. Check the server in Settings › Plugins."
+                );
+            }
+            Ok(if failed > 0 {
+                format!(
+                    "Kept {} of {total} songs on this computer; {failed} could not be downloaded.",
+                    total - failed
+                )
+            } else {
+                format!("{songs} can now play without the network.")
+            })
+        });
     }
 
     /// Download streamed songs into the first music folder, where Needle adds them as files.

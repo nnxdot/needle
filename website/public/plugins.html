@@ -374,7 +374,7 @@ fn run(command, ids) {
             </tbody>
           </table>
         </div>
-        <p>Needle gets the whole list of songs when someone signs in, when Needle starts (at most every 30 minutes), and when they press <b>Update now</b>. A song the server no longer lists is marked missing, never deleted. Songs stream into a cache as they play; the last 2 GB played stay on the computer and play again without the network. Tag editing, stems, Fix my library, and measuring for radio skip server songs; <b>Save to my music</b> in a song's menu downloads it into the first music folder as a normal file.</p>
+        <p>Needle gets the whole list of songs when someone signs in, when Needle starts (at most every 30 minutes), and when they press <b>Update now</b>. A song the server no longer lists is marked missing, never deleted. Songs stream into a cache as they play; the last 2 GB played stay on the computer and play again without the network. Jumping ahead in a song that is still downloading asks the server for that part first, when the server allows it. The song after the next one downloads ahead of time. <b>Keep on this computer</b> (in a song's menu, or the pin on a server album's page) downloads songs to play without the network and never clears them. Tag editing, stems, Fix my library, and measuring for radio skip server songs; <b>Save to my music</b> in a song's menu downloads it into the first music folder as a normal file.</p>
         <h3 id="source-song">Source song</h3>
         <dl class="fields">
           <dt><code>id</code>, <code>title</code></dt><dd>Needed. The server's id for the song (text or a number), and its title.</dd>

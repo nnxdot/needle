@@ -374,13 +374,15 @@ static RESOLVER: RwLock<Option<Arc<Resolver>>> = RwLock::new(None);
 static CACHE: RwLock<Option<PathBuf>> = RwLock::new(None);
 /// Downloads under way, by cache file.
 static ACTIVE: LazyLock<Mutex<HashMap<PathBuf, Arc<Download>>>> = LazyLock::new(Default::default);
+/// How far ahead of a download a reader may wait before the download jumps to it.
+const JUMP_AFTER: u64 = 1 << 20;
 
 /// How to turn a source song into a stream link (the plugin host sets this).
 pub fn set_resolver(resolver: impl Fn(&str, &str) -> Result<String> + Send + Sync + 'static) {
     *RESOLVER.write().unwrap_or_else(|e| e.into_inner()) = Some(Arc::new(resolver));
 }
 
-/// Where streamed songs are kept.
+/// Where streamed songs are kept. Songs kept on purpose go in `stream-kept` beside it.
 pub fn set_cache_dir(dir: PathBuf) {
     *CACHE.write().unwrap_or_else(|e| e.into_inner()) = Some(dir);
 }
@@ -393,70 +395,171 @@ fn cache_dir() -> Result<PathBuf> {
         .context("Streaming is not set up")
 }
 
+fn resolver() -> Result<Arc<Resolver>> {
+    RESOLVER
+        .read()
+        .unwrap_or_else(|e| e.into_inner())
+        .clone()
+        .context("Music sources are not running")
+}
+
+/// Where songs kept on this computer on purpose live: never pruned.
+fn kept_dir(cache: &Path) -> PathBuf {
+    cache.with_file_name("stream-kept")
+}
+
 /// The cache file for a source song.
 pub fn cache_path(track: &Track) -> Result<PathBuf> {
     cache_path_in(&cache_dir()?, track)
 }
 
-fn cache_path_in(cache: &Path, track: &Track) -> Result<PathBuf> {
+fn file_name(track: &Track) -> Result<(String, String)> {
     let (plugin, id) = track.source().context("Not a streamed song")?;
     let extension = Some(track.format.to_lowercase())
         .filter(|f| !f.is_empty() && f.chars().all(|c| c.is_ascii_alphanumeric()))
         .unwrap_or_else(|| "audio".into());
-    Ok(cache.join(plugin).join(format!(
-        "{}.{extension}",
-        &blake3::hash(id.as_bytes()).to_hex()[..32]
-    )))
+    Ok((
+        plugin.to_string(),
+        format!(
+            "{}.{extension}",
+            &blake3::hash(id.as_bytes()).to_hex()[..32]
+        ),
+    ))
 }
 
-/// Whether a source song is fully in the cache (so it plays without the network).
+fn cache_path_in(cache: &Path, track: &Track) -> Result<PathBuf> {
+    let (plugin, name) = file_name(track)?;
+    Ok(cache.join(plugin).join(name))
+}
+
+fn kept_path_in(cache: &Path, track: &Track) -> Result<PathBuf> {
+    let (plugin, name) = file_name(track)?;
+    Ok(kept_dir(cache).join(plugin).join(name))
+}
+
+/// Whether a source song is on this computer (kept, or in the cache), so it plays without
+/// the network.
 pub fn is_cached(track: &Track) -> bool {
-    cache_path(track).is_ok_and(|p| p.is_file())
+    is_kept(track) || cache_path(track).is_ok_and(|p| p.is_file())
+}
+
+/// Whether a source song is kept on this computer on purpose.
+pub fn is_kept(track: &Track) -> bool {
+    cache_dir()
+        .and_then(|c| kept_path_in(&c, track))
+        .is_ok_and(|p| p.is_file())
+}
+
+/// Songs of a source kept on this computer, and their size in bytes.
+pub fn kept_usage(plugin: &str) -> (usize, u64) {
+    let Ok(cache) = cache_dir() else {
+        return (0, 0);
+    };
+    walkdir::WalkDir::new(kept_dir(&cache).join(plugin))
+        .into_iter()
+        .flatten()
+        .filter(|e| e.file_type().is_file())
+        .filter_map(|e| e.metadata().ok())
+        .fold((0, 0), |(n, size), m| (n + 1, size + m.len()))
+}
+
+/// Stop keeping every song of a source; they move back to the cache, which can clear them.
+pub fn forget_kept(plugin: &str) -> Result<usize> {
+    let cache = cache_dir()?;
+    let from = kept_dir(&cache).join(plugin);
+    let to = cache.join(plugin);
+    std::fs::create_dir_all(&to)?;
+    let mut moved = 0;
+    for entry in std::fs::read_dir(&from).into_iter().flatten().flatten() {
+        if std::fs::rename(entry.path(), to.join(entry.file_name())).is_ok() {
+            moved += 1;
+        }
+    }
+    let _ = std::fs::remove_dir(&from);
+    prune(&cache, CACHE_LIMIT);
+    Ok(moved)
 }
 
 #[derive(Default)]
 struct Progress {
-    written: u64,
+    /// The parts of the song that have arrived, as sorted, separate byte ranges.
+    ranges: Vec<(u64, u64)>,
+    /// Bytes received in all, to tell a slow server from a stopped one.
+    received: u64,
     total: Option<u64>,
     done: bool,
     error: Option<String>,
     /// Readers still using the download; with none left, an unfinished download stops.
     readers: usize,
+    /// Where a reader waits, far from where the download is: it jumps there.
+    want: Option<u64>,
+}
+
+impl Progress {
+    /// The end of the arrived part that holds `at`.
+    fn covered_until(&self, at: u64) -> Option<u64> {
+        self.ranges
+            .iter()
+            .find(|(start, end)| *start <= at && at < *end)
+            .map(|r| r.1)
+    }
+    fn add(&mut self, start: u64, end: u64) {
+        self.ranges.push((start, end));
+        self.ranges.sort();
+        let mut merged: Vec<(u64, u64)> = vec![];
+        for (s, e) in self.ranges.drain(..) {
+            match merged.last_mut() {
+                Some(last) if s <= last.1 => last.1 = last.1.max(e),
+                _ => merged.push((s, e)),
+            }
+        }
+        self.ranges = merged;
+    }
+    /// The first byte that has not arrived, if any is missing.
+    fn first_gap(&self) -> Option<u64> {
+        let total = self.total?;
+        let gap = match self.ranges.first() {
+            Some((0, end)) => *end,
+            _ => 0,
+        };
+        (gap < total).then_some(gap)
+    }
 }
 
 struct Download {
     part: PathBuf,
+    target: PathBuf,
     progress: Mutex<Progress>,
     changed: Condvar,
 }
 
 impl Download {
+    fn lock(&self) -> std::sync::MutexGuard<'_, Progress> {
+        self.progress.lock().unwrap_or_else(|e| e.into_inner())
+    }
     fn add_reader(&self) {
-        self.progress
-            .lock()
-            .unwrap_or_else(|e| e.into_inner())
-            .readers += 1;
+        self.lock().readers += 1;
     }
     /// One reader is done; with none left, an unfinished download stops.
     fn release(&self) {
-        let mut progress = self.progress.lock().unwrap_or_else(|e| e.into_inner());
+        let mut progress = self.lock();
         progress.readers = progress.readers.saturating_sub(1);
     }
-    /// Wait until `until` holds or the download ends or stalls. Returns the progress then.
-    fn wait(&self, until: impl Fn(&Progress) -> bool, limit: Duration) -> io::Result<(u64, bool)> {
+    /// Wait until `until` holds or the download ends or stalls.
+    fn wait(&self, until: impl Fn(&Progress) -> bool, limit: Duration) -> io::Result<()> {
         let started = Instant::now();
-        let mut progress = self.progress.lock().unwrap_or_else(|e| e.into_inner());
-        let mut last = progress.written;
+        let mut progress = self.lock();
+        let mut last = progress.received;
         let mut quiet = Instant::now();
         loop {
             if let Some(error) = &progress.error {
                 return Err(io::Error::other(error.clone()));
             }
             if until(&progress) || progress.done {
-                return Ok((progress.written, progress.done));
+                return Ok(());
             }
-            if progress.written != last {
-                last = progress.written;
+            if progress.received != last {
+                last = progress.received;
                 quiet = Instant::now();
             }
             if quiet.elapsed() > STALL || started.elapsed() > limit {
@@ -471,6 +574,10 @@ impl Download {
                 .unwrap_or_else(|e| e.into_inner())
                 .0;
         }
+    }
+    /// Wait for the whole song.
+    fn finish(&self, limit: Duration) -> io::Result<()> {
+        self.wait(|_| false, limit)
     }
 }
 
@@ -500,7 +607,8 @@ fn download(
         target.extension().unwrap_or_default().to_string_lossy()
     ));
     let job = Arc::new(Download {
-        part: part.clone(),
+        part,
+        target: target.to_path_buf(),
         progress: Mutex::new(Progress {
             readers: 1,
             ..Default::default()
@@ -509,66 +617,13 @@ fn download(
     });
     active.insert(target.to_path_buf(), job.clone());
     drop(active);
-    let (thread_job, target, cache) = (job.clone(), target.to_path_buf(), cache.to_path_buf());
+    let (thread_job, cache) = (job.clone(), cache.to_path_buf());
     std::thread::Builder::new()
         .name("needle-stream".into())
         .spawn(move || {
             let job = thread_job;
-            let result = (|| -> Result<()> {
-                let client = reqwest::blocking::Client::builder()
-                    .connect_timeout(Duration::from_secs(15))
-                    .build()?;
-                let mut response = client
-                    .get(&link)
-                    .send()
-                    .map_err(|e| anyhow::anyhow!(http_error(&e)))?;
-                if !response.status().is_success() {
-                    bail!("The server answered {}", response.status());
-                }
-                if response
-                    .headers()
-                    .get("content-type")
-                    .and_then(|v| v.to_str().ok())
-                    .is_some_and(|t| {
-                        t.starts_with("text/") || t.contains("json") || t.contains("xml")
-                    })
-                {
-                    let mut text = String::new();
-                    let _ = response.take(2000).read_to_string(&mut text);
-                    bail!(
-                        "The server sent a message instead of music: {}",
-                        text.trim()
-                    );
-                }
-                {
-                    let mut progress = job.progress.lock().unwrap_or_else(|e| e.into_inner());
-                    progress.total = response.content_length();
-                }
-                let mut file = File::create(&job.part)?;
-                let mut buffer = vec![0u8; 64 * 1024];
-                loop {
-                    let n = response
-                        .read(&mut buffer)
-                        .map_err(|_| anyhow::anyhow!("The server stopped sending the song"))?;
-                    if n == 0 {
-                        break;
-                    }
-                    file.write_all(&buffer[..n])?;
-                    file.flush()?;
-                    let mut progress = job.progress.lock().unwrap_or_else(|e| e.into_inner());
-                    progress.written += n as u64;
-                    let stop = progress.readers == 0;
-                    drop(progress);
-                    job.changed.notify_all();
-                    if stop {
-                        bail!("Nobody is listening any more");
-                    }
-                }
-                drop(file);
-                std::fs::rename(&job.part, &target)?;
-                Ok(())
-            })();
-            let mut progress = job.progress.lock().unwrap_or_else(|e| e.into_inner());
+            let result = fetch(&job, &link);
+            let mut progress = job.lock();
             match result {
                 Ok(()) => progress.done = true,
                 Err(error) => {
@@ -581,10 +636,130 @@ fn download(
             ACTIVE
                 .lock()
                 .unwrap_or_else(|e| e.into_inner())
-                .remove(&target);
+                .remove(&job.target);
             prune(&cache, CACHE_LIMIT);
         })?;
     Ok(job)
+}
+
+/// Download the song into its `.part` file, jumping to where a reader waits when the server
+/// can send part of a file, then filling the gaps. Renames it to the cache file when whole.
+fn fetch(job: &Download, link: &str) -> Result<()> {
+    let client = reqwest::blocking::Client::builder()
+        .connect_timeout(Duration::from_secs(15))
+        .build()?;
+    let mut file = std::fs::OpenOptions::new()
+        .create(true)
+        .truncate(true)
+        .write(true)
+        .open(&job.part)?;
+    let mut start = 0u64;
+    // Whether the server sends parts of the file; unknown until it is asked.
+    let mut ranged = true;
+    let mut buffer = vec![0u8; 64 * 1024];
+    loop {
+        let mut request = client.get(link);
+        if start > 0 {
+            request = request.header("Range", format!("bytes={start}-"));
+        }
+        let mut response = request
+            .send()
+            .map_err(|e| anyhow::anyhow!(http_error(&e)))?;
+        let status = response.status();
+        if !status.is_success() {
+            bail!("The server answered {status}");
+        }
+        if start == 0
+            && response
+                .headers()
+                .get("content-type")
+                .and_then(|v| v.to_str().ok())
+                .is_some_and(|t| t.starts_with("text/") || t.contains("json") || t.contains("xml"))
+        {
+            let mut text = String::new();
+            let _ = response.take(2000).read_to_string(&mut text);
+            bail!(
+                "The server sent a message instead of music: {}",
+                text.trim()
+            );
+        }
+        if status == reqwest::StatusCode::PARTIAL_CONTENT {
+            // "bytes 1000-1999/5000": the whole size is after the slash.
+            let total = response
+                .headers()
+                .get("content-range")
+                .and_then(|v| v.to_str().ok())
+                .and_then(|v| v.rsplit('/').next())
+                .and_then(|v| v.parse().ok());
+            let mut progress = job.lock();
+            if progress.total.is_none() {
+                progress.total = total;
+            }
+        } else {
+            // The whole file, from the start.
+            if start > 0 {
+                ranged = false;
+                start = 0;
+            }
+            let mut progress = job.lock();
+            if progress.total.is_none() {
+                progress.total = response.content_length();
+            }
+        }
+        file.seek(SeekFrom::Start(start))?;
+        let mut at = start;
+        let mut next = None;
+        loop {
+            let n = response
+                .read(&mut buffer)
+                .map_err(|_| anyhow::anyhow!("The server stopped sending the song"))?;
+            if n == 0 {
+                break;
+            }
+            file.write_all(&buffer[..n])?;
+            file.flush()?;
+            let mut progress = job.lock();
+            progress.add(at, at + n as u64);
+            progress.received += n as u64;
+            at += n as u64;
+            let stop = progress.readers == 0;
+            // A reader waiting well past this download, or this download reaching a part
+            // that already arrived: go where the song is still missing.
+            if ranged {
+                if let Some(want) = progress.want.take()
+                    && progress.covered_until(want).is_none()
+                    && (want < start || want > at + JUMP_AFTER)
+                {
+                    next = Some(want);
+                }
+                if next.is_none() && progress.covered_until(at).is_some_and(|end| end > at) {
+                    next = progress.first_gap();
+                }
+            }
+            drop(progress);
+            job.changed.notify_all();
+            if stop {
+                bail!("Nobody is listening any more");
+            }
+            if next.is_some() {
+                break;
+            }
+        }
+        let mut progress = job.lock();
+        if progress.total.is_none() && next.is_none() {
+            // No size was given: the end of the answer is the end of the song.
+            progress.total = Some(at);
+        }
+        let gap = next.or_else(|| if ranged { progress.first_gap() } else { None });
+        drop(progress);
+        match gap {
+            Some(gap) => start = gap,
+            None => break,
+        }
+    }
+    drop(file);
+    std::fs::rename(&job.part, &job.target)?;
+    Ok(())
 }
 
 /// Keep the cache under `limit` bytes, removing the files used longest ago.
@@ -615,7 +790,8 @@ pub fn prune(dir: &Path, limit: u64) {
     }
 }
 
-/// Reads a download while it is still arriving: reads past what has come wait for it.
+/// Reads a download while it is still arriving: a read of a part that has not come yet
+/// waits for it, and the download jumps there when it is far ahead.
 struct Growing {
     job: Arc<Download>,
     file: Option<File>,
@@ -625,8 +801,9 @@ struct Growing {
 impl Growing {
     fn file(&mut self) -> io::Result<&mut File> {
         if self.file.is_none() {
-            self.job.wait(|p| p.written > 0, STALL)?;
-            self.file = Some(File::open(&self.job.part)?);
+            // Finished downloads are renamed; an open file keeps working after that.
+            let file = File::open(&self.job.part).or_else(|_| File::open(&self.job.target))?;
+            self.file = Some(file);
         }
         Ok(self.file.as_mut().unwrap())
     }
@@ -638,13 +815,24 @@ impl Read for Growing {
             return Ok(0);
         }
         let position = self.position;
-        let (written, _) = self
-            .job
-            .wait(|p| p.written > position, Duration::from_secs(600))?;
-        if written <= position {
-            return Ok(0);
+        {
+            let mut progress = self.job.lock();
+            if progress.covered_until(position).is_none() && !progress.done {
+                progress.want = Some(position);
+            }
         }
-        let size = buffer.len().min((written - position) as usize);
+        self.job.wait(
+            |p| p.covered_until(position).is_some() || p.total.is_some_and(|t| position >= t),
+            Duration::from_secs(600),
+        )?;
+        let end = {
+            let progress = self.job.lock();
+            match progress.covered_until(position) {
+                Some(end) => end,
+                None => return Ok(0),
+            }
+        };
+        let size = buffer.len().min((end - position) as usize);
         let file = self.file()?;
         file.seek(SeekFrom::Start(position))?;
         let n = file.read(&mut buffer[..size])?;
@@ -662,14 +850,9 @@ impl Seek for Growing {
                 .checked_add_signed(by)
                 .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidInput, "Seek before start"))?,
             SeekFrom::End(by) => {
-                let total = {
-                    let progress = self.job.progress.lock().unwrap_or_else(|e| e.into_inner());
-                    progress.total.or(progress.done.then_some(progress.written))
-                };
-                let total = match total {
-                    Some(total) => total,
-                    None => self.job.wait(|_| false, Duration::from_secs(600))?.0,
-                };
+                self.job
+                    .wait(|p| p.total.is_some(), Duration::from_secs(600))?;
+                let total = self.job.lock().total.unwrap_or(0);
                 total.checked_add_signed(by).ok_or_else(|| {
                     io::Error::new(io::ErrorKind::InvalidInput, "Seek before start")
                 })?
@@ -693,14 +876,9 @@ fn streams_as_it_comes(format: &str) -> bool {
     )
 }
 
-/// Play a source song: from the cache when it is there, else streamed from the server.
+/// Play a source song: from this computer when it is here, else streamed from the server.
 pub fn open(track: &Track) -> Result<Box<dyn Source + Send>> {
-    let resolver = RESOLVER
-        .read()
-        .unwrap_or_else(|e| e.into_inner())
-        .clone()
-        .context("Music sources are not running")?;
-    open_with(track, &cache_dir()?, &*resolver)
+    open_with(track, &cache_dir()?, &*resolver()?)
 }
 
 /// `open`, with the cache folder and the way to get stream links given.
@@ -709,6 +887,10 @@ pub fn open_with(
     cache: &Path,
     resolver: &Resolver,
 ) -> Result<Box<dyn Source + Send>> {
+    let kept = kept_path_in(cache, track)?;
+    if kept.is_file() {
+        return Ok(Box::new(crate::audio_file::decode(&kept)?));
+    }
     let target = cache_path_in(cache, track)?;
     if target.is_file() {
         // Played again: move it to the back of the queue for pruning.
@@ -720,9 +902,10 @@ pub fn open_with(
     }
     let job = download(track, &target, cache, resolver)?;
     let format = track.format.to_lowercase();
-    let is_ogg_opus = format == "opus";
-    if streams_as_it_comes(&format) && !is_ogg_opus {
-        let total = job.progress.lock().unwrap_or_else(|e| e.into_inner()).total;
+    if streams_as_it_comes(&format) {
+        job.wait(|p| p.total.is_some() || !p.ranges.is_empty(), STALL)
+            .map_err(|e| anyhow::anyhow!("{} could not be streamed: {e}", track.title))?;
+        let total = job.lock().total;
         job.add_reader();
         let reader = Growing {
             job: job.clone(),
@@ -749,28 +932,102 @@ pub fn open_with(
         }
     }
     // The whole song first (formats read from the end, and Dolby through FFmpeg).
-    let waited = job.wait(|_| false, Duration::from_secs(600));
+    let waited = job.finish(Duration::from_secs(600));
     job.release();
     waited.map_err(|e| anyhow::anyhow!("{} could not be streamed: {e}", track.title))?;
     Ok(Box::new(crate::audio_file::decode(&target)?))
 }
 
-/// Download a source song completely and copy it into `folder` as
-/// `Artist/Album/NN Title.ext`. Returns the new file.
-pub fn save_to(track: &Track, folder: &Path) -> Result<PathBuf> {
-    let resolver = RESOLVER
-        .read()
-        .unwrap_or_else(|e| e.into_inner())
-        .clone()
-        .context("Music sources are not running")?;
-    let cache = cache_dir()?;
-    let target = cache_path_in(&cache, track)?;
+/// Make sure a source song is whole in the cache (downloading it if needed), and return
+/// where it is: kept, or cached.
+fn ensure_local(track: &Track, cache: &Path, resolver: &Resolver) -> Result<PathBuf> {
+    let kept = kept_path_in(cache, track)?;
+    if kept.is_file() {
+        return Ok(kept);
+    }
+    let target = cache_path_in(cache, track)?;
     if !target.is_file() {
-        let job = download(track, &target, &cache, &*resolver)?;
-        let waited = job.wait(|_| false, Duration::from_secs(1800));
+        let job = download(track, &target, cache, resolver)?;
+        let waited = job.finish(Duration::from_secs(1800));
         job.release();
         waited?;
     }
+    Ok(target)
+}
+
+/// Start downloading a source song into the cache, so it starts at once when it plays.
+/// Returns straight away; does nothing when the song is here or already coming.
+pub fn prefetch(track: &Track) {
+    let (Ok(cache), Ok(resolver)) = (cache_dir(), resolver()) else {
+        return;
+    };
+    prefetch_with(track, &cache, resolver);
+}
+
+fn prefetch_with(track: &Track, cache: &Path, resolver: Arc<Resolver>) {
+    let (Ok(kept), Ok(target)) = (kept_path_in(cache, track), cache_path_in(cache, track)) else {
+        return;
+    };
+    if kept.is_file()
+        || target.is_file()
+        || ACTIVE
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .contains_key(&target)
+    {
+        return;
+    }
+    let (track, cache) = (track.clone(), cache.to_path_buf());
+    std::thread::spawn(move || {
+        if let Ok(job) = download(&track, &target, &cache, &*resolver) {
+            let _ = job.finish(Duration::from_secs(1800));
+            job.release();
+        }
+    });
+}
+
+/// Keep a source song on this computer: download it if needed, and move it where the cache
+/// never clears it.
+pub fn keep(track: &Track) -> Result<()> {
+    keep_with(track, &cache_dir()?, &*resolver()?)
+}
+
+fn keep_with(track: &Track, cache: &Path, resolver: &Resolver) -> Result<()> {
+    let kept = kept_path_in(cache, track)?;
+    if kept.is_file() {
+        return Ok(());
+    }
+    let local = ensure_local(track, cache, resolver)?;
+    if let Some(folder) = kept.parent() {
+        std::fs::create_dir_all(folder)?;
+    }
+    std::fs::rename(&local, &kept).or_else(|_| std::fs::copy(&local, &kept).map(|_| ()))?;
+    Ok(())
+}
+
+/// Stop keeping a source song: it moves back to the cache, which clears the oldest songs.
+pub fn unkeep(track: &Track) -> Result<()> {
+    let cache = cache_dir()?;
+    let kept = kept_path_in(&cache, track)?;
+    if kept.is_file() {
+        let target = cache_path_in(&cache, track)?;
+        if let Some(folder) = target.parent() {
+            std::fs::create_dir_all(folder)?;
+        }
+        std::fs::rename(&kept, &target)?;
+        let _ = File::options()
+            .append(true)
+            .open(&target)
+            .and_then(|f| f.set_modified(SystemTime::now()));
+        prune(&cache, CACHE_LIMIT);
+    }
+    Ok(())
+}
+
+/// Download a source song completely and copy it into `folder` as
+/// `Artist/Album/NN Title.ext`. Returns the new file.
+pub fn save_to(track: &Track, folder: &Path) -> Result<PathBuf> {
+    let local = ensure_local(track, &cache_dir()?, &*resolver()?)?;
     let clean = |s: &str, fallback: &str| {
         let s: String = s
             .chars()
@@ -789,7 +1046,7 @@ pub fn save_to(track: &Track, folder: &Path) -> Result<PathBuf> {
             s
         }
     };
-    let extension = target
+    let extension = local
         .extension()
         .map(|e| e.to_string_lossy().to_string())
         .unwrap_or_else(|| "audio".into());
@@ -812,7 +1069,7 @@ pub fn save_to(track: &Track, folder: &Path) -> Result<PathBuf> {
         destination = dir.join(format!("{name} ({n}).{extension}"));
         n += 1;
     }
-    std::fs::copy(&target, &destination)?;
+    std::fs::copy(&local, &destination)?;
     Ok(destination)
 }
 
@@ -924,6 +1181,184 @@ mod tests {
         assert!(plan.moves.is_empty() && plan.skipped.is_empty());
         assert!(library.albums_without_covers().unwrap().is_empty());
         assert!(library.unmeasured(10).unwrap().is_empty());
+    }
+
+    /// A slow file server on this computer. With `ranges`, it answers "Range: bytes=N-" with
+    /// that part (206); without, it always sends the whole file. Records each request's start.
+    fn slow_server(data: Vec<u8>, ranges: bool) -> (String, Arc<Mutex<Vec<u64>>>) {
+        use std::io::{BufRead, BufReader};
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let address = format!("http://{}/song", listener.local_addr().unwrap());
+        let starts: Arc<Mutex<Vec<u64>>> = Arc::default();
+        let log = starts.clone();
+        let data = Arc::new(data);
+        std::thread::spawn(move || {
+            for stream in listener.incoming().flatten() {
+                let (data, log) = (data.clone(), log.clone());
+                std::thread::spawn(move || {
+                    let mut reader = BufReader::new(stream.try_clone().unwrap());
+                    let mut start = 0u64;
+                    loop {
+                        let mut line = String::new();
+                        if reader.read_line(&mut line).is_err() || line.trim().is_empty() {
+                            break;
+                        }
+                        if let Some(value) = line.to_lowercase().strip_prefix("range: bytes=") {
+                            start = value.trim().trim_end_matches('-').parse().unwrap_or(0);
+                        }
+                    }
+                    let start = if ranges { start } else { 0 };
+                    log.lock().unwrap().push(start);
+                    let body = &data[start as usize..];
+                    let head = if start > 0 {
+                        format!(
+                            "HTTP/1.1 206 Partial Content\r\nContent-Type: audio/flac\r\nContent-Length: {}\r\nContent-Range: bytes {start}-{}/{}\r\nConnection: close\r\n\r\n",
+                            body.len(),
+                            data.len() - 1,
+                            data.len()
+                        )
+                    } else {
+                        format!(
+                            "HTTP/1.1 200 OK\r\nContent-Type: audio/flac\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+                            body.len()
+                        )
+                    };
+                    let mut stream = stream;
+                    if stream.write_all(head.as_bytes()).is_err() {
+                        return;
+                    }
+                    for chunk in body.chunks(16 * 1024) {
+                        if stream.write_all(chunk).is_err() {
+                            return;
+                        }
+                        std::thread::sleep(Duration::from_millis(8));
+                    }
+                });
+            }
+        });
+        (address, starts)
+    }
+
+    fn song_bytes() -> Vec<u8> {
+        (0..4_000_000u32).map(|i| (i % 251) as u8).collect()
+    }
+
+    fn server_track(id: &str) -> Track {
+        to_track(
+            "test",
+            &Song {
+                id: id.into(),
+                title: id.into(),
+                format: "flac".into(),
+                ..Default::default()
+            },
+            0,
+        )
+    }
+
+    fn read_at(job: &Arc<Download>, at: u64, length: usize) -> Vec<u8> {
+        job.add_reader();
+        let mut reader = Growing {
+            job: job.clone(),
+            file: None,
+            position: 0,
+        };
+        reader.seek(SeekFrom::Start(at)).unwrap();
+        let mut out = vec![0u8; length];
+        reader.read_exact(&mut out).unwrap();
+        out
+    }
+
+    /// Jumping near the end of a song that is still downloading asks the server for that part
+    /// straight away; the gap is filled afterwards and the cached file is whole.
+    #[test]
+    fn a_jump_ahead_fetches_that_part_first() {
+        let data = song_bytes();
+        let (link, starts) = slow_server(data.clone(), true);
+        let dir = tempfile::tempdir().unwrap();
+        let track = server_track("jump");
+        let target = cache_path_in(dir.path(), &track).unwrap();
+        let resolver = move |_: &str, _: &str| Ok(link.clone());
+        let job = download(&track, &target, dir.path(), &resolver).unwrap();
+        let started = Instant::now();
+        let at = 3_600_000u64;
+        assert_eq!(
+            read_at(&job, at, 1000),
+            data[at as usize..at as usize + 1000]
+        );
+        // The whole file takes about two seconds at this speed; the jump comes back sooner.
+        assert!(
+            started.elapsed() < Duration::from_millis(900),
+            "{:?}",
+            started.elapsed()
+        );
+        assert!(starts.lock().unwrap().iter().any(|s| *s >= at - JUMP_AFTER));
+        job.finish(Duration::from_secs(30)).unwrap();
+        job.release();
+        assert_eq!(std::fs::read(&target).unwrap(), data);
+    }
+
+    /// A server that always sends the whole file still gives the right bytes after a jump.
+    #[test]
+    fn a_jump_works_without_part_requests_too() {
+        let data = song_bytes();
+        let (link, starts) = slow_server(data.clone(), false);
+        let dir = tempfile::tempdir().unwrap();
+        let track = server_track("whole");
+        let target = cache_path_in(dir.path(), &track).unwrap();
+        let resolver = move |_: &str, _: &str| Ok(link.clone());
+        let job = download(&track, &target, dir.path(), &resolver).unwrap();
+        let at = 3_000_000u64;
+        assert_eq!(
+            read_at(&job, at, 1000),
+            data[at as usize..at as usize + 1000]
+        );
+        job.finish(Duration::from_secs(30)).unwrap();
+        job.release();
+        assert_eq!(std::fs::read(&target).unwrap(), data);
+        assert!(starts.lock().unwrap().iter().all(|s| *s == 0));
+    }
+
+    /// Kept songs live outside the cache, survive pruning, and play without the network;
+    /// letting go moves them back. Prefetching fills the cache ahead of time.
+    #[test]
+    fn kept_and_prefetched_songs() {
+        let data = song_bytes();
+        let (link, starts) = slow_server(data.clone(), true);
+        let dir = tempfile::tempdir().unwrap();
+        let cache = dir.path().join("stream-cache");
+        let track = server_track("kept");
+        let resolver = {
+            let link = link.clone();
+            move |_: &str, _: &str| Ok(link.clone())
+        };
+        keep_with(&track, &cache, &resolver).unwrap();
+        let kept = kept_path_in(&cache, &track).unwrap();
+        assert_eq!(std::fs::read(&kept).unwrap(), data);
+        assert!(!cache_path_in(&cache, &track).unwrap().exists());
+        prune(&cache, 0);
+        assert!(kept.exists(), "pruning the cache never touches kept songs");
+        let requests = starts.lock().unwrap().len();
+        keep_with(&track, &cache, &resolver).unwrap();
+        assert_eq!(
+            starts.lock().unwrap().len(),
+            requests,
+            "already kept: no download"
+        );
+
+        let next = server_track("next");
+        let shared: Arc<Resolver> = Arc::new(resolver);
+        prefetch_with(&next, &cache, shared);
+        let target = cache_path_in(&cache, &next).unwrap();
+        let started = Instant::now();
+        while !target.exists() {
+            assert!(
+                started.elapsed() < Duration::from_secs(30),
+                "prefetch did not finish"
+            );
+            std::thread::sleep(Duration::from_millis(20));
+        }
+        assert_eq!(std::fs::read(&target).unwrap(), data);
     }
 
     #[test]

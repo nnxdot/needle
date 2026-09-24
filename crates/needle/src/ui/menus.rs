@@ -153,6 +153,18 @@ impl AppView {
         ]);
         if track.is_streamed() {
             let id = track.id.clone();
+            let kept = needle_core::sources::is_kept(&track);
+            let keep_id = id.clone();
+            entries.push(Entry::item(
+                if kept { "pin-fill" } else { "pin" },
+                if kept {
+                    "Stop keeping on this computer"
+                } else {
+                    "Keep on this computer"
+                },
+                None,
+                move |this, _, _| this.keep_streamed(std::slice::from_ref(&keep_id), !kept),
+            ));
             entries.push(Entry::item(
                 "import",
                 "Save to my music",
@@ -343,8 +355,23 @@ impl AppView {
                     } else {
                         format!("Save {} to my music", streamed.len())
                     };
+                    let all_kept = selected
+                        .iter()
+                        .filter(|t| t.is_streamed())
+                        .all(needle_core::sources::is_kept);
+                    let keep_ids = streamed.clone();
                     entries.extend([
                         Entry::Separator,
+                        Entry::item(
+                            if all_kept { "pin-fill" } else { "pin" },
+                            if all_kept {
+                                "Stop keeping on this computer"
+                            } else {
+                                "Keep on this computer"
+                            },
+                            None,
+                            move |this, _, _| this.keep_streamed(&keep_ids, !all_kept),
+                        ),
                         Entry::item("import", label, None, move |this, _, _| {
                             this.save_streamed(&streamed)
                         }),
