@@ -818,27 +818,23 @@ impl Worker {
         self.output.as_ref().and_then(|o| o.network.clone())
     }
     fn open(&mut self) -> Result<()> {
+        // Exclusive output is WASAPI's; elsewhere the setting (synced from Windows, say) is
+        // ignored and Needle plays through the shared output.
+        #[cfg(windows)]
         if self.settings.exclusive && !self.speaker() {
-            #[cfg(windows)]
-            {
-                if self.exclusive.is_some() {
-                    return Ok(());
-                }
-                let (sink, source) = Sink::new();
-                let sink = Arc::new(sink);
-                self.exclusive = Some(crate::exclusive::Output::start(
-                    source,
-                    Arc::downgrade(&sink),
-                    self.settings.output_device.clone(),
-                    self.state.clone(),
-                ));
-                self.sink = Some(sink);
+            if self.exclusive.is_some() {
                 return Ok(());
             }
-            #[cfg(not(windows))]
-            {
-                bail!("Exclusive desktop output is currently available on Windows")
-            }
+            let (sink, source) = Sink::new();
+            let sink = Arc::new(sink);
+            self.exclusive = Some(crate::exclusive::Output::start(
+                source,
+                Arc::downgrade(&sink),
+                self.settings.output_device.clone(),
+                self.state.clone(),
+            ));
+            self.sink = Some(sink);
+            return Ok(());
         }
         if self.output.is_some() {
             return Ok(());
