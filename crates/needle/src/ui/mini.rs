@@ -300,16 +300,6 @@ impl Render for MiniView {
             window.remove_window();
             return div().into_any_element();
         };
-        // Linux frames let any edge be dragged; the mini player keeps its own size.
-        if cfg!(target_os = "linux") {
-            let want = window_size(if self.expanded { EXPANDED } else { COMPACT }, Some(window));
-            let have = window.viewport_size();
-            if (have.width - want.width).abs() > px(1.)
-                || (have.height - want.height).abs() > px(1.)
-            {
-                window.resize(want);
-            }
-        }
         let (current, playing, position, volume, seek, volume_state, blur, material) = {
             let a = app.read(cx);
             let material = a.material();
