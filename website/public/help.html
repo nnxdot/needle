@@ -14,7 +14,7 @@
 <link rel="apple-touch-icon" href="/apple-touch-icon.png">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght,SOFT@9..144,500..700,0..100&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wdth,wght@12..96,75..100,400..800&family=Fraunces:ital,opsz,wght,SOFT@0,9..144,500..700,0..100;1,9..144,500..700,0..100&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="/style.css">
 </head>
 <body>
@@ -54,7 +54,7 @@
   </div>
 </header>
 
-<main id="main" class="doc">
+<main id="main" class="doc glow-tide">
   <div class="wrap doc-grid">
     <nav class="doc-toc" aria-label="On this page">
       <p>On this page</p>
@@ -68,7 +68,6 @@
 
     <article class="doc-body">
       <header class="doc-head">
-        <p class="tag">Help</p>
         <h1>Questions, <em>answered.</em></h1>
         <p class="lede">How to install Needle, add your music, and fix the most common problems. If your answer is not here, write to <a href="mailto:dot@nnx.fyi">dot@nnx.fyi</a>.</p>
       </header>
@@ -169,27 +168,22 @@
 
 <footer class="foot">
   <div class="wrap">
-    <div class="foot-row">
-      <a class="brand big" href="/" aria-label="Needle home">
-        <svg class="brand-mark" viewBox="0 0 100 100" aria-hidden="true"><use href="#record"/><use href="#arm"/></svg>
-        <span>Needle</span>
-      </a>
-      <p>Your music, in its place.<br>Made at <a href="https://nnx.fyi/">NNX</a>.</p>
-    </div>
-    <div class="foot-row small">
-      <span>© 2026 NNX</span>
-      <nav aria-label="Footer navigation">
-        <a href="/plugins">Plugins</a>
-        <a href="/themes">Themes</a>
-        <a href="/help">Help</a>
-        <a href="/privacy">Privacy</a>
-        <a href="https://nnx.fyi/">NNX</a>
-        <a href="https://nivren.nnx.fyi/">Nivren</a>
-        <a href="https://deadline.nnx.fyi/">Deadline</a>
-        <a href="mailto:dot@nnx.fyi">Contact</a>
-      </nav>
-    </div>
+    <p class="foot-word" aria-hidden="true">Needle</p>
+    <p class="foot-line">© 2026 NNX</p>
   </div>
 </footer>
+<script id="toc-spy">
+// Light up the section being read in "On this page".
+(() => {
+  const links = new Map([...document.querySelectorAll('.doc-toc a')].map(a => [a.hash.slice(1), a]));
+  const seen = new Set();
+  const spy = new IntersectionObserver(entries => {
+    for (const e of entries) e.isIntersecting ? seen.add(e.target.id) : seen.delete(e.target.id);
+    const first = [...links.keys()].find(id => seen.has(id));
+    links.forEach((a, id) => a.classList.toggle('here', id === first));
+  }, { rootMargin: '-80px 0px -60% 0px' });
+  document.querySelectorAll('.doc section[id]').forEach(s => spy.observe(s));
+})();
+</script>
 </body>
 </html>

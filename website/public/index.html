@@ -14,7 +14,7 @@
 <link rel="apple-touch-icon" href="/apple-touch-icon.png">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght,SOFT@9..144,500..700,0..100&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wdth,wght@12..96,75..100,400..800&family=Fraunces:ital,opsz,wght,SOFT@0,9..144,500..700,0..100;1,9..144,500..700,0..100&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="/style.css">
 </head>
 <body>
@@ -58,164 +58,238 @@
 
 <main id="main">
   <section class="hero" aria-labelledby="hero-title">
-    <div class="hero-logo" aria-hidden="true">
-      <svg viewBox="0 0 100 100">
-        <g class="spin"><use href="#record"/></g>
-        <use href="#arm"/>
-      </svg>
+    <div class="wrap hero-copy">
+      <h1 id="hero-title"><span class="line">Your music,</span><span class="line"><em>in its place.</em></span></h1>
+      <p class="lede">A fast, careful player for the music you own. Lossless, private, and yours to arrange.</p>
+      <div class="actions">
+        <a class="button primary" href="#download">Download for Windows
+          <svg viewBox="0 0 20 20" aria-hidden="true"><path d="M10 3v10m0 0-4-4m4 4 4-4M4 16h12"/></svg></a>
+        <a class="button quiet" href="#features">See what it does</a>
+      </div>
+      <p class="fine">Version 1.4.3 · Windows 10 and 11 · Free</p>
     </div>
-    <h1 id="hero-title">Your music,<br><em>in its place.</em></h1>
-    <p class="lede">A fast, careful player for the music you own.<br>Lossless, private, and yours to arrange.</p>
-    <div class="actions">
-      <a class="button primary" href="#download">Download for Windows
-        <svg viewBox="0 0 20 20" aria-hidden="true"><path d="M10 3v10m0 0-4-4m4 4 4-4M4 16h12"/></svg></a>
-      <a class="button quiet" href="#features">See what it does</a>
-    </div>
-    <p class="fine">Version 1.4.3 · Windows 10 and 11 · Free · Made at <a href="https://nnx.fyi/">NNX</a></p>
   </section>
 
-  <!-- A drawing of the app, with made-up albums. -->
+  <!-- A drawing of the app (not a screenshot), with made-up albums. -->
   <section class="stage" aria-label="Needle's album view">
-    <div class="app" role="img" aria-label="Needle showing a grid of albums, with a song playing.">
+    <div class="stage-in">
+    <div class="app" role="img" aria-label="Needle showing a grid of albums, the queue beside it, and a song playing in the player bar.">
       <div class="app-title">
         <span class="app-name"><svg viewBox="0 0 100 100" aria-hidden="true"><use href="#record"/><use href="#arm"/></svg>Needle</span>
-        <span class="app-search">Search, or write a rule like  rating &gt;= 4</span>
+        <span class="app-search"><i class="i-search"></i>Search, or write a rule like  rating &gt;= 4</span>
+        <span class="app-kbd">Ctrl K</span>
         <span class="app-win"><i></i><i></i><i></i></span>
       </div>
       <div class="app-body">
         <aside class="app-side">
           <b>Home</b><b>Songs</b><b class="sel">Albums</b><b>Artists</b><b>Folders</b>
           <em>Collections</em><b>Favorites</b><b>Recently added</b><b>Listening history</b>
+          <em>Servers</em><b><i class="i-globe"></i>Navidrome</b>
+          <em>Playlists</em><b>Late drives</b><b>Sunday coffee</b>
           <span class="grow"></span><b>Fix my library</b><b>Settings</b>
         </aside>
         <div class="app-main">
-          <h3>Albums</h3>
-          <p>8 albums</p>
+          <div class="app-head"><h3>Albums</h3><span class="pill">Play</span><span class="pill quiet">Shuffle</span></div>
+          <p>10 albums</p>
           <div class="grid">
             <figure><span class="cover c-sun"></span><figcaption>Harbor Lights<small>Mara Quinn · 2021</small></figcaption></figure>
             <figure><span class="cover c-tide"></span><figcaption>Tidewater<small>Mara Quinn · 2024</small></figcaption></figure>
             <figure><span class="cover c-arcade"></span><figcaption>Afterglow Arcade<small>Pixel Choir · 2023</small></figcaption></figure>
             <figure><span class="cover c-record"></span><figcaption>Single Needle<small>The Pressings · 1998</small></figcaption></figure>
+            <figure><span class="cover c-bloom"></span><figcaption>Bloom Season<small>Hana Mori · 2025</small></figcaption></figure>
             <figure><span class="cover c-citrus"></span><figcaption>Citrus Season<small>Juniper Bay · 2022</small></figcaption></figure>
             <figure><span class="cover c-forest"></span><figcaption>Understory<small>Fern &amp; Field · 2019</small></figcaption></figure>
             <figure><span class="cover c-grey"></span><figcaption>Grey Weather<small>Low Ceiling · 2017</small></figcaption></figure>
             <figure><span class="cover c-red"></span><figcaption>Red Light Only<small>Darkroom · 2020</small></figcaption></figure>
+            <figure><span class="cover c-dusk"></span><figcaption>Night Ferry<small>Oda Lind · 2024</small></figcaption></figure>
           </div>
         </div>
+        <aside class="app-queue">
+          <p class="q-tabs"><span>Details</span><span class="on">Queue</span></p>
+          <p class="q-label">Playing now</p>
+          <p class="q-row now-row"><span class="cycle"><span class="cover c-sun small"></span><span class="cover c-bloom small"></span><span class="cover c-dusk small"></span></span><span class="cycle names"><span>Opening<small>Mara Quinn</small></span><span>Paper Lanterns<small>Hana Mori</small></span><span>Last Crossing<small>Oda Lind</small></span></span><span class="eq"><i></i><i></i><i></i></span></p>
+          <p class="q-label">Up next</p>
+          <p class="q-row"><span class="cover c-sun small"></span><span>Harbor Lights<small>Mara Quinn</small></span></p>
+          <p class="q-row"><span class="cover c-tide small"></span><span>Middle Distance<small>Mara Quinn</small></span></p>
+          <p class="q-row"><span class="cover c-bloom small"></span><span>Paper Lanterns<small>Hana Mori</small></span></p>
+          <p class="q-row"><span class="cover c-dusk small"></span><span>Last Crossing<small>Oda Lind</small></span></p>
+          <p class="q-row"><span class="cover c-arcade small"></span><span>Coming Home<small>Pixel Choir</small></span></p>
+        </aside>
       </div>
       <div class="app-player">
-        <span class="now"><span class="cover c-sun small"></span><span>Opening<small>Mara Quinn</small></span></span>
-        <span class="controls"><i></i><i></i><i class="play"></i><i></i><i></i></span>
-        <span class="bar"><span class="fill"></span></span>
-        <span class="signal">FLAC 24/44.1</span>
+        <span class="now">
+          <span class="cycle"><span class="cover c-sun small"></span><span class="cover c-bloom small"></span><span class="cover c-dusk small"></span></span>
+          <span class="cycle names"><span>Opening<small>Mara Quinn</small></span><span>Paper Lanterns<small>Hana Mori</small></span><span>Last Crossing<small>Oda Lind</small></span></span>
+          <i class="i-heart"></i>
+        </span>
+        <span class="middle">
+          <span class="controls"><i class="i-shuffle"></i><i class="i-prev"></i><i class="play"></i><i class="i-next"></i><i class="i-repeat"></i></span>
+          <span class="seek"><small>1:12</small><span class="bar"><span class="fill"></span></span><small>3:48</small></span>
+        </span>
+        <span class="out">
+          <span class="signal"><i class="i-wave"></i>FLAC 24/48 → 48 kHz</span>
+          <span class="out-row"><i class="i-vol"></i><span class="vol"><span></span></span><i class="i-eq"></i><i class="i-cast"></i><i class="i-queue"></i></span>
+        </span>
       </div>
+    </div>
+    <!-- Two things Needle does, lifted out of the window. -->
+    <div class="float f-lyric" aria-hidden="true">
+      <span class="cover c-sun"></span>
+      <span class="f-text"><small>Opening · Mara Quinn</small><b>Every song I ever kept</b><i>Is right where I left it</i></span>
+    </div>
+    <div class="float f-speak" aria-hidden="true">
+      <span class="f-text"><small>Playing on</small><b>Living Room</b><i>Chromecast · in step with Kitchen</i></span>
+      <i class="waves"></i>
+    </div>
     </div>
   </section>
 
   <section id="features" class="features" aria-labelledby="features-title">
     <div class="wrap">
-      <div class="section-head">
-        <h2 id="features-title">Made for the music <em>you own.</em></h2>
-        <p>Your files, played properly. Everything below runs on your computer.</p>
+      <div class="side">
+        <div>
+          <p class="side-name">Side A</p>
+          <h2 id="features-title">Made for the music <em>you own.</em></h2>
+          <p class="side-note">Your files, played properly. Everything here runs on your computer.</p>
+        </div>
+        <ol class="tracks">
+          <li><a href="#lyrics-title"><b>A1</b>Sing along, word by word<i>3:12</i></a></li>
+          <li><a href="#themes-title"><b>A2</b>Make it look like yours<i>2:48</i></a></li>
+          <li><a href="#speakers-title"><b>A3</b>Play it in every room<i>4:05</i></a></li>
+          <li><a href="#radio-title"><b>A4</b>A radio station from your shelves<i>3:31</i></a></li>
+          <li><a href="#servers-title"><b>A5</b>Your server, too<i>3:57</i></a></li>
+          <li><a href="#year-title"><b>A6</b>Your year, told back<i>2:26</i></a></li>
+          <li><a href="#fix-title"><b>A7</b>Tidy, without the dread<i>3:40</i></a></li>
+        </ol>
       </div>
+    </div>
 
-      <article class="feature">
+    <!-- Lyrics: the big player, full width. -->
+    <article class="scene lyrics-scene" aria-labelledby="lyrics-title">
+      <div class="wrap scene-row">
         <div class="copy">
-          <p class="tag">Speakers</p>
-          <h3>Play it in every room.</h3>
-          <p>Send what you're playing to a Chromecast, a DLNA speaker, or an AirPlay receiver. Your queue, crossfade, and equalizer come along.</p>
+          <h3 id="lyrics-title"><b class="no">A1</b>Sing along, word by word.</h3>
+          <p>Timed lyrics follow the song and light up as they're sung, over the colors of the cover. No timing for a song? Tap along once, and Needle saves it next to the file.</p>
         </div>
-        <div class="demo">
-          <div class="menu" role="img" aria-label="A Play on menu listing this computer, a living room speaker, a kitchen speaker, and a bedroom TV.">
-            <p class="menu-title">Play on</p>
-            <p class="menu-row"><span class="tick">✓</span>This computer</p>
-            <p class="menu-row">Living Room<small>Chromecast</small></p>
-            <p class="menu-row">Kitchen<small>AirPlay</small></p>
-            <p class="menu-row">Bedroom TV<small>DLNA</small></p>
+        <div class="bigplay" role="img" aria-label="The big player: a large album cover on the left, and lyrics on the right with the current line lighting up word by word.">
+          <div class="big-art">
+            <span class="cover c-sun"></span>
+            <p class="big-title">Opening<small>Mara Quinn · Harbor Lights</small></p>
+            <span class="bar"><span class="fill"></span></span>
           </div>
-        </div>
-      </article>
-
-      <article class="feature flip">
-        <div class="copy">
-          <p class="tag">Radio</p>
-          <h3>A radio station made from your shelves.</h3>
-          <p>Needle listens to each song for its tempo, key, and energy, then builds stations from songs that belong together. Start one from a song or an artist, or blend two artists.</p>
-        </div>
-        <div class="demo">
-          <div class="radio" role="img" aria-label="A song measured at 112 BPM, A minor, upbeat, followed by a queue of similar songs by different artists.">
-            <p class="chips"><span>112 BPM</span><span>A minor</span><span>Upbeat</span></p>
-            <ol>
-              <li><span class="cover c-tide small"></span><span>Middle Distance<small>Mara Quinn</small></span></li>
-              <li><span class="cover c-arcade small"></span><span>Coming Home<small>Pixel Choir</small></span></li>
-              <li><span class="cover c-citrus small"></span><span>Opening<small>Juniper Bay</small></span></li>
-              <li><span class="cover c-record small"></span><span>Middle Distance<small>The Pressings</small></span></li>
-            </ol>
-          </div>
-        </div>
-      </article>
-
-      <article class="feature">
-        <div class="copy">
-          <p class="tag">Lyrics</p>
-          <h3>Sing along, word by word.</h3>
-          <p>Timed lyrics follow the song, and words light up as they're sung. No timing for a song? Tap along once, and Needle saves it next to the file.</p>
-        </div>
-        <div class="demo">
-          <div class="lyrics" role="img" aria-label="Lyrics, with the current line lighting up word by word.">
+          <div class="big-lyrics">
             <p class="past">Harbor lights are coming on</p>
             <p class="past">The tide is turning slow</p>
             <p class="sung"><span>Every</span> <span>song</span> <span>I</span> <span>ever</span> <span>kept</span></p>
             <p class="next">Is right where I left it</p>
-            <p class="next">Put the needle down again</p>
+            <p class="next far">Put the needle down again</p>
           </div>
         </div>
+      </div>
+    </article>
+
+    <!-- Themes: one small window in four looks. -->
+    <article class="scene themes-scene" aria-labelledby="themes-title">
+      <div class="wrap">
+        <div class="copy wide">
+          <h3 id="themes-title"><b class="no">A2</b>Make it look like yours.</h3>
+          <p>Three looks come with Needle. Copy any of them and change its colors with a color picker, or drop a theme someone sent you onto the window. Needle keeps the text readable whatever you pick.</p>
+          <p class="go"><a href="/themes">Make a theme →</a></p>
+        </div>
+        <div class="looks" role="img" aria-label="The same small Needle window in four looks: Night, Midnight, Day, and a pink custom theme called Sakura.">
+          <figure class="look t-night"><span class="mini"><i class="m-side"></i><i class="m-main"><b></b><s></s><u></u><u></u><u></u><u></u><u></u><u></u><em></em></i></span><figcaption>Night</figcaption></figure>
+          <figure class="look t-midnight"><span class="mini"><i class="m-side"></i><i class="m-main"><b></b><s></s><u></u><u></u><u></u><u></u><u></u><u></u><em></em></i></span><figcaption>Midnight</figcaption></figure>
+          <figure class="look t-day"><span class="mini"><i class="m-side"></i><i class="m-main"><b></b><s></s><u></u><u></u><u></u><u></u><u></u><u></u><em></em></i></span><figcaption>Day</figcaption></figure>
+          <figure class="look t-sakura"><span class="mini"><i class="m-side"></i><i class="m-main"><b></b><s></s><u></u><u></u><u></u><u></u><u></u><u></u><em></em></i></span><figcaption>Sakura <small>your theme</small></figcaption></figure>
+        </div>
+      </div>
+    </article>
+
+    <div class="wrap pair">
+      <!-- Speakers -->
+      <article class="panel tint-tide" aria-labelledby="speakers-title">
+        <div class="menu" role="img" aria-label="A Play on menu with this computer and the living room speaker both ticked, and a kitchen speaker and a bedroom TV below.">
+          <p class="menu-title">Play on</p>
+          <p class="menu-row on"><span class="tick">✓</span>This computer</p>
+          <p class="menu-row on"><span class="tick">✓</span>Living Room<small>Chromecast</small><i class="waves"></i></p>
+          <p class="menu-row">Kitchen<small>AirPlay</small></p>
+          <p class="menu-row">Bedroom TV<small>DLNA</small></p>
+        </div>
+        <h3 id="speakers-title"><b class="no">A3</b>Play it in every room.</h3>
+        <p>Send the music to a Chromecast, an AirPlay receiver, or a DLNA speaker, or to several at once, kept in step. Your queue, crossfade, and equalizer come along.</p>
       </article>
 
-      <article class="feature flip">
+      <!-- Radio -->
+      <article class="panel tint-arcade" aria-labelledby="radio-title">
+        <div class="radio" role="img" aria-label="A song measured at 112 BPM, A minor, upbeat, and a station of similar songs by other artists.">
+          <p class="chips"><span>112 BPM</span><span>A minor</span><span>Upbeat</span></p>
+          <ol>
+            <li><span class="cover c-tide small"></span><span>Middle Distance<small>Mara Quinn</small></span></li>
+            <li><span class="cover c-arcade small"></span><span>Coming Home<small>Pixel Choir</small></span></li>
+            <li><span class="cover c-bloom small"></span><span>Paper Lanterns<small>Hana Mori</small></span></li>
+          </ol>
+        </div>
+        <h3 id="radio-title"><b class="no">A4</b>A radio station made from your shelves.</h3>
+        <p>Needle listens to each song for its tempo, key, and energy, then builds stations from songs that belong together. Start one from a song or an artist, or blend two.</p>
+      </article>
+    </div>
+
+    <!-- Servers -->
+    <article class="scene servers-scene" aria-labelledby="servers-title">
+      <div class="wrap scene-row flip">
         <div class="copy">
-          <p class="tag">Your year</p>
-          <h3>Your year in music, told back.</h3>
-          <p>Your artist of the year, the songs you had on repeat, the albums you lived in, and when you listen most. Play your top songs or save them as a playlist.</p>
+          <h3 id="servers-title"><b class="no">A5</b>Your server, too.</h3>
+          <p>Sign in to Navidrome or another Subsonic server, and its songs sit with your own. They stream as they play, jump ahead without waiting, and the ones you keep play without the network. Plays and ratings go back to your server.</p>
         </div>
-        <div class="demo">
-          <div class="year" role="img" aria-label="Your year in music: 40 hours with your music, 795 plays of 24 songs by 7 artists.">
-            <p class="year-num">2026</p>
-            <p class="year-line">You spent <b>40 hours</b> with your music: <b>795 plays</b> of <b>24 songs</b> by <b>7 artists</b>.</p>
-            <p class="year-rhythm"><span style="--h:.35"></span><span style="--h:.1"></span><span style="--h:.05"></span><span style="--h:.3"></span><span style="--h:.45"></span><span style="--h:.2"></span><span style="--h:.55"></span><span style="--h:.8"></span><span style="--h:1"></span></p>
-            <p class="year-foot">You listen most around <b>11 PM</b>. A night owl.</p>
-          </div>
+        <div class="server" role="img" aria-label="Navidrome's songs in Needle: one streaming now, two kept on this computer, marked with a pin.">
+          <p class="server-head"><i class="i-globe"></i><b>Navidrome</b><span>6,728 songs<span class="when"> · updated 2 min ago</span></span></p>
+          <p class="song playing"><span class="cover c-dusk small"></span><span>Last Crossing<small>Oda Lind</small></span><span class="eq"><i></i><i></i><i></i></span><em>FLAC 24/48</em></p>
+          <p class="song"><span class="cover c-dusk small"></span><span>Night Ferry<small>Oda Lind</small></span><i class="i-pin"></i><em>FLAC 16/44.1</em></p>
+          <p class="song"><span class="cover c-bloom small"></span><span>Paper Lanterns<small>Hana Mori</small></span><i class="i-pin"></i><em>ALAC 24/96</em></p>
+          <p class="song"><span class="cover c-grey small"></span><span>Overcast<small>Low Ceiling</small></span><em>MP3 320</em></p>
+          <p class="keep-btn"><i class="i-pin"></i>Keep on this computer</p>
         </div>
+      </div>
+    </article>
+
+    <div class="wrap pair">
+      <!-- Your year -->
+      <article class="panel tint-amber" aria-labelledby="year-title">
+        <div class="year" role="img" aria-label="Your year in music: 40 hours with your music, 795 plays of 24 songs by 7 artists, mostly late at night.">
+          <p class="year-num">2026</p>
+          <p class="year-line">You spent <b>40 hours</b> with your music: <b>795 plays</b> of <b>24 songs</b> by <b>7 artists</b>.</p>
+          <p class="year-rhythm"><span style="--h:.35"></span><span style="--h:.1"></span><span style="--h:.05"></span><span style="--h:.3"></span><span style="--h:.45"></span><span style="--h:.2"></span><span style="--h:.55"></span><span style="--h:.8"></span><span style="--h:1"></span></p>
+          <p class="year-foot">You listen most around <b>11 PM</b>. A night owl.</p>
+        </div>
+        <h3 id="year-title"><b class="no">A6</b>Your year in music, told back.</h3>
+        <p>Your artist of the year, the songs you had on repeat, the albums you lived in, and when you listen most.</p>
       </article>
 
-      <article class="feature">
-        <div class="copy">
-          <p class="tag">Fix my library</p>
-          <h3>Tidy, without the dread.</h3>
-          <p>Merge duplicates and keep the best-sounding copy. Fill in missing covers. Match albums on MusicBrainz, with every change shown before anything is written. Rename and move files by a pattern, and undo it if you change your mind.</p>
+      <!-- Fix my library -->
+      <article class="panel tint-red" aria-labelledby="fix-title">
+        <div class="dupes" role="img" aria-label="Two copies of a song. The FLAC copy is kept, and the MP3 copy is merged into it.">
+          <p class="dupe-head"><span class="cover c-red small"></span>Middle Distance<small>Darkroom</small></p>
+          <p class="dupe keep"><i></i>FLAC 24/44.1<small>Red Light Only\02 Middle Distance.flac</small></p>
+          <p class="dupe"><i></i>MP3 320<small>Downloads\middle distance (1).mp3</small></p>
+          <p class="merge">Merge<span>Plays, ratings, and playlists move to the copy you keep.</span></p>
         </div>
-        <div class="demo">
-          <div class="dupes" role="img" aria-label="Two copies of a song. The FLAC copy is kept, and the MP3 copy is merged into it.">
-            <p class="dupe-head"><span class="cover c-red small"></span>Middle Distance<small>Darkroom</small></p>
-            <p class="dupe keep"><i></i>FLAC 24/44.1<small>Red Light Only\02 Middle Distance.flac</small></p>
-            <p class="dupe"><i></i>MP3 320<small>Downloads\middle distance (1).mp3</small></p>
-            <p class="merge">Merge<span>Plays, ratings, and playlists move to the copy you keep.</span></p>
-          </div>
-        </div>
+        <h3 id="fix-title"><b class="no">A7</b>Tidy, without the dread.</h3>
+        <p>Merge duplicates and keep the best-sounding copy, fill in missing covers, and rename files by a pattern. Every change is shown first, and can be undone.</p>
       </article>
     </div>
   </section>
 
   <section class="more" aria-labelledby="more-title">
     <div class="wrap">
+      <p class="side-name">Side B</p>
       <h2 id="more-title">And the rest.</h2>
       <dl class="list">
-        <div><dt>Every format you have</dt><dd>FLAC, ALAC, WAV, AIFF, MP3, AAC, Ogg, Opus, WavPack, Monkey's Audio, DSD, and CUE sheets.</dd></div>
-        <div><dt>Sound, done right</dt><dd>Gapless playback, crossfade, ReplayGain, an equalizer, and exclusive output for your DAC.</dd></div>
-        <div><dt>Stems</dt><dd>Split any song into vocals, drums, bass, and the rest, on your computer, then mix them live.</dd></div>
-        <div><dt>Rules, not folders</dt><dd>Search with rules like <code>rating &gt;= 4 and year &lt; 2000</code>, and save them as playlists that keep themselves up to date.</dd></div>
-        <div><dt>Your way to browse</dt><dd>Albums, artists, folders on disk, and a song table with the columns you choose.</dd></div>
-        <div><dt>At home in Windows</dt><dd>Media keys, the lock screen, a mini player, and "Open with Needle" for your music files.</dd></div>
+        <div><dt><b class="no">B1</b>Every format you have</dt><dd>FLAC, ALAC, WAV, AIFF, MP3, AAC, Ogg, Opus, WavPack, Monkey's Audio, DSD, CUE sheets, and Dolby Atmos music.</dd></div>
+        <div><dt><b class="no">B2</b>Sound, done right</dt><dd>Gapless playback, crossfade, ReplayGain, a parametric equalizer, and exclusive output for your DAC.</dd></div>
+        <div><dt><b class="no">B3</b>Stems</dt><dd>Split any song into vocals, drums, bass, and the rest, on your computer, then mix them live.</dd></div>
+        <div><dt><b class="no">B4</b>Rules, not folders</dt><dd>Search with rules like <code>rating &gt;= 4 and year &lt; 2000</code>, and save them as playlists that keep themselves up to date.</dd></div>
+        <div><dt><b class="no">B5</b>Plugins</dt><dd>Small scripts that add commands, sound effects, music sources, and themes. <a href="/plugins">Write one</a>.</dd></div>
+        <div><dt><b class="no">B6</b>At home in Windows</dt><dd>Media keys, the lock screen, a mini player, the tray, a phone remote, and your Discord status.</dd></div>
       </dl>
     </div>
   </section>
@@ -226,7 +300,7 @@
       <div>
         <p>Needle works without an account and keeps your library on your computer. Looking up lyrics and covers online is off until you turn it on, and then it sends only the artist, album, and title.</p>
         <p>Your files are never moved or changed unless you ask. When you do, Needle keeps a backup.</p>
-        <p>Once a day, Needle asks for news of a newer version. You can turn that off in Settings.</p>
+        <p>Once a day, Needle asks for news of a newer version. You can turn that off in Settings. <a href="/privacy">The privacy policy</a> lists everything.</p>
       </div>
     </div>
   </section>
@@ -248,26 +322,8 @@
 
 <footer class="foot">
   <div class="wrap">
-    <div class="foot-row">
-      <a class="brand big" href="#" aria-label="Needle home">
-        <svg class="brand-mark" viewBox="0 0 100 100" aria-hidden="true"><use href="#record"/><use href="#arm"/></svg>
-        <span>Needle</span>
-      </a>
-      <p>Your music, in its place.<br>Made at <a href="https://nnx.fyi/">NNX</a>.</p>
-    </div>
-    <div class="foot-row small">
-      <span>© 2026 NNX</span>
-      <nav aria-label="Footer navigation">
-        <a href="/plugins">Plugins</a>
-        <a href="/themes">Themes</a>
-        <a href="/help">Help</a>
-        <a href="/privacy">Privacy</a>
-        <a href="https://nnx.fyi/">NNX</a>
-        <a href="https://nivren.nnx.fyi/">Nivren</a>
-        <a href="https://deadline.nnx.fyi/">Deadline</a>
-        <a href="mailto:dot@nnx.fyi">Contact</a>
-      </nav>
-    </div>
+    <p class="foot-word" aria-hidden="true">Needle</p>
+    <p class="foot-line">© 2026 NNX</p>
   </div>
 </footer>
 </body>
