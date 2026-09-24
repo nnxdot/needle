@@ -175,6 +175,9 @@ pub struct Settings {
     pub discord_idle_minutes: u32,
     /// Font for page titles: "system", "bahnschrift", or "fraunces".
     pub display_font: String,
+    /// The grain and title font someone had before a custom theme set its own; put back
+    /// when they choose a look without them.
+    pub theme_extras_before: Option<(f32, String)>,
     /// Color for the interface when colors from the music are off: a hex color like
     /// "#3e63dd", or empty for Needle's amber.
     pub accent_color: String,
@@ -242,6 +245,7 @@ impl Default for Settings {
             discord_paused: true,
             discord_idle_minutes: 10,
             display_font: "system".into(),
+            theme_extras_before: None,
             accent_color: String::new(),
             ambient: false,
             crossfade: 0.,

@@ -85,7 +85,8 @@ impl AppView {
 
     /// Install the Navidrome / Subsonic plugin if needed, and turn it on.
     fn set_up_subsonic(&mut self, cx: &mut Context<Self>) {
-        if let Err(error) = plugins::install_examples(&self.library) {
+        // Only this plugin: the other examples stay out until someone asks for them.
+        if let Err(error) = plugins::install_example(&self.library, SUBSONIC) {
             self.fail(format!("{error:#}"));
             return;
         }
@@ -158,7 +159,7 @@ impl AppView {
                     .unwrap_or_default();
                 format!("Signed in. {} songs{when}.", count(source.songs))
             };
-            let (kept_songs, kept_bytes) = needle_core::sources::kept_usage(&id);
+            let (kept_songs, kept_bytes) = self.kept_usage.get(&id).copied().unwrap_or((0, 0));
             let (show, sync, out, unkeep) = (id.clone(), id.clone(), id.clone(), id.clone());
             let name = source.name.clone();
             div()
@@ -301,15 +302,56 @@ impl AppView {
         )
     }
 
+    /// The server songs among `ids`, or `None` (after saying why) when the library cannot be
+    /// read.
+    fn streamed_tracks(&mut self, ids: &[String]) -> Option<Vec<needle_core::model::Track>> {
+        match self.library.tracks_by_ids(ids) {
+            Ok(tracks) => Some(tracks.into_iter().filter(|t| t.is_streamed()).collect()),
+            Err(error) => {
+                self.fail(format!("{error:#}"));
+                None
+            }
+        }
+    }
+
+    /// Count the songs kept on this computer for each source, on another thread (it walks
+    /// folders), about every few seconds while Settings is open.
+    pub(super) fn refresh_kept_usage(&mut self) {
+        if self.page != Page::Settings
+            || self.kept_checked.elapsed().as_secs() < 5
+            || self
+                .kept_checking
+                .swap(true, std::sync::atomic::Ordering::AcqRel)
+        {
+            return;
+        }
+        self.kept_checked = std::time::Instant::now();
+        let plugins: Vec<String> = self
+            .plugins
+            .plugins()
+            .into_iter()
+            .filter(|p| p.source.is_some())
+            .map(|p| p.manifest.id)
+            .collect();
+        let (sender, busy) = (self.sender.clone(), self.kept_checking.clone());
+        std::thread::spawn(move || {
+            let usage = plugins
+                .into_iter()
+                .map(|id| {
+                    let usage = needle_core::sources::kept_usage(&id);
+                    (id, usage)
+                })
+                .collect();
+            let _ = sender.send(super::Event::KeptUsage(usage));
+            busy.store(false, std::sync::atomic::Ordering::Release);
+        });
+    }
+
     /// Keep server songs on this computer (downloading them), or stop keeping them.
     pub(super) fn keep_streamed(&mut self, ids: &[String], keep: bool) {
-        let tracks: Vec<_> = self
-            .library
-            .tracks_by_ids(ids)
-            .unwrap_or_default()
-            .into_iter()
-            .filter(|t| t.is_streamed())
-            .collect();
+        let Some(tracks) = self.streamed_tracks(ids) else {
+            return;
+        };
         if tracks.is_empty() {
             return;
         }
@@ -355,17 +397,20 @@ impl AppView {
 
     /// Download streamed songs into the first music folder, where Needle adds them as files.
     pub(super) fn save_streamed(&mut self, ids: &[String]) {
-        let tracks: Vec<_> = self
-            .library
-            .tracks_by_ids(ids)
-            .unwrap_or_default()
-            .into_iter()
-            .filter(|t| t.is_streamed())
-            .collect();
+        let Some(tracks) = self.streamed_tracks(ids) else {
+            return;
+        };
         if tracks.is_empty() {
             return;
         }
-        let Some(root) = self.library.roots().unwrap_or_default().into_iter().next() else {
+        let roots = match self.library.roots() {
+            Ok(roots) => roots,
+            Err(error) => {
+                self.fail(format!("{error:#}"));
+                return;
+            }
+        };
+        let Some(root) = roots.into_iter().next() else {
             self.fail("Add a music folder in Settings › Library first, so Needle knows where to save songs.");
             return;
         };

@@ -301,9 +301,33 @@ impl CustomTheme {
         if let Some(folder) = self.path.parent() {
             std::fs::create_dir_all(folder)?;
         }
-        std::fs::write(&self.path, self.to_toml())
-            .with_context(|| format!("Could not save {}", self.path.display()))
+        // Write a new file and swap it in, so a failed write leaves the old theme whole.
+        let temporary = self.path.with_extension("toml.saving");
+        let written = (|| -> std::io::Result<()> {
+            use std::io::Write;
+            let mut file = std::fs::File::create(&temporary)?;
+            file.write_all(self.to_toml().as_bytes())?;
+            file.sync_all()?;
+            drop(file);
+            std::fs::rename(&temporary, &self.path)
+        })();
+        if written.is_err() {
+            let _ = std::fs::remove_file(&temporary);
+        }
+        written.with_context(|| format!("Could not save {}", self.path.display()))
     }
+}
+
+/// Theme files are a few hundred bytes; anything much bigger is not one.
+pub const MAX_THEME_BYTES: u64 = 64 * 1024;
+
+/// Read a theme file, refusing ones too big to be a theme.
+pub fn read_theme_file(path: &Path) -> Result<String> {
+    let size = std::fs::metadata(path)?.len();
+    if size > MAX_THEME_BYTES {
+        bail!("it is {} KB, too big for a theme", size / 1024);
+    }
+    Ok(std::fs::read_to_string(path)?)
 }
 
 pub fn base_key(base: Base) -> &'static str {
@@ -348,7 +372,19 @@ pub fn free_id(folder: &Path, name: &str) -> String {
     let base = slug(name);
     let mut id = base.clone();
     let mut n = 2;
-    while folder.join(format!("{id}.toml")).exists() {
+    // Compared without case: "Sakura.TOML" takes the name "sakura" too.
+    let taken: Vec<String> = std::fs::read_dir(folder)
+        .into_iter()
+        .flatten()
+        .flatten()
+        .map(|e| e.path())
+        .filter(|p| {
+            p.extension()
+                .is_some_and(|e| e.eq_ignore_ascii_case("toml"))
+        })
+        .filter_map(|p| Some(p.file_stem()?.to_string_lossy().to_lowercase()))
+        .collect();
+    while taken.contains(&id.to_lowercase()) {
         id = format!("{base}-{n}");
         n += 1;
     }
@@ -408,8 +444,10 @@ fn files(sources: &[(PathBuf, Option<String>)]) -> Vec<(PathBuf, Option<String>)
             .flatten()
             .map(|e| e.path())
             .filter(|p| {
+                // Plain files only: a pipe or device named .toml could block reading.
                 p.extension()
                     .is_some_and(|e| e.eq_ignore_ascii_case("toml"))
+                    && std::fs::symlink_metadata(p).is_ok_and(|m| m.file_type().is_file())
             })
             .collect();
         found.sort();
@@ -452,10 +490,7 @@ pub fn load(sources: &[(PathBuf, Option<String>)]) -> Themes {
             .file_name()
             .map(|s| s.to_string_lossy().to_string())
             .unwrap_or_default();
-        match std::fs::read_to_string(&path)
-            .map_err(anyhow::Error::from)
-            .and_then(|text| CustomTheme::parse(&text, &id, &path))
-        {
+        match read_theme_file(&path).and_then(|text| CustomTheme::parse(&text, &id, &path)) {
             Ok(mut theme) => {
                 theme.read_only = plugin.is_some();
                 themes.list.push(theme);
@@ -530,6 +565,8 @@ font = "fraunces"
         let dir = tempfile::tempdir().unwrap();
         std::fs::write(dir.path().join("sakura.toml"), "").unwrap();
         assert_eq!(free_id(dir.path(), "Sakura"), "sakura-2");
+        std::fs::write(dir.path().join("Mint.TOML"), "").unwrap();
+        assert_eq!(free_id(dir.path(), "mint"), "mint-2");
     }
 
     #[test]
@@ -553,6 +590,11 @@ version = \"1.0\"",
         std::fs::create_dir_all(&plugin).unwrap();
         std::fs::write(mine.join("sakura.toml"), SAKURA).unwrap();
         std::fs::write(mine.join("broken.toml"), "[colors]\nink = \"#fff\"").unwrap();
+        std::fs::write(
+            mine.join("huge.toml"),
+            "#".repeat(MAX_THEME_BYTES as usize + 1),
+        )
+        .unwrap();
         std::fs::write(plugin.join("mint.toml"), "name = \"Mint\"").unwrap();
         let sources = sources(&library);
         let themes = load(&sources);
@@ -560,8 +602,9 @@ version = \"1.0\"",
         assert_eq!(ids, ["sakura", "pastel/mint"]);
         assert!(themes.find("custom:pastel/mint").unwrap().read_only);
         assert!(themes.find("custom:sakura").is_some() && themes.find("dark").is_none());
-        assert_eq!(themes.problems.len(), 1);
-        assert!(themes.problems[0].1.contains("\"ink\""));
+        assert_eq!(themes.problems.len(), 2);
+        assert!(themes.problems.iter().any(|p| p.1.contains("\"ink\"")));
+        assert!(themes.problems.iter().any(|p| p.1.contains("too big")));
         assert!(!changed(&themes, &sources));
         std::fs::write(mine.join("sakura.toml"), format!("{SAKURA}\n# edited")).unwrap();
         assert!(changed(&themes, &sources));
@@ -584,10 +627,15 @@ version = \"1.0\"",
                         .colors
                         .insert(Slot::Sidebar, c(greys[i % greys.len()]));
                     theme.colors.insert(Slot::Text, c(*text));
+                    // Hovered cards and the success colour can clash too.
+                    theme
+                        .colors
+                        .insert(Slot::CardHover, c(greys[(i + 2) % greys.len()]));
+                    theme.colors.insert(Slot::Success, c(*surface));
                     theme.colors.insert(Slot::Accent, c(*text));
                     let (p, _) = Palette::custom(&theme, None, false);
-                    for s in [p.chrome, p.canvas, p.raised] {
-                        for t in [p.ink, p.ink_2, p.ink_3, p.accent, p.danger] {
+                    for s in [p.chrome, p.canvas, p.raised, p.raised_hover] {
+                        for t in [p.ink, p.ink_2, p.ink_3, p.accent, p.danger, p.success] {
                             assert!(contrast(t, s) >= 4.5, "{} on {} ({base:?})", hex(t), hex(s));
                         }
                     }
