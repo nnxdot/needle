@@ -36,8 +36,23 @@ fn all_themes(cx: &App) -> Themes {
 impl AppView {
     /// Read every theme again (after a change Needle made itself).
     pub(super) fn reload_themes(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        // Any look at the files that started before this reading is now out of date.
+        self.themes_generation += 1;
         let themes = themes::load(&themes::sources(&self.library));
         self.use_themes(themes, window, cx);
+    }
+
+    /// A reading from `check_themes`: used only if nothing newer was read since it began.
+    pub(super) fn themes_found(
+        &mut self,
+        generation: u64,
+        themes: Themes,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if generation == self.themes_generation {
+            self.use_themes(themes, window, cx);
+        }
     }
 
     /// Use a fresh reading of the themes: re-apply the chosen one if it is custom, with its
@@ -72,16 +87,20 @@ impl AppView {
             return;
         }
         self.themes_checked = Instant::now();
-        let (library, current, sender, busy) = (
+        let (library, current, sender, busy, generation) = (
             self.library.clone(),
             all_themes(cx),
             self.sender.clone(),
             self.themes_checking.clone(),
+            self.themes_generation,
         );
         std::thread::spawn(move || {
             let sources = themes::sources(&library);
             if themes::changed(&current, &sources) {
-                let _ = sender.send(super::Event::Themes(Box::new(themes::load(&sources))));
+                let _ = sender.send(super::Event::Themes(
+                    generation,
+                    Box::new(themes::load(&sources)),
+                ));
             }
             busy.store(false, std::sync::atomic::Ordering::Release);
         });

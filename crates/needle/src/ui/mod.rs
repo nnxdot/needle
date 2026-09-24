@@ -298,7 +298,7 @@ enum Event {
     Plugin(needle_core::plugins::HostAction),
     Tray(tray::TrayAction),
     /// Theme files changed on disk: the new reading.
-    Themes(Box<themes::Themes>),
+    Themes(u64, Box<themes::Themes>),
     /// Songs kept on this computer for each source: how many, and bytes.
     KeptUsage(std::collections::HashMap<String, (usize, u64)>),
     PaletteFound(
@@ -494,6 +494,9 @@ pub struct AppView {
     now_playing_sent: Option<String>,
     /// When the theme files were last looked at.
     themes_checked: Instant,
+    /// Counts readings of the theme files Needle made itself, so an older background look
+    /// is not used over a newer one.
+    themes_generation: u64,
     /// A look at the theme files is under way on another thread.
     themes_checking: std::sync::Arc<std::sync::atomic::AtomicBool>,
     /// The custom theme open in Settings › Appearance.
@@ -897,6 +900,7 @@ impl AppView {
             now_playing_sent: None,
             themes_checked: Instant::now(),
             themes_checking: Default::default(),
+            themes_generation: 0,
             theme_editor: None,
             theme_delete_armed: None,
             source_inputs: std::collections::HashMap::new(),
@@ -1219,7 +1223,9 @@ impl AppView {
                 }
                 Event::ArtistImages(found) => self.artist_images.extend(found),
                 Event::MediaKey(key) => self.media_key(key, window, cx),
-                Event::Themes(themes) => self.use_themes(*themes, window, cx),
+                Event::Themes(generation, themes) => {
+                    self.themes_found(generation, *themes, window, cx)
+                }
                 Event::KeptUsage(usage) => self.kept_usage = usage,
                 Event::ArtFetched => {
                     if let Some(item) = self.playback.current.as_ref()

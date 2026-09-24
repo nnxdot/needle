@@ -772,6 +772,11 @@ fn fetch(job: &Download, link: &str) -> Result<()> {
                 break;
             }
         }
+        // An answer with nothing in it: the song cannot be read from here, so the download
+        // fails (and nothing is cached) instead of keeping an empty song or asking again.
+        if at == start && next.is_none() {
+            bail!("The server sent an empty answer for this song");
+        }
         let mut progress = job.lock();
         if progress.total.is_none() && next.is_none() {
             // No size was given: the end of the answer is the end of the song.
@@ -1354,6 +1359,21 @@ mod tests {
         job.finish(Duration::from_secs(30)).unwrap();
         job.release();
         assert_eq!(std::fs::read(&target).unwrap(), data);
+    }
+
+    /// An empty answer fails the download and leaves nothing in the cache to fail again.
+    #[test]
+    fn an_empty_answer_is_not_kept() {
+        let (link, _) = slow_server(vec![], true);
+        let dir = tempfile::tempdir().unwrap();
+        let track = server_track("empty");
+        let target = cache_path_in(dir.path(), &track).unwrap();
+        let resolver = move |_: &str, _: &str| Ok(link.clone());
+        let job = download(&track, &target, dir.path(), &resolver).unwrap();
+        let result = job.finish(Duration::from_secs(10));
+        job.release();
+        assert!(result.unwrap_err().to_string().contains("empty"));
+        assert!(!target.exists());
     }
 
     /// A server that always sends the whole file still gives the right bytes after a jump.
