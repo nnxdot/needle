@@ -17,7 +17,7 @@ impl AppView {
         sidebar: f32,
         window: &Window,
         cx: &mut Context<Self>,
-    ) -> impl IntoElement {
+    ) -> AnyElement {
         let p = pal(cx);
         let width = f32::from(window.viewport_size().width);
         let narrow = width < 1100.;
@@ -34,24 +34,12 @@ impl AppView {
             .as_deref()
             .is_some_and(|e| e.starts_with("Matches rule"))
             && !self.search_text(cx).is_empty();
-        TitleBar::new()
-            .h(px(48.))
-            .pl_0()
-            .bg(p.back)
-            .border_b_0()
-            // A thin strip that is not a drag area, so Windows offers top-edge resizing.
-            .when(!window.is_maximized(), |el| {
-                el.child(
-                    div()
-                        .id("resize-top")
-                        .absolute()
-                        .top_0()
-                        .left_0()
-                        .right_0()
-                        .h(px(5.))
-                        .occlude(),
-                )
-            })
+        // The sidebar corner, back button, search, and palette button.
+        let content = div()
+            .flex_1()
+            .h_full()
+            .flex()
+            .items_center()
             .child(
                 div()
                     .w(px(corner))
@@ -172,7 +160,38 @@ impl AppView {
                             ),
                     )
                     .child(div().flex_1()),
-            )
+            );
+        // Some Linux desktops (and WSL) draw their own frame with window buttons: then show
+        // the bar without Needle's own buttons.
+        if cfg!(target_os = "linux") && matches!(window.window_decorations(), Decorations::Server) {
+            return div()
+                .h(px(48.))
+                .flex_shrink_0()
+                .flex()
+                .bg(p.back)
+                .child(content)
+                .into_any_element();
+        }
+        TitleBar::new()
+            .h(px(48.))
+            .pl_0()
+            .bg(p.back)
+            .border_b_0()
+            // A thin strip that is not a drag area, so Windows offers top-edge resizing.
+            .when(!window.is_maximized(), |el| {
+                el.child(
+                    div()
+                        .id("resize-top")
+                        .absolute()
+                        .top_0()
+                        .left_0()
+                        .right_0()
+                        .h(px(5.))
+                        .occlude(),
+                )
+            })
+            .child(content)
+            .into_any_element()
     }
 
     fn nav_item(
