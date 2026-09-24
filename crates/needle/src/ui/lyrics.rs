@@ -113,10 +113,13 @@ impl AppView {
         }
     }
 
-    /// Ease the main window's lyrics a step toward the sung line; called every frame.
+    /// Ease the main window's lyrics (the big player's and the side panel's) a step toward
+    /// the sung line; called every frame.
     pub(super) fn glide_lyrics(&mut self, window: &mut Window, cx: &App) {
         if self.lyric_glide {
-            self.lyric_glide = glide(&self.lyrics_scroll, self.lyric_line, cx);
+            let big = glide(&self.lyrics_scroll, self.lyric_line, cx);
+            let side = glide(&self.panel_lyrics_scroll, self.lyric_line, cx);
+            self.lyric_glide = big || side;
             if self.lyric_glide {
                 window.request_animation_frame();
             }
@@ -151,7 +154,15 @@ impl AppView {
                 .lyrics
                 .as_ref()
                 .is_none_or(|(id, _)| Some(id) != current.as_ref());
-        let size = if big { 22. } else { 15. };
+        // The side panel has room for larger lines than the mini player.
+        let side = !big && !mini;
+        let size = if big {
+            22.
+        } else if side {
+            19.
+        } else {
+            15.
+        };
         let message = |title: &str, detail: &str, cx: &mut Context<Self>| {
             div()
                 .flex_1()
@@ -229,7 +240,13 @@ impl AppView {
             LyricsSource::Lrclib => "From LRCLIB",
         };
         // Lines are direct children of the scroll area so the view can scroll to one of them.
-        let gap = if big { 14. } else { 8. };
+        let gap = if big {
+            14.
+        } else if side {
+            12.
+        } else {
+            8.
+        };
         let lines: Vec<AnyElement> = if lyrics.lines.is_empty() {
             lyrics
                 .plain
@@ -339,6 +356,8 @@ impl AppView {
             .overflow_y_scroll()
             .track_scroll(if mini {
                 &self.mini_lyrics_scroll
+            } else if side {
+                &self.panel_lyrics_scroll
             } else {
                 &self.lyrics_scroll
             })
