@@ -84,6 +84,7 @@ impl AppView {
                 // The mini player sizes itself: compact, or expanded with a list.
                 is_resizable: false,
                 window_decorations: cfg!(target_os = "linux").then_some(WindowDecorations::Client),
+                app_id: Some(super::APP_ID.into()),
                 ..Default::default()
             };
             let weak = app.downgrade();
