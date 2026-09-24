@@ -4,6 +4,7 @@ mod chrome;
 mod columns;
 mod discord;
 mod doctor;
+mod files;
 mod flow;
 mod folders;
 mod glass;
@@ -2182,7 +2183,7 @@ impl Render for AppView {
             self.finish_column_resize();
         }
         let p = pal(cx);
-        let width = window.viewport_size().width;
+        let width = widgets::content_size(window).width;
         let sidebar_open = !self.settings.layout.sidebar_hidden;
         let sidebar = if sidebar_open {
             self.settings.layout.sidebar_width.clamp(200., 260.)
@@ -2231,7 +2232,7 @@ impl Render for AppView {
             }
         }
         let big_layer = (self.big || self.big_moving).then(|| {
-            let body = window.viewport_size();
+            let body = widgets::content_size(window);
             let (w, h) = (f32::from(body.width), f32::from(body.height) - 48.);
             let player = self.big_player(window, cx);
             self.big_reveal(player, w, h, cx)

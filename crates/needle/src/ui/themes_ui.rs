@@ -512,7 +512,7 @@ impl AppView {
                             .on_click(cx.listener(|this, _, _, _| {
                                 let folder = themes::folder(&this.library.directory);
                                 let _ = std::fs::create_dir_all(&folder);
-                                let _ = std::process::Command::new("explorer").arg(folder).spawn();
+                                super::files::open_folder(&folder);
                             })),
                     ),
             )
@@ -625,12 +625,7 @@ impl AppView {
                                 .ghost()
                                 .on_click({
                                     let path = theme.path.clone();
-                                    move |_, _, _| {
-                                        let _ = std::process::Command::new("explorer")
-                                            .arg("/select,")
-                                            .arg(&path)
-                                            .spawn();
-                                    }
+                                    move |_, _, _| super::files::show_file(&path)
                                 }),
                         )
                         .child(small_button("theme-editor-done", "Done").on_click(cx.listener(

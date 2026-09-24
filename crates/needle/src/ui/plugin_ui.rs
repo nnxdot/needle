@@ -129,7 +129,7 @@ impl AppView {
                     .child(small_button("plugins-open", "Open plugins folder").on_click(cx.listener(|this, _, _, _| {
                         let folder = this.plugins.folder().to_path_buf();
                         let _ = std::fs::create_dir_all(&folder);
-                        let _ = std::process::Command::new("explorer").arg(folder).spawn();
+                        super::files::open_folder(&folder);
                     })))
                     .child(small_button("plugins-reload", "Reload").ghost().on_click(cx.listener(|this, _, _, cx| {
                         this.plugins.send(PluginEvent::Reload);

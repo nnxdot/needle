@@ -50,7 +50,7 @@ impl AppView {
         let p = pal(cx);
         let look = self.now_look();
         let tint = look.as_ref().map(|l| l.vivid);
-        let size = window.viewport_size();
+        let size = super::widgets::content_size(window);
         let (w, h) = (f32::from(size.width), f32::from(size.height));
         let side = if w < 1000. { Side::None } else { self.big_side };
         let current = self.shown_item();
