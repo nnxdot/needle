@@ -673,7 +673,7 @@ impl AppView {
                                     .mt_2()
                                     .flex()
                                     .gap_2()
-                                    .child(small_button("settings-add", "Add folder").icon(icon("plus")).on_click(cx.listener(|this, _, _, cx| this.import_folder(cx))))
+                                    .child(small_button("settings-add", "Add folder").icon(icon("plus")).on_click(cx.listener(|this, _, window, cx| this.import_folder(window, cx))))
                                     .child(small_button("rescan", "Check for changes").ghost().disabled(self.scan.is_some()).on_click(cx.listener(|this, _, _, cx| this.rescan(cx)))),
                             ),
                     )
@@ -841,7 +841,10 @@ impl AppView {
                         div()
                             .flex()
                             .gap_2()
-                            .child(small_button("import-layout", "Import").ghost().on_click(cx.listener(|this, _, _, _| {
+                            .child(small_button("import-layout", "Import").ghost().on_click(cx.listener(|this, _, _, cx| {
+                                if !this.can_pick(cx) {
+                                    return;
+                                }
                                 let sender = this.sender.clone();
                                 std::thread::spawn(move || {
                                     if let Some(path) = rfd::FileDialog::new().add_filter("Needle layout", &["json"]).pick_file() {
@@ -857,7 +860,10 @@ impl AppView {
                                     }
                                 });
                             })))
-                            .child(small_button("export-layout", "Export").ghost().on_click(cx.listener(|this, _, _, _| {
+                            .child(small_button("export-layout", "Export").ghost().on_click(cx.listener(|this, _, _, cx| {
+                                if !this.can_pick(cx) {
+                                    return;
+                                }
                                 let layout = this.settings.layout.clone();
                                 this.background(move || {
                                     let Some(path) = rfd::FileDialog::new().set_file_name("needle-layout.json").save_file() else {
@@ -942,7 +948,10 @@ impl AppView {
                     .child(setting_row(
                         "Back up the library",
                         "Saves a consistent copy of the database, including recent changes.",
-                        small_button("backup", "Back up…").on_click(cx.listener(|this, _, _, _| {
+                        small_button("backup", "Back up…").on_click(cx.listener(|this, _, _, cx| {
+                            if !this.can_pick(cx) {
+                                return;
+                            }
                             let library = this.library.clone();
                             this.background(move || {
                                 let Some(path) = rfd::FileDialog::new().set_file_name("needle-library.db").save_file() else {
@@ -957,7 +966,10 @@ impl AppView {
                     .child(setting_row(
                         "Import a playlist",
                         "Reads an M3U or M3U8 file. Add its music folder first so the tracks can be matched.",
-                        small_button("import-m3u", "Import…").on_click(cx.listener(|this, _, _, _| {
+                        small_button("import-m3u", "Import…").on_click(cx.listener(|this, _, _, cx| {
+                            if !this.can_pick(cx) {
+                                return;
+                            }
                             let library = this.library.clone();
                             this.background(move || {
                                 let Some(path) = rfd::FileDialog::new().add_filter("Playlists", &["m3u", "m3u8"]).pick_file() else {
@@ -1094,6 +1106,9 @@ Recent log:
     }
 
     fn sync_transfer(&mut self, export: bool, cx: &mut Context<Self>) {
+        if !self.can_pick(cx) {
+            return;
+        }
         let phrase = self.sync_phrase.read(cx).value().to_string();
         if phrase.chars().count() < 12 {
             return self.fail("Use a passphrase of at least 12 characters.");

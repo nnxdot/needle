@@ -20,6 +20,7 @@ mod now_playing;
 mod pages;
 mod palette;
 mod panel;
+mod pickers;
 mod plugin_ask;
 mod plugin_ui;
 mod radio;
@@ -1701,7 +1702,18 @@ impl AppView {
             .collect()
     }
 
-    fn import_folder(&mut self, cx: &mut Context<Self>) {
+    fn import_folder(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if self.scan.is_some() {
+            return;
+        }
+        if !pickers::available() {
+            self.ask_music_folder(window, cx);
+            return;
+        }
+        self.scan_folder(None, cx);
+    }
+    /// Add `folder` to the library, or the folder the person picks when it is `None`.
+    fn scan_folder(&mut self, folder: Option<std::path::PathBuf>, cx: &mut Context<Self>) {
         if self.scan.is_some() {
             return;
         }
@@ -1710,14 +1722,20 @@ impl AppView {
         let cancel = Arc::new(AtomicBool::new(false));
         self.cancel = cancel.clone();
         self.scan = Some(ScanProgress {
-            current: "Choose a music folder…".into(),
+            current: if folder.is_some() {
+                "Adding the folder…".into()
+            } else {
+                "Choose a music folder…".into()
+            },
             ..Default::default()
         });
         std::thread::spawn(move || {
-            if let Some(folder) = rfd::FileDialog::new()
-                .set_title("Add a music folder to Needle")
-                .pick_folder()
-            {
+            let folder = folder.or_else(|| {
+                rfd::FileDialog::new()
+                    .set_title("Add a music folder to Needle")
+                    .pick_folder()
+            });
+            if let Some(folder) = folder {
                 if let Err(e) = scan::import(&library, &folder, cancel, |p| {
                     let _ = sender.send(Event::Imported(p));
                 }) {
@@ -2332,7 +2350,9 @@ impl Render for AppView {
             .on_action(cx.listener(|this, _: &FocusSearch, window, cx| {
                 this.search.update(cx, |s, cx| s.focus(window, cx))
             }))
-            .on_action(cx.listener(|this, _: &ImportFolder, _, cx| this.import_folder(cx)))
+            .on_action(
+                cx.listener(|this, _: &ImportFolder, window, cx| this.import_folder(window, cx)),
+            )
             .on_action(cx.listener(|this, _: &EscapePanel, window, cx| {
                 if this.big {
                     this.big = false;

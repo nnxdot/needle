@@ -290,7 +290,7 @@ impl AppView {
                 "Add a music folder",
                 "",
                 Some("Ctrl+O"),
-                |this, _, cx| this.import_folder(cx),
+                |this, window, cx| this.import_folder(window, cx),
             ),
             item(
                 "Actions",

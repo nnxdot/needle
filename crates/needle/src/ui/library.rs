@@ -49,7 +49,7 @@ impl Step {
                 this.palette_search(cx);
             }
             Self::Songs => this.navigate(Page::Songs, window, cx),
-            Self::AddFolder => this.import_folder(cx),
+            Self::AddFolder => this.import_folder(window, cx),
             Self::Import => this.navigate(Page::Import, window, cx),
         }
     }
@@ -199,7 +199,7 @@ impl AppView {
                             .primary()
                             .icon(icon("folder"))
                             .label("Add a music folder")
-                            .on_click(cx.listener(|this, _, _, cx| this.import_folder(cx))),
+                            .on_click(cx.listener(|this, _, window, cx| this.import_folder(window, cx))),
                     )
                     .child(
                         Button::new("empty-demo")
@@ -510,7 +510,10 @@ impl AppView {
                         .small()
                         .ghost()
                         .label("Export M3U8")
-                        .on_click(cx.listener(move |this, _, _, _| {
+                        .on_click(cx.listener(move |this, _, _, cx| {
+                            if !this.can_pick(cx) {
+                                return;
+                            }
                             let library = this.library.clone();
                             let playlist = export.clone();
                             this.background(move || {

@@ -463,6 +463,9 @@ impl AppView {
             })))
             .child(div().flex_1())
             .child(small_button("eq-import", "Load EQ file…").ghost().on_click(cx.listener(|this, _, window, cx| {
+                if !this.can_pick(cx) {
+                    return;
+                }
                 let Some(path) = rfd::FileDialog::new()
                     .set_title("Load a ParametricEQ.txt from AutoEq, or an Equalizer APO configuration")
                     .add_filter("Equalizer settings", &["txt"])
@@ -484,7 +487,10 @@ impl AppView {
                     Err(error) => this.fail(format!("{error:#}")),
                 }
             })))
-            .child(small_button("eq-export", "Save EQ file…").ghost().on_click(cx.listener(|this, _, _, _| {
+            .child(small_button("eq-export", "Save EQ file…").ghost().on_click(cx.listener(|this, _, _, cx| {
+                if !this.can_pick(cx) {
+                    return;
+                }
                 let dsp = this.settings.dsp.clone();
                 let bands: Vec<ParamBand> = if dsp.parametric_mode() {
                     dsp.parametric.clone()
