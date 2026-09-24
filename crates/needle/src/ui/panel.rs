@@ -377,8 +377,10 @@ impl AppView {
                         // A song on a music server: say where it comes from, not a made-up path.
                         Some(server) => el.child(self.fact(
                             "From",
-                            if needle_core::sources::is_cached(&track) {
-                                format!("{server} (also kept on this computer)")
+                            if needle_core::sources::is_kept(&track) {
+                                format!("{server} · kept on this computer")
+                            } else if needle_core::sources::is_cached(&track) {
+                                format!("{server} · played lately, so it is on this computer")
                             } else {
                                 server
                             },
