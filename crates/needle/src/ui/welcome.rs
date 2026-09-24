@@ -138,7 +138,7 @@ impl AppView {
                 div()
                     .flex()
                     .gap_2()
-                    .child(small_button("welcome-folder", if roots.is_empty() { "Choose your music folder…" } else { "Add another folder…" }).on_click(cx.listener(|this, _, _, cx| this.import_folder(cx))))
+                    .child(small_button("welcome-folder", if roots.is_empty() { "Choose your music folder…" } else { "Add another folder…" }).on_click(cx.listener(|this, _, window, cx| this.import_folder(window, cx))))
                     .when(songs == 0 && scanning.is_none(), |el| {
                         el.child(small_button("welcome-demo", "Try three demo songs").ghost().on_click(cx.listener(|this, _, _, cx| this.demo(cx))))
                     }),

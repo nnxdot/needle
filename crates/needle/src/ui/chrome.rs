@@ -444,7 +444,9 @@ impl AppView {
                             .hover(|s| s.bg(p.raised.opacity(0.6)).text_color(p.ink))
                             .child(glyph("folder").size(px(17.)).text_color(p.ink_3))
                             .child("Add music folder")
-                            .on_click(cx.listener(|this, _, _, cx| this.import_folder(cx))),
+                            .on_click(
+                                cx.listener(|this, _, window, cx| this.import_folder(window, cx)),
+                            ),
                     )
                     .child(self.nav_item(
                         "nav-doctor",

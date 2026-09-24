@@ -753,7 +753,10 @@ impl AppView {
                     this.playlist_name.update(cx, |s, cx| s.focus(window, cx));
                 },
             ),
-            Entry::item("external", "Export as M3U8…", None, move |this, _, _| {
+            Entry::item("external", "Export as M3U8…", None, move |this, _, cx| {
+                if !this.can_pick(cx) {
+                    return;
+                }
                 let library = this.library.clone();
                 let playlist = export.clone();
                 this.background(move || {
