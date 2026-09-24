@@ -278,6 +278,18 @@ impl AppView {
             ),
             item(
                 "Actions",
+                "lyrics",
+                "Show the lyrics",
+                "",
+                Some("Ctrl+L"),
+                |this, _, _| {
+                    this.settings.show_inspector = true;
+                    this.panel = Panel::Lyrics;
+                    this.lyric_glide = this.lyric_line.is_some();
+                },
+            ),
+            item(
+                "Actions",
                 "close",
                 "Clear the queue",
                 "",

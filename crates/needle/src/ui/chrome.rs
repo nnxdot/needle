@@ -531,6 +531,7 @@ impl AppView {
             "volume"
         };
         let queue_open = self.settings.show_inspector && self.panel == Panel::Queue;
+        let lyrics_open = self.settings.show_inspector && self.panel == Panel::Lyrics;
         div()
             .h(px(80.))
             .flex_shrink_0()
@@ -868,6 +869,19 @@ impl AppView {
                         }))
                     })
                     .child(
+                        Button::new("lyrics-toggle")
+                            .ghost()
+                            .small()
+                            .ml_1()
+                            .icon(icon("lyrics"))
+                            .selected(lyrics_open)
+                            .tooltip("Lyrics · Ctrl+L")
+                            .on_click(cx.listener(|this, _, _, cx| {
+                                this.toggle_panel(Panel::Lyrics);
+                                cx.notify();
+                            })),
+                    )
+                    .child(
                         icon_button("open-mini", "mini", "Mini player · Ctrl+M")
                             .small()
                             .ml_1()
@@ -889,14 +903,8 @@ impl AppView {
                             .icon(icon("queue"))
                             .selected(queue_open)
                             .tooltip("Queue · Ctrl+J")
-                            .on_click(cx.listener(move |this, _, _, cx| {
-                                if queue_open {
-                                    this.settings.show_inspector = false;
-                                } else {
-                                    this.settings.show_inspector = true;
-                                    this.panel = Panel::Queue;
-                                }
-                                this.persist_settings();
+                            .on_click(cx.listener(|this, _, _, cx| {
+                                this.toggle_panel(Panel::Queue);
                                 cx.notify();
                             }))),
                     ),

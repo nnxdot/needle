@@ -91,6 +91,7 @@ actions!(
         VolumeUp,
         VolumeDown,
         ToggleQueue,
+        ToggleLyrics,
         ToggleSidebar,
         GoBack,
         FocusNext,
@@ -264,6 +265,7 @@ pub fn quote(text: &str) -> String {
 pub enum Panel {
     Details,
     Queue,
+    Lyrics,
 }
 
 #[derive(Clone, Copy, PartialEq)]
@@ -365,6 +367,13 @@ pub struct AppView {
     /// The track the details panel describes: the last one clicked.
     focused: Option<Track>,
     panel: Panel,
+    /// The side panel as last drawn (`None` when hidden), and a count that goes up each time
+    /// it opens or changes tab, so its content slides in once.
+    panel_shown: Option<Panel>,
+    /// Details was picked in the panel on a page that is not a song list, so it stays open
+    /// there until the page changes.
+    details_here: bool,
+    panel_serial: u64,
     menu: Option<menus::TrackMenu>,
     playlist_menu: Option<menus::PlaylistMenu>,
     header_menu: Option<columns::HeaderMenu>,
@@ -455,6 +464,8 @@ pub struct AppView {
     lyrics: Option<(String, Option<needle_core::media::Lyrics>)>,
     lyric_line: Option<usize>,
     lyrics_scroll: ScrollHandle,
+    /// The lyrics in the side panel, which scroll on their own.
+    panel_lyrics_scroll: ScrollHandle,
     /// The mini player's lyrics scroll on their own (a scroll handle shown in two windows
     /// would mix up their sizes).
     mini_lyrics_scroll: ScrollHandle,
@@ -579,6 +590,7 @@ pub fn run(library: Library, files: Vec<std::path::PathBuf>) -> Result<()> {
                 KeyBinding::new("ctrl-k", OpenPalette, Some("Needle")),
                 KeyBinding::new("ctrl-o", ImportFolder, Some("Needle")),
                 KeyBinding::new("ctrl-j", ToggleQueue, Some("Needle")),
+                KeyBinding::new("ctrl-l", ToggleLyrics, Some("Needle")),
                 KeyBinding::new("ctrl-b", ToggleSidebar, Some("Needle")),
                 KeyBinding::new("escape", EscapePanel, Some("Needle")),
                 KeyBinding::new("tab", FocusNext, tracks),
@@ -804,6 +816,9 @@ impl AppView {
             selection: Selection::default(),
             focused: None,
             panel: Panel::Details,
+            panel_shown: None,
+            details_here: false,
+            panel_serial: 0,
             menu: None,
             playlist_menu: None,
             header_menu: None,
@@ -889,6 +904,7 @@ impl AppView {
             lyrics: None,
             lyric_line: None,
             lyrics_scroll: ScrollHandle::new(),
+            panel_lyrics_scroll: ScrollHandle::new(),
             mini_lyrics_scroll: ScrollHandle::new(),
             mini_lyric_glide: false,
             lyric_glide: false,
@@ -1012,6 +1028,18 @@ impl AppView {
         self.scrobble_summary = integrations::scrobble_summary(&self.library).ok();
     }
 
+    /// Show `panel` in the side panel, or hide the side panel if it already shows it.
+    fn toggle_panel(&mut self, panel: Panel) {
+        if self.settings.show_inspector && self.panel == panel {
+            self.settings.show_inspector = false;
+        } else {
+            self.settings.show_inspector = true;
+            self.panel = panel;
+            // Bring the sung line into view as the lyrics appear.
+            self.lyric_glide = panel == Panel::Lyrics && self.lyric_line.is_some();
+        }
+        self.persist_settings();
+    }
     fn toggle_sidebar(&mut self) {
         self.settings.layout.sidebar_hidden = !self.settings.layout.sidebar_hidden;
         self.persist_settings();
@@ -1542,6 +1570,7 @@ impl AppView {
             return;
         }
         self.remember_scroll();
+        self.details_here = false;
         if page != self.page {
             self.back.push(self.page.clone());
             if self.back.len() > 50 {
@@ -1683,7 +1712,7 @@ impl AppView {
             self.matches.clear();
         }
         self.focused = Some(track);
-        if self.panel == Panel::Queue && !self.settings.show_inspector {
+        if self.panel != Panel::Details && !self.settings.show_inspector {
             self.panel = Panel::Details;
         }
     }
@@ -2166,7 +2195,14 @@ impl Render for AppView {
         let show_panel = self.settings.show_inspector
             && f32::from(width) - sidebar - panel_width >= 360.
             && self.total > 0
-            && (self.page.is_tracks() || self.panel == Panel::Queue);
+            && (self.page.is_tracks() || self.panel != Panel::Details || self.details_here);
+        let shown = show_panel.then_some(self.panel);
+        if shown != self.panel_shown {
+            self.panel_shown = shown;
+            if shown.is_some() {
+                self.panel_serial += 1;
+            }
+        }
         // The page and the side panel share one content surface to the right of the sidebar.
         let content_width =
             f32::from(width) - sidebar - if show_panel { panel_width } else { 0. } - 1.;
@@ -2322,13 +2358,11 @@ impl Render for AppView {
                 cx.notify();
             }))
             .on_action(cx.listener(|this, _: &ToggleQueue, _, cx| {
-                if this.settings.show_inspector && this.panel == Panel::Queue {
-                    this.settings.show_inspector = false;
-                } else {
-                    this.settings.show_inspector = true;
-                    this.panel = Panel::Queue;
-                }
-                this.persist_settings();
+                this.toggle_panel(Panel::Queue);
+                cx.notify();
+            }))
+            .on_action(cx.listener(|this, _: &ToggleLyrics, _, cx| {
+                this.toggle_panel(Panel::Lyrics);
                 cx.notify();
             }))
             .on_action(cx.listener(|this, _: &GoBack, window, cx| this.go_back(window, cx)))
