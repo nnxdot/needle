@@ -27,6 +27,11 @@ pub struct Activity {
     pub layout: Layout,
 }
 
+/// How long the song must stay the same before Discord is told.
+const SETTLE: Duration = Duration::from_millis(800);
+/// How soon to try again after Discord refused a change.
+const RETRY: Duration = Duration::from_secs(5);
+
 enum Message {
     Set(Option<Activity>),
     Stop,
@@ -47,9 +52,30 @@ impl Presence {
             let mut covers: std::collections::HashMap<String, Option<String>> = Default::default();
             let mut shown: Option<Option<Activity>> = None;
             loop {
-                match receiver.recv_timeout(Duration::from_secs(15)) {
+                // Refused by Discord (too many changes at once): try again soon.
+                let wait = if shown.as_ref() != Some(&wanted) && pipe.is_some() {
+                    RETRY
+                } else {
+                    Duration::from_secs(15)
+                };
+                match receiver.recv_timeout(wait) {
                     Ok(Message::Set(activity)) => {
                         wanted = activity;
+                        // Skipping through songs sends many changes at once; Discord allows only
+                        // a few a minute and can leave an old song's card beside the new one.
+                        // Wait until the song settles, then send one update.
+                        loop {
+                            match receiver.recv_timeout(SETTLE) {
+                                Ok(Message::Set(activity)) => wanted = activity,
+                                Ok(Message::Stop) | Err(RecvTimeoutError::Disconnected) => {
+                                    if let Some(p) = pipe.as_mut() {
+                                        let _ = p.set_activity(None);
+                                    }
+                                    return;
+                                }
+                                Err(RecvTimeoutError::Timeout) => break,
+                            }
+                        }
                         if let Some(a) = wanted.as_mut().filter(|a| a.find_cover) {
                             a.cover = covers.get(&cover_key(a)).cloned().flatten();
                         }
@@ -70,29 +96,25 @@ impl Presence {
                     pipe = Pipe::connect(&client_id);
                     shown = None;
                 }
-                if let Some(p) = pipe.as_mut() {
-                    if p.set_activity(wanted.as_ref()).is_ok() {
-                        shown = Some(wanted.clone());
-                    } else {
-                        pipe = None;
-                    }
+                if pipe.is_none() {
+                    continue;
                 }
-                // Show the song straight away, then add its cover once it has been found.
-                if pipe.is_some()
-                    && let Some(a) = wanted.as_mut().filter(|a| a.find_cover)
+                // Find the cover before telling Discord, so a new song is one update, not two.
+                if let Some(a) = wanted.as_mut().filter(|a| a.find_cover)
                     && !covers.contains_key(&cover_key(a))
                 {
                     let found = find_cover(&a.artist, &a.title, &a.album);
                     covers.insert(cover_key(a), found.clone());
-                    if found.is_some() {
-                        a.cover = found;
-                        if let Some(p) = pipe.as_mut() {
-                            if p.set_activity(Some(a)).is_ok() {
-                                shown = Some(Some(a.clone()));
-                            } else {
-                                pipe = None;
-                            }
-                        }
+                    a.cover = found;
+                }
+                if let Some(p) = pipe.as_mut() {
+                    match p.set_activity_reply(wanted.as_ref()) {
+                        Ok(reply) if reply["evt"] == "ERROR" => crate::logfile::warn(format!(
+                            "Discord did not take the status; trying again: {}",
+                            reply["data"]
+                        )),
+                        Ok(_) => shown = Some(wanted.clone()),
+                        Err(_) => pipe = None,
                     }
                 }
             }
@@ -471,9 +493,6 @@ impl Pipe {
         });
         self.send(1, &message)?;
         let (_, reply) = self.receive()?;
-        if reply["evt"] == "ERROR" {
-            eprintln!("Discord refused the presence: {}", reply["data"]);
-        }
         Ok(reply)
     }
 

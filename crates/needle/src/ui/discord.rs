@@ -54,6 +54,11 @@ impl AppView {
             self.discord_sent = None;
             return;
         }
+        // A server song that is still connecting has no start time yet (its clock stands at
+        // 0:00): wait until it plays, then tell Discord once, with the right time.
+        if self.playback.loading {
+            return;
+        }
         let presence = self
             .discord
             .get_or_insert_with(|| Presence::start(APP_ID.to_string()));
