@@ -229,14 +229,15 @@ impl AppView {
         cx.notify();
     }
 
-    pub(super) fn sound_view(&self, cx: &mut Context<Self>) -> impl IntoElement {
+    pub(super) fn sound_view(&self, width: f32, cx: &mut Context<Self>) -> impl IntoElement {
         div()
             .id("sound-scroll")
             .size_full()
             .overflow_y_scroll()
             .child(
                 div()
-                    .max_w(px(820.))
+                    // A width in pixels, so wrapped text is sized at it (see settings_view).
+                    .w(px(width.clamp(320., 820.)))
                     .px_8()
                     .pt_6()
                     .pb_16()

@@ -175,11 +175,14 @@ impl AppView {
             let path = track.file_path().trim_start_matches("\\\\?\\").to_string();
             let copy = path.clone();
             entries.extend([
-                Entry::item("folder", "Show in File Explorer", None, move |_, _, _| {
-                    let _ = std::process::Command::new("explorer")
-                        .arg(format!("/select,{path}"))
-                        .spawn();
-                }),
+                Entry::item(
+                    "folder",
+                    super::files::SHOW_IN_FOLDER,
+                    None,
+                    move |_, _, _| {
+                        super::files::show_file(std::path::Path::new(&path));
+                    },
+                ),
                 Entry::item("copy", "Copy file path", None, move |_, _, cx| {
                     cx.write_to_clipboard(ClipboardItem::new_string(copy.clone()))
                 }),
@@ -424,11 +427,14 @@ impl AppView {
                             this.separate(stem_track.clone(), cx);
                         }),
                         Entry::Separator,
-                        Entry::item("folder", "Show in File Explorer", None, move |_, _, _| {
-                            let _ = std::process::Command::new("explorer")
-                                .arg(format!("/select,{path}"))
-                                .spawn();
-                        }),
+                        Entry::item(
+                            "folder",
+                            super::files::SHOW_IN_FOLDER,
+                            None,
+                            move |_, _, _| {
+                                super::files::show_file(std::path::Path::new(&path));
+                            },
+                        ),
                         Entry::item("copy", "Copy file path", None, move |_, _, cx| {
                             cx.write_to_clipboard(ClipboardItem::new_string(copy.clone()))
                         }),

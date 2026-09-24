@@ -131,8 +131,8 @@ impl AppView {
         cx: &mut Context<Self>,
     ) -> impl IntoElement {
         let body = match self.page {
-            Page::Settings => self.settings_view(cx).into_any_element(),
-            Page::Sound => self.sound_view(cx).into_any_element(),
+            Page::Settings => self.settings_view(width, cx).into_any_element(),
+            Page::Sound => self.sound_view(width, cx).into_any_element(),
             Page::Import => self.import_view(width, cx).into_any_element(),
             Page::Folders => self.folders_view(cx).into_any_element(),
             Page::History => self.history_view(width, cx).into_any_element(),

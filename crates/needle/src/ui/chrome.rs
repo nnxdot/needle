@@ -19,7 +19,7 @@ impl AppView {
         cx: &mut Context<Self>,
     ) -> AnyElement {
         let p = pal(cx);
-        let width = f32::from(window.viewport_size().width);
+        let width = f32::from(super::widgets::content_size(window).width);
         let narrow = width < 1100.;
         let hidden = self.settings.layout.sidebar_hidden;
         // With the sidebar folded away, the name gives way to a smaller corner.

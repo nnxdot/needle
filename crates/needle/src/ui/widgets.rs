@@ -277,3 +277,14 @@ pub fn count(n: usize) -> String {
     }
     out
 }
+
+/// The window's inside, where Needle draws. On Linux, where Needle draws its own frame, the
+/// window also holds a shadow border around it.
+pub fn content_size(window: &Window) -> Size<Pixels> {
+    let edges = gpui_component::window_paddings(window);
+    let size = window.viewport_size();
+    gpui::size(
+        size.width - edges.left - edges.right,
+        size.height - edges.top - edges.bottom,
+    )
+}

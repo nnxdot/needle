@@ -477,7 +477,7 @@ impl AppView {
             self.grain_file = Some(make_grain(&path));
         }
         let path = self.grain_file.clone().flatten()?;
-        let size = window.viewport_size();
+        let size = super::widgets::content_size(window);
         let (cols, rows) = (
             (f32::from(size.width) / GRAIN as f32).ceil() as u32,
             (f32::from(size.height) / GRAIN as f32).ceil() as u32,

@@ -32,6 +32,8 @@ pub struct MiniView {
     expanded: bool,
     tab: Tab,
     pinned: bool,
+    /// Linux: the title strip was pressed; moving the pointer now starts a window move.
+    drag_armed: bool,
     glass_applied: Option<(super::glass::Material, bool)>,
     /// The mini player's own sliders. Sharing the main window's would mix up their sizes, so
     /// the thumb and the filled part drift apart when both windows are open.
@@ -109,6 +111,7 @@ impl AppView {
                         expanded: false,
                         tab: Tab::Next,
                         pinned: false,
+                        drag_armed: false,
                         glass_applied: None,
                     }
                 });
@@ -359,21 +362,46 @@ impl Render for MiniView {
                     .flex()
                     .items_center()
                     .window_control_area(WindowControlArea::Drag)
+                    // Linux has no drag area: press, then move, to move the window (so the
+                    // buttons here still take clicks).
+                    .when(cfg!(target_os = "linux"), |el| {
+                        el.on_mouse_down(
+                            MouseButton::Left,
+                            cx.listener(|this, _, _, _| this.drag_armed = true),
+                        )
+                        .on_mouse_up(
+                            MouseButton::Left,
+                            cx.listener(|this, _, _, _| this.drag_armed = false),
+                        )
+                        .on_mouse_move(cx.listener(
+                            |this, _, window, _| {
+                                if this.drag_armed {
+                                    this.drag_armed = false;
+                                    window.start_window_move();
+                                }
+                            },
+                        ))
+                    })
                     .child(glyph("logo").size(px(14.)).text_color(p.accent))
                     .child(div().flex_1())
-                    .child(
-                        control(
-                            "mini-pin",
-                            if self.pinned { "pin-fill" } else { "pin" },
-                            "Keep on top",
+                    // Keeping a window on top is Windows only.
+                    .when(cfg!(windows), |el| {
+                        el.child(
+                            control(
+                                "mini-pin",
+                                if self.pinned { "pin-fill" } else { "pin" },
+                                "Keep on top",
+                            )
+                            .when(self.pinned, |b| b.text_color(p.accent))
+                            .on_click(cx.listener(
+                                |this, _, window, cx| {
+                                    this.pinned = !this.pinned;
+                                    set_topmost(window, this.pinned);
+                                    cx.notify();
+                                },
+                            )),
                         )
-                        .when(self.pinned, |b| b.text_color(p.accent))
-                        .on_click(cx.listener(|this, _, window, cx| {
-                            this.pinned = !this.pinned;
-                            set_topmost(window, this.pinned);
-                            cx.notify();
-                        })),
-                    )
+                    })
                     .child(
                         control("mini-full", "expand", "Back to the full window").on_click(
                             cx.listener(|this, _, window, cx| this.back_to_main(window, cx)),

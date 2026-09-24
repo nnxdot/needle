@@ -200,8 +200,8 @@ impl AppView {
             .overflow_y_scroll()
             .child(
                 div()
-                    .w_full()
-                    .max_w(px(760.))
+                    // A width in pixels, so wrapped text is sized at it (see settings_view).
+                    .w(px(width.clamp(320., 760.)))
                     .px_8()
                     .pt_6()
                     .pb_16()

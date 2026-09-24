@@ -402,7 +402,7 @@ impl AppView {
         });
     }
 
-    pub(super) fn settings_view(&self, cx: &mut Context<Self>) -> impl IntoElement {
+    pub(super) fn settings_view(&self, width: f32, cx: &mut Context<Self>) -> impl IntoElement {
         let p = pal(cx);
         let roots = self.library.roots().unwrap_or_default();
         let weak = cx.entity().downgrade();
@@ -456,6 +456,7 @@ impl AppView {
             ("Ctrl + E", "Edit tags"),
             ("Ctrl + D", "Favorite"),
             ("Ctrl + J", "Show the queue"),
+            ("Ctrl + L", "Show the lyrics"),
             ("Ctrl + B", "Show or hide the sidebar"),
             ("Ctrl + O", "Add a music folder"),
             ("Ctrl + P", "Big player"),
@@ -522,7 +523,10 @@ impl AppView {
             .overflow_y_scroll()
             .child(
                 div()
-                    .max_w(px(720.))
+                    // A width in pixels (720 at most, less beside a narrow window), so every
+                    // section is sized at it. Without one GPUI sizes sections at their narrowest,
+                    // counts wrapped paragraphs as one line, and the rows below overlap them.
+                    .w(px((width - 189.).clamp(320., 720.)))
                     .px_8()
                     .pt_6()
                     .pb_16()
@@ -1069,7 +1073,7 @@ impl AppView {
                     .child(small_button("log-open", "Open log folder").on_click(cx.listener(|this, _, _, _| {
                         let folder = needle_core::logfile::log_folder(&this.library.directory);
                         let _ = std::fs::create_dir_all(&folder);
-                        let _ = std::process::Command::new("explorer").arg(folder).spawn();
+                        super::files::open_folder(&folder);
                     })))
                     .child(small_button("log-copy", "Copy error report").ghost().on_click(cx.listener(|this, _, _, cx| {
                         let data = &this.library.directory;
