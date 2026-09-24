@@ -526,7 +526,7 @@ impl AppView {
             // Now playing (right-click for the song's menu)
             .child(
                 div()
-                    .w(px(if wide { 320. } else { 250. }))
+                    .w(px(if wide { 380. } else { 250. }))
                     .when_some(current.clone(), |el, track| {
                         el.on_mouse_down(
                             MouseButton::Right,
@@ -703,37 +703,45 @@ impl AppView {
                             .child(faint(current.as_ref().map(|t| format_duration(t.duration)).unwrap_or_else(|| "0:00".into()), cx).w(px(40.))),
                     ),
             )
-            // Output and volume
+            // Output and volume: what is playing and how on top, the controls below it, so
+            // the volume slider has room to be a useful length.
             .child(
                 div()
-                    .w(px(if wide { 320. } else { 250. }))
+                    .w(px(if wide { 380. } else { 300. }))
                     .flex_shrink_0()
                     .flex()
-                    .items_center()
-                    .justify_end()
-                    .gap_1()
-                    .when(!path.is_empty() && wide, |el| {
+                    .flex_col()
+                    .items_end()
+                    .justify_center()
+                    .gap(px(4.))
+                    .when(!path.is_empty(), |el| {
                         el.child(
                             div()
                                 .id("signal-path")
-                                .mr_2()
+                                .mr_1()
                                 .px_2()
-                                .py(px(3.))
+                                .py(px(1.))
                                 .rounded(px(5.))
                                 .flex()
                                 .items_center()
                                 .gap(px(5.))
-                                .max_w(px(200.))
+                                .max_w_full()
                                 .text_size(px(11.))
                                 .text_color(if exclusive { p.accent } else { p.ink_2 })
                                 .bg(if exclusive { p.accent_soft } else { p.raised })
                                 .cursor_pointer()
-                                .child(glyph("signal").size(px(13.)).text_color(if exclusive { p.accent } else { p.ink_2 }))
+                                .child(glyph("signal").size(px(12.)).text_color(if exclusive { p.accent } else { p.ink_2 }))
                                 .child(div().truncate().child(path.clone()))
                                 .tooltip(move |window, cx| gpui_component::tooltip::Tooltip::new(path_detail.clone()).build(window, cx))
                                 .on_click(cx.listener(|this, _, window, cx| this.navigate(Page::Settings, window, cx))),
                         )
                     })
+                    .child(
+                div()
+                    .flex()
+                    .items_center()
+                    .justify_end()
+                    .gap_1()
                     .child(
                         Button::new("ab-loop")
                             .ghost()
@@ -768,6 +776,34 @@ impl AppView {
                             })),
                     )
                     .child(
+                    div()
+                        .id("volume-area")
+                        .flex()
+                        .items_center()
+                        .gap_1()
+                        // The wheel over the volume changes it, while Needle is the active window.
+                        .on_scroll_wheel(cx.listener(|this, event: &ScrollWheelEvent, window, cx| {
+                            if this.playback.exclusive || !window.is_window_active() {
+                                return;
+                            }
+                            let steps = match event.delta {
+                                // A wheel: one step per notch.
+                                ScrollDelta::Lines(lines) => lines.y.signum(),
+                                // A touchpad: steps as the fingers travel.
+                                ScrollDelta::Pixels(pixels) => {
+                                    this.volume_scroll += f32::from(pixels.y) / 40.;
+                                    let whole = this.volume_scroll.trunc();
+                                    this.volume_scroll -= whole;
+                                    whole
+                                }
+                            };
+                            if steps != 0. {
+                                this.nudge_volume(steps * 0.05, window, cx);
+                                cx.stop_propagation();
+                                cx.notify();
+                            }
+                        }))
+                    .child(
                         icon_button("mute", volume_glyph, if self.playback.exclusive { "Exclusive output: use your device's volume" } else { "Mute" })
                             .small()
                             .disabled(self.playback.exclusive)
@@ -784,7 +820,8 @@ impl AppView {
                                 this.volume.update(cx, |s, cx| s.set_value(volume, window, cx));
                             })),
                     )
-                    .child(Slider::new(&self.volume).w(px(if wide { 96. } else { 72. })).disabled(self.playback.exclusive))
+                    .child(Slider::new(&self.volume).w(px(if wide { 150. } else { 110. })).disabled(self.playback.exclusive)),
+                    )
                     .child(
                         icon_button("open-sound", "eq", "Equalizer and sound tools")
                             .small()
@@ -841,6 +878,7 @@ impl AppView {
                                 this.persist_settings();
                                 cx.notify();
                             }))),
+                    ),
                     ),
             )
     }
