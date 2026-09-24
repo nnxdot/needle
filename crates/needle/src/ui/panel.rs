@@ -175,6 +175,15 @@ impl AppView {
         let id = track.id.clone();
         let (play, queue) = (track.clone(), track.clone());
         let path = track.file_path().trim_start_matches("\\\\?\\").to_string();
+        let streamed_from = track.source().map(|(plugin, _)| {
+            self.plugins
+                .plugins()
+                .into_iter()
+                .find(|p| p.manifest.id == plugin)
+                .and_then(|p| p.source.map(|s| s.name))
+                .unwrap_or_else(|| plugin.to_string())
+        });
+        let streamed = streamed_from.is_some();
         div()
             .id("details-scroll")
             .flex_1()
@@ -245,11 +254,13 @@ impl AppView {
                                     .disabled(track.missing)
                                     .on_click(cx.listener(move |this, _, _, _| this.enqueue(vec![queue.clone()]))),
                             )
-                            .child(
-                                icon_button("details-edit", "edit", "Edit tags · Ctrl+E")
-                                    .small()
-                                    .on_click(cx.listener(|this, _, window, cx| this.edit_tags(window, cx))),
-                            )
+                            .when(!streamed, |el| {
+                                el.child(
+                                    icon_button("details-edit", "edit", "Edit tags · Ctrl+E")
+                                        .small()
+                                        .on_click(cx.listener(|this, _, window, cx| this.edit_tags(window, cx))),
+                                )
+                            })
                             .child(
                                 Button::new("details-play")
                                     .primary()
@@ -262,17 +273,20 @@ impl AppView {
                     ),
             )
             .when(self.editing, |el| el.child(self.tag_editor(cx)))
-            .child(
-                div()
-                    .pt_3()
-                    .border_t_1()
-                    .border_color(p.line_soft)
-                    .flex()
-                    .flex_col()
-                    .gap_2()
-                    .child(faint("Stems", cx))
-                    .child(self.stems_view(Some(track.clone()), false, cx)),
-            )
+            // A song on a music server has no file here to split.
+            .when(!streamed, |el| {
+                el.child(
+                    div()
+                        .pt_3()
+                        .border_t_1()
+                        .border_color(p.line_soft)
+                        .flex()
+                        .flex_col()
+                        .gap_2()
+                        .child(faint("Stems", cx))
+                        .child(self.stems_view(Some(track.clone()), false, cx)),
+                )
+            })
             .child(
                 div()
                     .flex()
@@ -359,13 +373,27 @@ impl AppView {
                                     }),
                             ),
                     )
-                    .child(
-                        self.fact("File", path.clone(), cx).child(
-                            icon_button("copy-path", "copy", "Copy file path")
-                                .xsmall()
-                                .on_click(move |_, _, cx| cx.write_to_clipboard(ClipboardItem::new_string(path.clone()))),
+                    .map(|el| match streamed_from.clone() {
+                        // A song on a music server: say where it comes from, not a made-up path.
+                        Some(server) => el.child(self.fact(
+                            "From",
+                            if needle_core::sources::is_kept(&track) {
+                                format!("{server} · kept on this computer")
+                            } else if needle_core::sources::is_cached(&track) {
+                                format!("{server} · played lately, so it is on this computer")
+                            } else {
+                                server
+                            },
+                            cx,
+                        )),
+                        None => el.child(
+                            self.fact("File", path.clone(), cx).child(
+                                icon_button("copy-path", "copy", "Copy file path")
+                                    .xsmall()
+                                    .on_click(move |_, _, cx| cx.write_to_clipboard(ClipboardItem::new_string(path.clone()))),
+                            ),
                         ),
-                    ),
+                    }),
             )
             .child(
                 div()
@@ -389,7 +417,7 @@ impl AppView {
                                     .tooltip("Search MusicBrainz by artist and title. Sends only that text.")
                                     .on_click(cx.listener(|this, _, _, cx| this.lookup(cx))),
                             )
-                            .child(
+                            .when(!streamed, |el| el.child(
                                 Button::new("fingerprint-lookup")
                                     .small()
                                     .ghost()
@@ -417,7 +445,7 @@ impl AppView {
                                             cx.notify();
                                         }
                                     })),
-                            ),
+                            )),
                     )
                     .children(self.matches.iter().enumerate().map(|(index, recording)| {
                         let recording = recording.clone();

@@ -24,11 +24,14 @@ mod plugin_ui;
 mod radio;
 mod remote_ui;
 mod sound;
+mod sources_ui;
 mod speakers;
 mod stems_ui;
 mod suggest;
 mod tags;
 mod theme;
+mod themes;
+mod themes_ui;
 mod timing;
 mod tray;
 mod updates;
@@ -138,6 +141,11 @@ pub enum Page {
     Wrapped(i32),
     /// Fix my library: duplicates, covers, tags, and tidy files.
     Doctor,
+    /// The songs of a music source (a server a plugin connects to).
+    Source {
+        plugin: String,
+        name: String,
+    },
 }
 impl Page {
     fn title(&self) -> String {
@@ -166,6 +174,7 @@ impl Page {
             Self::Timing => "Lyric timing".into(),
             Self::Wrapped(year) => format!("{year} in music"),
             Self::Doctor => "Fix my library".into(),
+            Self::Source { name, .. } => name.clone(),
         }
     }
     /// The rule behind the page, before any search text is applied.
@@ -180,6 +189,7 @@ impl Page {
                 "path starts with {} order by path",
                 quote(&folders::with_separator(path))
             ),
+            Self::Source { plugin, .. } => needle_core::sources::rule(plugin),
             _ => String::new(),
         }
     }
@@ -287,6 +297,10 @@ enum Event {
     ImportProgress(String),
     Plugin(needle_core::plugins::HostAction),
     Tray(tray::TrayAction),
+    /// Theme files changed on disk: the new reading.
+    Themes(u64, Box<themes::Themes>),
+    /// Songs kept on this computer for each source: how many, and bytes.
+    KeptUsage(std::collections::HashMap<String, (usize, u64)>),
     PaletteFound(
         u64,
         Vec<Track>,
@@ -478,6 +492,23 @@ pub struct AppView {
     discord_refresh: bool,
     /// The song Last.fm and ListenBrainz were last told is playing now.
     now_playing_sent: Option<String>,
+    /// When the theme files were last looked at.
+    themes_checked: Instant,
+    /// Counts readings of the theme files Needle made itself, so an older background look
+    /// is not used over a newer one.
+    themes_generation: u64,
+    /// A look at the theme files is under way on another thread.
+    themes_checking: std::sync::Arc<std::sync::atomic::AtomicBool>,
+    /// The custom theme open in Settings › Appearance.
+    theme_editor: Option<themes_ui::Editor>,
+    /// The theme whose Delete button was clicked once.
+    theme_delete_armed: Option<String>,
+    /// Songs kept on this computer for each source (counted on another thread).
+    kept_usage: std::collections::HashMap<String, (usize, u64)>,
+    kept_checked: Instant,
+    kept_checking: std::sync::Arc<std::sync::atomic::AtomicBool>,
+    /// Text boxes of music sources' sign-in forms, by `plugin/field`.
+    source_inputs: std::collections::HashMap<String, Entity<InputState>>,
 }
 
 pub fn run(library: Library, files: Vec<std::path::PathBuf>) -> Result<()> {
@@ -496,6 +527,7 @@ pub fn run(library: Library, files: Vec<std::path::PathBuf>) -> Result<()> {
                 ])
                 .ok();
             let settings = library.settings().unwrap_or_default();
+            cx.set_global(themes::load(&themes::sources(&library)));
             set_theme(&settings.theme, None, cx);
             theme::set_display_font(&settings.display_font);
             cx.set_global(motion::Motion {
@@ -866,8 +898,18 @@ impl AppView {
             discord_sent: None,
             discord_refresh: false,
             now_playing_sent: None,
+            themes_checked: Instant::now(),
+            themes_checking: Default::default(),
+            themes_generation: 0,
+            theme_editor: None,
+            theme_delete_armed: None,
+            source_inputs: std::collections::HashMap::new(),
+            kept_usage: std::collections::HashMap::new(),
+            kept_checked: Instant::now(),
+            kept_checking: Default::default(),
         };
         view.refresh(cx);
+        view.start_theme_extras(window, cx);
         view.load_home();
         view.refresh_recent();
         view.start_measuring();
@@ -1016,6 +1058,9 @@ impl AppView {
         }
         self.update_discord();
         self.update_now_playing();
+        self.check_themes(cx);
+        self.ensure_source_inputs(window, cx);
+        self.refresh_kept_usage();
         self.update_media_keys();
         self.follow_output();
         self.follow_lyrics();
@@ -1179,6 +1224,10 @@ impl AppView {
                 }
                 Event::ArtistImages(found) => self.artist_images.extend(found),
                 Event::MediaKey(key) => self.media_key(key, window, cx),
+                Event::Themes(generation, themes) => {
+                    self.themes_found(generation, *themes, window, cx)
+                }
+                Event::KeptUsage(usage) => self.kept_usage = usage,
                 Event::ArtFetched => {
                     if let Some(item) = self.playback.current.as_ref()
                         && let Ok(Some(track)) = self.library.track(&item.track.id)
@@ -1908,6 +1957,13 @@ impl AppView {
                 self.fail(e.to_string());
                 return;
             }
+            // A song from a music server is rated on the server too.
+            if id.starts_with("src-") {
+                self.plugins.send(needle_core::plugins::PluginEvent::Rated {
+                    track_id: id.clone(),
+                    stars: rating,
+                });
+            }
             for track in self.tracks.iter_mut().filter(|t| &t.id == id) {
                 track.rating = rating;
             }
@@ -2104,6 +2160,17 @@ impl Render for AppView {
         div()
             .id("needle-app")
             .key_context("Needle")
+            // A theme file dropped on the window is added and chosen.
+            .on_drop(cx.listener(|this, paths: &ExternalPaths, window, cx| {
+                for path in paths.paths() {
+                    if path
+                        .extension()
+                        .is_some_and(|e| e.eq_ignore_ascii_case("toml"))
+                    {
+                        this.import_theme(path, window, cx);
+                    }
+                }
+            }))
             .size_full()
             .when(p.back.a >= 1., |el| el.bg(p.canvas))
             .text_color(p.ink)

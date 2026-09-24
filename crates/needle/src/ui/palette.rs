@@ -303,18 +303,14 @@ impl AppView {
             item(
                 "Actions",
                 "palette",
-                "Switch the look: Night, Midnight, Day",
+                "Switch the look: Night, Midnight, Day, and your themes",
                 "",
                 None,
                 |this, window, cx| {
-                    let mode = match this.settings.theme.as_str() {
-                        "light" => "dark",
-                        "midnight" => "light",
-                        _ => "midnight",
-                    };
-                    super::set_theme(mode, Some(window), cx);
-                    this.settings.theme = mode.into();
-                    this.persist_settings();
+                    let modes = this.look_modes(cx);
+                    let at = modes.iter().position(|m| *m == this.settings.theme);
+                    let next = modes[at.map_or(0, |i| (i + 1) % modes.len())].clone();
+                    this.choose_look(&next, window, cx);
                 },
             ),
             item(

@@ -2,7 +2,7 @@
 //! of itself; the palette fades to the playing cover's colour, and pages glow with it.
 use super::{
     AppView, Event, motion,
-    theme::{self, Base, Palette},
+    theme::{self, Palette},
 };
 use gpui::{prelude::*, *};
 use needle_core::audio::QueueItem;
@@ -263,11 +263,7 @@ impl AppView {
         } else {
             theme::parse_hex(&self.settings.accent_color)
         };
-        let mut target = Palette::build(
-            Base::from_name(&self.settings.theme),
-            tint,
-            self.ambient_look(),
-        );
+        let mut target = theme::look(&self.settings.theme, tint, self.ambient_look(), cx);
         match self.material() {
             super::glass::Material::Solid => {}
             // Clear glass shows the desktop unblurred, so it keeps more of the surface.

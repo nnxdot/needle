@@ -111,6 +111,24 @@ Last.fm requires an application API key and shared secret from [a registered API
 
 Qualified plays are queued locally and retried in chronological order every minute, with backoff after failures. Local qualification requires half the track or four minutes; Last.fm also requires a track longer than 30 seconds. Responses that can never succeed (missing artist/title, invalid parameters, a scrobble Last.fm ignores as too old) mark that listen as failed instead of retrying it forever. A rejected session or token pauses that service's queue, with a "sign in again" message, until the credential changes; nothing is dropped. Network errors, rate limits, and service outages are retried. `needle-cli scrobble` submits due listens and prints queue counts, the latest error, and the next retry time. [Last.fm scrobbling rules](https://www.last.fm/api/scrobbling), [ListenBrainz API](https://listenbrainz.readthedocs.io/en/latest/users/api/core.html).
 
+## Themes
+
+A custom theme is a small TOML file in the library's `themes` folder. It starts from one of the looks (Night, Midnight, or Day) and changes any of 14 colors; the colors it leaves out follow the base look and the colors it sets.
+
+```toml
+name = "Sakura"
+base = "light"          # dark (Night), midnight, or light (Day)
+music_colors = true     # may colors from the music tint what the theme leaves out
+[colors]
+page = "#fff5f7"
+accent = "#c2185b"
+[extras]
+grain = 0.15            # film grain, 0 to 1
+font = "fraunces"       # title font: system, bahnschrift, or fraunces
+```
+
+Colors are `sidebar`, `page`, `card`, `card_hover`, `border`, `border_soft`, `text`, `text_muted`, `text_faint`, `accent`, `accent_text`, `danger`, `success`, and `glow`. Text colors are moved just enough to meet WCAG AA contrast (4.5:1) on the sidebar, page, and cards; when nothing can read on both, the sidebar moves toward the page. Themes show next to the built-in looks in Settings › Appearance. *Make a copy* starts a theme from the look in use and opens an editor with a color picker per color that saves as you go. *Export…* saves the theme to share, and *Add a theme…* or dropping a `.toml` file on the window adds one without overwriting. Needle notices edits to theme files within two seconds. Plugins can bring themes in a `themes` folder (a plugin with only themes needs no script); those show while the plugin is on and are copied to be changed. The full guide is at https://needle.nnx.fyi/themes.
+
 ## Plugins
 
 Plugins are small [Rhai](https://rhai.rs) scripts. Each lives in its own folder inside the library's `plugins` folder (Settings › Plugins › *Open plugins folder*) with a `plugin.toml`:
@@ -132,7 +150,13 @@ Permissions are `library.read`, `library.write`, `playback`, `network`, `files` 
 - `run(command, track_ids)`
 - `effects()` returning sound effects for Sound › Effects: chains of built-in blocks (gain, filter, compressor, limiter, delay, reverb, chorus, tremolo, saturate, width, pan) whose settings can follow sliders (`"$slider"`), or DSP code as a WebAssembly module (`.wasm`, or `.wat` text) exporting `memory`, `init(rate, channels, max_frames) -> buffer`, `process(frames)`, and optionally `param(index, value)` and `reset()`. Modules get no imports, 32 MB of memory, and a work budget per 512-frame block; one that fails or cannot keep up is stopped and the music plays on. Effects play after the equalizer on shared output and on other speakers, never on exclusive output. The full guide is at https://needle.nnx.fyi/plugins.
 
-The host API: `notify(text)`, `log(text)`, `now()`, `now_playing()`, `library_search(rule)`, `recent_listens(n)`, `set_rating(id, stars)`, `save_playlist(name, ids)`, `play(ids)`, `enqueue(ids)`, `play_next(ids)`, `toggle_playback()`, `next_track()`, `previous_track()`, `http_get(url)`, `http_post_json(url, map)`, `parse_json(text)`, `read_file(name)`, `write_file(name, text)`, `setting(key)`, `set_setting(key, value)`, `set_effect(effect, slider, value)`, and `effect_on(effect, on)`. Calls outside a plugin's permissions fail with a message. Plugins run on their own thread with limits on operations, nesting, and sizes, so an endless loop stops with an error instead of freezing Needle. *Add example plugins* installs six: now playing to a text file, a weekly favourites playlist, skipping very short tracks, a five-star menu command, Studio effects (Room, Echo, Night mode, Old radio), and a Bitcrusher written in WebAssembly text.
+The host API: `notify(text)`, `log(text)`, `now()`, `now_playing()`, `library_search(rule)`, `recent_listens(n)`, `set_rating(id, stars)`, `save_playlist(name, ids)`, `play(ids)`, `enqueue(ids)`, `play_next(ids)`, `toggle_playback()`, `next_track()`, `previous_track()`, `http_get(url)`, `http_post_json(url, map)`, `parse_json(text)`, `read_file(name)`, `write_file(name, text)`, `setting(key)`, `set_setting(key, value)`, `set_effect(effect, slider, value)`, and `effect_on(effect, on)`. Calls outside a plugin's permissions fail with a message. Plugins run on their own thread with limits on operations, nesting, and sizes, so an endless loop stops with an error instead of freezing Needle. *Add example plugins* installs seven: now playing to a text file, a weekly favourites playlist, skipping very short tracks, a five-star menu command, Studio effects (Room, Echo, Night mode, Old radio), a Bitcrusher written in WebAssembly text, and Navidrome / Subsonic (a music source). Each bundled plugin has a version and a `.bundled.json` record of the files Needle wrote; when a newer Needle ships a newer version, unchanged copies update themselves on start, and changed ones get *Update* (the changed files are kept as `.mine`) or *Keep mine* in Settings › Plugins.
+
+### Music sources
+
+A plugin with the `network` permission can be a music source: it defines `source()` (a name and sign-in fields), `signed_in()`, `sign_in(fields)`, `sign_out()`, `songs(page)` (pages of song maps until an empty one), `stream(id)` (an http(s) link), and optionally `playing(id)`, `played(id, started_at)`, and `rate(id, stars)`. Its songs become library tracks with the path `source://<plugin>/<id>` and a stable id, so ratings, plays, and playlists survive syncing again; songs the server stops listing are marked missing, never deleted. The whole list is fetched on sign-in, on start (at most every 30 minutes), and with *Update now*. Songs stream into `<data>/stream-cache` while the decoder reads what has arrived (FLAC, MP3, WAV, AAC/M4A, Ogg Vorbis; other types download first); the 2 GB played longest ago are removed first. A read past what has arrived makes the download jump there with an HTTP range request (servers that ignore ranges are read from the start), and gaps are filled afterwards. The song after the next one is prefetched. *Keep on this computer* (song menu, or the pin on a server album) moves songs to `<data>/stream-kept`, which is never pruned; Settings › Plugins shows how much is kept and can let it all go. Covers are downloaded once per link. Tag editing, stems, Fix my library, AcoustID, and measuring for radio skip streamed songs, and *Save to my music* downloads one into the first music folder as a normal file. Helpers: `secret`/`set_secret`/`delete_secret` (Windows Credential Manager, per plugin), `md5`, `random_text`, and `url_encode`.
+
+The bundled **Navidrome / Subsonic** plugin (Settings › Plugins › *Set up*) signs in with a salted token (the password never leaves the computer and is kept in Credential Manager), lists songs with `search3` 250 at a time, streams the original file (`format=raw`), and sends plays (`scrobble`) and ratings (`setRating`) to the server. Its songs appear under *Servers* in the sidebar.
 
 ## Data, backups, and layouts
 

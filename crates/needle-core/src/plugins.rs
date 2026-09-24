@@ -105,6 +105,40 @@ pub struct PluginInfo {
     pub commands: Vec<Command>,
     /// Names of the sound effects it adds.
     pub effects: Vec<String>,
+    /// Set when the plugin is a music source (it defines `source()`).
+    pub source: Option<SourceInfo>,
+    /// A bundled plugin someone changed: the newer version this build of Needle has.
+    pub update: Option<String>,
+    /// One of the plugins that come with Needle (in its own folder, under its own id).
+    pub official: bool,
+    /// Official, and its files exactly as Needle wrote them.
+    pub verified: bool,
+}
+
+/// A music source a plugin brings: what to ask for to sign in, and how it is doing.
+#[derive(Clone, Debug, Default, Serialize)]
+pub struct SourceInfo {
+    /// The name people see, such as "Navidrome".
+    pub name: String,
+    pub fields: Vec<SourceField>,
+    pub signed_in: bool,
+    /// Songs from it in the library.
+    pub songs: usize,
+    /// When it was last synced (Unix seconds).
+    pub synced_at: Option<i64>,
+    pub syncing: bool,
+    /// What went wrong signing in or syncing.
+    pub error: Option<String>,
+}
+
+/// One box of a source's sign-in form.
+#[derive(Clone, Debug, Default, Serialize)]
+pub struct SourceField {
+    pub id: String,
+    pub label: String,
+    pub placeholder: String,
+    /// Typed text is hidden, and the plugin should keep it with `set_secret`.
+    pub secret: bool,
 }
 
 /// What a plugin asks the application to do.
@@ -147,7 +181,46 @@ pub enum PluginEvent {
     Enable(String, bool),
     Reload,
     Shutdown,
+    /// Sign in to a source with what was typed in its form.
+    SourceSignIn {
+        plugin: String,
+        fields: std::collections::BTreeMap<String, String>,
+    },
+    SourceSignOut(String),
+    /// Fetch a source's whole list of songs again.
+    SourceSync(String),
+    /// One page of a sync (sent by the plugin thread to itself, so streams are not held up).
+    SourceSyncPage {
+        plugin: String,
+        page: i64,
+    },
+    /// A link to stream one of a source's songs.
+    Stream {
+        plugin: String,
+        id: String,
+        reply: Sender<Result<String, String>>,
+    },
+    /// Replace a changed bundled plugin with this build's version (the changes are kept as
+    /// `.mine` files).
+    TakeUpdate(String),
+    /// Keep a changed bundled plugin, and stop offering this version.
+    KeepChanged(String),
+    /// A song was rated in Needle.
+    Rated {
+        track_id: String,
+        stars: i64,
+    },
 }
+
+/// A source's list stops after this many pages, and nothing is changed: only a plugin
+/// that keeps sending the same page gets there.
+const MAX_SYNC_PAGES: i64 = 100_000;
+/// The most songs one source's list may hold (far past any real library), so a runaway
+/// plugin cannot fill the memory.
+const MAX_SYNC_SONGS: usize = 2_000_000;
+
+/// Sources are synced again on start when their last sync is older than this.
+const RESYNC_AFTER: i64 = 30 * 60;
 
 const ENABLED_KEY: &str = "plugins_enabled";
 
@@ -182,15 +255,38 @@ impl PluginHost {
             folder,
         };
         let actions: Arc<dyn Fn(HostAction) + Send + Sync> = Arc::new(actions);
+        crate::sources::set_cache_dir(library.directory.join("stream-cache"));
+        {
+            let host = host.clone();
+            crate::sources::set_resolver(move |plugin, id| host.stream_link(plugin, id));
+        }
+        let own = host.tx.clone();
         std::thread::Builder::new()
             .name("needle-plugins".into())
-            .spawn(move || run(library, rx, infos, effects, actions))
+            .spawn(move || run(library, rx, own, infos, effects, actions))
             .expect("start plugin thread");
         let _ = host.tx.send(PluginEvent::Reload);
         host
     }
     pub fn send(&self, event: PluginEvent) {
         let _ = self.tx.send(event);
+    }
+    /// Ask a source plugin for a link to stream one of its songs.
+    pub fn stream_link(&self, plugin: &str, id: &str) -> Result<String> {
+        let (reply, answer) = crossbeam_channel::bounded(1);
+        self.tx
+            .send(PluginEvent::Stream {
+                plugin: plugin.into(),
+                id: id.into(),
+                reply,
+            })
+            .map_err(|_| anyhow::anyhow!("Plugins are not running"))?;
+        // Syncs go a page at a time, so a stream waits at most for one page.
+        match answer.recv_timeout(Duration::from_secs(45)) {
+            Ok(Ok(link)) => Ok(link),
+            Ok(Err(error)) => bail!("{error}"),
+            Err(_) => bail!("The music source did not answer in time"),
+        }
     }
     pub fn plugins(&self) -> Vec<PluginInfo> {
         self.infos.lock().unwrap_or_else(|p| p.into_inner()).clone()
@@ -210,12 +306,36 @@ impl PluginHost {
 fn run(
     library: Library,
     rx: Receiver<PluginEvent>,
+    tx: Sender<PluginEvent>,
     infos: Arc<Mutex<Vec<PluginInfo>>>,
     effects: Arc<crate::effects::Registry>,
     actions: Arc<dyn Fn(HostAction) + Send + Sync>,
 ) {
     let now_playing: Arc<Mutex<Option<Track>>> = Arc::default();
     let mut loaded: Vec<Loaded> = vec![];
+    // Songs of syncs under way, by plugin.
+    let mut syncing: HashMap<String, Vec<crate::sources::Song>> = HashMap::new();
+    // After loading: read each source's state, and sync the ones not synced lately.
+    let start_sources =
+        |loaded: &mut Vec<Loaded>, syncing: &HashMap<String, Vec<crate::sources::Song>>| {
+            let now = chrono::Utc::now().timestamp();
+            for plugin in loaded.iter_mut() {
+                refresh_source(plugin, &library);
+                let id = plugin.info.manifest.id.clone();
+                if let Some(source) = &mut plugin.info.source {
+                    source.syncing = syncing.contains_key(&id);
+                    if source.signed_in
+                        && !source.syncing
+                        // A time in the future (the clock went back) counts as stale too.
+                        && source
+                            .synced_at
+                            .is_none_or(|at| at > now || now - at > RESYNC_AFTER)
+                    {
+                        let _ = tx.send(PluginEvent::SourceSync(id));
+                    }
+                }
+            }
+        };
     let publish = |loaded: &Vec<Loaded>| {
         *infos.lock().unwrap_or_else(|p| p.into_inner()) =
             loaded.iter().map(|l| l.info.clone()).collect();
@@ -234,6 +354,7 @@ fn run(
             PluginEvent::Shutdown => break,
             PluginEvent::Reload => {
                 loaded = load_all(&library, &actions, &now_playing);
+                start_sources(&mut loaded, &syncing);
                 publish(&loaded);
                 offer(&loaded);
             }
@@ -250,6 +371,7 @@ fn run(
                 }
                 let _ = library.set_json(ENABLED_KEY, &enabled);
                 loaded = load_all(&library, &actions, &now_playing);
+                start_sources(&mut loaded, &syncing);
                 publish(&loaded);
                 offer(&loaded);
             }
@@ -259,12 +381,206 @@ fn run(
                 for plugin in loaded.iter_mut() {
                     let _ = call(plugin, "on_track_start", vec![value.clone().into()]);
                 }
+                // Tell a source's server what is playing.
+                if let Some((owner, id)) = track.source()
+                    && let Some(plugin) = source_plugin(&mut loaded, owner)
+                {
+                    let _ = call_source(plugin, "playing", vec![id.into()]);
+                }
                 publish(&loaded);
             }
             PluginEvent::Listen(listen) => {
                 let value = listen_map(&listen);
                 for plugin in loaded.iter_mut() {
                     let _ = call(plugin, "on_listen", vec![value.clone().into()]);
+                }
+                // A played song from a source counts on its server too.
+                if listen.qualified
+                    && let Ok(Some(track)) = library.track(&listen.track_id)
+                    && let Some((owner, id)) = track.source()
+                    && let Some(plugin) = source_plugin(&mut loaded, owner)
+                {
+                    let _ =
+                        call_source(plugin, "played", vec![id.into(), listen.started_at.into()]);
+                }
+                publish(&loaded);
+            }
+            PluginEvent::TakeUpdate(ref id) | PluginEvent::KeepChanged(ref id) => {
+                let take = matches!(event, PluginEvent::TakeUpdate(_));
+                if let Some(plugin) = loaded.iter().find(|p| p.info.manifest.id == *id) {
+                    let dir = plugin.info.folder.clone();
+                    let result = if take {
+                        take_bundled_update(&dir, id)
+                    } else {
+                        keep_changed_plugin(&dir, id)
+                    };
+                    match result {
+                        Ok(()) if take => actions(HostAction::Notify(format!(
+                            "Updated {}. Your changes are kept next to it as .mine files.",
+                            plugin.info.manifest.name
+                        ))),
+                        Ok(()) => {}
+                        Err(error) => actions(HostAction::Notify(format!("{error:#}"))),
+                    }
+                }
+                loaded = load_all(&library, &actions, &now_playing);
+                start_sources(&mut loaded, &syncing);
+                publish(&loaded);
+                offer(&loaded);
+            }
+            PluginEvent::Rated { track_id, stars } => {
+                if let Ok(Some(track)) = library.track(&track_id)
+                    && let Some((owner, id)) = track.source()
+                    && let Some(plugin) = source_plugin(&mut loaded, owner)
+                    && let Err(error) = call_source(plugin, "rate", vec![id.into(), stars.into()])
+                {
+                    actions(HostAction::Notify(format!(
+                        "{}: the rating was not saved on the server: {error}",
+                        plugin.info.manifest.name
+                    )));
+                }
+            }
+            PluginEvent::Stream { plugin, id, reply } => {
+                let answer = match source_plugin(&mut loaded, &plugin) {
+                    None => Err(format!(
+                        "Turn on the plugin {plugin} in Settings › Plugins to play this song"
+                    )),
+                    Some(target) => match call_source(target, "stream", vec![id.into()]) {
+                        Ok(link) => link
+                            .into_string()
+                            .map_err(|_| "The plugin gave no stream link".to_string()),
+                        Err(error) => Err(error),
+                    },
+                };
+                let _ = reply.send(answer);
+            }
+            PluginEvent::SourceSignIn { plugin, fields } => {
+                if let Some(target) = source_plugin(&mut loaded, &plugin) {
+                    let map: Map = fields
+                        .into_iter()
+                        .map(|(k, v)| (k.into(), Dynamic::from(v)))
+                        .collect();
+                    let result = call_source(target, "sign_in", vec![map.into()]);
+                    refresh_source(target, &library);
+                    if let Some(source) = &mut target.info.source {
+                        match result {
+                            Ok(_) if source.signed_in => {
+                                source.error = None;
+                                let _ = tx.send(PluginEvent::SourceSync(plugin.clone()));
+                            }
+                            Ok(_) => source.error = Some("Signing in did not work".into()),
+                            Err(error) => source.error = Some(error),
+                        }
+                    }
+                }
+                publish(&loaded);
+            }
+            PluginEvent::SourceSignOut(plugin) => {
+                if let Some(target) = source_plugin(&mut loaded, &plugin) {
+                    let _ = call_source(target, "sign_out", vec![]);
+                    let _ = crate::sources::forget(&library, &plugin);
+                    refresh_source(target, &library);
+                    actions(HostAction::LibraryChanged);
+                }
+                syncing.remove(&plugin);
+                publish(&loaded);
+            }
+            PluginEvent::SourceSync(plugin) => {
+                if !syncing.contains_key(&plugin)
+                    && let Some(target) = source_plugin(&mut loaded, &plugin)
+                    && let Some(source) = &mut target.info.source
+                    && source.signed_in
+                {
+                    source.syncing = true;
+                    source.error = None;
+                    syncing.insert(plugin.clone(), vec![]);
+                    let _ = tx.send(PluginEvent::SourceSyncPage { plugin, page: 0 });
+                }
+                publish(&loaded);
+            }
+            PluginEvent::SourceSyncPage { plugin, page } => {
+                let Some(target) = source_plugin(&mut loaded, &plugin) else {
+                    syncing.remove(&plugin);
+                    continue;
+                };
+                let name = target.info.manifest.name.clone();
+                let result = call_source(target, "songs", vec![page.into()]);
+                // Only a list counts as a page; anything else (or no songs() at all) is an
+                // error, never "the server has no songs".
+                let (list, mut error) = match result {
+                    Ok(value) => match serde_json::to_value(&value)
+                        .ok()
+                        .and_then(|v| v.as_array().cloned())
+                    {
+                        Some(list) => (list, None),
+                        None => (
+                            vec![],
+                            Some("The plugin's songs() did not give a list of songs".to_string()),
+                        ),
+                    },
+                    Err(error) => (vec![], Some(error)),
+                };
+                let songs = syncing.entry(plugin.clone()).or_default();
+                if songs.len() + list.len() > MAX_SYNC_SONGS {
+                    error = Some(format!(
+                        "The server has more than {MAX_SYNC_SONGS} songs; nothing was changed"
+                    ));
+                } else {
+                    songs.extend(list.iter().filter_map(crate::sources::Song::from_value));
+                }
+                // Pages until an empty one. The limit only stops a plugin that never ends.
+                let endless = page >= MAX_SYNC_PAGES;
+                if error.is_none() && !list.is_empty() && !endless {
+                    let _ = tx.send(PluginEvent::SourceSyncPage {
+                        plugin,
+                        page: page + 1,
+                    });
+                    continue;
+                }
+                let songs = syncing.remove(&plugin).unwrap_or_default();
+                // A server with no songs is a valid answer: its songs are marked missing (not
+                // deleted), and come back with their ratings when it lists them again.
+                let outcome = match error {
+                    Some(error) => Err(error),
+                    None if endless && !list.is_empty() => Err(format!(
+                        "The plugin sent more than {MAX_SYNC_PAGES} pages; nothing was changed"
+                    )),
+                    None => crate::sources::apply(&library, &plugin, &songs)
+                        .map_err(|e| format!("{e:#}")),
+                };
+                if let Some(source) = &mut target.info.source {
+                    source.syncing = false;
+                    source.error = outcome.as_ref().err().cloned();
+                }
+                refresh_source(target, &library);
+                match outcome {
+                    Ok(synced) => {
+                        if synced.added + synced.gone > 0 {
+                            actions(HostAction::Notify(format!(
+                                "{name}: {} new songs{}.",
+                                synced.added,
+                                if synced.gone > 0 {
+                                    format!(", {} no longer on the server", synced.gone)
+                                } else {
+                                    String::new()
+                                }
+                            )));
+                        }
+                        actions(HostAction::LibraryChanged);
+                        if !synced.covers.is_empty() {
+                            let (library, actions) = (library.clone(), actions.clone());
+                            std::thread::spawn(move || {
+                                let shown = || actions(HostAction::LibraryChanged);
+                                if crate::sources::fetch_covers(&library, &synced.covers, shown) > 0
+                                {
+                                    actions(HostAction::LibraryChanged);
+                                }
+                            });
+                        }
+                    }
+                    Err(error) => actions(HostAction::Notify(format!(
+                        "{name} could not sync: {error}"
+                    ))),
                 }
                 publish(&loaded);
             }
@@ -300,6 +616,108 @@ fn run(
             }
         }
     }
+}
+
+/// The turned-on plugin with this id, if it is a music source.
+fn source_plugin<'a>(loaded: &'a mut [Loaded], id: &str) -> Option<&'a mut Loaded> {
+    loaded
+        .iter_mut()
+        .find(|p| p.info.manifest.id == id && p.info.enabled && p.info.source.is_some())
+}
+
+/// Read a source plugin's description and whether it is signed in.
+fn refresh_source(plugin: &mut Loaded, library: &Library) {
+    let defines = |plugin: &Loaded, name: &str| {
+        plugin
+            .ast
+            .as_ref()
+            .is_some_and(|ast| ast.iter_functions().any(|f| f.name == name))
+    };
+    // Needle fetches the links a source gives it, so being one needs the network permission:
+    // otherwise a plugin could send library data out inside a link.
+    if !plugin.info.enabled
+        || !defines(plugin, "source")
+        || !plugin
+            .info
+            .manifest
+            .permissions
+            .contains(&Permission::Network)
+    {
+        plugin.info.source = None;
+        return;
+    }
+    let previous = plugin.info.source.take().unwrap_or_default();
+    let about = call_source(plugin, "source", vec![]).ok();
+    let about = about
+        .and_then(|d| serde_json::to_value(&d).ok())
+        .unwrap_or_default();
+    let text = |v: &serde_json::Value| v.as_str().unwrap_or_default().to_string();
+    let fields = about["fields"]
+        .as_array()
+        .map(|list| {
+            list.iter()
+                .filter(|f| f["id"].is_string())
+                .map(|f| SourceField {
+                    id: text(&f["id"]),
+                    label: Some(text(&f["label"]))
+                        .filter(|l| !l.is_empty())
+                        .unwrap_or_else(|| text(&f["id"])),
+                    placeholder: text(&f["placeholder"]),
+                    secret: f["secret"].as_bool().unwrap_or(false),
+                })
+                .collect()
+        })
+        .unwrap_or_default();
+    let signed_in = call_source(plugin, "signed_in", vec![])
+        .ok()
+        .and_then(|d| d.as_bool().ok())
+        .unwrap_or(false);
+    let (songs, synced_at) = crate::sources::status(library, &plugin.info.manifest.id);
+    plugin.info.source = Some(SourceInfo {
+        name: Some(text(&about["name"]))
+            .filter(|n| !n.is_empty())
+            .unwrap_or_else(|| plugin.info.manifest.name.clone()),
+        fields,
+        signed_in,
+        songs,
+        synced_at,
+        ..previous
+    });
+}
+
+/// The message a script threw, without the engine's wrapping.
+fn plain_error(error: &EvalAltResult) -> String {
+    match error {
+        EvalAltResult::ErrorRuntime(value, _) => value.to_string(),
+        EvalAltResult::ErrorInFunctionCall(_, _, inner, _) => plain_error(inner),
+        other => other.to_string(),
+    }
+}
+
+/// Call a source function: like `call`, but a failure (a wrong password, a server that is
+/// down) is returned as its plain message and does not mark the plugin as broken.
+fn call_source(plugin: &mut Loaded, name: &str, args: Vec<Dynamic>) -> Result<Dynamic, String> {
+    let Some(ast) = &plugin.ast else {
+        return Ok(Dynamic::UNIT);
+    };
+    if !plugin.info.enabled
+        || !ast
+            .iter_functions()
+            .any(|f| f.name == name && f.params.len() == args.len())
+    {
+        return Ok(Dynamic::UNIT);
+    }
+    plugin
+        .engine
+        .call_fn::<Dynamic>(&mut plugin.scope, ast, name, args)
+        .map_err(|error| {
+            let message = plain_error(&error);
+            crate::logfile::warn(format!(
+                "Source {} failed in {name}: {message}",
+                plugin.info.manifest.id
+            ));
+            message
+        })
 }
 
 /// Call `name` if the plugin defines it; failures are recorded on the plugin, not raised.
@@ -339,6 +757,7 @@ fn load_all(
 ) -> Vec<Loaded> {
     let folder = library.directory.join("plugins");
     let _ = std::fs::create_dir_all(&folder);
+    update_examples(&folder);
     let enabled: BTreeSet<String> = library
         .get_json(ENABLED_KEY)
         .ok()
@@ -380,6 +799,10 @@ fn load_all(
                         error: Some(format!("{error:#}")),
                         commands: vec![],
                         effects: vec![],
+                        source: None,
+                        update: None,
+                        official: false,
+                        verified: false,
                     },
                     engine: Engine::new_raw(),
                     ast: None,
@@ -408,12 +831,22 @@ fn load_all(
                 error: None,
                 commands: vec![],
                 effects: vec![],
+                source: None,
+                update: bundled_update(&dir, &manifest.id),
+                official: is_official(&dir, &manifest.id),
+                verified: is_official(&dir, &manifest.id)
+                    && unedited_version(&dir, &manifest.id).is_some(),
             },
             engine,
             ast: None,
             scope: Scope::new(),
             effects: vec![],
         };
+        // A plugin that only brings themes (a `themes` folder) needs no script.
+        if !dir.join(&manifest.entry).exists() && dir.join("themes").is_dir() {
+            loaded.push(plugin);
+            continue;
+        }
         match std::fs::read_to_string(dir.join(&manifest.entry))
             .context("Cannot read the script")
             .and_then(|source| {
@@ -516,6 +949,10 @@ fn track_map(track: &Track) -> Map {
         "path".into(),
         track.path.trim_start_matches("\\\\?\\").to_string().into(),
     );
+    if let Some((source, id)) = track.source() {
+        map.insert("source".into(), source.to_string().into());
+        map.insert("source_id".into(), id.into());
+    }
     map
 }
 fn listen_map(listen: &Listen) -> Map {
@@ -555,8 +992,10 @@ fn engine_for(
     engine.set_max_call_levels(48);
     engine.set_max_expr_depths(64, 32);
     engine.set_max_string_size(1 << 20);
+    // Sizes count everything inside a value: a page of songs from a server, each with a few
+    // dozen fields, is one value.
     engine.set_max_array_size(50_000);
-    engine.set_max_map_size(10_000);
+    engine.set_max_map_size(200_000);
     engine.disable_symbol("eval");
     let permissions = manifest.permissions.clone();
     let name = manifest.name.clone();
@@ -747,6 +1186,54 @@ fn engine_for(
             },
         );
     }
+    // Helpers for talking to servers (a source's sign-in, for example).
+    engine.register_fn("md5", |text: &str| {
+        format!("{:x}", md5::compute(text.as_bytes()))
+    });
+    engine.register_fn("random_text", |length: i64| {
+        use rand::Rng;
+        rand::thread_rng()
+            .sample_iter(&rand::distributions::Alphanumeric)
+            .take(length.clamp(1, 256) as usize)
+            .map(char::from)
+            .collect::<String>()
+    });
+    engine.register_fn("url_encode", |text: &str| {
+        let mut out = String::new();
+        for byte in text.bytes() {
+            if byte.is_ascii_alphanumeric() || b"-_.~".contains(&byte) {
+                out.push(byte as char);
+            } else {
+                out += &format!("%{byte:02X}");
+            }
+        }
+        out
+    });
+    // Secrets (a password), kept in Windows' Credential Manager under the plugin's name.
+    {
+        let plugin = id.clone();
+        engine.register_fn("secret", move |key: &str| -> Result<Dynamic, Fail> {
+            match crate::secrets::plugin::get(&plugin, key).map_err(|e| fail(format!("{e:#}")))? {
+                Some(value) => Ok(value.into()),
+                None => Ok(Dynamic::UNIT),
+            }
+        });
+    }
+    {
+        let plugin = id.clone();
+        engine.register_fn(
+            "set_secret",
+            move |key: &str, value: &str| -> Result<(), Fail> {
+                crate::secrets::plugin::set(&plugin, key, value).map_err(|e| fail(format!("{e:#}")))
+            },
+        );
+    }
+    {
+        let plugin = id.clone();
+        engine.register_fn("delete_secret", move |key: &str| -> Result<(), Fail> {
+            crate::secrets::plugin::delete(&plugin, key).map_err(|e| fail(format!("{e:#}")))
+        });
+    }
     engine.register_fn("parse_json", |text: &str| -> Result<Dynamic, Fail> {
         serde_json::from_str::<Dynamic>(text).map_err(|e| fail(format!("Not JSON: {e}")))
     });
@@ -810,9 +1297,11 @@ fn web(request: reqwest::blocking::RequestBuilder) -> Result<String, Fail> {
     let response = request
         .timeout(Duration::from_secs(15))
         .send()
-        .map_err(|e| fail(e.to_string()))?;
+        .map_err(|e| fail(crate::sources::http_error(&e)))?;
     let status = response.status();
-    let text = response.text().map_err(|e| fail(e.to_string()))?;
+    let text = response
+        .text()
+        .map_err(|e| fail(crate::sources::http_error(&e)))?;
     if !status.is_success() {
         return Err(fail(format!("The server answered {status}")));
     }
@@ -985,6 +1474,203 @@ fn effects() {
 }
 "#,
     ),
+    (
+        "subsonic",
+        r#"id = "subsonic"
+name = "Navidrome / Subsonic"
+version = "1.2.1"
+author = "nnx"
+description = "Plays the music on your Navidrome or other Subsonic server. Songs are listed with your own and streamed; plays and ratings are saved on the server."
+permissions = ["network"]
+"#,
+        r#"// Your music server as a source: Navidrome, and other servers that speak the Subsonic API
+// (Airsonic-Advanced, Gonic, Ampache, LMS). Songs are listed in Needle and streamed from the
+// server; plays and ratings are saved on the server too.
+
+fn source() {
+    #{
+        name: "Navidrome / Subsonic",
+        fields: [
+            #{ id: "server", label: "Server address", placeholder: "https://music.example.com" },
+            #{ id: "username", label: "User name", placeholder: "" },
+            #{ id: "password", label: "Password", placeholder: "", secret: true },
+        ]
+    }
+}
+
+fn signed_in() {
+    let server = setting("server");
+    server != () && server != "" && secret("password") != ()
+}
+
+// "music.example.com/" becomes "music.example.com".
+fn address(typed) {
+    let server = typed;
+    server.trim();
+    while server.ends_with("/") {
+        server.pop();
+    }
+    server
+}
+
+// The sign-in part of every request. The password itself is never sent: only a salted hash.
+fn auth() {
+    let password = secret("password");
+    if password == () {
+        throw "Sign in to your server first";
+    }
+    let salt = random_text(12);
+    `u=${url_encode(setting("username"))}&t=${md5(password + salt)}&s=${salt}&v=1.16.1&c=Needle&f=json`
+}
+
+fn link(method, params, auth) {
+    let url = `${setting("server")}/rest/${method}.view?${auth}`;
+    for key in params.keys() {
+        url += `&${key}=${url_encode(params[key].to_string())}`;
+    }
+    url
+}
+
+fn ask(method, params) {
+    let text = "";
+    try {
+        text = http_get(link(method, params, auth()));
+    } catch (error) {
+        // Something answered, but not a music server: often the port is missing.
+        if type_of(error) == "string" && error.contains("404") {
+            throw "No music server at this address. Check it, and the port: Navidrome uses :4533 unless it was changed";
+        }
+        throw error;
+    }
+    let answer = parse_json(text);
+    let reply = answer["subsonic-response"];
+    if reply == () {
+        throw "That address did not answer like a Subsonic server";
+    }
+    if reply.status != "ok" {
+        let message = if reply.error != () { reply.error.message } else { () };
+        throw if message != () { message } else { "The server refused the request" };
+    }
+    reply
+}
+
+fn sign_in(fields) {
+    let typed = address(fields.server);
+    if typed == "" {
+        throw "Type your server's address";
+    }
+    // Without http:// or https://, only the secure address is tried: the sign-in part of
+    // each request could be copied off a plain-http connection and used again.
+    let plain = typed.starts_with("http://");
+    let server = if plain || typed.starts_with("https://") { typed } else { "https://" + typed };
+    set_setting("server", server);
+    set_setting("username", fields.username);
+    set_setting("list_by", "");
+    set_secret("password", fields.password);
+    try {
+        ask("ping", #{});
+    } catch (error) {
+        sign_out();
+        if !plain && type_of(error) == "string" && error.contains("Could not connect") {
+            throw `${error} over https. If your server only uses plain http (Navidrome on :4533 often does), type http:// in front of the address. Plain http is not encrypted, so only use it at home or through a VPN.`;
+        }
+        throw error;
+    }
+}
+
+fn sign_out() {
+    set_setting("server", "");
+    delete_secret("password");
+}
+
+// The songs of a page, as Needle wants them.
+fn to_songs(found) {
+    // One sign-in for all the cover links of this page, so an album's songs share one link.
+    let cover_auth = auth();
+    let list = [];
+    for song in found {
+        list.push(#{
+            id: song.id,
+            title: song.title,
+            artist: song.artist,
+            album: song.album,
+            album_artist: song.displayAlbumArtist,
+            genre: song.genre,
+            year: song.year,
+            track: song.track,
+            disc: song.discNumber,
+            duration: song.duration,
+            format: song.suffix,
+            bitrate: song.bitRate,
+            sample_rate: song.samplingRate,
+            bit_depth: song.bitDepth,
+            channels: song.channelCount,
+            size: song.size,
+            musicbrainz_id: song.musicBrainzId,
+            // One cover per album: songs often carry their own copy of the same picture.
+            cover_id: if song.albumId != () { "album:" + song.albumId } else { song.coverArt },
+            cover: if song.coverArt != () {
+                link("getCoverArt", #{ id: song.coverArt, size: 600 }, cover_auth)
+            } else {
+                ""
+            },
+        });
+    }
+    list
+}
+
+// 250 songs a page, until a page comes back empty. Some servers (Ampache) find nothing for
+// an empty search; for those, 5 albums a page with their songs (short pages, so songs
+// waiting to play are not held up for long).
+fn songs(page) {
+    if setting("list_by") != "albums" {
+        let reply = ask("search3", #{
+            query: "", songCount: 250, songOffset: page * 250, artistCount: 0, albumCount: 0
+        });
+        let found = if reply.searchResult3 != () { reply.searchResult3.song } else { () };
+        if found != () && found.len() > 0 {
+            return to_songs(found);
+        }
+        if page > 0 {
+            return [];
+        }
+        set_setting("list_by", "albums");
+    }
+    let reply = ask("getAlbumList2", #{ type: "alphabeticalByName", size: 5, offset: page * 5 });
+    let albums = if reply.albumList2 != () { reply.albumList2.album } else { () };
+    if albums == () || albums.len() == 0 {
+        return [];
+    }
+    let found = [];
+    for album in albums {
+        let full = ask("getAlbum", #{ id: album.id });
+        if full.album != () && full.album.song != () {
+            for song in full.album.song {
+                found.push(song);
+            }
+        }
+    }
+    to_songs(found)
+}
+
+// The original file, not a smaller copy.
+fn stream(id) {
+    link("stream", #{ id: id, format: "raw" }, auth())
+}
+
+fn playing(id) {
+    ask("scrobble", #{ id: id, submission: false });
+}
+
+fn played(id, started_at) {
+    ask("scrobble", #{ id: id, time: started_at * 1000, submission: true });
+}
+
+fn rate(id, stars) {
+    ask("setRating", #{ id: id, rating: stars });
+}
+"#,
+    ),
 ];
 
 /// Extra files for the example plugins: (folder, file name, contents).
@@ -1051,21 +1737,311 @@ pub const EXAMPLE_FILES: &[(&str, &str, &str)] = &[(
 "#,
 )];
 
+/// Scripts of the Navidrome / Subsonic plugin from before bundled plugins kept a record
+/// (SHA-256). A copy that still matches one exactly was never edited, so it is updated.
+const EARLIER_EXAMPLES: &[(&str, &str)] = &[
+    (
+        "subsonic",
+        "62f1f6b31fb90aa09fd19f8aee0ee31b40437b696474135b3f121de2c812bebd",
+    ),
+    (
+        "subsonic",
+        "1c7ea98aca006966d667d45e3192de3ed661e9424896d9404fb60c3e7c9e1e5b",
+    ),
+    (
+        "subsonic",
+        "41f1421aee56cf12d4febbab87f2f6216d888fb7d563dfcfb133eb036307818f",
+    ),
+    (
+        "subsonic",
+        "57942e2acdcd0a0e376c59d7dc4dabc05c3c990394c10673a8e5c29207881862",
+    ),
+    (
+        "subsonic",
+        "6ed2b6a5b1f7c0d6018af622b35ccf394ab7dc083ae6c9ed9e895e9b1f22cce8",
+    ),
+    (
+        "subsonic",
+        "f66bd34adddf7ee5561fbe38c18ba3a14cb02ff8532b4b5f68921ab7426ce4b1",
+    ),
+    (
+        "subsonic",
+        "ae1bfab837a569a518d79b710ee56031663be2202dca5d33ae60f489190c8ce4",
+    ),
+];
+
+/// What Needle installed in a bundled plugin's folder, kept in `.bundled.json`: its
+/// version, a fingerprint of its files as written, and a newer version the person chose not
+/// to take over their own changes.
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+struct Bundled {
+    version: String,
+    hash: String,
+    #[serde(default)]
+    kept: Option<String>,
+    /// The files that fingerprint covers (a later version may add files).
+    #[serde(default)]
+    files: Vec<String>,
+}
+const BUNDLED_RECORD: &str = ".bundled.json";
+
+/// The files of a bundled plugin, as Needle ships them.
+fn bundled_files(name: &str) -> Vec<(&'static str, &'static str)> {
+    let Some((_, manifest, script)) = EXAMPLES.iter().find(|(n, ..)| *n == name) else {
+        return vec![];
+    };
+    let mut files = vec![("plugin.toml", *manifest), ("main.rhai", *script)];
+    files.extend(
+        EXAMPLE_FILES
+            .iter()
+            .filter(|(n, ..)| *n == name)
+            .map(|(_, file, contents)| (*file, *contents)),
+    );
+    files
+}
+
+/// Whether the plugin in `dir` is one Needle ships: its id is a bundled plugin's, in the
+/// folder of that name.
+pub fn is_official(dir: &Path, id: &str) -> bool {
+    EXAMPLES.iter().any(|(name, ..)| *name == id)
+        && dir
+            .file_name()
+            .is_some_and(|f| f == std::ffi::OsStr::new(id))
+}
+
+/// The version a bundled plugin has in this build of Needle.
+fn bundled_version(name: &str) -> String {
+    bundled_files(name)
+        .first()
+        .and_then(|(_, manifest)| toml::from_str::<Manifest>(manifest).ok())
+        .map(|m| m.version)
+        .unwrap_or_default()
+}
+
+/// A fingerprint of these files' contents (a missing file counts as empty).
+fn fingerprint<'a>(files: impl Iterator<Item = (&'a str, Vec<u8>)>) -> String {
+    use sha2::{Digest, Sha256};
+    let mut hasher = Sha256::new();
+    for (name, contents) in files {
+        hasher.update(name.as_bytes());
+        hasher.update((contents.len() as u64).to_le_bytes());
+        hasher.update(&contents);
+    }
+    format!("{:x}", hasher.finalize())
+}
+
+/// The fingerprint of a bundled plugin's files as they are on disk now.
+fn fingerprint_on_disk(dir: &Path, name: &str) -> String {
+    let files: Vec<&str> = bundled_files(name).into_iter().map(|(f, _)| f).collect();
+    fingerprint_files(dir, &files)
+}
+
+/// The fingerprint of these files in `dir` as they are now.
+fn fingerprint_files(dir: &Path, files: &[&str]) -> String {
+    fingerprint(
+        files
+            .iter()
+            .map(|file| (*file, std::fs::read(dir.join(file)).unwrap_or_default())),
+    )
+}
+
+/// A name for a copy of `file` that no earlier copy has, so no copy is ever replaced:
+/// `main.rhai.mine`, then `main.rhai.mine-2`, and so on.
+fn free_copy_name(dir: &Path, file: &str) -> PathBuf {
+    let mut path = dir.join(format!("{file}.mine"));
+    let mut n = 2;
+    while path.exists() {
+        path = dir.join(format!("{file}.mine-{n}"));
+        n += 1;
+    }
+    path
+}
+
+/// Whether a plugin.toml is the bundled one apart from its version (as in every version of
+/// Needle before records were kept).
+fn manifest_unchanged(dir: &Path, name: &str) -> bool {
+    let bundled = bundled_files(name)
+        .first()
+        .and_then(|(_, m)| toml::from_str::<Manifest>(m).ok());
+    let on_disk = read_manifest(dir).ok();
+    match (bundled, on_disk) {
+        (Some(mut bundled), Some(on_disk)) => {
+            bundled.version = on_disk.version.clone();
+            bundled == on_disk
+        }
+        _ => false,
+    }
+}
+
+/// "1.2.0" is newer than "1.1.9"; missing parts count as 0.
+fn newer_version(candidate: &str, than: &str) -> bool {
+    let parts = |v: &str| -> Vec<u64> {
+        v.trim()
+            .trim_start_matches('v')
+            .split('.')
+            .map(|p| p.parse().unwrap_or(0))
+            .collect()
+    };
+    let (mut a, mut b) = (parts(candidate), parts(than));
+    let length = a.len().max(b.len());
+    a.resize(length, 0);
+    b.resize(length, 0);
+    a > b
+}
+
+fn read_record(dir: &Path) -> Option<Bundled> {
+    serde_json::from_str(&std::fs::read_to_string(dir.join(BUNDLED_RECORD)).ok()?).ok()
+}
+
+/// Write this build's version of a bundled plugin into `dir`, and record it. With
+/// `keep_copy`, the files it replaces are kept first as `<name>.mine`.
+fn write_bundled(dir: &Path, name: &str, keep_copy: bool) -> Result<()> {
+    std::fs::create_dir_all(dir)?;
+    let files = bundled_files(name);
+    for (file, contents) in &files {
+        let path = dir.join(file);
+        if keep_copy && path.is_file() && std::fs::read(&path)? != contents.as_bytes() {
+            std::fs::copy(&path, free_copy_name(dir, file))?;
+        }
+        std::fs::write(path, contents)?;
+    }
+    let record = Bundled {
+        version: bundled_version(name),
+        hash: fingerprint(files.iter().map(|(f, c)| (*f, c.as_bytes().to_vec()))),
+        kept: None,
+        files: files.iter().map(|(f, _)| f.to_string()).collect(),
+    };
+    std::fs::write(
+        dir.join(BUNDLED_RECORD),
+        serde_json::to_string_pretty(&record)?,
+    )?;
+    Ok(())
+}
+
+/// Whether a bundled plugin's files on disk are exactly as some version of Needle wrote
+/// them, and which version that was.
+fn unedited_version(dir: &Path, name: &str) -> Option<String> {
+    if let Some(record) = read_record(dir) {
+        // Compare the files that were written then; a later version may have more.
+        let on_disk = if record.files.is_empty() {
+            fingerprint_on_disk(dir, name)
+        } else {
+            let files: Vec<&str> = record.files.iter().map(String::as_str).collect();
+            fingerprint_files(dir, &files)
+        };
+        return (on_disk == record.hash).then_some(record.version);
+    }
+    // Installed before records were kept.
+    let script = std::fs::read(dir.join("main.rhai")).ok()?;
+    let hash = {
+        use sha2::{Digest, Sha256};
+        format!("{:x}", Sha256::digest(&script))
+    };
+    if fingerprint_on_disk(dir, name)
+        == fingerprint(
+            bundled_files(name)
+                .iter()
+                .map(|(f, c)| (*f, c.as_bytes().to_vec())),
+        )
+    {
+        Some(bundled_version(name))
+    } else if (EARLIER_EXAMPLES.contains(&(name, hash.as_str()))
+        || bundled_files(name)
+            .iter()
+            .any(|(file, contents)| *file == "main.rhai" && script == contents.as_bytes()))
+        // Updating writes plugin.toml too, so it must be unchanged as well.
+        && manifest_unchanged(dir, name)
+    {
+        // An earlier script, or this one with an earlier plugin.toml.
+        Some("0".into())
+    } else {
+        None
+    }
+}
+
+/// Bring bundled plugins up to date: ones nobody edited are replaced by this build's newer
+/// version. Edited ones are left alone (see `bundled_update`). Returns how many changed.
+pub fn update_examples(folder: &Path) -> usize {
+    let mut updated = 0;
+    for (name, ..) in EXAMPLES {
+        let dir = folder.join(name);
+        if !dir.join("plugin.toml").is_file() {
+            continue;
+        }
+        let current = bundled_version(name);
+        match unedited_version(&dir, name) {
+            Some(version) if newer_version(&current, &version) => {
+                if write_bundled(&dir, name, false).is_ok() {
+                    crate::logfile::info(format!("Updated the bundled plugin {name} to {current}"));
+                    updated += 1;
+                }
+            }
+            // The same version as this build, never edited: make sure it has a record.
+            Some(_) if read_record(&dir).is_none() => {
+                let _ = write_bundled(&dir, name, false);
+            }
+            _ => {}
+        }
+    }
+    updated
+}
+
+/// For a bundled plugin someone changed: the newer version this build of Needle has, unless
+/// they chose to keep theirs over that version.
+pub fn bundled_update(dir: &Path, id: &str) -> Option<String> {
+    let current = bundled_version(id);
+    if current.is_empty() || unedited_version(dir, id).is_some() {
+        return None;
+    }
+    let installed = read_record(dir)
+        .map(|r| (r.version, r.kept))
+        .or_else(|| read_manifest(dir).ok().map(|m| (m.version, None)))?;
+    if installed.1.as_deref() == Some(current.as_str()) {
+        return None;
+    }
+    newer_version(&current, &installed.0).then_some(current)
+}
+
+/// Replace a changed bundled plugin with this build's version, keeping the changed files as
+/// `<name>.mine`.
+pub fn take_bundled_update(dir: &Path, id: &str) -> Result<()> {
+    write_bundled(dir, id, true)
+}
+
+/// Keep a changed bundled plugin as it is, and stop offering this build's version.
+pub fn keep_changed_plugin(dir: &Path, id: &str) -> Result<()> {
+    let mut record = read_record(dir).unwrap_or_else(|| Bundled {
+        version: read_manifest(dir).map(|m| m.version).unwrap_or_default(),
+        ..Default::default()
+    });
+    record.kept = Some(bundled_version(id));
+    std::fs::write(
+        dir.join(BUNDLED_RECORD),
+        serde_json::to_string_pretty(&record)?,
+    )?;
+    Ok(())
+}
+
+/// Install one bundled plugin, unless its folder is already there. Returns whether it was.
+pub fn install_example(library: &Library, name: &str) -> Result<bool> {
+    let dir = library.directory.join("plugins").join(name);
+    if dir.exists() || bundled_files(name).is_empty() {
+        return Ok(false);
+    }
+    write_bundled(&dir, name, false)?;
+    Ok(true)
+}
+
 /// Copy the example plugins into the plugin folder, leaving any that already exist.
 pub fn install_examples(library: &Library) -> Result<usize> {
     let folder = library.directory.join("plugins");
     let mut installed = 0;
-    for (name, manifest, script) in EXAMPLES {
+    for (name, ..) in EXAMPLES {
         let dir = folder.join(name);
         if dir.exists() {
             continue;
         }
-        std::fs::create_dir_all(&dir)?;
-        std::fs::write(dir.join("plugin.toml"), manifest)?;
-        std::fs::write(dir.join("main.rhai"), script)?;
-        for (_, file, contents) in EXAMPLE_FILES.iter().filter(|(f, ..)| f == name) {
-            std::fs::write(dir.join(file), contents)?;
-        }
+        write_bundled(&dir, name, false)?;
         installed += 1;
     }
     Ok(installed)
@@ -1151,6 +2127,556 @@ mod tests {
                 .contains(&HostAction::LibraryChanged)
                 .then_some(())
         });
+    }
+
+    /// A pretend Subsonic server on this computer: it checks the salted password, lists two
+    /// songs, streams a WAV, and records every request.
+    fn fake_subsonic(password: &'static str) -> (String, Arc<Mutex<Vec<String>>>) {
+        fake_subsonic_with(password, 0, false)
+    }
+
+    /// `fake_subsonic`, with `filler` more songs on the first page, each with the many extra
+    /// fields a real Navidrome sends.
+    /// With `albums_only`, it finds nothing for an empty search (as Ampache does) and lists
+    /// its songs through albums instead.
+    fn fake_subsonic_with(
+        password: &'static str,
+        filler: usize,
+        albums_only: bool,
+    ) -> (String, Arc<Mutex<Vec<String>>>) {
+        use std::io::{BufRead, BufReader, Write};
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let address = format!("http://{}", listener.local_addr().unwrap());
+        let seen: Arc<Mutex<Vec<String>>> = Arc::default();
+        let log = seen.clone();
+        let wav = {
+            let mut bytes = std::io::Cursor::new(vec![]);
+            let spec = hound::WavSpec {
+                channels: 2,
+                sample_rate: 44100,
+                bits_per_sample: 16,
+                sample_format: hound::SampleFormat::Int,
+            };
+            let mut writer = hound::WavWriter::new(&mut bytes, spec).unwrap();
+            for i in 0..44100 {
+                let v = ((i as f32 * 0.05).sin() * 8000.) as i16;
+                writer.write_sample(v).unwrap();
+                writer.write_sample(v).unwrap();
+            }
+            writer.finalize().unwrap();
+            bytes.into_inner()
+        };
+        std::thread::spawn(move || {
+            for stream in listener.incoming().flatten() {
+                let mut reader = BufReader::new(stream.try_clone().unwrap());
+                let mut line = String::new();
+                if reader.read_line(&mut line).is_err() {
+                    continue;
+                }
+                loop {
+                    let mut header = String::new();
+                    if reader.read_line(&mut header).is_err() || header.trim().is_empty() {
+                        break;
+                    }
+                }
+                let target = line
+                    .split_whitespace()
+                    .nth(1)
+                    .unwrap_or_default()
+                    .to_string();
+                log.lock().unwrap().push(target.clone());
+                let (path, query) = target.split_once('?').unwrap_or((&target, ""));
+                let param = |key: &str| {
+                    query
+                        .split('&')
+                        .find_map(|kv| kv.strip_prefix(&format!("{key}=")))
+                        .unwrap_or_default()
+                        .to_string()
+                };
+                let authorised = param("t")
+                    == format!("{:x}", md5::compute(format!("{password}{}", param("s"))));
+                let ok = |body: &str| {
+                    format!(
+                        "{{\"subsonic-response\":{{\"status\":\"ok\",\"version\":\"1.16.1\"{body}}}}}"
+                    )
+                };
+                let status = if path.starts_with("/rest/") {
+                    "200 OK"
+                } else {
+                    "404 Not Found"
+                };
+                let (kind, body): (&str, Vec<u8>) = if !authorised {
+                    ("application/json", br#"{"subsonic-response":{"status":"failed","error":{"code":40,"message":"Wrong username or password"}}}"#.to_vec())
+                } else if path.ends_with("/stream.view") {
+                    ("audio/wav", wav.clone())
+                } else if path.ends_with("/getCoverArt.view") {
+                    ("image/png", vec![7u8; 500])
+                } else if path.ends_with("/getAlbumList2.view") {
+                    let list = if param("offset") == "0" && param("size") == "5" {
+                        r#"[{"id":"al-1","name":"WhyKiiiKiii - EP"}]"#
+                    } else {
+                        "[]"
+                    };
+                    (
+                        "application/json",
+                        ok(&format!(r#","albumList2":{{"album":{list}}}"#)).into_bytes(),
+                    )
+                } else if path.ends_with("/getAlbum.view") {
+                    ("application/json", ok(r#","album":{"id":"al-1","song":[
+                        {"id":"s1","title":"Hey Hi","artist":"KiiiKiii","album":"WhyKiiiKiii - EP","albumId":"al-1","suffix":"wav","coverArt":"al-1"},
+                        {"id":"s2","title":"Sweet Sour","artist":"KiiiKiii","album":"WhyKiiiKiii - EP","albumId":"al-1","suffix":"wav","coverArt":"al-1"}
+                    ]}"#).into_bytes())
+                } else if path.ends_with("/search3.view") && albums_only {
+                    (
+                        "application/json",
+                        ok(r#","searchResult3":{}"#).into_bytes(),
+                    )
+                } else if path.ends_with("/search3.view") {
+                    if param("songOffset") == "0" {
+                        let mut songs = vec![
+                            r#"{"id":"s1","title":"Hey Hi","artist":"KiiiKiii","album":"WhyKiiiKiii - EP","albumId":"1","year":2026,"track":2,"duration":1,"suffix":"wav","bitRate":1411,"coverArt":"mf-s1"}"#.to_string(),
+                            r#"{"id":"s2","title":"Sweet Sour","artist":"KiiiKiii","album":"WhyKiiiKiii - EP","albumId":"1","track":4,"duration":1,"suffix":"wav","coverArt":"mf-s2"}"#.to_string(),
+                        ];
+                        for n in 0..filler {
+                            let extra: Vec<String> = (0..40)
+                                .map(|f| format!(r#""extra{f}":"value {f}""#))
+                                .collect();
+                            songs.push(format!(
+                                r#"{{"id":"f{n}","title":"Filler {n}","artist":"A","album":"B","suffix":"flac","genres":[{{"name":"Pop"}}],"artists":[{{"id":"a","name":"A"}}],{}}}"#,
+                                extra.join(",")
+                            ));
+                        }
+                        (
+                            "application/json",
+                            ok(&format!(
+                                r#","searchResult3":{{"song":[{}]}}"#,
+                                songs.join(",")
+                            ))
+                            .into_bytes(),
+                        )
+                    } else {
+                        (
+                            "application/json",
+                            ok(r#","searchResult3":{}"#).into_bytes(),
+                        )
+                    }
+                } else {
+                    ("application/json", ok("").into_bytes())
+                };
+                let mut stream = stream;
+                let _ = write!(
+                    stream,
+                    "HTTP/1.1 {status}\r\nContent-Type: {kind}\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+                    body.len()
+                );
+                let _ = stream.write_all(&body);
+            }
+        });
+        (address, seen)
+    }
+
+    #[test]
+    fn subsonic_songs_sync_stream_and_count_on_the_server() {
+        let (server, requests) = fake_subsonic("hunter2");
+        let dir = tempfile::tempdir().unwrap();
+        let library = Library::open(dir.path()).unwrap();
+        install_examples(&library).unwrap();
+        let host = PluginHost::start(library.clone(), Arc::default(), |_| {});
+        wait(|| Some(host.plugins()).filter(|p| p.len() == EXAMPLES.len()));
+        host.send(PluginEvent::Enable("subsonic".into(), true));
+        let source = || {
+            host.plugins()
+                .into_iter()
+                .find(|p| p.manifest.id == "subsonic")
+                .and_then(|p| p.source)
+        };
+        let info = wait(source);
+        assert_eq!(info.name, "Navidrome / Subsonic");
+        assert_eq!(info.fields.len(), 3);
+        assert!(info.fields[2].secret && !info.signed_in);
+
+        let sign_in = |password: &str| {
+            host.send(PluginEvent::SourceSignIn {
+                plugin: "subsonic".into(),
+                fields: [
+                    // Plain http only when typed (the pretend server has no https).
+                    ("server".to_string(), format!("{server}/")),
+                    ("username".to_string(), "willow".to_string()),
+                    ("password".to_string(), password.to_string()),
+                ]
+                .into(),
+            })
+        };
+        // Without http://, only https is tried, and the message says how to use plain http.
+        host.send(PluginEvent::SourceSignIn {
+            plugin: "subsonic".into(),
+            fields: [
+                ("server".to_string(), "127.0.0.1:9".to_string()),
+                ("username".to_string(), "willow".to_string()),
+                ("password".to_string(), "hunter2".to_string()),
+            ]
+            .into(),
+        });
+        let hint = wait(|| source().and_then(|s| s.error));
+        assert!(hint.contains("type http:// in front"), "{hint}");
+        assert!(
+            requests.lock().unwrap().is_empty(),
+            "nothing went over plain http"
+        );
+        // An address with something else on it (a missing port, usually) says so.
+        host.send(PluginEvent::SourceSignIn {
+            plugin: "subsonic".into(),
+            fields: [
+                ("server".to_string(), format!("{server}/other")),
+                ("username".to_string(), "willow".to_string()),
+                ("password".to_string(), "hunter2".to_string()),
+            ]
+            .into(),
+        });
+        let lost = wait(|| {
+            source()
+                .and_then(|s| s.error)
+                .filter(|e| !e.contains("https"))
+        });
+        assert!(
+            lost.starts_with("No music server at this address"),
+            "{lost}"
+        );
+        sign_in("wrong");
+        let refused = wait(|| {
+            source()
+                .and_then(|s| s.error)
+                .filter(|e| !e.starts_with("No music"))
+        });
+        assert_eq!(refused, "Wrong username or password");
+        assert!(!source().unwrap().signed_in);
+
+        sign_in("hunter2");
+        let synced = wait(|| source().filter(|s| s.songs == 2 && !s.syncing));
+        assert!(synced.signed_in && synced.error.is_none() && synced.synced_at.is_some());
+        let tracks = library.search(&crate::sources::rule("subsonic")).unwrap();
+        assert_eq!(tracks.len(), 2);
+        let hey = tracks.iter().find(|t| t.title == "Hey Hi").unwrap().clone();
+        assert!(hey.is_streamed());
+        assert_eq!(
+            (hey.artist.as_str(), hey.year, hey.format.as_str()),
+            ("KiiiKiii", 2026, "WAV")
+        );
+        // Both songs share the album's cover, fetched once, though each has its own cover id.
+        wait(|| library.track(&hey.id).unwrap().unwrap().artwork);
+        let sweet = tracks.iter().find(|t| t.title == "Sweet Sour").unwrap();
+        wait(|| library.track(&sweet.id).unwrap().unwrap().artwork);
+        let covers = requests
+            .lock()
+            .unwrap()
+            .iter()
+            .filter(|r| r.contains("getCoverArt"))
+            .count();
+        assert_eq!(covers, 1);
+        // The password never goes over the network, only a salted hash of it.
+        assert!(
+            requests
+                .lock()
+                .unwrap()
+                .iter()
+                .all(|r| !r.contains("hunter2"))
+        );
+
+        // Streaming: samples arrive, and the finished song stays in the cache.
+        let cache = dir.path().join("stream-cache");
+        let streamer = host.clone();
+        let link = move |plugin: &str, id: &str| streamer.stream_link(plugin, id);
+        let source_audio = crate::sources::open_with(&hey, &cache, &link).unwrap();
+        assert_eq!(source_audio.channels(), 2);
+        assert_eq!(source_audio.sample_rate(), 44100);
+        let samples: Vec<f32> = source_audio.collect();
+        assert_eq!(samples.len(), 44100 * 2);
+        assert!(samples.iter().any(|s| s.abs() > 0.1));
+        wait(|| {
+            walkdir::WalkDir::new(&cache)
+                .into_iter()
+                .flatten()
+                .any(|e| e.path().extension().is_some_and(|x| x == "wav"))
+                .then_some(())
+        });
+        let streams = || {
+            requests
+                .lock()
+                .unwrap()
+                .iter()
+                .filter(|r| r.contains("stream.view"))
+                .count()
+        };
+        assert_eq!(streams(), 1);
+        let again: Vec<f32> = crate::sources::open_with(&hey, &cache, &link)
+            .unwrap()
+            .collect();
+        assert_eq!(again.len(), samples.len());
+        assert_eq!(streams(), 1, "played again from the cache");
+
+        // Plays and ratings reach the server.
+        host.send(PluginEvent::Listen(Listen {
+            id: "l1".into(),
+            track_id: hey.id.clone(),
+            title: hey.title.clone(),
+            artist: hey.artist.clone(),
+            album: hey.album.clone(),
+            started_at: 1_790_000_000,
+            listened_seconds: 1.,
+            duration: 1.,
+            qualified: true,
+        }));
+        host.send(PluginEvent::Rated {
+            track_id: hey.id.clone(),
+            stars: 4,
+        });
+        wait(|| {
+            let seen = requests.lock().unwrap();
+            (seen.iter().any(|r| {
+                r.contains("scrobble.view")
+                    && r.contains("id=s1")
+                    && r.contains("submission=true")
+                    && r.contains("time=1790000000000")
+            }) && seen
+                .iter()
+                .any(|r| r.contains("setRating.view") && r.contains("rating=4")))
+            .then_some(())
+        });
+
+        // Signing out keeps the songs (with their ratings) but marks them missing.
+        host.send(PluginEvent::SourceSignOut("subsonic".into()));
+        wait(|| source().filter(|s| !s.signed_in && s.songs == 0));
+        assert!(library.track(&hey.id).unwrap().unwrap().missing);
+    }
+
+    /// A server that finds nothing for an empty search (Ampache) is listed album by album.
+    #[test]
+    fn servers_without_an_empty_search_are_read_by_album() {
+        let (server, requests) = fake_subsonic_with("pw", 0, true);
+        let dir = tempfile::tempdir().unwrap();
+        let library = Library::open(dir.path()).unwrap();
+        install_examples(&library).unwrap();
+        let host = PluginHost::start(library.clone(), Arc::default(), |_| {});
+        wait(|| Some(host.plugins()).filter(|p| p.len() == EXAMPLES.len()));
+        host.send(PluginEvent::Enable("subsonic".into(), true));
+        let source = || {
+            host.plugins()
+                .into_iter()
+                .find(|p| p.manifest.id == "subsonic")
+                .and_then(|p| p.source)
+        };
+        wait(source);
+        host.send(PluginEvent::SourceSignIn {
+            plugin: "subsonic".into(),
+            fields: [
+                ("server".to_string(), server),
+                ("username".to_string(), "mei".to_string()),
+                ("password".to_string(), "pw".to_string()),
+            ]
+            .into(),
+        });
+        let synced = wait(|| source().filter(|s| s.synced_at.is_some() || s.error.is_some()));
+        assert_eq!(synced.error, None);
+        assert_eq!(synced.songs, 2);
+        assert!(
+            requests
+                .lock()
+                .unwrap()
+                .iter()
+                .any(|r| r.contains("getAlbum.view"))
+        );
+    }
+
+    /// A full page from a real server (250 songs with dozens of fields each) fits in a plugin.
+    #[test]
+    fn a_full_page_of_server_songs_fits() {
+        let (server, _) = fake_subsonic_with("pw", 248, false);
+        let dir = tempfile::tempdir().unwrap();
+        let library = Library::open(dir.path()).unwrap();
+        install_examples(&library).unwrap();
+        let host = PluginHost::start(library.clone(), Arc::default(), |_| {});
+        wait(|| Some(host.plugins()).filter(|p| p.len() == EXAMPLES.len()));
+        host.send(PluginEvent::Enable("subsonic".into(), true));
+        let source = || {
+            host.plugins()
+                .into_iter()
+                .find(|p| p.manifest.id == "subsonic")
+                .and_then(|p| p.source)
+        };
+        wait(source);
+        host.send(PluginEvent::SourceSignIn {
+            plugin: "subsonic".into(),
+            fields: [
+                ("server".to_string(), server),
+                ("username".to_string(), "mei".to_string()),
+                ("password".to_string(), "pw".to_string()),
+            ]
+            .into(),
+        });
+        let synced = wait(|| source().filter(|s| s.synced_at.is_some() || s.error.is_some()));
+        assert_eq!(synced.error, None);
+        assert_eq!(synced.songs, 250);
+    }
+
+    /// Unedited bundled plugins update to a newer version; changed ones are offered the
+    /// update, which keeps the changes as `.mine`, or can be kept as they are.
+    #[test]
+    fn bundled_plugins_update_unless_changed() {
+        let dir = tempfile::tempdir().unwrap();
+        let folder = dir.path();
+        let plugin = folder.join("subsonic");
+        let read = |file: &str| std::fs::read_to_string(plugin.join(file)).unwrap();
+        let current = bundled_version("subsonic");
+
+        // Installed before records were kept, still as shipped: updated, and recorded.
+        std::fs::create_dir_all(&plugin).unwrap();
+        // The bundled plugin.toml as it was then: the same but for its version.
+        let old_manifest = bundled_files("subsonic")[0]
+            .1
+            .replace(&format!("version = \"{current}\""), "version = \"1.0.0\"");
+        std::fs::write(plugin.join("plugin.toml"), &old_manifest).unwrap();
+        std::fs::write(
+            plugin.join("main.rhai"),
+            include_str!("../testdata/subsonic-1.0.1.rhai"),
+        )
+        .unwrap();
+        assert_eq!(update_examples(folder), 1);
+        assert!(read("main.rhai").contains("Navidrome uses :4533"));
+        assert_eq!(read_record(&plugin).unwrap().version, current);
+        assert_eq!(update_examples(folder), 0, "already up to date");
+        assert_eq!(bundled_update(&plugin, "subsonic"), None);
+
+        // Before records, with the current script but an older plugin.toml: updated.
+        std::fs::remove_file(plugin.join(BUNDLED_RECORD)).unwrap();
+        std::fs::write(plugin.join("plugin.toml"), &old_manifest).unwrap();
+        assert_eq!(update_examples(folder), 1);
+        assert!(read("plugin.toml").contains(&current));
+
+        // Before records, with a plugin.toml someone changed (its name): left alone, since
+        // updating would overwrite it.
+        std::fs::remove_file(plugin.join(BUNDLED_RECORD)).unwrap();
+        let renamed = old_manifest.replace("Navidrome / Subsonic", "My server");
+        std::fs::write(plugin.join("plugin.toml"), &renamed).unwrap();
+        assert_eq!(update_examples(folder), 0);
+        assert_eq!(read("plugin.toml"), renamed);
+        write_bundled(&plugin, "subsonic", false).unwrap();
+
+        // An older recorded version nobody changed: updated.
+        let mut record = read_record(&plugin).unwrap();
+        record.version = "1.0.5".into();
+        std::fs::write(
+            plugin.join(BUNDLED_RECORD),
+            serde_json::to_string(&record).unwrap(),
+        )
+        .unwrap();
+        assert_eq!(update_examples(folder), 1);
+
+        // Changed by hand, with an older version recorded: left alone, and offered.
+        std::fs::write(
+            plugin.join("main.rhai"),
+            format!("{}\n// mine", read("main.rhai")),
+        )
+        .unwrap();
+        let mut record = read_record(&plugin).unwrap();
+        record.version = "1.0.5".into();
+        std::fs::write(
+            plugin.join(BUNDLED_RECORD),
+            serde_json::to_string(&record).unwrap(),
+        )
+        .unwrap();
+        assert_eq!(update_examples(folder), 0);
+        assert!(read("main.rhai").ends_with("// mine"));
+        assert_eq!(
+            bundled_update(&plugin, "subsonic").as_deref(),
+            Some(current.as_str())
+        );
+
+        // Keeping it stops the offer for this version.
+        keep_changed_plugin(&plugin, "subsonic").unwrap();
+        assert_eq!(bundled_update(&plugin, "subsonic"), None);
+        assert!(read("main.rhai").ends_with("// mine"));
+
+        // Official either way; verified only while unchanged.
+        assert!(is_official(&plugin, "subsonic"));
+        assert!(!is_official(&folder.join("copycat"), "subsonic"));
+        assert!(unedited_version(&plugin, "subsonic").is_none());
+
+        // Taking it replaces the files and keeps the changed script as main.rhai.mine; a
+        // second update keeps the first copy and adds another.
+        std::fs::write(plugin.join("main.rhai.mine"), "first copy").unwrap();
+        take_bundled_update(&plugin, "subsonic").unwrap();
+        assert!(!read("main.rhai").ends_with("// mine"));
+        assert_eq!(read("main.rhai.mine"), "first copy");
+        assert!(read("main.rhai.mine-2").ends_with("// mine"));
+        assert_eq!(
+            unedited_version(&plugin, "subsonic").as_deref(),
+            Some(current.as_str())
+        );
+    }
+
+    #[test]
+    fn versions_compare_by_number() {
+        assert!(newer_version("1.10.0", "1.9.9"));
+        assert!(newer_version("1.1", "1.0.9"));
+        assert!(!newer_version("1.0", "1.0.0"));
+        assert!(newer_version("1.0.0", "0"));
+    }
+
+    /// Network errors say what happened without the link, which can carry a sign-in token.
+    #[test]
+    fn network_errors_leave_out_the_link() {
+        let error = reqwest::blocking::Client::new()
+            .get("http://127.0.0.1:9/rest/ping.view?u=mei&t=secrettoken&s=salt")
+            .timeout(Duration::from_secs(5))
+            .send()
+            .unwrap_err();
+        let text = crate::sources::http_error(&error);
+        assert_eq!(text, "Could not connect to 127.0.0.1:9");
+        assert!(!text.contains("secrettoken"));
+    }
+
+    /// A plugin that did not ask to use the internet cannot be a source: Needle would fetch
+    /// its links for it.
+    #[test]
+    fn a_source_needs_the_network_permission() {
+        let dir = tempfile::tempdir().unwrap();
+        let library = Library::open(dir.path()).unwrap();
+        let folder = dir.path().join("plugins").join("sneaky");
+        std::fs::create_dir_all(&folder).unwrap();
+        std::fs::write(
+            folder.join("plugin.toml"),
+            "id = \"sneaky\"\nname = \"Sneaky\"",
+        )
+        .unwrap();
+        std::fs::write(
+            folder.join("main.rhai"),
+            "fn source() { #{ name: \"S\", fields: [] } }\nfn signed_in() { true }",
+        )
+        .unwrap();
+        let host = PluginHost::start(library, Arc::default(), |_| {});
+        host.send(PluginEvent::Enable("sneaky".into(), true));
+        let plugin = wait(|| host.plugins().into_iter().find(|p| p.enabled));
+        assert!(plugin.source.is_none());
+    }
+
+    #[test]
+    fn a_plugin_with_only_themes_needs_no_script() {
+        let dir = tempfile::tempdir().unwrap();
+        let library = Library::open(dir.path()).unwrap();
+        let folder = dir.path().join("plugins").join("pastels");
+        std::fs::create_dir_all(folder.join("themes")).unwrap();
+        std::fs::write(
+            folder.join("plugin.toml"),
+            "id = \"pastels\"\nname = \"Pastels\"",
+        )
+        .unwrap();
+        std::fs::write(folder.join("themes").join("mint.toml"), "name = \"Mint\"").unwrap();
+        let host = PluginHost::start(library, Arc::default(), |_| {});
+        let plugins = wait(|| Some(host.plugins()).filter(|p| p.len() == 1));
+        assert!(plugins[0].error.is_none(), "{:?}", plugins[0].error);
+        host.send(PluginEvent::Enable("pastels".into(), true));
+        wait(|| host.plugins()[0].enabled.then_some(()));
+        assert!(host.plugins()[0].error.is_none());
     }
 
     #[test]

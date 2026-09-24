@@ -405,7 +405,12 @@ impl Library {
     }
     pub fn export_playlist(&self, playlist: &Playlist, destination: &Path) -> Result<()> {
         let mut text = String::from("#EXTM3U\n");
-        for track in self.playlist_tracks(playlist)? {
+        // Songs on a music server have no file for other players to open.
+        for track in self
+            .playlist_tracks(playlist)?
+            .iter()
+            .filter(|t| !t.is_streamed())
+        {
             text.push_str(&format!(
                 "#EXTINF:{},{} - {}\n{}\n",
                 track.duration as i64,

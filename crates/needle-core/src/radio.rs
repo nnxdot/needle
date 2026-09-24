@@ -420,7 +420,7 @@ impl Library {
         let ids: Vec<String> = self
             .connection()?
             .prepare(
-                "SELECT id FROM tracks WHERE missing=0 AND id NOT IN (SELECT track_id FROM features WHERE version=?) LIMIT ?",
+                "SELECT id FROM tracks WHERE missing=0 AND path NOT LIKE 'source://%' AND id NOT IN (SELECT track_id FROM features WHERE version=?) LIMIT ?",
             )?
             .query_map(params![VERSION, limit as i64], |r| r.get(0))?
             .collect::<rusqlite::Result<_>>()?;
@@ -429,9 +429,11 @@ impl Library {
     /// How many songs are measured, of how many.
     pub fn measured_count(&self) -> Result<(usize, usize)> {
         let db = self.connection()?;
-        let total: i64 = db.query_row("SELECT count(*) FROM tracks WHERE missing=0", [], |r| {
-            r.get(0)
-        })?;
+        let total: i64 = db.query_row(
+            "SELECT count(*) FROM tracks WHERE missing=0 AND path NOT LIKE 'source://%'",
+            [],
+            |r| r.get(0),
+        )?;
         let done: i64 = db.query_row(
             "SELECT count(*) FROM features f JOIN tracks t ON t.id=f.track_id WHERE f.version=? AND t.missing=0",
             [VERSION],
