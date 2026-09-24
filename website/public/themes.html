@@ -184,6 +184,7 @@ font = "fraunces"</code></pre>
       mint.toml
       lilac.toml</code></pre>
         <p>A plugin that only brings themes needs no script: a <code>plugin.toml</code> and the <code>themes</code> folder are enough.</p>
+        <p>A plugin can also make themes: with the <code>"files"</code> permission, <code>write_file("themes/name.toml", text)</code> adds one, and Needle shows it within two seconds. With <code>opens = ["json"]</code> and <code>on_file_dropped</code>, or <code>pick_file</code>, it can turn another app's theme file into a Needle theme.</p>
       </section>
 
       <section id="examples">

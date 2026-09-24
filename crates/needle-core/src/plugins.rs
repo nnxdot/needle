@@ -53,6 +53,8 @@ pub enum Permission {
     Files,
     /// Change its effects' sliders and turn its effects on or off.
     Audio,
+    /// Ask you to choose a file, or to type something.
+    Ask,
 }
 
 impl Permission {
@@ -64,6 +66,7 @@ impl Permission {
             Self::Network => "Use the internet",
             Self::Files => "Use files in its own folder",
             Self::Audio => "Change its sound effects",
+            Self::Ask => "Ask you to choose a file or type something",
         }
     }
 }
@@ -82,6 +85,10 @@ pub struct Manifest {
     pub entry: String,
     #[serde(default)]
     pub permissions: BTreeSet<Permission>,
+    /// File types (extensions, such as "json" or "lrc") it opens when they are dropped on
+    /// Needle's window. It gets them through `on_file_dropped(file)`.
+    #[serde(default)]
+    pub opens: Vec<String>,
 }
 fn default_entry() -> String {
     "main.rhai".into()
@@ -166,6 +173,89 @@ pub enum HostAction {
         effect: String,
         on: bool,
     },
+    /// Ask the person something for a plugin; give the reply with `answer(id, …)`.
+    Ask {
+        id: u64,
+        /// The plugin's name, to show who is asking.
+        plugin: String,
+        question: Question,
+    },
+}
+
+/// What a plugin asks.
+#[derive(Clone, Debug, PartialEq)]
+pub enum Question {
+    /// Type something: a title, what to ask, and the text already in the box.
+    Text {
+        title: String,
+        prompt: String,
+        default: String,
+    },
+    /// Choose a file, of one of these types (none: any).
+    File {
+        title: String,
+        extensions: Vec<String>,
+    },
+}
+
+/// The most text a plugin gets from a chosen or dropped file.
+pub const MAX_FILE_BYTES: u64 = 1 << 20;
+
+/// Questions waiting for the person's reply, by id.
+static ASKED: std::sync::LazyLock<
+    Mutex<HashMap<u64, crossbeam_channel::Sender<Option<serde_json::Value>>>>,
+> = std::sync::LazyLock::new(Default::default);
+static NEXT_QUESTION: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
+
+/// The person's reply to a plugin's question (`None`: cancelled). For a file, the reply is a
+/// map from `file_map`.
+pub fn answer(id: u64, reply: Option<serde_json::Value>) {
+    if let Some(waiting) = ASKED.lock().unwrap_or_else(|e| e.into_inner()).remove(&id) {
+        let _ = waiting.send(reply);
+    }
+}
+
+/// A file as a plugin gets it: its name, type, and text. Files over `MAX_FILE_BYTES` are
+/// refused, and text that is not UTF-8 is read as well as it can be.
+pub fn file_map(path: &Path) -> Result<serde_json::Value> {
+    use std::io::Read;
+    let mut bytes = vec![];
+    std::fs::File::open(path)?
+        .take(MAX_FILE_BYTES + 1)
+        .read_to_end(&mut bytes)?;
+    if bytes.len() as u64 > MAX_FILE_BYTES {
+        bail!("{} is over 1 MB, too big for a plugin", path.display());
+    }
+    Ok(serde_json::json!({
+        "name": path.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default(),
+        "extension": path
+            .extension()
+            .map(|e| e.to_string_lossy().to_lowercase())
+            .unwrap_or_default(),
+        "text": String::from_utf8_lossy(&bytes),
+    }))
+}
+
+/// Ask the person and wait for the reply (at most ten minutes).
+fn ask(
+    actions: &Arc<dyn Fn(HostAction) + Send + Sync>,
+    plugin: &str,
+    question: Question,
+) -> Option<serde_json::Value> {
+    let id = NEXT_QUESTION.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    let (tx, rx) = crossbeam_channel::bounded(1);
+    ASKED
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .insert(id, tx);
+    actions(HostAction::Ask {
+        id,
+        plugin: plugin.into(),
+        question,
+    });
+    let reply = rx.recv_timeout(Duration::from_secs(600)).ok().flatten();
+    ASKED.lock().unwrap_or_else(|e| e.into_inner()).remove(&id);
+    reply
 }
 
 pub enum PluginEvent {
@@ -205,6 +295,11 @@ pub enum PluginEvent {
     TakeUpdate(String),
     /// Keep a changed bundled plugin, and stop offering this version.
     KeepChanged(String),
+    /// A file of a type the plugin opens was dropped on the window: `file_map` of it.
+    FileDropped {
+        plugin: String,
+        file: serde_json::Value,
+    },
     /// A song was rated in Needle.
     Rated {
         track_id: String,
@@ -427,6 +522,20 @@ fn run(
                 start_sources(&mut loaded, &syncing);
                 publish(&loaded);
                 offer(&loaded);
+            }
+            PluginEvent::FileDropped { plugin, file } => {
+                if let Some(target) = loaded
+                    .iter_mut()
+                    .find(|p| p.info.manifest.id == plugin && p.info.enabled)
+                    && let Ok(file) = rhai::serde::to_dynamic(&file)
+                    && let Err(error) = call(target, "on_file_dropped", vec![file])
+                {
+                    actions(HostAction::Notify(format!(
+                        "{}: {error}",
+                        target.info.manifest.name
+                    )));
+                }
+                publish(&loaded);
             }
             PluginEvent::Rated { track_id, stars } => {
                 if let Ok(Some(track)) = library.track(&track_id)
@@ -793,6 +902,7 @@ fn load_all(
                             author: String::new(),
                             entry: default_entry(),
                             permissions: BTreeSet::new(),
+                            opens: vec![],
                         },
                         folder: dir,
                         enabled: false,
@@ -1186,6 +1296,71 @@ fn engine_for(
             },
         );
     }
+    // Asking the person: type something, or choose a file.
+    {
+        let (allowed, actions, name) = (allowed.clone(), actions.clone(), manifest.name.clone());
+        engine.register_fn(
+            "ask_text",
+            move |title: &str, prompt: &str| -> Result<Dynamic, Fail> {
+                allowed(Permission::Ask)?;
+                let question = Question::Text {
+                    title: title.into(),
+                    prompt: prompt.into(),
+                    default: String::new(),
+                };
+                Ok(
+                    match ask(&actions, &name, question).and_then(|v| v.as_str().map(String::from))
+                    {
+                        Some(text) => text.into(),
+                        None => Dynamic::UNIT,
+                    },
+                )
+            },
+        );
+    }
+    {
+        let (allowed, actions, name) = (allowed.clone(), actions.clone(), manifest.name.clone());
+        engine.register_fn(
+            "ask_text",
+            move |title: &str, prompt: &str, default: &str| -> Result<Dynamic, Fail> {
+                allowed(Permission::Ask)?;
+                let question = Question::Text {
+                    title: title.into(),
+                    prompt: prompt.into(),
+                    default: default.into(),
+                };
+                Ok(
+                    match ask(&actions, &name, question).and_then(|v| v.as_str().map(String::from))
+                    {
+                        Some(text) => text.into(),
+                        None => Dynamic::UNIT,
+                    },
+                )
+            },
+        );
+    }
+    {
+        let (allowed, actions, name) = (allowed.clone(), actions.clone(), manifest.name.clone());
+        engine.register_fn(
+            "pick_file",
+            move |title: &str, extensions: Array| -> Result<Dynamic, Fail> {
+                allowed(Permission::Ask)?;
+                let extensions = extensions
+                    .into_iter()
+                    .filter_map(|e| e.into_string().ok())
+                    .map(|e| e.trim_start_matches('.').to_lowercase())
+                    .collect();
+                let question = Question::File {
+                    title: title.into(),
+                    extensions,
+                };
+                match ask(&actions, &name, question) {
+                    Some(file) => rhai::serde::to_dynamic(&file).map_err(|e| fail(e.to_string())),
+                    None => Ok(Dynamic::UNIT),
+                }
+            },
+        );
+    }
     // Helpers for talking to servers (a source's sign-in, for example).
     engine.register_fn("md5", |text: &str| {
         format!("{:x}", md5::compute(text.as_bytes()))
@@ -1251,7 +1426,12 @@ fn engine_for(
             "write_file",
             move |name: &str, text: &str| -> Result<(), Fail> {
                 allowed(Permission::Files)?;
-                std::fs::write(inside(&folder, name)?, text).map_err(|e| fail(e.to_string()))
+                let path = inside(&folder, name)?;
+                // A folder inside the plugin's own (such as "themes") is made when needed.
+                if let Some(parent) = path.parent() {
+                    std::fs::create_dir_all(parent).map_err(|e| fail(e.to_string()))?;
+                }
+                std::fs::write(path, text).map_err(|e| fail(e.to_string()))
             },
         );
     }
@@ -1317,7 +1497,7 @@ fn inside(folder: &Path, name: &str) -> Result<PathBuf, Fail> {
             .any(|c| !matches!(c, std::path::Component::Normal(_)))
     {
         return Err(fail(
-            "Plugins can only use plain file names inside their own folder",
+            "Plugins can only use files inside their own folder, such as \"notes.txt\" or \"themes/dark.toml\"",
         ));
     }
     Ok(folder.join(path))
@@ -2633,6 +2813,82 @@ mod tests {
         let text = crate::sources::http_error(&error);
         assert_eq!(text, "Could not connect to 127.0.0.1:9");
         assert!(!text.contains("secrettoken"));
+    }
+
+    /// A plugin with "ask" asks the person (here answered at once), one without is refused;
+    /// a dropped file reaches the plugin that opens its type, which can write into a folder
+    /// of its own.
+    #[test]
+    fn plugins_ask_and_open_dropped_files() {
+        let dir = tempfile::tempdir().unwrap();
+        let library = Library::open(dir.path()).unwrap();
+        let folder = dir.path().join("plugins").join("converter");
+        std::fs::create_dir_all(&folder).unwrap();
+        std::fs::write(
+            folder.join("plugin.toml"),
+            "id = \"converter\"\nname = \"Converter\"\npermissions = [\"ask\", \"files\"]\nopens = [\"json\"]",
+        )
+        .unwrap();
+        std::fs::write(
+            folder.join("main.rhai"),
+            r#"
+fn commands() { [ #{ id: "name", title: "Name", scope: "global" } ] }
+fn run(command, ids) {
+    let name = ask_text("Name", "What should it be called?", "Mine");
+    write_file("answer.txt", `${name}`);
+}
+fn on_file_dropped(file) {
+    let colors = parse_json(file.text);
+    write_file(`themes/${file.name}.toml`, `accent = "${colors.accent}"`);
+}
+"#,
+        )
+        .unwrap();
+        let asked: Arc<Mutex<Vec<Question>>> = Arc::default();
+        let seen = asked.clone();
+        let host = PluginHost::start(library, Arc::default(), move |action| {
+            if let HostAction::Ask { id, question, .. } = action {
+                seen.lock().unwrap().push(question);
+                answer(id, Some(serde_json::json!("Sakura")));
+            }
+        });
+        host.send(PluginEvent::Enable("converter".into(), true));
+        wait(|| host.plugins().into_iter().find(|p| p.enabled));
+        assert_eq!(host.plugins()[0].manifest.opens, ["json"]);
+        host.send(PluginEvent::Run {
+            plugin: "converter".into(),
+            command: "name".into(),
+            track_ids: vec![],
+        });
+        wait(|| std::fs::read_to_string(folder.join("answer.txt")).ok());
+        assert_eq!(
+            std::fs::read_to_string(folder.join("answer.txt")).unwrap(),
+            "Sakura"
+        );
+        assert!(matches!(
+            &asked.lock().unwrap()[0],
+            Question::Text { default, .. } if default == "Mine"
+        ));
+
+        let dropped = dir.path().join("pink.json");
+        std::fs::write(&dropped, r##"{"accent": "#ff66cc"}"##).unwrap();
+        let file = file_map(&dropped).unwrap();
+        assert_eq!(file["extension"], "json");
+        host.send(PluginEvent::FileDropped {
+            plugin: "converter".into(),
+            file,
+        });
+        let theme = folder.join("themes").join("pink.json.toml");
+        wait(|| std::fs::read_to_string(&theme).ok());
+        assert_eq!(
+            std::fs::read_to_string(&theme).unwrap(),
+            "accent = \"#ff66cc\""
+        );
+
+        // Too big for a plugin.
+        let big = dir.path().join("big.json");
+        std::fs::write(&big, vec![b' '; MAX_FILE_BYTES as usize + 1]).unwrap();
+        assert!(file_map(&big).is_err());
     }
 
     /// A plugin that did not ask to use the internet cannot be a source: Needle would fetch
