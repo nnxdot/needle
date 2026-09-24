@@ -109,6 +109,14 @@ impl AppView {
     /// Give the chosen custom theme's grain and title font, keeping what was there before
     /// to put back later; or put that back when the theme has neither. Returns whether
     /// anything changed.
+    /// At start: the chosen theme's grain and font as its file says now (it may have been
+    /// edited while Needle was closed).
+    pub(super) fn start_theme_extras(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if self.apply_theme_extras(window, cx) {
+            self.persist_settings();
+        }
+    }
+
     fn apply_theme_extras(&mut self, window: &mut Window, cx: &mut Context<Self>) -> bool {
         let chosen = all_themes(cx).find(&self.settings.theme).cloned();
         let extras = chosen
@@ -147,6 +155,8 @@ impl AppView {
     pub(super) fn choose_look(&mut self, mode: &str, window: &mut Window, cx: &mut Context<Self>) {
         set_theme(mode, Some(window), cx);
         self.settings.theme = mode.into();
+        // A Delete clicked once is for the look that was showing; it must be clicked twice again.
+        self.theme_delete_armed = None;
         // This theme's grain and font come in, or, when it has none, the person's own come
         // back (the ones kept when a theme first set its own).
         self.apply_theme_extras(window, cx);
