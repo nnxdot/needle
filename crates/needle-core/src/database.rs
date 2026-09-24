@@ -296,7 +296,12 @@ impl Library {
         Ok(())
     }
     pub fn settings(&self) -> Result<Settings> {
-        Ok(self.get_json("settings")?.unwrap_or_default())
+        let mut settings: Settings = self.get_json("settings")?.unwrap_or_default();
+        // Exclusive output is WASAPI's: settings brought over from Windows play normally here.
+        if !cfg!(windows) {
+            settings.exclusive = false;
+        }
+        Ok(settings)
     }
     pub fn save_settings(&self, settings: &Settings) -> Result<()> {
         self.set_json("settings", settings)

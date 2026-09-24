@@ -533,7 +533,8 @@ impl AppView {
                     .when(tab == 0, |el| {
                         el
                     .child(self.section_title("Playback", "", cx))
-                    .child(setting_row(
+                    // Exclusive output is WASAPI's, so Windows only.
+                    .when(cfg!(windows), |el| el.child(setting_row(
                         "Exclusive output",
                         "Plays each file at its own sample rate with nothing in between. Volume and ReplayGain are bypassed, so use your device's volume.",
                         Switch::new("exclusive").checked(self.settings.exclusive).on_click(cx.listener(|this, checked: &bool, _, cx| {
@@ -542,7 +543,7 @@ impl AppView {
                             cx.notify();
                         })),
                         cx,
-                    ))
+                    )))
                     .child(setting_row(
                         "ReplayGain",
                         "Evens out loudness using measured or tagged gain, with peak protection.",
@@ -786,7 +787,11 @@ impl AppView {
                         if motion::system_allows_animation() {
                             "Turns off fades, slides, and other animations."
                         } else {
-                            "Windows has animations turned off, so Needle keeps still too."
+                            if cfg!(windows) {
+                                "Windows has animations turned off, so Needle keeps still too."
+                            } else {
+                                "Your system has animations turned off, so Needle keeps still too."
+                            }
                         },
                         Switch::new("reduce-motion").checked(self.settings.reduce_motion || !motion::system_allows_animation()).on_click(cx.listener(|this, checked: &bool, _, cx| {
                             this.settings.reduce_motion = *checked;
@@ -1046,7 +1051,7 @@ impl AppView {
         vec![
             setting_row(
                 "Send crash reports",
-                "If Needle crashes, it sends a report the next time it starts: the Needle version, Windows, and where in Needle it went wrong. File paths and your name are taken out first, and nothing is sent about your music or listening.",
+                "If Needle crashes, it sends a report the next time it starts: the Needle version, the operating system, and where in Needle it went wrong. File paths and your name are taken out first, and nothing is sent about your music or listening.",
                 Switch::new("crash-reports").checked(crash_reports).on_click(cx.listener(|this, checked: &bool, _, cx| {
                     this.settings.crash_reports = *checked;
                     this.persist_settings();
@@ -1274,6 +1279,10 @@ impl AppView {
     /// The rows go straight into the Appearance column (a wrapper box would not stretch).
     fn glass_settings(&self, cx: &mut Context<Self>) -> Vec<AnyElement> {
         use super::glass::Material;
+        // Glass is Windows' Mica and Acrylic; other systems have no setting for it.
+        if !cfg!(windows) {
+            return Vec::new();
+        }
         let p = pal(cx);
         let (allowed, win11) = self.glass_system;
         let chosen = Material::from_name(&self.settings.window_material);
