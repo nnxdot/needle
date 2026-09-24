@@ -128,7 +128,11 @@ fn read_string(
 }
 
 /// Ask Windows to draw `material` behind the window, in dark or light.
-pub fn apply(window: &mut Window, material: Material, dark: bool) {
+pub fn apply(
+    window: &mut Window,
+    material: Material,
+    #[cfg_attr(not(windows), allow(unused_variables))] dark: bool,
+) {
     use gpui::WindowBackgroundAppearance as A;
     // Acrylic and clear glass go through GPUI; Mica (and Acrylic on Windows 11) through DWM.
     let win11 = windows_11();
