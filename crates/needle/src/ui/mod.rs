@@ -108,6 +108,20 @@ actions!(
 #[action(namespace = needle)]
 pub struct GoTo(pub usize);
 
+/// An error's causes are joined with ": "; libraries that wrap an error often repeat it word
+/// for word ("X.: X."), so a part that says the same as the one before it is left out.
+fn without_repeats(text: &str) -> String {
+    let mut parts: Vec<&str> = Vec::new();
+    for part in text.split(": ") {
+        let same =
+            |a: &str, b: &str| a.trim().trim_end_matches('.') == b.trim().trim_end_matches('.');
+        if parts.last().is_none_or(|last| !same(last, part)) {
+            parts.push(part);
+        }
+    }
+    parts.join(": ")
+}
+
 /// The most tracks one play action queues. Larger libraries play their first 50,000 matches.
 const PLAY_LIMIT: usize = 50_000;
 const PAGE_SIZE: usize = 1000;
@@ -987,7 +1001,7 @@ impl AppView {
     }
     fn fail(&mut self, text: impl Into<String>) {
         self.toast = Some(Toast {
-            text: text.into(),
+            text: without_repeats(&text.into()),
             error: true,
             shown: Instant::now(),
         });

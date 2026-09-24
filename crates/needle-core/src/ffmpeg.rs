@@ -113,6 +113,55 @@ pub fn open(path: &Path) -> Result<FfmpegSource> {
     Ok(source)
 }
 
+/// The first audio stream's sample rate and channel count, as FFmpeg reads them. For files
+/// whose tags do not say (Dolby Digital Plus in M4A, for example).
+pub fn audio_properties(path: &Path) -> Option<(u32, u16)> {
+    let mut command = Command::new(executable()?);
+    command
+        .args(["-nostdin", "-hide_banner", "-i"])
+        .arg(path)
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::piped());
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        command.creation_flags(0x0800_0000);
+    }
+    // With no output named FFmpeg only describes the input, on stderr, and exits.
+    let output = command.output().ok()?;
+    parse_audio_line(&String::from_utf8_lossy(&output.stderr))
+}
+
+/// From a line like `Stream #0:0: Audio: eac3, 48000 Hz, 5.1(side), fltp, 768 kb/s`.
+fn parse_audio_line(text: &str) -> Option<(u32, u16)> {
+    let line = text.lines().find(|l| l.contains("Audio:"))?;
+    let parts: Vec<&str> = line.split(", ").map(str::trim).collect();
+    let rate = parts
+        .iter()
+        .find_map(|p| p.strip_suffix(" Hz")?.parse::<u32>().ok())?;
+    let layout = parts
+        .iter()
+        .skip_while(|p| !p.ends_with(" Hz"))
+        .nth(1)
+        .copied()
+        .unwrap_or_default();
+    let layout = layout.split('(').next().unwrap_or_default();
+    let channels = match layout {
+        "mono" => 1,
+        "stereo" => 2,
+        l => {
+            // "5.1" is six channels, "7.1" eight; "6 channels" says so.
+            if let Some(n) = l.strip_suffix(" channels") {
+                n.parse().unwrap_or(0)
+            } else {
+                l.split('.').filter_map(|n| n.parse::<u16>().ok()).sum()
+            }
+        }
+    };
+    Some((rate, channels))
+}
+
 impl FfmpegSource {
     fn start(&mut self, at: Duration) -> Result<()> {
         let mut command = Command::new(&self.exe);
@@ -330,6 +379,17 @@ mod tests {
             (20_000..30_000).contains(&rest),
             "{rest} frames after the seek"
         );
+    }
+
+    #[test]
+    fn reads_the_audio_stream_line() {
+        let text = "  Stream #0:0[0x1](und): Audio: eac3 (ec-3 / 0x332D6365), 48000 Hz, 5.1(side), fltp, 768 kb/s (default)";
+        assert_eq!(super::parse_audio_line(text), Some((48_000, 6)));
+        assert_eq!(
+            super::parse_audio_line("Stream #0:0: Audio: flac, 44100 Hz, stereo, s16"),
+            Some((44_100, 2))
+        );
+        assert_eq!(super::parse_audio_line("no audio here"), None);
     }
 
     #[test]
