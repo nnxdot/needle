@@ -61,6 +61,7 @@ impl AppView {
                                     1 => Panel::Queue,
                                     _ => Panel::Lyrics,
                                 };
+                                this.details_here = index == 0;
                                 this.lyric_glide =
                                     this.panel == Panel::Lyrics && this.lyric_line.is_some();
                                 cx.notify();
@@ -98,8 +99,8 @@ impl AppView {
                             .child(self.lyrics_view(false, false, cx))
                             .into_any_element(),
                     });
-                motion::animate(body, ("panel-in", self.panel_serial), 240, cx, |el, t| {
-                    el.ml(px(28. * (1. - t))).mr(px(-28. * (1. - t))).opacity(t)
+                motion::animate(body, ("panel-in", self.panel_serial), 200, cx, |el, t| {
+                    el.ml(px(20. * (1. - t))).mr(px(-20. * (1. - t))).opacity(t)
                 })
             })
     }

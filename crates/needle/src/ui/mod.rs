@@ -355,6 +355,9 @@ pub struct AppView {
     /// The side panel as last drawn (`None` when hidden), and a count that goes up each time
     /// it opens or changes tab, so its content slides in once.
     panel_shown: Option<Panel>,
+    /// Details was picked in the panel on a page that is not a song list, so it stays open
+    /// there until the page changes.
+    details_here: bool,
     panel_serial: u64,
     menu: Option<menus::TrackMenu>,
     playlist_menu: Option<menus::PlaylistMenu>,
@@ -797,6 +800,7 @@ impl AppView {
             focused: None,
             panel: Panel::Details,
             panel_shown: None,
+            details_here: false,
             panel_serial: 0,
             menu: None,
             playlist_menu: None,
@@ -1549,6 +1553,7 @@ impl AppView {
             return;
         }
         self.remember_scroll();
+        self.details_here = false;
         if page != self.page {
             self.back.push(self.page.clone());
             if self.back.len() > 50 {
@@ -2156,7 +2161,7 @@ impl Render for AppView {
         let show_panel = self.settings.show_inspector
             && f32::from(width) - sidebar - panel_width >= 360.
             && self.total > 0
-            && (self.page.is_tracks() || self.panel != Panel::Details);
+            && (self.page.is_tracks() || self.panel != Panel::Details || self.details_here);
         let shown = show_panel.then_some(self.panel);
         if shown != self.panel_shown {
             self.panel_shown = shown;
