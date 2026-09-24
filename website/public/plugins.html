@@ -114,6 +114,7 @@ author = "you"</code></pre></li>
               <tr><td><code>author</code></td><td>No</td><td>Your name.</td></tr>
               <tr><td><code>entry</code></td><td>No</td><td>The script file. The default is <code>"main.rhai"</code>. It must be inside the plugin folder.</td></tr>
               <tr><td><code>permissions</code></td><td>No</td><td>A list of what the plugin may do. The default is none.</td></tr>
+              <tr><td><code>opens</code></td><td>No</td><td>File types the plugin opens when they are dropped on Needle's window, such as <code>["json", "lrc"]</code>. It gets them through <a href="#events"><code>on_file_dropped(file)</code></a>. Theme files (<code>.toml</code>) always go to Needle's themes.</td></tr>
             </tbody>
           </table>
         </div>
@@ -129,6 +130,7 @@ author = "you"</code></pre></li>
               <tr><td><code>"network"</code></td><td>Web requests.</td></tr>
               <tr><td><code>"files"</code></td><td>Reading and writing files inside the plugin's own folder.</td></tr>
               <tr><td><code>"audio"</code></td><td>Moving the sliders of its own effects, and turning them on or off. A plugin needs no permission just to offer effects.</td></tr>
+              <tr><td><code>"ask"</code></td><td>Asking you to choose a file, or to type something. The plugin gets only the file you choose.</td></tr>
             </tbody>
           </table>
         </div>
@@ -145,6 +147,7 @@ author = "you"</code></pre></li>
               <tr><td><code>on_load()</code></td><td>The plugin is turned on, and when Needle starts or reloads plugins.</td></tr>
               <tr><td><code>on_track_start(track)</code></td><td>A song starts. <code>track</code> is a <a href="#data">song</a>.</td></tr>
               <tr><td><code>on_listen(listen)</code></td><td>Needle records a listen in your history. <code>listen</code> is a <a href="#data">listen</a>.</td></tr>
+              <tr><td><code>on_file_dropped(file)</code></td><td>Someone dropped a file of a type in <a href="#manifest"><code>opens</code></a> on Needle's window. <code>file</code> is <code>#{ name, extension, text }</code>; files over 1 MB are refused. When several plugins open the same type, the first one that is turned on gets it.</td></tr>
               <tr><td><code>on_pause()</code></td><td>Playback pauses.</td></tr>
               <tr><td><code>on_resume()</code></td><td>Playback starts again after a pause.</td></tr>
               <tr><td><code>effects()</code></td><td>The plugin loads. Returns its <a href="#effects">sound effects</a>.</td></tr>
@@ -309,6 +312,13 @@ fn run(command, ids) {
           <dt><code>effect_on(effect, on)</code></dt><dd>Turns one of this plugin's effects on or off. Turning on an effect that is not in the chain adds it at the end.</dd>
         </dl>
 
+        <h3>ask</h3>
+        <dl class="api">
+          <dt><code>ask_text(title, prompt)</code>, <code>ask_text(title, prompt, text)</code></dt><dd>Shows a box to type in, with a title, a question, and (optionally) text already in it. Gives what was typed, or <code>()</code> if the person cancelled.</dd>
+          <dt><code>pick_file(title, types)</code></dt><dd>Asks the person to choose a file, such as <code>pick_file("Choose a VS Code theme", ["json"])</code> (an empty list allows any type). Gives <code>#{ name, extension, text }</code> for that one file, or <code>()</code> if they cancelled. Files over 1 MB are refused.</dd>
+        </dl>
+        <p>The plugin waits while the person answers (up to ten minutes), and so do the other plugins, so ask only when someone has just done something, such as running a command.</p>
+
         <h3>network</h3>
         <dl class="api">
           <dt><code>http_get(url)</code></dt><dd>Fetches a web address and gives its text.</dd>
@@ -321,7 +331,7 @@ fn run(command, ids) {
           <dt><code>read_file(name)</code></dt><dd>Reads a text file in the plugin's folder.</dd>
           <dt><code>write_file(name, text)</code></dt><dd>Writes a text file in the plugin's folder, and replaces what was there.</dd>
         </dl>
-        <p>Use a plain file name, such as <code>"now-playing.txt"</code>. Folders, <code>..</code>, and full paths are refused, so a plugin cannot touch files outside its folder.</p>
+        <p>Names are inside the plugin's folder, such as <code>"now-playing.txt"</code> or <code>"themes/dark.toml"</code>; <code>write_file</code> makes the folder if needed. <code>..</code> and full paths are refused, so a plugin cannot touch files outside its folder. To read a file from elsewhere, ask for it with <a href="#functions"><code>pick_file</code></a>, or list its type in <code>opens</code>.</p>
       </section>
 
       <section id="data">
