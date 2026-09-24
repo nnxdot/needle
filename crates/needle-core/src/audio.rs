@@ -83,6 +83,9 @@ pub struct PlaybackState {
     pub loop_range: Option<(f64, f64)>,
     /// The track currently playing from its separated stems.
     pub stems: Option<String>,
+    /// `current` is a song from a server that is still connecting (its time is not moving
+    /// yet).
+    pub loading: bool,
 }
 
 pub enum Command {
@@ -958,6 +961,7 @@ impl Worker {
                 state.current = Some(item.clone());
                 state.position = 0.;
                 state.error = None;
+                state.loading = true;
             }
             let stems = self
                 .stems
@@ -1517,6 +1521,7 @@ impl Worker {
         let mut state = self.state.lock().unwrap();
         state.output_device = self.settings.output_device.clone();
         state.current = self.loading.clone().or_else(|| self.queue.active.clone());
+        state.loading = self.loading.is_some();
         if let Some(queue) = queue {
             state.queue = queue;
             state.queue_version = self.queue.version;
