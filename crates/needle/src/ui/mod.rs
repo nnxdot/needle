@@ -503,6 +503,8 @@ pub struct AppView {
     theme_editor: Option<themes_ui::Editor>,
     /// The theme whose Delete button was clicked once.
     theme_delete_armed: Option<String>,
+    /// Part of a volume step from touchpad scrolling, kept until it makes a whole step.
+    volume_scroll: f32,
     /// Songs kept on this computer for each source (counted on another thread).
     kept_usage: std::collections::HashMap<String, (usize, u64)>,
     kept_checked: Instant,
@@ -905,6 +907,7 @@ impl AppView {
             theme_delete_armed: None,
             source_inputs: std::collections::HashMap::new(),
             kept_usage: std::collections::HashMap::new(),
+            volume_scroll: 0.,
             kept_checked: Instant::now(),
             kept_checking: Default::default(),
         };
@@ -2081,6 +2084,8 @@ impl AppView {
     }
     fn nudge_volume(&mut self, delta: f32, window: &mut Window, cx: &mut Context<Self>) {
         let volume = (self.playback.volume + delta).clamp(0., 1.);
+        // Shown straight away, so quick steps add up before the player reports back.
+        self.playback.volume = volume;
         self.player.send(Command::Volume(volume));
         self.volume
             .update(cx, |s, cx| s.set_value(volume, window, cx));
