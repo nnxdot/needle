@@ -337,7 +337,12 @@ impl AppView {
             let id = themes::free_id(&folder, &probe.name);
             std::fs::create_dir_all(&folder)?;
             let target = folder.join(format!("{id}.toml"));
-            std::fs::write(&target, &text)?;
+            // Claim the name: an import never replaces a theme another one just saved.
+            let mut file = std::fs::OpenOptions::new()
+                .write(true)
+                .create_new(true)
+                .open(&target)?;
+            std::io::Write::write_all(&mut file, text.as_bytes())?;
             CustomTheme::parse(&text, &id, &target)
         })();
         match result {

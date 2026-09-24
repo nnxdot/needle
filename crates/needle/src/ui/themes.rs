@@ -323,11 +323,20 @@ pub const MAX_THEME_BYTES: u64 = 64 * 1024;
 
 /// Read a theme file, refusing ones too big to be a theme.
 pub fn read_theme_file(path: &Path) -> Result<String> {
-    let size = std::fs::metadata(path)?.len();
-    if size > MAX_THEME_BYTES {
-        bail!("it is {} KB, too big for a theme", size / 1024);
+    use std::io::Read;
+    // Read at most one byte past the limit, from one opened file, so a file that grows or is
+    // replaced meanwhile cannot make this read more.
+    let mut bytes = vec![];
+    std::fs::File::open(path)?
+        .take(MAX_THEME_BYTES + 1)
+        .read_to_end(&mut bytes)?;
+    if bytes.len() as u64 > MAX_THEME_BYTES {
+        bail!(
+            "it is too big for a theme (over {} KB)",
+            MAX_THEME_BYTES / 1024
+        );
     }
-    Ok(std::fs::read_to_string(path)?)
+    Ok(String::from_utf8(bytes)?)
 }
 
 pub fn base_key(base: Base) -> &'static str {

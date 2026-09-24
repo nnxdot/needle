@@ -215,6 +215,9 @@ pub enum PluginEvent {
 /// A source's list stops after this many pages, and nothing is changed: only a plugin
 /// that keeps sending the same page gets there.
 const MAX_SYNC_PAGES: i64 = 100_000;
+/// The most songs one source's list may hold (far past any real library), so a runaway
+/// plugin cannot fill the memory.
+const MAX_SYNC_SONGS: usize = 2_000_000;
 
 /// Sources are synced again on start when their last sync is older than this.
 const RESYNC_AFTER: i64 = 30 * 60;
@@ -278,7 +281,8 @@ impl PluginHost {
                 reply,
             })
             .map_err(|_| anyhow::anyhow!("Plugins are not running"))?;
-        match answer.recv_timeout(Duration::from_secs(20)) {
+        // Syncs go a page at a time, so a stream waits at most for one page.
+        match answer.recv_timeout(Duration::from_secs(45)) {
             Ok(Ok(link)) => Ok(link),
             Ok(Err(error)) => bail!("{error}"),
             Err(_) => bail!("The music source did not answer in time"),
@@ -501,16 +505,29 @@ fn run(
                 };
                 let name = target.info.manifest.name.clone();
                 let result = call_source(target, "songs", vec![page.into()]);
-                let list: Vec<serde_json::Value> = match &result {
-                    Ok(list) => serde_json::to_value(list)
+                // Only a list counts as a page; anything else (or no songs() at all) is an
+                // error, never "the server has no songs".
+                let (list, mut error) = match result {
+                    Ok(value) => match serde_json::to_value(&value)
                         .ok()
                         .and_then(|v| v.as_array().cloned())
-                        .unwrap_or_default(),
-                    Err(_) => vec![],
+                    {
+                        Some(list) => (list, None),
+                        None => (
+                            vec![],
+                            Some("The plugin's songs() did not give a list of songs".to_string()),
+                        ),
+                    },
+                    Err(error) => (vec![], Some(error)),
                 };
-                let error = result.err();
                 let songs = syncing.entry(plugin.clone()).or_default();
-                songs.extend(list.iter().filter_map(crate::sources::Song::from_value));
+                if songs.len() + list.len() > MAX_SYNC_SONGS {
+                    error = Some(format!(
+                        "The server has more than {MAX_SYNC_SONGS} songs; nothing was changed"
+                    ));
+                } else {
+                    songs.extend(list.iter().filter_map(crate::sources::Song::from_value));
+                }
                 // Pages until an empty one. The limit only stops a plugin that never ends.
                 let endless = page >= MAX_SYNC_PAGES;
                 if error.is_none() && !list.is_empty() && !endless {
@@ -1461,7 +1478,7 @@ fn effects() {
         "subsonic",
         r#"id = "subsonic"
 name = "Navidrome / Subsonic"
-version = "1.2.0"
+version = "1.2.1"
 author = "nnx"
 description = "Plays the music on your Navidrome or other Subsonic server. Songs are listed with your own and streamed; plays and ratings are saved on the server."
 permissions = ["network"]
@@ -1603,7 +1620,8 @@ fn to_songs(found) {
 }
 
 // 250 songs a page, until a page comes back empty. Some servers (Ampache) find nothing for
-// an empty search; for those, 20 albums a page with their songs.
+// an empty search; for those, 5 albums a page with their songs (short pages, so songs
+// waiting to play are not held up for long).
 fn songs(page) {
     if setting("list_by") != "albums" {
         let reply = ask("search3", #{
@@ -1618,7 +1636,7 @@ fn songs(page) {
         }
         set_setting("list_by", "albums");
     }
-    let reply = ask("getAlbumList2", #{ type: "alphabeticalByName", size: 20, offset: page * 20 });
+    let reply = ask("getAlbumList2", #{ type: "alphabeticalByName", size: 5, offset: page * 5 });
     let albums = if reply.albumList2 != () { reply.albumList2.album } else { () };
     if albums == () || albums.len() == 0 {
         return [];
@@ -1745,6 +1763,10 @@ const EARLIER_EXAMPLES: &[(&str, &str)] = &[
     (
         "subsonic",
         "f66bd34adddf7ee5561fbe38c18ba3a14cb02ff8532b4b5f68921ab7426ce4b1",
+    ),
+    (
+        "subsonic",
+        "ae1bfab837a569a518d79b710ee56031663be2202dca5d33ae60f489190c8ce4",
     ),
 ];
 
@@ -2190,7 +2212,7 @@ mod tests {
                 } else if path.ends_with("/getCoverArt.view") {
                     ("image/png", vec![7u8; 500])
                 } else if path.ends_with("/getAlbumList2.view") {
-                    let list = if param("offset") == "0" {
+                    let list = if param("offset") == "0" && param("size") == "5" {
                         r#"[{"id":"al-1","name":"WhyKiiiKiii - EP"}]"#
                     } else {
                         "[]"

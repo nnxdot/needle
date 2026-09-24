@@ -85,7 +85,13 @@ impl Song {
         };
         let number = |key: &str| match &value[key] {
             Value::Number(n) => n.as_f64().unwrap_or(0.),
-            Value::String(s) => s.trim().parse().unwrap_or(0.),
+            // "NaN" and "inf" parse as numbers but cannot be stored.
+            Value::String(s) => s
+                .trim()
+                .parse::<f64>()
+                .ok()
+                .filter(|n| n.is_finite())
+                .unwrap_or(0.),
             _ => 0.,
         };
         let song = Self {
@@ -682,12 +688,13 @@ fn fetch(job: &Download, link: &str) -> Result<()> {
         if !status.is_success() {
             bail!("The server answered {status}");
         }
-        if start == 0
-            && response
-                .headers()
-                .get("content-type")
-                .and_then(|v| v.to_str().ok())
-                .is_some_and(|t| t.starts_with("text/") || t.contains("json") || t.contains("xml"))
+        // Every answer, not just the first: a login or error page must never be kept as
+        // part of a song.
+        if response
+            .headers()
+            .get("content-type")
+            .and_then(|v| v.to_str().ok())
+            .is_some_and(|t| t.starts_with("text/") || t.contains("json") || t.contains("xml"))
         {
             let mut text = String::new();
             let _ = response.take(2000).read_to_string(&mut text);
@@ -733,9 +740,7 @@ fn fetch(job: &Download, link: &str) -> Result<()> {
             file.flush()?;
             let mut progress = job.lock();
             // No song is bigger than the whole cache; a server that keeps sending is wrong.
-            if progress.received + n as u64 > CACHE_LIMIT
-                || progress.total.is_some_and(|t| t > CACHE_LIMIT)
-            {
+            if at + n as u64 > CACHE_LIMIT || progress.total.is_some_and(|t| t > CACHE_LIMIT) {
                 bail!(
                     "The server sent more than {} GB for one song",
                     CACHE_LIMIT >> 30
@@ -1163,6 +1168,10 @@ mod tests {
             Song::from_value(&json!({"id": "1"})).is_none(),
             "a song needs a title"
         );
+        let odd =
+            Song::from_value(&json!({"id": 1, "title": "T", "duration": "NaN", "year": "inf"}))
+                .unwrap();
+        assert_eq!((odd.duration, odd.year), (0., 0));
     }
 
     #[test]
