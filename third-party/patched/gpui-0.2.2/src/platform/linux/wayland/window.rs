@@ -114,6 +114,11 @@ pub struct WaylandWindowState {
     in_progress_window_controls: Option<WindowControls>,
     window_controls: WindowControls,
     client_inset: Option<Pixels>,
+    /// Needle patch: some compositors (WSLg's) ignore `set_min_size` in an interactive resize,
+    /// so configures are held to it here; and a window that is not resizable does not start
+    /// one.
+    min_size: Option<Size<Pixels>>,
+    resizable: bool,
 }
 
 #[derive(Clone)]
@@ -189,6 +194,8 @@ impl WaylandWindowState {
             in_progress_window_controls: None,
             window_controls: WindowControls::default(),
             client_inset: None,
+            min_size: options.window_min_size,
+            resizable: options.is_resizable,
         })
     }
 
@@ -527,6 +534,17 @@ impl WaylandWindowStatePtr {
                 }
 
                 let mut state = self.state.borrow_mut();
+                // Needle patch: a floating window stays at least its minimum size.
+                if let (Some(min), Some(asked)) = (state.min_size, size)
+                    && !fullscreen
+                    && !maximized
+                    && !tiling.is_tiled()
+                {
+                    size = Some(Size {
+                        width: asked.width.max(min.width),
+                        height: asked.height.max(min.height),
+                    });
+                }
                 state.in_progress_configure = Some(InProgressConfigure {
                     size,
                     fullscreen,
@@ -1051,6 +1069,10 @@ impl PlatformWindow for WaylandWindow {
 
     fn start_window_resize(&self, edge: crate::ResizeEdge) {
         let state = self.borrow();
+        // Needle patch: a window that is not resizable keeps the size the app gives it.
+        if !state.resizable {
+            return;
+        }
         state.toplevel.resize(
             &state.globals.seat,
             state.client.get_serial(SerialKind::MousePress),

@@ -2186,19 +2186,6 @@ impl Render for AppView {
             self.finish_column_resize();
         }
         let p = pal(cx);
-        // Some Linux compositors (WSLg's among them) let a window be dragged smaller than its
-        // minimum size: grow it back.
-        if cfg!(target_os = "linux") && !window.is_maximized() && !window.is_fullscreen() {
-            let inside = widgets::content_size(window);
-            let (min_w, min_h) = (px(MIN_WINDOW.0), px(MIN_WINDOW.1));
-            if inside.width < min_w - px(1.) || inside.height < min_h - px(1.) {
-                let edges = window.viewport_size() - inside;
-                window.resize(size(
-                    inside.width.max(min_w) + edges.width,
-                    inside.height.max(min_h) + edges.height,
-                ));
-            }
-        }
         let width = widgets::content_size(window).width;
         let sidebar_open = !self.settings.layout.sidebar_hidden;
         let sidebar = if sidebar_open {
