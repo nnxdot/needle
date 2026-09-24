@@ -1,5 +1,5 @@
 use super::{
-    AppView, Event, Page, Panel, pal,
+    AppView, Event, Page, Panel, motion, pal,
     widgets::{artwork, faint, glyph, icon, icon_button, meta, quality, segmented, strong},
 };
 use gpui::{prelude::*, *};
@@ -77,19 +77,30 @@ impl AppView {
                             })),
                     ),
             )
-            .child(match self.panel {
-                Panel::Details => self.details(width, cx).into_any_element(),
-                Panel::Queue => self.queue(cx).into_any_element(),
-                Panel::Lyrics => div()
+            .child({
+                // As the panel opens or changes tab, its content slides in from the right.
+                let body = div()
                     .flex_1()
                     .min_h_0()
                     .flex()
                     .flex_col()
-                    .pl_5()
-                    .pr_2()
-                    .pb_3()
-                    .child(self.lyrics_view(false, false, cx))
-                    .into_any_element(),
+                    .child(match self.panel {
+                        Panel::Details => self.details(width, cx).into_any_element(),
+                        Panel::Queue => self.queue(cx).into_any_element(),
+                        Panel::Lyrics => div()
+                            .flex_1()
+                            .min_h_0()
+                            .flex()
+                            .flex_col()
+                            .pl_5()
+                            .pr_2()
+                            .pb_3()
+                            .child(self.lyrics_view(false, false, cx))
+                            .into_any_element(),
+                    });
+                motion::animate(body, ("panel-in", self.panel_serial), 240, cx, |el, t| {
+                    el.ml(px(28. * (1. - t))).mr(px(-28. * (1. - t))).opacity(t)
+                })
             })
     }
 
