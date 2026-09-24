@@ -764,7 +764,8 @@ pub fn pattern_path(pattern: &str, track: &Track) -> String {
         })
         .filter(|p| !p.is_empty())
         .collect::<Vec<_>>()
-        .join("\\")
+        // Folders: `\` on Windows, `/` on Linux (where `\` is a letter a name can hold).
+        .join(std::path::MAIN_SEPARATOR_STR)
 }
 
 /// Where each song would go under `pattern`, inside the music folder it is already in. Songs
@@ -805,8 +806,9 @@ pub fn plan_organize(tracks: &[Track], roots: &[String], pattern: &str) -> Plan 
         wanted.push((
             track,
             format!(
-                "{}\\{relative}.{extension}",
-                root.trim_end_matches(['\\', '/'])
+                "{}{}{relative}.{extension}",
+                root.trim_end_matches(['\\', '/']),
+                std::path::MAIN_SEPARATOR
             ),
         ));
     }
@@ -1279,7 +1281,7 @@ mod tests {
         library.upsert(&song).unwrap();
         assert_eq!(
             pattern_path(PATTERNS[0], &song),
-            "Artist_ Name\\CON_\\03 Why_"
+            ["Artist_ Name", "CON_", "03 Why_"].join(std::path::MAIN_SEPARATOR_STR)
         );
         let plan = plan_organize(
             &[song.clone()],

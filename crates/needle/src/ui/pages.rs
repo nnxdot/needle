@@ -92,7 +92,7 @@ impl AppView {
             .flex()
             .flex_col()
             .when_some(status.store_error.clone(), |el, error| {
-                el.child(meta(format!("Windows Credential Manager could not be read: {error}"), cx).text_color(p.danger).py_2())
+                el.child(meta(format!("{} could not be read: {error}", needle_core::integrations::STORE_NAME), cx).text_color(p.danger).py_2())
             })
             // Last.fm
             .child(
@@ -289,7 +289,7 @@ impl AppView {
                         )
                     }),
             )
-            .child(faint("Keys and sessions are stored in Windows Credential Manager, never in your library or its exports. Environment variables override them.", cx).line_height(relative(1.45)).pt_2())
+            .child(faint(format!("Keys and sessions are stored in {}, never in your library or its exports. Environment variables override them.", needle_core::integrations::STORE_NAME), cx).line_height(relative(1.45)).pt_2())
     }
 
     fn queue_summary(

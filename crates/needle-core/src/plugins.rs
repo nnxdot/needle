@@ -1490,7 +1490,9 @@ fn web(request: reqwest::blocking::RequestBuilder) -> Result<String, Fail> {
 
 fn inside(folder: &Path, name: &str) -> Result<PathBuf, Fail> {
     let path = Path::new(name);
+    // `\` and `:` are refused everywhere, so a plugin names the same files on every system.
     if name.is_empty()
+        || name.contains(['\\', ':'])
         || path.is_absolute()
         || path
             .components()

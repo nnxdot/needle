@@ -465,7 +465,18 @@ impl Pipe {
                 .iter()
                 .find_map(|k| std::env::var(k).ok())
                 .unwrap_or_else(|| "/tmp".into());
-            std::os::unix::net::UnixStream::connect(format!("{dir}/discord-ipc-{n}")).ok()
+            // Discord installed as a Flatpak or Snap keeps its socket in its own folder.
+            [
+                "",
+                "app/com.discordapp.Discord/",
+                "app/com.discordapp.DiscordCanary/",
+                "app/dev.vencord.Vesktop/",
+                "snap.discord/",
+            ]
+            .iter()
+            .find_map(|sub| {
+                std::os::unix::net::UnixStream::connect(format!("{dir}/{sub}discord-ipc-{n}")).ok()
+            })
         }
     }
 

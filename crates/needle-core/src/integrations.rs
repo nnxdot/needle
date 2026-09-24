@@ -1,5 +1,5 @@
 use crate::database::Library;
-pub use crate::secrets::{MemoryStore, SecretKind, SecretStore, SystemStore, redact};
+pub use crate::secrets::{MemoryStore, STORE_NAME, SecretKind, SecretStore, SystemStore, redact};
 use anyhow::{Context, Result, bail};
 use reqwest::blocking::Client;
 use rusqlite::{OptionalExtension, params};

@@ -32,6 +32,12 @@ path = "src/main.rs"
 name = "needle-desktop"
 path = "src/desktop.rs"
 
+[target.'cfg(target_os = "linux")'.dependencies]
+# MPRIS media controls over zbus: no libdbus.
+souvlaki = { version = "0.8", default-features = false, features = ["use_zbus"] }
+# The tray icon (StatusNotifierItem) over zbus: no GTK.
+ksni = { version = "0.3", default-features = false, features = ["blocking", "async-io"] }
+
 [target.'cfg(windows)'.dependencies]
 souvlaki = "0.8"
 tray-icon = "0.25.1"

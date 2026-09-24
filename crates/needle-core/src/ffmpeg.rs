@@ -25,12 +25,22 @@ pub fn executable() -> Option<PathBuf> {
     if let Some(path) = std::env::var_os("NEEDLE_FFMPEG").map(PathBuf::from) {
         return path.is_file().then_some(path);
     }
+    let name = format!("needle-ffmpeg{}", std::env::consts::EXE_SUFFIX);
     let beside = std::env::current_exe()
         .ok()
-        .and_then(|exe| exe.parent().map(|dir| dir.join("needle-ffmpeg.exe")))
+        .and_then(|exe| exe.parent().map(|dir| dir.join(&name)))
         .filter(|path| path.is_file());
     if beside.is_some() {
         return beside;
+    }
+    // Linux: the system's FFmpeg, which every distribution packages.
+    #[cfg(not(windows))]
+    if let Some(system) = std::env::var_os("PATH").and_then(|paths| {
+        std::env::split_paths(&paths)
+            .map(|dir| dir.join("ffmpeg"))
+            .find(|path| path.is_file())
+    }) {
+        return Some(system);
     }
     let source_tree =
         Path::new(env!("CARGO_MANIFEST_DIR")).join("../../third-party/ffmpeg/needle-ffmpeg.exe");

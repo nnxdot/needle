@@ -18,6 +18,97 @@ pub enum TrayAction {
 pub struct Tray {
     #[cfg(windows)]
     _icon: tray_icon::TrayIcon,
+    #[cfg(target_os = "linux")]
+    handle: ksni::blocking::Handle<LinuxTray>,
+}
+
+/// Linux: a StatusNotifierItem (KDE, GNOME with the AppIndicator extension, and most panels),
+/// spoken over D-Bus, so no GTK.
+#[cfg(target_os = "linux")]
+pub struct LinuxTray {
+    sender: crossbeam_channel::Sender<Event>,
+    icons: Vec<ksni::Icon>,
+}
+
+#[cfg(target_os = "linux")]
+impl LinuxTray {
+    fn send(&self, action: TrayAction) {
+        let _ = self.sender.send(Event::Tray(action));
+    }
+}
+
+#[cfg(target_os = "linux")]
+impl ksni::Tray for LinuxTray {
+    fn id(&self) -> String {
+        "needle".into()
+    }
+    fn title(&self) -> String {
+        "Needle".into()
+    }
+    fn icon_pixmap(&self) -> Vec<ksni::Icon> {
+        self.icons.clone()
+    }
+    fn tool_tip(&self) -> ksni::ToolTip {
+        ksni::ToolTip {
+            title: "Needle".into(),
+            ..Default::default()
+        }
+    }
+    fn activate(&mut self, _x: i32, _y: i32) {
+        self.send(TrayAction::Show);
+    }
+    fn menu(&self) -> Vec<ksni::MenuItem<Self>> {
+        use ksni::menu::StandardItem;
+        let item = |label: &str, action: TrayAction| -> ksni::MenuItem<Self> {
+            StandardItem {
+                label: label.into(),
+                activate: Box::new(move |tray: &mut Self| tray.send(action)),
+                ..Default::default()
+            }
+            .into()
+        };
+        vec![
+            item("Show Needle", TrayAction::Show),
+            ksni::MenuItem::Separator,
+            item("Play / Pause", TrayAction::Toggle),
+            item("Next", TrayAction::Next),
+            item("Previous", TrayAction::Previous),
+            ksni::MenuItem::Separator,
+            item("Quit Needle", TrayAction::Quit),
+        ]
+    }
+}
+
+/// The logo at the sizes panels ask for, as ARGB32 in network byte order.
+#[cfg(target_os = "linux")]
+fn tray_icons() -> Vec<ksni::Icon> {
+    let Ok(logo) = image::load_from_memory(include_bytes!("../../assets/needle-1024.png")) else {
+        return Vec::new();
+    };
+    [22, 32, 48, 64]
+        .into_iter()
+        .map(|size| {
+            let rgba = logo
+                .resize_exact(size, size, image::imageops::FilterType::Lanczos3)
+                .to_rgba8();
+            let data = rgba
+                .pixels()
+                .flat_map(|p| [p[3], p[0], p[1], p[2]])
+                .collect();
+            ksni::Icon {
+                width: size as i32,
+                height: size as i32,
+                data,
+            }
+        })
+        .collect()
+}
+
+#[cfg(target_os = "linux")]
+impl Drop for Tray {
+    fn drop(&mut self) {
+        self.handle.shutdown();
+    }
 }
 
 impl Tray {
@@ -69,13 +160,26 @@ impl Tray {
         }));
         Ok(Self { _icon: tray })
     }
-    #[cfg(not(windows))]
+    #[cfg(target_os = "linux")]
+    fn new(sender: crossbeam_channel::Sender<Event>) -> anyhow::Result<Self> {
+        use ksni::blocking::TrayMethods;
+        let tray = LinuxTray {
+            sender,
+            icons: tray_icons(),
+        };
+        let handle = tray.spawn().map_err(|e| {
+            anyhow::anyhow!("{e}. The desktop may not show tray icons (on GNOME, add the AppIndicator extension)")
+        })?;
+        Ok(Self { handle })
+    }
+    #[cfg(not(any(windows, target_os = "linux")))]
     fn new(_sender: crossbeam_channel::Sender<Event>) -> anyhow::Result<Self> {
-        anyhow::bail!("The tray is only on Windows")
+        anyhow::bail!("The tray is only on Windows and Linux")
     }
 }
 
-/// Show or hide the whole window (Windows only).
+/// Show or hide the whole window. Linux has no common way to hide a window, so there it is
+/// minimized and brought back.
 pub fn set_window_shown(window: &Window, shown: bool) {
     #[cfg(windows)]
     {
@@ -91,7 +195,9 @@ pub fn set_window_shown(window: &Window, shown: bool) {
         }
     }
     #[cfg(not(windows))]
-    let _ = (window, shown);
+    if !shown {
+        window.minimize_window();
+    }
 }
 
 impl AppView {
