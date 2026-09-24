@@ -437,6 +437,16 @@ fn read_track(library: &Library, db: &rusqlite::Connection, path: &Path) -> Resu
             track.artwork = Some(destination.to_string_lossy().into());
         }
     }
+    // The tags did not say (Dolby Digital Plus in M4A, for example): ask FFmpeg.
+    if track.sample_rate == 0
+        && !dsf
+        && let Some((rate, channels)) = crate::ffmpeg::audio_properties(&path)
+    {
+        track.sample_rate = rate as i64;
+        if track.channels == 0 {
+            track.channels = channels as i64;
+        }
+    }
     if dsf {
         let (duration, rate, channels) = crate::formats::dsf_properties(&path)?;
         track.duration = duration;
