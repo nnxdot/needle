@@ -18,6 +18,21 @@ pub const EXPANDED: Size<Pixels> = Size {
     height: px(640.),
 };
 
+/// The window size for `inside`: on Linux, where Needle draws its own frame, the window also
+/// holds the frame's shadow around it.
+fn window_size(inside: Size<Pixels>, window: Option<&Window>) -> Size<Pixels> {
+    let edges = match window {
+        Some(window) => gpui_component::window_paddings(window),
+        // Before the window exists: the shadow gpui-component draws on Linux.
+        None if cfg!(target_os = "linux") => Edges::all(px(12.)),
+        None => Edges::all(px(0.)),
+    };
+    size(
+        inside.width + edges.left + edges.right,
+        inside.height + edges.top + edges.bottom,
+    )
+}
+
 #[derive(Clone, Copy, PartialEq)]
 enum Tab {
     Next,
@@ -32,6 +47,8 @@ pub struct MiniView {
     expanded: bool,
     tab: Tab,
     pinned: bool,
+    /// Linux: the title strip was pressed; moving the pointer now starts a window move.
+    drag_armed: bool,
     glass_applied: Option<(super::glass::Material, bool)>,
     /// The mini player's own sliders. Sharing the main window's would mix up their sizes, so
     /// the thumb and the filled part drift apart when both windows are open.
@@ -55,7 +72,7 @@ impl AppView {
         let main = window.window_handle();
         // Open after this update finishes: the new window's first frame reads this view.
         cx.defer(move |cx| {
-            let bounds = Bounds::centered(None, COMPACT, cx);
+            let bounds = Bounds::centered(None, window_size(COMPACT, None), cx);
             let options = WindowOptions {
                 window_bounds: Some(WindowBounds::Windowed(bounds)),
                 titlebar: Some(TitlebarOptions {
@@ -66,6 +83,8 @@ impl AppView {
                 window_min_size: Some(size(px(300.), px(140.))),
                 // The mini player sizes itself: compact, or expanded with a list.
                 is_resizable: false,
+                window_decorations: cfg!(target_os = "linux").then_some(WindowDecorations::Client),
+                app_id: Some(super::APP_ID.into()),
                 ..Default::default()
             };
             let weak = app.downgrade();
@@ -108,6 +127,7 @@ impl AppView {
                         expanded: false,
                         tab: Tab::Next,
                         pinned: false,
+                        drag_armed: false,
                         glass_applied: None,
                     }
                 });
@@ -127,7 +147,27 @@ impl AppView {
     }
 }
 
-/// Keep a window above others (Windows only).
+/// Whether this system lets Needle keep a window above others: Windows, and X11 on Linux
+/// (Wayland has no common way for an app to ask).
+fn can_stay_on_top(window: &Window) -> bool {
+    #[cfg(target_os = "linux")]
+    {
+        use raw_window_handle::{HasWindowHandle, RawWindowHandle};
+        HasWindowHandle::window_handle(window).is_ok_and(|handle| {
+            matches!(
+                handle.as_raw(),
+                RawWindowHandle::Xcb(_) | RawWindowHandle::Xlib(_)
+            )
+        })
+    }
+    #[cfg(not(target_os = "linux"))]
+    {
+        let _ = window;
+        cfg!(windows)
+    }
+}
+
+/// Keep a window above others (Windows, and X11 on Linux).
 fn set_topmost(window: &Window, on: bool) {
     #[cfg(windows)]
     {
@@ -151,8 +191,44 @@ fn set_topmost(window: &Window, on: bool) {
             }
         }
     }
-    #[cfg(not(windows))]
+    #[cfg(target_os = "linux")]
+    {
+        use raw_window_handle::{HasWindowHandle, RawWindowHandle};
+        let id = match HasWindowHandle::window_handle(window).map(|h| h.as_raw()) {
+            Ok(RawWindowHandle::Xcb(h)) => h.window.get(),
+            Ok(RawWindowHandle::Xlib(h)) => h.window as u32,
+            _ => return,
+        };
+        let _ = x11_above(id, on);
+    }
+    #[cfg(not(any(windows, target_os = "linux")))]
     let _ = (window, on);
+}
+
+/// Ask the X11 window manager to keep window `id` above others, the way `wmctrl -b add,above`
+/// does: a _NET_WM_STATE message to the root window.
+#[cfg(target_os = "linux")]
+fn x11_above(id: u32, on: bool) -> anyhow::Result<()> {
+    use x11rb::{
+        connection::Connection,
+        protocol::xproto::{ClientMessageEvent, ConnectionExt, EventMask},
+    };
+    let (connection, screen) = x11rb::connect(None)?;
+    let root = connection.setup().roots[screen].root;
+    let atom = |name: &[u8]| -> anyhow::Result<u32> {
+        Ok(connection.intern_atom(false, name)?.reply()?.atom)
+    };
+    let (state, above) = (atom(b"_NET_WM_STATE")?, atom(b"_NET_WM_STATE_ABOVE")?);
+    // 1 adds the state, 0 removes it; 1 again says a normal application asks.
+    let event = ClientMessageEvent::new(32, id, state, [u32::from(on), above, 0, 1, 0]);
+    connection.send_event(
+        false,
+        root,
+        EventMask::SUBSTRUCTURE_REDIRECT | EventMask::SUBSTRUCTURE_NOTIFY,
+        event,
+    )?;
+    connection.flush()?;
+    Ok(())
 }
 
 /// After growing, move the window up so it stays inside the screen's work area (Windows only).
@@ -358,21 +434,46 @@ impl Render for MiniView {
                     .flex()
                     .items_center()
                     .window_control_area(WindowControlArea::Drag)
+                    // Linux has no drag area: press, then move, to move the window (so the
+                    // buttons here still take clicks).
+                    .when(cfg!(target_os = "linux"), |el| {
+                        el.on_mouse_down(
+                            MouseButton::Left,
+                            cx.listener(|this, _, _, _| this.drag_armed = true),
+                        )
+                        .on_mouse_up(
+                            MouseButton::Left,
+                            cx.listener(|this, _, _, _| this.drag_armed = false),
+                        )
+                        .on_mouse_move(cx.listener(
+                            |this, _, window, _| {
+                                if this.drag_armed {
+                                    this.drag_armed = false;
+                                    window.start_window_move();
+                                }
+                            },
+                        ))
+                    })
                     .child(glyph("logo").size(px(14.)).text_color(p.accent))
                     .child(div().flex_1())
-                    .child(
-                        control(
-                            "mini-pin",
-                            if self.pinned { "pin-fill" } else { "pin" },
-                            "Keep on top",
+                    // Keeping a window on top: Windows, and X11 on Linux.
+                    .when(can_stay_on_top(window), |el| {
+                        el.child(
+                            control(
+                                "mini-pin",
+                                if self.pinned { "pin-fill" } else { "pin" },
+                                "Keep on top",
+                            )
+                            .when(self.pinned, |b| b.text_color(p.accent))
+                            .on_click(cx.listener(
+                                |this, _, window, cx| {
+                                    this.pinned = !this.pinned;
+                                    set_topmost(window, this.pinned);
+                                    cx.notify();
+                                },
+                            )),
                         )
-                        .when(self.pinned, |b| b.text_color(p.accent))
-                        .on_click(cx.listener(|this, _, window, cx| {
-                            this.pinned = !this.pinned;
-                            set_topmost(window, this.pinned);
-                            cx.notify();
-                        })),
-                    )
+                    })
                     .child(
                         control("mini-full", "expand", "Back to the full window").on_click(
                             cx.listener(|this, _, window, cx| this.back_to_main(window, cx)),
@@ -559,7 +660,8 @@ impl Render for MiniView {
             .when(self.expanded, |el| {
                 let body = match tab {
                     Tab::Lyrics => app.update(cx, |a, cx| {
-                        a.lyrics_view(false, true, cx).into_any_element()
+                        a.lyrics_view(super::lyrics::LyricsKind::Mini, cx)
+                            .into_any_element()
                     }),
                     Tab::Next => app.update(cx, |a, cx| a.up_next(cx).into_any_element()),
                     Tab::History => app.update(cx, |a, cx| a.recent_listens(cx).into_any_element()),
@@ -611,7 +713,7 @@ impl MiniView {
             self.expanded && (self.tab == tab || (tab == Tab::Next && self.tab == Tab::History));
         if same {
             self.expanded = false;
-            window.resize(COMPACT);
+            window.resize(window_size(COMPACT, Some(window)));
         } else {
             self.expanded = true;
             self.tab = tab;
@@ -619,7 +721,7 @@ impl MiniView {
                 window,
                 f32::from(EXPANDED.height - window.bounds().size.height),
             );
-            window.resize(EXPANDED);
+            window.resize(window_size(EXPANDED, Some(window)));
         }
     }
 }

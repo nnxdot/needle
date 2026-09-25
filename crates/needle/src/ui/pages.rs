@@ -92,7 +92,7 @@ impl AppView {
             .flex()
             .flex_col()
             .when_some(status.store_error.clone(), |el, error| {
-                el.child(meta(format!("Windows Credential Manager could not be read: {error}"), cx).text_color(p.danger).py_2())
+                el.child(meta(format!("{} could not be read: {error}", needle_core::integrations::STORE_NAME), cx).text_color(p.danger).py_2())
             })
             // Last.fm
             .child(
@@ -289,7 +289,7 @@ impl AppView {
                         )
                     }),
             )
-            .child(faint("Keys and sessions are stored in Windows Credential Manager, never in your library or its exports. Environment variables override them.", cx).line_height(relative(1.45)).pt_2())
+            .child(faint(format!("Keys and sessions are stored in {}, never in your library or its exports. Environment variables override them.", needle_core::integrations::STORE_NAME), cx).line_height(relative(1.45)).pt_2())
     }
 
     fn queue_summary(
@@ -402,7 +402,7 @@ impl AppView {
         });
     }
 
-    pub(super) fn settings_view(&self, cx: &mut Context<Self>) -> impl IntoElement {
+    pub(super) fn settings_view(&self, width: f32, cx: &mut Context<Self>) -> impl IntoElement {
         let p = pal(cx);
         let roots = self.library.roots().unwrap_or_default();
         let weak = cx.entity().downgrade();
@@ -456,10 +456,12 @@ impl AppView {
             ("Ctrl + E", "Edit tags"),
             ("Ctrl + D", "Favorite"),
             ("Ctrl + J", "Show the queue"),
+            ("Ctrl + L", "Show the lyrics"),
             ("Ctrl + B", "Show or hide the sidebar"),
             ("Ctrl + O", "Add a music folder"),
             ("Ctrl + P", "Big player"),
             ("Ctrl + M", "Mini player"),
+            ("F11", "Full screen player"),
             ("Ctrl + 1 – 7", "Sidebar pages"),
             ("Ctrl + ,", "Settings"),
             ("Alt + ← or Backspace", "Go back"),
@@ -522,7 +524,10 @@ impl AppView {
             .overflow_y_scroll()
             .child(
                 div()
-                    .max_w(px(720.))
+                    // A width in pixels (720 at most, less beside a narrow window), so every
+                    // section is sized at it. Without one GPUI sizes sections at their narrowest,
+                    // counts wrapped paragraphs as one line, and the rows below overlap them.
+                    .w(px((width - 189.).clamp(320., 720.)))
                     .px_8()
                     .pt_6()
                     .pb_16()
@@ -533,7 +538,8 @@ impl AppView {
                     .when(tab == 0, |el| {
                         el
                     .child(self.section_title("Playback", "", cx))
-                    .child(setting_row(
+                    // Exclusive output is WASAPI's, so Windows only.
+                    .when(cfg!(windows), |el| el.child(setting_row(
                         "Exclusive output",
                         "Plays each file at its own sample rate with nothing in between. Volume and ReplayGain are bypassed, so use your device's volume.",
                         Switch::new("exclusive").checked(self.settings.exclusive).on_click(cx.listener(|this, checked: &bool, _, cx| {
@@ -542,7 +548,7 @@ impl AppView {
                             cx.notify();
                         })),
                         cx,
-                    ))
+                    )))
                     .child(setting_row(
                         "ReplayGain",
                         "Evens out loudness using measured or tagged gain, with peak protection.",
@@ -673,7 +679,7 @@ impl AppView {
                                     .mt_2()
                                     .flex()
                                     .gap_2()
-                                    .child(small_button("settings-add", "Add folder").icon(icon("plus")).on_click(cx.listener(|this, _, _, cx| this.import_folder(cx))))
+                                    .child(small_button("settings-add", "Add folder").icon(icon("plus")).on_click(cx.listener(|this, _, window, cx| this.import_folder(window, cx))))
                                     .child(small_button("rescan", "Check for changes").ghost().disabled(self.scan.is_some()).on_click(cx.listener(|this, _, _, cx| this.rescan(cx)))),
                             ),
                     )
@@ -786,7 +792,11 @@ impl AppView {
                         if motion::system_allows_animation() {
                             "Turns off fades, slides, and other animations."
                         } else {
-                            "Windows has animations turned off, so Needle keeps still too."
+                            if cfg!(windows) {
+                                "Windows has animations turned off, so Needle keeps still too."
+                            } else {
+                                "Your system has animations turned off, so Needle keeps still too."
+                            }
                         },
                         Switch::new("reduce-motion").checked(self.settings.reduce_motion || !motion::system_allows_animation()).on_click(cx.listener(|this, checked: &bool, _, cx| {
                             this.settings.reduce_motion = *checked;
@@ -841,7 +851,10 @@ impl AppView {
                         div()
                             .flex()
                             .gap_2()
-                            .child(small_button("import-layout", "Import").ghost().on_click(cx.listener(|this, _, _, _| {
+                            .child(small_button("import-layout", "Import").ghost().on_click(cx.listener(|this, _, _, cx| {
+                                if !this.can_pick(cx) {
+                                    return;
+                                }
                                 let sender = this.sender.clone();
                                 std::thread::spawn(move || {
                                     if let Some(path) = rfd::FileDialog::new().add_filter("Needle layout", &["json"]).pick_file() {
@@ -857,7 +870,10 @@ impl AppView {
                                     }
                                 });
                             })))
-                            .child(small_button("export-layout", "Export").ghost().on_click(cx.listener(|this, _, _, _| {
+                            .child(small_button("export-layout", "Export").ghost().on_click(cx.listener(|this, _, _, cx| {
+                                if !this.can_pick(cx) {
+                                    return;
+                                }
                                 let layout = this.settings.layout.clone();
                                 this.background(move || {
                                     let Some(path) = rfd::FileDialog::new().set_file_name("needle-layout.json").save_file() else {
@@ -942,7 +958,10 @@ impl AppView {
                     .child(setting_row(
                         "Back up the library",
                         "Saves a consistent copy of the database, including recent changes.",
-                        small_button("backup", "Back up…").on_click(cx.listener(|this, _, _, _| {
+                        small_button("backup", "Back up…").on_click(cx.listener(|this, _, _, cx| {
+                            if !this.can_pick(cx) {
+                                return;
+                            }
                             let library = this.library.clone();
                             this.background(move || {
                                 let Some(path) = rfd::FileDialog::new().set_file_name("needle-library.db").save_file() else {
@@ -957,7 +976,10 @@ impl AppView {
                     .child(setting_row(
                         "Import a playlist",
                         "Reads an M3U or M3U8 file. Add its music folder first so the tracks can be matched.",
-                        small_button("import-m3u", "Import…").on_click(cx.listener(|this, _, _, _| {
+                        small_button("import-m3u", "Import…").on_click(cx.listener(|this, _, _, cx| {
+                            if !this.can_pick(cx) {
+                                return;
+                            }
                             let library = this.library.clone();
                             this.background(move || {
                                 let Some(path) = rfd::FileDialog::new().add_filter("Playlists", &["m3u", "m3u8"]).pick_file() else {
@@ -1034,7 +1056,7 @@ impl AppView {
         vec![
             setting_row(
                 "Send crash reports",
-                "If Needle crashes, it sends a report the next time it starts: the Needle version, Windows, and where in Needle it went wrong. File paths and your name are taken out first, and nothing is sent about your music or listening.",
+                "If Needle crashes, it sends a report the next time it starts: the Needle version, the operating system, and where in Needle it went wrong. File paths and your name are taken out first, and nothing is sent about your music or listening.",
                 Switch::new("crash-reports").checked(crash_reports).on_click(cx.listener(|this, checked: &bool, _, cx| {
                     this.settings.crash_reports = *checked;
                     this.persist_settings();
@@ -1049,10 +1071,9 @@ impl AppView {
                 div()
                     .flex()
                     .gap_2()
-                    .child(small_button("log-open", "Open log folder").on_click(cx.listener(|this, _, _, _| {
+                    .child(small_button("log-open", "Open log folder").on_click(cx.listener(|this, _, _, cx| {
                         let folder = needle_core::logfile::log_folder(&this.library.directory);
-                        let _ = std::fs::create_dir_all(&folder);
-                        let _ = std::process::Command::new("explorer").arg(folder).spawn();
+                        this.open_folder(&folder, cx);
                     })))
                     .child(small_button("log-copy", "Copy error report").ghost().on_click(cx.listener(|this, _, _, cx| {
                         let data = &this.library.directory;
@@ -1094,6 +1115,9 @@ Recent log:
     }
 
     fn sync_transfer(&mut self, export: bool, cx: &mut Context<Self>) {
+        if !self.can_pick(cx) {
+            return;
+        }
         let phrase = self.sync_phrase.read(cx).value().to_string();
         if phrase.chars().count() < 12 {
             return self.fail("Use a passphrase of at least 12 characters.");
@@ -1259,6 +1283,10 @@ impl AppView {
     /// The rows go straight into the Appearance column (a wrapper box would not stretch).
     fn glass_settings(&self, cx: &mut Context<Self>) -> Vec<AnyElement> {
         use super::glass::Material;
+        // Glass is Windows' Mica and Acrylic; other systems have no setting for it.
+        if !cfg!(windows) {
+            return Vec::new();
+        }
         let p = pal(cx);
         let (allowed, win11) = self.glass_system;
         let chosen = Material::from_name(&self.settings.window_material);

@@ -10,7 +10,46 @@ use needle_core::{
     model::Track,
 };
 
+/// Where lyrics show, which sets their size and which scroll position they keep.
+#[derive(Clone, Copy, PartialEq)]
+pub enum LyricsKind {
+    Big,
+    Side,
+    Mini,
+    Immersive,
+}
+
+/// The bundled plugin that finds lyrics on NetEase Cloud Music.
+const NETEASE: &str = "netease-lyrics";
+
 impl AppView {
+    /// Install (if needed) and turn on the NetEase lyrics plugin, then look again.
+    fn add_netease(&mut self, cx: &mut Context<Self>) {
+        use needle_core::plugins::{self, PluginEvent};
+        if let Err(error) = plugins::install_example(&self.library, NETEASE) {
+            self.fail(format!("Could not add the NetEase plugin: {error:#}"));
+            cx.notify();
+            return;
+        }
+        self.plugins.send(PluginEvent::Reload);
+        self.plugins.send(PluginEvent::Enable(NETEASE.into(), true));
+        self.notify("NetEase lyrics is on. Looking for lyrics there…");
+        // Look again once the plugin has loaded.
+        cx.spawn(async move |this, cx| {
+            cx.background_executor()
+                .timer(std::time::Duration::from_millis(1500))
+                .await;
+            let _ = this.update(cx, |this, cx| {
+                if let Some(item) = this.playback.current.clone() {
+                    this.lookup_media(&item.track);
+                }
+                cx.notify();
+            });
+        })
+        .detach();
+        cx.notify();
+    }
+
     /// Look up lyrics, missing album art, and the artist photo for a newly playing track.
     pub(super) fn track_started(&mut self, track: &Track) {
         self.plugins
@@ -27,12 +66,14 @@ impl AppView {
         let library = self.library.clone();
         let sender = self.sender.clone();
         let online = self.settings.online_media;
+        let plugins = self.plugins.clone();
         let track = track.clone();
         std::thread::spawn(move || {
-            let lyrics = media::lyrics(&library, &track, online).unwrap_or_else(|e| {
-                eprintln!("Lyrics lookup failed: {e:#}");
-                None
-            });
+            let lyrics =
+                media::lyrics(&library, &track, online, Some(&plugins)).unwrap_or_else(|e| {
+                    eprintln!("Lyrics lookup failed: {e:#}");
+                    None
+                });
             let _ = sender.send(Event::Lyrics(track.id.clone(), lyrics));
             if online
                 && track.artwork.is_none()
@@ -113,10 +154,24 @@ impl AppView {
         }
     }
 
-    /// Ease the main window's lyrics a step toward the sung line; called every frame.
+    /// Ease the main window's lyrics (the big player's and the side panel's) a step toward
+    /// the sung line; called every frame.
     pub(super) fn glide_lyrics(&mut self, window: &mut Window, cx: &App) {
         if self.lyric_glide {
-            self.lyric_glide = glide(&self.lyrics_scroll, self.lyric_line, cx);
+            let big = glide(&self.lyrics_scroll, self.lyric_line, cx);
+            let side = glide(&self.panel_lyrics_scroll, self.lyric_line, cx);
+            let moving = big == Glide::Moving || side == Glide::Moving;
+            // Lyrics that just opened have no layout for a frame or two: wait for it (up to
+            // half a second), or the sung line would stay out of view until the next one.
+            let waiting = !moving
+                && (big == Glide::NotLaidOut || side == Glide::NotLaidOut)
+                && self.lyric_glide_waits < 30;
+            self.lyric_glide_waits = if waiting {
+                self.lyric_glide_waits + 1
+            } else {
+                0
+            };
+            self.lyric_glide = moving || waiting;
             if self.lyric_glide {
                 window.request_animation_frame();
             }
@@ -127,19 +182,18 @@ impl AppView {
     /// they are still moving.
     pub(super) fn glide_mini_lyrics(&mut self, cx: &App) -> bool {
         if self.mini_lyric_glide {
-            self.mini_lyric_glide = glide(&self.mini_lyrics_scroll, self.lyric_line, cx);
+            self.mini_lyric_glide =
+                glide(&self.mini_lyrics_scroll, self.lyric_line, cx) == Glide::Moving;
         }
         self.mini_lyric_glide
     }
 
-    /// Lyrics for the big player (`big`), the side panel, or the mini player (`mini`), which
-    /// keeps its own scroll position.
-    pub(super) fn lyrics_view(
-        &self,
-        big: bool,
-        mini: bool,
-        cx: &mut Context<Self>,
-    ) -> impl IntoElement {
+    /// Lyrics for the big player, the side panel, the mini player (which keeps its own scroll
+    /// position), or the immersive full screen.
+    pub(super) fn lyrics_view(&self, kind: LyricsKind, cx: &mut Context<Self>) -> impl IntoElement {
+        let big = matches!(kind, LyricsKind::Big | LyricsKind::Immersive);
+        let mini = kind == LyricsKind::Mini;
+        let huge = kind == LyricsKind::Immersive;
         let p = pal(cx);
         let current = self.playback.current.as_ref().map(|c| c.track.id.clone());
         let lyrics: Option<&Lyrics> = match (&self.lyrics, &current) {
@@ -151,7 +205,17 @@ impl AppView {
                 .lyrics
                 .as_ref()
                 .is_none_or(|(id, _)| Some(id) != current.as_ref());
-        let size = if big { 22. } else { 15. };
+        // The side panel has room for larger lines than the mini player.
+        let side = kind == LyricsKind::Side;
+        let size = if huge {
+            40.
+        } else if big {
+            22.
+        } else if side {
+            19.
+        } else {
+            15.
+        };
         let message = |title: &str, detail: &str, cx: &mut Context<Self>| {
             div()
                 .flex_1()
@@ -218,18 +282,44 @@ impl AppView {
                         })),
                 )
             })
+            // NetEase has timed lyrics for many songs LRCLIB lacks: offer its plugin here.
+            .when(
+                self.settings.online_media
+                    && !mini
+                    && !self
+                        .plugins
+                        .plugins()
+                        .iter()
+                        .any(|p| p.manifest.id == NETEASE && p.enabled),
+                |el| {
+                    el.child(
+                        small_button("add-netease", "Also look on NetEase")
+                            .ghost()
+                            .on_click(cx.listener(|this, _, _, cx| this.add_netease(cx))),
+                    )
+                },
+            )
             .into_any_element();
         };
         if lyrics.instrumental {
             return message("Instrumental", "This track has no words.", cx).into_any_element();
         }
         let source = match lyrics.source {
-            LyricsSource::Sidecar => "From a file beside the song",
-            LyricsSource::Embedded => "From the song's tags",
-            LyricsSource::Lrclib => "From LRCLIB",
+            LyricsSource::Sidecar => "From a file beside the song".to_string(),
+            LyricsSource::Embedded => "From the song's tags".to_string(),
+            LyricsSource::Lrclib => "From LRCLIB".to_string(),
+            LyricsSource::Plugin => format!("From {}", lyrics.provider),
         };
         // Lines are direct children of the scroll area so the view can scroll to one of them.
-        let gap = if big { 14. } else { 8. };
+        let gap = if huge {
+            26.
+        } else if big {
+            14.
+        } else if side {
+            12.
+        } else {
+            8.
+        };
         let lines: Vec<AnyElement> = if lyrics.lines.is_empty() {
             lyrics
                 .plain
@@ -339,6 +429,8 @@ impl AppView {
             .overflow_y_scroll()
             .track_scroll(if mini {
                 &self.mini_lyrics_scroll
+            } else if side {
+                &self.panel_lyrics_scroll
             } else {
                 &self.lyrics_scroll
             })
@@ -346,8 +438,20 @@ impl AppView {
             // Room above and below so any line can glide to the reading spot.
             .when(!lyrics.lines.is_empty(), |el| {
                 // Enough room below for the last lines to move up, not a screenful of nothing.
-                el.pt(px(if big { 140. } else { 48. }))
-                    .pb(px(if big { 140. } else { 60. }))
+                el.pt(px(if huge {
+                    260.
+                } else if big {
+                    140.
+                } else {
+                    48.
+                }))
+                .pb(px(if huge {
+                    320.
+                } else if big {
+                    140.
+                } else {
+                    60.
+                }))
             })
             .when(lyrics.lines.is_empty(), |el| el.pb_20())
             .children(lines)
@@ -388,9 +492,21 @@ fn lyric_target(scroll: &ScrollHandle, line: usize) -> Option<f32> {
 }
 
 /// Move `scroll` a step toward the sung line. Returns whether it still has further to go.
-fn glide(scroll: &ScrollHandle, line: Option<usize>, cx: &App) -> bool {
-    let Some(target) = line.and_then(|line| lyric_target(scroll, line)) else {
-        return false;
+/// How a glide went this frame.
+#[derive(Clone, Copy, PartialEq)]
+enum Glide {
+    Moving,
+    Done,
+    /// The line has no place yet (the lyrics were just opened, or are not shown).
+    NotLaidOut,
+}
+
+fn glide(scroll: &ScrollHandle, line: Option<usize>, cx: &App) -> Glide {
+    let Some(line) = line else {
+        return Glide::Done;
+    };
+    let Some(target) = lyric_target(scroll, line) else {
+        return Glide::NotLaidOut;
     };
     let mut offset = scroll.offset();
     let now = f32::from(offset.y);
@@ -402,5 +518,5 @@ fn glide(scroll: &ScrollHandle, line: Option<usize>, cx: &App) -> bool {
     let done = (target - next).abs() < 0.5;
     offset.y = px(if done { target } else { next });
     scroll.set_offset(offset);
-    !done
+    if done { Glide::Done } else { Glide::Moving }
 }

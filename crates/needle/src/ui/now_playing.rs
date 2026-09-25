@@ -50,7 +50,7 @@ impl AppView {
         let p = pal(cx);
         let look = self.now_look();
         let tint = look.as_ref().map(|l| l.vivid);
-        let size = window.viewport_size();
+        let size = super::widgets::content_size(window);
         let (w, h) = (f32::from(size.width), f32::from(size.height));
         let side = if w < 1000. { Side::None } else { self.big_side };
         let current = self.shown_item();
@@ -185,6 +185,11 @@ impl AppView {
                         cx,
                     ))
                     .child(side_button("big-stems", "stems", "Stems", Side::Stems, cx))
+                    .child(
+                        icon_button("big-full", "fullscreen", "Full screen · F11").on_click(
+                            cx.listener(|this, _, window, cx| this.set_immersive(true, window, cx)),
+                        ),
+                    )
                     .child(
                         icon_button("big-mini", "mini", "Mini player").on_click(cx.listener(
                             |this, _, window, cx| {
@@ -424,9 +429,9 @@ impl AppView {
                                 .flex()
                                 .flex_col()
                                 .child(match side {
-                                    Side::Lyrics => {
-                                        self.lyrics_view(true, false, cx).into_any_element()
-                                    }
+                                    Side::Lyrics => self
+                                        .lyrics_view(super::lyrics::LyricsKind::Big, cx)
+                                        .into_any_element(),
                                     Side::Stems => div()
                                         .pt_4()
                                         .child(self.stems_view(

@@ -259,6 +259,14 @@ impl AppView {
             ),
             item(
                 "Actions",
+                "fullscreen",
+                "Full screen player",
+                "",
+                Some("F11"),
+                |this, window, cx| this.set_immersive(true, window, cx),
+            ),
+            item(
+                "Actions",
                 "mini",
                 "Switch to the mini player",
                 "",
@@ -278,6 +286,18 @@ impl AppView {
             ),
             item(
                 "Actions",
+                "lyrics",
+                "Show the lyrics",
+                "",
+                Some("Ctrl+L"),
+                |this, _, _| {
+                    this.settings.show_inspector = true;
+                    this.panel = Panel::Lyrics;
+                    this.lyric_glide = this.lyric_line.is_some();
+                },
+            ),
+            item(
+                "Actions",
                 "close",
                 "Clear the queue",
                 "",
@@ -290,7 +310,7 @@ impl AppView {
                 "Add a music folder",
                 "",
                 Some("Ctrl+O"),
-                |this, _, cx| this.import_folder(cx),
+                |this, window, cx| this.import_folder(window, cx),
             ),
             item(
                 "Actions",

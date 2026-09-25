@@ -32,6 +32,16 @@ path = "src/main.rs"
 name = "needle-desktop"
 path = "src/desktop.rs"
 
+[target.'cfg(target_os = "linux")'.dependencies]
+# MPRIS media controls over zbus: no libdbus.
+souvlaki = { version = "0.8", default-features = false, features = ["use_zbus"] }
+# The tray icon (StatusNotifierItem) over zbus: no GTK.
+ksni = { version = "0.3", default-features = false, features = ["blocking", "async-io"] }
+# Keep on top for the mini player on X11 (_NET_WM_STATE_ABOVE); GPUI already uses it.
+x11rb = "0.13"
+# To see whether the desktop portal (the file picker) is there.
+zbus = { version = "5", default-features = false, features = ["blocking-api", "async-io"] }
+
 [target.'cfg(windows)'.dependencies]
 souvlaki = "0.8"
 tray-icon = "0.25.1"

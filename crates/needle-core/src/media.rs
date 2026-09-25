@@ -71,6 +71,8 @@ pub enum LyricsSource {
     /// The file's own lyrics tag.
     Embedded,
     Lrclib,
+    /// A plugin that finds lyrics; `Lyrics::provider` names it.
+    Plugin,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -80,6 +82,9 @@ pub struct Lyrics {
     pub plain: String,
     pub instrumental: bool,
     pub source: LyricsSource,
+    /// The plugin that found them, for `LyricsSource::Plugin`.
+    #[serde(default)]
+    pub provider: String,
 }
 
 impl Lyrics {
@@ -103,6 +108,7 @@ impl Lyrics {
             plain,
             instrumental: false,
             source,
+            provider: String::new(),
         })
     }
     /// Index of the line being sung at `position` seconds.
@@ -318,6 +324,7 @@ fn lrclib_parse(value: &Value) -> Option<Lyrics> {
             plain: String::new(),
             instrumental: true,
             source: LyricsSource::Lrclib,
+            provider: String::new(),
         });
     }
     let synced = value["syncedLyrics"].as_str().unwrap_or_default();
@@ -332,14 +339,105 @@ fn lrclib_parse(value: &Value) -> Option<Lyrics> {
     )
 }
 
-/// Local lyrics, or (when `online`) LRCLIB's. Sends artist, title, album and length only.
-pub fn lyrics(library: &Library, track: &Track, online: bool) -> Result<Option<Lyrics>> {
+/// Local lyrics, or (when `online`) LRCLIB's, then the lyrics plugins' when LRCLIB has no
+/// timed ones. Sends artist, title, album and length only.
+pub fn lyrics(
+    library: &Library,
+    track: &Track,
+    online: bool,
+    plugins: Option<&crate::plugins::PluginHost>,
+) -> Result<Option<Lyrics>> {
     if let Some(local) = local_lyrics(track) {
         return Ok(Some(local));
     }
     if !online || track.title.is_empty() || track.artist.is_empty() {
         return Ok(None);
     }
+    // LRCLIB being down is no reason to skip the lyrics plugins; with none, it is an error.
+    let lrclib = match lrclib(library, track) {
+        Ok(found) => found,
+        Err(problem) if plugins.is_some_and(|host| !host.lyrics_plugins().is_empty()) => {
+            crate::logfile::warn(format!("LRCLIB: {problem:#}"));
+            None
+        }
+        Err(problem) => return Err(problem),
+    };
+    if lrclib
+        .as_ref()
+        .is_some_and(|l| !l.lines.is_empty() || l.instrumental)
+    {
+        return Ok(lrclib);
+    }
+    let Some(host) = plugins else {
+        return Ok(lrclib);
+    };
+    // Timed lyrics from a plugin win over plain ones from LRCLIB.
+    match plugin_lyrics(library, host, track)? {
+        Some(found) if !found.lines.is_empty() || found.instrumental || lrclib.is_none() => {
+            Ok(Some(found))
+        }
+        _ => Ok(lrclib),
+    }
+}
+
+/// The lyrics plugins' answer, kept a month (a day when none had any).
+fn plugin_lyrics(
+    library: &Library,
+    host: &crate::plugins::PluginHost,
+    track: &Track,
+) -> Result<Option<Lyrics>> {
+    let providers = host.lyrics_plugins();
+    if providers.is_empty() {
+        return Ok(None);
+    }
+    // Each part in JSON, so no two songs share a key ("a:b" + "c" is not "a" + "b:c").
+    let key = format!(
+        "plugin-lyrics:{}",
+        serde_json::to_string(&(
+            &providers,
+            &track.artist,
+            &track.title,
+            &track.album,
+            track.duration.round() as i64
+        ))?
+    );
+    if let Some(hit) = cached::<Option<Lyrics>>(library, &key)? {
+        return Ok(hit);
+    }
+    // A failure is not an answer: nothing is kept, and the next play asks again.
+    let found = match host.lyrics(track) {
+        Ok(found) => found,
+        Err(problem) => {
+            crate::logfile::warn(format!("Lyrics plugins: {problem:#}"));
+            return Ok(None);
+        }
+    };
+    let found = found.and_then(|found| {
+        if found.instrumental {
+            return Some(Lyrics {
+                lines: vec![],
+                plain: String::new(),
+                instrumental: true,
+                source: LyricsSource::Plugin,
+                provider: found.provider,
+            });
+        }
+        Lyrics::from_text(&found.text, LyricsSource::Plugin).map(|mut l| {
+            l.provider = found.provider;
+            l
+        })
+    });
+    remember(
+        library,
+        &key,
+        &found,
+        if found.is_some() { 30 * 86400 } else { 86400 },
+    )?;
+    Ok(found)
+}
+
+/// LRCLIB's lyrics for `track`, kept a month (a week when it has none).
+fn lrclib(library: &Library, track: &Track) -> Result<Option<Lyrics>> {
     let key = format!(
         "lrclib:{}:{}:{}:{:.0}",
         track.artist, track.title, track.album, track.duration

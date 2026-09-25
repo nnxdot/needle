@@ -1,5 +1,6 @@
-//! Windows media controls: media keys, the lock screen, and the volume flyout show what is
-//! playing and control Needle (System Media Transport Controls, through `souvlaki`).
+//! System media controls, through `souvlaki`: on Windows, media keys, the lock screen, and the
+//! volume flyout (System Media Transport Controls); on Linux, MPRIS, which desktops, media
+//! keys, and tools like playerctl use.
 use super::{AppView, Event};
 use gpui::Window;
 use needle_core::audio::Command;
@@ -19,7 +20,7 @@ pub enum Key {
 }
 
 pub struct MediaKeys {
-    #[cfg(windows)]
+    #[cfg(any(windows, target_os = "linux"))]
     controls: souvlaki::MediaControls,
     /// Song id, playing, and when the position was last told.
     shown: Option<(String, bool, Instant)>,
@@ -28,23 +29,32 @@ pub struct MediaKeys {
 }
 
 impl MediaKeys {
-    /// Connect the main window to Windows' media controls.
-    #[cfg(windows)]
+    /// Connect the main window to the system's media controls.
+    #[cfg(any(windows, target_os = "linux"))]
     pub fn new(
         window: &Window,
         sender: crossbeam_channel::Sender<Event>,
         data: &std::path::Path,
     ) -> Option<Self> {
-        use raw_window_handle::{HasWindowHandle, RawWindowHandle};
         use souvlaki::{MediaControlEvent as E, SeekDirection as D};
-        let handle = HasWindowHandle::window_handle(window).ok()?;
-        let RawWindowHandle::Win32(win32) = handle.as_raw() else {
-            return None;
+        #[cfg(windows)]
+        let hwnd = {
+            use raw_window_handle::{HasWindowHandle, RawWindowHandle};
+            let handle = HasWindowHandle::window_handle(window).ok()?;
+            let RawWindowHandle::Win32(win32) = handle.as_raw() else {
+                return None;
+            };
+            Some(win32.hwnd.get() as *mut std::ffi::c_void)
+        };
+        #[cfg(not(windows))]
+        let hwnd = {
+            let _ = window;
+            None
         };
         let mut controls = souvlaki::MediaControls::new(souvlaki::PlatformConfig {
             display_name: "Needle",
             dbus_name: "needle",
-            hwnd: Some(win32.hwnd.get() as *mut std::ffi::c_void),
+            hwnd,
         })
         .ok()?;
         controls
@@ -78,7 +88,7 @@ impl MediaKeys {
         })
     }
 
-    #[cfg(not(windows))]
+    #[cfg(not(any(windows, target_os = "linux")))]
     pub fn new(
         _: &Window,
         _: crossbeam_channel::Sender<Event>,
@@ -92,7 +102,7 @@ impl AppView {
     /// Tell Windows what is playing: on a new song, on play/pause, and every few seconds so
     /// the position stays right.
     pub(super) fn update_media_keys(&mut self) {
-        #[cfg(windows)]
+        #[cfg(any(windows, target_os = "linux"))]
         {
             use souvlaki::{MediaMetadata, MediaPlayback, MediaPosition};
             let Some(keys) = self.media_keys.as_mut() else {

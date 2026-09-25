@@ -11,7 +11,7 @@ fn main() -> anyhow::Result<()> {
         duration: 264.,
         ..Default::default()
     };
-    let lyrics = media::lyrics(&library, &track, true)?;
+    let lyrics = media::lyrics(&library, &track, true, None)?;
     println!(
         "lyrics: {:?} lines, source {:?}",
         lyrics.as_ref().map(|l| l.lines.len()),

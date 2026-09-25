@@ -388,6 +388,9 @@ impl AppView {
     }
 
     fn pick_theme_file(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if !self.can_pick(cx) {
+            return;
+        }
         let paths = cx.prompt_for_paths(PathPromptOptions {
             files: true,
             directories: false,
@@ -506,10 +509,9 @@ impl AppView {
                     .child(
                         small_button("theme-folder", "Open themes folder")
                             .ghost()
-                            .on_click(cx.listener(|this, _, _, _| {
+                            .on_click(cx.listener(|this, _, _, cx| {
                                 let folder = themes::folder(&this.library.directory);
-                                let _ = std::fs::create_dir_all(&folder);
-                                let _ = std::process::Command::new("explorer").arg(folder).spawn();
+                                this.open_folder(&folder, cx);
                             })),
                     ),
             )
@@ -622,12 +624,7 @@ impl AppView {
                                 .ghost()
                                 .on_click({
                                     let path = theme.path.clone();
-                                    move |_, _, _| {
-                                        let _ = std::process::Command::new("explorer")
-                                            .arg("/select,")
-                                            .arg(&path)
-                                            .spawn();
-                                    }
+                                    move |_, _, _| super::files::show_file(&path)
                                 }),
                         )
                         .child(small_button("theme-editor-done", "Done").on_click(cx.listener(

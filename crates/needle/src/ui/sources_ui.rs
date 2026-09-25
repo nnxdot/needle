@@ -272,7 +272,10 @@ impl AppView {
                 )
                 .child(
                     faint(
-                        "Passwords are kept in Windows Credential Manager, not in Needle's files.",
+                        format!(
+                            "Passwords are kept in {}, not in Needle's files.",
+                            needle_core::integrations::STORE_NAME
+                        ),
                         cx,
                     )
                     .w_full(),

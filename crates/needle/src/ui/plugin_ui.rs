@@ -126,10 +126,9 @@ impl AppView {
                 div()
                     .flex()
                     .gap_2()
-                    .child(small_button("plugins-open", "Open plugins folder").on_click(cx.listener(|this, _, _, _| {
+                    .child(small_button("plugins-open", "Open plugins folder").on_click(cx.listener(|this, _, _, cx| {
                         let folder = this.plugins.folder().to_path_buf();
-                        let _ = std::fs::create_dir_all(&folder);
-                        let _ = std::process::Command::new("explorer").arg(folder).spawn();
+                        this.open_folder(&folder, cx);
                     })))
                     .child(small_button("plugins-reload", "Reload").ghost().on_click(cx.listener(|this, _, _, cx| {
                         this.plugins.send(PluginEvent::Reload);
@@ -229,7 +228,18 @@ impl AppView {
                                 .text_size(px(11.5))
                                 .text_color(p.ink_2)
                                 .child(permission.describe())
-                        })),
+                        })).when(plugin.lyrics, |el| {
+                            el.child(
+                                div()
+                                    .px(px(8.))
+                                    .py(px(2.))
+                                    .rounded_full()
+                                    .bg(p.accent_soft)
+                                    .text_size(px(11.5))
+                                    .text_color(p.accent)
+                                    .child("Finds lyrics"),
+                            )
+                        }),
                     )
                     .when(plugin.manifest.permissions.is_empty(), |el| el.child(faint("Needs no permissions.", cx)))
                     .when(!enabled && !plugin.manifest.permissions.is_empty(), |el| el.child(faint("Turning it on allows everything listed above.", cx)))

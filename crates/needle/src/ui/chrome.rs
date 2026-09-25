@@ -17,9 +17,9 @@ impl AppView {
         sidebar: f32,
         window: &Window,
         cx: &mut Context<Self>,
-    ) -> impl IntoElement {
+    ) -> AnyElement {
         let p = pal(cx);
-        let width = f32::from(window.viewport_size().width);
+        let width = f32::from(super::widgets::content_size(window).width);
         let narrow = width < 1100.;
         let hidden = self.settings.layout.sidebar_hidden;
         // With the sidebar folded away, the name gives way to a smaller corner.
@@ -34,24 +34,12 @@ impl AppView {
             .as_deref()
             .is_some_and(|e| e.starts_with("Matches rule"))
             && !self.search_text(cx).is_empty();
-        TitleBar::new()
-            .h(px(48.))
-            .pl_0()
-            .bg(p.back)
-            .border_b_0()
-            // A thin strip that is not a drag area, so Windows offers top-edge resizing.
-            .when(!window.is_maximized(), |el| {
-                el.child(
-                    div()
-                        .id("resize-top")
-                        .absolute()
-                        .top_0()
-                        .left_0()
-                        .right_0()
-                        .h(px(5.))
-                        .occlude(),
-                )
-            })
+        // The sidebar corner, back button, search, and palette button.
+        let content = div()
+            .flex_1()
+            .h_full()
+            .flex()
+            .items_center()
             .child(
                 div()
                     .w(px(corner))
@@ -172,7 +160,38 @@ impl AppView {
                             ),
                     )
                     .child(div().flex_1()),
-            )
+            );
+        // Some Linux desktops (and WSL) draw their own frame with window buttons: then show
+        // the bar without Needle's own buttons.
+        if cfg!(target_os = "linux") && matches!(window.window_decorations(), Decorations::Server) {
+            return div()
+                .h(px(48.))
+                .flex_shrink_0()
+                .flex()
+                .bg(p.back)
+                .child(content)
+                .into_any_element();
+        }
+        TitleBar::new()
+            .h(px(48.))
+            .pl_0()
+            .bg(p.back)
+            .border_b_0()
+            // A thin strip that is not a drag area, so Windows offers top-edge resizing.
+            .when(!window.is_maximized(), |el| {
+                el.child(
+                    div()
+                        .id("resize-top")
+                        .absolute()
+                        .top_0()
+                        .left_0()
+                        .right_0()
+                        .h(px(5.))
+                        .occlude(),
+                )
+            })
+            .child(content)
+            .into_any_element()
     }
 
     fn nav_item(
@@ -296,18 +315,10 @@ impl AppView {
                     .justify_between()
                     .pr_3()
                     .child(
-                        icon_button("new-playlist", "plus", "New playlist from this view")
+                        icon_button("new-playlist", "plus", "New playlist")
                             .xsmall()
                             .on_click(cx.listener(|this, _, window, cx| {
-                                if !this.page.is_tracks() {
-                                    this.navigate(Page::Songs, window, cx);
-                                }
-                                this.show_save = true;
-                                this.playlist_name.update(cx, |s, cx| {
-                                    s.set_value("", window, cx);
-                                    s.focus(window, cx);
-                                });
-                                cx.notify();
+                                this.open_playlist_editor(None, vec![], None, window, cx);
                             })),
                     ),
             )
@@ -425,7 +436,9 @@ impl AppView {
                             .hover(|s| s.bg(p.raised.opacity(0.6)).text_color(p.ink))
                             .child(glyph("folder").size(px(17.)).text_color(p.ink_3))
                             .child("Add music folder")
-                            .on_click(cx.listener(|this, _, _, cx| this.import_folder(cx))),
+                            .on_click(
+                                cx.listener(|this, _, window, cx| this.import_folder(window, cx)),
+                            ),
                     )
                     .child(self.nav_item(
                         "nav-doctor",
@@ -510,6 +523,7 @@ impl AppView {
             "volume"
         };
         let queue_open = self.settings.show_inspector && self.panel == Panel::Queue;
+        let lyrics_open = self.settings.show_inspector && self.panel == Panel::Lyrics;
         div()
             .h(px(80.))
             .flex_shrink_0()
@@ -847,6 +861,19 @@ impl AppView {
                         }))
                     })
                     .child(
+                        Button::new("lyrics-toggle")
+                            .ghost()
+                            .small()
+                            .ml_1()
+                            .icon(icon("lyrics"))
+                            .selected(lyrics_open)
+                            .tooltip("Lyrics · Ctrl+L")
+                            .on_click(cx.listener(|this, _, _, cx| {
+                                this.toggle_panel(Panel::Lyrics);
+                                cx.notify();
+                            })),
+                    )
+                    .child(
                         icon_button("open-mini", "mini", "Mini player · Ctrl+M")
                             .small()
                             .ml_1()
@@ -868,14 +895,8 @@ impl AppView {
                             .icon(icon("queue"))
                             .selected(queue_open)
                             .tooltip("Queue · Ctrl+J")
-                            .on_click(cx.listener(move |this, _, _, cx| {
-                                if queue_open {
-                                    this.settings.show_inspector = false;
-                                } else {
-                                    this.settings.show_inspector = true;
-                                    this.panel = Panel::Queue;
-                                }
-                                this.persist_settings();
+                            .on_click(cx.listener(|this, _, _, cx| {
+                                this.toggle_panel(Panel::Queue);
                                 cx.notify();
                             }))),
                     ),

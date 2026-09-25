@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<component type="desktop-application">
+  <id>fyi.nnx.Needle</id>
+  <name>Needle</name>
+  <summary>A fast, careful player for the music you own</summary>
+  <developer id="fyi.nnx">
+    <name>nnx</name>
+  </developer>
+  <metadata_license>CC0-1.0</metadata_license>
+  <project_license>LicenseRef-proprietary</project_license>
+  <description>
+    <p>Needle plays the music on your computer: lossless, private, and yours to arrange.</p>
+    <ul>
+      <li>Synced lyrics, word by word, and a full screen player</li>
+      <li>Smart playlists built from rules, and playlists with covers</li>
+      <li>Themes, plugins, and your Navidrome or Subsonic server</li>
+      <li>Play on Chromecast, AirPlay, and DLNA speakers</li>
+    </ul>
+  </description>
+  <launchable type="desktop-id">fyi.nnx.Needle.desktop</launchable>
+  <url type="homepage">https://needle.nnx.fyi</url>
+  <url type="help">https://needle.nnx.fyi/help</url>
+  <content_rating type="oars-1.1"/>
+  <releases>
+    <release version="1.5.0" date="2026-09-24"/>
+  </releases>
+</component>

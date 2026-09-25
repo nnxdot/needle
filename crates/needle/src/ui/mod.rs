@@ -4,11 +4,13 @@ mod chrome;
 mod columns;
 mod discord;
 mod doctor;
+mod files;
 mod flow;
 mod folders;
 mod glass;
 mod history;
 mod home;
+mod immersive;
 mod importer;
 mod library;
 mod lyrics;
@@ -20,6 +22,8 @@ mod now_playing;
 mod pages;
 mod palette;
 mod panel;
+mod pickers;
+mod playlist_editor;
 mod plugin_ask;
 mod plugin_ui;
 mod radio;
@@ -37,6 +41,7 @@ mod timing;
 mod tray;
 mod updates;
 mod welcome;
+mod whats_new;
 mod widgets;
 mod wrapped;
 
@@ -90,6 +95,7 @@ actions!(
         VolumeUp,
         VolumeDown,
         ToggleQueue,
+        ToggleLyrics,
         ToggleSidebar,
         GoBack,
         FocusNext,
@@ -99,6 +105,7 @@ actions!(
         PlayNextSelection,
         EnqueueSelection,
         OpenMiniPlayer,
+        ToggleImmersive,
     ]
 );
 
@@ -106,6 +113,27 @@ actions!(
 #[derive(Clone, PartialEq, serde::Deserialize, schemars::JsonSchema, Action)]
 #[action(namespace = needle)]
 pub struct GoTo(pub usize);
+
+/// An error's causes are joined with ": "; libraries that wrap an error often repeat it word
+/// for word ("X.: X."), so a part that says the same as the one before it is left out.
+fn without_repeats(text: &str) -> String {
+    let mut parts: Vec<&str> = Vec::new();
+    for part in text.split(": ") {
+        let same =
+            |a: &str, b: &str| a.trim().trim_end_matches('.') == b.trim().trim_end_matches('.');
+        if parts.last().is_none_or(|last| !same(last, part)) {
+            parts.push(part);
+        }
+    }
+    parts.join(": ")
+}
+
+/// Needle's id on Linux: the window's app id and the launcher's name
+/// (packaging/linux/fyi.nnx.Needle.desktop).
+pub const APP_ID: &str = "fyi.nnx.Needle";
+
+/// The main window's smallest size.
+const MIN_WINDOW: (f32, f32) = (900., 620.);
 
 /// The most tracks one play action queues. Larger libraries play their first 50,000 matches.
 const PLAY_LIMIT: usize = 50_000;
@@ -249,6 +277,7 @@ pub fn quote(text: &str) -> String {
 pub enum Panel {
     Details,
     Queue,
+    Lyrics,
 }
 
 #[derive(Clone, Copy, PartialEq)]
@@ -350,6 +379,13 @@ pub struct AppView {
     /// The track the details panel describes: the last one clicked.
     focused: Option<Track>,
     panel: Panel,
+    /// The side panel as last drawn (`None` when hidden), and a count that goes up each time
+    /// it opens or changes tab, so its content slides in once.
+    panel_shown: Option<Panel>,
+    /// Details was picked in the panel on a page that is not a song list, so it stays open
+    /// there until the page changes.
+    details_here: bool,
+    panel_serial: u64,
     menu: Option<menus::TrackMenu>,
     playlist_menu: Option<menus::PlaylistMenu>,
     header_menu: Option<columns::HeaderMenu>,
@@ -382,7 +418,6 @@ pub struct AppView {
     page_offset: usize,
     loop_start: Option<f64>,
     search: Entity<InputState>,
-    playlist_name: Entity<InputState>,
     autoplay: Entity<InputState>,
     sync_phrase: Entity<InputState>,
     tags: TagFields,
@@ -406,7 +441,10 @@ pub struct AppView {
     explanation: Option<String>,
     generation: u64,
     loading: bool,
-    show_save: bool,
+    /// The playlist window, while it is open.
+    editor: Option<playlist_editor::PlaylistEditor>,
+    /// The "Add songs" window of a playlist, while it is open.
+    add_songs: Option<playlist_editor::AddSongs>,
     confirm_delete: bool,
     editing: bool,
     matches: Vec<RecordingMatch>,
@@ -423,6 +461,21 @@ pub struct AppView {
     big_was: bool,
     /// The big player is growing or shrinking; both layers are drawn meanwhile.
     big_moving: bool,
+    /// Immersive mode: the playing song across the whole screen.
+    immersive: bool,
+    /// When the pointer last moved there; the controls rest a while after.
+    immersive_moved: Instant,
+    /// Whether its controls show, and a count of changes so each fades once.
+    immersive_shown: bool,
+    immersive_serial: u64,
+    /// Whether it shows the lyrics beside the cover, when the song has them.
+    immersive_lyrics: bool,
+    /// A wait for the controls to rest is running.
+    immersive_waiting: bool,
+    /// Immersive mode took the window to full screen, so leaving it takes it back.
+    immersive_toggled: bool,
+    /// The window's size before immersive mode, given back when it ends.
+    immersive_restore: Option<Size<Pixels>>,
     big_serial: usize,
     /// Big player background: the colour it is fading from, to, and a counter for the fade.
     big_tint: (Hsla, Hsla, usize),
@@ -440,12 +493,16 @@ pub struct AppView {
     lyrics: Option<(String, Option<needle_core::media::Lyrics>)>,
     lyric_line: Option<usize>,
     lyrics_scroll: ScrollHandle,
+    /// The lyrics in the side panel, which scroll on their own.
+    panel_lyrics_scroll: ScrollHandle,
     /// The mini player's lyrics scroll on their own (a scroll handle shown in two windows
     /// would mix up their sizes).
     mini_lyrics_scroll: ScrollHandle,
     mini_lyric_glide: bool,
     /// The lyrics are easing toward the sung line.
     lyric_glide: bool,
+    /// Frames waited for newly opened lyrics to be laid out before gliding.
+    lyric_glide_waits: u8,
     artist_images: std::collections::HashMap<String, Option<String>>,
     recent: Vec<Listen>,
     /// The tracks behind `recent`, for covers.
@@ -462,6 +519,8 @@ pub struct AppView {
     hidden: bool,
     /// The welcome guide's step, while it is open.
     welcome_step: Option<usize>,
+    /// The "What's new" card, while it is open.
+    whats_new: Option<whats_new::Notes>,
     /// The phone remote, while it is on.
     remote: Option<needle_core::remote::Server>,
     /// Timing sliders for the members of a speaker group, by address.
@@ -564,11 +623,13 @@ pub fn run(library: Library, files: Vec<std::path::PathBuf>) -> Result<()> {
                 KeyBinding::new("ctrl-k", OpenPalette, Some("Needle")),
                 KeyBinding::new("ctrl-o", ImportFolder, Some("Needle")),
                 KeyBinding::new("ctrl-j", ToggleQueue, Some("Needle")),
+                KeyBinding::new("ctrl-l", ToggleLyrics, Some("Needle")),
                 KeyBinding::new("ctrl-b", ToggleSidebar, Some("Needle")),
                 KeyBinding::new("escape", EscapePanel, Some("Needle")),
                 KeyBinding::new("tab", FocusNext, tracks),
                 KeyBinding::new("ctrl-p", ToggleBigPlayer, Some("Needle")),
                 KeyBinding::new("ctrl-m", OpenMiniPlayer, Some("Needle")),
+                KeyBinding::new("f11", ToggleImmersive, Some("Needle")),
                 KeyBinding::new("shift-tab", FocusPrevious, Some("Needle")),
                 KeyBinding::new("ctrl-1", GoTo(0), Some("Needle")),
                 KeyBinding::new("ctrl-2", GoTo(1), Some("Needle")),
@@ -582,8 +643,12 @@ pub fn run(library: Library, files: Vec<std::path::PathBuf>) -> Result<()> {
             let bounds = Bounds::centered(None, size(px(1380.), px(880.)), cx);
             let options = WindowOptions {
                 window_bounds: Some(WindowBounds::Windowed(bounds)),
-                window_min_size: Some(size(px(900.), px(620.))),
+                window_min_size: Some(size(px(MIN_WINDOW.0), px(MIN_WINDOW.1))),
                 titlebar: Some(TitleBar::title_bar_options()),
+                // Linux: Needle draws its own title bar, so ask the desktop not to add one.
+                window_decorations: cfg!(target_os = "linux").then_some(WindowDecorations::Client),
+                // Linux desktops find the name and icon through the launcher of this id.
+                app_id: Some(APP_ID.into()),
                 ..Default::default()
             };
             match cx.open_window(options, move |window, cx| {
@@ -634,7 +699,6 @@ impl AppView {
         let search = cx.new(|cx| {
             InputState::new(window, cx).placeholder("Search, or write a rule like  rating >= 4")
         });
-        let playlist_name = cx.new(|cx| InputState::new(window, cx).placeholder("Playlist name"));
         let autoplay = cx.new(|cx| {
             InputState::new(window, cx)
                 .placeholder("rating >= 4 and not played(7d) shuffle limit 20")
@@ -787,6 +851,9 @@ impl AppView {
             selection: Selection::default(),
             focused: None,
             panel: Panel::Details,
+            panel_shown: None,
+            details_here: false,
+            panel_serial: 0,
             menu: None,
             playlist_menu: None,
             header_menu: None,
@@ -810,6 +877,7 @@ impl AppView {
             speaker_timing: Default::default(),
             remote: None,
             welcome_step: None,
+            whats_new: None,
             tray: None,
             hidden: false,
             discord_idle_since: None,
@@ -820,7 +888,6 @@ impl AppView {
             page_offset: 0,
             loop_start: None,
             search,
-            playlist_name,
             autoplay,
             sync_phrase,
             tags,
@@ -844,7 +911,8 @@ impl AppView {
             explanation: None,
             generation: 0,
             loading: true,
-            show_save: false,
+            editor: None,
+            add_songs: None,
             confirm_delete: false,
             editing: false,
             matches: vec![],
@@ -859,6 +927,14 @@ impl AppView {
             big_side: now_playing::Side::Lyrics,
             big_was: false,
             big_moving: false,
+            immersive: false,
+            immersive_moved: Instant::now(),
+            immersive_shown: true,
+            immersive_serial: 0,
+            immersive_lyrics: true,
+            immersive_waiting: false,
+            immersive_restore: None,
+            immersive_toggled: false,
             big_serial: 0,
             big_tint: (gpui::transparent_black(), gpui::transparent_black(), 0),
             looks: Default::default(),
@@ -872,9 +948,11 @@ impl AppView {
             lyrics: None,
             lyric_line: None,
             lyrics_scroll: ScrollHandle::new(),
+            panel_lyrics_scroll: ScrollHandle::new(),
             mini_lyrics_scroll: ScrollHandle::new(),
             mini_lyric_glide: false,
             lyric_glide: false,
+            lyric_glide_waits: 0,
             artist_images: Default::default(),
             recent: vec![],
             recent_tracks: Default::default(),
@@ -923,6 +1001,7 @@ impl AppView {
         view.check_for_update(false);
         view.apply_remote();
         view.apply_tray();
+        view.maybe_whats_new();
         view.maybe_welcome();
         {
             // Crash reports from earlier runs: send them (unless turned off), in the background.
@@ -984,7 +1063,7 @@ impl AppView {
     }
     fn fail(&mut self, text: impl Into<String>) {
         self.toast = Some(Toast {
-            text: text.into(),
+            text: without_repeats(&text.into()),
             error: true,
             shown: Instant::now(),
         });
@@ -995,6 +1074,18 @@ impl AppView {
         self.scrobble_summary = integrations::scrobble_summary(&self.library).ok();
     }
 
+    /// Show `panel` in the side panel, or hide the side panel if it already shows it.
+    fn toggle_panel(&mut self, panel: Panel) {
+        if self.settings.show_inspector && self.panel == panel {
+            self.settings.show_inspector = false;
+        } else {
+            self.settings.show_inspector = true;
+            self.panel = panel;
+            // Bring the sung line into view as the lyrics appear.
+            self.lyric_glide = panel == Panel::Lyrics && self.lyric_line.is_some();
+        }
+        self.persist_settings();
+    }
     fn toggle_sidebar(&mut self) {
         self.settings.layout.sidebar_hidden = !self.settings.layout.sidebar_hidden;
         self.persist_settings();
@@ -1223,8 +1314,13 @@ impl AppView {
                     }
                 }
                 Event::Lyrics(id, lyrics) => {
-                    self.lyrics = Some((id, lyrics));
-                    self.lyric_line = None;
+                    // A late answer for a song that is no longer playing (a lookup started
+                    // again after turning a plugin on, say) must not replace this song's.
+                    let current = self.playback.current.as_ref().map(|c| &c.track.id);
+                    if current.is_none_or(|current| *current == id) {
+                        self.lyrics = Some((id, lyrics));
+                        self.lyric_line = None;
+                    }
                 }
                 Event::ArtistImage(name, path) => {
                     self.artist_images.insert(name, path);
@@ -1525,6 +1621,7 @@ impl AppView {
             return;
         }
         self.remember_scroll();
+        self.details_here = false;
         if page != self.page {
             self.back.push(self.page.clone());
             if self.back.len() > 50 {
@@ -1541,6 +1638,7 @@ impl AppView {
         }
     }
     fn open(&mut self, page: Page, window: &mut Window, cx: &mut Context<Self>) {
+        self.details_here = false;
         self.page = page;
         self.page_serial += 1;
         self.pending_scroll = None;
@@ -1548,17 +1646,10 @@ impl AppView {
         self.confirm_delete = false;
         self.menu = None;
         self.sort = Sort::Default;
-        if let Page::Playlist(id) = &self.page
-            && let Some(list) = self.playlists.iter().find(|p| &p.id == id)
-        {
-            self.playlist_name
-                .update(cx, |s, cx| s.set_value(list.name.clone(), window, cx));
-        }
         self.page_offset = 0;
         self.tracks.clear();
         self.selection = Selection::default();
         self.search.update(cx, |s, cx| s.set_value("", window, cx));
-        self.show_save = false;
         if self.page == Page::History {
             self.load_history();
         }
@@ -1666,7 +1757,7 @@ impl AppView {
             self.matches.clear();
         }
         self.focused = Some(track);
-        if self.panel == Panel::Queue && !self.settings.show_inspector {
+        if self.panel != Panel::Details && !self.settings.show_inspector {
             self.panel = Panel::Details;
         }
     }
@@ -1699,7 +1790,18 @@ impl AppView {
             .collect()
     }
 
-    fn import_folder(&mut self, cx: &mut Context<Self>) {
+    fn import_folder(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if self.scan.is_some() {
+            return;
+        }
+        if !pickers::available() {
+            self.ask_music_folder(window, cx);
+            return;
+        }
+        self.scan_folder(None, cx);
+    }
+    /// Add `folder` to the library, or the folder the person picks when it is `None`.
+    fn scan_folder(&mut self, folder: Option<std::path::PathBuf>, cx: &mut Context<Self>) {
         if self.scan.is_some() {
             return;
         }
@@ -1708,14 +1810,20 @@ impl AppView {
         let cancel = Arc::new(AtomicBool::new(false));
         self.cancel = cancel.clone();
         self.scan = Some(ScanProgress {
-            current: "Choose a music folder…".into(),
+            current: if folder.is_some() {
+                "Adding the folder…".into()
+            } else {
+                "Choose a music folder…".into()
+            },
             ..Default::default()
         });
         std::thread::spawn(move || {
-            if let Some(folder) = rfd::FileDialog::new()
-                .set_title("Add a music folder to Needle")
-                .pick_folder()
-            {
+            let folder = folder.or_else(|| {
+                rfd::FileDialog::new()
+                    .set_title("Add a music folder to Needle")
+                    .pick_folder()
+            });
+            if let Some(folder) = folder {
                 if let Err(e) = scan::import(&library, &folder, cancel, |p| {
                     let _ = sender.send(Event::Imported(p));
                 }) {
@@ -1980,52 +2088,24 @@ impl AppView {
         }
     }
 
-    fn save_playlist(&mut self, smart: bool, cx: &mut Context<Self>) {
-        let name = self.playlist_name.read(cx).value().trim().to_string();
-        if name.is_empty() {
-            self.fail("Give the playlist a name first.");
-            return;
-        }
-        let expression = self.expression(cx);
-        if smart && expression.trim().is_empty() {
-            self.fail(
-                "A smart playlist needs a rule. Type one in search first, like  rating >= 4.",
-            );
-            return;
-        }
-        let selected = self.selected_tracks();
-        let track_ids = if selected.len() > 1 {
-            selected
-        } else {
-            self.tracks.clone()
-        }
-        .into_iter()
-        .map(|t| t.id)
-        .collect();
-        let playlist = Playlist {
-            id: crate::uuid_string(),
-            name,
-            query: smart.then_some(expression),
-            track_ids: if smart { vec![] } else { track_ids },
-            updated_at: chrono::Utc::now().timestamp(),
-        };
-        match self.library.save_playlist(&playlist) {
-            Ok(()) => {
-                self.playlists = self.library.playlists().unwrap_or_default();
-                self.show_save = false;
-                self.notify(format!("Saved “{}”.", playlist.name));
-            }
-            Err(e) => self.fail(e.to_string()),
-        }
-        cx.notify();
-    }
     fn add_to_playlist(&mut self, playlist_id: &str, tracks: Vec<Track>) {
         let Some(mut playlist) = self.playlists.iter().find(|p| p.id == playlist_id).cloned()
         else {
             return;
         };
-        let count = tracks.len();
-        playlist.track_ids.extend(tracks.into_iter().map(|t| t.id));
+        // A song is in a playlist once.
+        let mut new: Vec<String> = vec![];
+        for track in tracks {
+            if !playlist.track_ids.contains(&track.id) && !new.contains(&track.id) {
+                new.push(track.id);
+            }
+        }
+        if new.is_empty() {
+            self.notify(format!("Already in “{}”.", playlist.name));
+            return;
+        }
+        let count = new.len();
+        playlist.track_ids.extend(new);
         playlist.updated_at = chrono::Utc::now().timestamp();
         match self.library.save_playlist(&playlist) {
             Ok(()) => {
@@ -2042,6 +2122,98 @@ impl AppView {
             }
             Err(e) => self.fail(e.to_string()),
         }
+    }
+
+    /// The playlist of picked songs this page shows, when its own order is shown (no search,
+    /// no sorting): the one songs can be moved about in and removed from.
+    fn arrangeable_playlist(&self, cx: &App) -> Option<Playlist> {
+        let Page::Playlist(id) = &self.page else {
+            return None;
+        };
+        self.playlists
+            .iter()
+            .find(|p| &p.id == id && p.query.is_none())
+            .filter(|_| self.sort == Sort::Default && self.search_text(cx).is_empty())
+            .cloned()
+    }
+
+    /// Move the songs `ids` to just before the song shown at `target` (the end when past it).
+    fn move_in_playlist(&mut self, ids: &[String], target: usize, cx: &mut Context<Self>) {
+        let Some(mut playlist) = self.arrangeable_playlist(cx) else {
+            return;
+        };
+        let before = self.tracks.get(target).map(|t| t.id.clone());
+        if before.as_ref().is_some_and(|b| ids.contains(b)) {
+            return;
+        }
+        let moving: Vec<String> = playlist
+            .track_ids
+            .iter()
+            .filter(|id| ids.contains(id))
+            .cloned()
+            .collect();
+        if moving.is_empty() {
+            // Songs from elsewhere dropped here: add them at that spot.
+            return self.insert_into_playlist(playlist, ids.to_vec(), before, cx);
+        }
+        playlist.track_ids.retain(|id| !ids.contains(id));
+        self.insert_into_playlist(playlist, moving, before, cx);
+    }
+
+    fn insert_into_playlist(
+        &mut self,
+        mut playlist: Playlist,
+        ids: Vec<String>,
+        before: Option<String>,
+        cx: &mut Context<Self>,
+    ) {
+        // Songs already in it (dropped again from elsewhere) are not added twice.
+        let mut ids = ids;
+        ids.retain(|id| !playlist.track_ids.contains(id));
+        ids.dedup();
+        let at = before
+            .and_then(|b| playlist.track_ids.iter().position(|id| *id == b))
+            .unwrap_or(playlist.track_ids.len());
+        playlist.track_ids.splice(at..at, ids);
+        playlist.updated_at = chrono::Utc::now().timestamp();
+        match self.library.save_playlist(&playlist) {
+            Ok(()) => {
+                self.playlists = self.library.playlists().unwrap_or_default();
+                self.refresh(cx);
+            }
+            Err(e) => self.fail(e.to_string()),
+        }
+        cx.notify();
+    }
+
+    /// Take the selected songs out of this page's playlist. The files stay.
+    fn remove_from_playlist(&mut self, cx: &mut Context<Self>) {
+        let Some(mut playlist) = self.arrangeable_playlist(cx) else {
+            return;
+        };
+        let ids: Vec<String> = self.selected_tracks().into_iter().map(|t| t.id).collect();
+        let before = playlist.track_ids.len();
+        playlist.track_ids.retain(|id| !ids.contains(id));
+        let removed = before - playlist.track_ids.len();
+        playlist.updated_at = chrono::Utc::now().timestamp();
+        match self.library.save_playlist(&playlist) {
+            Ok(()) => {
+                self.playlists = self.library.playlists().unwrap_or_default();
+                self.selection = Selection::default();
+                self.notify(format!(
+                    "Took {} out of “{}”.",
+                    if removed == 1 {
+                        "1 song".to_string()
+                    } else {
+                        format!("{removed} songs")
+                    },
+                    playlist.name
+                ));
+                self.refresh(cx);
+            }
+            Err(e) => self.fail(e.to_string()),
+        }
+        cx.notify();
     }
 
     fn lookup(&mut self, cx: &mut Context<Self>) {
@@ -2119,7 +2291,7 @@ impl Render for AppView {
             self.finish_column_resize();
         }
         let p = pal(cx);
-        let width = window.viewport_size().width;
+        let width = widgets::content_size(window).width;
         let sidebar_open = !self.settings.layout.sidebar_hidden;
         let sidebar = if sidebar_open {
             self.settings.layout.sidebar_width.clamp(200., 260.)
@@ -2132,7 +2304,14 @@ impl Render for AppView {
         let show_panel = self.settings.show_inspector
             && f32::from(width) - sidebar - panel_width >= 360.
             && self.total > 0
-            && (self.page.is_tracks() || self.panel == Panel::Queue);
+            && (self.page.is_tracks() || self.panel != Panel::Details || self.details_here);
+        let shown = show_panel.then_some(self.panel);
+        if shown != self.panel_shown {
+            self.panel_shown = shown;
+            if shown.is_some() {
+                self.panel_serial += 1;
+            }
+        }
         // The page and the side panel share one content surface to the right of the sidebar.
         let content_width =
             f32::from(width) - sidebar - if show_panel { panel_width } else { 0. } - 1.;
@@ -2161,7 +2340,7 @@ impl Render for AppView {
             }
         }
         let big_layer = (self.big || self.big_moving).then(|| {
-            let body = window.viewport_size();
+            let body = widgets::content_size(window);
             let (w, h) = (f32::from(body.width), f32::from(body.height) - 48.);
             let player = self.big_player(window, cx);
             self.big_reveal(player, w, h, cx)
@@ -2288,13 +2467,11 @@ impl Render for AppView {
                 cx.notify();
             }))
             .on_action(cx.listener(|this, _: &ToggleQueue, _, cx| {
-                if this.settings.show_inspector && this.panel == Panel::Queue {
-                    this.settings.show_inspector = false;
-                } else {
-                    this.settings.show_inspector = true;
-                    this.panel = Panel::Queue;
-                }
-                this.persist_settings();
+                this.toggle_panel(Panel::Queue);
+                cx.notify();
+            }))
+            .on_action(cx.listener(|this, _: &ToggleLyrics, _, cx| {
+                this.toggle_panel(Panel::Lyrics);
                 cx.notify();
             }))
             .on_action(cx.listener(|this, _: &GoBack, window, cx| this.go_back(window, cx)))
@@ -2312,6 +2489,10 @@ impl Render for AppView {
             .on_action(
                 cx.listener(|this, _: &OpenMiniPlayer, window, cx| this.open_mini(window, cx)),
             )
+            .on_action(cx.listener(|this, _: &ToggleImmersive, window, cx| {
+                let on = !this.immersive;
+                this.set_immersive(on, window, cx);
+            }))
             .on_action(|_: &FocusNext, window, _| window.focus_next())
             .on_action(|_: &FocusPrevious, window, _| window.focus_prev())
             .on_action(cx.listener(|this, GoTo(index): &GoTo, window, cx| {
@@ -2330,11 +2511,19 @@ impl Render for AppView {
             .on_action(cx.listener(|this, _: &FocusSearch, window, cx| {
                 this.search.update(cx, |s, cx| s.focus(window, cx))
             }))
-            .on_action(cx.listener(|this, _: &ImportFolder, _, cx| this.import_folder(cx)))
+            .on_action(
+                cx.listener(|this, _: &ImportFolder, window, cx| this.import_folder(window, cx)),
+            )
             .on_action(cx.listener(|this, _: &EscapePanel, window, cx| {
+                if this.immersive {
+                    this.set_immersive(false, window, cx);
+                    return;
+                }
                 if this.big {
                     this.big = false;
-                } else if this.menu.take().is_none() && !this.show_save && !this.editing {
+                } else if this.editor.take().is_some() || this.add_songs.take().is_some() {
+                    // Esc closes the playlist window.
+                } else if this.menu.take().is_none() && !this.editing {
                     if !this.search_text(cx).is_empty() {
                         this.search.update(cx, |s, cx| s.set_value("", window, cx));
                         this.refresh(cx);
@@ -2342,7 +2531,6 @@ impl Render for AppView {
                         this.selection = Selection::default();
                     }
                 }
-                this.show_save = false;
                 this.editing = false;
                 window.focus(&this.focus);
                 cx.notify();
@@ -2351,7 +2539,9 @@ impl Render for AppView {
             // pointer consumes the mouse-down, and Windows then never starts a drag, resize, or
             // maximize from the title bar.
             .children(ambient_layer)
-            .child(self.title_bar(sidebar, window, cx))
+            .when(!self.immersive, |el| {
+                el.child(self.title_bar(sidebar, window, cx))
+            })
             .child(
                 div()
                     .id("needle-body")
@@ -2361,7 +2551,10 @@ impl Render for AppView {
                     .flex()
                     .flex_col()
                     .relative()
-                    .when(!self.big || self.big_moving, |el| {
+                    .when(self.immersive, |el| {
+                        el.child(self.immersive_view(window, cx))
+                    })
+                    .when(!self.immersive && (!self.big || self.big_moving), |el| {
                         el.child(
                             div()
                                 .flex_1()
@@ -2394,7 +2587,7 @@ impl Render for AppView {
                         )
                         .child(self.player_bar(width, cx))
                     })
-                    .children(big_layer),
+                    .when(!self.immersive, |el| el.children(big_layer)),
             )
             .children(grain)
             .children(self.toast(cx))
@@ -2405,6 +2598,9 @@ impl Render for AppView {
             .children(self.speaker_menu_view(cx))
             .children(self.palette_view(cx))
             .children(self.welcome_view(window, cx))
+            .children(self.whats_new_view(window, cx))
+            .children(self.playlist_editor_view(window, cx))
+            .children(self.add_songs_view(window, cx))
             .children(self.asking_view(cx))
     }
 }

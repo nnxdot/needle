@@ -2,8 +2,16 @@
 use anyhow::{Result, bail};
 use std::{collections::HashMap, sync::Mutex};
 
-/// Windows Credential Manager entries appear as `<account>.nnx.Needle`.
+/// Windows Credential Manager entries appear as `<account>.nnx.Needle`; on Linux the
+/// Secret Service item has the service `nnx.Needle` and the account as its user.
 pub const SERVICE_NAME: &str = "nnx.Needle";
+
+/// Where secrets are kept, as people know it.
+pub const STORE_NAME: &str = if cfg!(windows) {
+    "Windows Credential Manager"
+} else {
+    "GNOME Keyring or KWallet"
+};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum SecretKind {
@@ -66,40 +74,38 @@ pub trait SecretStore: Send + Sync {
     fn delete(&self, kind: SecretKind) -> Result<()>;
 }
 
-/// The Windows Credential Manager. Other platforms report that no secure store is available.
+/// Windows Credential Manager, or on Linux the Secret Service (GNOME Keyring, KWallet). Other
+/// platforms report that no secure store is available.
 pub struct SystemStore;
-#[cfg(windows)]
+#[cfg(any(windows, target_os = "linux"))]
 impl SystemStore {
     fn entry(kind: SecretKind) -> Result<keyring::Entry> {
         keyring::Entry::new(SERVICE_NAME, kind.account())
-            .map_err(|e| anyhow::anyhow!("Credential Manager: {e}"))
+            .map_err(|e| anyhow::anyhow!("{STORE_NAME}: {e}"))
     }
 }
-#[cfg(windows)]
+#[cfg(any(windows, target_os = "linux"))]
 impl SecretStore for SystemStore {
     fn get(&self, kind: SecretKind) -> Result<Option<String>> {
         match Self::entry(kind)?.get_password() {
             Ok(value) => Ok(Some(value).filter(|v| !v.is_empty())),
             Err(keyring::Error::NoEntry) => Ok(None),
-            Err(e) => bail!("Credential Manager could not read {}: {e}", kind.account()),
+            Err(e) => bail!("{STORE_NAME} could not read {}: {e}", kind.account()),
         }
     }
     fn set(&self, kind: SecretKind, value: &str) -> Result<()> {
-        Self::entry(kind)?.set_password(value).map_err(|e| {
-            anyhow::anyhow!("Credential Manager could not save {}: {e}", kind.account())
-        })
+        Self::entry(kind)?
+            .set_password(value)
+            .map_err(|e| anyhow::anyhow!("{STORE_NAME} could not save {}: {e}", kind.account()))
     }
     fn delete(&self, kind: SecretKind) -> Result<()> {
         match Self::entry(kind)?.delete_credential() {
             Ok(()) | Err(keyring::Error::NoEntry) => Ok(()),
-            Err(e) => bail!(
-                "Credential Manager could not remove {}: {e}",
-                kind.account()
-            ),
+            Err(e) => bail!("{STORE_NAME} could not remove {}: {e}", kind.account()),
         }
     }
 }
-#[cfg(not(windows))]
+#[cfg(not(any(windows, target_os = "linux")))]
 impl SecretStore for SystemStore {
     fn get(&self, _: SecretKind) -> Result<Option<String>> {
         Ok(None)
@@ -138,12 +144,12 @@ pub fn redact(text: &str, secrets: &[&str]) -> String {
     text
 }
 
-/// Secrets a plugin keeps (a source's password, for example): in the Windows Credential
-/// Manager as `plugin:<id>:<key>`, and in memory in tests.
+/// Secrets a plugin keeps (a source's password, for example): in the system store (see
+/// [`STORE_NAME`]) as `plugin:<id>:<key>`, and in memory in tests.
 pub mod plugin {
     use anyhow::Result;
 
-    #[cfg(all(not(test), not(windows)))]
+    #[cfg(all(not(test), not(windows), not(target_os = "linux")))]
     fn memory() -> &'static std::sync::Mutex<std::collections::HashMap<String, String>> {
         static STORE: std::sync::LazyLock<
             std::sync::Mutex<std::collections::HashMap<String, String>>,
@@ -167,30 +173,32 @@ pub mod plugin {
     }
 
     pub fn get(plugin: &str, key: &str) -> Result<Option<String>> {
-        #[cfg(all(windows, not(test)))]
+        #[cfg(all(any(windows, target_os = "linux"), not(test)))]
         {
             let entry = keyring::Entry::new(super::SERVICE_NAME, &account(plugin, key))
-                .map_err(|e| anyhow::anyhow!("Credential Manager: {e}"))?;
+                .map_err(|e| anyhow::anyhow!("{}: {e}", super::STORE_NAME))?;
             match entry.get_password() {
                 Ok(value) => Ok(Some(value).filter(|v| !v.is_empty())),
                 Err(keyring::Error::NoEntry) => Ok(None),
-                Err(e) => anyhow::bail!("Credential Manager could not read a plugin secret: {e}"),
+                Err(e) => {
+                    anyhow::bail!("{} could not read a plugin secret: {e}", super::STORE_NAME)
+                }
             }
         }
-        #[cfg(any(test, not(windows)))]
+        #[cfg(any(test, not(any(windows, target_os = "linux"))))]
         Ok(memory().lock().unwrap().get(&account(plugin, key)).cloned())
     }
 
     pub fn set(plugin: &str, key: &str, value: &str) -> Result<()> {
-        #[cfg(all(windows, not(test)))]
+        #[cfg(all(any(windows, target_os = "linux"), not(test)))]
         {
             keyring::Entry::new(super::SERVICE_NAME, &account(plugin, key))
                 .and_then(|e| e.set_password(value))
                 .map_err(|e| {
-                    anyhow::anyhow!("Credential Manager could not save a plugin secret: {e}")
+                    anyhow::anyhow!("{} could not save a plugin secret: {e}", super::STORE_NAME)
                 })
         }
-        #[cfg(any(test, not(windows)))]
+        #[cfg(any(test, not(any(windows, target_os = "linux"))))]
         {
             memory()
                 .lock()
@@ -201,16 +209,19 @@ pub mod plugin {
     }
 
     pub fn delete(plugin: &str, key: &str) -> Result<()> {
-        #[cfg(all(windows, not(test)))]
+        #[cfg(all(any(windows, target_os = "linux"), not(test)))]
         {
             let entry = keyring::Entry::new(super::SERVICE_NAME, &account(plugin, key))
-                .map_err(|e| anyhow::anyhow!("Credential Manager: {e}"))?;
+                .map_err(|e| anyhow::anyhow!("{}: {e}", super::STORE_NAME))?;
             match entry.delete_credential() {
                 Ok(()) | Err(keyring::Error::NoEntry) => Ok(()),
-                Err(e) => anyhow::bail!("Credential Manager could not remove a plugin secret: {e}"),
+                Err(e) => anyhow::bail!(
+                    "{} could not remove a plugin secret: {e}",
+                    super::STORE_NAME
+                ),
             }
         }
-        #[cfg(any(test, not(windows)))]
+        #[cfg(any(test, not(any(windows, target_os = "linux"))))]
         {
             memory().lock().unwrap().remove(&account(plugin, key));
             Ok(())

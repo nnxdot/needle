@@ -327,6 +327,7 @@ fn save_playlist(
         query: None,
         track_ids,
         updated_at: chrono::Utc::now().timestamp(),
+        ..Default::default()
     })?;
     Ok(true)
 }
