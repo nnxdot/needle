@@ -10,6 +10,15 @@ use needle_core::{
     model::Track,
 };
 
+/// Where lyrics show, which sets their size and which scroll position they keep.
+#[derive(Clone, Copy, PartialEq)]
+pub enum LyricsKind {
+    Big,
+    Side,
+    Mini,
+    Immersive,
+}
+
 impl AppView {
     /// Look up lyrics, missing album art, and the artist photo for a newly playing track.
     pub(super) fn track_started(&mut self, track: &Track) {
@@ -135,14 +144,12 @@ impl AppView {
         self.mini_lyric_glide
     }
 
-    /// Lyrics for the big player (`big`), the side panel, or the mini player (`mini`), which
-    /// keeps its own scroll position.
-    pub(super) fn lyrics_view(
-        &self,
-        big: bool,
-        mini: bool,
-        cx: &mut Context<Self>,
-    ) -> impl IntoElement {
+    /// Lyrics for the big player, the side panel, the mini player (which keeps its own scroll
+    /// position), or the immersive full screen.
+    pub(super) fn lyrics_view(&self, kind: LyricsKind, cx: &mut Context<Self>) -> impl IntoElement {
+        let big = matches!(kind, LyricsKind::Big | LyricsKind::Immersive);
+        let mini = kind == LyricsKind::Mini;
+        let huge = kind == LyricsKind::Immersive;
         let p = pal(cx);
         let current = self.playback.current.as_ref().map(|c| c.track.id.clone());
         let lyrics: Option<&Lyrics> = match (&self.lyrics, &current) {
@@ -155,8 +162,10 @@ impl AppView {
                 .as_ref()
                 .is_none_or(|(id, _)| Some(id) != current.as_ref());
         // The side panel has room for larger lines than the mini player.
-        let side = !big && !mini;
-        let size = if big {
+        let side = kind == LyricsKind::Side;
+        let size = if huge {
+            40.
+        } else if big {
             22.
         } else if side {
             19.
@@ -240,7 +249,9 @@ impl AppView {
             LyricsSource::Lrclib => "From LRCLIB",
         };
         // Lines are direct children of the scroll area so the view can scroll to one of them.
-        let gap = if big {
+        let gap = if huge {
+            26.
+        } else if big {
             14.
         } else if side {
             12.
@@ -365,8 +376,20 @@ impl AppView {
             // Room above and below so any line can glide to the reading spot.
             .when(!lyrics.lines.is_empty(), |el| {
                 // Enough room below for the last lines to move up, not a screenful of nothing.
-                el.pt(px(if big { 140. } else { 48. }))
-                    .pb(px(if big { 140. } else { 60. }))
+                el.pt(px(if huge {
+                    260.
+                } else if big {
+                    140.
+                } else {
+                    48.
+                }))
+                .pb(px(if huge {
+                    320.
+                } else if big {
+                    140.
+                } else {
+                    60.
+                }))
             })
             .when(lyrics.lines.is_empty(), |el| el.pb_20())
             .children(lines)

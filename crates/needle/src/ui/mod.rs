@@ -10,6 +10,7 @@ mod folders;
 mod glass;
 mod history;
 mod home;
+mod immersive;
 mod importer;
 mod library;
 mod lyrics;
@@ -102,6 +103,7 @@ actions!(
         PlayNextSelection,
         EnqueueSelection,
         OpenMiniPlayer,
+        ToggleImmersive,
     ]
 );
 
@@ -455,6 +457,19 @@ pub struct AppView {
     big_was: bool,
     /// The big player is growing or shrinking; both layers are drawn meanwhile.
     big_moving: bool,
+    /// Immersive mode: the playing song across the whole screen.
+    immersive: bool,
+    /// When the pointer last moved there; the controls rest a while after.
+    immersive_moved: Instant,
+    /// Whether its controls show, and a count of changes so each fades once.
+    immersive_shown: bool,
+    immersive_serial: u64,
+    /// Whether it shows the lyrics beside the cover, when the song has them.
+    immersive_lyrics: bool,
+    /// A wait for the controls to rest is running.
+    immersive_waiting: bool,
+    /// The window's size before immersive mode, given back when it ends.
+    immersive_restore: Option<Size<Pixels>>,
     big_serial: usize,
     /// Big player background: the colour it is fading from, to, and a counter for the fade.
     big_tint: (Hsla, Hsla, usize),
@@ -604,6 +619,7 @@ pub fn run(library: Library, files: Vec<std::path::PathBuf>) -> Result<()> {
                 KeyBinding::new("tab", FocusNext, tracks),
                 KeyBinding::new("ctrl-p", ToggleBigPlayer, Some("Needle")),
                 KeyBinding::new("ctrl-m", OpenMiniPlayer, Some("Needle")),
+                KeyBinding::new("f11", ToggleImmersive, Some("Needle")),
                 KeyBinding::new("shift-tab", FocusPrevious, Some("Needle")),
                 KeyBinding::new("ctrl-1", GoTo(0), Some("Needle")),
                 KeyBinding::new("ctrl-2", GoTo(1), Some("Needle")),
@@ -901,6 +917,13 @@ impl AppView {
             big_side: now_playing::Side::Lyrics,
             big_was: false,
             big_moving: false,
+            immersive: false,
+            immersive_moved: Instant::now(),
+            immersive_shown: true,
+            immersive_serial: 0,
+            immersive_lyrics: true,
+            immersive_waiting: false,
+            immersive_restore: None,
             big_serial: 0,
             big_tint: (gpui::transparent_black(), gpui::transparent_black(), 0),
             looks: Default::default(),
@@ -2390,6 +2413,10 @@ impl Render for AppView {
             .on_action(
                 cx.listener(|this, _: &OpenMiniPlayer, window, cx| this.open_mini(window, cx)),
             )
+            .on_action(cx.listener(|this, _: &ToggleImmersive, window, cx| {
+                let on = !this.immersive;
+                this.set_immersive(on, window, cx);
+            }))
             .on_action(|_: &FocusNext, window, _| window.focus_next())
             .on_action(|_: &FocusPrevious, window, _| window.focus_prev())
             .on_action(cx.listener(|this, GoTo(index): &GoTo, window, cx| {
@@ -2412,6 +2439,10 @@ impl Render for AppView {
                 cx.listener(|this, _: &ImportFolder, window, cx| this.import_folder(window, cx)),
             )
             .on_action(cx.listener(|this, _: &EscapePanel, window, cx| {
+                if this.immersive {
+                    this.set_immersive(false, window, cx);
+                    return;
+                }
                 if this.big {
                     this.big = false;
                 } else if this.menu.take().is_none() && !this.show_save && !this.editing {
@@ -2431,7 +2462,9 @@ impl Render for AppView {
             // pointer consumes the mouse-down, and Windows then never starts a drag, resize, or
             // maximize from the title bar.
             .children(ambient_layer)
-            .child(self.title_bar(sidebar, window, cx))
+            .when(!self.immersive, |el| {
+                el.child(self.title_bar(sidebar, window, cx))
+            })
             .child(
                 div()
                     .id("needle-body")
@@ -2441,7 +2474,10 @@ impl Render for AppView {
                     .flex()
                     .flex_col()
                     .relative()
-                    .when(!self.big || self.big_moving, |el| {
+                    .when(self.immersive, |el| {
+                        el.child(self.immersive_view(window, cx))
+                    })
+                    .when(!self.immersive && (!self.big || self.big_moving), |el| {
                         el.child(
                             div()
                                 .flex_1()
@@ -2474,7 +2510,7 @@ impl Render for AppView {
                         )
                         .child(self.player_bar(width, cx))
                     })
-                    .children(big_layer),
+                    .when(!self.immersive, |el| el.children(big_layer)),
             )
             .children(grain)
             .children(self.toast(cx))

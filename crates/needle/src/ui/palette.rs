@@ -259,6 +259,14 @@ impl AppView {
             ),
             item(
                 "Actions",
+                "fullscreen",
+                "Full screen player",
+                "",
+                Some("F11"),
+                |this, window, cx| this.set_immersive(true, window, cx),
+            ),
+            item(
+                "Actions",
                 "mini",
                 "Switch to the mini player",
                 "",

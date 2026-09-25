@@ -660,7 +660,8 @@ impl Render for MiniView {
             .when(self.expanded, |el| {
                 let body = match tab {
                     Tab::Lyrics => app.update(cx, |a, cx| {
-                        a.lyrics_view(false, true, cx).into_any_element()
+                        a.lyrics_view(super::lyrics::LyricsKind::Mini, cx)
+                            .into_any_element()
                     }),
                     Tab::Next => app.update(cx, |a, cx| a.up_next(cx).into_any_element()),
                     Tab::History => app.update(cx, |a, cx| a.recent_listens(cx).into_any_element()),
