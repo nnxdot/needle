@@ -2458,11 +2458,11 @@ impl Render for AppView {
         }
         let p = pal(cx);
         let width = widgets::content_size(window).width;
-        let sidebar_open = !self.settings.layout.sidebar_hidden;
-        let sidebar = if sidebar_open {
-            self.settings.layout.sidebar_width.clamp(200., 260.)
+        // Folded, the sidebar is a strip of page icons (see `chrome::RAIL`).
+        let sidebar = if self.settings.layout.sidebar_hidden {
+            chrome::RAIL
         } else {
-            0.
+            self.settings.layout.sidebar_width.clamp(200., 260.)
         };
         let panel_width = self.settings.layout.inspector_width.clamp(280., 340.) + 16.;
         // The side panel shows when the page keeps at least 360 px beside it, so a narrow
@@ -2748,7 +2748,7 @@ impl Render for AppView {
                                 .min_h_0()
                                 .flex()
                                 .bg(p.back)
-                                .when(sidebar_open, |el| el.child(self.sidebar(sidebar, cx)))
+                                .child(self.sidebar(sidebar, cx))
                                 .child(
                                     // The content surface: flush with the window's right edge
                                     // and the player, one hairline and a rounded corner where it

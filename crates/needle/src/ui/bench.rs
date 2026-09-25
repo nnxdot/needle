@@ -202,8 +202,19 @@ fn steps() -> Vec<Step> {
             tick: None,
         },
         Step {
+            name: "folded sidebar",
+            start: |v, w, cx| {
+                open(v, Page::Songs, w, cx);
+                v.toggle_sidebar();
+            },
+            tick: Some(|v, t, _, cx| scroll_list(v, t, cx)),
+        },
+        Step {
             name: "back to songs",
-            start: |v, w, cx| open(v, Page::Songs, w, cx),
+            start: |v, w, cx| {
+                v.toggle_sidebar();
+                open(v, Page::Songs, w, cx);
+            },
             tick: None,
         },
     ]
