@@ -109,20 +109,23 @@ impl AppView {
     }
 
     /// The card, over everything else, while it is open.
-    pub(super) fn whats_new_view(&self, cx: &mut Context<Self>) -> Option<impl IntoElement> {
+    pub(super) fn whats_new_view(
+        &self,
+        window: &Window,
+        cx: &mut Context<Self>,
+    ) -> Option<impl IntoElement> {
         let notes = self.whats_new.as_ref()?;
         let p = pal(cx);
+        let room = super::widgets::content_size(window);
         // Widths in pixels: wrapped text is only sized right at a known width.
-        const CARD: f32 = 720.;
-        const PAD: f32 = 36.;
-        const GAP: f32 = 14.;
-        let inner = CARD - PAD * 2.;
-        let tile_w = (inner - GAP) / 2.;
+        let card_w = f32::from(room.width).min(720.) - 48.;
+        let card_h = f32::from(room.height) - 64.;
+        const PAD: f32 = 40.;
+        let inner = card_w - PAD * 2.;
         let text = |text: &str, size: f32, color: Hsla| {
             div()
-                .w_full()
                 .text_size(px(size))
-                .line_height(relative(1.5))
+                .line_height(relative(1.55))
                 .text_color(color)
                 .child(text.to_string())
         };
@@ -130,8 +133,8 @@ impl AppView {
         let mut order = 0usize;
         let mut arrive = |el: Div, cx: &App| {
             order += 1;
-            let delay = order as f32 * 70.;
-            let length = 380.;
+            let delay = 120. + order as f32 * 70.;
+            let length = 420.;
             let total = delay + length;
             motion::animate(
                 el,
@@ -145,7 +148,7 @@ impl AppView {
             )
         };
 
-        // The banner: the first milestone as the headline, or the version and its intro.
+        // The banner: the first milestone as the headline, beside a record drawn in rings.
         let (headline, lede) = match notes.milestones.first() {
             Some(m) => (m.title.clone(), m.body.clone()),
             None => (
@@ -153,155 +156,155 @@ impl AppView {
                 notes.intro.clone(),
             ),
         };
+        let (cx0, cy0) = (card_w - 110., 118.);
+        let rings = [44., 78., 112., 146., 180., 214.]
+            .into_iter()
+            .enumerate()
+            .map(move |(i, r): (usize, f32)| {
+                div()
+                    .absolute()
+                    .left(px(cx0 - r))
+                    .top(px(cy0 - r))
+                    .size(px(r * 2.))
+                    .rounded_full()
+                    .border_1()
+                    .border_color(p.accent.opacity(0.34 - i as f32 * 0.05))
+            });
+        let text_w = inner - 190.;
         let banner = div()
             .relative()
+            .flex_shrink_0()
             .overflow_hidden()
             .px(px(PAD))
-            .pt(px(PAD))
-            .pb(px(30.))
+            .pt(px(36.))
+            .pb(px(32.))
             .bg(linear_gradient(
-                160.,
-                linear_color_stop(p.accent.opacity(0.42), 0.),
-                linear_color_stop(p.accent.opacity(0.04), 1.),
+                155.,
+                linear_color_stop(p.accent.opacity(0.28), 0.),
+                linear_color_stop(p.accent.opacity(0.02), 0.9),
             ))
-            // The logo, large and faint, off the right edge.
+            .children(rings)
             .child(
-                glyph("logo")
+                div()
                     .absolute()
-                    .top(px(-40.))
-                    .right(px(-50.))
-                    .size(px(260.))
-                    .text_color(p.accent.opacity(0.16)),
+                    .left(px(cx0 - 26.))
+                    .top(px(cy0 - 26.))
+                    .size(px(52.))
+                    .rounded_full()
+                    .bg(p.accent)
+                    .flex()
+                    .items_center()
+                    .justify_center()
+                    .child(glyph("logo").size(px(30.)).text_color(p.canvas)),
             )
             .child(
                 div()
                     .relative()
-                    .w(px(inner))
+                    .w(px(text_w))
                     .flex()
                     .flex_col()
                     .gap_3()
                     .child(
-                        div().flex().child(
-                            div()
-                                .px(px(10.))
-                                .py(px(3.))
-                                .rounded_full()
-                                .bg(p.accent.opacity(0.22))
-                                .text_size(px(12.))
-                                .font_weight(FontWeight::SEMIBOLD)
-                                .text_color(p.accent)
-                                .child(format!("Needle {}", notes.version)),
-                        ),
+                        div()
+                            .text_size(px(13.))
+                            .font_weight(FontWeight::SEMIBOLD)
+                            .text_color(p.accent)
+                            .child(format!("Needle {}", notes.version)),
                     )
-                    .child(display(headline, 44.).w(px(inner * 0.8)).text_color(p.ink))
+                    .child(display(headline, 38.).w(px(text_w)).text_color(p.ink))
                     .when(!lede.is_empty(), |el| {
-                        el.child(text(&lede, 15.5, p.ink_2).w(px(inner * 0.86)))
+                        el.child(text(&lede, 14.5, p.ink_2).w(px(text_w)))
                     }),
             );
 
         let mut body: Vec<AnyElement> = Vec::new();
-        // More milestones, if a release has several: each in its own panel.
+        // More milestones, if a release has several: a coloured strip each.
         for m in notes.milestones.iter().skip(1) {
             body.push(arrive(
                 div()
                     .w(px(inner))
                     .p_5()
-                    .rounded(px(14.))
-                    .border_1()
-                    .border_color(p.accent.opacity(0.4))
-                    .bg(p.accent.opacity(0.08))
+                    .rounded(px(12.))
+                    .bg(p.accent.opacity(0.1))
                     .flex()
                     .gap_4()
                     .child(
-                        div()
-                            .flex_none()
-                            .size(px(52.))
-                            .rounded(px(14.))
-                            .bg(p.accent)
-                            .flex()
-                            .items_center()
-                            .justify_center()
-                            .child(
-                                glyph(if m.icon.is_empty() { "logo" } else { &m.icon })
-                                    .size(px(26.))
-                                    .text_color(p.canvas),
-                            ),
+                        glyph(if m.icon.is_empty() { "logo" } else { &m.icon })
+                            .size(px(26.))
+                            .text_color(p.accent),
                     )
                     .child(
                         div()
-                            .flex_1()
-                            .min_w_0()
+                            .w(px(inner - 40. - 42.))
                             .flex()
                             .flex_col()
                             .gap_1()
                             .child(display(m.title.clone(), 22.))
-                            .child(text(&m.body, 14., p.ink_2)),
+                            .child(text(&m.body, 14., p.ink_2).w(px(inner - 40. - 42.))),
                     ),
                 cx,
             ));
         }
-        // Features: tiles, two to a row.
-        for pair in notes.features.chunks(2) {
-            let mut row = div().w(px(inner)).flex().gap(px(GAP));
-            for f in pair {
-                row = row.child(
-                    div()
-                        .w(px(tile_w))
-                        .flex_none()
-                        .p_5()
-                        .rounded(px(14.))
-                        .bg(p.ink.opacity(if p.dark { 0.05 } else { 0.035 }))
-                        .border_1()
-                        .border_color(p.line_soft)
-                        .flex()
-                        .flex_col()
-                        .gap_3()
-                        .child(
-                            div()
-                                .size(px(44.))
-                                .rounded(px(12.))
-                                .bg(linear_gradient(
-                                    135.,
-                                    linear_color_stop(p.accent.opacity(0.35), 0.),
-                                    linear_color_stop(p.accent.opacity(0.12), 1.),
-                                ))
-                                .flex()
-                                .items_center()
-                                .justify_center()
-                                .child(
-                                    glyph(if f.icon.is_empty() { "check" } else { &f.icon })
-                                        .size(px(22.))
-                                        .text_color(p.accent),
-                                ),
-                        )
-                        .child(
-                            div()
-                                .text_size(px(16.))
-                                .font_weight(FontWeight::SEMIBOLD)
-                                .child(f.title.clone()),
-                        )
-                        .child(text(&f.body, 13., p.ink_2)),
-                );
-            }
-            body.push(arrive(row, cx));
-        }
-        // Small changes: a quiet list in one box.
-        if !notes.small.is_empty() {
+        // Features: a list with an icon each, and room to breathe.
+        let body_w = inner - 44. - 18.;
+        for f in &notes.features {
             body.push(arrive(
                 div()
                     .w(px(inner))
-                    .px_5()
-                    .py_4()
-                    .rounded(px(14.))
-                    .bg(p.ink.opacity(if p.dark { 0.03 } else { 0.02 }))
+                    .flex()
+                    .items_start()
+                    .gap(px(18.))
+                    .child(
+                        div()
+                            .flex_none()
+                            .size(px(44.))
+                            .rounded(px(12.))
+                            .bg(p.accent.opacity(0.14))
+                            .flex()
+                            .items_center()
+                            .justify_center()
+                            .child(
+                                glyph(if f.icon.is_empty() { "check" } else { &f.icon })
+                                    .size(px(22.))
+                                    .text_color(p.accent),
+                            ),
+                    )
+                    .child(
+                        div()
+                            .w(px(body_w))
+                            .flex()
+                            .flex_col()
+                            .gap(px(3.))
+                            .child(
+                                div()
+                                    .text_size(px(16.))
+                                    .font_weight(FontWeight::SEMIBOLD)
+                                    .text_color(p.ink)
+                                    .child(f.title.clone()),
+                            )
+                            .child(text(&f.body, 13.5, p.ink_2).w(px(body_w))),
+                    ),
+                cx,
+            ));
+        }
+        // Small changes: a light list at the end.
+        if !notes.small.is_empty() {
+            let line_w = inner - 30.;
+            body.push(arrive(
+                div()
+                    .w(px(inner))
+                    .pt_4()
+                    .border_t_1()
+                    .border_color(p.line_soft)
                     .flex()
                     .flex_col()
                     .gap_2()
                     .child(
                         div()
-                            .text_size(px(13.))
+                            .pb_1()
+                            .text_size(px(12.5))
                             .font_weight(FontWeight::SEMIBOLD)
-                            .text_color(p.ink_2)
+                            .text_color(p.ink_3)
                             .child("Also in this update"),
                     )
                     .children(notes.small.iter().map(|item| {
@@ -309,8 +312,8 @@ impl AppView {
                             .flex()
                             .items_start()
                             .gap_3()
-                            .child(glyph("check").size(px(14.)).mt(px(2.)).text_color(p.accent))
-                            .child(text(item, 13., p.ink_2).w(px(inner - 40. - 26.)))
+                            .child(glyph("check").size(px(15.)).mt(px(3.)).text_color(p.accent))
+                            .child(text(item, 13., p.ink_2).w(px(line_w)))
                     })),
                 cx,
             ));
@@ -319,8 +322,8 @@ impl AppView {
         let card = div()
             .id("whats-new")
             .occlude()
-            .w(px(CARD))
-            .max_h(relative(0.9))
+            .w(px(card_w))
+            .max_h(px(card_h))
             .rounded(px(18.))
             .bg(cx.theme().popover)
             .border_1()
@@ -329,6 +332,7 @@ impl AppView {
             .overflow_hidden()
             .flex()
             .flex_col()
+            .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
             .child(banner)
             .child(
                 div()
@@ -337,17 +341,20 @@ impl AppView {
                     .min_h_0()
                     .overflow_y_scroll()
                     .px(px(PAD))
-                    .pt_5()
-                    .pb_2()
+                    .pt(px(28.))
+                    .pb(px(28.))
                     .flex()
                     .flex_col()
-                    .gap(px(GAP))
+                    .gap(px(24.))
                     .children(body),
             )
             .child(
                 div()
+                    .flex_shrink_0()
                     .px(px(PAD))
-                    .py_5()
+                    .py_4()
+                    .border_t_1()
+                    .border_color(p.line_soft)
                     .flex()
                     .items_center()
                     .gap_2()
@@ -376,8 +383,8 @@ impl AppView {
                     ),
             );
         // The card rises into place.
-        let card = motion::animate(card, "whats-new-card", 320, cx, |el, t| {
-            el.opacity(t).mt(px(18. * (1. - t)))
+        let card = motion::animate(card, "whats-new-card", 340, cx, |el, t| {
+            el.opacity(t).mt(px(20. * (1. - t)))
         });
         Some(
             deferred(
@@ -390,7 +397,6 @@ impl AppView {
                     .flex()
                     .justify_center()
                     .items_center()
-                    .p_6()
                     .on_mouse_down(
                         MouseButton::Left,
                         cx.listener(|this, _, _, cx| {
@@ -398,11 +404,7 @@ impl AppView {
                             cx.notify();
                         }),
                     )
-                    .child(
-                        div()
-                            .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
-                            .child(card),
-                    ),
+                    .child(card),
             )
             .with_priority(3),
         )
