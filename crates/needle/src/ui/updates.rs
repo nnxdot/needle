@@ -110,7 +110,7 @@ impl AppView {
         let sender = self.sender.clone();
         std::thread::spawn(move || {
             let result = update::download(&release, &directory)
-                .and_then(|installer| update::install(&installer))
+                .and_then(|installer| update::install(&release, &installer))
                 .map_err(|e| format!("{e:#}"));
             let _ = sender.send(Event::UpdateStarted(result));
         });
@@ -143,6 +143,18 @@ impl AppView {
             ),
         };
         let action = match &self.update {
+            // A copy Needle cannot update by itself: the download page.
+            Some(UpdateState::Available(r)) if r.package.is_none() => {
+                let page = if r.page.is_empty() {
+                    "https://needle.nnx.fyi".to_string()
+                } else {
+                    r.page.clone()
+                };
+                super::widgets::small_button("update-page", format!("Get Needle {}", r.version))
+                    .primary()
+                    .on_click(move |_, _, cx| cx.open_url(&page))
+                    .into_any_element()
+            }
             Some(UpdateState::Available(r)) => {
                 super::widgets::small_button("update-now", format!("Update to {}", r.version))
                     .primary()
