@@ -231,6 +231,13 @@ fn steps() -> Vec<Step> {
             name: "folded sidebar",
             start: |v, w, cx| {
                 gpui::frame_log_note(|| format!("palette open after Ctrl+F: {}", v.palette.open));
+                gpui::frame_log_note(|| {
+                    format!(
+                        "playlist pictures: {} of {} playlists have covers",
+                        v.playlist_art.values().filter(|c| !c.is_empty()).count(),
+                        v.playlists.len()
+                    )
+                });
                 v.palette.open = false;
                 v.settings.layout.search_hidden = false;
                 v.settings.layout.player_on_top = false;

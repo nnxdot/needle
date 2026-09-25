@@ -112,6 +112,19 @@ impl AppView {
         page: Page,
         cx: &mut Context<Self>,
     ) -> Stateful<Div> {
+        self.nav_entry(id, name, glyph_name, None, page, cx)
+    }
+
+    /// A sidebar entry, with a picture (a playlist's covers) in place of its icon when given.
+    fn nav_entry(
+        &self,
+        id: impl Into<ElementId>,
+        name: impl Into<SharedString>,
+        glyph_name: &'static str,
+        picture: Option<AnyElement>,
+        page: Page,
+        cx: &mut Context<Self>,
+    ) -> Stateful<Div> {
         let p = pal(cx);
         let glass = p.back.a < 1.;
         let active = self.page == page
@@ -123,7 +136,7 @@ impl AppView {
             );
         if self.settings.layout.sidebar_hidden {
             let name: SharedString = name.into();
-            return rail_item(id, glyph_name, name, active, cx).on_click(
+            return rail_item(id, glyph_name, picture, name, active, cx).on_click(
                 cx.listener(move |this, _, window, cx| this.navigate(page.clone(), window, cx)),
             );
         }
@@ -150,10 +163,11 @@ impl AppView {
                     .when(glass, |el| el.font_weight(FontWeight::MEDIUM))
                     .hover(|s| s.bg(p.raised.opacity(0.6)).text_color(p.ink))
             })
-            .child(glyph(glyph_name).size(px(17.)).text_color(if active {
-                p.accent
-            } else {
-                p.ink_3
+            .child(picture.unwrap_or_else(|| {
+                glyph(glyph_name)
+                    .size(px(17.))
+                    .text_color(if active { p.accent } else { p.ink_3 })
+                    .into_any_element()
             }))
             .child(div().flex_1().min_w_0().truncate().child(name.into()))
             .on_click(
@@ -195,6 +209,7 @@ impl AppView {
                     rail_item(
                         "unfold-sidebar",
                         "menu",
+                        None,
                         "Unfold the sidebar (Ctrl+B)".into(),
                         false,
                         cx,
@@ -298,10 +313,11 @@ impl AppView {
                         } else {
                             "playlist"
                         };
-                        self.nav_item(
+                        self.nav_entry(
                             SharedString::from(format!("playlist-{}", playlist.id)),
                             playlist.name.clone(),
                             glyph_name,
+                            self.playlist_icon(&playlist.id, if rail { 26. } else { 20. }, cx),
                             Page::Playlist(playlist.id.clone()),
                             cx,
                         )
@@ -341,7 +357,7 @@ impl AppView {
                             format!("Importing · {} files. Click to stop", scan.scanned)
                         };
                         el.child(
-                            rail_item("importing", "import", busy.into(), true, cx).on_click(
+                            rail_item("importing", "import", None, busy.into(), true, cx).on_click(
                                 move |_, _, _| {
                                     cancel.store(true, std::sync::atomic::Ordering::Relaxed)
                                 },
@@ -390,10 +406,17 @@ impl AppView {
                     })
                     .when(rail, |el| {
                         el.child(
-                            rail_item("add-folder", "folder", "Add music folder".into(), false, cx)
-                                .on_click(cx.listener(|this, _, window, cx| {
-                                    this.import_folder(window, cx)
-                                })),
+                            rail_item(
+                                "add-folder",
+                                "folder",
+                                None,
+                                "Add music folder".into(),
+                                false,
+                                cx,
+                            )
+                            .on_click(
+                                cx.listener(|this, _, window, cx| this.import_folder(window, cx)),
+                            ),
                         )
                     })
                     .when(!rail, |el| {
@@ -1451,6 +1474,7 @@ pub(super) const RAIL: f32 = 60.;
 fn rail_item(
     id: impl Into<ElementId>,
     glyph_name: &'static str,
+    picture: Option<AnyElement>,
     name: SharedString,
     active: bool,
     cx: &App,
@@ -1481,12 +1505,17 @@ fn rail_item(
             )
         })
         .when(!active, |el| el.hover(|s| s.bg(p.raised.opacity(0.6))))
-        .child(glyph(glyph_name).size(px(18.)).text_color(if active {
-            p.accent
-        } else if glass {
-            p.ink
-        } else {
-            p.ink_2
+        .child(picture.unwrap_or_else(|| {
+            glyph(glyph_name)
+                .size(px(18.))
+                .text_color(if active {
+                    p.accent
+                } else if glass {
+                    p.ink
+                } else {
+                    p.ink_2
+                })
+                .into_any_element()
         }))
         .tooltip(move |window, cx| {
             gpui_component::tooltip::Tooltip::new(name.clone()).build(window, cx)
