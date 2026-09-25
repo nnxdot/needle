@@ -1940,6 +1940,11 @@ impl App {
         self.active_drag.is_some()
     }
 
+    /// Needle patch: the type of the value being dragged, if anything is.
+    pub fn active_drag_type(&self) -> Option<TypeId> {
+        self.active_drag.as_ref().map(|drag| (*drag.value).type_id())
+    }
+
     /// Gets the cursor style of the currently active drag operation.
     pub fn active_drag_cursor_style(&self) -> Option<CursorStyle> {
         self.active_drag.as_ref().and_then(|drag| drag.cursor_style)
