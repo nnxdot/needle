@@ -97,8 +97,18 @@ Status: **open**, **fixed**, or **kept** (looked at, and left as it is, with the
   sidebar to a 60-point strip of page icons (names as tips, the page shown marked by an
   accent bar at the edge, groups split by thin lines, playlists and the bottom buttons as
   icons); its first icon unfolds it again. The benchmark scrolls Songs with it folded.
-- **A graphics card choice for stems** (open): split songs on the GPU instead of the
-  processor.
+- **Player in the top bar** (done, off by default): Settings › Appearance. The title bar
+  holds the play controls, the song playing with its seek bar, and the volume, lyrics, and
+  queue; the search field moves to the bottom, and its suggestions open upward.
+- **Hide the search field** (done, off by default): Settings › Appearance. Ctrl+F then opens
+  the command palette, which searches too. With the player on top as well, the bottom is
+  empty. The benchmark turns both on and checks that Ctrl+F opens the palette.
+- **A graphics card choice for stems** (tried, not added). DirectML (ONNX Runtime's route to
+  any DirectX 12 card) was wired in and timed with the stem model on this PC: one 7.8-second
+  step took 1.1 s on the processor and 461 s on an RTX 4070 Ti SUPER (the session took 8 s to
+  make). The model's operations do not suit DirectML, so the choice would only slow splitting
+  down; the processor splits 10 s of music in 5.8 s. A CUDA route would need NVIDIA's large
+  runtime libraries alongside Needle.
 
 ## Patches to list in THIRD-PARTY-NOTICES.md before release
 

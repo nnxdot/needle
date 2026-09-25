@@ -2696,7 +2696,12 @@ impl Render for AppView {
                 this.navigate(page, window, cx);
             }))
             .on_action(cx.listener(|this, _: &FocusSearch, window, cx| {
-                this.search.update(cx, |s, cx| s.focus(window, cx))
+                // With the search field hidden, the command palette searches instead.
+                if this.settings.layout.search_hidden {
+                    this.open_palette(window, cx);
+                } else {
+                    this.search.update(cx, |s, cx| s.focus(window, cx))
+                }
             }))
             .on_action(
                 cx.listener(|this, _: &ImportFolder, window, cx| this.import_folder(window, cx)),
@@ -2772,7 +2777,17 @@ impl Render for AppView {
                                         }),
                                 ),
                         )
-                        .child(self.player_bar(width, cx))
+                        // The player at the bottom; or, with it in the title bar, the search
+                        // field there (unless hidden too).
+                        .map(|el| {
+                            if !self.settings.layout.player_on_top {
+                                el.child(self.player_bar(width, cx))
+                            } else if !self.settings.layout.search_hidden {
+                                el.child(self.search_strip(window, cx))
+                            } else {
+                                el
+                            }
+                        })
                     })
                     .when(!self.immersive, |el| el.children(big_layer)),
             )

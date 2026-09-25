@@ -98,9 +98,12 @@ impl AppView {
             }))
     }
 
+    /// The suggestions under the search field, or over it (`above`) when the field is at the
+    /// bottom of the window.
     pub(super) fn suggestion_list(
         &self,
         width: Pixels,
+        above: bool,
         cx: &mut Context<Self>,
     ) -> Option<impl IntoElement> {
         if self.suggestions.is_empty() {
@@ -154,35 +157,43 @@ impl AppView {
                 )
         });
         Some(
-            div().absolute().top(px(32.)).left_0().child(
-                deferred(
-                    anchored().snap_to_window_with_margin(px(8.)).child(
-                        div()
-                            .id("suggestions")
-                            .occlude()
-                            .mt_1()
-                            .w(width)
-                            .p_1()
-                            .rounded(px(8.))
-                            .bg(cx.theme().popover)
-                            .border_1()
-                            .border_color(p.line)
-                            .shadow_lg()
-                            .flex()
-                            .flex_col()
-                            .children(rows)
+            div()
+                .absolute()
+                .top(px(if above { 0. } else { 32. }))
+                .left_0()
+                .child(
+                    deferred(
+                        anchored()
+                            .when(above, |a| a.anchor(Corner::BottomLeft))
+                            .snap_to_window_with_margin(px(8.))
                             .child(
-                                faint("Tab completes · ↑ ↓ choose · Esc closes", cx)
-                                    .mt_1()
-                                    .px_2()
-                                    .py_1()
-                                    .border_t_1()
-                                    .border_color(p.line_soft),
+                                div()
+                                    .id("suggestions")
+                                    .occlude()
+                                    .when(above, |el| el.mb_1())
+                                    .when(!above, |el| el.mt_1())
+                                    .w(width)
+                                    .p_1()
+                                    .rounded(px(8.))
+                                    .bg(cx.theme().popover)
+                                    .border_1()
+                                    .border_color(p.line)
+                                    .shadow_lg()
+                                    .flex()
+                                    .flex_col()
+                                    .children(rows)
+                                    .child(
+                                        faint("Tab completes · ↑ ↓ choose · Esc closes", cx)
+                                            .mt_1()
+                                            .px_2()
+                                            .py_1()
+                                            .border_t_1()
+                                            .border_color(p.line_soft),
+                                    ),
                             ),
-                    ),
-                )
-                .with_priority(1),
-            ),
+                    )
+                    .with_priority(1),
+                ),
         )
     }
 }
