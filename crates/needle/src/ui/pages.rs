@@ -81,7 +81,8 @@ impl AppView {
         let status = self
             .service_status
             .clone()
-            .unwrap_or_else(integrations::secret_status);
+            // Read on another thread (`refresh_services`); blank for the moment until then.
+            .unwrap_or_default();
         let summary = self.scrobble_summary.clone();
         let from_env = |s: &ServiceState| s.source == Some(SecretSource::Environment);
         let lastfm = status.lastfm.clone();
@@ -607,7 +608,7 @@ impl AppView {
                                     .items_center()
                                     .child(strong("Output device"))
                                     .child(small_button("refresh-devices", "Refresh").ghost().on_click(cx.listener(|this, _, _, cx| {
-                                        this.output_devices = needle_core::audio::devices().unwrap_or_default();
+                                        this.list_output_devices();
                                         cx.notify();
                                     }))),
                             )
@@ -774,6 +775,36 @@ impl AppView {
                                     .text_color(p.ink_2)
                                     .child(if self.settings.grain <= 0.001 { "Off".to_string() } else { format!("{:.0}%", self.settings.grain * 100.) }),
                             ),
+                        cx,
+                    ))
+                    .child(setting_row(
+                        "Compact sidebar",
+                        "Folding the sidebar (Ctrl+B) leaves a strip of page icons, as in Apple Music, instead of hiding it altogether. Off by default.",
+                        Switch::new("compact-sidebar").checked(self.settings.layout.compact_sidebar).on_click(cx.listener(|this, checked: &bool, _, cx| {
+                            this.settings.layout.compact_sidebar = *checked;
+                            this.persist_settings();
+                            cx.notify();
+                        })),
+                        cx,
+                    ))
+                    .child(setting_row(
+                        "Player in the top bar",
+                        "The play controls, the song playing, and the volume sit in the title bar, as in Apple Music, and the search field moves to the bottom. Off by default.",
+                        Switch::new("player-on-top").checked(self.settings.layout.player_on_top).on_click(cx.listener(|this, checked: &bool, _, cx| {
+                            this.settings.layout.player_on_top = *checked;
+                            this.persist_settings();
+                            cx.notify();
+                        })),
+                        cx,
+                    ))
+                    .child(setting_row(
+                        "Hide the search field",
+                        "Search from the command palette instead (Ctrl+K, or Ctrl+F). Off by default.",
+                        Switch::new("search-hidden").checked(self.settings.layout.search_hidden).on_click(cx.listener(|this, checked: &bool, _, cx| {
+                            this.settings.layout.search_hidden = *checked;
+                            this.persist_settings();
+                            cx.notify();
+                        })),
                         cx,
                     ))
                     .child(setting_row(

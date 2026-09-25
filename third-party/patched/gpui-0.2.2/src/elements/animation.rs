@@ -139,9 +139,12 @@ impl<E: IntoElement + 'static> Element for AnimationElement<E> {
         cx: &mut App,
     ) -> (crate::LayoutId, Self::RequestLayoutState) {
         window.with_element_state(global_id.unwrap(), |state, window| {
-            let mut state = state.unwrap_or_else(|| AnimationState {
-                start: Instant::now(),
-                animation_ix: 0,
+            let mut state = state.unwrap_or_else(|| {
+                crate::frame_log_wake(|| format!("animation start {}", self.id));
+                AnimationState {
+                    start: Instant::now(),
+                    animation_ix: 0,
+                }
             });
             let animation_ix = state.animation_ix;
 
@@ -173,6 +176,7 @@ impl<E: IntoElement + 'static> Element for AnimationElement<E> {
             let mut element = (self.animator)(element, animation_ix, delta).into_any_element();
 
             if !done {
+                crate::frame_log_wake(|| format!("animation {}", self.id));
                 window.request_animation_frame();
             }
 

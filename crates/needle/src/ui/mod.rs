@@ -1,5 +1,6 @@
 mod ambient;
 mod assets;
+mod bench;
 mod chrome;
 mod columns;
 mod discord;
@@ -23,11 +24,13 @@ mod pages;
 mod palette;
 mod panel;
 mod pickers;
+mod playlist_art;
 mod playlist_editor;
 mod plugin_ask;
 mod plugin_ui;
 mod radio;
 mod remote_ui;
+mod server_search;
 mod sound;
 mod sources_ui;
 mod speakers;
@@ -37,6 +40,7 @@ mod tags;
 mod theme;
 mod themes;
 mod themes_ui;
+mod thumbs;
 mod timing;
 mod tray;
 mod updates;
@@ -98,6 +102,7 @@ actions!(
         ToggleLyrics,
         ToggleSidebar,
         GoBack,
+        GoForward,
         FocusNext,
         FocusPrevious,
         ToggleBigPlayer,
@@ -319,6 +324,15 @@ enum Event {
     OpenFiles(Vec<std::path::PathBuf>),
     Update(Result<Option<needle_core::update::Release>, String>, bool),
     UpdateStarted(Result<(), String>),
+    /// The sound outputs, listed on another thread (`list_output_devices`).
+    OutputDevices(Vec<String>),
+    /// The online services' state (`refresh_services`).
+    Services(
+        Box<integrations::ServiceStatus>,
+        Option<integrations::ScrobbleSummary>,
+    ),
+    /// Covers for the sidebar's playlists (`playlist_art`).
+    PlaylistArt(std::collections::HashMap<String, Vec<String>>),
     Lyrics(String, Option<needle_core::media::Lyrics>),
     ArtistImage(String, Option<String>),
     ArtistImages(Vec<(String, Option<String>)>),
@@ -364,6 +378,8 @@ pub struct AppView {
     settings: Settings,
     page: Page,
     back: Vec<Page>,
+    /// Pages left by going back, for going forward again (a new page clears it).
+    forward: Vec<Page>,
     tracks: Vec<Track>,
     playlists: Vec<Playlist>,
     history: Vec<Listen>,
@@ -445,6 +461,18 @@ pub struct AppView {
     editor: Option<playlist_editor::PlaylistEditor>,
     /// When the seek bar was last moved by hand.
     seek_moved: Option<Instant>,
+    /// When `poll` last asked for a redraw (see `poll`).
+    polled_redraw: Instant,
+    /// Up to four covers per playlist, for the sidebar (`playlist_art`), and what they were
+    /// gathered for.
+    playlist_art: std::collections::HashMap<String, Vec<String>>,
+    playlist_art_key: u64,
+    /// Songs the music servers found for the search, not in the library (`server_search`).
+    server_songs: Vec<needle_core::model::Track>,
+    /// Counts searches sent to the servers, so a late answer is dropped.
+    server_search: u64,
+    /// Cover copies made so far (see `thumbs`), to draw again when new ones are in.
+    thumbs_seen: u64,
     /// The seek bar is held: silent, and where to jump when it is let go.
     seek_held: bool,
     /// Where a held seek bar was left, and for which song.
@@ -509,6 +537,8 @@ pub struct AppView {
     lyric_glide: bool,
     /// Frames waited for newly opened lyrics to be laid out before gliding.
     lyric_glide_waits: u8,
+    /// Whether the big (or full screen) lyrics and the side panel's were on screen.
+    lyrics_shown: (bool, bool),
     artist_images: std::collections::HashMap<String, Option<String>>,
     recent: Vec<Listen>,
     /// The tracks behind `recent`, for covers.
@@ -624,6 +654,7 @@ pub fn run(library: Library, files: Vec<std::path::PathBuf>) -> Result<()> {
                 KeyBinding::new("ctrl-e", EditTags, tracks),
                 KeyBinding::new("ctrl-d", ToggleFavorite, tracks),
                 KeyBinding::new("alt-left", GoBack, tracks),
+                KeyBinding::new("alt-right", GoForward, tracks),
                 KeyBinding::new("backspace", GoBack, tracks),
                 KeyBinding::new("ctrl-f", FocusSearch, Some("Needle")),
                 KeyBinding::new("ctrl-k", OpenPalette, Some("Needle")),
@@ -692,6 +723,7 @@ fn watch(
 
 impl AppView {
     fn new(library: Library, window: &mut Window, cx: &mut Context<Self>) -> Self {
+        thumbs::start(library.directory.join("artwork").join("thumbs"));
         let mut settings = library.settings().unwrap_or_default();
         let measure_sound = settings.sound_analysis;
         // Ambient used to be a look of its own; it is now a setting for any look.
@@ -789,10 +821,12 @@ impl AppView {
                         )
                     {
                         this.back.push(this.page.clone());
+                        this.forward.clear();
                         this.page = Page::Songs;
                     }
                     this.refresh(cx);
                     this.update_suggestions(cx);
+                    this.search_servers(cx);
                 }
                 InputEvent::Focus => {
                     this.search_focused = true;
@@ -858,6 +892,7 @@ impl AppView {
             settings,
             page: Page::Home,
             back: vec![],
+            forward: vec![],
             tracks: vec![],
             selection: Selection::default(),
             focused: None,
@@ -925,6 +960,12 @@ impl AppView {
             editor: None,
             add_songs: None,
             seek_moved: None,
+            polled_redraw: Instant::now(),
+            thumbs_seen: 0,
+            server_songs: vec![],
+            playlist_art: Default::default(),
+            playlist_art_key: 0,
+            server_search: 0,
             seek_held: false,
             seek_to: None,
             confirm_delete: false,
@@ -933,7 +974,7 @@ impl AppView {
             lookup_busy: false,
             pending_mbid: None,
             _scrobbler: integrations::ScrobbleWorker::start(library_for_scrobbles),
-            output_devices: audio::devices().unwrap_or_default(),
+            output_devices: vec![],
             _watcher: watcher,
             last_history_id: None,
             muted_volume: None,
@@ -967,6 +1008,7 @@ impl AppView {
             mini_lyric_glide: false,
             lyric_glide: false,
             lyric_glide_waits: 0,
+            lyrics_shown: (false, false),
             artist_images: Default::default(),
             recent: vec![],
             recent_tracks: Default::default(),
@@ -1065,7 +1107,18 @@ impl AppView {
             }
         })
         .detach();
+        view.list_output_devices();
+        view.maybe_bench(window, cx);
         view
+    }
+
+    /// Lists the sound outputs on another thread: asking the system can take a while (50 ms
+    /// and more on Linux, where every sound layer is tried), which would stall the window.
+    fn list_output_devices(&self) {
+        let sender = self.sender.clone();
+        std::thread::spawn(move || {
+            let _ = sender.send(Event::OutputDevices(audio::devices().unwrap_or_default()));
+        });
     }
 
     fn notify(&mut self, text: impl Into<String>) {
@@ -1083,9 +1136,15 @@ impl AppView {
         });
     }
 
+    /// Reads the online services' state on another thread: it asks the keyring, which on
+    /// Linux goes over D-Bus and can take a while, most of all with no keyring running.
     fn refresh_services(&mut self) {
-        self.service_status = Some(integrations::secret_status());
-        self.scrobble_summary = integrations::scrobble_summary(&self.library).ok();
+        let (library, sender) = (self.library.clone(), self.sender.clone());
+        std::thread::spawn(move || {
+            let status = integrations::secret_status();
+            let summary = integrations::scrobble_summary(&library).ok();
+            let _ = sender.send(Event::Services(Box::new(status), summary));
+        });
     }
 
     /// Show `panel` in the side panel, or hide the side panel if it already shows it.
@@ -1118,6 +1177,12 @@ impl AppView {
     }
 
     fn poll(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let _slow = bench::Slow::new("poll");
+        // A redraw costs the whole window, so poll asks for one only when something shown
+        // changed (and once a second, for anything that follows the clock).
+        let shown_before = shown_playback(&self.playback);
+        let (line_before, toast_before) = (self.lyric_line, self.toast.is_some());
+        let mut events = false;
         let playback = self.player.state();
         if playback.error != self.playback.error
             && let Some(error) = &playback.error
@@ -1185,10 +1250,13 @@ impl AppView {
         };
         // While the bar is held (and a moment after, while the jump lands), it stays where the
         // pointer put it instead of being pulled back to the old position.
+        // The bar moves in steps of a thousandth, well under a pixel on most windows; a
+        // smaller change is not visible and would only cost a redraw.
         if !self.seek_held
             && self
                 .seek_moved
                 .is_none_or(|at| at.elapsed() > Duration::from_millis(600))
+            && (self.seek.read(cx).value().start() - value).abs() >= 1.
         {
             self.seek
                 .update(cx, |state, cx| state.set_value(value, window, cx));
@@ -1200,6 +1268,7 @@ impl AppView {
             }
         }
         while let Ok(event) = self.events.try_recv() {
+            events = true;
             match event {
                 Event::Imported(progress) => {
                     if progress.done {
@@ -1292,6 +1361,12 @@ impl AppView {
                 }
                 Event::Update(result, asked) => self.update_checked(result, asked),
                 Event::UpdateStarted(result) => self.update_started(result, cx),
+                Event::OutputDevices(devices) => self.output_devices = devices,
+                Event::Services(status, summary) => {
+                    self.service_status = Some(*status);
+                    self.scrobble_summary = summary;
+                }
+                Event::PlaylistArt(art) => self.playlist_art = art,
                 Event::ImportProgress(message) => self.import.busy = Some(message),
                 Event::Plugin(action) => self.plugin_action(action, window, cx),
                 Event::Tray(action) => self.tray_action(action, window, cx),
@@ -1474,7 +1549,24 @@ impl AppView {
                 }
             }
         }
-        cx.notify();
+        self.follow_playlist_art();
+        // Slow loops on screen (bouncing bars, the full screen drift) move on this timer.
+        if motion::take_slow_loops() {
+            events = true;
+        }
+        if thumbs::made() != self.thumbs_seen {
+            self.thumbs_seen = thumbs::made();
+            events = true;
+        }
+        if events
+            || shown_playback(&self.playback) != shown_before
+            || self.lyric_line != line_before
+            || self.toast.is_some() != toast_before
+            || self.polled_redraw.elapsed() >= Duration::from_secs(1)
+        {
+            self.polled_redraw = Instant::now();
+            cx.notify();
+        }
     }
 
     fn search_text(&self, cx: &App) -> String {
@@ -1544,6 +1636,7 @@ impl AppView {
     }
 
     fn refresh(&mut self, cx: &mut Context<Self>) {
+        let _slow = bench::Slow::new("refresh");
         if !self.page.is_tracks() {
             return;
         }
@@ -1634,6 +1727,7 @@ impl AppView {
     }
 
     fn navigate(&mut self, page: Page, window: &mut Window, cx: &mut Context<Self>) {
+        let _slow = bench::Slow::new("navigate");
         // Clicking the page you are on keeps it as it is; only a search on it is cleared.
         if page == self.page {
             if !self.search_text(cx).is_empty() {
@@ -1649,17 +1743,39 @@ impl AppView {
             if self.back.len() > 50 {
                 self.back.remove(0);
             }
+            self.forward.clear();
         }
         self.open(page, window, cx);
     }
     fn go_back(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         if let Some(page) = self.back.pop() {
             self.remember_scroll();
+            self.forward.push(self.page.clone());
             self.open(page, window, cx);
             self.scroll_for_back();
         }
     }
+    fn go_forward(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if let Some(page) = self.forward.pop() {
+            self.remember_scroll();
+            self.back.push(self.page.clone());
+            self.open(page, window, cx);
+        }
+    }
+    /// The mouse's back button: it leaves full screen or the big player first, as Esc does,
+    /// and then goes back a page.
+    fn mouse_back(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if self.immersive {
+            self.set_immersive(false, window, cx);
+        } else if self.big {
+            self.big = false;
+        } else {
+            self.go_back(window, cx);
+        }
+        cx.notify();
+    }
     fn open(&mut self, page: Page, window: &mut Window, cx: &mut Context<Self>) {
+        let _slow = bench::Slow::new("open");
         self.details_here = false;
         self.page = page;
         self.page_serial += 1;
@@ -1698,7 +1814,7 @@ impl AppView {
         }
         if self.page == Page::Settings {
             self.glass_system = (glass::system_allows_transparency(), glass::windows_11());
-            self.output_devices = audio::devices().unwrap_or_default();
+            self.list_output_devices();
             self.refresh_services();
         }
         self.groups.clear();
@@ -2341,8 +2457,40 @@ impl Drop for AppView {
     }
 }
 
+/// What of the playback state the window shows, apart from the exact position (only its whole
+/// seconds, as the time reads): when this changes, the window needs a redraw.
+fn shown_playback(p: &needle_core::audio::PlaybackState) -> impl PartialEq + use<> {
+    (
+        (
+            p.current.as_ref().map(|c| c.track.id.clone()),
+            p.queue_version,
+            p.playing,
+            p.position.floor() as i64,
+            p.volume.to_bits(),
+            p.loading,
+        ),
+        (
+            p.output.clone(),
+            p.output_device.clone(),
+            p.output_rate,
+            p.output_channels,
+            p.error.clone(),
+            p.output_notice.clone(),
+        ),
+        (
+            p.repeat,
+            p.exclusive,
+            p.replay_gain,
+            p.album_gain,
+            p.loop_range.map(|(a, b)| (a.to_bits(), b.to_bits())),
+            p.stems.clone(),
+        ),
+    )
+}
+
 impl Render for AppView {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        let _slow = bench::Slow::new("render");
         self.update_palette(window, cx);
         self.update_glass(window, cx);
         if self.page == Page::Settings && self.settings_tab == 0 {
@@ -2357,11 +2505,16 @@ impl Render for AppView {
         }
         let p = pal(cx);
         let width = widgets::content_size(window).width;
-        let sidebar_open = !self.settings.layout.sidebar_hidden;
-        let sidebar = if sidebar_open {
-            self.settings.layout.sidebar_width.clamp(200., 260.)
+        // Folded, the sidebar is a strip of page icons (see `chrome::RAIL`).
+        let sidebar = if self.settings.layout.sidebar_hidden {
+            // Or gone altogether, with the compact sidebar turned off in Settings.
+            if self.settings.layout.compact_sidebar {
+                chrome::RAIL
+            } else {
+                0.
+            }
         } else {
-            0.
+            self.settings.layout.sidebar_width.clamp(200., 260.)
         };
         let panel_width = self.settings.layout.inspector_width.clamp(280., 340.) + 16.;
         // The side panel shows when the page keeps at least 360 px beside it, so a narrow
@@ -2549,6 +2702,18 @@ impl Render for AppView {
                 cx.notify();
             }))
             .on_action(cx.listener(|this, _: &GoBack, window, cx| this.go_back(window, cx)))
+            .on_action(cx.listener(|this, _: &GoForward, window, cx| this.go_forward(window, cx)))
+            // The mouse's side buttons, heard before anything under the pointer can keep them.
+            .capture_any_mouse_down(cx.listener(|this, event: &MouseDownEvent, window, cx| {
+                match event.button {
+                    MouseButton::Navigate(NavigationDirection::Back) => this.mouse_back(window, cx),
+                    MouseButton::Navigate(NavigationDirection::Forward) => {
+                        this.go_forward(window, cx);
+                        cx.notify();
+                    }
+                    _ => {}
+                }
+            }))
             .on_action(cx.listener(|this, _: &OpenPalette, window, cx| {
                 if this.palette.open {
                     this.close_palette(window, cx)
@@ -2583,7 +2748,12 @@ impl Render for AppView {
                 this.navigate(page, window, cx);
             }))
             .on_action(cx.listener(|this, _: &FocusSearch, window, cx| {
-                this.search.update(cx, |s, cx| s.focus(window, cx))
+                // With the search field hidden, the command palette searches instead.
+                if this.settings.layout.search_hidden {
+                    this.open_palette(window, cx);
+                } else {
+                    this.search.update(cx, |s, cx| s.focus(window, cx))
+                }
             }))
             .on_action(
                 cx.listener(|this, _: &ImportFolder, window, cx| this.import_folder(window, cx)),
@@ -2635,7 +2805,7 @@ impl Render for AppView {
                                 .min_h_0()
                                 .flex()
                                 .bg(p.back)
-                                .when(sidebar_open, |el| el.child(self.sidebar(sidebar, cx)))
+                                .when(sidebar > 0., |el| el.child(self.sidebar(sidebar, cx)))
                                 .child(
                                     // The content surface: flush with the window's right edge
                                     // and the player, one hairline and a rounded corner where it
@@ -2659,7 +2829,18 @@ impl Render for AppView {
                                         }),
                                 ),
                         )
-                        .child(self.player_bar(width, cx))
+                        // The player at the bottom; or, with it in the title bar, the search
+                        // field there (unless hidden too).
+                        .map(|el| {
+                            if !self.settings.layout.player_on_top {
+                                el.child(self.player_bar(width, cx))
+                            } else if !self.settings.layout.search_hidden && !self.big {
+                                // (Over the big player, the title bar has the search field.)
+                                el.child(self.search_strip(window, cx))
+                            } else {
+                                el
+                            }
+                        })
                     })
                     .when(!self.immersive, |el| el.children(big_layer)),
             )

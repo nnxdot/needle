@@ -3,7 +3,11 @@
 //! Every animation goes through [`animate`], which skips straight to the final state when
 //! motion is reduced (Windows' "Show animations in Windows" is off, or Needle's own setting).
 use gpui::{prelude::*, *};
-use std::time::Duration;
+use std::sync::{
+    OnceLock,
+    atomic::{AtomicBool, Ordering},
+};
+use std::time::{Duration, Instant};
 
 #[derive(Clone, Copy)]
 pub struct Motion {
@@ -86,6 +90,29 @@ pub fn repeat<E: IntoElement + 'static>(
         .into_any_element()
 }
 
+/// Set while a [`slow_repeat`] is on screen; `poll` then redraws at its own pace.
+static SLOW_LOOPS: AtomicBool = AtomicBool::new(false);
+
+/// A looping animation (0 → 1 → 0 …) like [`repeat`], for slow or small movements such as a
+/// drifting backdrop or bouncing bars. It moves on Needle's timer (25 times a second while a
+/// song plays) instead of on every screen refresh: a GPUI animation redraws the whole window
+/// at the screen's rate (up to 180 times a second) for as long as it is on screen.
+pub fn slow_repeat<E>(element: E, ms: u64, rest: f32, cx: &App, apply: impl Fn(E, f32) -> E) -> E {
+    if !enabled(cx) {
+        return apply(element, rest);
+    }
+    SLOW_LOOPS.store(true, Ordering::Relaxed);
+    static CLOCK: OnceLock<Instant> = OnceLock::new();
+    let elapsed = CLOCK.get_or_init(Instant::now).elapsed().as_millis() as u64;
+    let phase = (elapsed % ms.max(1)) as f32 / ms.max(1) as f32;
+    apply(element, pulsating_between(0., 1.)(phase))
+}
+
+/// Whether a [`slow_repeat`] was drawn since the last call.
+pub fn take_slow_loops() -> bool {
+    SLOW_LOOPS.swap(false, Ordering::Relaxed)
+}
+
 /// Mix two colours; `t` = 0 gives `a`, 1 gives `b`.
 pub fn mix(a: Hsla, b: Hsla, t: f32) -> Hsla {
     let (a, b) = (a.to_rgb(), b.to_rgb());
@@ -107,32 +134,16 @@ pub fn pop(icon: Svg, id: impl Into<ElementId>, cx: &App) -> AnyElement {
 }
 
 /// Three little bars that bounce while a song plays and rest when it is paused.
-pub fn equalizer(
-    id: impl Into<SharedString>,
-    color: Hsla,
-    moving: bool,
-    cx: &App,
-) -> impl IntoElement {
-    let id: SharedString = id.into();
+pub fn equalizer(color: Hsla, moving: bool, cx: &App) -> impl IntoElement {
     let moving = moving && enabled(cx);
     div().h(px(14.)).flex().items_end().gap(px(2.)).children(
-        [(620u64, 0.55), (820, 0.9), (540, 0.4)]
-            .into_iter()
-            .enumerate()
-            .map(move |(i, (ms, rest))| {
-                let bar = div().w(px(3.)).rounded(px(1.)).bg(color);
-                if moving {
-                    bar.with_animation(
-                        ElementId::NamedInteger(id.clone(), i as u64),
-                        Animation::new(Duration::from_millis(ms))
-                            .repeat()
-                            .with_easing(pulsating_between(0., 1.)),
-                        |el, t| el.h(px(3. + 11. * t)),
-                    )
-                    .into_any_element()
-                } else {
-                    bar.h(px(3. + 11. * rest * 0.5)).into_any_element()
-                }
-            }),
+        [(620u64, 0.55), (820, 0.9), (540, 0.4)].map(|(ms, rest)| {
+            let bar = div().w(px(3.)).rounded(px(1.)).bg(color);
+            if moving {
+                slow_repeat(bar, ms, rest, cx, |el, t| el.h(px(3. + 11. * t)))
+            } else {
+                bar.h(px(3. + 11. * rest * 0.5))
+            }
+        }),
     )
 }
