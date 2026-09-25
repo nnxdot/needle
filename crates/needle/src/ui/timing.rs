@@ -348,6 +348,7 @@ impl AppView {
                         plain,
                         instrumental: false,
                         source: LyricsSource::Sidecar,
+                        provider: String::new(),
                     }),
                 ));
                 self.lyric_line = None;

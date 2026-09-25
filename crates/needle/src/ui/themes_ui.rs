@@ -509,10 +509,9 @@ impl AppView {
                     .child(
                         small_button("theme-folder", "Open themes folder")
                             .ghost()
-                            .on_click(cx.listener(|this, _, _, _| {
+                            .on_click(cx.listener(|this, _, _, cx| {
                                 let folder = themes::folder(&this.library.directory);
-                                let _ = std::fs::create_dir_all(&folder);
-                                super::files::open_folder(&folder);
+                                this.open_folder(&folder, cx);
                             })),
                     ),
             )

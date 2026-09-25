@@ -1071,10 +1071,9 @@ impl AppView {
                 div()
                     .flex()
                     .gap_2()
-                    .child(small_button("log-open", "Open log folder").on_click(cx.listener(|this, _, _, _| {
+                    .child(small_button("log-open", "Open log folder").on_click(cx.listener(|this, _, _, cx| {
                         let folder = needle_core::logfile::log_folder(&this.library.directory);
-                        let _ = std::fs::create_dir_all(&folder);
-                        super::files::open_folder(&folder);
+                        this.open_folder(&folder, cx);
                     })))
                     .child(small_button("log-copy", "Copy error report").ghost().on_click(cx.listener(|this, _, _, cx| {
                         let data = &this.library.directory;

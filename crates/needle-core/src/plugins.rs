@@ -114,6 +114,8 @@ pub struct PluginInfo {
     pub effects: Vec<String>,
     /// Set when the plugin is a music source (it defines `source()`).
     pub source: Option<SourceInfo>,
+    /// The plugin finds lyrics (it defines `lyrics(song)`).
+    pub lyrics: bool,
     /// A bundled plugin someone changed: the newer version this build of Needle has.
     pub update: Option<String>,
     /// One of the plugins that come with Needle (in its own folder, under its own id).
@@ -305,6 +307,66 @@ pub enum PluginEvent {
         track_id: String,
         stars: i64,
     },
+    /// Ask the plugins that find lyrics for a song's.
+    Lyrics {
+        song: Box<Track>,
+        reply: Sender<Option<PluginLyrics>>,
+    },
+}
+
+/// Lyrics a plugin found.
+#[derive(Clone, Debug, PartialEq)]
+pub struct PluginLyrics {
+    /// The plugin's name, to say where they came from.
+    pub provider: String,
+    /// LRC (timed) or plain text; empty for an instrumental.
+    pub text: String,
+    pub timed: bool,
+    pub instrumental: bool,
+}
+
+/// What a plugin's `lyrics(song)` returned: `#{ synced: "[00:01.00]…" }`, `#{ plain: "…" }`,
+/// `#{ instrumental: true }`, or a string (LRC or plain); anything else means none.
+fn read_lyrics(value: &Dynamic, provider: &str) -> Option<PluginLyrics> {
+    let found = |text: String, instrumental: bool| {
+        let timed = !crate::media::parse_lrc(&text).is_empty();
+        (instrumental || !text.trim().is_empty()).then(|| PluginLyrics {
+            provider: provider.to_string(),
+            text,
+            timed,
+            instrumental,
+        })
+    };
+    if let Some(text) = value.clone().try_cast::<String>() {
+        return found(text, false);
+    }
+    let map = value.clone().try_cast::<Map>()?;
+    let text = |key: &str| {
+        map.get(key)
+            .and_then(|v| v.clone().try_cast::<String>())
+            .filter(|t| !t.trim().is_empty())
+    };
+    if map
+        .get("instrumental")
+        .and_then(|v| v.as_bool().ok())
+        .unwrap_or(false)
+    {
+        return found(String::new(), true);
+    }
+    text("synced")
+        .or_else(|| text("plain"))
+        .and_then(|t| found(t, false))
+}
+
+/// What a lyrics plugin is told about a song: enough to find it, nothing about the files.
+fn lyrics_song_map(track: &Track) -> Map {
+    let mut map = Map::new();
+    map.insert("title".into(), track.title.clone().into());
+    map.insert("artist".into(), track.display_artist().to_string().into());
+    map.insert("album".into(), track.album.clone().into());
+    map.insert("album_artist".into(), track.album_artist.clone().into());
+    map.insert("duration".into(), track.duration.into());
+    map
 }
 
 /// A source's list stops after this many pages, and nothing is changed: only a plugin
@@ -365,6 +427,29 @@ impl PluginHost {
     }
     pub fn send(&self, event: PluginEvent) {
         let _ = self.tx.send(event);
+    }
+    /// Ask the plugins that find lyrics (the turned-on ones, in order) for a song's: the first
+    /// timed lyrics, or else the first plain ones. `None` at once when no plugin finds lyrics.
+    pub fn lyrics(&self, track: &Track) -> Option<PluginLyrics> {
+        if !self.plugins().iter().any(|p| p.enabled && p.lyrics) {
+            return None;
+        }
+        let (reply, answer) = crossbeam_channel::bounded(1);
+        self.tx
+            .send(PluginEvent::Lyrics {
+                song: Box::new(track.clone()),
+                reply,
+            })
+            .ok()?;
+        answer.recv_timeout(Duration::from_secs(30)).ok().flatten()
+    }
+    /// The turned-on plugins that find lyrics, by id: part of the key lyrics are kept under.
+    pub fn lyrics_plugins(&self) -> Vec<String> {
+        self.plugins()
+            .into_iter()
+            .filter(|p| p.enabled && p.lyrics)
+            .map(|p| p.manifest.id)
+            .collect()
     }
     /// Ask a source plugin for a link to stream one of its songs.
     pub fn stream_link(&self, plugin: &str, id: &str) -> Result<String> {
@@ -536,6 +621,31 @@ fn run(
                     )));
                 }
                 publish(&loaded);
+            }
+            PluginEvent::Lyrics { song, reply } => {
+                let map = lyrics_song_map(&song);
+                let mut plain = None;
+                let mut timed = None;
+                for plugin in loaded
+                    .iter_mut()
+                    .filter(|p| p.info.enabled && p.info.lyrics)
+                {
+                    let name = plugin.info.manifest.name.clone();
+                    let Ok(value) = call_source(plugin, "lyrics", vec![map.clone().into()]) else {
+                        continue;
+                    };
+                    match read_lyrics(&value, &name) {
+                        Some(found) if found.timed || found.instrumental => {
+                            timed = Some(found);
+                            break;
+                        }
+                        Some(found) => {
+                            plain.get_or_insert(found);
+                        }
+                        None => {}
+                    }
+                }
+                let _ = reply.send(timed.or(plain));
             }
             PluginEvent::Rated { track_id, stars } => {
                 if let Ok(Some(track)) = library.track(&track_id)
@@ -742,6 +852,10 @@ fn refresh_source(plugin: &mut Loaded, library: &Library) {
             .as_ref()
             .is_some_and(|ast| ast.iter_functions().any(|f| f.name == name))
     };
+    plugin.info.lyrics = plugin.ast.as_ref().is_some_and(|ast| {
+        ast.iter_functions()
+            .any(|f| f.name == "lyrics" && f.params.len() == 1)
+    });
     // Needle fetches the links a source gives it, so being one needs the network permission:
     // otherwise a plugin could send library data out inside a link.
     if !plugin.info.enabled
@@ -910,6 +1024,7 @@ fn load_all(
                         commands: vec![],
                         effects: vec![],
                         source: None,
+                        lyrics: false,
                         update: None,
                         official: false,
                         verified: false,
@@ -942,6 +1057,7 @@ fn load_all(
                 commands: vec![],
                 effects: vec![],
                 source: None,
+                lyrics: false,
                 update: bundled_update(&dir, &manifest.id),
                 official: is_official(&dir, &manifest.id),
                 verified: is_official(&dir, &manifest.id)
@@ -1653,6 +1769,97 @@ fn effects() {
                      #{ id: "hold", name: "Rate divider", min: 1.0, max: 16.0, value: 1.0, step: 1.0 },
                      #{ id: "mix", name: "Amount", min: 0.0, max: 1.0, value: 1.0, unit: "%" } ] },
     ]
+}
+"#,
+    ),
+    (
+        "netease-lyrics",
+        r#"id = "netease-lyrics"
+name = "NetEase lyrics"
+version = "1.0.0"
+author = "nnx"
+description = "Finds timed lyrics on NetEase Cloud Music when LRCLIB has none. Good for K-pop, J-pop, C-pop, and much more. Sends only a song's title, artist, and length."
+permissions = ["network"]
+"#,
+        r#"// Lyrics from NetEase Cloud Music (music.163.com), which has timed lyrics for a great many
+// songs, Asian music above all. Needle asks it only when a song has no lyrics of its own and
+// LRCLIB has no timed ones. This uses NetEase's public web API, which is not official and
+// may change.
+
+// Credit lines NetEase puts before the lyrics ("作词 : …" is "lyrics by"), left out.
+fn is_credit(line) {
+    let words = ["作词", "作曲", "编曲", "制作", "混音", "录音", "母带", "和声", "监制", "出品", "企划", "统筹"];
+    if !(line.contains(":") || line.contains("：")) {
+        return false;
+    }
+    for word in words {
+        if line.contains(word) {
+            return true;
+        }
+    }
+    false
+}
+
+// The search result closest to the song: about the same length, the same title if it can.
+fn closest(candidates, song) {
+    let want = song.duration * 1000.0;
+    let best = ();
+    let best_score = 0.0;
+    for candidate in candidates {
+        if candidate.duration == () {
+            continue;
+        }
+        let gap = candidate.duration.to_float() - want;
+        if gap < 0.0 {
+            gap = -gap;
+        }
+        // More than eight seconds apart is another recording.
+        if want > 0.0 && gap > 8000.0 {
+            continue;
+        }
+        let score = gap;
+        if candidate.name.to_lower() != song.title.to_lower() {
+            score += 5000.0;
+        }
+        if best == () || score < best_score {
+            best = candidate;
+            best_score = score;
+        }
+    }
+    best
+}
+
+fn lyrics(song) {
+    if song.title == "" {
+        return ();
+    }
+    let query = url_encode(song.artist + " " + song.title);
+    let found = parse_json(http_get(`https://music.163.com/api/search/get?s=${query}&type=1&limit=10`));
+    if found.result == () || found.result.songs == () {
+        return ();
+    }
+    let best = closest(found.result.songs, song);
+    if best == () {
+        return ();
+    }
+    let answer = parse_json(http_get(`https://music.163.com/api/song/lyric?id=${best.id}&lv=1&kv=1&tv=-1`));
+    if answer.pureMusic == true {
+        return #{ instrumental: true };
+    }
+    if answer.lrc == () || answer.lrc.lyric == () || answer.lrc.lyric == "" {
+        return ();
+    }
+    let kept = [];
+    for line in answer.lrc.lyric.split("\n") {
+        if !is_credit(line) {
+            kept.push(line);
+        }
+    }
+    let text = "";
+    for line in kept {
+        text += line + "\n";
+    }
+    #{ synced: text }
 }
 "#,
     ),
@@ -3020,6 +3227,68 @@ fn on_file_dropped(file) {
         assert!(inside(Path::new("x"), "../escape.txt").is_err());
         assert!(inside(Path::new("x"), "C:\\escape.txt").is_err());
         assert!(inside(Path::new("x"), "ok.txt").is_ok());
+    }
+
+    #[test]
+    fn lyrics_plugins_answer_and_timed_lyrics_win() {
+        let dir = tempfile::tempdir().unwrap();
+        let library = Library::open(dir.path()).unwrap();
+        let add = |id: &str, name: &str, script: &str| {
+            let folder = library.directory.join("plugins").join(id);
+            std::fs::create_dir_all(&folder).unwrap();
+            std::fs::write(
+                folder.join("plugin.toml"),
+                format!(
+                    "id = \"{id}\"
+name = \"{name}\"
+"
+                ),
+            )
+            .unwrap();
+            std::fs::write(folder.join("main.rhai"), script).unwrap();
+        };
+        add(
+            "a-plain",
+            "Plain words",
+            r#"fn lyrics(song) { #{ plain: "Just words" } }"#,
+        );
+        add(
+            "b-timed",
+            "Timed words",
+            r#"fn lyrics(song) { if song.title == "Song" { `[00:01.00]${song.artist} sings` } }"#,
+        );
+        library
+            .set_json(
+                ENABLED_KEY,
+                &BTreeSet::from(["a-plain".to_string(), "b-timed".to_string()]),
+            )
+            .unwrap();
+        install_examples(&library).unwrap();
+        let host = PluginHost::start(library.clone(), Default::default(), |_| {});
+        let plugins =
+            wait(|| Some(host.plugins()).filter(|p| p.iter().any(|p| p.lyrics && p.enabled)));
+        assert!(
+            plugins
+                .iter()
+                .any(|p| p.manifest.id == "netease-lyrics" && p.lyrics && !p.enabled)
+        );
+        let song = |title: &str| Track {
+            title: title.into(),
+            artist: "Artist".into(),
+            duration: 60.,
+            ..Default::default()
+        };
+        let found = host.lyrics(&song("Song")).unwrap();
+        assert_eq!(found.provider, "Timed words");
+        assert!(found.timed);
+        assert_eq!(found.text, "[00:01.00]Artist sings");
+        // Only plain lyrics anywhere: those.
+        let plain = host.lyrics(&song("Other")).unwrap();
+        assert_eq!(
+            (plain.provider.as_str(), plain.timed),
+            ("Plain words", false)
+        );
+        assert_eq!(host.lyrics_plugins(), ["a-plain", "b-timed"]);
     }
 
     #[test]
