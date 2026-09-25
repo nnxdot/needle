@@ -19,7 +19,37 @@ pub enum LyricsKind {
     Immersive,
 }
 
+/// The bundled plugin that finds lyrics on NetEase Cloud Music.
+const NETEASE: &str = "netease-lyrics";
+
 impl AppView {
+    /// Install (if needed) and turn on the NetEase lyrics plugin, then look again.
+    fn add_netease(&mut self, cx: &mut Context<Self>) {
+        use needle_core::plugins::{self, PluginEvent};
+        if let Err(error) = plugins::install_example(&self.library, NETEASE) {
+            self.fail(format!("Could not add the NetEase plugin: {error:#}"));
+            cx.notify();
+            return;
+        }
+        self.plugins.send(PluginEvent::Reload);
+        self.plugins.send(PluginEvent::Enable(NETEASE.into(), true));
+        self.notify("NetEase lyrics is on. Looking for lyrics there…");
+        // Look again once the plugin has loaded.
+        cx.spawn(async move |this, cx| {
+            cx.background_executor()
+                .timer(std::time::Duration::from_millis(1500))
+                .await;
+            let _ = this.update(cx, |this, cx| {
+                if let Some(item) = this.playback.current.clone() {
+                    this.lookup_media(&item.track);
+                }
+                cx.notify();
+            });
+        })
+        .detach();
+        cx.notify();
+    }
+
     /// Look up lyrics, missing album art, and the artist photo for a newly playing track.
     pub(super) fn track_started(&mut self, track: &Track) {
         self.plugins
@@ -36,12 +66,14 @@ impl AppView {
         let library = self.library.clone();
         let sender = self.sender.clone();
         let online = self.settings.online_media;
+        let plugins = self.plugins.clone();
         let track = track.clone();
         std::thread::spawn(move || {
-            let lyrics = media::lyrics(&library, &track, online).unwrap_or_else(|e| {
-                eprintln!("Lyrics lookup failed: {e:#}");
-                None
-            });
+            let lyrics =
+                media::lyrics(&library, &track, online, Some(&plugins)).unwrap_or_else(|e| {
+                    eprintln!("Lyrics lookup failed: {e:#}");
+                    None
+                });
             let _ = sender.send(Event::Lyrics(track.id.clone(), lyrics));
             if online
                 && track.artwork.is_none()
@@ -238,15 +270,33 @@ impl AppView {
                         })),
                 )
             })
+            // NetEase has timed lyrics for many songs LRCLIB lacks: offer its plugin here.
+            .when(
+                self.settings.online_media
+                    && !mini
+                    && !self
+                        .plugins
+                        .plugins()
+                        .iter()
+                        .any(|p| p.manifest.id == NETEASE && p.enabled),
+                |el| {
+                    el.child(
+                        small_button("add-netease", "Also look on NetEase")
+                            .ghost()
+                            .on_click(cx.listener(|this, _, _, cx| this.add_netease(cx))),
+                    )
+                },
+            )
             .into_any_element();
         };
         if lyrics.instrumental {
             return message("Instrumental", "This track has no words.", cx).into_any_element();
         }
         let source = match lyrics.source {
-            LyricsSource::Sidecar => "From a file beside the song",
-            LyricsSource::Embedded => "From the song's tags",
-            LyricsSource::Lrclib => "From LRCLIB",
+            LyricsSource::Sidecar => "From a file beside the song".to_string(),
+            LyricsSource::Embedded => "From the song's tags".to_string(),
+            LyricsSource::Lrclib => "From LRCLIB".to_string(),
+            LyricsSource::Plugin => format!("From {}", lyrics.provider),
         };
         // Lines are direct children of the scroll area so the view can scroll to one of them.
         let gap = if huge {

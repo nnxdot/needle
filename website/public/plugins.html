@@ -67,6 +67,7 @@
       <a href="#functions">Functions</a>
       <a href="#data">Songs and listens</a>
       <a href="#sources">Music sources</a>
+      <a href="#lyrics">Lyrics</a>
       <a href="#limits">Limits and safety</a>
       <a href="#examples">Examples</a>
       <a href="#trouble">When something goes wrong</a>
@@ -398,11 +399,29 @@ fn run(command, ids) {
         <p>Numbers may also be text; empty or missing fields are fine.</p>
         <h3>Helpers for servers</h3>
         <dl class="api">
-          <dt><code>secret(key)</code>, <code>set_secret(key, value)</code>, <code>delete_secret(key)</code></dt><dd>Keep a password or token in Windows Credential Manager, under this plugin's name, instead of in Needle's files. Always allowed.</dd>
+          <dt><code>secret(key)</code>, <code>set_secret(key, value)</code>, <code>delete_secret(key)</code></dt><dd>Keep a password or token in the system's credential store (Windows Credential Manager, or GNOME Keyring or KWallet on Linux), under this plugin's name, instead of in Needle's files. Always allowed.</dd>
           <dt><code>md5(text)</code></dt><dd>The MD5 hash of the text, as 32 hex digits (Subsonic's salted sign-in uses it).</dd>
           <dt><code>random_text(length)</code></dt><dd>Random letters and digits.</dd>
           <dt><code>url_encode(text)</code></dt><dd>Text made safe for a web address.</dd>
         </dl>
+      </section>
+
+      <section id="lyrics">
+        <h2>Lyrics</h2>
+        <p>A plugin can find lyrics by defining <code>lyrics(song)</code>. Needle asks it only when a song has no lyrics beside it or in its tags, LRCLIB has no timed ones, and online lookups are on in Settings. Plugins that find lyrics are asked in turn: the first timed lyrics win, and plain ones are kept in case nothing better turns up. Needle keeps what they find for a month, and a miss for a day.</p>
+        <p><code>song</code> has only what is needed to look a song up: <code>title</code>, <code>artist</code>, <code>album</code>, <code>album_artist</code>, and <code>duration</code> in seconds. Return one of these, or nothing:</p>
+        <dl class="api">
+          <dt><code>#{ synced: text }</code></dt><dd>Timed lyrics in LRC, such as <code>[00:12.50]A line</code>. A string on its own is read the same way.</dd>
+          <dt><code>#{ plain: text }</code></dt><dd>Lyrics without timing.</dd>
+          <dt><code>#{ instrumental: true }</code></dt><dd>The song has no words.</dd>
+        </dl>
+<pre><code>fn lyrics(song) {
+    let query = url_encode(song.artist + " " + song.title);
+    let found = parse_json(http_get(`https://lyrics.example.com/find?q=${query}`));
+    if found.lrc == () { return (); }
+    #{ synced: found.lrc }
+}</code></pre>
+        <p>Needle comes with <b>NetEase lyrics</b>, which looks on NetEase Cloud Music: it has timed lyrics for a great many songs, Asian music above all. It starts turned off; turn it on in Settings › Plugins, or press <b>Also look on NetEase</b> where a song has no lyrics.</p>
       </section>
 
       <section id="limits">
@@ -418,7 +437,7 @@ fn run(command, ids) {
 
       <section id="examples">
         <h2>Examples</h2>
-        <p>Press <b>Add example plugins</b> in Settings to get these seven. Open their folders to read or change them. Two add sound effects: <b>Studio effects</b> (Room, Echo, Night mode, and Old radio, made from blocks) and <b>Bitcrusher</b> (DSP code in WebAssembly text). <b>Navidrome / Subsonic</b> is a <a href="#sources">music source</a>.</p>
+        <p>Press <b>Add example plugins</b> in Settings to get these eight. Open their folders to read or change them. Two add sound effects: <b>Studio effects</b> (Room, Echo, Night mode, and Old radio, made from blocks) and <b>Bitcrusher</b> (DSP code in WebAssembly text). <b>Navidrome / Subsonic</b> is a <a href="#sources">music source</a>, and <b>NetEase lyrics</b> <a href="#lyrics">finds lyrics</a>.</p>
         <p>Needle updates these plugins by itself when a new version of Needle has a newer one, as long as you have not changed them. If you have, Settings shows <b>Update</b>, which keeps your changed files next to the new ones as <code>.mine</code> files, and <b>Keep mine</b>.</p>
         <p>Settings lists these under <b>Official</b>, and plugins you add under <b>Community</b>. An official plugin whose files are exactly as Needle installed them has a check mark next to its author. Once you change it, it says <i>changed by you</i> instead.</p>
 
