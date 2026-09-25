@@ -1045,8 +1045,11 @@ impl Window {
                     measure("frame duration", || {
                         handle
                             .update(&mut cx, |_, window, cx| {
+                                let started = Instant::now();
                                 let arena_clear_needed = window.draw(cx);
+                                let drawn = Instant::now();
                                 window.present();
+                                frame_log::record(started, drawn, Instant::now());
                                 // drop the arena elements after present to reduce latency
                                 arena_clear_needed.clear();
                             })
@@ -1270,8 +1273,12 @@ impl Window {
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
-pub(crate) struct DispatchEventResult {
+/// What happened to a dispatched input event (Needle patch: public, so Needle's benchmark can
+/// send input to a window).
+pub struct DispatchEventResult {
+    /// Whether the event went on past every handler.
     pub propagate: bool,
+    /// Whether a handler prevented the default behavior.
     pub default_prevented: bool,
 }
 
@@ -1651,7 +1658,10 @@ impl Window {
     /// It will cause the window to redraw on the next frame, even if no other changes have occurred.
     ///
     /// If called from within a view, it will notify that view on the next frame. Otherwise, it will refresh the entire window.
+    #[track_caller]
     pub fn request_animation_frame(&self) {
+        let caller = core::panic::Location::caller();
+        frame_log_wake(|| format!("frame request {}:{}", caller.file(), caller.line()));
         let entity = self.current_view();
         self.on_next_frame(move |_, cx| cx.notify(entity));
     }
@@ -5099,5 +5109,158 @@ pub fn outline(
         border_widths: (1.).into(),
         border_color: border_color.into(),
         border_style,
+    }
+}
+
+/// Needle patch: names the next stretch of frames in the `NEEDLE_FRAME_LOG` file (a benchmark
+/// step). The frames so far are written under the previous name. Does nothing when the log is
+/// off.
+pub fn frame_log_phase(name: &str) {
+    frame_log::phase(name);
+}
+
+/// Needle patch: counts, for the `NEEDLE_FRAME_LOG` file, one reason a new frame was asked
+/// for. `reason` is only called when the log is on.
+pub fn frame_log_wake(reason: impl FnOnce() -> String) {
+    frame_log::wake(reason);
+}
+
+/// Needle patch: writes one line to the `NEEDLE_FRAME_LOG` file at once (slow work, say).
+pub fn frame_log_note(line: impl FnOnce() -> String) {
+    frame_log::note(line);
+}
+
+/// Needle patch: with `NEEDLE_FRAME_LOG` set to a file path, lines are added there with how
+/// many frames were drawn and how long building (render, layout, paint) and presenting them
+/// took: every 5 seconds, or per step once `frame_log_phase` names one. Off by default; used
+/// to measure stutters.
+mod frame_log {
+    use std::io::Write;
+    use std::sync::{Mutex, OnceLock};
+    use std::time::{Duration, Instant};
+
+    struct Stats {
+        file: std::fs::File,
+        since: Instant,
+        phase: Option<String>,
+        draws: Vec<f64>,
+        presents: Vec<f64>,
+        last_end: Option<Instant>,
+        longest_gap: f64,
+        wakes: std::collections::HashMap<String, usize>,
+    }
+
+    fn stats() -> Option<&'static Mutex<Stats>> {
+        static STATS: OnceLock<Option<Mutex<Stats>>> = OnceLock::new();
+        STATS
+            .get_or_init(|| {
+                let path = std::env::var_os("NEEDLE_FRAME_LOG")?;
+                let file = std::fs::OpenOptions::new()
+                    .create(true)
+                    .append(true)
+                    .open(path)
+                    .ok()?;
+                Some(Mutex::new(Stats {
+                    file,
+                    since: Instant::now(),
+                    phase: None,
+                    draws: Vec::new(),
+                    presents: Vec::new(),
+                    last_end: None,
+                    longest_gap: 0.,
+                    wakes: std::collections::HashMap::new(),
+                }))
+            })
+            .as_ref()
+    }
+
+    fn summary(values: &mut [f64]) -> String {
+        if values.is_empty() {
+            return "-".into();
+        }
+        values.sort_by(|a, b| a.total_cmp(b));
+        let mean = values.iter().sum::<f64>() / values.len() as f64;
+        let p95 = values[(values.len() * 95 / 100).min(values.len() - 1)];
+        let max = values[values.len() - 1];
+        format!("mean {mean:5.2} p95 {p95:5.2} max {max:6.2}")
+    }
+
+    fn flush(s: &mut Stats) {
+        let seconds = s.since.elapsed().as_secs_f64().max(0.001);
+        let frames = s.draws.len();
+        let mut draws = std::mem::take(&mut s.draws);
+        let mut presents = std::mem::take(&mut s.presents);
+        let gap = std::mem::take(&mut s.longest_gap);
+        let line = format!(
+            "{:<18} {:6.1} frames/s | build ms {} | present ms {} | longest gap ms {gap:6.1}\n",
+            s.phase.as_deref().unwrap_or("-"),
+            frames as f64 / seconds,
+            summary(&mut draws),
+            summary(&mut presents),
+        );
+        let _ = s.file.write_all(line.as_bytes());
+        let mut wakes: Vec<(String, usize)> = s.wakes.drain().collect();
+        wakes.sort_by(|a, b| b.1.cmp(&a.1));
+        for (reason, count) in wakes.into_iter().take(14) {
+            let _ = writeln!(s.file, "    {:6.1}/s  {reason}", count as f64 / seconds);
+        }
+        s.since = Instant::now();
+    }
+
+    pub(super) fn wake(reason: impl FnOnce() -> String) {
+        let Some(stats) = stats() else {
+            return;
+        };
+        let reason = reason();
+        let mut s = stats.lock().unwrap_or_else(|p| p.into_inner());
+        *s.wakes.entry(reason).or_default() += 1;
+    }
+
+    pub(super) fn note(line: impl FnOnce() -> String) {
+        let Some(stats) = stats() else {
+            return;
+        };
+        let line = line();
+        let mut s = stats.lock().unwrap_or_else(|p| p.into_inner());
+        let _ = writeln!(s.file, "  note: {line}");
+    }
+
+    pub(super) fn phase(name: &str) {
+        let Some(stats) = stats() else {
+            return;
+        };
+        let mut s = stats.lock().unwrap_or_else(|p| p.into_inner());
+        if s.phase.is_some() {
+            flush(&mut s);
+        } else {
+            s.draws.clear();
+            s.presents.clear();
+            s.wakes.clear();
+            s.longest_gap = 0.;
+            s.since = Instant::now();
+        }
+        s.phase = Some(name.to_string());
+        s.last_end = None;
+    }
+
+    pub(super) fn record(started: Instant, drawn: Instant, ended: Instant) {
+        let Some(stats) = stats() else {
+            return;
+        };
+        let mut s = stats.lock().unwrap_or_else(|p| p.into_inner());
+        s.draws.push((drawn - started).as_secs_f64() * 1000.);
+        s.presents.push((ended - drawn).as_secs_f64() * 1000.);
+        // The longest wait between two frames in a row; only counted within a second, as
+        // a longer wait is an idle window rather than a stutter.
+        if let Some(last) = s.last_end {
+            let gap = (started - last).as_secs_f64() * 1000.;
+            if gap < 1000. && gap > s.longest_gap {
+                s.longest_gap = gap;
+            }
+        }
+        s.last_end = Some(ended);
+        if s.phase.is_none() && s.since.elapsed() >= Duration::from_secs(5) {
+            flush(&mut s);
+        }
     }
 }
