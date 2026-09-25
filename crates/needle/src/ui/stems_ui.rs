@@ -381,12 +381,7 @@ impl AppView {
             .child(
                 div()
                     .opacity(if muted { 0.3 } else { 0.4 + 0.6 * level })
-                    .child(super::motion::equalizer(
-                        format!("stem-meter-{i}"),
-                        color,
-                        live,
-                        cx,
-                    )),
+                    .child(super::motion::equalizer(color, live, cx)),
             )
             .child(pill("stem-solo", "S", "Solo", soloed).on_click(cx.listener(
                 move |this, _, window, cx| {

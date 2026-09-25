@@ -34,8 +34,9 @@ Status: **open**, **fixed**, or **kept** (looked at, and left as it is, with the
    event, the lyric line, a notice), and at least once a second. The seek bar moves only by
    a visible step (a thousandth of its length).
 3. **Hidden lyrics kept asking for frames** (fixed). After every new lyric line, the lyrics
-   glide waited up to 30 frames for lyrics that were not on screen. It now waits only for
-   lyrics that are shown (`crates/needle/src/ui/lyrics.rs`).
+   glide waited up to 30 frames for lyrics that were not on screen, and eased hidden lyrics
+   toward their last layout. It now moves only lyrics on screen, and lyrics that come into
+   view start from the sung line (`glide_lyrics` in `crates/needle/src/ui/lyrics.rs`).
 
    Result of 1 to 3, benchmark with a song playing: pages at rest went from 40 to 50 frames
    a second to 13 to 17 (the rest is the moving seek bar and the search box's blinking
@@ -78,6 +79,12 @@ Status: **open**, **fixed**, or **kept** (looked at, and left as it is, with the
    (5 to 9 ms at most), so the sums and lists built during a render are not worth changing.
 10. **Blur and glass** (kept). While a song plays, Needle uses 0.16% of the graphics card
     (Windows' GPU counters).
+12. **Endless animations redrew at the screen's rate** (fixed). A GPUI animation redraws the
+    whole window on every screen refresh (up to 180 times a second here) for as long as it
+    is on screen. The bouncing bars beside the playing song and the full screen's drifting
+    cover never stop, so they now move on Needle's own timer instead (`slow_repeat` in
+    `crates/needle/src/ui/motion.rs`; 25 times a second while playing). The playing song's
+    album went from 34 to 26 frames a second, Songs after the big player from 33 to 21.
 11. **157 threads** (kept). An empty profile runs 126: GPUI and the other libraries start
     worker pools sized to the processor, and idle threads cost almost nothing.
 

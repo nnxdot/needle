@@ -1100,13 +1100,7 @@ impl AppView {
                     .text_size(px(12.))
                     .text_color(p.ink_3)
                     .child(if playing {
-                        motion::equalizer(
-                            format!("eq-{index}"),
-                            p.accent,
-                            self.playback.playing,
-                            cx,
-                        )
-                        .into_any_element()
+                        motion::equalizer(p.accent, self.playback.playing, cx).into_any_element()
                     } else {
                         div()
                             .group_hover("row", |s| s.opacity(0.))
