@@ -113,6 +113,13 @@ Opening an existing large library for the first time after this change builds th
 - Film grain is off by default and has a strength slider.
 - Discord Rich Presence uses Needle's own Discord application. A live test with Discord open showed a "Listening" presence named Needle with the uploaded logo and a time bar for eight seconds, confirmed by Discord's reply, and then cleared it. A second live test showed "Listening to Armageddon" with the artist, the album, and the album cover found in the iTunes catalog (Discord proxied the image), with the Needle logo as the small badge. A test checks the cover match: a different artist never counts, and the same song on the same album wins over remixes. It talks only to the local Discord pipe and first checks that the program serving the pipe is a Discord client (Discord, Canary, PTB, Development, Vesktop, Equibop, Legcord, or WebCord); a live check against this PC's Discord passed. Tests cover the activity message (listening type, 2–128 character fields, time bar in milliseconds, paused state without a time bar) and the client name check.
 
+## 1.5.2 checks
+
+1.5.1 was taken back: updating to it from 1.5.0 stopped at "Closing applications". 1.5.2 has everything below plus this fix.
+
+- Cause: with the last session on a music server that does not answer, the audio worker spends about 21 seconds trying to connect after Needle starts, and closing waited for it (a Windows Restart Manager test closed 1.5.0 in 1.1 s with an empty profile and 19.5 s with a copy of a real one; timing lines showed the wait was the worker, not the database). The worker now gets at most 3 seconds: the same test closes 1.5.2 in 3.1 s.
+- Installer: acted out an update on a copy of the 1.5.0 install in a test folder (its own AppId, no registry, icons, or uninstaller), with the updater's flags and Needle asked to close at the same moment. The 1.5.1 installer failed with "Some applications could not be shut down" and changed nothing; the 1.5.2 installer waited 8 seconds, ended Needle, and installed (13 s in all). Installs run by hand, not quietly, are unchanged.
+
 ## 1.5.1 checks
 
 - Crash: all six crash reports from 1.5.0 were the same DirectWrite panic (a text run ending inside a character after an earlier truncation). `cargo run -p needle --example text_truncation_check` draws truncated rows with ’, セ, and 虚 at several widths: it panicked on the 1.5.0 code and draws every frame with the fix.
