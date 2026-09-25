@@ -463,6 +463,16 @@ impl AppView {
                                 )
                             },
                         )
+                        .when_some(playlist.clone().filter(|l| l.query.is_none()), |el, list| {
+                            el.child(
+                                Button::new("add-songs")
+                                    .icon(icon("plus"))
+                                    .label("Add songs")
+                                    .on_click(cx.listener(move |this, _, window, cx| {
+                                        this.open_add_songs(&list, window, cx)
+                                    })),
+                            )
+                        })
                         .when_some(playlist.clone(), |el, list| {
                             el.child(
                                 Button::new("edit-playlist")
@@ -1007,6 +1017,8 @@ impl AppView {
         ),
         cx: &mut Context<Self>,
     ) -> Div {
+        // Songs of a playlist of picked songs can be dragged into another order.
+        let arrange = self.arrangeable_playlist(cx).is_some();
         let p = pal(cx);
         let track = &self.tracks[index];
         let selected = self.selection.ids.contains(&track.id);
@@ -1221,6 +1233,17 @@ impl AppView {
             .on_click(cx.listener(move |this, event: &ClickEvent, window, cx| {
                 this.click_track(index, event, window, cx)
             }))
+            .when(arrange, |el| {
+                let line = p.accent;
+                el.drag_over::<super::flow::DraggedTracks>(move |s, _, _, _| {
+                    s.border_t_2().border_color(line)
+                })
+                .on_drop(cx.listener(
+                    move |this, dragged: &super::flow::DraggedTracks, _, cx| {
+                        this.move_in_playlist(&dragged.ids, index, cx)
+                    },
+                ))
+            })
             .on_drag(
                 {
                     let ids: Vec<String> = if selected {

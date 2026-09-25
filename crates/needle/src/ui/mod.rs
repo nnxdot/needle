@@ -443,6 +443,8 @@ pub struct AppView {
     loading: bool,
     /// The playlist window, while it is open.
     editor: Option<playlist_editor::PlaylistEditor>,
+    /// The "Add songs" window of a playlist, while it is open.
+    add_songs: Option<playlist_editor::AddSongs>,
     confirm_delete: bool,
     editing: bool,
     matches: Vec<RecordingMatch>,
@@ -906,6 +908,7 @@ impl AppView {
             generation: 0,
             loading: true,
             editor: None,
+            add_songs: None,
             confirm_delete: false,
             editing: false,
             matches: vec![],
@@ -2098,6 +2101,94 @@ impl AppView {
         }
     }
 
+    /// The playlist of picked songs this page shows, when its own order is shown (no search,
+    /// no sorting): the one songs can be moved about in and removed from.
+    fn arrangeable_playlist(&self, cx: &App) -> Option<Playlist> {
+        let Page::Playlist(id) = &self.page else {
+            return None;
+        };
+        self.playlists
+            .iter()
+            .find(|p| &p.id == id && p.query.is_none())
+            .filter(|_| self.sort == Sort::Default && self.search_text(cx).is_empty())
+            .cloned()
+    }
+
+    /// Move the songs `ids` to just before the song shown at `target` (the end when past it).
+    fn move_in_playlist(&mut self, ids: &[String], target: usize, cx: &mut Context<Self>) {
+        let Some(mut playlist) = self.arrangeable_playlist(cx) else {
+            return;
+        };
+        let before = self.tracks.get(target).map(|t| t.id.clone());
+        if before.as_ref().is_some_and(|b| ids.contains(b)) {
+            return;
+        }
+        let moving: Vec<String> = playlist
+            .track_ids
+            .iter()
+            .filter(|id| ids.contains(id))
+            .cloned()
+            .collect();
+        if moving.is_empty() {
+            // Songs from elsewhere dropped here: add them at that spot.
+            return self.insert_into_playlist(playlist, ids.to_vec(), before, cx);
+        }
+        playlist.track_ids.retain(|id| !ids.contains(id));
+        self.insert_into_playlist(playlist, moving, before, cx);
+    }
+
+    fn insert_into_playlist(
+        &mut self,
+        mut playlist: Playlist,
+        ids: Vec<String>,
+        before: Option<String>,
+        cx: &mut Context<Self>,
+    ) {
+        let at = before
+            .and_then(|b| playlist.track_ids.iter().position(|id| *id == b))
+            .unwrap_or(playlist.track_ids.len());
+        playlist.track_ids.splice(at..at, ids);
+        playlist.updated_at = chrono::Utc::now().timestamp();
+        match self.library.save_playlist(&playlist) {
+            Ok(()) => {
+                self.playlists = self.library.playlists().unwrap_or_default();
+                self.refresh(cx);
+            }
+            Err(e) => self.fail(e.to_string()),
+        }
+        cx.notify();
+    }
+
+    /// Take the selected songs out of this page's playlist. The files stay.
+    fn remove_from_playlist(&mut self, cx: &mut Context<Self>) {
+        let Some(mut playlist) = self.arrangeable_playlist(cx) else {
+            return;
+        };
+        let ids: Vec<String> = self.selected_tracks().into_iter().map(|t| t.id).collect();
+        let before = playlist.track_ids.len();
+        playlist.track_ids.retain(|id| !ids.contains(id));
+        let removed = before - playlist.track_ids.len();
+        playlist.updated_at = chrono::Utc::now().timestamp();
+        match self.library.save_playlist(&playlist) {
+            Ok(()) => {
+                self.playlists = self.library.playlists().unwrap_or_default();
+                self.selection = Selection::default();
+                self.notify(format!(
+                    "Took {} out of “{}”.",
+                    if removed == 1 {
+                        "1 song".to_string()
+                    } else {
+                        format!("{removed} songs")
+                    },
+                    playlist.name
+                ));
+                self.refresh(cx);
+            }
+            Err(e) => self.fail(e.to_string()),
+        }
+        cx.notify();
+    }
+
     fn lookup(&mut self, cx: &mut Context<Self>) {
         if let Some(track) = &self.focused {
             let library = self.library.clone();
@@ -2403,7 +2494,7 @@ impl Render for AppView {
                 }
                 if this.big {
                     this.big = false;
-                } else if this.editor.take().is_some() {
+                } else if this.editor.take().is_some() || this.add_songs.take().is_some() {
                     // Esc closes the playlist window.
                 } else if this.menu.take().is_none() && !this.editing {
                     if !this.search_text(cx).is_empty() {
@@ -2482,6 +2573,7 @@ impl Render for AppView {
             .children(self.welcome_view(window, cx))
             .children(self.whats_new_view(window, cx))
             .children(self.playlist_editor_view(window, cx))
+            .children(self.add_songs_view(window, cx))
             .children(self.asking_view(cx))
     }
 }
