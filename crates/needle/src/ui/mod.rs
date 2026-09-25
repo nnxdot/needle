@@ -2795,7 +2795,8 @@ impl Render for AppView {
                         .map(|el| {
                             if !self.settings.layout.player_on_top {
                                 el.child(self.player_bar(width, cx))
-                            } else if !self.settings.layout.search_hidden {
+                            } else if !self.settings.layout.search_hidden && !self.big {
+                                // (Over the big player, the title bar has the search field.)
                                 el.child(self.search_strip(window, cx))
                             } else {
                                 el
