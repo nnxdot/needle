@@ -47,6 +47,8 @@ pub struct MiniView {
     expanded: bool,
     tab: Tab,
     pinned: bool,
+    /// When the seek bar was last moved by hand: it is not pulled back while the jump lands.
+    seek_moved: Option<std::time::Instant>,
     /// Linux: the title strip was pressed; moving the pointer now starts a window move.
     drag_armed: bool,
     glass_applied: Option<(super::glass::Material, bool)>,
@@ -96,6 +98,7 @@ impl AppView {
                     let sliders = vec![
                         cx.subscribe(&seek, |this: &mut MiniView, _, event: &SliderEvent, cx| {
                             let SliderEvent::Change(value) = event;
+                            this.seek_moved = Some(std::time::Instant::now());
                             let Some(app) = this.app.upgrade() else {
                                 return;
                             };
@@ -128,6 +131,7 @@ impl AppView {
                         tab: Tab::Next,
                         pinned: false,
                         drag_armed: false,
+                        seek_moved: None,
                         glass_applied: None,
                     }
                 });
@@ -340,7 +344,10 @@ impl Render for MiniView {
             }
             _ => 0.,
         };
-        if (self.seek.read(cx).value().start() - seek_value).abs() > 0.5 {
+        let dragging = self
+            .seek_moved
+            .is_some_and(|at| at.elapsed() < std::time::Duration::from_millis(600));
+        if !dragging && (self.seek.read(cx).value().start() - seek_value).abs() > 0.5 {
             self.seek
                 .update(cx, |s, cx| s.set_value(seek_value, window, cx));
         }
