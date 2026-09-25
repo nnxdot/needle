@@ -60,7 +60,10 @@ Status: **open**, **fixed**, or **kept** (looked at, and left as it is, with the
    timeout), and Play, Pause, Next, and the volume all waited behind it. A song from a server
    that is not kept here now opens on a helper thread; it stays first in the queue until it
    is in, a change to the queue drops it, and a jump asked for meanwhile is done once it is
-   in (`fill`, `take_opened` in `crates/needle-core/src/audio.rs`). Test: with a server that
+   in (`fill`, `take_opened` in `crates/needle-core/src/audio.rs`). (A save of the session before every
+   command, added for a worker stuck opening a song, was taken out again once songs opened
+   on a helper thread: it made each command slower, and three audio tests failed now and
+   then under load on Linux, 3 times in about 25 runs; without it, 25 of 25 passed.) Test: with a server that
    takes 1.5 s and fails, Play, the volume, and Pause answer within 0.5 s, and the next song
    plays after it.
 7. **Large covers drawn at full size** (fixed). GPUI decodes an image and sends it to the
