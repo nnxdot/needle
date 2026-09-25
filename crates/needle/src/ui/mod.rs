@@ -2081,8 +2081,19 @@ impl AppView {
         else {
             return;
         };
-        let count = tracks.len();
-        playlist.track_ids.extend(tracks.into_iter().map(|t| t.id));
+        // A song is in a playlist once.
+        let mut new: Vec<String> = vec![];
+        for track in tracks {
+            if !playlist.track_ids.contains(&track.id) && !new.contains(&track.id) {
+                new.push(track.id);
+            }
+        }
+        if new.is_empty() {
+            self.notify(format!("Already in “{}”.", playlist.name));
+            return;
+        }
+        let count = new.len();
+        playlist.track_ids.extend(new);
         playlist.updated_at = chrono::Utc::now().timestamp();
         match self.library.save_playlist(&playlist) {
             Ok(()) => {
@@ -2144,6 +2155,10 @@ impl AppView {
         before: Option<String>,
         cx: &mut Context<Self>,
     ) {
+        // Songs already in it (dropped again from elsewhere) are not added twice.
+        let mut ids = ids;
+        ids.retain(|id| !playlist.track_ids.contains(id));
+        ids.dedup();
         let at = before
             .and_then(|b| playlist.track_ids.iter().position(|id| *id == b))
             .unwrap_or(playlist.track_ids.len());
