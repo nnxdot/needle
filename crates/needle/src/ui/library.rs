@@ -9,7 +9,6 @@ use gpui::{prelude::*, *};
 use gpui_component::{
     Disableable, Sizable,
     button::{Button, ButtonVariants},
-    input::Input,
 };
 use needle_core::browse::{AlbumSummary, ArtistSummary};
 
@@ -289,8 +288,16 @@ impl AppView {
             .flex()
             .items_end()
             .gap_5()
-            .when(album_art.is_some() || artist.is_some(), |el| {
+            .when(album_art.is_some() || artist.is_some() || playlist.is_some(), |el| {
                 el.pt(px(34.)).pb_6()
+            })
+            .when_some(playlist.clone(), |el, list| {
+                el.child(div().rounded(px(8.)).shadow_lg().child(self.playlist_cover(
+                    list.cover.as_deref(),
+                    &self.tracks,
+                    196.,
+                    cx,
+                )))
             })
             .when_some(album_art.clone(), |el, track| {
                 el.child(
@@ -316,7 +323,7 @@ impl AppView {
                     .flex_col()
                     .gap_1()
                     .children(self.breadcrumbs(cx))
-                    .child(if album_art.is_some() || artist.is_some() {
+                    .child(if album_art.is_some() || artist.is_some() || playlist.is_some() {
                         super::widgets::display(title, 46.).truncate()
                     } else {
                         page_title(title)
@@ -362,6 +369,13 @@ impl AppView {
                             cx,
                         )
                         .mt_1(),
+                    )
+                    .when_some(
+                        playlist
+                            .as_ref()
+                            .map(|l| l.description.clone())
+                            .filter(|d| !d.is_empty()),
+                        |el, description| el.child(meta(description, cx).text_color(p.ink_2).truncate()),
                     )
                     .when_some(rule, |el, rule| {
                         el.child(meta(rule, cx).text_color(p.accent).truncate())
@@ -449,20 +463,26 @@ impl AppView {
                                 )
                             },
                         )
+                        .when_some(playlist.clone(), |el, list| {
+                            el.child(
+                                Button::new("edit-playlist")
+                                    .icon(icon("edit"))
+                                    .label("Edit")
+                                    .on_click(cx.listener(move |this, _, window, cx| {
+                                        this.open_playlist_editor(
+                                            Some(list.clone()),
+                                            vec![],
+                                            None,
+                                            window,
+                                            cx,
+                                        )
+                                    })),
+                            )
+                        })
                         .when(playlist.is_none(), |el| {
                             el.child(
                                 icon_button("save-view", "plus", "Save as a playlist").on_click(
-                                    cx.listener(|this, _, window, cx| {
-                                        this.show_save = !this.show_save;
-                                        if this.show_save {
-                                            let name = this.search_text(cx);
-                                            this.playlist_name.update(cx, |s, cx| {
-                                                s.set_value(name, window, cx);
-                                                s.focus(window, cx);
-                                            });
-                                        }
-                                        cx.notify();
-                                    }),
+                                    cx.listener(|this, _, window, cx| this.save_view_as_playlist(window, cx)),
                                 ),
                             )
                         }),
@@ -475,7 +495,7 @@ impl AppView {
             return None;
         };
         let playlist = self.playlists.iter().find(|p| &p.id == id)?.clone();
-        let (rename, export, delete) = (playlist.clone(), playlist.clone(), playlist.clone());
+        let (export, delete) = (playlist.clone(), playlist.clone());
         Some(
             div()
                 .px_6()
@@ -483,28 +503,6 @@ impl AppView {
                 .flex()
                 .gap_2()
                 .items_center()
-                .child(Input::new(&self.playlist_name).small().w(px(260.)))
-                .child(
-                    Button::new("rename-playlist")
-                        .small()
-                        .label("Rename")
-                        .on_click(cx.listener(move |this, _, _, cx| {
-                            let mut playlist = rename.clone();
-                            playlist.name = this.playlist_name.read(cx).value().trim().to_string();
-                            if playlist.name.is_empty() {
-                                return this.fail("A playlist needs a name.");
-                            }
-                            playlist.updated_at = chrono::Utc::now().timestamp();
-                            match this.library.save_playlist(&playlist) {
-                                Ok(()) => {
-                                    this.playlists = this.library.playlists().unwrap_or_default();
-                                    this.notify("Playlist renamed.");
-                                }
-                                Err(e) => this.fail(e.to_string()),
-                            }
-                            cx.notify();
-                        })),
-                )
                 .child(
                     Button::new("export-playlist")
                         .small()
@@ -562,48 +560,31 @@ impl AppView {
         )
     }
 
-    fn save_form(&self, cx: &mut Context<Self>) -> impl IntoElement {
-        let p = pal(cx);
-        let has_rule = !self.expression(cx).trim().is_empty();
-        let selected = self.selection.ids.len();
-        div()
-            .mx_6()
-            .mb_4()
-            .p_3()
-            .rounded(px(8.))
-            .bg(p.raised)
-            .flex()
-            .items_center()
-            .gap_2()
-            .child(Input::new(&self.playlist_name).small().flex_1())
-            .child(
-                Button::new("save-smart")
-                    .small()
-                    .primary()
-                    .icon(icon("smart"))
-                    .label("Smart playlist")
-                    .disabled(!has_rule)
-                    .tooltip("Keeps the rule and updates itself as your library changes")
-                    .on_click(cx.listener(|this, _, _, cx| this.save_playlist(true, cx))),
-            )
-            .child(
-                Button::new("save-static")
-                    .small()
-                    .label(if selected > 1 {
-                        format!("Save {selected} selected")
-                    } else {
-                        "Save these tracks".into()
-                    })
-                    .on_click(cx.listener(|this, _, _, cx| this.save_playlist(false, cx))),
-            )
-            .child(
-                icon_button("cancel-save", "close", "Cancel")
-                    .small()
-                    .on_click(cx.listener(|this, _, _, cx| {
-                        this.show_save = false;
-                        cx.notify();
-                    })),
-            )
+    /// Save what the page shows: a smart playlist of its rule, or the songs shown (or
+    /// selected).
+    fn save_view_as_playlist(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let rule = self.expression(cx);
+        let name = self.search_text(cx);
+        let rule = (!rule.trim().is_empty()).then_some(rule);
+        let ids = if rule.is_some() {
+            vec![]
+        } else {
+            let selected = self.selected_tracks();
+            if selected.len() > 1 {
+                selected
+            } else {
+                self.tracks.clone()
+            }
+            .into_iter()
+            .map(|t| t.id)
+            .collect()
+        };
+        self.open_playlist_editor(None, ids, rule, window, cx);
+        if let Some(editor) = &self.editor
+            && !name.is_empty()
+        {
+            editor.set_name(name, window, cx);
+        }
     }
 
     fn collection(
@@ -687,7 +668,6 @@ impl AppView {
             .child(self.header(cx))
             .children(self.folder_strip(cx))
             .children(self.playlist_tools(cx))
-            .when(self.show_save, |el| el.child(self.save_form(cx)))
             .when_some(
                 self.query_error
                     .clone()

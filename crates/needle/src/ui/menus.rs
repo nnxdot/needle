@@ -234,11 +234,8 @@ impl AppView {
                     "New playlist from selection…",
                     None,
                     |this, window, cx| {
-                        this.show_save = true;
-                        this.playlist_name.update(cx, |s, cx| {
-                            s.set_value("", window, cx);
-                            s.focus(window, cx);
-                        });
+                        let ids = this.selected_tracks().into_iter().map(|t| t.id).collect();
+                        this.open_playlist_editor(None, ids, None, window, cx);
                     },
                 )];
                 let playlists: Vec<_> = self
@@ -749,14 +746,13 @@ impl AppView {
             Entry::item(
                 "edit",
                 if smart {
-                    "Rename or edit rule…"
+                    "Edit playlist or rules…"
                 } else {
-                    "Rename…"
+                    "Edit playlist…"
                 },
                 None,
                 move |this, window, cx| {
-                    this.navigate(Page::Playlist(open.id.clone()), window, cx);
-                    this.playlist_name.update(cx, |s, cx| s.focus(window, cx));
+                    this.open_playlist_editor(Some(open.clone()), vec![], None, window, cx);
                 },
             ),
             Entry::item("external", "Export as M3U8…", None, move |this, _, cx| {
