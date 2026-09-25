@@ -353,7 +353,15 @@ pub fn lyrics(
     if !online || track.title.is_empty() || track.artist.is_empty() {
         return Ok(None);
     }
-    let lrclib = lrclib(library, track)?;
+    // LRCLIB being down is no reason to skip the lyrics plugins; with none, it is an error.
+    let lrclib = match lrclib(library, track) {
+        Ok(found) => found,
+        Err(problem) if plugins.is_some_and(|host| !host.lyrics_plugins().is_empty()) => {
+            crate::logfile::warn(format!("LRCLIB: {problem:#}"));
+            None
+        }
+        Err(problem) => return Err(problem),
+    };
     if lrclib
         .as_ref()
         .is_some_and(|l| !l.lines.is_empty() || l.instrumental)

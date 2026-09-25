@@ -587,9 +587,8 @@ impl AppView {
         let rule = self.expression(cx);
         let name = self.search_text(cx);
         let rule = (!rule.trim().is_empty()).then_some(rule);
-        let ids = if rule.is_some() {
-            vec![]
-        } else {
+        // The songs shown (or selected) too, for when it is made a playlist of picked songs.
+        let ids = {
             let selected = self.selected_tracks();
             if selected.len() > 1 {
                 selected

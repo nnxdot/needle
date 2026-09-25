@@ -203,22 +203,30 @@ pub fn download(release: &Release, directory: &Path) -> Result<PathBuf> {
     let expected = expected_hash(&list, &release.installer)
         .context("The checksum list does not include the installer.")?;
     let folder = private_folder(directory)?;
-    let path = folder.join(&release.installer);
-    let mut response = reqwest::blocking::Client::builder()
-        .timeout(std::time::Duration::from_secs(600))
-        .build()?
-        .get(&release.installer_url)
-        .send()?
-        .error_for_status()?;
-    let mut file = std::fs::File::create(&path)?;
-    std::io::copy(&mut response, &mut file)?;
-    drop(file);
-    let actual = sha256_file(&path)?;
-    if actual != expected {
-        let _ = std::fs::remove_file(&path);
-        bail!("The download did not match its checksum, so it was deleted.");
+    let fetch = || -> Result<PathBuf> {
+        let path = folder.join(&release.installer);
+        let mut response = reqwest::blocking::Client::builder()
+            .timeout(std::time::Duration::from_secs(600))
+            .build()?
+            .get(&release.installer_url)
+            .send()?
+            .error_for_status()?;
+        let mut file = std::fs::File::create(&path)?;
+        std::io::copy(&mut response, &mut file)?;
+        drop(file);
+        let actual = sha256_file(&path)?;
+        if actual != expected {
+            let _ = std::fs::remove_file(&path);
+            bail!("The download did not match its checksum, so it was deleted.");
+        }
+        Ok(path)
+    };
+    // A failed download leaves nothing behind.
+    let fetched = fetch();
+    if fetched.is_err() {
+        let _ = std::fs::remove_dir_all(&folder);
     }
-    Ok(path)
+    fetched
 }
 
 /// A new folder inside `parent` that only this user can use. It must not exist yet, so a
@@ -268,11 +276,26 @@ pub fn install(release: &Release, installer: &Path) -> Result<()> {
                     "/CLOSEAPPLICATIONS",
                 ])
                 .spawn()
-                .context("Could not start the installer")?;
+                .map_err(|error| {
+                    // The installer did not start: its folder goes. When it did, it runs from
+                    // there, and Windows clears its temporary folder.
+                    if let Some(folder) = installer.parent() {
+                        let _ = std::fs::remove_dir_all(folder);
+                    }
+                    anyhow::anyhow!("Could not start the installer: {error}")
+                })?;
             Ok(())
         }
         #[cfg(unix)]
-        Some(Package::Deb | Package::Rpm) => install_linux(release, installer),
+        Some(Package::Deb | Package::Rpm) => {
+            // Once the package tool is done (or the password was not given), the downloaded
+            // package and its folder go, so tried updates do not pile up.
+            let installed = install_linux(release, installer);
+            if let Some(folder) = installer.parent() {
+                let _ = std::fs::remove_dir_all(folder);
+            }
+            installed
+        }
         #[cfg(not(unix))]
         Some(Package::Deb | Package::Rpm) => bail!("Linux packages install only on Linux."),
         None => bail!("This copy of Needle cannot update itself."),
