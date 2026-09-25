@@ -24,6 +24,7 @@ mod pages;
 mod palette;
 mod panel;
 mod pickers;
+mod playlist_art;
 mod playlist_editor;
 mod plugin_ask;
 mod plugin_ui;
@@ -323,6 +324,8 @@ enum Event {
     OpenFiles(Vec<std::path::PathBuf>),
     Update(Result<Option<needle_core::update::Release>, String>, bool),
     UpdateStarted(Result<(), String>),
+    /// Covers for the sidebar's playlists (`playlist_art`).
+    PlaylistArt(std::collections::HashMap<String, Vec<String>>),
     Lyrics(String, Option<needle_core::media::Lyrics>),
     ArtistImage(String, Option<String>),
     ArtistImages(Vec<(String, Option<String>)>),
@@ -453,6 +456,10 @@ pub struct AppView {
     seek_moved: Option<Instant>,
     /// When `poll` last asked for a redraw (see `poll`).
     polled_redraw: Instant,
+    /// Up to four covers per playlist, for the sidebar (`playlist_art`), and what they were
+    /// gathered for.
+    playlist_art: std::collections::HashMap<String, Vec<String>>,
+    playlist_art_key: u64,
     /// Songs the music servers found for the search, not in the library (`server_search`).
     server_songs: Vec<needle_core::model::Track>,
     /// Counts searches sent to the servers, so a late answer is dropped.
@@ -949,6 +956,8 @@ impl AppView {
             polled_redraw: Instant::now(),
             thumbs_seen: 0,
             server_songs: vec![],
+            playlist_art: Default::default(),
+            playlist_art_key: 0,
             server_search: 0,
             seek_held: false,
             seek_to: None,
@@ -1329,6 +1338,7 @@ impl AppView {
                 }
                 Event::Update(result, asked) => self.update_checked(result, asked),
                 Event::UpdateStarted(result) => self.update_started(result, cx),
+                Event::PlaylistArt(art) => self.playlist_art = art,
                 Event::ImportProgress(message) => self.import.busy = Some(message),
                 Event::Plugin(action) => self.plugin_action(action, window, cx),
                 Event::Tray(action) => self.tray_action(action, window, cx),
@@ -1511,6 +1521,7 @@ impl AppView {
                 }
             }
         }
+        self.follow_playlist_art();
         // Slow loops on screen (bouncing bars, the full screen drift) move on this timer.
         if motion::take_slow_loops() {
             events = true;
