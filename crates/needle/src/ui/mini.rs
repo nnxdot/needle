@@ -459,19 +459,27 @@ impl Render for MiniView {
                     linear_color_stop(p.chrome.opacity(0.75 * p.back.a), 1.),
                 )))
             })
-            // The cover view: the cover fills the window, darkening toward the controls.
+            // The cover view: the cover fills the window, darkening toward the controls. The
+            // largest cover copy (640 px) is sharp enough; a song without a cover shows its
+            // made-up one, as everywhere else.
             .when(self.art, |el| {
-                let cover = current
-                    .as_ref()
-                    .and_then(|c| c.track.artwork.as_deref())
-                    .and_then(|path| super::thumbs::for_size(path, ART.width.into()));
-                el.children(cover.map(|file| {
-                    img(file)
+                let track = current.as_ref().map(|c| &c.track);
+                let cover = track
+                    .and_then(|t| t.artwork.as_deref())
+                    .and_then(|path| super::thumbs::for_size(path, 320.));
+                el.child(match cover {
+                    Some(file) => img(file)
                         .absolute()
                         .inset_0()
                         .size_full()
                         .object_fit(ObjectFit::Cover)
-                }))
+                        .into_any_element(),
+                    None => div()
+                        .absolute()
+                        .inset_0()
+                        .child(artwork(track, ART.height.into(), cx))
+                        .into_any_element(),
+                })
                 .child(div().absolute().inset_0().bg(linear_gradient(
                     180.,
                     linear_color_stop(p.back.opacity(0.), 0.35),
