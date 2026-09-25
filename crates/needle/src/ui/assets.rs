@@ -72,6 +72,8 @@ fn shape(name: &str) -> Option<String> {
         "lyrics" => "<path d='M4 6a2.5 2.5 0 0 1 2.5-2.5h11A2.5 2.5 0 0 1 20 6v7.5a2.5 2.5 0 0 1-2.5 2.5H10l-4.5 4v-4A1.5 1.5 0 0 1 4 14.5z'/><path d='M8 8.5h8M8 12h5'/>".into(),
         "mini" => "<rect x='3' y='5' width='18' height='14' rx='2.5'/><rect x='11.5' y='11.5' width='7' height='5' rx='1' fill='currentColor' stroke='none'/>".into(),
         "expand" => "<path d='M14 4h6v6M10 20H4v-6M20 4l-7 7M4 20l7-7'/>".into(),
+        "fullscreen" => "<path d='M4 9V4h5M15 4h5v5M20 15v5h-5M9 20H4v-5'/>".into(),
+        "fullscreen-exit" => "<path d='M9 4v5H4M15 4v5h5M20 15h-5v5M4 15h5v5'/>".into(),
         "minus" => "<path d='M6 12h12'/>".into(),
         "pin" => "<path d='M9 4h6l-1 6 3 3H7l3-3z'/><path d='M12 13v7'/>".into(),
         "pin-fill" => format!("<path d='M9 4h6l-1 6 3 3H7l3-3z' {FILLED}/><path d='M12 13v7'/>"),

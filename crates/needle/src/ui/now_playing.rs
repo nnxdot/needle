@@ -186,6 +186,11 @@ impl AppView {
                     ))
                     .child(side_button("big-stems", "stems", "Stems", Side::Stems, cx))
                     .child(
+                        icon_button("big-full", "fullscreen", "Full screen · F11").on_click(
+                            cx.listener(|this, _, window, cx| this.set_immersive(true, window, cx)),
+                        ),
+                    )
+                    .child(
                         icon_button("big-mini", "mini", "Mini player").on_click(cx.listener(
                             |this, _, window, cx| {
                                 this.big = false;
@@ -424,9 +429,9 @@ impl AppView {
                                 .flex()
                                 .flex_col()
                                 .child(match side {
-                                    Side::Lyrics => {
-                                        self.lyrics_view(true, false, cx).into_any_element()
-                                    }
+                                    Side::Lyrics => self
+                                        .lyrics_view(super::lyrics::LyricsKind::Big, cx)
+                                        .into_any_element(),
                                     Side::Stems => div()
                                         .pt_4()
                                         .child(self.stems_view(

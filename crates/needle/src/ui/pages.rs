@@ -461,6 +461,7 @@ impl AppView {
             ("Ctrl + O", "Add a music folder"),
             ("Ctrl + P", "Big player"),
             ("Ctrl + M", "Mini player"),
+            ("F11", "Full screen player"),
             ("Ctrl + 1 – 7", "Sidebar pages"),
             ("Ctrl + ,", "Settings"),
             ("Alt + ← or Backspace", "Go back"),

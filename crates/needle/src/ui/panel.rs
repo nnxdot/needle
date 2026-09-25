@@ -96,7 +96,7 @@ impl AppView {
                             .pl_5()
                             .pr_2()
                             .pb_3()
-                            .child(self.lyrics_view(false, false, cx))
+                            .child(self.lyrics_view(super::lyrics::LyricsKind::Side, cx))
                             .into_any_element(),
                     });
                 motion::animate(body, ("panel-in", self.panel_serial), 200, cx, |el, t| {
