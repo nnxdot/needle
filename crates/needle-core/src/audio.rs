@@ -698,6 +698,9 @@ struct Worker {
     stems: Option<(String, std::path::PathBuf)>,
     /// The last queued song's ending, which the next song may crossfade over.
     ending: Option<(Track, Arc<crate::crossfade::Ending>)>,
+    /// Each queued song's ending by track id (the latest few), so Next can keep a skipped
+    /// song from fading under the next one.
+    endings: Vec<(String, Arc<crate::crossfade::Ending>)>,
     /// A song from a music server that is connecting: shown as playing (at 0:00) until its
     /// first samples arrive, so the old song does not stay on screen meanwhile.
     loading: Option<QueueItem>,
@@ -735,6 +738,7 @@ impl Worker {
             stem_mix: Arc::default(),
             stems: None,
             ending: None,
+            endings: Vec::new(),
             library,
             state,
             settings,
@@ -1073,6 +1077,10 @@ impl Worker {
         }
         if track.duration > fade * 3. {
             let (head, ending) = crate::crossfade::split(source, track.duration, fade);
+            if self.endings.len() >= 8 {
+                self.endings.remove(0);
+            }
+            self.endings.push((track.id.clone(), ending.clone()));
             self.ending = Some((track.clone(), ending));
             Box::new(head)
         } else {
@@ -1167,6 +1175,14 @@ impl Worker {
             }
             Command::Next => {
                 self.loop_range = None;
+                // A skipped song does not fade out under the next one.
+                if let Some(active) = &self.queue.active {
+                    for (id, ending) in &self.endings {
+                        if *id == active.track.id {
+                            ending.skip();
+                        }
+                    }
+                }
                 if let Some(next) = self.queue.next_held() {
                     self.play(vec![next])?;
                 } else if let Some(sink) = &self.sink {
