@@ -1,3 +1,15 @@
+# 1.6.0
+Needle gets faster and calmer, and you can lay it out your way.
+! **Faster everywhere.** Needle redraws only what changes, so it uses a fraction of the processor it did: pages at rest redraw 7 to 15 times a second instead of 40 to 70, and a start uses about a sixth of the work. Large covers are drawn from small copies, which saves memory and smooths scrolling.
+- [panel] **Player in the top bar.** Turn it on in Settings › Appearance: the controls, the song playing, and the volume sit in the title bar, as in Apple Music, and the search field moves to the bottom.
+- [menu] **Compact sidebar.** Also in Settings › Appearance: folding the sidebar (Ctrl+B) leaves a strip of page icons.
+- [chevron-left] **Mouse back and forward buttons.** The side buttons of your mouse go back and forward between pages, and Alt+Right goes forward.
+- [globe] **Search your server as you type (experimental).** For octo-fiesta: the Navidrome / Subsonic plugin can ask your server while you search, and songs it can fetch show above your results. Turn it on under your server in Settings › Plugins.
+- Playlists in the sidebar show their picture, or a mosaic of their covers.
+- The search field can be hidden in Settings › Appearance; Ctrl+F then opens the command palette.
+- A music server that does not answer no longer freezes Play, Pause, and Next.
+- Your music server's song list is refreshed on start only when it is over 6 hours old, a little after Needle opens.
+
 # 1.5.2
 A quick fix for 1.5.0.
 - Needle no longer closes when a song's title or lyrics have curly quotes or Japanese or Chinese letters in a place too narrow for them (Windows).

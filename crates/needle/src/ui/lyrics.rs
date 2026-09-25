@@ -157,14 +157,33 @@ impl AppView {
     /// Ease the main window's lyrics (the big player's and the side panel's) a step toward
     /// the sung line; called every frame.
     pub(super) fn glide_lyrics(&mut self, window: &mut Window, cx: &App) {
+        // Only lyrics on screen move: hidden ones kept easing toward their last layout, and
+        // waited for one they never get, redrawing the window after every line. Lyrics that
+        // come into view start from the sung line.
+        let big_shown = self.big || self.immersive;
+        let side_shown = self.panel_shown == Some(super::Panel::Lyrics);
+        if (big_shown, side_shown) != self.lyrics_shown {
+            self.lyrics_shown = (big_shown, side_shown);
+            self.lyric_glide = self.lyric_line.is_some();
+        }
         if self.lyric_glide {
-            let big = glide(&self.lyrics_scroll, self.lyric_line, cx);
-            let side = glide(&self.panel_lyrics_scroll, self.lyric_line, cx);
+            let off = Glide::Done;
+            let big = if big_shown {
+                glide(&self.lyrics_scroll, self.lyric_line, cx)
+            } else {
+                off
+            };
+            let side = if side_shown {
+                glide(&self.panel_lyrics_scroll, self.lyric_line, cx)
+            } else {
+                off
+            };
             let moving = big == Glide::Moving || side == Glide::Moving;
             // Lyrics that just opened have no layout for a frame or two: wait for it (up to
             // half a second), or the sung line would stay out of view until the next one.
             let waiting = !moving
-                && (big == Glide::NotLaidOut || side == Glide::NotLaidOut)
+                && ((big_shown && big == Glide::NotLaidOut)
+                    || (side_shown && side == Glide::NotLaidOut))
                 && self.lyric_glide_waits < 30;
             self.lyric_glide_waits = if waiting {
                 self.lyric_glide_waits + 1

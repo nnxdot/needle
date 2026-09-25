@@ -130,6 +130,8 @@ pub struct SourceInfo {
     /// The name people see, such as "Navidrome".
     pub name: String,
     pub fields: Vec<SourceField>,
+    /// Options it offers as switches (stored with its settings).
+    pub switches: Vec<SourceSwitch>,
     pub signed_in: bool,
     /// Songs from it in the library.
     pub songs: usize,
@@ -138,6 +140,17 @@ pub struct SourceInfo {
     pub syncing: bool,
     /// What went wrong signing in or syncing.
     pub error: Option<String>,
+}
+
+/// One switch a source offers, such as searching the server as you type. The plugin reads
+/// it with `setting(id)`, which is `true` while it is on.
+#[derive(Clone, Debug, Default, Serialize)]
+pub struct SourceSwitch {
+    pub id: String,
+    pub label: String,
+    /// A line under the label, saying what it does.
+    pub detail: String,
+    pub on: bool,
 }
 
 /// One box of a source's sign-in form.
@@ -162,6 +175,11 @@ pub enum HostAction {
     Previous,
     /// Ratings or playlists changed; refresh views.
     LibraryChanged,
+    /// Songs the music servers found for a search (`SourceSearch`), not in the library.
+    ServerSongs {
+        generation: u64,
+        tracks: Vec<crate::model::Track>,
+    },
     /// Set a slider of one of the plugin's effects, wherever it is in the listener's chain.
     EffectParam {
         plugin: String,
@@ -279,6 +297,18 @@ pub enum PluginEvent {
         fields: std::collections::BTreeMap<String, String>,
     },
     SourceSignOut(String),
+    /// Turn one of a source's switches on or off.
+    SourceSwitch {
+        plugin: String,
+        id: String,
+        on: bool,
+    },
+    /// Ask the sources that search their server (`search(query)`) for songs; the answer
+    /// comes back as `HostAction::ServerSongs` with the same generation.
+    SourceSearch {
+        query: String,
+        generation: u64,
+    },
     /// Fetch a source's whole list of songs again.
     SourceSync(String),
     /// One page of a sync (sent by the plugin thread to itself, so streams are not held up).
@@ -377,8 +407,13 @@ const MAX_SYNC_PAGES: i64 = 100_000;
 /// plugin cannot fill the memory.
 const MAX_SYNC_SONGS: usize = 2_000_000;
 
-/// Sources are synced again on start when their last sync is older than this.
-const RESYNC_AFTER: i64 = 30 * 60;
+/// Sources are synced again on start when their last sync is older than this. A sync of a
+/// large server takes a while (about 40 s for 7,000 songs on Navidrome, most of it the
+/// server answering), so it is not done on every start; Sync in Settings does it at once.
+const RESYNC_AFTER: i64 = 6 * 60 * 60;
+
+/// How long after start a due sync waits, so it does not compete with Needle starting.
+const SYNC_AFTER_START: Duration = Duration::from_secs(20);
 
 const ENABLED_KEY: &str = "plugins_enabled";
 
@@ -519,7 +554,11 @@ fn run(
                             .synced_at
                             .is_none_or(|at| at > now || now - at > RESYNC_AFTER)
                     {
-                        let _ = tx.send(PluginEvent::SourceSync(id));
+                        let tx = tx.clone();
+                        std::thread::spawn(move || {
+                            std::thread::sleep(SYNC_AFTER_START);
+                            let _ = tx.send(PluginEvent::SourceSync(id));
+                        });
                     }
                 }
             }
@@ -721,6 +760,66 @@ fn run(
                 syncing.remove(&plugin);
                 publish(&loaded);
             }
+            PluginEvent::SourceSwitch { plugin, id, on } => {
+                if let Some(target) = source_plugin(&mut loaded, &plugin) {
+                    let storage = format!("plugin:{plugin}");
+                    let mut all: HashMap<String, serde_json::Value> = library
+                        .get_json(&storage)
+                        .ok()
+                        .flatten()
+                        .unwrap_or_default();
+                    all.insert(id, serde_json::Value::Bool(on));
+                    if let Err(error) = library.set_json(&storage, &all) {
+                        crate::logfile::warn(format!(
+                            "Could not save a source's switch: {error:#}"
+                        ));
+                    }
+                    refresh_source(target, &library);
+                }
+                publish(&loaded);
+            }
+            PluginEvent::SourceSearch { query, generation } => {
+                let now = chrono::Utc::now().timestamp();
+                let mut tracks = vec![];
+                for target in loaded.iter_mut() {
+                    let id = target.info.manifest.id.clone();
+                    if !target
+                        .info
+                        .source
+                        .as_ref()
+                        .is_some_and(|s| s.signed_in && target.info.enabled)
+                    {
+                        continue;
+                    }
+                    let Ok(found) = call_source(target, "search", vec![query.clone().into()])
+                    else {
+                        continue;
+                    };
+                    let list = serde_json::to_value(&found)
+                        .ok()
+                        .and_then(|v| v.as_array().cloned())
+                        .unwrap_or_default();
+                    for song in list.iter().filter_map(crate::sources::Song::from_value) {
+                        let track = crate::sources::to_track(&id, &song, now);
+                        // Songs already in the library show in the list itself.
+                        if library
+                            .track(&track.id)
+                            .ok()
+                            .flatten()
+                            .is_some_and(|t| !t.missing)
+                        {
+                            continue;
+                        }
+                        if !tracks
+                            .iter()
+                            .any(|t: &crate::model::Track| t.id == track.id)
+                        {
+                            tracks.push(track);
+                        }
+                    }
+                }
+                actions(HostAction::ServerSongs { generation, tracks });
+            }
             PluginEvent::SourceSync(plugin) => {
                 if !syncing.contains_key(&plugin)
                     && let Some(target) = source_plugin(&mut loaded, &plugin)
@@ -912,12 +1011,37 @@ fn refresh_source(plugin: &mut Loaded, library: &Library) {
         .ok()
         .and_then(|d| d.as_bool().ok())
         .unwrap_or(false);
+    let stored: HashMap<String, serde_json::Value> = library
+        .get_json(&format!("plugin:{}", plugin.info.manifest.id))
+        .ok()
+        .flatten()
+        .unwrap_or_default();
+    let switches = about["switches"]
+        .as_array()
+        .map(|list| {
+            list.iter()
+                .filter(|s| s["id"].is_string())
+                .map(|s| {
+                    let id = text(&s["id"]);
+                    SourceSwitch {
+                        on: stored.get(&id).and_then(|v| v.as_bool()).unwrap_or(false),
+                        label: Some(text(&s["label"]))
+                            .filter(|l| !l.is_empty())
+                            .unwrap_or_else(|| id.clone()),
+                        detail: text(&s["detail"]),
+                        id,
+                    }
+                })
+                .collect()
+        })
+        .unwrap_or_default();
     let (songs, synced_at) = crate::sources::status(library, &plugin.info.manifest.id);
     plugin.info.source = Some(SourceInfo {
         name: Some(text(&about["name"]))
             .filter(|n| !n.is_empty())
             .unwrap_or_else(|| plugin.info.manifest.name.clone()),
         fields,
+        switches,
         signed_in,
         songs,
         synced_at,
@@ -1885,9 +2009,9 @@ fn lyrics(song) {
         "subsonic",
         r#"id = "subsonic"
 name = "Navidrome / Subsonic"
-version = "1.2.1"
+version = "1.3.0"
 author = "nnx"
-description = "Plays the music on your Navidrome or other Subsonic server. Songs are listed with your own and streamed; plays and ratings are saved on the server."
+description = "Plays the music on your Navidrome or other Subsonic server. Songs are listed with your own and streamed; plays and ratings are saved on the server. Experimental: with its switch on, it also searches the server as you type, which brings songs from octo-fiesta (a Subsonic proxy that fetches songs from streaming services)."
 permissions = ["network"]
 "#,
         r#"// Your music server as a source: Navidrome, and other servers that speak the Subsonic API
@@ -1901,8 +2025,31 @@ fn source() {
             #{ id: "server", label: "Server address", placeholder: "https://music.example.com" },
             #{ id: "username", label: "User name", placeholder: "" },
             #{ id: "password", label: "Password", placeholder: "", secret: true },
+        ],
+        switches: [
+            #{
+                id: "search_server",
+                label: "Search the server as you type (experimental)",
+                detail: "For octo-fiesta: songs your server can fetch show above your search results, and play from there. Off by default.",
+            },
         ]
     }
+}
+
+// Songs on the server for a search, when the switch is on. Through octo-fiesta these include
+// songs from its streaming services, which it fetches when they are played.
+fn search(query) {
+    let words = query;
+    words.trim();
+    if setting("search_server") != true || words == "" {
+        return [];
+    }
+    let reply = ask("search3", #{ query: words, songCount: 25, artistCount: 0, albumCount: 0 });
+    let found = if reply.searchResult3 != () { reply.searchResult3.song } else { () };
+    if found == () {
+        return [];
+    }
+    to_songs(found)
 }
 
 fn signed_in() {
@@ -2633,6 +2780,13 @@ mod tests {
                         {"id":"s1","title":"Hey Hi","artist":"KiiiKiii","album":"WhyKiiiKiii - EP","albumId":"al-1","suffix":"wav","coverArt":"al-1"},
                         {"id":"s2","title":"Sweet Sour","artist":"KiiiKiii","album":"WhyKiiiKiii - EP","albumId":"al-1","suffix":"wav","coverArt":"al-1"}
                     ]}"#).into_bytes())
+                } else if path.ends_with("/search3.view") && !param("query").is_empty() {
+                    // A search (as octo-fiesta answers it): a song the library has, and one
+                    // from a streaming service.
+                    ("application/json", ok(r#","searchResult3":{"song":[
+                        {"id":"s1","title":"Hey Hi","artist":"KiiiKiii","album":"WhyKiiiKiii - EP","albumId":"1","suffix":"wav"},
+                        {"id":"ext-deezer-9","title":"Octo Song","artist":"Somebody","album":"Elsewhere","duration":200,"suffix":"flac"}
+                    ]}"#).into_bytes())
                 } else if path.ends_with("/search3.view") && albums_only {
                     (
                         "application/json",
@@ -2680,6 +2834,80 @@ mod tests {
             }
         });
         (address, seen)
+    }
+
+    #[test]
+    fn server_search_is_off_until_switched_on_and_finds_only_songs_not_in_the_library() {
+        let (server, _) = fake_subsonic("hunter2");
+        let dir = tempfile::tempdir().unwrap();
+        let library = Library::open(dir.path()).unwrap();
+        install_examples(&library).unwrap();
+        type Answers = Vec<(u64, Vec<crate::model::Track>)>;
+        let found: Arc<Mutex<Answers>> = Arc::default();
+        let answers = found.clone();
+        let host = PluginHost::start(library.clone(), Arc::default(), move |action| {
+            if let HostAction::ServerSongs { generation, tracks } = action {
+                answers.lock().unwrap().push((generation, tracks));
+            }
+        });
+        wait(|| Some(host.plugins()).filter(|p| p.len() == EXAMPLES.len()));
+        host.send(PluginEvent::Enable("subsonic".into(), true));
+        let source = || {
+            host.plugins()
+                .into_iter()
+                .find(|p| p.manifest.id == "subsonic")
+                .and_then(|p| p.source)
+        };
+        wait(source);
+        host.send(PluginEvent::SourceSignIn {
+            plugin: "subsonic".into(),
+            fields: [
+                ("server".to_string(), format!("{server}/")),
+                ("username".to_string(), "willow".to_string()),
+                ("password".to_string(), "hunter2".to_string()),
+            ]
+            .into(),
+        });
+        let synced = wait(|| source().filter(|s| s.songs == 2 && !s.syncing));
+        // The switch is there, and off.
+        let switch = synced
+            .switches
+            .iter()
+            .find(|s| s.id == "search_server")
+            .expect("the plugin offers the switch");
+        assert!(!switch.on && switch.label.contains("experimental"));
+        let answer = |generation: u64| {
+            wait(|| {
+                found
+                    .lock()
+                    .unwrap()
+                    .iter()
+                    .find(|(g, _)| *g == generation)
+                    .map(|(_, t)| t.clone())
+            })
+        };
+        host.send(PluginEvent::SourceSearch {
+            query: "hey".into(),
+            generation: 1,
+        });
+        assert!(answer(1).is_empty(), "off: the server is not searched");
+
+        host.send(PluginEvent::SourceSwitch {
+            plugin: "subsonic".into(),
+            id: "search_server".into(),
+            on: true,
+        });
+        wait(|| source().filter(|s| s.switches.iter().any(|w| w.id == "search_server" && w.on)));
+        host.send(PluginEvent::SourceSearch {
+            query: "hey".into(),
+            generation: 2,
+        });
+        let tracks = answer(2);
+        // "Hey Hi" is in the library already, so only the streaming service's song is new.
+        assert_eq!(tracks.len(), 1, "{tracks:?}");
+        assert_eq!(tracks[0].title, "Octo Song");
+        assert!(tracks[0].is_streamed());
+        assert!(library.track(&tracks[0].id).unwrap().is_none());
     }
 
     #[test]

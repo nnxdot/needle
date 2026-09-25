@@ -9,6 +9,7 @@ use gpui_component::{
     Disableable, Sizable,
     button::ButtonVariants,
     input::{Input, InputState},
+    switch::Switch,
 };
 use needle_core::plugins::{self, PluginEvent, PluginInfo};
 
@@ -162,11 +163,48 @@ impl AppView {
             let (kept_songs, kept_bytes) = self.kept_usage.get(&id).copied().unwrap_or((0, 0));
             let (show, sync, out, unkeep) = (id.clone(), id.clone(), id.clone(), id.clone());
             let name = source.name.clone();
+            // The source's own switches, such as searching the server as you type.
+            let switches = source.switches.iter().map(|switch| {
+                let (plugin, key) = (id.clone(), switch.id.clone());
+                div()
+                    .flex()
+                    .items_start()
+                    .gap_3()
+                    .child(
+                        Switch::new(SharedString::from(format!(
+                            "source-switch-{id}-{}",
+                            switch.id
+                        )))
+                        .checked(switch.on)
+                        .on_click(cx.listener(
+                            move |this, checked: &bool, _, cx| {
+                                this.plugins.send(PluginEvent::SourceSwitch {
+                                    plugin: plugin.clone(),
+                                    id: key.clone(),
+                                    on: *checked,
+                                });
+                                cx.notify();
+                            },
+                        )),
+                    )
+                    .child(
+                        div()
+                            .flex_1()
+                            .min_w_0()
+                            .flex()
+                            .flex_col()
+                            .child(strong(switch.label.clone()))
+                            .when(!switch.detail.is_empty(), |el| {
+                                el.child(meta(switch.detail.clone(), cx))
+                            }),
+                    )
+            });
             div()
                 .flex()
                 .flex_col()
                 .gap_2()
                 .child(strong(status))
+                .children(switches)
                 .when(kept_songs > 0, |el| {
                     el.child(
                         div()

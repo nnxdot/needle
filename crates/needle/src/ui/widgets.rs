@@ -5,7 +5,6 @@ use gpui_component::{
     button::{Button, ButtonVariants},
 };
 use needle_core::model::Track;
-use std::path::PathBuf;
 
 pub fn glyph(name: &str) -> Svg {
     svg()
@@ -153,16 +152,21 @@ pub fn cover(path: Option<&str>, seed: &str, size: f32, cx: &App) -> AnyElement 
     let p = pal(cx);
     let radius = px((size * 0.06).clamp(3., 8.));
     if let Some(path) = path {
+        // A small copy of a large cover; a plain tile for the moment it is being made.
+        let Some(file) = super::thumbs::for_size(path, size) else {
+            return div()
+                .size(px(size))
+                .flex_shrink_0()
+                .rounded(radius)
+                .bg(p.raised)
+                .into_any_element();
+        };
         return div()
             .size(px(size))
             .flex_shrink_0()
             .rounded(radius)
             .overflow_hidden()
-            .child(
-                img(PathBuf::from(path))
-                    .size_full()
-                    .object_fit(ObjectFit::Cover),
-            )
+            .child(img(file).size_full().object_fit(ObjectFit::Cover))
             .into_any_element();
     }
     let _ = radius;

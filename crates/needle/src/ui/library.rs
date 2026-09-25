@@ -945,6 +945,7 @@ impl AppView {
             .min_h_0()
             .flex()
             .flex_col()
+            .children(self.server_songs_block(cx))
             .child(
                 div()
                     .h(px(32.))
@@ -1100,13 +1101,7 @@ impl AppView {
                     .text_size(px(12.))
                     .text_color(p.ink_3)
                     .child(if playing {
-                        motion::equalizer(
-                            format!("eq-{index}"),
-                            p.accent,
-                            self.playback.playing,
-                            cx,
-                        )
-                        .into_any_element()
+                        motion::equalizer(p.accent, self.playback.playing, cx).into_any_element()
                     } else {
                         div()
                             .group_hover("row", |s| s.opacity(0.))
@@ -1385,17 +1380,22 @@ impl AppView {
     pub(super) fn artist_photo(&self, name: &str, size: f32, cx: &App) -> AnyElement {
         let p = pal(cx);
         if let Some(Some(path)) = self.artist_images.get(name) {
-            // The picture is cut to its circle, whatever its shape.
+            // The picture is cut to its circle, whatever its shape; a small copy of a large
+            // one, and a plain circle for the moment it is being made.
+            let Some(file) = super::thumbs::for_size(path, size) else {
+                return div()
+                    .size(px(size))
+                    .flex_shrink_0()
+                    .rounded_full()
+                    .bg(p.raised)
+                    .into_any_element();
+            };
             return div()
                 .size(px(size))
                 .flex_shrink_0()
                 .rounded_full()
                 .overflow_hidden()
-                .child(
-                    img(std::path::PathBuf::from(path))
-                        .size_full()
-                        .object_fit(ObjectFit::Cover),
-                )
+                .child(img(file).size_full().object_fit(ObjectFit::Cover))
                 .into_any_element();
         }
         super::widgets::generated_cover(&initials(name), size, true, &p).into_any_element()
