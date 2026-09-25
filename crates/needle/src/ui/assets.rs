@@ -61,6 +61,7 @@ fn shape(name: &str) -> Option<String> {
         "external" => "<path d='M14 4h6v6M20 4l-8.5 8.5M18 14v4.5a1.5 1.5 0 0 1-1.5 1.5h-11A1.5 1.5 0 0 1 4 18.5v-11A1.5 1.5 0 0 1 5.5 6H10'/>".into(),
         "copy" => "<rect x='8.5' y='8.5' width='12' height='12' rx='2'/><path d='M15.5 8.5V5a1.5 1.5 0 0 0-1.5-1.5H5A1.5 1.5 0 0 0 3.5 5v9A1.5 1.5 0 0 0 5 15.5h3.5'/>".into(),
         "panel" => "<rect x='3' y='4' width='18' height='16' rx='2.5'/><path d='M15 4v16'/>".into(),
+        "menu" => "<path d='M4 7h16M4 12h16M4 17h16'/>".into(),
         "trash" => "<path d='M4 7h16M9.5 7V4.5h5V7M6 7l1 12.5a1 1 0 0 0 1 .9h8a1 1 0 0 0 1-.9L18 7'/>".into(),
         "edit" => "<path d='M4 20h4.5L19.3 9.2a2 2 0 0 0 0-2.8l-1.7-1.7a2 2 0 0 0-2.8 0L4 15.5z'/><path d='m13.5 6 4.5 4.5'/>".into(),
         "speaker" => "<rect x='5.5' y='3' width='13' height='18' rx='2.5'/><circle cx='12' cy='14.5' r='3'/><circle cx='12' cy='7.5' r='1'/>".into(),

@@ -22,8 +22,9 @@ impl AppView {
         let width = f32::from(super::widgets::content_size(window).width);
         let narrow = width < 1100.;
         let hidden = self.settings.layout.sidebar_hidden;
-        // With the sidebar folded away, the name gives way to a smaller corner.
-        let corner = if hidden { 92. } else { sidebar };
+        // With the sidebar folded to its strip, the corner is as wide, with the logo alone;
+        // the button to unfold it is the strip's first icon.
+        let corner = if hidden { RAIL } else { sidebar };
         let search_focused = self.search.read(cx).focus_handle(cx).is_focused(window);
         // The title bar does not shrink its contents, so size the search field from the room
         // left beside the sidebar column, back button, palette button, and window buttons.
@@ -45,8 +46,8 @@ impl AppView {
                     .w(px(corner))
                     .flex_shrink_0()
                     .h_full()
-                    .pl_4()
-                    .pr_2()
+                    .when(hidden, |el| el.justify_center())
+                    .when(!hidden, |el| el.pl_4().pr_2())
                     .flex()
                     .items_center()
                     .gap_2()
@@ -60,22 +61,16 @@ impl AppView {
                                 .child("Needle"),
                         )
                     })
-                    .child(
-                        icon_button(
-                            "toggle-sidebar",
-                            "panel",
-                            if hidden {
-                                "Show the sidebar (Ctrl+B)"
-                            } else {
-                                "Hide the sidebar (Ctrl+B)"
-                            },
+                    .when(!hidden, |el| {
+                        el.child(
+                            icon_button("toggle-sidebar", "panel", "Fold the sidebar (Ctrl+B)")
+                                .small()
+                                .on_click(cx.listener(|this, _, _, cx| {
+                                    this.toggle_sidebar();
+                                    cx.notify();
+                                })),
                         )
-                        .small()
-                        .on_click(cx.listener(|this, _, _, cx| {
-                            this.toggle_sidebar();
-                            cx.notify();
-                        })),
-                    ),
+                    }),
             )
             .child(
                 div()
@@ -211,6 +206,12 @@ impl AppView {
                     | (Page::Artist(_), Page::Artists)
                     | (Page::Folder(_), Page::Folders)
             );
+        if self.settings.layout.sidebar_hidden {
+            let name: SharedString = name.into();
+            return rail_item(id, glyph_name, name, active, cx).on_click(
+                cx.listener(move |this, _, window, cx| this.navigate(page.clone(), window, cx)),
+            );
+        }
         div()
             .id(id)
             .h(px(34.))
@@ -246,6 +247,10 @@ impl AppView {
     }
 
     fn section(&self, label: &'static str, cx: &App) -> Div {
+        // On the strip, a group starts with a thin line instead of its name.
+        if self.settings.layout.sidebar_hidden {
+            return div().mx(px(14.)).my_2().h(px(1.)).bg(pal(cx).line_soft);
+        }
         div()
             .mt_5()
             .mb_1()
@@ -261,6 +266,7 @@ impl AppView {
 
     pub(super) fn sidebar(&self, width: f32, cx: &mut Context<Self>) -> impl IntoElement {
         let p = pal(cx);
+        let rail = self.settings.layout.sidebar_hidden;
         div()
             .w(px(width))
             .flex_shrink_0()
@@ -268,6 +274,22 @@ impl AppView {
             .flex()
             .flex_col()
             .pt_1()
+            .when(rail, |el| el.gap_1())
+            .when(rail, |el| {
+                el.child(
+                    rail_item(
+                        "unfold-sidebar",
+                        "menu",
+                        "Unfold the sidebar (Ctrl+B)".into(),
+                        false,
+                        cx,
+                    )
+                    .on_click(cx.listener(|this, _, _, cx| {
+                        this.toggle_sidebar();
+                        cx.notify();
+                    })),
+                )
+            })
             .child(self.nav_item("nav-home", "Home", "home", Page::Home, cx))
             .child(self.nav_item("nav-songs", "Songs", "songs", Page::Songs, cx))
             .child(self.nav_item("nav-albums", "Albums", "albums", Page::Albums, cx))
@@ -310,7 +332,21 @@ impl AppView {
                     cx,
                 )
             }))
-            .child(
+            .child(if rail {
+                div()
+                    .flex()
+                    .flex_col()
+                    .items_center()
+                    .gap_1()
+                    .child(self.section("Playlists", cx).w(px(width - 28.)))
+                    .child(
+                        icon_button("new-playlist", "plus", "New playlist")
+                            .small()
+                            .on_click(cx.listener(|this, _, window, cx| {
+                                this.open_playlist_editor(None, vec![], None, window, cx);
+                            })),
+                    )
+            } else {
                 self.section("Playlists", cx)
                     .justify_between()
                     .pr_3()
@@ -320,8 +356,8 @@ impl AppView {
                             .on_click(cx.listener(|this, _, window, cx| {
                                 this.open_playlist_editor(None, vec![], None, window, cx);
                             })),
-                    ),
-            )
+                    )
+            })
             .child(
                 div()
                     .id("playlists-scroll")
@@ -329,7 +365,8 @@ impl AppView {
                     .min_h_0()
                     .overflow_y_scroll()
                     .pb_2()
-                    .when(self.playlists.is_empty(), |el| {
+                    .when(rail, |el| el.flex().flex_col().gap_1())
+                    .when(self.playlists.is_empty() && !rail, |el| {
                         el.child(
                             faint(
                                 "Save a search or a set of tracks and it will appear here.",
@@ -380,7 +417,23 @@ impl AppView {
             .child(
                 div()
                     .py_2()
-                    .when_some(self.scan.as_ref(), |el, scan| {
+                    .when(rail, |el| el.flex().flex_col().gap_1())
+                    .when_some(self.scan.as_ref().filter(|_| rail), |el, scan| {
+                        let cancel = self.cancel.clone();
+                        let busy = if scan.scanned == 0 {
+                            "Importing… Click to stop".to_string()
+                        } else {
+                            format!("Importing · {} files. Click to stop", scan.scanned)
+                        };
+                        el.child(
+                            rail_item("importing", "import", busy.into(), true, cx).on_click(
+                                move |_, _, _| {
+                                    cancel.store(true, std::sync::atomic::Ordering::Relaxed)
+                                },
+                            ),
+                        )
+                    })
+                    .when_some(self.scan.as_ref().filter(|_| !rail), |el, scan| {
                         let cancel = self.cancel.clone();
                         el.child(
                             div()
@@ -420,26 +473,36 @@ impl AppView {
                                 ),
                         )
                     })
-                    .child(
-                        div()
-                            .id("add-folder")
-                            .h(px(34.))
-                            .mx_2()
-                            .px(px(10.))
-                            .rounded(px(6.))
-                            .flex()
-                            .items_center()
-                            .gap(px(10.))
-                            .cursor_pointer()
-                            .text_size(px(13.5))
-                            .text_color(p.ink_2)
-                            .hover(|s| s.bg(p.raised.opacity(0.6)).text_color(p.ink))
-                            .child(glyph("folder").size(px(17.)).text_color(p.ink_3))
-                            .child("Add music folder")
-                            .on_click(
-                                cx.listener(|this, _, window, cx| this.import_folder(window, cx)),
-                            ),
-                    )
+                    .when(rail, |el| {
+                        el.child(
+                            rail_item("add-folder", "folder", "Add music folder".into(), false, cx)
+                                .on_click(cx.listener(|this, _, window, cx| {
+                                    this.import_folder(window, cx)
+                                })),
+                        )
+                    })
+                    .when(!rail, |el| {
+                        el.child(
+                            div()
+                                .id("add-folder")
+                                .h(px(34.))
+                                .mx_2()
+                                .px(px(10.))
+                                .rounded(px(6.))
+                                .flex()
+                                .items_center()
+                                .gap(px(10.))
+                                .cursor_pointer()
+                                .text_size(px(13.5))
+                                .text_color(p.ink_2)
+                                .hover(|s| s.bg(p.raised.opacity(0.6)).text_color(p.ink))
+                                .child(glyph("folder").size(px(17.)).text_color(p.ink_3))
+                                .child("Add music folder")
+                                .on_click(cx.listener(|this, _, window, cx| {
+                                    this.import_folder(window, cx)
+                                })),
+                        )
+                    })
                     .child(self.nav_item(
                         "nav-doctor",
                         "Fix my library",
@@ -969,4 +1032,54 @@ impl AppView {
                 ),
         )
     }
+}
+
+/// The sidebar folded to a strip of icons, as in Apple Music.
+pub(super) const RAIL: f32 = 60.;
+
+/// One icon of the folded sidebar: its name shows as a tip, and the page shown is marked by
+/// a soft square and a short accent bar at the strip's edge.
+fn rail_item(
+    id: impl Into<ElementId>,
+    glyph_name: &'static str,
+    name: SharedString,
+    active: bool,
+    cx: &App,
+) -> Stateful<Div> {
+    let p = pal(cx);
+    let glass = p.back.a < 1.;
+    div()
+        .id(id)
+        .relative()
+        .flex_shrink_0()
+        .size(px(40.))
+        .mx_auto()
+        .rounded(px(8.))
+        .flex()
+        .items_center()
+        .justify_center()
+        .cursor_pointer()
+        .when(active, |el| {
+            el.bg(p.accent_soft).child(
+                div()
+                    .absolute()
+                    .left(px(-(RAIL - 40.) / 2.))
+                    .top(px(11.))
+                    .w(px(3.))
+                    .h(px(18.))
+                    .rounded(px(2.))
+                    .bg(p.accent),
+            )
+        })
+        .when(!active, |el| el.hover(|s| s.bg(p.raised.opacity(0.6))))
+        .child(glyph(glyph_name).size(px(18.)).text_color(if active {
+            p.accent
+        } else if glass {
+            p.ink
+        } else {
+            p.ink_2
+        }))
+        .tooltip(move |window, cx| {
+            gpui_component::tooltip::Tooltip::new(name.clone()).build(window, cx)
+        })
 }

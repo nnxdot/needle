@@ -93,7 +93,12 @@ Status: **open**, **fixed**, or **kept** (looked at, and left as it is, with the
 - **Mouse side buttons** (done): Back and Forward go between pages (Back leaves full screen or
   the big player first, as Esc does). Alt+Right goes forward, as Alt+Left goes back. The
   benchmark sends both buttons and checks the pages.
-- **A collapsed sidebar like Apple Music's** (open): a narrow strip of page icons.
+- **A collapsed sidebar like Apple Music's** (done): Ctrl+B or the sidebar button folds the
+  sidebar to a 60-point strip of page icons (names as tips, the page shown marked by an
+  accent bar at the edge, groups split by thin lines, playlists and the bottom buttons as
+  icons); its first icon unfolds it again. The benchmark scrolls Songs with it folded.
+- **A graphics card choice for stems** (open): split songs on the GPU instead of the
+  processor.
 
 ## Patches to list in THIRD-PARTY-NOTICES.md before release
 
