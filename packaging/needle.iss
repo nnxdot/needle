@@ -120,7 +120,8 @@ begin
   StringChangeEx(Path, '\', '\\', True);
   StringChangeEx(Path, '''', '\''', True);
   Locator := CreateOleObject('WbemScripting.SWbemLocator');
-  Service := Locator.ConnectServer('.', 'root\CIMV2');
+  { 128: wbemConnectFlagUseMaxWait, so a WMI that does not answer fails instead of hanging. }
+  Service := Locator.ConnectServer('.', 'root\CIMV2', '', '', '', '', 128);
   Result := Service.ExecQuery('SELECT Handle, ProcessId FROM Win32_Process WHERE ExecutablePath = ''' +
     Path + '''');
 end;
