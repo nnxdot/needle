@@ -142,6 +142,7 @@ impl AppView {
         }
         div()
             .id(id)
+            .flex_shrink_0()
             .h(px(34.))
             .mx_2()
             .px(px(10.))
@@ -178,9 +179,15 @@ impl AppView {
     fn section(&self, label: &'static str, cx: &App) -> Div {
         // On the strip, a group starts with a thin line instead of its name.
         if self.settings.layout.sidebar_hidden {
-            return div().mx(px(14.)).my_2().h(px(1.)).bg(pal(cx).line_soft);
+            return div()
+                .flex_shrink_0()
+                .mx(px(14.))
+                .my_2()
+                .h(px(1.))
+                .bg(pal(cx).line_soft);
         }
         div()
+            .flex_shrink_0()
             .mt_5()
             .mb_1()
             .px_5()
@@ -202,148 +209,176 @@ impl AppView {
             .h_full()
             .flex()
             .flex_col()
-            .pt_1()
-            .when(rail, |el| el.gap_1())
-            .when(rail, |el| {
-                el.child(
-                    rail_item(
-                        "unfold-sidebar",
-                        "menu",
-                        None,
-                        "Unfold the sidebar (Ctrl+B)".into(),
-                        false,
-                        cx,
-                    )
-                    .on_click(cx.listener(|this, _, _, cx| {
-                        this.toggle_sidebar();
-                        cx.notify();
-                    })),
-                )
-            })
-            .child(self.nav_item("nav-home", "Home", "home", Page::Home, cx))
-            .child(self.nav_item("nav-songs", "Songs", "songs", Page::Songs, cx))
-            .child(self.nav_item("nav-albums", "Albums", "albums", Page::Albums, cx))
-            .child(self.nav_item("nav-artists", "Artists", "artists", Page::Artists, cx))
-            .child(self.nav_item("nav-folders", "Folders", "folder", Page::Folders, cx))
-            .child(self.section("Collections", cx))
-            .child(
-                self.nav_item("nav-favorites", "Favorites", "heart", Page::Favorites, cx)
-                    .drag_over::<super::flow::DraggedTracks>(move |s, _, _, _| s.bg(p.accent_soft))
-                    .on_drop(
-                        cx.listener(|this, dragged: &super::flow::DraggedTracks, _, cx| {
-                            this.set_rating(&dragged.ids, 5);
-                            this.notify(if dragged.ids.len() == 1 {
-                                "Added to favorites.".to_string()
-                            } else {
-                                format!("Added {} songs to favorites.", dragged.ids.len())
-                            });
-                            cx.notify();
-                        }),
-                    ),
-            )
-            .child(self.nav_item("nav-recent", "Recently added", "recent", Page::Recent, cx))
-            .child(self.nav_item(
-                "nav-history",
-                "Listening history",
-                "history",
-                Page::History,
-                cx,
-            ))
-            .children({
-                let sources = self.signed_in_sources();
-                (!sources.is_empty()).then(|| self.section("Servers", cx))
-            })
-            .children(self.signed_in_sources().into_iter().map(|(plugin, name)| {
-                self.nav_item(
-                    SharedString::from(format!("nav-source-{plugin}")),
-                    name.clone(),
-                    "globe",
-                    Page::Source { plugin, name },
-                    cx,
-                )
-            }))
-            .child(if rail {
-                div()
-                    .flex()
-                    .flex_col()
-                    .items_center()
-                    .gap_1()
-                    .child(self.section("Playlists", cx).w(px(width - 28.)))
-                    .child(
-                        icon_button("new-playlist", "plus", "New playlist")
-                            .small()
-                            .on_click(cx.listener(|this, _, window, cx| {
-                                this.open_playlist_editor(None, vec![], None, window, cx);
-                            })),
-                    )
-            } else {
-                self.section("Playlists", cx)
-                    .justify_between()
-                    .pr_3()
-                    .child(
-                        icon_button("new-playlist", "plus", "New playlist")
-                            .xsmall()
-                            .on_click(cx.listener(|this, _, window, cx| {
-                                this.open_playlist_editor(None, vec![], None, window, cx);
-                            })),
-                    )
-            })
+            // Everything above the bottom buttons scrolls together, so a short window never
+            // pushes Settings and the others out of reach.
             .child(
                 div()
-                    .id("playlists-scroll")
+                    .id("sidebar-scroll")
                     .flex_1()
                     .min_h_0()
                     .overflow_y_scroll()
-                    .pb_2()
-                    .when(rail, |el| el.flex().flex_col().gap_1())
-                    .when(self.playlists.is_empty() && !rail, |el| {
+                    .flex()
+                    .flex_col()
+                    .pt_1()
+                    .when(rail, |el| el.gap_1())
+                    .when(rail, |el| {
                         el.child(
-                            faint(
-                                "Save a search or a set of tracks and it will appear here.",
+                            rail_item(
+                                "unfold-sidebar",
+                                "menu",
+                                None,
+                                "Unfold the sidebar (Ctrl+B)".into(),
+                                false,
                                 cx,
                             )
-                            .px_5()
-                            .py_1()
-                            .line_height(relative(1.45)),
+                            .on_click(cx.listener(|this, _, _, cx| {
+                                this.toggle_sidebar();
+                                cx.notify();
+                            })),
                         )
                     })
-                    .children(self.playlists.iter().map(|playlist| {
-                        let glyph_name = if playlist.query.is_some() {
-                            "smart"
-                        } else {
-                            "playlist"
-                        };
-                        self.nav_entry(
-                            SharedString::from(format!("playlist-{}", playlist.id)),
-                            playlist.name.clone(),
-                            glyph_name,
-                            self.playlist_icon(&playlist.id, if rail { 26. } else { 20. }, cx),
-                            Page::Playlist(playlist.id.clone()),
-                            cx,
-                        )
-                        .on_mouse_down(MouseButton::Right, {
-                            let id = playlist.id.clone();
-                            cx.listener(move |this, event: &MouseDownEvent, _, cx| {
-                                this.open_playlist_menu(id.clone(), event.position, cx)
-                            })
-                        })
-                        .when(playlist.query.is_none(), |el| {
-                            let id = playlist.id.clone();
-                            el.drag_over::<super::flow::DraggedTracks>(move |s, _, _, _| {
+                    .child(self.nav_item("nav-home", "Home", "home", Page::Home, cx))
+                    .child(self.nav_item("nav-songs", "Songs", "songs", Page::Songs, cx))
+                    .child(self.nav_item("nav-albums", "Albums", "albums", Page::Albums, cx))
+                    .child(self.nav_item("nav-artists", "Artists", "artists", Page::Artists, cx))
+                    .child(self.nav_item("nav-folders", "Folders", "folder", Page::Folders, cx))
+                    .child(self.section("Collections", cx))
+                    .child(
+                        self.nav_item("nav-favorites", "Favorites", "heart", Page::Favorites, cx)
+                            .drag_over::<super::flow::DraggedTracks>(move |s, _, _, _| {
                                 s.bg(p.accent_soft)
                             })
                             .on_drop(cx.listener(
-                                move |this, dragged: &super::flow::DraggedTracks, _, cx| {
-                                    let tracks = this
-                                        .library
-                                        .tracks_by_ids(&dragged.ids)
-                                        .unwrap_or_default();
-                                    this.add_to_playlist(&id, tracks);
+                                |this, dragged: &super::flow::DraggedTracks, _, cx| {
+                                    this.set_rating(&dragged.ids, 5);
+                                    this.notify(if dragged.ids.len() == 1 {
+                                        "Added to favorites.".to_string()
+                                    } else {
+                                        format!("Added {} songs to favorites.", dragged.ids.len())
+                                    });
                                     cx.notify();
                                 },
-                            ))
-                        })
-                    })),
+                            )),
+                    )
+                    .child(self.nav_item(
+                        "nav-recent",
+                        "Recently added",
+                        "recent",
+                        Page::Recent,
+                        cx,
+                    ))
+                    .child(self.nav_item(
+                        "nav-history",
+                        "Listening history",
+                        "history",
+                        Page::History,
+                        cx,
+                    ))
+                    .children({
+                        let sources = self.signed_in_sources();
+                        (!sources.is_empty()).then(|| self.section("Servers", cx))
+                    })
+                    .children(self.signed_in_sources().into_iter().map(|(plugin, name)| {
+                        self.nav_item(
+                            SharedString::from(format!("nav-source-{plugin}")),
+                            name.clone(),
+                            "globe",
+                            Page::Source { plugin, name },
+                            cx,
+                        )
+                    }))
+                    .child(if rail {
+                        div()
+                            .flex_shrink_0()
+                            .flex()
+                            .flex_col()
+                            .items_center()
+                            .gap_1()
+                            .child(self.section("Playlists", cx).w(px(width - 28.)))
+                            .child(
+                                icon_button("new-playlist", "plus", "New playlist")
+                                    .small()
+                                    .on_click(cx.listener(|this, _, window, cx| {
+                                        this.open_playlist_editor(None, vec![], None, window, cx);
+                                    })),
+                            )
+                    } else {
+                        self.section("Playlists", cx)
+                            .justify_between()
+                            .pr_3()
+                            .child(
+                                icon_button("new-playlist", "plus", "New playlist")
+                                    .xsmall()
+                                    .on_click(cx.listener(|this, _, window, cx| {
+                                        this.open_playlist_editor(None, vec![], None, window, cx);
+                                    })),
+                            )
+                    })
+                    .child(
+                        div()
+                            .id("playlists-list")
+                            .flex_shrink_0()
+                            .pb_2()
+                            .when(rail, |el| el.flex().flex_col().gap_1())
+                            .when(self.playlists.is_empty() && !rail, |el| {
+                                el.child(
+                                    faint(
+                                        "Save a search or a set of tracks and it will appear here.",
+                                        cx,
+                                    )
+                                    .px_5()
+                                    .py_1()
+                                    .line_height(relative(1.45)),
+                                )
+                            })
+                            .children(self.playlists.iter().map(|playlist| {
+                                let glyph_name = if playlist.query.is_some() {
+                                    "smart"
+                                } else {
+                                    "playlist"
+                                };
+                                self.nav_entry(
+                                    SharedString::from(format!("playlist-{}", playlist.id)),
+                                    playlist.name.clone(),
+                                    glyph_name,
+                                    self.playlist_icon(
+                                        &playlist.id,
+                                        if rail { 26. } else { 20. },
+                                        cx,
+                                    ),
+                                    Page::Playlist(playlist.id.clone()),
+                                    cx,
+                                )
+                                .on_mouse_down(MouseButton::Right, {
+                                    let id = playlist.id.clone();
+                                    cx.listener(move |this, event: &MouseDownEvent, _, cx| {
+                                        this.open_playlist_menu(id.clone(), event.position, cx)
+                                    })
+                                })
+                                .when(
+                                    playlist.query.is_none(),
+                                    |el| {
+                                        let id = playlist.id.clone();
+                                        el.drag_over::<super::flow::DraggedTracks>(
+                                            move |s, _, _, _| s.bg(p.accent_soft),
+                                        )
+                                        .on_drop(cx.listener(
+                                            move |this,
+                                                  dragged: &super::flow::DraggedTracks,
+                                                  _,
+                                                  cx| {
+                                                let tracks = this
+                                                    .library
+                                                    .tracks_by_ids(&dragged.ids)
+                                                    .unwrap_or_default();
+                                                this.add_to_playlist(&id, tracks);
+                                                cx.notify();
+                                            },
+                                        ))
+                                    },
+                                )
+                            })),
+                    ),
             )
             .child(
                 div()
@@ -1209,6 +1244,9 @@ impl AppView {
                     .items_center()
                     .gap_2()
                     .pl_2()
+                    // Each group claims the mouse, or Windows takes presses there (on the
+                    // sliders too) as the title bar's, and never reports letting go.
+                    .occlude()
                     .child(
                         icon_button("back", "chevron-left", "Back · Alt+Left")
                             .small()
@@ -1230,6 +1268,7 @@ impl AppView {
                         div()
                             .w_full()
                             .max_w(px(600.))
+                            .occlude()
                             .h(px(48.))
                             .rounded(px(8.))
                             .bg(p.raised.opacity(if p.back.a < 1. { 0.75 } else { 1. }))
@@ -1357,6 +1396,7 @@ impl AppView {
                     .items_center()
                     .gap_1()
                     .pr_2()
+                    .occlude()
                     .when(wide, |el| el.child(self.loop_button(cx)))
                     .child(self.volume_control(if wide { 100. } else { 70. }, cx))
                     .when(wide, |el| {

@@ -13,6 +13,11 @@ pub const COMPACT: Size<Pixels> = Size {
     width: px(360.),
     height: px(156.),
 };
+/// The cover view: the cover fills the mini player, the song and the controls over it.
+pub const ART: Size<Pixels> = Size {
+    width: px(360.),
+    height: px(380.),
+};
 pub const EXPANDED: Size<Pixels> = Size {
     width: px(360.),
     height: px(640.),
@@ -45,6 +50,8 @@ pub struct MiniView {
     app: WeakEntity<AppView>,
     main: AnyWindowHandle,
     expanded: bool,
+    /// The cover view (see `ART`), switched by the button on the cover.
+    art: bool,
     tab: Tab,
     pinned: bool,
     /// When the seek bar was last moved by hand: it is not pulled back while the jump lands.
@@ -136,6 +143,7 @@ impl AppView {
                         app: weak.clone(),
                         main,
                         expanded: false,
+                        art: false,
                         tab: Tab::Next,
                         pinned: false,
                         drag_armed: false,
@@ -451,6 +459,33 @@ impl Render for MiniView {
                     linear_color_stop(p.chrome.opacity(0.75 * p.back.a), 1.),
                 )))
             })
+            // The cover view: the cover fills the window, darkening toward the controls. The
+            // largest cover copy (640 px) is sharp enough; a song without a cover shows its
+            // made-up one, as everywhere else.
+            .when(self.art, |el| {
+                let track = current.as_ref().map(|c| &c.track);
+                let cover = track
+                    .and_then(|t| t.artwork.as_deref())
+                    .and_then(|path| super::thumbs::for_size(path, 320.));
+                el.child(match cover {
+                    Some(file) => img(file)
+                        .absolute()
+                        .inset_0()
+                        .size_full()
+                        .object_fit(ObjectFit::Cover)
+                        .into_any_element(),
+                    None => div()
+                        .absolute()
+                        .inset_0()
+                        .child(artwork(track, ART.height.into(), cx))
+                        .into_any_element(),
+                })
+                .child(div().absolute().inset_0().bg(linear_gradient(
+                    180.,
+                    linear_color_stop(p.back.opacity(0.), 0.35),
+                    linear_color_stop(p.back.opacity(0.92), 0.8),
+                )))
+            })
             // Title strip: drag anywhere, window controls on the right.
             .child(
                 div()
@@ -517,36 +552,56 @@ impl Render for MiniView {
                         ),
                     ),
             )
-            // Now playing
+            // In the cover view, the song and the controls sit at the bottom.
+            .when(self.art, |el| el.child(div().flex_1()))
+            // Now playing: the cover (a button on it switches to the cover view), and the song
+            // centred beside it, as in Apple Music.
             .child(
                 div()
                     .px_3()
                     .flex()
                     .items_center()
                     .gap_3()
-                    .child(
-                        div()
-                            .id("mini-art")
-                            .cursor_pointer()
-                            .child(artwork(current.as_ref().map(|c| &c.track), 52., cx))
-                            .on_click(cx.listener(|this, _, window, cx| {
-                                if let Some(app) = this.app.upgrade() {
-                                    app.update(cx, |a, _| a.big = true);
-                                }
-                                this.back_to_main(window, cx);
-                            })),
-                    )
+                    .when(!self.art, |el| {
+                        el.child(
+                            div()
+                                .id("mini-art")
+                                .group("mini-art")
+                                .relative()
+                                .flex_shrink_0()
+                                .cursor_pointer()
+                                .child(artwork(current.as_ref().map(|c| &c.track), 52., cx))
+                                .child(
+                                    self.art_button(cx)
+                                        .absolute()
+                                        .left(px(3.))
+                                        .bottom(px(3.))
+                                        .opacity(0.)
+                                        .group_hover("mini-art", |s| s.opacity(1.)),
+                                )
+                                .on_click(cx.listener(|this, _, window, cx| {
+                                    if let Some(app) = this.app.upgrade() {
+                                        app.update(cx, |a, _| a.big = true);
+                                    }
+                                    this.back_to_main(window, cx);
+                                })),
+                        )
+                    })
+                    .when(self.art, |el| el.child(self.art_button(cx).flex_shrink_0()))
                     .child(
                         div()
                             .flex_1()
                             .min_w_0()
                             .flex()
                             .flex_col()
+                            .items_center()
                             .gap(px(2.))
                             .child(
                                 div()
+                                    .max_w_full()
                                     .text_size(px(13.5))
-                                    .font_weight(FontWeight::MEDIUM)
+                                    .font_weight(FontWeight::SEMIBOLD)
+                                    .text_center()
                                     .truncate()
                                     .child(
                                         current
@@ -559,13 +614,24 @@ impl Render for MiniView {
                                 meta(
                                     current
                                         .as_ref()
-                                        .map(|c| c.track.display_artist().to_string())
+                                        .map(|c| {
+                                            let artist = c.track.display_artist();
+                                            if c.track.album.is_empty() {
+                                                artist.to_string()
+                                            } else {
+                                                format!("{artist} — {}", c.track.album)
+                                            }
+                                        })
                                         .unwrap_or_default(),
                                     cx,
                                 )
+                                .max_w_full()
+                                .text_center()
                                 .truncate(),
                             ),
-                    ),
+                    )
+                    // Balances the cover, so the song sits in the middle of the window.
+                    .when(self.art, |el| el.child(div().size(px(24.)).flex_shrink_0())),
             )
             .child(
                 div()
@@ -665,6 +731,7 @@ impl Render for MiniView {
                             .justify_end()
                             .child(
                                 control("mini-lyrics", "lyrics", "Lyrics")
+                                    .small()
                                     .when(self.expanded && tab == Tab::Lyrics, |b| {
                                         b.text_color(p.accent)
                                     })
@@ -675,6 +742,7 @@ impl Render for MiniView {
                             )
                             .child(
                                 control("mini-queue", "queue", "Playing next and history")
+                                    .small()
                                     .when(self.expanded && tab != Tab::Lyrics, |b| {
                                         b.text_color(p.accent)
                                     })
@@ -774,8 +842,54 @@ impl MiniView {
         }
     }
 
-    /// Open the lower panel on `tab`, or fold it away when it is already showing.
+    /// Whether the cover view is on.
+    pub(super) fn cover_view(&self) -> bool {
+        self.art
+    }
+
+    /// The button that switches between the small cover and the cover view.
+    fn art_button(&self, cx: &mut Context<Self>) -> Stateful<Div> {
+        div()
+            .id("mini-art-view")
+            .size(px(24.))
+            .rounded(px(6.))
+            .bg(gpui::black().opacity(0.45))
+            .flex()
+            .items_center()
+            .justify_center()
+            .cursor_pointer()
+            .hover(|s| s.bg(gpui::black().opacity(0.65)))
+            .child(glyph("mini").size(px(14.)).text_color(gpui::white()))
+            .tooltip(|window, cx| {
+                gpui_component::tooltip::Tooltip::new("Switch the cover view").build(window, cx)
+            })
+            .on_click(cx.listener(|this, _, window, cx| {
+                // Not the cover's own click (which opens the big player).
+                cx.stop_propagation();
+                this.set_art(!this.art, window);
+                cx.notify();
+            }))
+    }
+
+    /// The cover view on or off; the window takes its size.
+    pub(super) fn set_art(&mut self, on: bool, window: &mut Window) {
+        self.art = on;
+        let inside = if on {
+            self.expanded = false;
+            keep_on_screen(window, f32::from(ART.height - window.bounds().size.height));
+            ART
+        } else if self.expanded {
+            EXPANDED
+        } else {
+            COMPACT
+        };
+        window.resize(window_size(inside, Some(window)));
+    }
+
+    /// Open the lower panel on `tab`, or fold it away when it is already showing. The cover
+    /// view makes way for it.
     fn toggle(&mut self, tab: Tab, window: &mut Window) {
+        self.art = false;
         let same =
             self.expanded && (self.tab == tab || (tab == Tab::Next && self.tab == Tab::History));
         if same {

@@ -113,6 +113,13 @@ Opening an existing large library for the first time after this change builds th
 - Film grain is off by default and has a strength slider.
 - Discord Rich Presence uses Needle's own Discord application. A live test with Discord open showed a "Listening" presence named Needle with the uploaded logo and a time bar for eight seconds, confirmed by Discord's reply, and then cleared it. A second live test showed "Listening to Armageddon" with the artist, the album, and the album cover found in the iTunes catalog (Discord proxied the image), with the Needle logo as the small badge. A test checks the cover match: a different artist never counts, and the same song on the same album wins over remixes. It talks only to the local Discord pipe and first checks that the program serving the pipe is a Discord client (Discord, Canary, PTB, Development, Vesktop, Equibop, Legcord, or WebCord); a live check against this PC's Discord passed. Tests cover the activity message (listening type, 2–128 character fields, time bar in milliseconds, paused state without a time bar) and the client name check.
 
+## 1.6.1 checks
+
+- Top bar: the play controls, the song box (with the seek bar), and the right-hand buttons (with the volume) claim the mouse, so Windows no longer takes a press there as the title bar's and loses the release; checked by hand on Windows by the user before release. A first attempt (a cover over the bar while dragging) did not help and was removed.
+- The sidebar's upper part scrolls, so its bottom buttons stay in reach in a short window (checked by hand with the compact sidebar).
+- Mini player: the cover view is switched on by the benchmark on Windows and Linux (noted as on); the centred text and larger buttons were checked by hand on Windows.
+- Linux: clippy clean and tests passing in Ubuntu 24.04; the packages install and start on Ubuntu 24.04 and Fedora 44; the whole benchmark in WSL ran without a crash or error.
+
 ## 1.6.0 checks
 
 - Performance: measured with a built-in benchmark (`NEEDLE_BENCH`, `NEEDLE_FRAME_LOG`, `scripts/perf-run.ps1`) on a copy of a real profile (6,908 songs) with a song playing; the findings, fixes, and numbers are in PERFORMANCE.md. Pages at rest redraw 7 to 15 times a second (40 to 70 before); the same benchmark steps took 12.3 s of processor time (17.0 s before); a start without a server sync due used 3.2 s in its first 40 s (about 18 s); peak memory about 560 MB (about 750 MB). A stall watcher in the benchmark finds no UI-thread stall over 30 ms but the first draw of Settings.
