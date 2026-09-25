@@ -4,7 +4,7 @@ Needle gets faster and calmer, and you can lay it out your way.
 - [panel] **Player in the top bar.** Turn it on in Settings › Appearance: the controls, the song playing, and the volume sit in the title bar, as in Apple Music, and the search field moves to the bottom.
 - [menu] **Compact sidebar.** Also in Settings › Appearance: folding the sidebar (Ctrl+B) leaves a strip of page icons.
 - [chevron-left] **Mouse back and forward buttons.** The side buttons of your mouse go back and forward between pages, and Alt+Right goes forward.
-- [globe] **Search your server as you type (experimental).** For octo-fiesta: the Navidrome / Subsonic plugin can ask your server while you search, and songs it can fetch show above your results. Turn it on under your server in Settings › Online services.
+- [globe] **Search your server as you type (experimental).** For octo-fiesta: the Navidrome / Subsonic plugin can ask your server while you search, and songs it can fetch show above your results. Turn it on under your server in Settings › Plugins.
 - Playlists in the sidebar show their picture, or a mosaic of their covers.
 - The search field can be hidden in Settings › Appearance; Ctrl+F then opens the command palette.
 - A music server that does not answer no longer freezes Play, Pause, and Next.

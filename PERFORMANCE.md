@@ -120,8 +120,7 @@ older copy.
 - **Compact sidebar** (done, on by default): Settings › Appearance. On, folding the sidebar
   leaves the strip of icons; off, folding hides it altogether, as before.
 - **octo-fiesta** (done, experimental, off by default): the Navidrome / Subsonic plugin
-  (1.3.0) has a switch, "Search the server as you type (experimental)", in Settings › Online
-  services. On, typing a search on Songs asks the server (after a 0.45 s pause); songs it
+  (1.3.0) has a switch, "Search the server as you type (experimental)", in Settings › Plugins. On, typing a search on Songs asks the server (after a 0.45 s pause); songs it
   finds that are not in the library show above the list under "On your server", to play or
   queue. Through octo-fiesta these include songs from its streaming services, fetched when
   played. Tested with a pretend server: off, nothing is asked; on, only the song not in the
