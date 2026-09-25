@@ -1385,17 +1385,22 @@ impl AppView {
     pub(super) fn artist_photo(&self, name: &str, size: f32, cx: &App) -> AnyElement {
         let p = pal(cx);
         if let Some(Some(path)) = self.artist_images.get(name) {
-            // The picture is cut to its circle, whatever its shape.
+            // The picture is cut to its circle, whatever its shape; a small copy of a large
+            // one, and a plain circle for the moment it is being made.
+            let Some(file) = super::thumbs::for_size(path, size) else {
+                return div()
+                    .size(px(size))
+                    .flex_shrink_0()
+                    .rounded_full()
+                    .bg(p.raised)
+                    .into_any_element();
+            };
             return div()
                 .size(px(size))
                 .flex_shrink_0()
                 .rounded_full()
                 .overflow_hidden()
-                .child(
-                    img(std::path::PathBuf::from(path))
-                        .size_full()
-                        .object_fit(ObjectFit::Cover),
-                )
+                .child(img(file).size_full().object_fit(ObjectFit::Cover))
                 .into_any_element();
         }
         super::widgets::generated_cover(&initials(name), size, true, &p).into_any_element()

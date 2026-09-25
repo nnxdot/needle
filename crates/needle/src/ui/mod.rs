@@ -38,6 +38,7 @@ mod tags;
 mod theme;
 mod themes;
 mod themes_ui;
+mod thumbs;
 mod timing;
 mod tray;
 mod updates;
@@ -451,6 +452,8 @@ pub struct AppView {
     seek_moved: Option<Instant>,
     /// When `poll` last asked for a redraw (see `poll`).
     polled_redraw: Instant,
+    /// Cover copies made so far (see `thumbs`), to draw again when new ones are in.
+    thumbs_seen: u64,
     /// The seek bar is held: silent, and where to jump when it is let go.
     seek_held: bool,
     /// Where a held seek bar was left, and for which song.
@@ -699,6 +702,7 @@ fn watch(
 
 impl AppView {
     fn new(library: Library, window: &mut Window, cx: &mut Context<Self>) -> Self {
+        thumbs::start(library.directory.join("artwork").join("thumbs"));
         let mut settings = library.settings().unwrap_or_default();
         let measure_sound = settings.sound_analysis;
         // Ambient used to be a look of its own; it is now a setting for any look.
@@ -935,6 +939,7 @@ impl AppView {
             add_songs: None,
             seek_moved: None,
             polled_redraw: Instant::now(),
+            thumbs_seen: 0,
             seek_held: false,
             seek_to: None,
             confirm_delete: false,
@@ -1129,6 +1134,7 @@ impl AppView {
     }
 
     fn poll(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let _slow = bench::Slow::new("poll");
         // A redraw costs the whole window, so poll asks for one only when something shown
         // changed (and once a second, for anything that follows the clock).
         let shown_before = shown_playback(&self.playback);
@@ -1494,6 +1500,10 @@ impl AppView {
                 }
             }
         }
+        if thumbs::made() != self.thumbs_seen {
+            self.thumbs_seen = thumbs::made();
+            events = true;
+        }
         if events
             || shown_playback(&self.playback) != shown_before
             || self.lyric_line != line_before
@@ -1572,6 +1582,7 @@ impl AppView {
     }
 
     fn refresh(&mut self, cx: &mut Context<Self>) {
+        let _slow = bench::Slow::new("refresh");
         if !self.page.is_tracks() {
             return;
         }
@@ -1662,6 +1673,7 @@ impl AppView {
     }
 
     fn navigate(&mut self, page: Page, window: &mut Window, cx: &mut Context<Self>) {
+        let _slow = bench::Slow::new("navigate");
         // Clicking the page you are on keeps it as it is; only a search on it is cleared.
         if page == self.page {
             if !self.search_text(cx).is_empty() {
@@ -1709,6 +1721,7 @@ impl AppView {
         cx.notify();
     }
     fn open(&mut self, page: Page, window: &mut Window, cx: &mut Context<Self>) {
+        let _slow = bench::Slow::new("open");
         self.details_here = false;
         self.page = page;
         self.page_serial += 1;
@@ -2423,6 +2436,7 @@ fn shown_playback(p: &needle_core::audio::PlaybackState) -> impl PartialEq + use
 
 impl Render for AppView {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        let _slow = bench::Slow::new("render");
         self.update_palette(window, cx);
         self.update_glass(window, cx);
         if self.page == Page::Settings && self.settings_tab == 0 {

@@ -22,6 +22,8 @@ struct Step {
 
 const STEP: Duration = Duration::from_secs(4);
 const TICK: Duration = Duration::from_millis(16);
+const STALL_TICK: Duration = Duration::from_millis(50);
+const STALL: Duration = Duration::from_millis(30);
 
 /// Opens `page` as a click in the sidebar does, so Back and Forward have a history.
 fn open(view: &mut AppView, page: Page, window: &mut Window, cx: &mut Context<AppView>) {
@@ -99,6 +101,50 @@ fn steps() -> Vec<Step> {
             tick: Some(|v, t, _, cx| scroll_grid(v, t, cx)),
         },
         Step {
+            name: "album page",
+            start: |v, w, cx| {
+                let track = v
+                    .library
+                    .search_page("", 0, 1)
+                    .ok()
+                    .and_then(|p| p.tracks.into_iter().next());
+                if let Some(track) = track {
+                    open(v, super::album_page(&track), w, cx);
+                }
+            },
+            tick: None,
+        },
+        Step {
+            name: "artist page",
+            start: |v, w, cx| {
+                let track = v
+                    .library
+                    .search_page("", 0, 1)
+                    .ok()
+                    .and_then(|p| p.tracks.into_iter().next());
+                if let Some(track) = track {
+                    open(v, Page::Artist(track.artist), w, cx);
+                }
+            },
+            tick: None,
+        },
+        Step {
+            name: "songs sorted",
+            start: |v, w, cx| {
+                open(v, Page::Songs, w, cx);
+                v.sort = super::Sort::Asc("title");
+                v.page_offset = 0;
+                v.refresh(cx);
+            },
+            tick: None,
+        },
+        Step {
+            // Blocks the UI thread for 80 ms on purpose: the stall watcher must note it.
+            name: "stall self-test",
+            start: |_, _, _| std::thread::sleep(Duration::from_millis(80)),
+            tick: None,
+        },
+        Step {
             name: "history",
             start: |v, w, cx| open(v, Page::History, w, cx),
             tick: None,
@@ -150,6 +196,21 @@ fn steps() -> Vec<Step> {
 impl AppView {
     /// Starts the benchmark when `NEEDLE_BENCH` is set.
     pub(super) fn maybe_bench(&self, window: &mut Window, cx: &mut Context<Self>) {
+        if std::env::var_os("NEEDLE_FRAME_LOG").is_some() {
+            // Stalls: a timer on the UI thread that should wake every 50 ms notes each time it
+            // woke more than 30 ms late, as the thread was busy (drawing, or other work).
+            cx.spawn(async move |_, cx| {
+                loop {
+                    let asked = std::time::Instant::now();
+                    cx.background_executor().timer(STALL_TICK).await;
+                    let late = asked.elapsed().saturating_sub(STALL_TICK);
+                    if late > STALL {
+                        gpui::frame_log_note(|| format!("UI thread busy {late:.0?}"));
+                    }
+                }
+            })
+            .detach();
+        }
         if std::env::var_os("NEEDLE_BENCH").is_none() {
             return;
         }
@@ -202,5 +263,24 @@ impl AppView {
             let _ = cx.update(|_, cx| cx.quit());
         })
         .detach();
+    }
+}
+
+/// Notes in the frame log (`NEEDLE_FRAME_LOG`) when the work it guards took over 8 ms of the
+/// UI thread: `let _slow = Slow::new("open");` at the top of a function.
+pub(super) struct Slow(&'static str, std::time::Instant);
+
+impl Slow {
+    pub(super) fn new(name: &'static str) -> Self {
+        Self(name, std::time::Instant::now())
+    }
+}
+
+impl Drop for Slow {
+    fn drop(&mut self) {
+        let took = self.1.elapsed();
+        if took > Duration::from_millis(8) {
+            gpui::frame_log_note(|| format!("slow {}: {took:.1?}", self.0));
+        }
     }
 }

@@ -62,10 +62,24 @@ Status: **open**, **fixed**, or **kept** (looked at, and left as it is, with the
    in (`fill`, `take_opened` in `crates/needle-core/src/audio.rs`). Test: with a server that
    takes 1.5 s and fails, Play, the volume, and Pause answer within 0.5 s, and the next song
    plays after it.
-7. **Slow frames** (open). Settings had one 19 ms frame, start-up one of 45 ms. To look at.
-8. **Work repeated on every redraw** (open). For example, the page header adds up the length
-   of every listed song on each render.
-9. **Blur and glass** (open). Not measured yet (the GPU's time is not in the frame log).
+7. **Large covers drawn at full size** (fixed). GPUI decodes an image and sends it to the
+   graphics card at its full size however small it is drawn, and some covers here are 3000
+   to 4134 pixels wide (a 68 MB texture each). Rows, tiles, and artist photos now draw a
+   copy of at most 256 or 640 pixels (whichever covers twice the size on screen), made once
+   on one background thread and kept in `artwork/thumbs`; covers under 400 KB and covers
+   shown larger than 320 points draw the original (`crates/needle/src/ui/thumbs.rs`, with a
+   test). Peak memory in the benchmark: about 750 MB before, about 560 MB after.
+8. **Stalls on the UI thread** (looked at, none left but one). The benchmark notes each time
+   the UI thread is over 30 ms late (a timer every 50 ms; a step that blocks 80 ms on
+   purpose proves it is caught) and each `open`, `navigate`, `refresh`, `poll`, or `render`
+   over 8 ms. None show up now except the first draw of Settings, 16 to 18 ms once (text
+   laid out for the first time on a page full of it; later draws take 3 to 4 ms). Kept.
+9. **Work repeated on every redraw** (kept). A frame takes 2 to 4 ms to build on every page
+   (5 to 9 ms at most), so the sums and lists built during a render are not worth changing.
+10. **Blur and glass** (kept). While a song plays, Needle uses 0.16% of the graphics card
+    (Windows' GPU counters).
+11. **157 threads** (kept). An empty profile runs 126: GPUI and the other libraries start
+    worker pools sized to the processor, and idle threads cost almost nothing.
 
 ## Also asked for during this work
 
