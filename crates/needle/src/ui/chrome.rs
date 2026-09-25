@@ -484,14 +484,20 @@ impl AppView {
         let current = self.playback.current.as_ref().map(|i| i.track.clone());
         let wide = width > px(1180.);
         let (path, path_detail, exclusive) = self.signal_path(cx);
-        let looping = self.playback.loop_range.is_some();
         div()
             .h(px(80.))
             .flex_shrink_0()
             // The playing cover's colour glows in from the left.
             .bg(linear_gradient(
                 90.,
-                linear_color_stop(super::motion::mix(p.back, p.glow.opacity(p.back.a), if p.dark { 0.2 } else { 0.16 }), 0.),
+                linear_color_stop(
+                    super::motion::mix(
+                        p.back,
+                        p.glow.opacity(p.back.a),
+                        if p.dark { 0.2 } else { 0.16 },
+                    ),
+                    0.,
+                ),
                 linear_color_stop(p.back, 0.55),
             ))
             .px_4()
@@ -521,7 +527,12 @@ impl AppView {
                             .rounded(px(4.))
                             .hover(|s| s.opacity(0.85))
                             .child(artwork(current.as_ref(), 56., cx))
-                            .tooltip(|window, cx| gpui_component::tooltip::Tooltip::new("Open the big player · Ctrl+P").build(window, cx))
+                            .tooltip(|window, cx| {
+                                gpui_component::tooltip::Tooltip::new(
+                                    "Open the big player · Ctrl+P",
+                                )
+                                .build(window, cx)
+                            })
                             .on_click(cx.listener(|this, _, _, cx| {
                                 this.big = true;
                                 cx.notify();
@@ -530,7 +541,12 @@ impl AppView {
                     .child(match &current {
                         None => div()
                             .flex_1()
-                            .child(div().text_size(px(13.5)).text_color(p.ink_2).child("Nothing playing"))
+                            .child(
+                                div()
+                                    .text_size(px(13.5))
+                                    .text_color(p.ink_2)
+                                    .child("Nothing playing"),
+                            )
                             .child(faint("Double-click a track to start.", cx)),
                         Some(track) => {
                             let album = super::album_page(track);
@@ -550,7 +566,9 @@ impl AppView {
                                         .cursor_pointer()
                                         .hover(|s| s.underline())
                                         .child(track.title.clone())
-                                        .on_click(cx.listener(move |this, _, window, cx| this.navigate(album.clone(), window, cx))),
+                                        .on_click(cx.listener(move |this, _, window, cx| {
+                                            this.navigate(album.clone(), window, cx)
+                                        })),
                                 )
                                 .child(
                                     div()
@@ -561,39 +579,14 @@ impl AppView {
                                         .cursor_pointer()
                                         .hover(|s| s.underline().text_color(p.ink))
                                         .child(track.display_artist().to_string())
-                                        .on_click(cx.listener(move |this, _, window, cx| this.navigate(artist.clone(), window, cx))),
+                                        .on_click(cx.listener(move |this, _, window, cx| {
+                                            this.navigate(artist.clone(), window, cx)
+                                        })),
                                 )
                         }
                     })
                     .when_some(current.clone(), |el, track| {
-                        let favorite = self
-                            .tracks
-                            .iter()
-                            .find(|t| t.id == track.id)
-                            .map_or(track.rating, |t| t.rating)
-                            >= 4;
-                        el.child(
-                            div()
-                                .id("now-favorite")
-                                .size(px(28.))
-                                .rounded(px(6.))
-                                .flex()
-                                .items_center()
-                                .justify_center()
-                                .cursor_pointer()
-                                .hover(|s| s.bg(p.raised_hover))
-                                .child(self.heart(&track.id, favorite, 15., if favorite { p.accent } else { p.ink_2 }, cx))
-                                .tooltip(move |window, cx| {
-                                    gpui_component::tooltip::Tooltip::new(if favorite { "Remove from favorites" } else { "Add to favorites" }).build(window, cx)
-                                })
-                                .on_click(cx.listener(move |this, _, _, cx| {
-                                    this.set_rating(std::slice::from_ref(&track.id), if favorite { 0 } else { 5 });
-                                    if let Some(item) = this.playback.current.as_mut() {
-                                        item.track.rating = if favorite { 0 } else { 5 };
-                                    }
-                                    cx.notify();
-                                })),
-                        )
+                        el.child(self.favorite_button(track, cx))
                     }),
             )
             // Transport
@@ -605,9 +598,7 @@ impl AppView {
                     .flex_col()
                     .items_center()
                     .gap_1()
-                    .child(
-                        self.transport_buttons(38., cx),
-                    )
+                    .child(self.transport_buttons(38., cx))
                     .child(
                         div()
                             .w_full()
@@ -615,9 +606,29 @@ impl AppView {
                             .flex()
                             .items_center()
                             .gap_3()
-                            .child(faint(format_duration(if current.is_some() { self.playback.position } else { 0. }), cx).w(px(40.)).text_right())
+                            .child(
+                                faint(
+                                    format_duration(if current.is_some() {
+                                        self.playback.position
+                                    } else {
+                                        0.
+                                    }),
+                                    cx,
+                                )
+                                .w(px(40.))
+                                .text_right(),
+                            )
                             .child(self.seek_bar("seek-bar", current.is_none(), cx))
-                            .child(faint(current.as_ref().map(|t| format_duration(t.duration)).unwrap_or_else(|| "0:00".into()), cx).w(px(40.))),
+                            .child(
+                                faint(
+                                    current
+                                        .as_ref()
+                                        .map(|t| format_duration(t.duration))
+                                        .unwrap_or_else(|| "0:00".into()),
+                                    cx,
+                                )
+                                .w(px(40.)),
+                            ),
                     ),
             )
             // Output and volume: what is playing and how on top, the controls below it, so
@@ -647,92 +658,173 @@ impl AppView {
                                 .text_color(if exclusive { p.accent } else { p.ink_2 })
                                 .bg(if exclusive { p.accent_soft } else { p.raised })
                                 .cursor_pointer()
-                                .child(glyph("signal").size(px(12.)).text_color(if exclusive { p.accent } else { p.ink_2 }))
-                                .child(div().truncate().child(path.clone()))
-                                .tooltip(move |window, cx| gpui_component::tooltip::Tooltip::new(path_detail.clone()).build(window, cx))
-                                .on_click(cx.listener(|this, _, window, cx| this.navigate(Page::Settings, window, cx))),
-                        )
-                    })
-                    .child(
-                div()
-                    .flex()
-                    .items_center()
-                    .justify_end()
-                    .gap_1()
-                    .child(
-                        Button::new("ab-loop")
-                            .ghost()
-                            .small()
-                            .icon(icon("loop"))
-                            .when(looping || self.loop_start.is_some(), |b| b.text_color(p.accent))
-                            .disabled(current.is_none())
-                            .tooltip(if looping {
-                                "A–B loop on · click to clear"
-                            } else if self.loop_start.is_some() {
-                                "Point A set · click again to set B and start looping"
-                            } else {
-                                "A–B loop · click to set point A"
-                            })
-                            .on_click(cx.listener(|this, _, _, cx| {
-                                if this.playback.loop_range.is_some() {
-                                    this.loop_start = None;
-                                    this.player.send(Command::Loop(None));
-                                } else if let Some(a) = this.loop_start.take() {
-                                    let b = this.playback.position;
-                                    if b > a + 0.5 {
-                                        this.player.send(Command::Loop(Some((a, b))));
-                                        this.notify(format!("Looping {} – {}", format_duration(a), format_duration(b)));
-                                    } else {
-                                        this.fail("Point B must come after point A.");
-                                    }
+                                .child(glyph("signal").size(px(12.)).text_color(if exclusive {
+                                    p.accent
                                 } else {
-                                    this.loop_start = Some(this.playback.position);
-                                    this.notify(format!("Point A set at {}. Click the loop button again at point B.", format_duration(this.playback.position)));
-                                }
-                                cx.notify();
-                            })),
-                    )
-                    .child(
-                    self.volume_control(if wide { 150. } else { 110. }, cx),
-                    )
-                    .child(
-                        icon_button("open-sound", "eq", "Equalizer and sound tools")
-                            .small()
-                            .when(self.settings.dsp.eq || !self.settings.dsp.is_transparent(), |b| b.text_color(p.accent))
-                            .on_click(cx.listener(|this, _, window, cx| this.navigate(Page::Sound, window, cx))),
-                    )
-                    .child({
-                        let speaker = self.current_speaker();
-                        icon_button(
-                            "open-speakers",
-                            "cast",
-                            match &speaker {
-                                Some(s) => format!("Playing on {}", s.name),
-                                None => "Play on another speaker".into(),
-                            },
+                                    p.ink_2
+                                }))
+                                .child(div().truncate().child(path.clone()))
+                                .tooltip(move |window, cx| {
+                                    gpui_component::tooltip::Tooltip::new(path_detail.clone())
+                                        .build(window, cx)
+                                })
+                                .on_click(cx.listener(|this, _, window, cx| {
+                                    this.navigate(Page::Settings, window, cx)
+                                })),
                         )
-                        .small()
-                        .ml_1()
-                        .when(speaker.is_some(), |b| b.text_color(p.accent))
-                        .on_click(cx.listener(|this, _, window, cx| {
-                            let position = window.mouse_position() - point(px(0.), px(14.));
-                            this.open_speaker_menu(position, cx)
-                        }))
                     })
                     .child(
-                        self.lyrics_button(cx),
-                    )
-                    .child(
-                        icon_button("open-mini", "mini", "Mini player · Ctrl+M")
-                            .small()
-                            .ml_1()
-                            .on_click(cx.listener(|this, _, window, cx| this.open_mini(window, cx))),
-                    )
-                    .child(
-                        self.queue_button(cx),
-                    ),
+                        div()
+                            .flex()
+                            .items_center()
+                            .justify_end()
+                            .gap_1()
+                            .child(self.loop_button(cx))
+                            .child(self.volume_control(if wide { 150. } else { 110. }, cx))
+                            .child(self.sound_button(cx))
+                            .child(self.speakers_button(cx))
+                            .child(self.lyrics_button(cx))
+                            .child(self.mini_button(cx))
+                            .child(self.queue_button(cx)),
                     ),
             )
+    }
+
+    /// The heart for the song playing.
+    fn favorite_button(
+        &self,
+        track: needle_core::model::Track,
+        cx: &mut Context<Self>,
+    ) -> Stateful<Div> {
+        let p = pal(cx);
+        let favorite = self
+            .tracks
+            .iter()
+            .find(|t| t.id == track.id)
+            .map_or(track.rating, |t| t.rating)
+            >= 4;
+        div()
+            .id("now-favorite")
+            .size(px(28.))
+            .rounded(px(6.))
+            .flex()
+            .items_center()
+            .justify_center()
+            .cursor_pointer()
+            .hover(|s| s.bg(p.raised_hover))
+            .child(self.heart(
+                &track.id,
+                favorite,
+                15.,
+                if favorite { p.accent } else { p.ink_2 },
+                cx,
+            ))
+            .tooltip(move |window, cx| {
+                gpui_component::tooltip::Tooltip::new(if favorite {
+                    "Remove from favorites"
+                } else {
+                    "Add to favorites"
+                })
+                .build(window, cx)
+            })
+            .on_click(cx.listener(move |this, _, _, cx| {
+                this.set_rating(
+                    std::slice::from_ref(&track.id),
+                    if favorite { 0 } else { 5 },
+                );
+                if let Some(item) = this.playback.current.as_mut() {
+                    item.track.rating = if favorite { 0 } else { 5 };
+                }
+                cx.notify();
+            }))
+    }
+
+    /// The A–B loop: set A, then B, and that part repeats; again to clear it.
+    fn loop_button(&self, cx: &mut Context<Self>) -> Button {
+        let p = pal(cx);
+        let current = &self.playback.current;
+        let looping = self.playback.loop_range.is_some();
+        Button::new("ab-loop")
+            .ghost()
+            .small()
+            .icon(icon("loop"))
+            .when(looping || self.loop_start.is_some(), |b| {
+                b.text_color(p.accent)
+            })
+            .disabled(current.is_none())
+            .tooltip(if looping {
+                "A–B loop on · click to clear"
+            } else if self.loop_start.is_some() {
+                "Point A set · click again to set B and start looping"
+            } else {
+                "A–B loop · click to set point A"
+            })
+            .on_click(cx.listener(|this, _, _, cx| {
+                if this.playback.loop_range.is_some() {
+                    this.loop_start = None;
+                    this.player.send(Command::Loop(None));
+                } else if let Some(a) = this.loop_start.take() {
+                    let b = this.playback.position;
+                    if b > a + 0.5 {
+                        this.player.send(Command::Loop(Some((a, b))));
+                        this.notify(format!(
+                            "Looping {} – {}",
+                            format_duration(a),
+                            format_duration(b)
+                        ));
+                    } else {
+                        this.fail("Point B must come after point A.");
+                    }
+                } else {
+                    this.loop_start = Some(this.playback.position);
+                    this.notify(format!(
+                        "Point A set at {}. Click the loop button again at point B.",
+                        format_duration(this.playback.position)
+                    ));
+                }
+                cx.notify();
+            }))
+    }
+
+    /// Opens the equalizer and sound tools (lit while any is on).
+    fn sound_button(&self, cx: &mut Context<Self>) -> Button {
+        let p = pal(cx);
+        icon_button("open-sound", "eq", "Equalizer and sound tools")
+            .small()
+            .when(
+                self.settings.dsp.eq || !self.settings.dsp.is_transparent(),
+                |b| b.text_color(p.accent),
+            )
+            .on_click(cx.listener(|this, _, window, cx| this.navigate(Page::Sound, window, cx)))
+    }
+
+    /// Chooses the speaker to play on (lit while one is used).
+    fn speakers_button(&self, cx: &mut Context<Self>) -> Button {
+        let p = pal(cx);
+        let speaker = self.current_speaker();
+        icon_button(
+            "open-speakers",
+            "cast",
+            match &speaker {
+                Some(s) => format!("Playing on {}", s.name),
+                None => "Play on another speaker".into(),
+            },
+        )
+        .small()
+        .ml_1()
+        .when(speaker.is_some(), |b| b.text_color(p.accent))
+        .on_click(cx.listener(|this, _, window, cx| {
+            let position = window.mouse_position() - point(px(0.), px(14.));
+            this.open_speaker_menu(position, cx)
+        }))
+    }
+
+    /// Opens the mini player.
+    fn mini_button(&self, cx: &mut Context<Self>) -> Button {
+        icon_button("open-mini", "mini", "Mini player · Ctrl+M")
+            .small()
+            .ml_1()
+            .on_click(cx.listener(|this, _, window, cx| this.open_mini(window, cx)))
     }
 
     /// Shuffle, previous, play or pause, next, and repeat; `play` is the play button's size.
@@ -996,6 +1088,7 @@ impl AppView {
             .child(
                 div()
                     .id("open-palette")
+                    .occlude()
                     .h(px(28.))
                     .px_2()
                     .rounded(px(6.))
@@ -1111,6 +1204,23 @@ impl AppView {
                                 div()
                                     .id("open-big")
                                     .flex_shrink_0()
+                                    // Title bar clicks move the window unless something claims
+                                    // them.
+                                    .occlude()
+                                    .when_some(current.clone(), |el, track| {
+                                        el.on_mouse_down(
+                                            MouseButton::Right,
+                                            cx.listener(
+                                                move |this, event: &MouseDownEvent, _, cx| {
+                                                    this.open_playing_menu(
+                                                        track.clone(),
+                                                        event.position,
+                                                        cx,
+                                                    )
+                                                },
+                                            ),
+                                        )
+                                    })
                                     .cursor_pointer()
                                     .hover(|s| s.opacity(0.85))
                                     .child(artwork(current.as_ref(), 40., cx))
@@ -1140,23 +1250,36 @@ impl AppView {
                                             .into_any_element(),
                                         Some(track) => {
                                             let album = super::album_page(track);
+                                            // Centred by its row, so the hover style (which
+                                            // knows nothing of alignment) cannot move it.
                                             div()
-                                                .id("top-now-title")
-                                                .text_size(px(12.5))
-                                                .text_center()
-                                                .truncate()
-                                                .cursor_pointer()
-                                                .hover(|s| s.underline())
-                                                .child(format!(
-                                                    "{} · {}",
-                                                    track.title,
-                                                    track.display_artist()
-                                                ))
-                                                .on_click(cx.listener(
-                                                    move |this, _, window, cx| {
-                                                        this.navigate(album.clone(), window, cx)
-                                                    },
-                                                ))
+                                                .flex()
+                                                .justify_center()
+                                                .min_w_0()
+                                                .child(
+                                                    div()
+                                                        .id("top-now-title")
+                                                        .occlude()
+                                                        .min_w_0()
+                                                        .text_size(px(12.5))
+                                                        .truncate()
+                                                        .cursor_pointer()
+                                                        .hover(|s| s.underline())
+                                                        .child(format!(
+                                                            "{} · {}",
+                                                            track.title,
+                                                            track.display_artist()
+                                                        ))
+                                                        .on_click(cx.listener(
+                                                            move |this, _, window, cx| {
+                                                                this.navigate(
+                                                                    album.clone(),
+                                                                    window,
+                                                                    cx,
+                                                                )
+                                                            },
+                                                        )),
+                                                )
                                                 .into_any_element()
                                         }
                                     })
@@ -1182,7 +1305,10 @@ impl AppView {
                                                 cx,
                                             )),
                                     ),
-                            ),
+                            )
+                            .when_some(current.clone(), |el, track| {
+                                el.child(self.favorite_button(track, cx).occlude())
+                            }),
                     ),
             )
             .child(
@@ -1192,8 +1318,14 @@ impl AppView {
                     .items_center()
                     .gap_1()
                     .pr_2()
+                    .when(wide, |el| el.child(self.loop_button(cx)))
                     .child(self.volume_control(if wide { 100. } else { 70. }, cx))
+                    .when(wide, |el| {
+                        el.child(self.sound_button(cx))
+                            .child(self.speakers_button(cx))
+                    })
                     .child(self.lyrics_button(cx))
+                    .child(self.mini_button(cx))
                     .child(self.queue_button(cx)),
             )
     }
