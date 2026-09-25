@@ -52,6 +52,16 @@ try {
         Write-Warning 'Inno Setup 6 is not installed, so no installer was made. Install it with: winget install JRSoftware.InnoSetup'
     }
 
+    # The Linux packages, when scripts/build-linux.sh made them: listed and checked alongside.
+    foreach ($linux in @("dist/linux/needle_${version}_amd64.deb", "dist/linux/needle-$version-1.x86_64.rpm")) {
+        $path = Join-Path $workspace $linux
+        if (Test-Path -LiteralPath $path) {
+            $artifacts += $path
+        } else {
+            Write-Warning "$linux is missing, so Linux is left out of this release. Run scripts/build-linux.sh first."
+        }
+    }
+
     # SHA256SUMS.txt: Needle's updater installs only a download that matches this list.
     $sums = Join-Path $workspace 'dist\SHA256SUMS.txt'
     Get-FileHash -Algorithm SHA256 -LiteralPath $artifacts | ForEach-Object { '{0}  {1}' -f $_.Hash.ToLower(), (Split-Path $_.Path -Leaf) } | Set-Content -LiteralPath $sums
