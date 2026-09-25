@@ -276,6 +276,8 @@ fn loop_restart(range: Option<(f64, f64)>, position: f64) -> Option<f64> {
 }
 /// Previous restarts the current track after this many seconds.
 const RESTART_AFTER: f64 = 3.0;
+/// The most seeks or volume changes merged into one before the worker ticks again.
+const COALESCE: usize = 256;
 
 /// The play queue, independent of any output device. `staged` items are
 /// already appended to the output; `pending` items are not. Items held aside
@@ -904,6 +906,7 @@ impl Worker {
         self.release();
         self.queue.clear_playing();
         self.playing = false;
+        self.scrub_resume = false;
         self.loading = None;
     }
     /// Keeps `items` as a paused queue at `position` with no output open.
@@ -1215,6 +1218,8 @@ impl Worker {
                     self.queue.cycle = cycle;
                 }
             }
+            // Paused while the seek bar is held: it stays paused when the bar is let go.
+            Command::Toggle if std::mem::take(&mut self.scrub_resume) => {}
             Command::Toggle => {
                 if self.sink.is_none() {
                     if let Some(active) = self.queue.active.clone() {
@@ -1277,7 +1282,7 @@ impl Worker {
                     }
                     self.playing = false;
                     self.scrub_resume = true;
-                } else if !held && std::mem::take(&mut self.scrub_resume) {
+                } else if !held && std::mem::take(&mut self.scrub_resume) && self.sink.is_some() {
                     self.playing = true;
                     if let Some(sink) = &self.sink {
                         sink.play();
@@ -1666,8 +1671,9 @@ impl Worker {
 
 /// `command`, or the last of the same kind (a seek, or a volume) waiting right behind it, and
 /// the first different command taken from the channel on the way, which still has to run.
+/// At most `COALESCE` commands are taken, so a steady stream still lets the worker tick.
 fn coalesce(mut command: Command, rx: &Receiver<Command>) -> (Command, Option<Command>) {
-    loop {
+    for _ in 0..COALESCE {
         if !matches!(command, Command::Seek(_) | Command::Volume(_)) {
             return (command, None);
         }
@@ -1680,6 +1686,7 @@ fn coalesce(mut command: Command, rx: &Receiver<Command>) -> (Command, Option<Co
             Err(_) => return (command, None),
         }
     }
+    (command, None)
 }
 
 /// Exclusive WASAPI path at the file's native rate. No volume or DSP processing.
@@ -1924,6 +1931,14 @@ mod tests {
             coalesce(Command::Next, &rx),
             (Command::Next, None)
         ));
+        // A steady stream is merged in bounded runs, so the worker still gets to tick.
+        for s in 0..COALESCE * 2 {
+            tx.send(Command::Seek(s as f64)).unwrap();
+        }
+        let (last, next) = coalesce(Command::Seek(-1.0), &rx);
+        assert!(matches!(last, Command::Seek(s) if s == (COALESCE - 1) as f64));
+        assert!(next.is_none());
+        assert_eq!(rx.len(), COALESCE);
     }
 
     #[test]
@@ -2487,6 +2502,32 @@ mod tests {
         assert_eq!(rig.state().output, "USB DAC");
         assert!(rig.worker.position() >= position - 0.01);
         rig.until_active("a");
+    }
+
+    #[test]
+    fn a_held_seek_bar_pauses_and_letting_go_resumes_only_what_it_paused() {
+        let opener = FakeOpener::with(&["Speakers"], Some("Speakers"));
+        let mut rig = rig(opener, Settings::default());
+        let list = rig.items(&["a", "b"]);
+        rig.run(Command::Play(list.clone()));
+        rig.run(Command::Scrub(true));
+        assert!(!rig.worker.playing);
+        assert!(rig.state().playing, "shows as playing while held");
+        rig.run(Command::Scrub(false));
+        assert!(rig.worker.playing);
+        // Pausing while held stays paused after the bar is let go.
+        rig.run(Command::Scrub(true));
+        rig.run(Command::Toggle);
+        rig.run(Command::Scrub(false));
+        assert!(!rig.worker.playing);
+        assert!(!rig.state().playing);
+        // Stopping while held does not come back to life on release.
+        rig.run(Command::Toggle);
+        rig.run(Command::Scrub(true));
+        rig.run(Command::Stop);
+        rig.run(Command::Scrub(false));
+        assert!(!rig.worker.playing);
+        assert!(rig.worker.sink.is_none());
     }
 
     #[test]

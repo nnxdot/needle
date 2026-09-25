@@ -51,7 +51,8 @@ pub struct MiniView {
     seek_moved: Option<std::time::Instant>,
     /// The seek bar is held: silent, and where to jump when it is let go.
     seek_held: bool,
-    seek_to: Option<f64>,
+    /// Where a held seek bar was left, and for which song.
+    seek_to: Option<(String, f64)>,
     /// Linux: the title strip was pressed; moving the pointer now starts a window move.
     drag_armed: bool,
     glass_applied: Option<(super::glass::Material, bool)>,
@@ -110,7 +111,7 @@ impl AppView {
                                 let to = value.start() as f64 / 1000.0 * item.track.duration;
                                 // Held: the jump waits for the bar to be let go.
                                 if this.seek_held {
-                                    this.seek_to = Some(to);
+                                    this.seek_to = Some((item.track.id.clone(), to));
                                 } else {
                                     a.player.send(Command::Seek(to));
                                 }
@@ -409,6 +410,16 @@ impl Render for MiniView {
             .size_full()
             .relative()
             .overflow_hidden()
+            // A held seek bar is let go wherever the button comes up.
+            .capture_any_mouse_up(cx.listener(|this, event: &MouseUpEvent, _, cx| {
+                if event.button == MouseButton::Left {
+                    this.release_seek(cx)
+                }
+            }))
+            .on_mouse_up_out(
+                MouseButton::Left,
+                cx.listener(|this, _, _, cx| this.release_seek(cx)),
+            )
             // Ambient has no desktop glass behind the mini player: keep a solid base.
             .bg(if ambient { p.chrome } else { p.back })
             .text_color(p.ink)
@@ -725,18 +736,6 @@ impl Render for MiniView {
 impl MiniView {
     /// The seek bar: silent while held, one jump when let go (as in the main window).
     fn seek_bar(&self, seek: &Entity<SliderState>, disabled: bool, cx: &mut Context<Self>) -> Div {
-        let release = |this: &mut Self, cx: &mut Context<Self>| {
-            if std::mem::take(&mut this.seek_held) {
-                if let Some(app) = this.app.upgrade() {
-                    let player = &app.read(cx).player;
-                    if let Some(to) = this.seek_to.take() {
-                        player.send(Command::Seek(to));
-                    }
-                    player.send(Command::Scrub(false));
-                }
-                this.seek_moved = Some(std::time::Instant::now());
-            }
-        };
         div()
             .flex_1()
             .when(!disabled, |el| {
@@ -749,17 +748,29 @@ impl MiniView {
                         }
                     }
                 }))
-                .capture_any_mouse_up(cx.listener(move |this, event: &MouseUpEvent, _, cx| {
-                    if event.button == MouseButton::Left {
-                        release(this, cx)
-                    }
-                }))
-                .on_mouse_up_out(
-                    MouseButton::Left,
-                    cx.listener(move |this, _, _, cx| release(this, cx)),
-                )
             })
             .child(Slider::new(seek).disabled(disabled))
+    }
+
+    /// Lets go of a held seek bar: one jump, if the same song still plays, then the sound
+    /// comes back.
+    fn release_seek(&mut self, cx: &mut Context<Self>) {
+        if std::mem::take(&mut self.seek_held) {
+            if let Some(app) = self.app.upgrade() {
+                let a = app.read(cx);
+                if let Some((id, to)) = self.seek_to.take()
+                    && a.playback
+                        .current
+                        .as_ref()
+                        .is_some_and(|c| c.track.id == id)
+                {
+                    a.player.send(Command::Seek(to));
+                }
+                a.player.send(Command::Scrub(false));
+            }
+            self.seek_to = None;
+            self.seek_moved = Some(std::time::Instant::now());
+        }
     }
 
     /// Open the lower panel on `tab`, or fold it away when it is already showing.
