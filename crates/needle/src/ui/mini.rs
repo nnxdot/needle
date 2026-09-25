@@ -354,9 +354,10 @@ impl Render for MiniView {
             }
             _ => 0.,
         };
-        let dragging = self
-            .seek_moved
-            .is_some_and(|at| at.elapsed() < std::time::Duration::from_millis(600));
+        let dragging = self.seek_held
+            || self
+                .seek_moved
+                .is_some_and(|at| at.elapsed() < std::time::Duration::from_millis(600));
         if !dragging && (self.seek.read(cx).value().start() - seek_value).abs() > 0.5 {
             self.seek
                 .update(cx, |s, cx| s.set_value(seek_value, window, cx));

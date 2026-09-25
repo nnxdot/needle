@@ -1183,11 +1183,12 @@ impl AppView {
             }
             _ => 0.,
         };
-        // While the bar is being dragged (and a moment after, while the jump lands), it stays
-        // where the pointer put it instead of being pulled back to the old position.
-        if self
-            .seek_moved
-            .is_none_or(|at| at.elapsed() > Duration::from_millis(600))
+        // While the bar is held (and a moment after, while the jump lands), it stays where the
+        // pointer put it instead of being pulled back to the old position.
+        if !self.seek_held
+            && self
+                .seek_moved
+                .is_none_or(|at| at.elapsed() > Duration::from_millis(600))
         {
             self.seek
                 .update(cx, |state, cx| state.set_value(value, window, cx));
