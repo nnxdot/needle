@@ -995,6 +995,11 @@ impl Worker {
         Ok(())
     }
     fn play(&mut self, items: Vec<QueueItem>) -> Result<()> {
+        // Opening the next song can wait on a music server, and closing Needle does not wait
+        // for that (see `Player::shutdown`), so what played until now is saved first.
+        if let Err(e) = self.save_session() {
+            crate::logfile::warn(format!("Could not save the playback session: {e:#}"));
+        }
         self.close();
         self.loading = None;
         self.queue.load(items);
