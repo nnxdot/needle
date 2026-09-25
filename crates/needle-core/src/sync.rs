@@ -207,6 +207,7 @@ mod tests {
             query: Some("year >".into()),
             track_ids: vec![],
             updated_at: 1,
+            ..Default::default()
         };
         a.connection()
             .unwrap()

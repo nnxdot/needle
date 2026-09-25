@@ -175,11 +175,14 @@ impl AppView {
             let path = track.file_path().trim_start_matches("\\\\?\\").to_string();
             let copy = path.clone();
             entries.extend([
-                Entry::item("folder", "Show in File Explorer", None, move |_, _, _| {
-                    let _ = std::process::Command::new("explorer")
-                        .arg(format!("/select,{path}"))
-                        .spawn();
-                }),
+                Entry::item(
+                    "folder",
+                    super::files::SHOW_IN_FOLDER,
+                    None,
+                    move |_, _, _| {
+                        super::files::show_file(std::path::Path::new(&path));
+                    },
+                ),
                 Entry::item("copy", "Copy file path", None, move |_, _, cx| {
                     cx.write_to_clipboard(ClipboardItem::new_string(copy.clone()))
                 }),
@@ -210,7 +213,7 @@ impl AppView {
         cx.notify();
     }
 
-    fn menu_entries(&self) -> Vec<Entry> {
+    fn menu_entries(&self, cx: &App) -> Vec<Entry> {
         let Some(menu) = &self.menu else {
             return vec![];
         };
@@ -231,11 +234,8 @@ impl AppView {
                     "New playlist from selection…",
                     None,
                     |this, window, cx| {
-                        this.show_save = true;
-                        this.playlist_name.update(cx, |s, cx| {
-                            s.set_value("", window, cx);
-                            s.focus(window, cx);
-                        });
+                        let ids = this.selected_tracks().into_iter().map(|t| t.id).collect();
+                        this.open_playlist_editor(None, ids, None, window, cx);
                     },
                 )];
                 let playlists: Vec<_> = self
@@ -337,6 +337,18 @@ impl AppView {
                         key: "playlists",
                     },
                 ];
+                if self.arrangeable_playlist(cx).is_some() {
+                    entries.push(Entry::item(
+                        "close",
+                        if many {
+                            format!("Remove {count} from this playlist")
+                        } else {
+                            "Remove from this playlist".into()
+                        },
+                        None,
+                        |this, _, cx| this.remove_from_playlist(cx),
+                    ));
+                }
                 if self.plugins.commands().iter().any(|c| c.for_tracks) {
                     entries.push(Entry::Sub {
                         icon: "plugin",
@@ -424,11 +436,14 @@ impl AppView {
                             this.separate(stem_track.clone(), cx);
                         }),
                         Entry::Separator,
-                        Entry::item("folder", "Show in File Explorer", None, move |_, _, _| {
-                            let _ = std::process::Command::new("explorer")
-                                .arg(format!("/select,{path}"))
-                                .spawn();
-                        }),
+                        Entry::item(
+                            "folder",
+                            super::files::SHOW_IN_FOLDER,
+                            None,
+                            move |_, _, _| {
+                                super::files::show_file(std::path::Path::new(&path));
+                            },
+                        ),
                         Entry::item("copy", "Copy file path", None, move |_, _, cx| {
                             cx.write_to_clipboard(ClipboardItem::new_string(copy.clone()))
                         }),
@@ -477,7 +492,7 @@ impl AppView {
         if self.menu.is_none() {
             return false;
         }
-        let entries = self.menu_entries();
+        let entries = self.menu_entries(cx);
         let selectable: Vec<usize> = entries
             .iter()
             .enumerate()
@@ -583,7 +598,7 @@ impl AppView {
             self.tracks.get(menu.index)?;
         }
         let p = pal(cx);
-        let entries = self.menu_entries();
+        let entries = self.menu_entries(cx);
         let highlight = menu.highlight;
         let rows = Self::menu_rows(&entries, highlight, cx);
         let title = match menu.sub {
@@ -743,17 +758,19 @@ impl AppView {
             Entry::item(
                 "edit",
                 if smart {
-                    "Rename or edit rule…"
+                    "Edit playlist or rules…"
                 } else {
-                    "Rename…"
+                    "Edit playlist…"
                 },
                 None,
                 move |this, window, cx| {
-                    this.navigate(Page::Playlist(open.id.clone()), window, cx);
-                    this.playlist_name.update(cx, |s, cx| s.focus(window, cx));
+                    this.open_playlist_editor(Some(open.clone()), vec![], None, window, cx);
                 },
             ),
-            Entry::item("external", "Export as M3U8…", None, move |this, _, _| {
+            Entry::item("external", "Export as M3U8…", None, move |this, _, cx| {
+                if !this.can_pick(cx) {
+                    return;
+                }
                 let library = this.library.clone();
                 let playlist = export.clone();
                 this.background(move || {

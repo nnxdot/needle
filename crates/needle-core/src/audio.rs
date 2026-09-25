@@ -27,22 +27,41 @@ struct Session {
     queue: Vec<(String, String)>,
     position: f64,
     repeat: Repeat,
+    /// What played before, for Previous (the latest [`PREVIOUS_KEPT`]).
+    #[serde(default)]
+    previous: Vec<(String, String)>,
+    /// The whole list Repeat All plays again; empty in sessions saved before it was kept.
+    #[serde(default)]
+    cycle: Vec<(String, String)>,
+}
+/// How many played songs a saved session keeps for Previous.
+const PREVIOUS_KEPT: usize = 500;
+/// A session's songs, found in the library.
+struct Restored {
+    /// The current song, then the ones after it.
+    items: Vec<QueueItem>,
+    previous: Vec<QueueItem>,
+    cycle: Vec<QueueItem>,
 }
 impl Session {
-    fn resolve(&self, library: &Library) -> Vec<QueueItem> {
+    fn resolve(&self, library: &Library) -> Restored {
         self.resolve_with(|id| library.track(id).ok().flatten())
     }
-    fn resolve_with(&self, lookup: impl Fn(&str) -> Option<Track>) -> Vec<QueueItem> {
-        self.current
-            .iter()
-            .chain(self.queue.iter())
-            .filter_map(|(id, reason)| {
+    fn resolve_with(&self, lookup: impl Fn(&str) -> Option<Track>) -> Restored {
+        let find = |list: &mut dyn Iterator<Item = &(String, String)>| -> Vec<QueueItem> {
+            list.filter_map(|(id, reason)| {
                 lookup(id).filter(|t| !t.missing).map(|track| QueueItem {
                     track,
                     reason: reason.clone(),
                 })
             })
             .collect()
+        };
+        Restored {
+            items: find(&mut self.current.iter().chain(self.queue.iter())),
+            previous: find(&mut self.previous.iter()),
+            cycle: find(&mut self.cycle.iter()),
+        }
     }
 }
 /// Written every few seconds; the full session is rewritten only when the queue changes.
@@ -210,7 +229,7 @@ pub fn default_device() -> Option<String> {
 /// measured, otherwise track gain; the matching peak limits the gain so the
 /// result does not clip, and the boost is capped at +24 dB.
 pub fn replay_gain_factor(track: &Track, settings: &Settings) -> f64 {
-    if !settings.replay_gain || settings.exclusive {
+    if !settings.replay_gain || (cfg!(windows) && settings.exclusive) {
         return 1.0;
     }
     let (db, peak) = match (settings.album_gain, track.album_replay_gain) {
@@ -276,7 +295,17 @@ enum Edit {
     Rebuild(Vec<QueueItem>),
 }
 impl Queue {
-    fn restore(session: &Session, items: Vec<QueueItem>) -> (Self, f64) {
+    fn restore(session: &Session, restored: Restored) -> (Self, f64) {
+        let Restored {
+            items,
+            previous,
+            mut cycle,
+        } = restored;
+        // Sessions saved before the cycle was kept: repeat what is known of it. A saved cycle
+        // whose songs are all gone now stays empty.
+        if session.cycle.is_empty() {
+            cycle = previous.iter().chain(items.iter()).cloned().collect();
+        }
         let mut items = items.into_iter();
         let active = items.next();
         let mut pending: VecDeque<_> = items.collect();
@@ -297,6 +326,8 @@ impl Queue {
             active,
             pending,
             repeat_tail,
+            previous,
+            cycle,
             repeat: session.repeat,
             version: 1,
             ..Default::default()
@@ -316,6 +347,11 @@ impl Queue {
                 .collect(),
             position,
             repeat: self.repeat,
+            previous: self.previous[self.previous.len().saturating_sub(PREVIOUS_KEPT)..]
+                .iter()
+                .map(identity)
+                .collect(),
+            cycle: self.cycle.iter().map(identity).collect(),
         }
     }
     fn touch(&mut self) {
@@ -663,11 +699,21 @@ struct Worker {
     stems: Option<(String, std::path::PathBuf)>,
     /// The last queued song's ending, which the next song may crossfade over.
     ending: Option<(Track, Arc<crate::crossfade::Ending>)>,
+    /// The endings of queued songs that have not started yet, in playing order, by track id;
+    /// each moves to `active_ending` as its song starts.
+    endings: Vec<(String, Arc<crate::crossfade::Ending>)>,
+    /// The playing song's ending, so Next can keep a skipped song from fading under the next.
+    active_ending: Option<Arc<crate::crossfade::Ending>>,
     /// A song from a music server that is connecting: shown as playing (at 0:00) until its
     /// first samples arrive, so the old song does not stay on screen meanwhile.
     loading: Option<QueueItem>,
 }
 impl Worker {
+    /// Whether output is exclusive. That is WASAPI's, so elsewhere the setting (kept as it is,
+    /// for when the library is opened on Windows again) is ignored.
+    fn exclusive(&self) -> bool {
+        cfg!(windows) && self.settings.exclusive
+    }
     fn new(
         library: Library,
         state: Arc<Mutex<PlaybackState>>,
@@ -691,8 +737,8 @@ impl Worker {
         {
             session.position = mark.position;
         }
-        let items = session.resolve(&library);
-        let (queue, resume_position) = Queue::restore(&session, items);
+        let restored = session.resolve(&library);
+        let (queue, resume_position) = Queue::restore(&session, restored);
         let saved_version = queue.version;
         let dsp = crate::dsp::DspControl::new(settings.dsp.clone(), Default::default());
         Self {
@@ -700,6 +746,8 @@ impl Worker {
             stem_mix: Arc::default(),
             stems: None,
             ending: None,
+            endings: Vec::new(),
+            active_ending: None,
             library,
             state,
             settings,
@@ -781,6 +829,9 @@ impl Worker {
     }
     /// Drops the output device without touching the queue.
     fn release(&mut self) {
+        // The output's queued songs go with it, and their endings too.
+        self.endings.clear();
+        self.active_ending = None;
         self.epoch += 1;
         self.ending = None;
         if let Some(sink) = self.sink.take() {
@@ -791,6 +842,56 @@ impl Worker {
             self.exclusive = None;
         }
         self.output = None;
+    }
+    /// Act on the songs the output has started since last time: the listen, the speaker's
+    /// details, the queue, and which ending is the playing song's.
+    fn take_started(&mut self) {
+        while let Ok((epoch, item)) = self.started_rx.try_recv() {
+            if epoch != self.epoch {
+                continue;
+            }
+            // This song's ending (the first one queued for it) is now the playing one's.
+            self.active_ending = self
+                .endings
+                .iter()
+                .position(|(id, _)| *id == item.track.id)
+                .map(|i| self.endings.remove(i).1);
+            let continuing = self
+                .listen
+                .as_ref()
+                .is_some_and(|listen| listen.track_id == item.track.id)
+                && self.queue.active.is_none();
+            if !continuing {
+                self.finish_listen();
+                self.listen = Some(Listen {
+                    id: uuid::Uuid::new_v4().to_string(),
+                    track_id: item.track.id.clone(),
+                    title: item.track.title.clone(),
+                    artist: item.track.artist.clone(),
+                    album: item.track.album.clone(),
+                    started_at: chrono::Utc::now().timestamp(),
+                    listened_seconds: 0.0,
+                    duration: item.track.duration,
+                    qualified: false,
+                });
+            }
+            if let Some(control) = self.network() {
+                control.set_meta(speaker_meta(&item.track));
+            }
+            if self
+                .loading
+                .as_ref()
+                .is_some_and(|l| l.track.id == item.track.id)
+            {
+                self.loading = None;
+            }
+            self.queue.started(item);
+            // The next song is already loading for a gapless start; fetch the one after it
+            // too if it is on a server, so skipping ahead does not wait for the network.
+            if let Some(after) = self.queue.pending.front().filter(|i| i.track.is_streamed()) {
+                crate::sources::prefetch(&after.track);
+            }
+        }
     }
     fn close(&mut self) {
         self.finish_listen();
@@ -818,27 +919,23 @@ impl Worker {
         self.output.as_ref().and_then(|o| o.network.clone())
     }
     fn open(&mut self) -> Result<()> {
-        if self.settings.exclusive && !self.speaker() {
-            #[cfg(windows)]
-            {
-                if self.exclusive.is_some() {
-                    return Ok(());
-                }
-                let (sink, source) = Sink::new();
-                let sink = Arc::new(sink);
-                self.exclusive = Some(crate::exclusive::Output::start(
-                    source,
-                    Arc::downgrade(&sink),
-                    self.settings.output_device.clone(),
-                    self.state.clone(),
-                ));
-                self.sink = Some(sink);
+        // Exclusive output is WASAPI's; elsewhere the setting (synced from Windows, say) is
+        // ignored and Needle plays through the shared output.
+        #[cfg(windows)]
+        if self.exclusive() && !self.speaker() {
+            if self.exclusive.is_some() {
                 return Ok(());
             }
-            #[cfg(not(windows))]
-            {
-                bail!("Exclusive desktop output is currently available on Windows")
-            }
+            let (sink, source) = Sink::new();
+            let sink = Arc::new(sink);
+            self.exclusive = Some(crate::exclusive::Output::start(
+                source,
+                Arc::downgrade(&sink),
+                self.settings.output_device.clone(),
+                self.state.clone(),
+            ));
+            self.sink = Some(sink);
+            return Ok(());
         }
         if self.output.is_some() {
             return Ok(());
@@ -966,7 +1063,7 @@ impl Worker {
             let stems = self
                 .stems
                 .as_ref()
-                .filter(|(id, _)| *id == item.track.id && !self.settings.exclusive)
+                .filter(|(id, _)| *id == item.track.id && !self.exclusive())
                 .and_then(|(_, dir)| {
                     crate::stems::StemSource::open(dir, self.stem_mix.clone()).ok()
                 });
@@ -988,7 +1085,7 @@ impl Worker {
             };
             let gain = replay_gain_factor(&item.track, &self.settings);
             // Exclusive output stays bit-exact; the sound tools only apply to shared output.
-            let processed: Box<dyn Source + Send> = if self.settings.exclusive
+            let processed: Box<dyn Source + Send> = if self.exclusive()
                 || self.settings.dsp.is_transparent() && !self.settings.dsp.eq
             {
                 Box::new(source.amplify(gain as f32))
@@ -1026,7 +1123,7 @@ impl Worker {
         source: Box<dyn Source + Send>,
     ) -> Box<dyn Source + Send> {
         let fade = self.settings.crossfade as f64;
-        if fade <= 0. || self.settings.exclusive {
+        if fade <= 0. || self.exclusive() {
             self.ending = None;
             return source;
         }
@@ -1042,6 +1139,10 @@ impl Worker {
         }
         if track.duration > fade * 3. {
             let (head, ending) = crate::crossfade::split(source, track.duration, fade);
+            if self.endings.len() >= 32 {
+                self.endings.remove(0);
+            }
+            self.endings.push((track.id.clone(), ending.clone()));
             self.ending = Some((track.clone(), ending));
             Box::new(head)
         } else {
@@ -1136,6 +1237,13 @@ impl Worker {
             }
             Command::Next => {
                 self.loop_range = None;
+                // A skipped song does not fade out under the next one. Only the playing one: a
+                // later copy of the same song in the queue keeps its crossfade. A song that has
+                // just started counts, so its start is taken in first.
+                self.take_started();
+                if let Some(ending) = self.active_ending.take() {
+                    ending.skip();
+                }
                 if let Some(next) = self.queue.next_held() {
                     self.play(vec![next])?;
                 } else if let Some(sink) = &self.sink {
@@ -1173,7 +1281,7 @@ impl Worker {
             Command::Volume(volume) => {
                 self.settings.volume = volume.clamp(0.0, 1.0);
                 if let Some(sink) = &self.sink {
-                    sink.set_volume(if self.settings.exclusive {
+                    sink.set_volume(if self.exclusive() {
                         1.0
                     } else {
                         self.settings.volume
@@ -1221,7 +1329,7 @@ impl Worker {
                 self.dsp.set(dsp.clone());
                 self.settings.dsp = dsp;
                 self.library.save_settings(&self.settings)?;
-                if was_off && !self.settings.exclusive && self.queue.active.is_some() {
+                if was_off && !self.exclusive() && self.queue.active.is_some() {
                     let current = self.queue.active.clone();
                     let position = self.position();
                     let was_playing = self.playing;
@@ -1431,46 +1539,7 @@ impl Worker {
         {
             listen.listened_seconds += elapsed;
         }
-        while let Ok((epoch, item)) = self.started_rx.try_recv() {
-            if epoch != self.epoch {
-                continue;
-            }
-            let continuing = self
-                .listen
-                .as_ref()
-                .is_some_and(|listen| listen.track_id == item.track.id)
-                && self.queue.active.is_none();
-            if !continuing {
-                self.finish_listen();
-                self.listen = Some(Listen {
-                    id: uuid::Uuid::new_v4().to_string(),
-                    track_id: item.track.id.clone(),
-                    title: item.track.title.clone(),
-                    artist: item.track.artist.clone(),
-                    album: item.track.album.clone(),
-                    started_at: chrono::Utc::now().timestamp(),
-                    listened_seconds: 0.0,
-                    duration: item.track.duration,
-                    qualified: false,
-                });
-            }
-            if let Some(control) = self.network() {
-                control.set_meta(speaker_meta(&item.track));
-            }
-            if self
-                .loading
-                .as_ref()
-                .is_some_and(|l| l.track.id == item.track.id)
-            {
-                self.loading = None;
-            }
-            self.queue.started(item);
-            // The next song is already loading for a gapless start; fetch the one after it
-            // too if it is on a server, so skipping ahead does not wait for the network.
-            if let Some(after) = self.queue.pending.front().filter(|i| i.track.is_streamed()) {
-                crate::sources::prefetch(&after.track);
-            }
-        }
+        self.take_started();
         if self.sink.is_some() {
             if self.playing
                 && let Some(a) = loop_restart(self.loop_range, self.position())
@@ -1530,10 +1599,10 @@ impl Worker {
         state.position = position;
         state.volume = self.settings.volume;
         state.repeat = self.queue.repeat;
-        state.replay_gain = self.settings.replay_gain && !self.settings.exclusive;
+        state.replay_gain = self.settings.replay_gain && !self.exclusive();
         state.album_gain = state.replay_gain && self.settings.album_gain;
         state.loop_range = self.loop_range;
-        state.exclusive = self.settings.exclusive;
+        state.exclusive = self.exclusive();
         state.stems = self.stems.as_ref().map(|(id, _)| id.clone());
         Ok(())
     }
@@ -1699,8 +1768,13 @@ mod tests {
         };
         assert_eq!(replay_gain_factor(&quiet, &settings), 16.0);
         assert_eq!(replay_gain_factor(&Track::default(), &settings), 1.0);
+        // Exclusive output (Windows only) plays bit for bit, so without ReplayGain.
         settings.exclusive = true;
-        assert_eq!(replay_gain_factor(&track, &settings), 1.0);
+        if cfg!(windows) {
+            assert_eq!(replay_gain_factor(&track, &settings), 1.0);
+        } else {
+            assert_ne!(replay_gain_factor(&track, &settings), 1.0);
+        }
     }
 
     #[test]
@@ -1737,6 +1811,7 @@ mod tests {
             ],
             position: 12.5,
             repeat: Repeat::Off,
+            ..Default::default()
         };
         let lookup = |id: &str| {
             (id != "gone").then(|| Track {
@@ -1747,8 +1822,8 @@ mod tests {
             })
         };
         let resolved = session.resolve_with(lookup);
-        assert_eq!(ids(&resolved), ["a", "b", "c"]);
-        let (queue, position) = Queue::restore(&session, resolved.clone());
+        assert_eq!(ids(&resolved.items), ["a", "b", "c"]);
+        let (queue, position) = Queue::restore(&session, session.resolve_with(lookup));
         assert_eq!(ids(&queue.active), ["a"]);
         assert_eq!(ids(&queue.pending), ["b", "c"]);
         assert_eq!(position, 12.5);
@@ -1762,13 +1837,50 @@ mod tests {
             repeat: Repeat::One,
             ..session.clone()
         };
-        let (queue, position) = Queue::restore(&ended, resolved);
+        let (queue, position) = Queue::restore(&ended, ended.resolve_with(lookup));
         assert_eq!(position, 0.0);
         assert!(queue.pending.is_empty());
         assert_eq!(ids(&queue.repeat_tail), ["b", "c"]);
         assert_eq!(ids(&queue.upcoming()), ["b", "c"]);
         assert_eq!(queue.session(0.0).queue.len(), 2);
-        assert_eq!(Queue::restore(&Session::default(), vec![]).1, 0.0);
+        assert_eq!(
+            Queue::restore(&Session::default(), Session::default().resolve_with(lookup)).1,
+            0.0
+        );
+    }
+
+    #[test]
+    fn session_keeps_what_played_and_the_repeat_cycle() {
+        let lookup = |id: &str| {
+            Some(Track {
+                id: id.into(),
+                duration: 60.0,
+                ..Default::default()
+            })
+        };
+        let pair = |id: &str| (id.to_string(), "album".to_string());
+        // An album of five, now on the fourth song.
+        let session = Session {
+            current: Some(pair("d")),
+            queue: vec![pair("e")],
+            previous: vec![pair("a"), pair("b"), pair("c")],
+            cycle: ["a", "b", "c", "d", "e"].map(pair).to_vec(),
+            repeat: Repeat::All,
+            ..Default::default()
+        };
+        let (queue, _) = Queue::restore(&session, session.resolve_with(lookup));
+        assert_eq!(ids(&queue.previous), ["a", "b", "c"]);
+        assert_eq!(ids(&queue.after_end()), ["a", "b", "c", "d", "e"]);
+        let saved = queue.session(0.0);
+        assert_eq!(saved.previous.len(), 3);
+        assert_eq!(saved.cycle.len(), 5);
+        // A session from before: the cycle is what is known.
+        let old = Session {
+            cycle: vec![],
+            ..session
+        };
+        let (queue, _) = Queue::restore(&old, old.resolve_with(lookup));
+        assert_eq!(ids(&queue.after_end()), ["a", "b", "c", "d", "e"]);
     }
 
     #[test]

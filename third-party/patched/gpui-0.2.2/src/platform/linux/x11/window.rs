@@ -270,6 +270,8 @@ pub struct X11WindowState {
     fullscreen: bool,
     client_side_decorations_supported: bool,
     decorations: WindowDecorations,
+    /// Needle patch: a window that is not resizable does not start an interactive resize.
+    resizable: bool,
     edge_constraints: Option<EdgeConstraints>,
     pub handle: AnyWindowHandle,
     last_insets: [u32; 4],
@@ -688,6 +690,7 @@ impl X11WindowState {
                 destroyed: false,
                 client_side_decorations_supported,
                 decorations: WindowDecorations::Server,
+                resizable: params.is_resizable,
                 last_insets: [0, 0, 0, 0],
                 edge_constraints: None,
                 counter_id: sync_request_counter,
@@ -1522,6 +1525,9 @@ impl PlatformWindow for X11Window {
     }
 
     fn start_window_resize(&self, edge: ResizeEdge) {
+        if !self.0.state.borrow().resizable {
+            return;
+        }
         self.send_moveresize(edge.to_moveresize()).log_err();
     }
 

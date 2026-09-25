@@ -19,6 +19,8 @@ type Boxed = Box<dyn Source + Send>;
 const OPEN: u8 = 0;
 const CLAIMED: u8 = 1;
 const PASSED: u8 = 2;
+/// The song was skipped before its end: the next one starts clean, without its ending.
+const SKIPPED: u8 = 3;
 
 /// Song A's decoder, shared by its head and the next song's blend.
 pub struct Ending {
@@ -37,6 +39,10 @@ impl Ending {
         self.state
             .compare_exchange(OPEN, CLAIMED, Ordering::AcqRel, Ordering::Acquire)
             .is_ok()
+    }
+    /// The song was skipped: whatever is left of it must not fade under the next one.
+    pub fn skip(&self) {
+        self.state.store(SKIPPED, Ordering::Release);
     }
 }
 
@@ -145,7 +151,9 @@ struct Tail {
 impl Iterator for Tail {
     type Item = f32;
     fn next(&mut self) -> Option<f32> {
-        if self.frame >= self.shared.fade_frames {
+        if self.frame >= self.shared.fade_frames
+            || self.shared.state.load(Ordering::Acquire) == SKIPPED
+        {
             return None;
         }
         let value = self.shared.source.lock().ok()?.next()?;
@@ -209,18 +217,23 @@ pub fn blend(ending: Arc<Ending>, next: Boxed) -> Blend {
 impl Iterator for Blend {
     type Item = f32;
     fn next(&mut self) -> Option<f32> {
-        let fading_in = self.frame < self.fade_frames;
         let own = self.next.next();
         let under = match self.tail.as_mut() {
             Some(tail) => match tail.next() {
                 Some(v) => Some(v),
                 None => {
                     self.tail = None;
+                    // Nothing to blend from the start (the last song was skipped): play at
+                    // full strength straight away.
+                    if self.frame == 0 && self.sample == 0 {
+                        self.fade_frames = 0;
+                    }
                     None
                 }
             },
             None => None,
         };
+        let fading_in = self.frame < self.fade_frames;
         let own_gain = if fading_in {
             let t = self.frame as f32 / self.fade_frames.max(1) as f32;
             (t * std::f32::consts::FRAC_PI_2).sin()
@@ -285,6 +298,23 @@ mod tests {
         assert!((blended[0] - 1.).abs() < 0.01);
         assert!(blended[100] > 0.9 && blended[100] < 1.5);
         assert_eq!(blended[300], 1.);
+    }
+
+    #[test]
+    fn a_skipped_song_does_not_fade_under_the_next() {
+        let (head, ending) = split(tone(1., 10.), 10., 2.);
+        assert!(ending.claim());
+        // A plays a second, then Next skips it.
+        let _: Vec<f32> = head.take(100).collect();
+        ending.skip();
+        let next: Vec<f32> = blend(ending, tone(0.5, 5.)).collect();
+        assert_eq!(next.len(), 500);
+        // Nothing of A, and B starts at its full level, not faded in.
+        assert!(
+            next.iter().all(|v| (*v - 0.5).abs() < 1e-6),
+            "{:?}",
+            &next[..5]
+        );
     }
 
     #[test]

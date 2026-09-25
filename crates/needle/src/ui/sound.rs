@@ -229,14 +229,15 @@ impl AppView {
         cx.notify();
     }
 
-    pub(super) fn sound_view(&self, cx: &mut Context<Self>) -> impl IntoElement {
+    pub(super) fn sound_view(&self, width: f32, cx: &mut Context<Self>) -> impl IntoElement {
         div()
             .id("sound-scroll")
             .size_full()
             .overflow_y_scroll()
             .child(
                 div()
-                    .max_w(px(820.))
+                    // A width in pixels, so wrapped text is sized at it (see settings_view).
+                    .w(px(width.clamp(320., 820.)))
                     .px_8()
                     .pt_6()
                     .pb_16()
@@ -252,7 +253,7 @@ impl AppView {
     pub(super) fn sound_body(&self, cx: &mut Context<Self>) -> Div {
         let p = pal(cx);
         let dsp = self.settings.dsp.clone();
-        let exclusive = self.settings.exclusive;
+        let exclusive = cfg!(windows) && self.settings.exclusive;
         let clip_risk = dsp.eq && dsp.preamp_db > dsp.suggested_preamp() + 0.01;
         let mut preset_rows: Vec<Div> = vec![];
         for (i, (name, preamp, bands)) in PRESETS.iter().enumerate() {
@@ -463,13 +464,10 @@ impl AppView {
             })))
             .child(div().flex_1())
             .child(small_button("eq-import", "Load EQ file…").ghost().on_click(cx.listener(|this, _, window, cx| {
-                let Some(path) = rfd::FileDialog::new()
+                this.pick_then(window, cx, || rfd::FileDialog::new()
                     .set_title("Load a ParametricEQ.txt from AutoEq, or an Equalizer APO configuration")
                     .add_filter("Equalizer settings", &["txt"])
-                    .pick_file()
-                else {
-                    return;
-                };
+                    .pick_file(), |this, path, window, cx| {
                 let loaded = std::fs::read_to_string(&path)
                     .map_err(anyhow::Error::from)
                     .and_then(|text| needle_core::dsp::parse_parametric(&text));
@@ -483,8 +481,9 @@ impl AppView {
                     }
                     Err(error) => this.fail(format!("{error:#}")),
                 }
+                });
             })))
-            .child(small_button("eq-export", "Save EQ file…").ghost().on_click(cx.listener(|this, _, _, _| {
+            .child(small_button("eq-export", "Save EQ file…").ghost().on_click(cx.listener(|this, _, window, cx| {
                 let dsp = this.settings.dsp.clone();
                 let bands: Vec<ParamBand> = if dsp.parametric_mode() {
                     dsp.parametric.clone()
@@ -496,13 +495,13 @@ impl AppView {
                         .map(|(f, g)| ParamBand { frequency: *f as f32, gain: g, q: 1.41, ..Default::default() })
                         .collect()
                 };
-                let Some(path) = rfd::FileDialog::new().set_file_name("ParametricEQ.txt").add_filter("Equalizer settings", &["txt"]).save_file() else {
-                    return;
-                };
-                match std::fs::write(&path, needle_core::dsp::format_parametric(dsp.preamp_db, &bands)) {
-                    Ok(()) => this.notify("Saved in the Equalizer APO format."),
-                    Err(error) => this.fail(format!("Could not save: {error}")),
-                }
+                let text = needle_core::dsp::format_parametric(dsp.preamp_db, &bands);
+                this.pick_then(window, cx, || rfd::FileDialog::new().set_file_name("ParametricEQ.txt").add_filter("Equalizer settings", &["txt"]).save_file(), move |this, path, _, _| {
+                    match std::fs::write(&path, &text) {
+                        Ok(()) => this.notify("Saved in the Equalizer APO format."),
+                        Err(error) => this.fail(format!("Could not save: {error}")),
+                    }
+                });
             })))
     }
 

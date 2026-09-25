@@ -1,0 +1,468 @@
+//! What's new: after an update, one large card shows once with what the new version brings.
+//! The notes live in `whats-new.md`, one `# version` section each, newest first. Each change
+//! is shown as large as it is:
+//!
+//! - `! **Title.** Text` a milestone, across the top in its own coloured panel;
+//! - `- [icon] **Title.** Text` a feature, with an icon (any glyph name; `[icon]` may be left out);
+//! - `- Text` (no bold title) a small change, in the short list at the end.
+use super::{
+    AppView, motion, pal,
+    widgets::{display, glyph, small_button},
+};
+use gpui::{prelude::*, *};
+use gpui_component::{
+    ActiveTheme,
+    button::{Button, ButtonVariants},
+};
+
+const NOTES: &str = include_str!("../../whats-new.md");
+
+/// A change with a title: a milestone or a feature.
+#[derive(Debug, PartialEq)]
+pub struct Change {
+    pub icon: String,
+    pub title: String,
+    pub body: String,
+}
+
+/// One version's notes.
+#[derive(Debug, Default)]
+pub struct Notes {
+    pub version: String,
+    pub intro: String,
+    pub milestones: Vec<Change>,
+    pub features: Vec<Change>,
+    pub small: Vec<String>,
+}
+
+/// "[icon] **Title.** Text" (the icon may be left out) into its parts; `None` without a title.
+fn change(text: &str) -> Option<Change> {
+    let (icon, rest) = match text.strip_prefix('[').and_then(|r| r.split_once(']')) {
+        Some((icon, rest)) => (icon.trim().to_string(), rest.trim_start()),
+        None => (String::new(), text),
+    };
+    let (title, body) = rest.strip_prefix("**")?.split_once("**")?;
+    Some(Change {
+        icon,
+        title: title.trim().trim_end_matches('.').to_string(),
+        body: body.trim().to_string(),
+    })
+}
+
+/// Every version in `text`, newest first.
+fn parse(text: &str) -> Vec<Notes> {
+    let mut all: Vec<Notes> = Vec::new();
+    for line in text.lines().map(str::trim) {
+        if let Some(version) = line.strip_prefix("# ") {
+            all.push(Notes {
+                version: version.trim().to_string(),
+                ..Default::default()
+            });
+            continue;
+        }
+        let Some(notes) = all.last_mut() else {
+            continue;
+        };
+        if let Some(item) = line.strip_prefix("! ") {
+            match change(item) {
+                Some(c) => notes.milestones.push(c),
+                None => notes.small.push(item.to_string()),
+            }
+        } else if let Some(item) = line.strip_prefix("- ") {
+            match change(item) {
+                Some(c) => notes.features.push(c),
+                None => notes.small.push(item.to_string()),
+            }
+        } else if !line.is_empty() {
+            if !notes.intro.is_empty() {
+                notes.intro.push(' ');
+            }
+            notes.intro.push_str(line);
+        }
+    }
+    all
+}
+
+/// Whether starting `version` shows its notes: after an update, when this version's were not
+/// shown yet. Someone who used Needle before these notes existed (1.4.3 and earlier) has
+/// none marked seen, but has seen the welcome guide: that is an update too. A new install
+/// (the guide not yet seen) gets the guide instead.
+fn shows_after_update(seen: &str, welcomed: bool, version: &str) -> bool {
+    seen != version && (welcomed || !seen.is_empty())
+}
+
+/// The notes for `version`, or the newest when `version` is `None`.
+pub fn notes(version: Option<&str>) -> Option<Notes> {
+    let all = parse(NOTES);
+    match version {
+        Some(v) => all.into_iter().find(|n| n.version == v),
+        None => all.into_iter().next(),
+    }
+}
+
+impl AppView {
+    /// After an update, show this version's notes once. A new install gets the welcome guide
+    /// instead, so it only remembers the version.
+    pub(super) fn maybe_whats_new(&mut self) {
+        let version = env!("CARGO_PKG_VERSION");
+        if self.settings.whats_new_seen == version {
+            return;
+        }
+        if shows_after_update(
+            &self.settings.whats_new_seen,
+            self.settings.welcomed,
+            version,
+        ) && let Some(notes) = notes(Some(version))
+        {
+            self.whats_new = Some(notes);
+        }
+        self.settings.whats_new_seen = version.to_string();
+        self.persist_settings();
+    }
+
+    /// The card, over everything else, while it is open.
+    pub(super) fn whats_new_view(
+        &self,
+        window: &Window,
+        cx: &mut Context<Self>,
+    ) -> Option<impl IntoElement> {
+        let notes = self.whats_new.as_ref()?;
+        let p = pal(cx);
+        let room = super::widgets::content_size(window);
+        // Widths in pixels: wrapped text is only sized right at a known width.
+        let card_w = f32::from(room.width).min(720.) - 48.;
+        let card_h = f32::from(room.height) - 64.;
+        const PAD: f32 = 40.;
+        let inner = card_w - PAD * 2.;
+        let text = |text: &str, size: f32, color: Hsla| {
+            div()
+                .text_size(px(size))
+                .line_height(relative(1.55))
+                .text_color(color)
+                .child(text.to_string())
+        };
+        // Each part fades in a little after the one before.
+        let mut order = 0usize;
+        let mut arrive = |el: Div, cx: &App| {
+            order += 1;
+            let delay = 120. + order as f32 * 70.;
+            let length = 420.;
+            let total = delay + length;
+            motion::animate(
+                el,
+                ("whats-new-in", order),
+                total as u64,
+                cx,
+                move |el, t| {
+                    let local = ((t * total - delay) / length).clamp(0., 1.);
+                    el.opacity(local)
+                },
+            )
+        };
+
+        // The banner: the first milestone as the headline, beside a record drawn in rings.
+        let (headline, lede) = match notes.milestones.first() {
+            Some(m) => (m.title.clone(), m.body.clone()),
+            None => (
+                format!("What's new in Needle {}", notes.version),
+                notes.intro.clone(),
+            ),
+        };
+        let (cx0, cy0) = (card_w - 110., 118.);
+        let rings = [44., 78., 112., 146., 180., 214.]
+            .into_iter()
+            .enumerate()
+            .map(move |(i, r): (usize, f32)| {
+                div()
+                    .absolute()
+                    .left(px(cx0 - r))
+                    .top(px(cy0 - r))
+                    .size(px(r * 2.))
+                    .rounded_full()
+                    .border_1()
+                    .border_color(p.accent.opacity(0.34 - i as f32 * 0.05))
+            });
+        let text_w = inner - 190.;
+        let banner = div()
+            .relative()
+            .flex_shrink_0()
+            .overflow_hidden()
+            .px(px(PAD))
+            .pt(px(36.))
+            .pb(px(32.))
+            .bg(linear_gradient(
+                155.,
+                linear_color_stop(p.accent.opacity(0.28), 0.),
+                linear_color_stop(p.accent.opacity(0.02), 0.9),
+            ))
+            .children(rings)
+            .child(
+                div()
+                    .absolute()
+                    .left(px(cx0 - 26.))
+                    .top(px(cy0 - 26.))
+                    .size(px(52.))
+                    .rounded_full()
+                    .bg(p.accent)
+                    .flex()
+                    .items_center()
+                    .justify_center()
+                    .child(glyph("logo").size(px(30.)).text_color(p.canvas)),
+            )
+            .child(
+                div()
+                    .relative()
+                    .w(px(text_w))
+                    .flex()
+                    .flex_col()
+                    .gap_3()
+                    .child(
+                        div()
+                            .text_size(px(13.))
+                            .font_weight(FontWeight::SEMIBOLD)
+                            .text_color(p.accent)
+                            .child(format!("Needle {}", notes.version)),
+                    )
+                    .child(display(headline, 38.).w(px(text_w)).text_color(p.ink))
+                    .when(!lede.is_empty(), |el| {
+                        el.child(text(&lede, 14.5, p.ink_2).w(px(text_w)))
+                    }),
+            );
+
+        let mut body: Vec<AnyElement> = Vec::new();
+        // More milestones, if a release has several: a coloured strip each.
+        for m in notes.milestones.iter().skip(1) {
+            body.push(arrive(
+                div()
+                    .w(px(inner))
+                    .p_5()
+                    .rounded(px(12.))
+                    .bg(p.accent.opacity(0.1))
+                    .flex()
+                    .gap_4()
+                    .child(
+                        glyph(if m.icon.is_empty() { "logo" } else { &m.icon })
+                            .size(px(26.))
+                            .text_color(p.accent),
+                    )
+                    .child(
+                        div()
+                            .w(px(inner - 40. - 42.))
+                            .flex()
+                            .flex_col()
+                            .gap_1()
+                            .child(display(m.title.clone(), 22.))
+                            .child(text(&m.body, 14., p.ink_2).w(px(inner - 40. - 42.))),
+                    ),
+                cx,
+            ));
+        }
+        // Features: a list with an icon each, and room to breathe.
+        let body_w = inner - 44. - 18.;
+        for f in &notes.features {
+            body.push(arrive(
+                div()
+                    .w(px(inner))
+                    .flex()
+                    .items_start()
+                    .gap(px(18.))
+                    .child(
+                        div()
+                            .flex_none()
+                            .size(px(44.))
+                            .rounded(px(12.))
+                            .bg(p.accent.opacity(0.14))
+                            .flex()
+                            .items_center()
+                            .justify_center()
+                            .child(
+                                glyph(if f.icon.is_empty() { "check" } else { &f.icon })
+                                    .size(px(22.))
+                                    .text_color(p.accent),
+                            ),
+                    )
+                    .child(
+                        div()
+                            .w(px(body_w))
+                            .flex()
+                            .flex_col()
+                            .gap(px(3.))
+                            .child(
+                                div()
+                                    .text_size(px(16.))
+                                    .font_weight(FontWeight::SEMIBOLD)
+                                    .text_color(p.ink)
+                                    .child(f.title.clone()),
+                            )
+                            .child(text(&f.body, 13.5, p.ink_2).w(px(body_w))),
+                    ),
+                cx,
+            ));
+        }
+        // Small changes: a light list at the end.
+        if !notes.small.is_empty() {
+            let line_w = inner - 30.;
+            body.push(arrive(
+                div()
+                    .w(px(inner))
+                    .pt_4()
+                    .border_t_1()
+                    .border_color(p.line_soft)
+                    .flex()
+                    .flex_col()
+                    .gap_2()
+                    .child(
+                        div()
+                            .pb_1()
+                            .text_size(px(12.5))
+                            .font_weight(FontWeight::SEMIBOLD)
+                            .text_color(p.ink_3)
+                            .child("Also in this update"),
+                    )
+                    .children(notes.small.iter().map(|item| {
+                        div()
+                            .flex()
+                            .items_start()
+                            .gap_3()
+                            .child(glyph("check").size(px(15.)).mt(px(3.)).text_color(p.accent))
+                            .child(text(item, 13., p.ink_2).w(px(line_w)))
+                    })),
+                cx,
+            ));
+        }
+
+        let card = div()
+            .id("whats-new")
+            .occlude()
+            .w(px(card_w))
+            .max_h(px(card_h))
+            .rounded(px(18.))
+            .bg(cx.theme().popover)
+            .border_1()
+            .border_color(p.line)
+            .shadow_lg()
+            .overflow_hidden()
+            .flex()
+            .flex_col()
+            .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
+            .child(banner)
+            .child(
+                div()
+                    .id("whats-new-list")
+                    .flex_1()
+                    .min_h_0()
+                    .overflow_y_scroll()
+                    .px(px(PAD))
+                    .pt(px(28.))
+                    .pb(px(28.))
+                    .flex()
+                    .flex_col()
+                    .gap(px(24.))
+                    .children(body),
+            )
+            .child(
+                div()
+                    .flex_shrink_0()
+                    .px(px(PAD))
+                    .py_4()
+                    .border_t_1()
+                    .border_color(p.line_soft)
+                    .flex()
+                    .items_center()
+                    .gap_2()
+                    .child(
+                        small_button("whats-new-notes", "Full release notes")
+                            .ghost()
+                            .on_click({
+                                let version = notes.version.clone();
+                                move |_, _, cx| {
+                                    cx.open_url(&format!(
+                                        "https://github.com/nnxdot/needle/releases/tag/v{version}"
+                                    ))
+                                }
+                            }),
+                    )
+                    .child(div().flex_1())
+                    .child(
+                        Button::new("whats-new-done")
+                            .primary()
+                            .label("Got it")
+                            .px_6()
+                            .on_click(cx.listener(|this, _, _, cx| {
+                                this.whats_new = None;
+                                cx.notify();
+                            })),
+                    ),
+            );
+        // The card rises into place.
+        let card = motion::animate(card, "whats-new-card", 340, cx, |el, t| {
+            el.opacity(t).mt(px(20. * (1. - t)))
+        });
+        Some(
+            deferred(
+                div()
+                    .id("whats-new-backdrop")
+                    .absolute()
+                    .inset_0()
+                    .occlude()
+                    .bg(gpui::black().opacity(if p.dark { 0.6 } else { 0.35 }))
+                    .flex()
+                    .justify_center()
+                    .items_center()
+                    .on_mouse_down(
+                        MouseButton::Left,
+                        cx.listener(|this, _, _, cx| {
+                            this.whats_new = None;
+                            cx.notify();
+                        }),
+                    )
+                    .child(card),
+            )
+            .with_priority(3),
+        )
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn reads_each_size_of_change() {
+        let all = super::parse(
+            "# 2.0.0\nBig news.\n! **A milestone.** It is big.\n- [lyrics] **A feature.** It does this.\n- **No icon.** Still a feature.\n- A small fix.\n\n# 1.9.0\n- **Old.** Before.\n",
+        );
+        assert_eq!(all.len(), 2);
+        let new = &all[0];
+        assert_eq!(new.version, "2.0.0");
+        assert_eq!(new.intro, "Big news.");
+        assert_eq!(new.milestones[0].title, "A milestone");
+        assert_eq!(new.milestones[0].body, "It is big.");
+        assert_eq!(new.features[0].icon, "lyrics");
+        assert_eq!(new.features[0].title, "A feature");
+        assert_eq!(new.features[1].icon, "");
+        assert_eq!(new.small, vec!["A small fix.".to_string()]);
+        assert_eq!(all[1].features.len(), 1);
+    }
+
+    #[test]
+    fn notes_show_once_after_each_update() {
+        use super::shows_after_update as shows;
+        // From 1.4.3 (before the notes) to 1.5.0.
+        assert!(shows("", true, "1.5.0"));
+        // A new install: the welcome guide instead.
+        assert!(!shows("", false, "1.5.0"));
+        // Shown once, then not again for the same version.
+        assert!(!shows("1.5.0", true, "1.5.0"));
+        // And for every update after.
+        assert!(shows("1.5.0", true, "1.5.1"));
+        assert!(shows("1.5.1", true, "1.6.0"));
+    }
+
+    #[test]
+    fn the_shipped_notes_read() {
+        let newest = super::notes(None).expect("whats-new.md has a version");
+        assert!(!newest.milestones.is_empty() || !newest.features.is_empty());
+        for change in newest.milestones.iter().chain(&newest.features) {
+            assert!(!change.title.is_empty() && !change.body.is_empty());
+        }
+    }
+}

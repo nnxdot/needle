@@ -106,11 +106,12 @@ impl AppView {
             return;
         };
         self.update = Some(UpdateState::Downloading(release.clone()));
-        let directory = std::env::temp_dir().join("needle-update");
+        // The update gets a new private folder of its own in here.
+        let directory = std::env::temp_dir();
         let sender = self.sender.clone();
         std::thread::spawn(move || {
             let result = update::download(&release, &directory)
-                .and_then(|installer| update::install(&installer))
+                .and_then(|installer| update::install(&release, &installer))
                 .map_err(|e| format!("{e:#}"));
             let _ = sender.send(Event::UpdateStarted(result));
         });
@@ -143,6 +144,18 @@ impl AppView {
             ),
         };
         let action = match &self.update {
+            // A copy Needle cannot update by itself: the download page.
+            Some(UpdateState::Available(r)) if r.package.is_none() => {
+                let page = if r.page.is_empty() {
+                    "https://needle.nnx.fyi".to_string()
+                } else {
+                    r.page.clone()
+                };
+                super::widgets::small_button("update-page", format!("Get Needle {}", r.version))
+                    .primary()
+                    .on_click(move |_, _, cx| cx.open_url(&page))
+                    .into_any_element()
+            }
             Some(UpdateState::Available(r)) => {
                 super::widgets::small_button("update-now", format!("Update to {}", r.version))
                     .primary()
@@ -166,6 +179,18 @@ impl AppView {
             .flex()
             .flex_col()
             .child(super::widgets::setting_row("Updates", &status, action, cx))
+            .child(super::widgets::setting_row(
+                "What's new",
+                &format!("What Needle {} brings.", env!("CARGO_PKG_VERSION")),
+                super::widgets::small_button("whats-new-open", "Show").on_click(cx.listener(
+                    |this, _, _, cx| {
+                        this.whats_new = super::whats_new::notes(Some(env!("CARGO_PKG_VERSION")))
+                            .or_else(|| super::whats_new::notes(None));
+                        cx.notify();
+                    },
+                )),
+                cx,
+            ))
             .child(super::widgets::setting_row(
                 "Check for updates automatically",
                 "Once a day, when Needle starts.",

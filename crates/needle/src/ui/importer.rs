@@ -200,8 +200,8 @@ impl AppView {
             .overflow_y_scroll()
             .child(
                 div()
-                    .w_full()
-                    .max_w(px(760.))
+                    // A width in pixels, so wrapped text is sized at it (see settings_view).
+                    .w(px(width.clamp(320., 760.)))
                     .px_8()
                     .pt_6()
                     .pb_16()
@@ -250,7 +250,7 @@ impl AppView {
                         "iTunes, Apple Music, or MusicBee",
                         "Star ratings, play counts, last played and date added, and your playlists.",
                         "Export first. iTunes: File › Library › Export Library. Apple Music: File › Library › Export Library. MusicBee: Preferences › Library › export an iTunes XML file.",
-                        small_button("pick-itunes", "Choose library XML…").disabled(busy).on_click(cx.listener(|this, _, _, _| this.pick_and_import(SourceKind::Itunes))),
+                        small_button("pick-itunes", "Choose library XML…").disabled(busy).on_click(cx.listener(|this, _, _, cx| if this.can_pick(cx) { this.pick_and_import(SourceKind::Itunes) })),
                         card,
                         cx,
                     ))
@@ -260,7 +260,7 @@ impl AppView {
                         "Spotify",
                         "Every stream in your history, and your playlists, matched to the songs you own.",
                         "Ask Spotify for your data at spotify.com/account/privacy. Choose \"Extended streaming history\" for everything since you joined. Then pick the ZIP or folder it sends.",
-                        small_button("pick-spotify", "Choose Spotify download…").disabled(busy).on_click(cx.listener(|this, _, _, _| this.pick_and_import(SourceKind::Spotify))),
+                        small_button("pick-spotify", "Choose Spotify download…").disabled(busy).on_click(cx.listener(|this, _, _, cx| if this.can_pick(cx) { this.pick_and_import(SourceKind::Spotify) })),
                         card,
                         cx,
                     ))
@@ -310,7 +310,7 @@ impl AppView {
                         "A folder of playlists",
                         "Every .m3u and .m3u8 file in a folder, for example exported from foobar2000 or MusicBee.",
                         "",
-                        small_button("pick-playlists", "Choose folder…").disabled(busy).on_click(cx.listener(|this, _, _, _| this.pick_and_import(SourceKind::PlaylistFolder))),
+                        small_button("pick-playlists", "Choose folder…").disabled(busy).on_click(cx.listener(|this, _, _, cx| if this.can_pick(cx) { this.pick_and_import(SourceKind::PlaylistFolder) })),
                         card,
                         cx,
                     ))

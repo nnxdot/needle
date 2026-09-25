@@ -450,6 +450,7 @@ impl Library {
             query: None,
             track_ids: ids,
             updated_at: chrono::Utc::now().timestamp(),
+            ..Default::default()
         };
         self.save_playlist(&playlist)?;
         Ok(playlist)
@@ -524,6 +525,7 @@ mod tests {
             query: query.map(String::from),
             track_ids: ids.iter().map(|s| s.to_string()).collect(),
             updated_at: 1,
+            ..Default::default()
         }
     }
 
@@ -634,6 +636,7 @@ mod tests {
             query: None,
             track_ids: order.to_vec(),
             updated_at: 1,
+            ..Default::default()
         };
         let exported = music.join("Road trip.m3u8");
         db.export_playlist(&list, &exported).unwrap();

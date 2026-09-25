@@ -313,6 +313,7 @@ fn run() -> Result<()> {
                 query: Some(query),
                 track_ids: vec![],
                 updated_at: chrono::Utc::now().timestamp(),
+                ..Default::default()
             };
             library.save_playlist(&playlist)?;
             println!("Saved {}", playlist.name);
