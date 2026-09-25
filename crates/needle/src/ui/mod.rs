@@ -518,6 +518,8 @@ pub struct AppView {
     lyric_glide: bool,
     /// Frames waited for newly opened lyrics to be laid out before gliding.
     lyric_glide_waits: u8,
+    /// Whether the big (or full screen) lyrics and the side panel's were on screen.
+    lyrics_shown: (bool, bool),
     artist_images: std::collections::HashMap<String, Option<String>>,
     recent: Vec<Listen>,
     /// The tracks behind `recent`, for covers.
@@ -982,6 +984,7 @@ impl AppView {
             mini_lyric_glide: false,
             lyric_glide: false,
             lyric_glide_waits: 0,
+            lyrics_shown: (false, false),
             artist_images: Default::default(),
             recent: vec![],
             recent_tracks: Default::default(),
@@ -1499,6 +1502,10 @@ impl AppView {
                     self.notify(notice);
                 }
             }
+        }
+        // Slow loops on screen (bouncing bars, the full screen drift) move on this timer.
+        if motion::take_slow_loops() {
+            events = true;
         }
         if thumbs::made() != self.thumbs_seen {
             self.thumbs_seen = thumbs::made();

@@ -124,13 +124,12 @@ impl AppView {
 
         // The blurred cover, larger than the screen, drifting slowly.
         let backdrop = look.as_ref().and_then(|l| l.blur.clone()).map(|blur| {
-            motion::repeat(
+            motion::slow_repeat(
                 img(blur)
                     .absolute()
                     .w(px(w * 1.5))
                     .h(px(h * 1.5))
                     .object_fit(ObjectFit::Cover),
-                "immersive-drift",
                 40_000,
                 0.5,
                 cx,

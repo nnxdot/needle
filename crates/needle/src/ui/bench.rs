@@ -183,11 +183,27 @@ fn steps() -> Vec<Step> {
             tick: None,
         },
         Step {
-            name: "back to songs",
+            name: "full screen",
             start: |v, w, cx| {
                 v.big = false;
-                open(v, Page::Songs, w, cx);
+                v.set_immersive(true, w, cx);
             },
+            tick: None,
+        },
+        Step {
+            // The playing song's album: its row shows the bouncing bars.
+            name: "playing album",
+            start: |v, w, cx| {
+                v.set_immersive(false, w, cx);
+                if let Some(item) = v.playback.current.clone() {
+                    open(v, super::album_page(&item.track), w, cx);
+                }
+            },
+            tick: None,
+        },
+        Step {
+            name: "back to songs",
+            start: |v, w, cx| open(v, Page::Songs, w, cx),
             tick: None,
         },
     ]
