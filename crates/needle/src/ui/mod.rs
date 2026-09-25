@@ -2526,7 +2526,7 @@ impl Render for AppView {
             .children(self.speaker_menu_view(cx))
             .children(self.palette_view(cx))
             .children(self.welcome_view(window, cx))
-            .children(self.whats_new_view(cx))
+            .children(self.whats_new_view(window, cx))
             .children(self.asking_view(cx))
     }
 }
