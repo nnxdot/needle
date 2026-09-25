@@ -60,11 +60,24 @@ impl AppView {
         if !self.can_pick(cx) {
             return;
         }
+        // A thread of its own: Windows' file dialogs need one (on GPUI's background pool the
+        // dialog does not open).
+        let (tx, rx) = crossbeam_channel::bounded(1);
+        std::thread::spawn(move || {
+            let _ = tx.send(dialog());
+        });
         cx.spawn_in(window, async move |this, cx| {
-            let chosen = cx
-                .background_executor()
-                .spawn(async move { dialog() })
-                .await;
+            let chosen = loop {
+                match rx.try_recv() {
+                    Ok(chosen) => break chosen,
+                    Err(crossbeam_channel::TryRecvError::Empty) => {
+                        cx.background_executor()
+                            .timer(std::time::Duration::from_millis(50))
+                            .await
+                    }
+                    Err(crossbeam_channel::TryRecvError::Disconnected) => break None,
+                }
+            };
             if let Some(chosen) = chosen {
                 let _ = this.update_in(cx, |this, window, cx| {
                     then(this, chosen, window, cx);
