@@ -118,7 +118,9 @@ Opening an existing large library for the first time after this change builds th
 1.5.1 was taken back: updating to it from 1.5.0 stopped at "Closing applications". 1.5.2 has everything below plus this fix.
 
 - Cause: with the last session on a music server that does not answer, the audio worker spends about 21 seconds trying to connect after Needle starts, and closing waited for it (a Windows Restart Manager test closed 1.5.0 in 1.1 s with an empty profile and 19.5 s with a copy of a real one; timing lines showed the wait was the worker, not the database). The worker now gets at most 3 seconds: the same test closes 1.5.2 in 3.1 s.
-- Installer: acted out an update on a copy of the 1.5.0 install in a test folder (its own AppId, no registry, icons, or uninstaller), with the updater's flags and Needle asked to close at the same moment. The 1.5.1 installer failed with "Some applications could not be shut down" and changed nothing; the 1.5.2 installer waited 8 seconds, ended Needle, and installed (13 s in all). Installs run by hand, not quietly, are unchanged.
+- Installer: acted out an update on a copy of the 1.5.0 install in a test folder (its own AppId, no registry, icons, or uninstaller), with the updater's flags and Needle asked to close at the same moment. The 1.5.1 installer failed with "Some applications could not be shut down" and changed nothing; the 1.5.2 installer asked Needle to close, waited 8 seconds, ended it, and installed (14 s in all). A quiet install with Needle not asked to close first: Needle closed when the installer asked, and the install took 5 s. Installs run by hand, not quietly, are unchanged.
+- The playback session is saved before each command that can change the queue, so closing while the audio worker is stuck loses nothing.
+- Macroscope reviewed pull request #6; all 5 comments (a reused process number, the session while the worker is stuck, the save before the queue changes, WMI that does not answer, and asking Needle to close before waiting) were fixed and resolved, and its last check passed. Linux: build, clippy, tests, and the package installs on Ubuntu 24.04 and Fedora 44 passed.
 
 ## 1.5.1 checks
 
