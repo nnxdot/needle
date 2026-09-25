@@ -35,8 +35,9 @@ UninstallDisplayIcon={app}\Needle.exe
 Compression=lzma2/max
 SolidCompression=yes
 WizardStyle=modern
-; Close a running Needle before replacing it (updates run this quietly).
-CloseApplications=yes
+; Close a running Needle before replacing it (updates run this quietly), by force if it does
+; not close by itself. See also PrepareToInstall below.
+CloseApplications=force
 RestartApplications=no
 ChangesAssociations=yes
 
@@ -104,3 +105,49 @@ Root: HKA; Subkey: "Software\RegisteredApplications"; ValueType: string; ValueNa
 
 [Run]
 Filename: "{app}\Needle.exe"; Description: "{cm:LaunchProgram,Needle}"; Flags: nowait postinstall
+
+[Code]
+function GetTickCount: DWord; external 'GetTickCount@kernel32.dll stdcall';
+
+{ The Needle.exe processes running from the install folder, as a WMI result set. }
+function RunningNeedles(): Variant;
+var
+  Path: String;
+  Locator, Service: Variant;
+begin
+  Path := ExpandConstant('{app}\Needle.exe');
+  StringChangeEx(Path, '\', '\\', True);
+  StringChangeEx(Path, '''', '\''', True);
+  Locator := CreateOleObject('WbemScripting.SWbemLocator');
+  Service := Locator.ConnectServer('.', 'root\CIMV2');
+  Result := Service.ExecQuery('SELECT ProcessId FROM Win32_Process WHERE ExecutablePath = ''' +
+    Path + '''');
+end;
+
+{ An update runs quietly just after Needle asked to close. Needle 1.5.0 can take half a
+  minute to close when its music server does not answer, and the Restart Manager then waits
+  on it. So a quiet install gives Needle 8 seconds, and then ends what is left. }
+function PrepareToInstall(var NeedsRestart: Boolean): String;
+var
+  Found: Variant;
+  I, Code: Integer;
+  Started: DWord;
+begin
+  Result := '';
+  if not WizardSilent then
+    exit;
+  try
+    Started := GetTickCount;
+    Found := RunningNeedles();
+    while (Found.Count > 0) and (GetTickCount - Started < 8000) do
+    begin
+      Sleep(250);
+      Found := RunningNeedles();
+    end;
+    for I := 0 to Found.Count - 1 do
+      Exec(ExpandConstant('{sys}\taskkill.exe'), '/F /PID ' + IntToStr(Found.ItemIndex(I).ProcessId),
+        '', SW_HIDE, ewWaitUntilTerminated, Code);
+  except
+    { Without WMI, the Restart Manager still closes Needle, by force if it must. }
+  end;
+end;

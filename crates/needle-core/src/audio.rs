@@ -199,10 +199,19 @@ impl Player {
     pub fn state(&self) -> PlaybackState {
         self.state.lock().unwrap_or_else(|p| p.into_inner()).clone()
     }
+    /// Stops the worker. It gets a few seconds to save the session and close the output; one
+    /// that is stuck (for example on a music server that does not answer) is left behind, so
+    /// Needle still closes at once, and an update never waits on it.
     pub fn shutdown(&self) {
         self.send(Command::Shutdown);
         if let Some(worker) = self.worker.lock().unwrap().take() {
-            let _ = worker.join();
+            let until = Instant::now() + SHUTDOWN_WAIT;
+            while !worker.is_finished() && Instant::now() < until {
+                std::thread::sleep(Duration::from_millis(10));
+            }
+            if worker.is_finished() {
+                let _ = worker.join();
+            }
         }
     }
 }
@@ -278,6 +287,8 @@ fn loop_restart(range: Option<(f64, f64)>, position: f64) -> Option<f64> {
 const RESTART_AFTER: f64 = 3.0;
 /// The most seeks or volume changes merged into one before the worker ticks again.
 const COALESCE: usize = 256;
+/// How long closing waits for the audio worker to finish.
+const SHUTDOWN_WAIT: Duration = Duration::from_secs(3);
 
 /// The play queue, independent of any output device. `staged` items are
 /// already appended to the output; `pending` items are not. Items held aside
