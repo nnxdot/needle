@@ -1609,11 +1609,26 @@ impl Worker {
     fn run(mut self, rx: Receiver<Command>) {
         loop {
             match rx.recv_timeout(Duration::from_millis(25)) {
-                Ok(command) => match self.handle(command) {
-                    Ok(true) => {}
-                    Ok(false) => break,
-                    Err(e) => self.fail(e),
-                },
+                Ok(command) => {
+                    // Dragging the seek bar or the volume sends a command for every step; only
+                    // the last of a run matters, and doing each one in turn made the audio stutter
+                    // and the bar trail behind the pointer.
+                    let (command, next) = coalesce(command, &rx);
+                    let mut running = true;
+                    for command in std::iter::once(command).chain(next) {
+                        match self.handle(command) {
+                            Ok(true) => {}
+                            Ok(false) => {
+                                running = false;
+                                break;
+                            }
+                            Err(e) => self.fail(e),
+                        }
+                    }
+                    if !running {
+                        break;
+                    }
+                }
                 Err(crossbeam_channel::RecvTimeoutError::Disconnected) => {
                     let _ = self.save_session();
                     self.close();
@@ -1624,6 +1639,24 @@ impl Worker {
             if let Err(e) = self.tick() {
                 self.fail(e);
             }
+        }
+    }
+}
+
+/// `command`, or the last of the same kind (a seek, or a volume) waiting right behind it, and
+/// the first different command taken from the channel on the way, which still has to run.
+fn coalesce(mut command: Command, rx: &Receiver<Command>) -> (Command, Option<Command>) {
+    loop {
+        if !matches!(command, Command::Seek(_) | Command::Volume(_)) {
+            return (command, None);
+        }
+        match rx.try_recv() {
+            Ok(next @ Command::Seek(_)) if matches!(command, Command::Seek(_)) => command = next,
+            Ok(next @ Command::Volume(_)) if matches!(command, Command::Volume(_)) => {
+                command = next
+            }
+            Ok(other) => return (command, Some(other)),
+            Err(_) => return (command, None),
         }
     }
 }
@@ -1847,6 +1880,29 @@ mod tests {
             Queue::restore(&Session::default(), Session::default().resolve_with(lookup)).1,
             0.0
         );
+    }
+
+    #[test]
+    fn a_run_of_seeks_or_volumes_becomes_its_last() {
+        let (tx, rx) = crossbeam_channel::unbounded();
+        for s in [2.0, 3.0, 4.0] {
+            tx.send(Command::Seek(s)).unwrap();
+        }
+        tx.send(Command::Next).unwrap();
+        tx.send(Command::Volume(0.2)).unwrap();
+        tx.send(Command::Volume(0.4)).unwrap();
+        let (last, next) = coalesce(Command::Seek(1.0), &rx);
+        assert!(matches!(last, Command::Seek(s) if s == 4.0));
+        assert!(matches!(next, Some(Command::Next)));
+        let first = rx.try_recv().unwrap();
+        let (last, next) = coalesce(first, &rx);
+        assert!(matches!(last, Command::Volume(v) if v == 0.4));
+        assert!(next.is_none());
+        // Other commands pass through as they are.
+        assert!(matches!(
+            coalesce(Command::Next, &rx),
+            (Command::Next, None)
+        ));
     }
 
     #[test]

@@ -443,6 +443,8 @@ pub struct AppView {
     loading: bool,
     /// The playlist window, while it is open.
     editor: Option<playlist_editor::PlaylistEditor>,
+    /// When the seek bar was last moved by hand.
+    seek_moved: Option<Instant>,
     /// The "Add songs" window of a playlist, while it is open.
     add_songs: Option<playlist_editor::AddSongs>,
     confirm_delete: bool,
@@ -822,6 +824,7 @@ impl AppView {
             }),
             cx.subscribe(&seek, |this, _, event, _| {
                 let SliderEvent::Change(value) = event;
+                this.seek_moved = Some(Instant::now());
                 if let Some(item) = &this.playback.current {
                     this.player.send(Command::Seek(
                         value.start() as f64 / 1000.0 * item.track.duration,
@@ -913,6 +916,7 @@ impl AppView {
             loading: true,
             editor: None,
             add_songs: None,
+            seek_moved: None,
             confirm_delete: false,
             editing: false,
             matches: vec![],
@@ -1169,8 +1173,15 @@ impl AppView {
             }
             _ => 0.,
         };
-        self.seek
-            .update(cx, |state, cx| state.set_value(value, window, cx));
+        // While the bar is being dragged (and a moment after, while the jump lands), it stays
+        // where the pointer put it instead of being pulled back to the old position.
+        if self
+            .seek_moved
+            .is_none_or(|at| at.elapsed() > Duration::from_millis(600))
+        {
+            self.seek
+                .update(cx, |state, cx| state.set_value(value, window, cx));
+        }
         if let Some(toast) = &self.toast {
             let life = if toast.error { 14 } else { 6 };
             if toast.shown.elapsed() > Duration::from_secs(life) {
