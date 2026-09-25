@@ -128,11 +128,13 @@ end;
 
 { An update runs quietly just after Needle asked to close. Needle 1.5.0 can take half a
   minute to close when its music server does not answer, and the Restart Manager then waits
-  on it. So a quiet install gives Needle 8 seconds, and then ends what is left. }
+  on it. So a quiet install asks each Needle to close (as closing its window does, which
+  also covers a quiet install Needle did not start), gives it 8 seconds, and then ends what
+  is left. }
 function PrepareToInstall(var NeedsRestart: Boolean): String;
 var
   Found: Variant;
-  I: Integer;
+  I, Code: Integer;
   Started: DWord;
 begin
   Result := '';
@@ -141,6 +143,9 @@ begin
   try
     Started := GetTickCount;
     Found := RunningNeedles();
+    for I := 0 to Found.Count - 1 do
+      Exec(ExpandConstant('{sys}\taskkill.exe'), '/PID ' + IntToStr(Found.ItemIndex(I).ProcessId),
+        '', SW_HIDE, ewWaitUntilTerminated, Code);
     while (Found.Count > 0) and (GetTickCount - Started < 8000) do
     begin
       Sleep(250);
