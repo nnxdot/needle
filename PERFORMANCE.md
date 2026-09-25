@@ -47,10 +47,14 @@ Status: **open**, **fixed**, or **kept** (looked at, and left as it is, with the
    costs 2 to 4 ms. On a fast screen they take many frames (up to 180 a second here).
 5. **Each start uses one processor core for about 30 seconds** (open). Needle rescans every
    music folder at start, even when nothing changed.
-6. **The audio worker waits on the network** (open). With a music server that does not
-   answer, opening a song blocks the worker for about 21 seconds (the Windows connect
-   timeout). Play, Pause, and Next all wait behind it. 1.5.2 only stopped closing from
-   waiting.
+6. **The audio worker waited on the network** (fixed). With a music server that does not
+   answer, opening a song blocked the worker for about 21 seconds (the Windows connect
+   timeout), and Play, Pause, Next, and the volume all waited behind it. A song from a server
+   that is not kept here now opens on a helper thread; it stays first in the queue until it
+   is in, a change to the queue drops it, and a jump asked for meanwhile is done once it is
+   in (`fill`, `take_opened` in `crates/needle-core/src/audio.rs`). Test: with a server that
+   takes 1.5 s and fails, Play, the volume, and Pause answer within 0.5 s, and the next song
+   plays after it.
 7. **Slow frames** (open). Settings had one 19 ms frame, start-up one of 45 ms. To look at.
 8. **Work repeated on every redraw** (open). For example, the page header adds up the length
    of every listed song on each render.

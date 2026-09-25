@@ -107,6 +107,21 @@ pub struct PlaybackState {
     pub loading: bool,
 }
 
+/// A song from a server that a helper thread is opening, for the output of `epoch`.
+struct Opening {
+    epoch: u64,
+    id: String,
+    /// Where to start it, when a seek came while it opened.
+    seek: Option<f64>,
+}
+
+/// What the helper thread found.
+struct Opened {
+    epoch: u64,
+    id: String,
+    source: Result<Box<dyn Source + Send>>,
+}
+
 pub enum Command {
     Play(Vec<QueueItem>),
     /// Play the list starting at the given index; earlier items are not queued.
@@ -695,6 +710,10 @@ struct Worker {
     exclusive: Option<crate::exclusive::Output>,
     started_tx: Sender<(u64, QueueItem)>,
     started_rx: Receiver<(u64, QueueItem)>,
+    /// A song from a server being opened on a helper thread (see `fill`).
+    opening: Option<Opening>,
+    opened_tx: Sender<Opened>,
+    opened_rx: Receiver<Opened>,
     epoch: u64,
     listen: Option<Listen>,
     last_tick: Instant,
@@ -739,6 +758,7 @@ impl Worker {
         opener: Box<dyn OutputOpener + Send>,
     ) -> Self {
         let (started_tx, started_rx) = crossbeam_channel::unbounded();
+        let (opened_tx, opened_rx) = crossbeam_channel::unbounded();
         let mut session = library
             .get_json::<Session>("playback_session")
             .ok()
@@ -776,6 +796,9 @@ impl Worker {
             queue,
             started_tx,
             started_rx,
+            opening: None,
+            opened_tx,
+            opened_rx,
             epoch: 0,
             listen: None,
             loading: None,
@@ -852,6 +875,8 @@ impl Worker {
         self.endings.clear();
         self.active_ending = None;
         self.epoch += 1;
+        // A song still opening for the old output is not wanted any more.
+        self.opening = None;
         self.ending = None;
         if let Some(sink) = self.sink.take() {
             sink.stop();
@@ -1039,6 +1064,13 @@ impl Worker {
         let Some(sink) = self.sink.clone() else {
             return Ok(());
         };
+        // The song to play is still opening: it starts from there once it is in.
+        if sink.empty()
+            && let Some(opening) = &mut self.opening
+        {
+            opening.seek = Some(position);
+            return Ok(());
+        }
         let (tx, rx) = crossbeam_channel::bounded(1);
         std::thread::spawn(move || {
             let _ = tx.send(sink.try_seek(Duration::from_secs_f64(position.max(0.0))));
@@ -1064,22 +1096,39 @@ impl Worker {
             return Ok(());
         }
         while self.sink.as_ref().unwrap().len() < 2 {
-            let Some(item) = self.queue.pending.pop_front() else {
+            // One song at a time: the next waits for the one opening.
+            if self.opening.is_some() {
+                break;
+            }
+            let Some(front) = self.queue.pending.front() else {
                 break;
             };
-            // The song that plays next is on a server and not kept here yet: connecting can
-            // take a moment, so show it straight away.
-            if self.sink.as_ref().unwrap().empty()
-                && item.track.is_streamed()
-                && !crate::sources::is_cached(&item.track)
-            {
-                self.loading = Some(item.clone());
-                let mut state = self.state.lock().unwrap();
-                state.current = Some(item.clone());
-                state.position = 0.;
-                state.error = None;
-                state.loading = true;
+            // A song on a server and not kept here yet: connecting can take a while (half a
+            // minute, when the server does not answer), so it opens on a helper thread, and
+            // the worker goes on answering Play, Pause, and Next. It stays first in line
+            // until it is in, so the queue shows it and any change to the queue drops it.
+            if front.track.is_streamed() && !crate::sources::is_cached(&front.track) {
+                let item = front.clone();
+                if self.sink.as_ref().unwrap().empty() {
+                    self.show_loading(&item);
+                }
+                self.opening = Some(Opening {
+                    epoch: self.epoch,
+                    id: item.track.id.clone(),
+                    seek: None,
+                });
+                let (epoch, tx) = (self.epoch, self.opened_tx.clone());
+                std::thread::spawn(move || {
+                    let source = crate::audio_file::decode_track(&item.track);
+                    let _ = tx.send(Opened {
+                        epoch,
+                        id: item.track.id,
+                        source,
+                    });
+                });
+                break;
             }
+            let item = self.queue.pending.pop_front().unwrap();
             let stems = self
                 .stems
                 .as_ref()
@@ -1091,40 +1140,10 @@ impl Worker {
                 Some(stems) => Ok(Box::new(stems) as Box<dyn Source + Send>),
                 None => crate::audio_file::decode_track(&item.track),
             };
-            let source = match decoded {
-                Ok(source) => source,
-                Err(error) => {
-                    self.loading = None;
-                    self.queue.touch();
-                    self.fail(anyhow::anyhow!(
-                        "Cannot decode {}: {error}",
-                        item.track.title
-                    ));
-                    continue;
-                }
-            };
-            let gain = replay_gain_factor(&item.track, &self.settings);
-            // Exclusive output stays bit-exact; the sound tools only apply to shared output.
-            let processed: Box<dyn Source + Send> = if self.exclusive()
-                || self.settings.dsp.is_transparent() && !self.settings.dsp.eq
-            {
-                Box::new(source.amplify(gain as f32))
-            } else {
-                Box::new(crate::dsp::Processed::new(
-                    source.amplify(gain as f32),
-                    self.dsp.clone(),
-                ))
-            };
-            let processed = self.crossfade(&item.track, processed);
-            let marked = Marked {
-                inner: processed,
-                item: item.clone(),
-                started: false,
-                epoch: self.epoch,
-                tx: self.started_tx.clone(),
-            };
-            self.queue.staged.push_back(item);
-            self.sink.as_ref().unwrap().append(marked);
+            match decoded {
+                Ok(source) => self.append(item, source),
+                Err(error) => self.cannot_decode(&item, error),
+            }
         }
         #[cfg(windows)]
         if let Some(output) = &self.exclusive {
@@ -1133,6 +1152,82 @@ impl Worker {
                 .store(true, std::sync::atomic::Ordering::Release);
         }
         Ok(())
+    }
+    /// Shows `item` as playing while it connects.
+    fn show_loading(&mut self, item: &QueueItem) {
+        self.loading = Some(item.clone());
+        let mut state = self.state.lock().unwrap();
+        state.current = Some(item.clone());
+        state.position = 0.;
+        state.error = None;
+        state.loading = true;
+    }
+    fn cannot_decode(&mut self, item: &QueueItem, error: anyhow::Error) {
+        self.loading = None;
+        self.queue.touch();
+        self.fail(anyhow::anyhow!(
+            "Cannot decode {}: {error}",
+            item.track.title
+        ));
+    }
+    /// Takes in a song opened on a helper thread, if it is still the one wanted: the same
+    /// output, and still first in line. Then the queue fills on.
+    fn take_opened(&mut self) -> Result<()> {
+        while let Ok(opened) = self.opened_rx.try_recv() {
+            let Some(opening) = self
+                .opening
+                .take_if(|o| o.epoch == opened.epoch && o.id == opened.id)
+            else {
+                continue;
+            };
+            let first = self.queue.pending.front().map(|i| i.track.id.as_str());
+            if self.sink.is_none() || first != Some(opened.id.as_str()) {
+                // The queue changed meanwhile.
+                if self
+                    .loading
+                    .as_ref()
+                    .is_some_and(|l| l.track.id == opened.id)
+                {
+                    self.loading = None;
+                }
+                continue;
+            }
+            let item = self.queue.pending.pop_front().unwrap();
+            match opened.source {
+                Ok(source) => {
+                    self.append(item, source);
+                    if let Some(position) = opening.seek {
+                        self.seek(position)?;
+                    }
+                }
+                Err(error) => self.cannot_decode(&item, error),
+            }
+        }
+        self.fill()
+    }
+    /// Puts a decoded song on the output, with its gain, sound tools, and crossfade.
+    fn append(&mut self, item: QueueItem, source: Box<dyn Source + Send>) {
+        let gain = replay_gain_factor(&item.track, &self.settings);
+        // Exclusive output stays bit-exact; the sound tools only apply to shared output.
+        let processed: Box<dyn Source + Send> =
+            if self.exclusive() || self.settings.dsp.is_transparent() && !self.settings.dsp.eq {
+                Box::new(source.amplify(gain as f32))
+            } else {
+                Box::new(crate::dsp::Processed::new(
+                    source.amplify(gain as f32),
+                    self.dsp.clone(),
+                ))
+            };
+        let processed = self.crossfade(&item.track, processed);
+        let marked = Marked {
+            inner: processed,
+            item: item.clone(),
+            started: false,
+            epoch: self.epoch,
+            tx: self.started_tx.clone(),
+        };
+        self.queue.staged.push_back(item);
+        self.sink.as_ref().unwrap().append(marked);
     }
     /// Blend the start of `track` over the previous song's ending, and set up its own ending
     /// for the next song. Off on exclusive output, which stays bit-exact, and between
@@ -1625,7 +1720,7 @@ impl Worker {
                 }
             }
         }
-        self.fill()?;
+        self.take_opened()?;
         if self.last_session_save.elapsed() > Duration::from_secs(10) {
             self.save_session()?;
             self.last_session_save = Instant::now();
@@ -2530,6 +2625,41 @@ mod tests {
         assert_eq!(rig.state().output, "USB DAC");
         assert!(rig.worker.position() >= position - 0.01);
         rig.until_active("a");
+    }
+
+    #[test]
+    fn a_server_that_does_not_answer_does_not_hold_up_the_worker() {
+        // The server of `slow-test` takes 1.5 s and then fails, as one that does not answer
+        // does after the connect timeout.
+        let cache = std::env::temp_dir().join(format!("needle-slow-{}", std::process::id()));
+        crate::sources::set_cache_dir(cache.clone());
+        crate::sources::set_resolver(|plugin, _| {
+            if plugin == "slow-test" {
+                std::thread::sleep(Duration::from_millis(1500));
+            }
+            anyhow::bail!("The server did not answer")
+        });
+        let opener = FakeOpener::with(&["Speakers"], Some("Speakers"));
+        let mut rig = rig(opener, Settings::default());
+        let mut list = rig.items(&["slow", "b"]);
+        list[0].track.path = format!("{}slow-test/1", crate::sources::SCHEME);
+        let started = Instant::now();
+        rig.run(Command::Play(list));
+        rig.run(Command::Volume(0.5));
+        rig.run(Command::Toggle);
+        assert!(
+            started.elapsed() < Duration::from_millis(500),
+            "the worker waited on the server: {:?}",
+            started.elapsed()
+        );
+        let state = rig.state();
+        assert_eq!(state.volume, 0.5);
+        // The song waiting for its server shows as the one playing, still first in line.
+        assert_eq!(state.current.map(|c| c.track.id).as_deref(), Some("slow"));
+        // Once the server gives up, the next song plays.
+        rig.run(Command::Toggle);
+        rig.until_active("b");
+        let _ = std::fs::remove_dir_all(cache);
     }
 
     #[test]
