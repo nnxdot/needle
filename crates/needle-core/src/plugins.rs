@@ -377,8 +377,13 @@ const MAX_SYNC_PAGES: i64 = 100_000;
 /// plugin cannot fill the memory.
 const MAX_SYNC_SONGS: usize = 2_000_000;
 
-/// Sources are synced again on start when their last sync is older than this.
-const RESYNC_AFTER: i64 = 30 * 60;
+/// Sources are synced again on start when their last sync is older than this. A sync of a
+/// large server takes a while (about 40 s for 7,000 songs on Navidrome, most of it the
+/// server answering), so it is not done on every start; Sync in Settings does it at once.
+const RESYNC_AFTER: i64 = 6 * 60 * 60;
+
+/// How long after start a due sync waits, so it does not compete with Needle starting.
+const SYNC_AFTER_START: Duration = Duration::from_secs(20);
 
 const ENABLED_KEY: &str = "plugins_enabled";
 
@@ -519,7 +524,11 @@ fn run(
                             .synced_at
                             .is_none_or(|at| at > now || now - at > RESYNC_AFTER)
                     {
-                        let _ = tx.send(PluginEvent::SourceSync(id));
+                        let tx = tx.clone();
+                        std::thread::spawn(move || {
+                            std::thread::sleep(SYNC_AFTER_START);
+                            let _ = tx.send(PluginEvent::SourceSync(id));
+                        });
                     }
                 }
             }

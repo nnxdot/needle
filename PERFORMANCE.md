@@ -45,8 +45,15 @@ Status: **open**, **fixed**, or **kept** (looked at, and left as it is, with the
    opening and colour fade, the page change, and the colour fade after a new cover all ask
    for every frame while they run, as they should; each runs under a second, and a frame
    costs 2 to 4 ms. On a fast screen they take many frames (up to 180 a second here).
-5. **Each start uses one processor core for about 30 seconds** (open). Needle rescans every
-   music folder at start, even when nothing changed.
+5. **A start used half a processor core for about 40 seconds** (fixed). Not the folder scan:
+   the music server plugin synced the whole song list on every start more than 30 minutes
+   after the last sync. Timed on the Navidrome server here (6,908 songs, 28 pages of 250):
+   each page took 1.1 s for the server to answer, 0.3 s for the plugin's script to turn the
+   songs into Needle's form (8 s of processor time in all), 2 ms to read the JSON, and the
+   database 70 ms in all. Now a start syncs only when the last sync is over 6 hours old, and
+   20 seconds after start (`RESYNC_AFTER`, `SYNC_AFTER_START` in
+   `crates/needle-core/src/plugins.rs`); signing in and Sync in Settings still sync at once.
+   A start without a sync due: 3.2 s of processor time in the first 40 s (was about 18 s).
 6. **The audio worker waited on the network** (fixed). With a music server that does not
    answer, opening a song blocked the worker for about 21 seconds (the Windows connect
    timeout), and Play, Pause, Next, and the volume all waited behind it. A song from a server
