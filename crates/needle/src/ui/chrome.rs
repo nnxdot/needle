@@ -25,137 +25,42 @@ impl AppView {
         // With the sidebar folded to its strip, the corner is as wide, with the logo alone;
         // the button to unfold it is the strip's first icon.
         let corner = if hidden { RAIL } else { sidebar };
-        let search_focused = self.search.read(cx).focus_handle(cx).is_focused(window);
         // The title bar does not shrink its contents, so size the search field from the room
         // left beside the sidebar column, back button, palette button, and window buttons.
         let search_width =
             (width - corner - 32. - 36. - if narrow { 44. } else { 96. } - 170.).clamp(140., 520.);
-        let rule = self
-            .explanation
-            .as_deref()
-            .is_some_and(|e| e.starts_with("Matches rule"))
-            && !self.search_text(cx).is_empty();
-        // The sidebar corner, back button, search, and palette button.
-        let content = div()
-            .flex_1()
-            .h_full()
-            .flex()
-            .items_center()
-            .child(
-                div()
-                    .w(px(corner))
-                    .flex_shrink_0()
-                    .h_full()
-                    .when(hidden, |el| el.justify_center())
-                    .when(!hidden, |el| el.pl_4().pr_2())
-                    .flex()
-                    .items_center()
-                    .gap_2()
-                    .child(glyph("logo").size(px(20.)).text_color(p.accent))
-                    .when(!hidden, |el| {
-                        el.child(
-                            div()
-                                .flex_1()
-                                .text_size(px(15.))
-                                .font_weight(FontWeight::SEMIBOLD)
-                                .child("Needle"),
-                        )
-                    })
-                    .when(!hidden, |el| {
-                        el.child(
-                            icon_button("toggle-sidebar", "panel", "Fold the sidebar (Ctrl+B)")
+        // The sidebar corner, back button, search, and palette button; or, as in Apple Music,
+        // the player (Settings › Appearance).
+        let content = if self.settings.layout.player_on_top {
+            self.top_player(corner, hidden, width, cx)
+        } else {
+            div()
+                .flex_1()
+                .h_full()
+                .flex()
+                .items_center()
+                .child(self.title_corner(corner, hidden, cx))
+                .child(
+                    div()
+                        .flex_1()
+                        .min_w_0()
+                        .h_full()
+                        .px_4()
+                        .flex()
+                        .items_center()
+                        .gap_2()
+                        .child(
+                            icon_button("back", "chevron-left", "Back · Alt+Left")
                                 .small()
-                                .on_click(cx.listener(|this, _, _, cx| {
-                                    this.toggle_sidebar();
-                                    cx.notify();
-                                })),
+                                .disabled(self.back.is_empty())
+                                .on_click(
+                                    cx.listener(|this, _, window, cx| this.go_back(window, cx)),
+                                ),
                         )
-                    }),
-            )
-            .child(
-                div()
-                    .flex_1()
-                    .min_w_0()
-                    .h_full()
-                    .px_4()
-                    .flex()
-                    .items_center()
-                    .gap_2()
-                    .child(
-                        icon_button("back", "chevron-left", "Back · Alt+Left")
-                            .small()
-                            .disabled(self.back.is_empty())
-                            .on_click(cx.listener(|this, _, window, cx| this.go_back(window, cx))),
-                    )
-                    .child(
-                        self.suggestion_keys(div().id("search-field"), cx)
-                            .relative()
-                            // One clean field: our own fill, edge, and height; the input inside
-                            // draws no box of its own.
-                            .h(px(32.))
-                            .rounded(px(8.))
-                            .bg(if p.back.a < 1. {
-                                p.raised.opacity(0.75)
-                            } else {
-                                p.raised
-                            })
-                            .border_1()
-                            .border_color(if search_focused {
-                                p.accent.opacity(0.6)
-                            } else {
-                                p.line_soft
-                            })
-                            .flex()
-                            .items_center()
-                            .w(px(search_width))
-                            .flex_shrink_0()
-                            .children(self.suggestion_list(px(search_width.max(420.)), cx))
-                            .child(
-                                Input::new(&self.search)
-                                    .appearance(false)
-                                    .cleanable(true)
-                                    .prefix(glyph("search").size(px(15.)).text_color(p.ink_3))
-                                    .when(rule, |el| {
-                                        el.suffix(
-                                            div()
-                                                .px(px(6.))
-                                                .rounded(px(4.))
-                                                .bg(p.accent_soft)
-                                                .text_size(px(11.))
-                                                .text_color(p.accent)
-                                                .child("Rule"),
-                                        )
-                                    }),
-                            ),
-                    )
-                    .child(
-                        div()
-                            .id("open-palette")
-                            .h(px(28.))
-                            .px_2()
-                            .rounded(px(6.))
-                            .flex()
-                            .items_center()
-                            .gap_2()
-                            .cursor_pointer()
-                            .text_size(px(12.))
-                            .text_color(p.ink_3)
-                            .hover(|s| s.bg(p.raised).text_color(p.ink))
-                            .flex_shrink_0()
-                            .child(glyph("command").size(px(14.)).text_color(p.ink_3))
-                            .when(!narrow, |el| el.child("Ctrl K"))
-                            .tooltip(|window, cx| {
-                                gpui_component::tooltip::Tooltip::new(
-                                    "Command palette: go anywhere, do anything",
-                                )
-                                .build(window, cx)
-                            })
-                            .on_click(
-                                cx.listener(|this, _, window, cx| this.open_palette(window, cx)),
-                            ),
-                    )
-                    .child(div().flex_1()),
-            );
+                        .child(self.search_group(search_width, narrow, false, window, cx))
+                        .child(div().flex_1()),
+                )
+        };
         // Some Linux desktops (and WSL) draw their own frame with window buttons: then show
         // the bar without Needle's own buttons.
         if cfg!(target_os = "linux") && matches!(window.window_decorations(), Decorations::Server) {
@@ -168,7 +73,11 @@ impl AppView {
                 .into_any_element();
         }
         TitleBar::new()
-            .h(px(48.))
+            .h(px(if self.settings.layout.player_on_top {
+                60.
+            } else {
+                48.
+            }))
             .pl_0()
             .bg(p.back)
             .border_b_0()
@@ -573,20 +482,9 @@ impl AppView {
     pub(super) fn player_bar(&self, width: Pixels, cx: &mut Context<Self>) -> impl IntoElement {
         let p = pal(cx);
         let current = self.playback.current.as_ref().map(|i| i.track.clone());
-        let playing = self.playback.playing;
         let wide = width > px(1180.);
         let (path, path_detail, exclusive) = self.signal_path(cx);
-        let repeat = self.playback.repeat;
         let looping = self.playback.loop_range.is_some();
-        let volume_glyph = if self.playback.volume <= 0.001 {
-            "volume-off"
-        } else if self.playback.volume < 0.5 {
-            "volume-low"
-        } else {
-            "volume"
-        };
-        let queue_open = self.settings.show_inspector && self.panel == Panel::Queue;
-        let lyrics_open = self.settings.show_inspector && self.panel == Panel::Lyrics;
         div()
             .h(px(80.))
             .flex_shrink_0()
@@ -708,65 +606,7 @@ impl AppView {
                     .items_center()
                     .gap_1()
                     .child(
-                        div()
-                            .flex()
-                            .items_center()
-                            .gap_2()
-                            .child(
-                                icon_button("shuffle", "shuffle", "Shuffle this view")
-                                    .small()
-                                    .disabled(self.tracks.is_empty())
-                                    .on_click(cx.listener(|this, _, _, cx| this.play_view(0, true, cx))),
-                            )
-                            .child(
-                                icon_button("previous", "previous", "Previous · Ctrl+Left")
-                                    .on_click(cx.listener(|this, _, _, _| this.player.send(Command::Previous))),
-                            )
-                            .child(
-                                div()
-                                    .id("play-pause")
-                                    .size(px(38.))
-                                    .rounded_full()
-                                    .bg(p.ink)
-                                    .text_color(p.canvas)
-                                    .flex()
-                                    .items_center()
-                                    .justify_center()
-                                    .cursor_pointer()
-                                    .hover(|s| s.opacity(0.88))
-                                    // Pressed: shrink inside the same space so nothing around it moves.
-                                    .active(|s| s.size(px(34.)).m(px(2.)).opacity(0.8))
-                                    .child(glyph(if playing { "pause" } else { "play" }).size(px(17.)).text_color(p.canvas))
-                                    .tooltip(move |window, cx| {
-                                        gpui_component::tooltip::Tooltip::new(if playing { "Pause · Space" } else { "Play · Space" }).build(window, cx)
-                                    })
-                                    .on_click(cx.listener(|this, _, _, cx| this.toggle_playback(cx))),
-                            )
-                            .child(
-                                icon_button("next", "next", "Next · Ctrl+Right")
-                                    .on_click(cx.listener(|this, _, _, _| this.player.send(Command::Next))),
-                            )
-                            .child(
-                                icon_button(
-                                    "repeat",
-                                    if repeat == Repeat::One { "repeat-one" } else { "repeat" },
-                                    match repeat {
-                                        Repeat::Off => "Repeat is off",
-                                        Repeat::All => "Repeating the queue",
-                                        Repeat::One => "Repeating this track",
-                                    },
-                                )
-                                .small()
-                                .when(repeat != Repeat::Off, |b| b.text_color(p.accent))
-                                .on_click(cx.listener(|this, _, _, _| {
-                                    let next = match this.playback.repeat {
-                                        Repeat::Off => Repeat::All,
-                                        Repeat::All => Repeat::One,
-                                        Repeat::One => Repeat::Off,
-                                    };
-                                    this.player.send(Command::Repeat(next));
-                                })),
-                            ),
+                        self.transport_buttons(38., cx),
                     )
                     .child(
                         div()
@@ -853,51 +693,7 @@ impl AppView {
                             })),
                     )
                     .child(
-                    div()
-                        .id("volume-area")
-                        .flex()
-                        .items_center()
-                        .gap_1()
-                        // The wheel over the volume changes it, while Needle is the active window.
-                        .on_scroll_wheel(cx.listener(|this, event: &ScrollWheelEvent, window, cx| {
-                            if this.playback.exclusive || !window.is_window_active() {
-                                return;
-                            }
-                            let steps = match event.delta {
-                                // A wheel: one step per notch.
-                                ScrollDelta::Lines(lines) => lines.y.signum(),
-                                // A touchpad: steps as the fingers travel.
-                                ScrollDelta::Pixels(pixels) => {
-                                    this.volume_scroll += f32::from(pixels.y) / 40.;
-                                    let whole = this.volume_scroll.trunc();
-                                    this.volume_scroll -= whole;
-                                    whole
-                                }
-                            };
-                            if steps != 0. {
-                                this.nudge_volume(steps * 0.05, window, cx);
-                                cx.stop_propagation();
-                                cx.notify();
-                            }
-                        }))
-                    .child(
-                        icon_button("mute", volume_glyph, if self.playback.exclusive { "Exclusive output: use your device's volume" } else { "Mute" })
-                            .small()
-                            .disabled(self.playback.exclusive)
-                            .on_click(cx.listener(|this, _, window, cx| {
-                                let restore = this.muted_volume.take();
-                                let volume = match restore {
-                                    Some(v) => v,
-                                    None => {
-                                        this.muted_volume = Some(this.playback.volume.max(0.05));
-                                        0.
-                                    }
-                                };
-                                this.player.send(Command::Volume(volume));
-                                this.volume.update(cx, |s, cx| s.set_value(volume, window, cx));
-                            })),
-                    )
-                    .child(Slider::new(&self.volume).w(px(if wide { 150. } else { 110. })).disabled(self.playback.exclusive)),
+                    self.volume_control(if wide { 150. } else { 110. }, cx),
                     )
                     .child(
                         icon_button("open-sound", "eq", "Equalizer and sound tools")
@@ -924,17 +720,7 @@ impl AppView {
                         }))
                     })
                     .child(
-                        Button::new("lyrics-toggle")
-                            .ghost()
-                            .small()
-                            .ml_1()
-                            .icon(icon("lyrics"))
-                            .selected(lyrics_open)
-                            .tooltip("Lyrics · Ctrl+L")
-                            .on_click(cx.listener(|this, _, _, cx| {
-                                this.toggle_panel(Panel::Lyrics);
-                                cx.notify();
-                            })),
+                        self.lyrics_button(cx),
                     )
                     .child(
                         icon_button("open-mini", "mini", "Mini player · Ctrl+M")
@@ -943,28 +729,494 @@ impl AppView {
                             .on_click(cx.listener(|this, _, window, cx| this.open_mini(window, cx))),
                     )
                     .child(
-                        div()
-                            .id("queue-drop")
-                            .rounded(px(6.))
-                            .drag_over::<super::flow::DraggedTracks>(move |s, _, _, _| s.bg(p.accent_soft))
-                            .on_drop(cx.listener(|this, dragged: &super::flow::DraggedTracks, _, _| {
-                                let tracks = this.library.tracks_by_ids(&dragged.ids).unwrap_or_default();
-                                this.enqueue(tracks);
-                            }))
-                            .child(Button::new("queue-toggle")
-                            .ghost()
-                            .small()
-                            .ml_1()
-                            .icon(icon("queue"))
-                            .selected(queue_open)
-                            .tooltip("Queue · Ctrl+J")
-                            .on_click(cx.listener(|this, _, _, cx| {
-                                this.toggle_panel(Panel::Queue);
-                                cx.notify();
-                            }))),
+                        self.queue_button(cx),
                     ),
                     ),
             )
+    }
+
+    /// Shuffle, previous, play or pause, next, and repeat; `play` is the play button's size.
+    fn transport_buttons(&self, play: f32, cx: &mut Context<Self>) -> Div {
+        let p = pal(cx);
+        let playing = self.playback.playing;
+        let repeat = self.playback.repeat;
+        div()
+            .flex()
+            .items_center()
+            .gap_2()
+            .child(
+                icon_button("shuffle", "shuffle", "Shuffle this view")
+                    .small()
+                    .disabled(self.tracks.is_empty())
+                    .on_click(cx.listener(|this, _, _, cx| this.play_view(0, true, cx))),
+            )
+            .child(
+                icon_button("previous", "previous", "Previous · Ctrl+Left")
+                    .on_click(cx.listener(|this, _, _, _| this.player.send(Command::Previous))),
+            )
+            .child(
+                div()
+                    .id("play-pause")
+                    .size(px(play))
+                    .rounded_full()
+                    .bg(p.ink)
+                    .text_color(p.canvas)
+                    .flex()
+                    .items_center()
+                    .justify_center()
+                    .cursor_pointer()
+                    .hover(|s| s.opacity(0.88))
+                    // Pressed: shrink inside the same space so nothing around it moves.
+                    .active(move |s| s.size(px(play - 4.)).m(px(2.)).opacity(0.8))
+                    .child(
+                        glyph(if playing { "pause" } else { "play" })
+                            .size(px((play * 0.45).round()))
+                            .text_color(p.canvas),
+                    )
+                    .tooltip(move |window, cx| {
+                        gpui_component::tooltip::Tooltip::new(if playing {
+                            "Pause · Space"
+                        } else {
+                            "Play · Space"
+                        })
+                        .build(window, cx)
+                    })
+                    .on_click(cx.listener(|this, _, _, cx| this.toggle_playback(cx))),
+            )
+            .child(
+                icon_button("next", "next", "Next · Ctrl+Right")
+                    .on_click(cx.listener(|this, _, _, _| this.player.send(Command::Next))),
+            )
+            .child(
+                icon_button(
+                    "repeat",
+                    if repeat == Repeat::One {
+                        "repeat-one"
+                    } else {
+                        "repeat"
+                    },
+                    match repeat {
+                        Repeat::Off => "Repeat is off",
+                        Repeat::All => "Repeating the queue",
+                        Repeat::One => "Repeating this track",
+                    },
+                )
+                .small()
+                .when(repeat != Repeat::Off, |b| b.text_color(p.accent))
+                .on_click(cx.listener(|this, _, _, _| {
+                    let next = match this.playback.repeat {
+                        Repeat::Off => Repeat::All,
+                        Repeat::All => Repeat::One,
+                        Repeat::One => Repeat::Off,
+                    };
+                    this.player.send(Command::Repeat(next));
+                })),
+            )
+    }
+
+    /// Mute and the volume slider (`slider` points long); the wheel over them changes it.
+    fn volume_control(&self, slider: f32, cx: &mut Context<Self>) -> Stateful<Div> {
+        let volume_glyph = if self.playback.volume <= 0.001 {
+            "volume-off"
+        } else if self.playback.volume < 0.5 {
+            "volume-low"
+        } else {
+            "volume"
+        };
+        div()
+            .id("volume-area")
+            .flex()
+            .items_center()
+            .gap_1()
+            // The wheel over the volume changes it, while Needle is the active window.
+            .on_scroll_wheel(cx.listener(|this, event: &ScrollWheelEvent, window, cx| {
+                if this.playback.exclusive || !window.is_window_active() {
+                    return;
+                }
+                let steps = match event.delta {
+                    // A wheel: one step per notch.
+                    ScrollDelta::Lines(lines) => lines.y.signum(),
+                    // A touchpad: steps as the fingers travel.
+                    ScrollDelta::Pixels(pixels) => {
+                        this.volume_scroll += f32::from(pixels.y) / 40.;
+                        let whole = this.volume_scroll.trunc();
+                        this.volume_scroll -= whole;
+                        whole
+                    }
+                };
+                if steps != 0. {
+                    this.nudge_volume(steps * 0.05, window, cx);
+                    cx.stop_propagation();
+                    cx.notify();
+                }
+            }))
+            .child(
+                icon_button(
+                    "mute",
+                    volume_glyph,
+                    if self.playback.exclusive {
+                        "Exclusive output: use your device's volume"
+                    } else {
+                        "Mute"
+                    },
+                )
+                .small()
+                .disabled(self.playback.exclusive)
+                .on_click(cx.listener(|this, _, window, cx| {
+                    let restore = this.muted_volume.take();
+                    let volume = match restore {
+                        Some(v) => v,
+                        None => {
+                            this.muted_volume = Some(this.playback.volume.max(0.05));
+                            0.
+                        }
+                    };
+                    this.player.send(Command::Volume(volume));
+                    this.volume
+                        .update(cx, |s, cx| s.set_value(volume, window, cx));
+                })),
+            )
+            .child(
+                Slider::new(&self.volume)
+                    .w(px(slider))
+                    .disabled(self.playback.exclusive),
+            )
+    }
+
+    /// Opens and closes the lyrics beside the page.
+    fn lyrics_button(&self, cx: &mut Context<Self>) -> Button {
+        let lyrics_open = self.settings.show_inspector && self.panel == Panel::Lyrics;
+        Button::new("lyrics-toggle")
+            .ghost()
+            .small()
+            .ml_1()
+            .icon(icon("lyrics"))
+            .selected(lyrics_open)
+            .tooltip("Lyrics · Ctrl+L")
+            .on_click(cx.listener(|this, _, _, cx| {
+                this.toggle_panel(Panel::Lyrics);
+                cx.notify();
+            }))
+    }
+
+    /// Opens and closes the queue beside the page; songs dropped on it join the queue.
+    fn queue_button(&self, cx: &mut Context<Self>) -> Stateful<Div> {
+        let p = pal(cx);
+        let queue_open = self.settings.show_inspector && self.panel == Panel::Queue;
+        div()
+            .id("queue-drop")
+            .rounded(px(6.))
+            .drag_over::<super::flow::DraggedTracks>(move |s, _, _, _| s.bg(p.accent_soft))
+            .on_drop(
+                cx.listener(|this, dragged: &super::flow::DraggedTracks, _, _| {
+                    let tracks = this.library.tracks_by_ids(&dragged.ids).unwrap_or_default();
+                    this.enqueue(tracks);
+                }),
+            )
+            .child(
+                Button::new("queue-toggle")
+                    .ghost()
+                    .small()
+                    .ml_1()
+                    .icon(icon("queue"))
+                    .selected(queue_open)
+                    .tooltip("Queue · Ctrl+J")
+                    .on_click(cx.listener(|this, _, _, cx| {
+                        this.toggle_panel(Panel::Queue);
+                        cx.notify();
+                    })),
+            )
+    }
+
+    /// The search field (unless hidden in Settings) and the command palette button. With
+    /// `above`, the field sits at the bottom of the window and its suggestions open upward.
+    pub(super) fn search_group(
+        &self,
+        search_width: f32,
+        narrow: bool,
+        above: bool,
+        window: &Window,
+        cx: &mut Context<Self>,
+    ) -> Div {
+        let p = pal(cx);
+        let search_focused = self.search.read(cx).focus_handle(cx).is_focused(window);
+        let rule = self
+            .explanation
+            .as_deref()
+            .is_some_and(|e| e.starts_with("Matches rule"))
+            && !self.search_text(cx).is_empty();
+        let field = !self.settings.layout.search_hidden;
+        div()
+            .flex()
+            .items_center()
+            .gap_2()
+            .when(field, |el| {
+                el.child(
+                    self.suggestion_keys(div().id("search-field"), cx)
+                        .relative()
+                        // One clean field: our own fill, edge, and height; the input inside
+                        // draws no box of its own.
+                        .h(px(32.))
+                        .rounded(px(8.))
+                        .bg(if p.back.a < 1. {
+                            p.raised.opacity(0.75)
+                        } else {
+                            p.raised
+                        })
+                        .border_1()
+                        .border_color(if search_focused {
+                            p.accent.opacity(0.6)
+                        } else {
+                            p.line_soft
+                        })
+                        .flex()
+                        .items_center()
+                        .w(px(search_width))
+                        .flex_shrink_0()
+                        .children(self.suggestion_list(px(search_width.max(420.)), above, cx))
+                        .child(
+                            Input::new(&self.search)
+                                .appearance(false)
+                                .cleanable(true)
+                                .prefix(glyph("search").size(px(15.)).text_color(p.ink_3))
+                                .when(rule, |el| {
+                                    el.suffix(
+                                        div()
+                                            .px(px(6.))
+                                            .rounded(px(4.))
+                                            .bg(p.accent_soft)
+                                            .text_size(px(11.))
+                                            .text_color(p.accent)
+                                            .child("Rule"),
+                                    )
+                                }),
+                        ),
+                )
+            })
+            .child(
+                div()
+                    .id("open-palette")
+                    .h(px(28.))
+                    .px_2()
+                    .rounded(px(6.))
+                    .flex()
+                    .items_center()
+                    .gap_2()
+                    .cursor_pointer()
+                    .text_size(px(12.))
+                    .text_color(p.ink_3)
+                    .hover(|s| s.bg(p.raised).text_color(p.ink))
+                    .flex_shrink_0()
+                    .child(glyph("command").size(px(14.)).text_color(p.ink_3))
+                    .when(!narrow, |el| el.child("Ctrl K"))
+                    .tooltip(|window, cx| {
+                        gpui_component::tooltip::Tooltip::new(
+                            "Command palette: go anywhere, do anything",
+                        )
+                        .build(window, cx)
+                    })
+                    .on_click(cx.listener(|this, _, window, cx| this.open_palette(window, cx))),
+            )
+    }
+
+    /// The title bar's corner above the sidebar: the logo, the name, and the fold button.
+    fn title_corner(&self, corner: f32, hidden: bool, cx: &mut Context<Self>) -> Div {
+        let p = pal(cx);
+        div()
+            .w(px(corner))
+            .flex_shrink_0()
+            .h_full()
+            .when(hidden, |el| el.justify_center())
+            .when(!hidden, |el| el.pl_4().pr_2())
+            .flex()
+            .items_center()
+            .gap_2()
+            .child(glyph("logo").size(px(20.)).text_color(p.accent))
+            .when(!hidden, |el| {
+                el.child(
+                    div()
+                        .flex_1()
+                        .text_size(px(15.))
+                        .font_weight(FontWeight::SEMIBOLD)
+                        .child("Needle"),
+                )
+            })
+            .when(!hidden, |el| {
+                el.child(
+                    icon_button("toggle-sidebar", "panel", "Fold the sidebar (Ctrl+B)")
+                        .small()
+                        .on_click(cx.listener(|this, _, _, cx| {
+                            this.toggle_sidebar();
+                            cx.notify();
+                        })),
+                )
+            })
+    }
+
+    /// The title bar with the player in it, as in Apple Music: the controls on the left, the
+    /// playing song and its time in the middle, and the volume, lyrics, and queue on the right.
+    fn top_player(&self, corner: f32, hidden: bool, width: f32, cx: &mut Context<Self>) -> Div {
+        let p = pal(cx);
+        let current = self.playback.current.as_ref().map(|i| i.track.clone());
+        let wide = width > 1180.;
+        let time = |seconds: f64, cx: &App| {
+            faint(format_duration(seconds), cx)
+                .text_size(px(11.))
+                .w(px(34.))
+        };
+        div()
+            .flex_1()
+            .h_full()
+            .flex()
+            .items_center()
+            .child(self.title_corner(corner, hidden, cx))
+            .child(
+                div()
+                    .flex_shrink_0()
+                    .flex()
+                    .items_center()
+                    .gap_2()
+                    .pl_2()
+                    .child(
+                        icon_button("back", "chevron-left", "Back · Alt+Left")
+                            .small()
+                            .disabled(self.back.is_empty())
+                            .on_click(cx.listener(|this, _, window, cx| this.go_back(window, cx))),
+                    )
+                    .child(self.transport_buttons(32., cx)),
+            )
+            .child(
+                div()
+                    .flex_1()
+                    .min_w_0()
+                    .h_full()
+                    .px_4()
+                    .flex()
+                    .items_center()
+                    .justify_center()
+                    .child(
+                        div()
+                            .w_full()
+                            .max_w(px(600.))
+                            .h(px(48.))
+                            .rounded(px(8.))
+                            .bg(p.raised.opacity(if p.back.a < 1. { 0.75 } else { 1. }))
+                            .flex()
+                            .items_center()
+                            .gap_2()
+                            .pl(px(4.))
+                            .pr_3()
+                            .overflow_hidden()
+                            .child(
+                                div()
+                                    .id("open-big")
+                                    .flex_shrink_0()
+                                    .cursor_pointer()
+                                    .hover(|s| s.opacity(0.85))
+                                    .child(artwork(current.as_ref(), 40., cx))
+                                    .tooltip(|window, cx| {
+                                        gpui_component::tooltip::Tooltip::new(
+                                            "Open the big player · Ctrl+P",
+                                        )
+                                        .build(window, cx)
+                                    })
+                                    .on_click(cx.listener(|this, _, _, cx| {
+                                        this.big = true;
+                                        cx.notify();
+                                    })),
+                            )
+                            .child(
+                                div()
+                                    .flex_1()
+                                    .min_w_0()
+                                    .flex()
+                                    .flex_col()
+                                    .child(match &current {
+                                        None => div()
+                                            .text_size(px(12.5))
+                                            .text_color(p.ink_2)
+                                            .text_center()
+                                            .child("Nothing playing")
+                                            .into_any_element(),
+                                        Some(track) => {
+                                            let album = super::album_page(track);
+                                            div()
+                                                .id("top-now-title")
+                                                .text_size(px(12.5))
+                                                .text_center()
+                                                .truncate()
+                                                .cursor_pointer()
+                                                .hover(|s| s.underline())
+                                                .child(format!(
+                                                    "{} · {}",
+                                                    track.title,
+                                                    track.display_artist()
+                                                ))
+                                                .on_click(cx.listener(
+                                                    move |this, _, window, cx| {
+                                                        this.navigate(album.clone(), window, cx)
+                                                    },
+                                                ))
+                                                .into_any_element()
+                                        }
+                                    })
+                                    .child(
+                                        div()
+                                            .flex()
+                                            .items_center()
+                                            .gap_2()
+                                            .child(
+                                                time(
+                                                    if current.is_some() {
+                                                        self.playback.position
+                                                    } else {
+                                                        0.
+                                                    },
+                                                    cx,
+                                                )
+                                                .text_right(),
+                                            )
+                                            .child(self.seek_bar("seek-bar", current.is_none(), cx))
+                                            .child(time(
+                                                current.as_ref().map_or(0., |t| t.duration),
+                                                cx,
+                                            )),
+                                    ),
+                            ),
+                    ),
+            )
+            .child(
+                div()
+                    .flex_shrink_0()
+                    .flex()
+                    .items_center()
+                    .gap_1()
+                    .pr_2()
+                    .child(self.volume_control(if wide { 100. } else { 70. }, cx))
+                    .child(self.lyrics_button(cx))
+                    .child(self.queue_button(cx)),
+            )
+    }
+
+    /// With the player in the title bar: the search field and command palette button along
+    /// the bottom of the window.
+    pub(super) fn search_strip(&self, window: &Window, cx: &mut Context<Self>) -> Div {
+        let p = pal(cx);
+        let width = f32::from(super::widgets::content_size(window).width);
+        div()
+            .h(px(48.))
+            .flex_shrink_0()
+            .px_4()
+            .flex()
+            .items_center()
+            .bg(p.back)
+            .child(self.search_group(
+                (width - 200.).clamp(140., 520.),
+                width < 1100.,
+                true,
+                window,
+                cx,
+            ))
     }
 
     pub(super) fn toast(&self, cx: &mut Context<Self>) -> Option<impl IntoElement> {
@@ -973,9 +1225,18 @@ impl AppView {
         Some(
             div()
                 .absolute()
-                // Above the player bar; in the big player, at the top, clear of its controls.
+                // Above the player bar (or the search field, with the player on top); in the
+                // big player, at the top, clear of its controls.
                 .when(self.big, |el| el.top(px(104.)))
-                .when(!self.big, |el| el.bottom(px(100.)))
+                .when(!self.big, |el| {
+                    el.bottom(px(if !self.settings.layout.player_on_top {
+                        100.
+                    } else if self.settings.layout.search_hidden {
+                        24.
+                    } else {
+                        68.
+                    }))
+                })
                 .left_0()
                 .right_0()
                 .flex()

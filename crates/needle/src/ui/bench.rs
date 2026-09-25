@@ -202,8 +202,29 @@ fn steps() -> Vec<Step> {
             tick: None,
         },
         Step {
+            name: "player on top",
+            start: |v, w, cx| {
+                open(v, Page::Songs, w, cx);
+                v.settings.layout.player_on_top = true;
+            },
+            tick: Some(|v, t, _, cx| scroll_list(v, t, cx)),
+        },
+        Step {
+            // No search field: Ctrl+F opens the command palette instead.
+            name: "search hidden",
+            start: |v, w, cx| {
+                v.settings.layout.search_hidden = true;
+                w.dispatch_action(Box::new(super::FocusSearch), cx);
+            },
+            tick: None,
+        },
+        Step {
             name: "folded sidebar",
             start: |v, w, cx| {
+                gpui::frame_log_note(|| format!("palette open after Ctrl+F: {}", v.palette.open));
+                v.palette.open = false;
+                v.settings.layout.search_hidden = false;
+                v.settings.layout.player_on_top = false;
                 open(v, Page::Songs, w, cx);
                 v.toggle_sidebar();
             },

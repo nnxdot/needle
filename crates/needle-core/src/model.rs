@@ -307,8 +307,14 @@ pub struct Layout {
     pub sidebar_width: f32,
     pub inspector_width: f32,
     pub row_height: f32,
-    /// The left sidebar is folded away (Ctrl+B, or the button beside the Needle name).
+    /// The left sidebar is folded to a strip of icons (Ctrl+B, or the button beside the Needle
+    /// name).
     pub sidebar_hidden: bool,
+    /// No search field (the command palette, Ctrl+K, still searches). Off by default.
+    pub search_hidden: bool,
+    /// The player sits in the title bar, as in Apple Music, and the search field at the bottom.
+    /// Off by default.
+    pub player_on_top: bool,
 }
 
 impl Default for Layout {
@@ -319,6 +325,8 @@ impl Default for Layout {
             inspector_width: 284.0,
             row_height: 52.0,
             sidebar_hidden: false,
+            search_hidden: false,
+            player_on_top: false,
         }
     }
 }

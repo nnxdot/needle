@@ -777,6 +777,26 @@ impl AppView {
                         cx,
                     ))
                     .child(setting_row(
+                        "Player in the top bar",
+                        "The play controls, the song playing, and the volume sit in the title bar, as in Apple Music, and the search field moves to the bottom. Off by default.",
+                        Switch::new("player-on-top").checked(self.settings.layout.player_on_top).on_click(cx.listener(|this, checked: &bool, _, cx| {
+                            this.settings.layout.player_on_top = *checked;
+                            this.persist_settings();
+                            cx.notify();
+                        })),
+                        cx,
+                    ))
+                    .child(setting_row(
+                        "Hide the search field",
+                        "Search from the command palette instead (Ctrl+K, or Ctrl+F). Off by default.",
+                        Switch::new("search-hidden").checked(self.settings.layout.search_hidden).on_click(cx.listener(|this, checked: &bool, _, cx| {
+                            this.settings.layout.search_hidden = *checked;
+                            this.persist_settings();
+                            cx.notify();
+                        })),
+                        cx,
+                    ))
+                    .child(setting_row(
                         "Colors from the music",
                         "Tint Needle with the colors of the cover that is playing, or of the album or artist you are looking at.",
                         Switch::new("music-colors").checked(self.settings.music_colors).on_click(cx.listener(|this, checked: &bool, _, cx| {
