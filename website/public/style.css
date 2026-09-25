@@ -468,6 +468,10 @@ code { font-family: ui-monospace, "Cascadia Code", Consolas, monospace; font-siz
 .download .button.quiet { background: rgb(35 26 12 / .1); color: #1b1308; }
 .download .button.quiet:hover { background: rgb(35 26 12 / .18); }
 .download .fine { color: rgb(35 26 12 / .7); }
+/* Windows and Linux, one row of buttons each. */
+.download .platform { margin: 26px 0 12px; font-size: 13.5px; font-weight: 600; letter-spacing: .01em; color: rgb(35 26 12 / .72); }
+.download .platform:first-of-type { margin-top: 0; }
+.download .actions + .platform { margin-top: 30px; }
 .download .fine a { color: #1b1308; }
 .download-icon { display: block; margin: 0 auto 32px; border-radius: 28px; box-shadow: 0 30px 60px -24px rgb(35 26 12 / .7); }
 

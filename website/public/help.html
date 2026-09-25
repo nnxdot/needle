@@ -76,15 +76,17 @@
         <h2>Installing</h2>
         <dl class="api">
           <dt>Which download do I need?</dt>
-          <dd>The installer is best for most people. It adds Needle to the Start menu and to "Open with" for music files, and it needs no administrator rights. The portable zip runs from any folder, with nothing installed.</dd>
+          <dd>On Windows, the installer is best for most people. It adds Needle to the Start menu and to "Open with" for music files, and it needs no administrator rights. The portable zip runs from any folder, with nothing installed. On Linux, take the <code>.deb</code> for Ubuntu, Linux Mint, and Debian, or the <code>.rpm</code> for Fedora and openSUSE.</dd>
+          <dt>How do I install it on Linux?</dt>
+          <dd>Open the downloaded file, and your software center installs it; or in a terminal, <code>sudo apt install ./needle_1.5.0_amd64.deb</code> on Ubuntu and Mint, or <code>sudo dnf install ./needle-1.5.0-1.x86_64.rpm</code> on Fedora. Needle then appears with your other apps. It needs Ubuntu 24.04, Linux Mint 22, Debian 13, Fedora 40, or newer. For the tray icon on GNOME, add the AppIndicator extension. Dolby Atmos music plays with FFmpeg, which the package asks for.</dd>
           <dt>Windows says "Windows protected your PC"</dt>
           <dd>Windows shows this for apps it does not know yet. Choose <b>More info</b>, then <b>Run anyway</b>. The <a href="/download/SHA256SUMS.txt">SHA-256 checksums</a> let you check that your download is the one we published.</dd>
           <dt>Can I install it with winget?</dt>
           <dd>Yes, once Needle is in the winget catalogue: <code>winget install nnxdot.Needle</code>.</dd>
           <dt>How do I update?</dt>
-          <dd>Needle checks for a new version once a day and tells you when one is out. Install it from <b>Settings › Online services</b>. Needle 1.0.0 cannot find updates by itself; install a newer version from this site once.</dd>
+          <dd>Needle checks for a new version once a day and tells you when one is out. Install it from <b>Settings › Online services</b>. On Linux, your system asks for your password once, as for any other update. After an update, Needle shows what is new. Needle 1.0.0 cannot find updates by itself; install a newer version from this site once.</dd>
           <dt>How do I uninstall?</dt>
-          <dd>In Windows Settings, open <b>Apps › Installed apps</b>, find Needle, and choose <b>Uninstall</b>. Your library and history stay in <code>%LOCALAPPDATA%\nnx\Needle\data</code>, in case you come back. Delete that folder to remove them.</dd>
+          <dd>In Windows Settings, open <b>Apps › Installed apps</b>, find Needle, and choose <b>Uninstall</b>. Your library and history stay in <code>%LOCALAPPDATA%\nnx\Needle\data</code>, in case you come back. Delete that folder to remove them. On Linux, remove the <code>needle</code> package with your software center, <code>apt</code>, or <code>dnf</code>; your library stays in <code>~/.local/share/needle</code>.</dd>
         </dl>
       </section>
 
@@ -98,7 +100,9 @@
           <dt>Will Needle change or move my files?</dt>
           <dd>Only when you ask, for example when you edit tags or use <b>Fix my library</b>. Before it changes a file's tags, Needle keeps a backup copy, and moves in Fix my library can be undone.</dd>
           <dt>Where are lyrics and covers?</dt>
-          <dd>Needle always uses covers, <code>.lrc</code> files, and lyrics tags that are with your music. To look up missing ones online, turn on <b>Look things up online</b> in <b>Settings › Library</b>. See the <a href="/privacy">privacy policy</a> for what is sent.</dd>
+          <dd>Needle always uses covers, <code>.lrc</code> files, and lyrics tags that are with your music. To look up missing ones online, turn on <b>Look things up online</b> in <b>Settings › Library</b>. For more timed lyrics, especially for K-pop, J-pop, and C-pop, press <b>Also look on NetEase</b> where a song has none, or turn on <b>NetEase lyrics</b> in <b>Settings › Plugins</b>. The lyrics button in the player bar (or Ctrl+L) shows them beside your library, and F11 shows them across the whole screen. See the <a href="/privacy">privacy policy</a> for what is sent.</dd>
+          <dt>How do I make a playlist?</dt>
+          <dd>Press the plus beside <b>Playlists</b> in the sidebar. Give it a name, a description if you like, and a cover: a picture of your own, or its songs' covers. Choose <b>Songs I pick</b> and add songs with <b>Add songs</b>, from any song's menu, or by dragging them onto the playlist; or choose <b>Smart playlist</b> and pick its rules from menus, such as <i>Rating is at least 4</i>. Needle counts the songs that match as you go. Drag songs to put a playlist in your own order.</dd>
           <dt>How do I back up my library?</dt>
           <dd>Use <b>Settings › Your data › Back up</b>. It saves your history, ratings, and playlists. It does not copy your music files.</dd>
           <dt>Can Needle play music from my Navidrome server?</dt>
