@@ -460,7 +460,11 @@ mod tests {
     #[test]
     fn the_shipped_notes_read() {
         let newest = super::notes(None).expect("whats-new.md has a version");
-        assert!(!newest.milestones.is_empty() || !newest.features.is_empty());
+        assert!(
+            !newest.milestones.is_empty()
+                || !newest.features.is_empty()
+                || !newest.small.is_empty()
+        );
         for change in newest.milestones.iter().chain(&newest.features) {
             assert!(!change.title.is_empty() && !change.body.is_empty());
         }
