@@ -778,7 +778,7 @@ impl AppView {
                     ))
                     .child(setting_row(
                         "Compact sidebar",
-                        "Folding the sidebar (Ctrl+B) leaves a strip of page icons. Turn this off to hide the sidebar altogether instead.",
+                        "Folding the sidebar (Ctrl+B) leaves a strip of page icons, as in Apple Music, instead of hiding it altogether. Off by default.",
                         Switch::new("compact-sidebar").checked(self.settings.layout.compact_sidebar).on_click(cx.listener(|this, checked: &bool, _, cx| {
                             this.settings.layout.compact_sidebar = *checked;
                             this.persist_settings();
