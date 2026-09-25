@@ -1322,6 +1322,7 @@ fn engine_for(
                         query: None,
                         track_ids: ids(tracks),
                         updated_at: chrono::Utc::now().timestamp(),
+                        ..Default::default()
                     })
                     .map_err(|e| fail(format!("{e:#}")))?;
                 actions(HostAction::LibraryChanged);

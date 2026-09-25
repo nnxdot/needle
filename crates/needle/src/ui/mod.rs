@@ -2109,6 +2109,7 @@ impl AppView {
             query: smart.then_some(expression),
             track_ids: if smart { vec![] } else { track_ids },
             updated_at: chrono::Utc::now().timestamp(),
+            ..Default::default()
         };
         match self.library.save_playlist(&playlist) {
             Ok(()) => {

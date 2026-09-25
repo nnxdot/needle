@@ -97,13 +97,44 @@ impl Track {
     }
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
 pub struct Playlist {
     pub id: String,
     pub name: String,
     pub query: Option<String>,
     pub track_ids: Vec<String>,
     pub updated_at: i64,
+    /// A line or two about it.
+    #[serde(default)]
+    pub description: String,
+    /// A picture chosen for it (a copy in Needle's artwork folder); otherwise its songs'
+    /// covers make one.
+    #[serde(default)]
+    pub cover: Option<String>,
+    /// How a smart playlist's rule was built in the rule builder, to open it the same way.
+    /// `None` for a rule typed by hand.
+    #[serde(default)]
+    pub rules: Option<RuleSet>,
+}
+
+/// A smart playlist's rules as the builder shows them.
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+pub struct RuleSet {
+    /// Songs match when any rule holds, not all of them.
+    pub any: bool,
+    pub rules: Vec<Rule>,
+    /// How the songs are ordered: a label from the builder's list.
+    pub order: String,
+    /// At most this many songs.
+    pub limit: Option<u32>,
+}
+
+/// One rule: what it looks at, how, and the value typed.
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+pub struct Rule {
+    pub field: String,
+    pub op: String,
+    pub value: String,
 }
 
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]

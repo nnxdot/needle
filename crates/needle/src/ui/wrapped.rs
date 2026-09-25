@@ -134,6 +134,7 @@ impl AppView {
             query: None,
             track_ids: ids,
             updated_at: chrono::Utc::now().timestamp(),
+            ..Default::default()
         };
         match self.library.save_playlist(&playlist) {
             Ok(()) => {
