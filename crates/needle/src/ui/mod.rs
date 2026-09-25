@@ -23,6 +23,7 @@ mod pages;
 mod palette;
 mod panel;
 mod pickers;
+mod playlist_editor;
 mod plugin_ask;
 mod plugin_ui;
 mod radio;
@@ -417,7 +418,6 @@ pub struct AppView {
     page_offset: usize,
     loop_start: Option<f64>,
     search: Entity<InputState>,
-    playlist_name: Entity<InputState>,
     autoplay: Entity<InputState>,
     sync_phrase: Entity<InputState>,
     tags: TagFields,
@@ -441,7 +441,8 @@ pub struct AppView {
     explanation: Option<String>,
     generation: u64,
     loading: bool,
-    show_save: bool,
+    /// The playlist window, while it is open.
+    editor: Option<playlist_editor::PlaylistEditor>,
     confirm_delete: bool,
     editing: bool,
     matches: Vec<RecordingMatch>,
@@ -692,7 +693,6 @@ impl AppView {
         let search = cx.new(|cx| {
             InputState::new(window, cx).placeholder("Search, or write a rule like  rating >= 4")
         });
-        let playlist_name = cx.new(|cx| InputState::new(window, cx).placeholder("Playlist name"));
         let autoplay = cx.new(|cx| {
             InputState::new(window, cx)
                 .placeholder("rating >= 4 and not played(7d) shuffle limit 20")
@@ -882,7 +882,6 @@ impl AppView {
             page_offset: 0,
             loop_start: None,
             search,
-            playlist_name,
             autoplay,
             sync_phrase,
             tags,
@@ -906,7 +905,7 @@ impl AppView {
             explanation: None,
             generation: 0,
             loading: true,
-            show_save: false,
+            editor: None,
             confirm_delete: false,
             editing: false,
             matches: vec![],
@@ -1632,17 +1631,10 @@ impl AppView {
         self.confirm_delete = false;
         self.menu = None;
         self.sort = Sort::Default;
-        if let Page::Playlist(id) = &self.page
-            && let Some(list) = self.playlists.iter().find(|p| &p.id == id)
-        {
-            self.playlist_name
-                .update(cx, |s, cx| s.set_value(list.name.clone(), window, cx));
-        }
         self.page_offset = 0;
         self.tracks.clear();
         self.selection = Selection::default();
         self.search.update(cx, |s, cx| s.set_value("", window, cx));
-        self.show_save = false;
         if self.page == Page::History {
             self.load_history();
         }
@@ -2081,46 +2073,6 @@ impl AppView {
         }
     }
 
-    fn save_playlist(&mut self, smart: bool, cx: &mut Context<Self>) {
-        let name = self.playlist_name.read(cx).value().trim().to_string();
-        if name.is_empty() {
-            self.fail("Give the playlist a name first.");
-            return;
-        }
-        let expression = self.expression(cx);
-        if smart && expression.trim().is_empty() {
-            self.fail(
-                "A smart playlist needs a rule. Type one in search first, like  rating >= 4.",
-            );
-            return;
-        }
-        let selected = self.selected_tracks();
-        let track_ids = if selected.len() > 1 {
-            selected
-        } else {
-            self.tracks.clone()
-        }
-        .into_iter()
-        .map(|t| t.id)
-        .collect();
-        let playlist = Playlist {
-            id: crate::uuid_string(),
-            name,
-            query: smart.then_some(expression),
-            track_ids: if smart { vec![] } else { track_ids },
-            updated_at: chrono::Utc::now().timestamp(),
-            ..Default::default()
-        };
-        match self.library.save_playlist(&playlist) {
-            Ok(()) => {
-                self.playlists = self.library.playlists().unwrap_or_default();
-                self.show_save = false;
-                self.notify(format!("Saved “{}”.", playlist.name));
-            }
-            Err(e) => self.fail(e.to_string()),
-        }
-        cx.notify();
-    }
     fn add_to_playlist(&mut self, playlist_id: &str, tracks: Vec<Track>) {
         let Some(mut playlist) = self.playlists.iter().find(|p| p.id == playlist_id).cloned()
         else {
@@ -2451,7 +2403,9 @@ impl Render for AppView {
                 }
                 if this.big {
                     this.big = false;
-                } else if this.menu.take().is_none() && !this.show_save && !this.editing {
+                } else if this.editor.take().is_some() {
+                    // Esc closes the playlist window.
+                } else if this.menu.take().is_none() && !this.editing {
                     if !this.search_text(cx).is_empty() {
                         this.search.update(cx, |s, cx| s.set_value("", window, cx));
                         this.refresh(cx);
@@ -2459,7 +2413,6 @@ impl Render for AppView {
                         this.selection = Selection::default();
                     }
                 }
-                this.show_save = false;
                 this.editing = false;
                 window.focus(&this.focus);
                 cx.notify();
@@ -2528,6 +2481,7 @@ impl Render for AppView {
             .children(self.palette_view(cx))
             .children(self.welcome_view(window, cx))
             .children(self.whats_new_view(window, cx))
+            .children(self.playlist_editor_view(window, cx))
             .children(self.asking_view(cx))
     }
 }

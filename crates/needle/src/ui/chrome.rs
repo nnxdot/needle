@@ -315,18 +315,10 @@ impl AppView {
                     .justify_between()
                     .pr_3()
                     .child(
-                        icon_button("new-playlist", "plus", "New playlist from this view")
+                        icon_button("new-playlist", "plus", "New playlist")
                             .xsmall()
                             .on_click(cx.listener(|this, _, window, cx| {
-                                if !this.page.is_tracks() {
-                                    this.navigate(Page::Songs, window, cx);
-                                }
-                                this.show_save = true;
-                                this.playlist_name.update(cx, |s, cx| {
-                                    s.set_value("", window, cx);
-                                    s.focus(window, cx);
-                                });
-                                cx.notify();
+                                this.open_playlist_editor(None, vec![], None, window, cx);
                             })),
                     ),
             )
