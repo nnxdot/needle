@@ -210,9 +210,18 @@ fn steps() -> Vec<Step> {
             tick: Some(|v, t, _, cx| scroll_list(v, t, cx)),
         },
         Step {
+            name: "big player on top",
+            start: |v, _, cx| {
+                v.big = true;
+                cx.notify();
+            },
+            tick: None,
+        },
+        Step {
             // No search field: Ctrl+F opens the command palette instead.
             name: "search hidden",
             start: |v, w, cx| {
+                v.big = false;
                 v.settings.layout.search_hidden = true;
                 w.dispatch_action(Box::new(super::FocusSearch), cx);
             },

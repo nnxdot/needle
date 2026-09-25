@@ -36,7 +36,15 @@ impl AppView {
             (width - corner - 32. - 36. - if narrow { 44. } else { 96. } - 170.).clamp(140., 520.);
         // The sidebar corner, back button, search, and palette button; or, as in Apple Music,
         // the player (Settings › Appearance).
-        let content = if self.settings.layout.player_on_top {
+        let content = if self.settings.layout.player_on_top && (self.big || self.big_moving) {
+            // The big player has its own controls: the bar keeps only its corner.
+            div()
+                .flex_1()
+                .h_full()
+                .flex()
+                .items_center()
+                .child(self.title_corner(corner, hidden, cx))
+        } else if self.settings.layout.player_on_top {
             self.top_player(corner, hidden, width, cx)
         } else {
             div()
