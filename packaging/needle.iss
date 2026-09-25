@@ -109,7 +109,8 @@ Filename: "{app}\Needle.exe"; Description: "{cm:LaunchProgram,Needle}"; Flags: n
 [Code]
 function GetTickCount: DWord; external 'GetTickCount@kernel32.dll stdcall';
 
-{ The Needle.exe processes running from the install folder, as a WMI result set. }
+{ The Needle.exe processes running from the install folder, as a WMI result set: live
+  Win32_Process objects, each bound to its own process. }
 function RunningNeedles(): Variant;
 var
   Path: String;
@@ -120,7 +121,7 @@ begin
   StringChangeEx(Path, '''', '\''', True);
   Locator := CreateOleObject('WbemScripting.SWbemLocator');
   Service := Locator.ConnectServer('.', 'root\CIMV2');
-  Result := Service.ExecQuery('SELECT ProcessId FROM Win32_Process WHERE ExecutablePath = ''' +
+  Result := Service.ExecQuery('SELECT Handle, ProcessId FROM Win32_Process WHERE ExecutablePath = ''' +
     Path + '''');
 end;
 
@@ -130,7 +131,7 @@ end;
 function PrepareToInstall(var NeedsRestart: Boolean): String;
 var
   Found: Variant;
-  I, Code: Integer;
+  I: Integer;
   Started: DWord;
 begin
   Result := '';
@@ -144,9 +145,11 @@ begin
       Sleep(250);
       Found := RunningNeedles();
     end;
+    { A fresh look right before, so only a Needle from this folder that still runs is ended,
+      never another program that got a finished Needle's process number. }
+    Found := RunningNeedles();
     for I := 0 to Found.Count - 1 do
-      Exec(ExpandConstant('{sys}\taskkill.exe'), '/F /PID ' + IntToStr(Found.ItemIndex(I).ProcessId),
-        '', SW_HIDE, ewWaitUntilTerminated, Code);
+      Found.ItemIndex(I).Terminate(1);
   except
     { Without WMI, the Restart Manager still closes Needle, by force if it must. }
   end;
