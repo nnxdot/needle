@@ -218,7 +218,7 @@ impl AppView {
             )
     }
 
-    fn header(&self, cx: &mut Context<Self>) -> impl IntoElement {
+    fn header(&self, width: f32, cx: &mut Context<Self>) -> impl IntoElement {
         let p = pal(cx);
         let count = self.matched_total;
         let duration: f64 = self.tracks.iter().map(|t| t.duration).sum();
@@ -280,6 +280,128 @@ impl AppView {
         } else {
             None
         };
+        // Pages with a cover (album, artist, playlist); smaller covers and icon-only buttons
+        // when the page is narrow.
+        let big = album_art.is_some() || artist.is_some() || playlist.is_some();
+        let narrow = width < 760.;
+        let tight = width < 620.;
+        let cover_size = if narrow { 132. } else { 196. };
+        // Play and the rest: under the title beside a cover, else beside the title.
+        let buttons = (!matches!(self.page, Page::Albums | Page::Artists)).then(|| {
+            div()
+                .flex()
+                .flex_shrink_0()
+                .gap_2()
+                .child(
+                    Button::new("play-view")
+                        .primary()
+                        .icon(icon("play"))
+                        .label("Play")
+                        .disabled(!can_play)
+                        .on_click(cx.listener(|this, _, _, cx| this.play_view(0, false, cx))),
+                )
+                .child(
+                    Button::new("shuffle-view")
+                        .icon(icon("shuffle"))
+                        .when(!tight, |b| b.label("Shuffle"))
+                        .disabled(!can_play)
+                        .on_click(cx.listener(|this, _, _, cx| this.play_view(0, true, cx))),
+                )
+                .when(
+                    matches!(self.page, Page::Album { .. })
+                        && !self.tracks.is_empty()
+                        && self.tracks.iter().all(|t| t.is_streamed()),
+                    |el| {
+                        let kept = self.tracks.iter().all(needle_core::sources::is_kept);
+                        let ids: Vec<String> = self.tracks.iter().map(|t| t.id.clone()).collect();
+                        el.child(
+                            icon_button(
+                                "album-keep",
+                                if kept { "pin-fill" } else { "pin" },
+                                if kept {
+                                    "Stop keeping this album on this computer"
+                                } else {
+                                    "Keep this album on this computer, to play without the network"
+                                },
+                            )
+                            .on_click(cx.listener(
+                                move |this, _, _, cx| {
+                                    this.keep_streamed(&ids, !kept);
+                                    cx.notify();
+                                },
+                            )),
+                        )
+                    },
+                )
+                .when_some(
+                    match &self.page {
+                        Page::Artist(name) => Some(name.clone()),
+                        _ => None,
+                    },
+                    |el, artist| {
+                        let blend = artist.clone();
+                        el.child(
+                            Button::new("artist-radio")
+                                .icon(icon("radio"))
+                                .when(!tight, |b| b.label("Radio"))
+                                .on_click(cx.listener(move |this, _, _, _| {
+                                    this.start_artist_radio(artist.clone())
+                                })),
+                        )
+                        .child(
+                            icon_button("artist-blend", "blend", "Blend with another artist")
+                                .on_click(cx.listener(move |this, _: &ClickEvent, window, cx| {
+                                    // Below the button, clear of its tooltip.
+                                    let position = window.mouse_position() + point(px(0.), px(22.));
+                                    this.open_blend_menu(blend.clone(), position, cx)
+                                })),
+                        )
+                    },
+                )
+                .when_some(
+                    playlist.clone().filter(|l| l.query.is_none()),
+                    |el, list| {
+                        el.child(
+                            Button::new("add-songs")
+                                .icon(icon("plus"))
+                                .when(!tight, |b| b.label("Add songs"))
+                                .on_click(cx.listener(move |this, _, window, cx| {
+                                    this.open_add_songs(&list, window, cx)
+                                })),
+                        )
+                    },
+                )
+                .when_some(playlist.clone(), |el, list| {
+                    el.child(
+                        Button::new("edit-playlist")
+                            .icon(icon("edit"))
+                            .when(!tight, |b| b.label("Edit"))
+                            .on_click(cx.listener(move |this, _, window, cx| {
+                                this.open_playlist_editor(
+                                    Some(list.clone()),
+                                    vec![],
+                                    None,
+                                    window,
+                                    cx,
+                                )
+                            })),
+                    )
+                })
+                .when(playlist.is_none(), |el| {
+                    el.child(
+                        icon_button("save-view", "plus", "Save as a playlist").on_click(
+                            cx.listener(|this, _, window, cx| {
+                                this.save_view_as_playlist(window, cx)
+                            }),
+                        ),
+                    )
+                })
+        });
+        let (beside, under) = if big {
+            (None, buttons)
+        } else {
+            (buttons, None)
+        };
         div()
             .flex_shrink_0()
             .px_6()
@@ -288,32 +410,31 @@ impl AppView {
             .flex()
             .items_end()
             .gap_5()
-            .when(album_art.is_some() || artist.is_some() || playlist.is_some(), |el| {
-                el.pt(px(34.)).pb_6()
-            })
+            .when(
+                album_art.is_some() || artist.is_some() || playlist.is_some(),
+                |el| el.pt(px(34.)).pb_6(),
+            )
             .when_some(playlist.clone(), |el, list| {
                 el.child(div().rounded(px(8.)).shadow_lg().child(self.playlist_cover(
                     list.cover.as_deref(),
                     &self.tracks,
-                    196.,
+                    cover_size,
                     cx,
                 )))
             })
             .when_some(album_art.clone(), |el, track| {
-                el.child(
-                    div()
-                        .rounded(px(8.))
-                        .shadow_lg()
-                        .child(artwork(Some(&track), 196., cx)),
-                )
+                el.child(div().rounded(px(8.)).shadow_lg().child(artwork(
+                    Some(&track),
+                    cover_size,
+                    cx,
+                )))
             })
             .when_some(artist.clone(), |el, name| {
-                el.child(
-                    div()
-                        .rounded_full()
-                        .shadow_lg()
-                        .child(self.artist_photo(&name, 176., cx)),
-                )
+                el.child(div().rounded_full().shadow_lg().child(self.artist_photo(
+                    &name,
+                    cover_size * 0.9,
+                    cx,
+                )))
             })
             .child(
                 div()
@@ -323,11 +444,14 @@ impl AppView {
                     .flex_col()
                     .gap_1()
                     .children(self.breadcrumbs(cx))
-                    .child(if album_art.is_some() || artist.is_some() || playlist.is_some() {
-                        super::widgets::display(title, 46.).truncate()
-                    } else {
-                        page_title(title)
-                    })
+                    .child(
+                        if album_art.is_some() || artist.is_some() || playlist.is_some() {
+                            super::widgets::display(title, if narrow { 34. } else { 46. })
+                                .truncate()
+                        } else {
+                            page_title(title)
+                        },
+                    )
                     .when_some(album_art.clone(), |el, track| {
                         let artist_name = if track.album_artist.is_empty() {
                             track.artist.clone()
@@ -375,129 +499,16 @@ impl AppView {
                             .as_ref()
                             .map(|l| l.description.clone())
                             .filter(|d| !d.is_empty()),
-                        |el, description| el.child(meta(description, cx).text_color(p.ink_2).truncate()),
+                        |el, description| {
+                            el.child(meta(description, cx).text_color(p.ink_2).truncate())
+                        },
                     )
                     .when_some(rule, |el, rule| {
                         el.child(meta(rule, cx).text_color(p.accent).truncate())
-                    }),
+                    })
+                    .when_some(under, |el, buttons| el.child(buttons.mt_4())),
             )
-            .when(!matches!(self.page, Page::Albums | Page::Artists), |el| {
-                el.child(
-                    div()
-                        .flex()
-                        .flex_shrink_0()
-                        .gap_2()
-                        .child(
-                            Button::new("play-view")
-                                .primary()
-                                .icon(icon("play"))
-                                .label("Play")
-                                .disabled(!can_play)
-                                .on_click(
-                                    cx.listener(|this, _, _, cx| this.play_view(0, false, cx)),
-                                ),
-                        )
-                        .child(
-                            Button::new("shuffle-view")
-                                .icon(icon("shuffle"))
-                                .label("Shuffle")
-                                .disabled(!can_play)
-                                .on_click(
-                                    cx.listener(|this, _, _, cx| this.play_view(0, true, cx)),
-                                ),
-                        )
-                        .when(
-                            matches!(self.page, Page::Album { .. })
-                                && !self.tracks.is_empty()
-                                && self.tracks.iter().all(|t| t.is_streamed()),
-                            |el| {
-                                let kept = self.tracks.iter().all(needle_core::sources::is_kept);
-                                let ids: Vec<String> =
-                                    self.tracks.iter().map(|t| t.id.clone()).collect();
-                                el.child(
-                                    icon_button(
-                                        "album-keep",
-                                        if kept { "pin-fill" } else { "pin" },
-                                        if kept {
-                                            "Stop keeping this album on this computer"
-                                        } else {
-                                            "Keep this album on this computer, to play without the network"
-                                        },
-                                    )
-                                    .on_click(cx.listener(move |this, _, _, cx| {
-                                        this.keep_streamed(&ids, !kept);
-                                        cx.notify();
-                                    })),
-                                )
-                            },
-                        )
-                        .when_some(
-                            match &self.page {
-                                Page::Artist(name) => Some(name.clone()),
-                                _ => None,
-                            },
-                            |el, artist| {
-                                let blend = artist.clone();
-                                el.child(
-                                    Button::new("artist-radio")
-                                        .icon(icon("radio"))
-                                        .label("Radio")
-                                        .on_click(cx.listener(move |this, _, _, _| {
-                                            this.start_artist_radio(artist.clone())
-                                        })),
-                                )
-                                .child(
-                                    icon_button(
-                                        "artist-blend",
-                                        "blend",
-                                        "Blend with another artist",
-                                    )
-                                    .on_click(cx.listener(
-                                        move |this, _: &ClickEvent, window, cx| {
-                                            // Below the button, clear of its tooltip.
-                                            let position =
-                                                window.mouse_position() + point(px(0.), px(22.));
-                                            this.open_blend_menu(blend.clone(), position, cx)
-                                        },
-                                    )),
-                                )
-                            },
-                        )
-                        .when_some(playlist.clone().filter(|l| l.query.is_none()), |el, list| {
-                            el.child(
-                                Button::new("add-songs")
-                                    .icon(icon("plus"))
-                                    .label("Add songs")
-                                    .on_click(cx.listener(move |this, _, window, cx| {
-                                        this.open_add_songs(&list, window, cx)
-                                    })),
-                            )
-                        })
-                        .when_some(playlist.clone(), |el, list| {
-                            el.child(
-                                Button::new("edit-playlist")
-                                    .icon(icon("edit"))
-                                    .label("Edit")
-                                    .on_click(cx.listener(move |this, _, window, cx| {
-                                        this.open_playlist_editor(
-                                            Some(list.clone()),
-                                            vec![],
-                                            None,
-                                            window,
-                                            cx,
-                                        )
-                                    })),
-                            )
-                        })
-                        .when(playlist.is_none(), |el| {
-                            el.child(
-                                icon_button("save-view", "plus", "Save as a playlist").on_click(
-                                    cx.listener(|this, _, window, cx| this.save_view_as_playlist(window, cx)),
-                                ),
-                            )
-                        }),
-                )
-            })
+            .children(beside)
     }
 
     fn playlist_tools(&self, cx: &mut Context<Self>) -> Option<impl IntoElement> {
@@ -675,7 +686,7 @@ impl AppView {
             .min_h_0()
             .flex()
             .flex_col()
-            .child(self.header(cx))
+            .child(self.header(width, cx))
             .children(self.folder_strip(cx))
             .children(self.playlist_tools(cx))
             .when_some(

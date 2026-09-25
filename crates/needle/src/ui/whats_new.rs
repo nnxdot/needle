@@ -83,6 +83,14 @@ fn parse(text: &str) -> Vec<Notes> {
     all
 }
 
+/// Whether starting `version` shows its notes: after an update, when this version's were not
+/// shown yet. Someone who used Needle before these notes existed (1.4.3 and earlier) has
+/// none marked seen, but has seen the welcome guide: that is an update too. A new install
+/// (the guide not yet seen) gets the guide instead.
+fn shows_after_update(seen: &str, welcomed: bool, version: &str) -> bool {
+    seen != version && (welcomed || !seen.is_empty())
+}
+
 /// The notes for `version`, or the newest when `version` is `None`.
 pub fn notes(version: Option<&str>) -> Option<Notes> {
     let all = parse(NOTES);
@@ -100,8 +108,12 @@ impl AppView {
         if self.settings.whats_new_seen == version {
             return;
         }
-        let updated = self.settings.welcomed;
-        if updated && let Some(notes) = notes(Some(version)) {
+        if shows_after_update(
+            &self.settings.whats_new_seen,
+            self.settings.welcomed,
+            version,
+        ) && let Some(notes) = notes(Some(version))
+        {
             self.whats_new = Some(notes);
         }
         self.settings.whats_new_seen = version.to_string();
@@ -429,6 +441,20 @@ mod tests {
         assert_eq!(new.features[1].icon, "");
         assert_eq!(new.small, vec!["A small fix.".to_string()]);
         assert_eq!(all[1].features.len(), 1);
+    }
+
+    #[test]
+    fn notes_show_once_after_each_update() {
+        use super::shows_after_update as shows;
+        // From 1.4.3 (before the notes) to 1.5.0.
+        assert!(shows("", true, "1.5.0"));
+        // A new install: the welcome guide instead.
+        assert!(!shows("", false, "1.5.0"));
+        // Shown once, then not again for the same version.
+        assert!(!shows("1.5.0", true, "1.5.0"));
+        // And for every update after.
+        assert!(shows("1.5.0", true, "1.5.1"));
+        assert!(shows("1.5.1", true, "1.6.0"));
     }
 
     #[test]
