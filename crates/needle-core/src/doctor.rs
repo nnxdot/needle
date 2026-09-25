@@ -1182,6 +1182,7 @@ mod tests {
                 query: None,
                 track_ids: vec!["o".into(), "k".into()],
                 updated_at: 0,
+                ..Default::default()
             })
             .unwrap();
         let (keep, other) = (
