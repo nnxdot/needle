@@ -318,11 +318,7 @@ impl AppView {
                                         .w(px(40.))
                                         .text_right(),
                                     )
-                                    .child(
-                                        Slider::new(&self.seek)
-                                            .flex_1()
-                                            .disabled(current.is_none()),
-                                    )
+                                    .child(self.seek_bar("big-seek", current.is_none(), cx))
                                     .child(
                                         faint(
                                             current

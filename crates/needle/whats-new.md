@@ -1,7 +1,7 @@
 # 1.5.1
 A quick fix for 1.5.0.
 - Needle no longer closes when a song's title or lyrics have curly quotes or Japanese or Chinese letters in a place too narrow for them (Windows).
-- Dragging the seek bar no longer makes the sound stutter or the bar slide on by itself afterwards.
+- The seek bar is silent while you hold it, and the song goes on from where you let go: no more stutter or pops, and the bar no longer slides on by itself.
 - On an album sorted by another column, the # column counts the songs in order instead of showing jumbled track numbers.
 
 # 1.5.0

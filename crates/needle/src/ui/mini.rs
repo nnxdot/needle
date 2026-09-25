@@ -49,6 +49,9 @@ pub struct MiniView {
     pinned: bool,
     /// When the seek bar was last moved by hand: it is not pulled back while the jump lands.
     seek_moved: Option<std::time::Instant>,
+    /// The seek bar is held: silent, and where to jump when it is let go.
+    seek_held: bool,
+    seek_to: Option<f64>,
     /// Linux: the title strip was pressed; moving the pointer now starts a window move.
     drag_armed: bool,
     glass_applied: Option<(super::glass::Material, bool)>,
@@ -104,9 +107,13 @@ impl AppView {
                             };
                             let a = app.read(cx);
                             if let Some(item) = &a.playback.current {
-                                a.player.send(Command::Seek(
-                                    value.start() as f64 / 1000.0 * item.track.duration,
-                                ));
+                                let to = value.start() as f64 / 1000.0 * item.track.duration;
+                                // Held: the jump waits for the bar to be let go.
+                                if this.seek_held {
+                                    this.seek_to = Some(to);
+                                } else {
+                                    a.player.send(Command::Seek(to));
+                                }
                             }
                         }),
                         cx.subscribe(
@@ -132,6 +139,8 @@ impl AppView {
                         pinned: false,
                         drag_armed: false,
                         seek_moved: None,
+                        seek_held: false,
+                        seek_to: None,
                         glass_applied: None,
                     }
                 });
@@ -560,7 +569,7 @@ impl Render for MiniView {
                         )
                         .w(px(32.)),
                     )
-                    .child(Slider::new(&seek).flex_1().disabled(current.is_none()))
+                    .child(self.seek_bar(&seek, current.is_none(), cx))
                     .child(
                         faint(
                             current
@@ -714,6 +723,45 @@ impl Render for MiniView {
 }
 
 impl MiniView {
+    /// The seek bar: silent while held, one jump when let go (as in the main window).
+    fn seek_bar(&self, seek: &Entity<SliderState>, disabled: bool, cx: &mut Context<Self>) -> Div {
+        let release = |this: &mut Self, cx: &mut Context<Self>| {
+            if std::mem::take(&mut this.seek_held) {
+                if let Some(app) = this.app.upgrade() {
+                    let player = &app.read(cx).player;
+                    if let Some(to) = this.seek_to.take() {
+                        player.send(Command::Seek(to));
+                    }
+                    player.send(Command::Scrub(false));
+                }
+                this.seek_moved = Some(std::time::Instant::now());
+            }
+        };
+        div()
+            .flex_1()
+            .when(!disabled, |el| {
+                el.capture_any_mouse_down(cx.listener(|this, event: &MouseDownEvent, _, cx| {
+                    if event.button == MouseButton::Left && !this.seek_held {
+                        this.seek_held = true;
+                        this.seek_to = None;
+                        if let Some(app) = this.app.upgrade() {
+                            app.read(cx).player.send(Command::Scrub(true));
+                        }
+                    }
+                }))
+                .capture_any_mouse_up(cx.listener(move |this, event: &MouseUpEvent, _, cx| {
+                    if event.button == MouseButton::Left {
+                        release(this, cx)
+                    }
+                }))
+                .on_mouse_up_out(
+                    MouseButton::Left,
+                    cx.listener(move |this, _, _, cx| release(this, cx)),
+                )
+            })
+            .child(Slider::new(seek).disabled(disabled))
+    }
+
     /// Open the lower panel on `tab`, or fold it away when it is already showing.
     fn toggle(&mut self, tab: Tab, window: &mut Window) {
         let same =

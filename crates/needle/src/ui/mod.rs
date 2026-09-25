@@ -445,6 +445,9 @@ pub struct AppView {
     editor: Option<playlist_editor::PlaylistEditor>,
     /// When the seek bar was last moved by hand.
     seek_moved: Option<Instant>,
+    /// The seek bar is held: silent, and where to jump when it is let go.
+    seek_held: bool,
+    seek_to: Option<f64>,
     /// The "Add songs" window of a playlist, while it is open.
     add_songs: Option<playlist_editor::AddSongs>,
     confirm_delete: bool,
@@ -826,9 +829,13 @@ impl AppView {
                 let SliderEvent::Change(value) = event;
                 this.seek_moved = Some(Instant::now());
                 if let Some(item) = &this.playback.current {
-                    this.player.send(Command::Seek(
-                        value.start() as f64 / 1000.0 * item.track.duration,
-                    ));
+                    let to = value.start() as f64 / 1000.0 * item.track.duration;
+                    // Held: the jump waits for the bar to be let go (see seek_bar).
+                    if this.seek_held {
+                        this.seek_to = Some(to);
+                    } else {
+                        this.player.send(Command::Seek(to));
+                    }
                 }
             }),
         ];
@@ -917,6 +924,8 @@ impl AppView {
             editor: None,
             add_songs: None,
             seek_moved: None,
+            seek_held: false,
+            seek_to: None,
             confirm_delete: false,
             editing: false,
             matches: vec![],
@@ -2225,6 +2234,48 @@ impl AppView {
             Err(e) => self.fail(e.to_string()),
         }
         cx.notify();
+    }
+
+    /// The seek bar. While it is held the music is silent and the bar only moves; letting go
+    /// jumps once to where it was left and plays on.
+    pub(super) fn seek_bar(
+        &self,
+        id: &'static str,
+        disabled: bool,
+        cx: &mut Context<Self>,
+    ) -> impl IntoElement {
+        let release = |this: &mut Self| {
+            if std::mem::take(&mut this.seek_held) {
+                if let Some(to) = this.seek_to.take() {
+                    this.player.send(Command::Seek(to));
+                }
+                this.player.send(Command::Scrub(false));
+                this.seek_moved = Some(Instant::now());
+            }
+        };
+        div()
+            .id(id)
+            .flex_1()
+            // Heard before the slider, whose handle keeps its mouse events to itself.
+            .when(!disabled, |el| {
+                el.capture_any_mouse_down(cx.listener(|this, event: &MouseDownEvent, _, _| {
+                    if event.button == MouseButton::Left && !this.seek_held {
+                        this.seek_held = true;
+                        this.seek_to = None;
+                        this.player.send(Command::Scrub(true));
+                    }
+                }))
+                .capture_any_mouse_up(cx.listener(move |this, event: &MouseUpEvent, _, _| {
+                    if event.button == MouseButton::Left {
+                        release(this)
+                    }
+                }))
+                .on_mouse_up_out(
+                    MouseButton::Left,
+                    cx.listener(move |this, _, _, _| release(this)),
+                )
+            })
+            .child(gpui_component::slider::Slider::new(&self.seek).disabled(disabled))
     }
 
     fn lookup(&mut self, cx: &mut Context<Self>) {

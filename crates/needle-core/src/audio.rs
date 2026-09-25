@@ -126,6 +126,9 @@ pub enum Command {
     Next,
     Previous,
     Seek(f64),
+    /// The seek bar is held (`true`) or let go (`false`): silent while it is held, and playing
+    /// again (if it was) once it is let go.
+    Scrub(bool),
     Volume(f32),
     Configure(Box<Settings>),
     Stop,
@@ -704,6 +707,8 @@ struct Worker {
     endings: Vec<(String, Arc<crate::crossfade::Ending>)>,
     /// The playing song's ending, so Next can keep a skipped song from fading under the next.
     active_ending: Option<Arc<crate::crossfade::Ending>>,
+    /// Playback is held silent while the seek bar is held, and goes on when it is let go.
+    scrub_resume: bool,
     /// A song from a music server that is connecting: shown as playing (at 0:00) until its
     /// first samples arrive, so the old song does not stay on screen meanwhile.
     loading: Option<QueueItem>,
@@ -748,6 +753,7 @@ impl Worker {
             ending: None,
             endings: Vec::new(),
             active_ending: None,
+            scrub_resume: false,
             library,
             state,
             settings,
@@ -1264,6 +1270,20 @@ impl Worker {
                     self.play(items)?;
                 }
             }
+            Command::Scrub(held) => {
+                if held && self.playing {
+                    if let Some(sink) = &self.sink {
+                        sink.pause();
+                    }
+                    self.playing = false;
+                    self.scrub_resume = true;
+                } else if !held && std::mem::take(&mut self.scrub_resume) {
+                    self.playing = true;
+                    if let Some(sink) = &self.sink {
+                        sink.play();
+                    }
+                }
+            }
             Command::Seek(seconds) => {
                 let duration = self
                     .queue
@@ -1595,7 +1615,8 @@ impl Worker {
             state.queue = queue;
             state.queue_version = self.queue.version;
         }
-        state.playing = self.playing;
+        // Held silent under the seek bar still counts as playing.
+        state.playing = self.playing || self.scrub_resume;
         state.position = position;
         state.volume = self.settings.volume;
         state.repeat = self.queue.repeat;
