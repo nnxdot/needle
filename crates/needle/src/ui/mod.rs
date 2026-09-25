@@ -40,6 +40,7 @@ mod timing;
 mod tray;
 mod updates;
 mod welcome;
+mod whats_new;
 mod widgets;
 mod wrapped;
 
@@ -511,6 +512,8 @@ pub struct AppView {
     hidden: bool,
     /// The welcome guide's step, while it is open.
     welcome_step: Option<usize>,
+    /// The "What's new" card, while it is open.
+    whats_new: Option<whats_new::Notes>,
     /// The phone remote, while it is on.
     remote: Option<needle_core::remote::Server>,
     /// Timing sliders for the members of a speaker group, by address.
@@ -868,6 +871,7 @@ impl AppView {
             speaker_timing: Default::default(),
             remote: None,
             welcome_step: None,
+            whats_new: None,
             tray: None,
             hidden: false,
             discord_idle_since: None,
@@ -989,6 +993,7 @@ impl AppView {
         view.check_for_update(false);
         view.apply_remote();
         view.apply_tray();
+        view.maybe_whats_new();
         view.maybe_welcome();
         {
             // Crash reports from earlier runs: send them (unless turned off), in the background.
@@ -2521,6 +2526,7 @@ impl Render for AppView {
             .children(self.speaker_menu_view(cx))
             .children(self.palette_view(cx))
             .children(self.welcome_view(window, cx))
+            .children(self.whats_new_view(cx))
             .children(self.asking_view(cx))
     }
 }

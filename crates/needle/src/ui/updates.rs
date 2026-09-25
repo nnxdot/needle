@@ -167,6 +167,18 @@ impl AppView {
             .flex_col()
             .child(super::widgets::setting_row("Updates", &status, action, cx))
             .child(super::widgets::setting_row(
+                "What's new",
+                &format!("What Needle {} brings.", env!("CARGO_PKG_VERSION")),
+                super::widgets::small_button("whats-new-open", "Show").on_click(cx.listener(
+                    |this, _, _, cx| {
+                        this.whats_new = super::whats_new::notes(Some(env!("CARGO_PKG_VERSION")))
+                            .or_else(|| super::whats_new::notes(None));
+                        cx.notify();
+                    },
+                )),
+                cx,
+            ))
+            .child(super::widgets::setting_row(
                 "Check for updates automatically",
                 "Once a day, when Needle starts.",
                 gpui_component::switch::Switch::new("check-updates")

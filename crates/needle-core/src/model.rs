@@ -191,6 +191,8 @@ pub struct Settings {
     pub crash_reports: bool,
     /// The welcome guide was shown (or skipped).
     pub welcomed: bool,
+    /// The version whose "What's new" card was shown (or skipped, on a new install).
+    pub whats_new_seen: String,
     /// Let phones on this network control Needle from a web page.
     pub remote: bool,
     /// The secret in the remote's address; a new one locks out phones that had the old one.
@@ -258,6 +260,7 @@ impl Default for Settings {
                 .collect(),
             crash_reports: true,
             welcomed: false,
+            whats_new_seen: String::new(),
             remote: false,
             remote_key: String::new(),
             eq_presets: vec![],
