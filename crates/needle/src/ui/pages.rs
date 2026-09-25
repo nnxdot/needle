@@ -81,7 +81,8 @@ impl AppView {
         let status = self
             .service_status
             .clone()
-            .unwrap_or_else(integrations::secret_status);
+            // Read on another thread (`refresh_services`); blank for the moment until then.
+            .unwrap_or_default();
         let summary = self.scrobble_summary.clone();
         let from_env = |s: &ServiceState| s.source == Some(SecretSource::Environment);
         let lastfm = status.lastfm.clone();
@@ -607,7 +608,7 @@ impl AppView {
                                     .items_center()
                                     .child(strong("Output device"))
                                     .child(small_button("refresh-devices", "Refresh").ghost().on_click(cx.listener(|this, _, _, cx| {
-                                        this.output_devices = needle_core::audio::devices().unwrap_or_default();
+                                        this.list_output_devices();
                                         cx.notify();
                                     }))),
                             )

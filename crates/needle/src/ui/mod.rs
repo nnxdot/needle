@@ -324,6 +324,13 @@ enum Event {
     OpenFiles(Vec<std::path::PathBuf>),
     Update(Result<Option<needle_core::update::Release>, String>, bool),
     UpdateStarted(Result<(), String>),
+    /// The sound outputs, listed on another thread (`list_output_devices`).
+    OutputDevices(Vec<String>),
+    /// The online services' state (`refresh_services`).
+    Services(
+        Box<integrations::ServiceStatus>,
+        Option<integrations::ScrobbleSummary>,
+    ),
     /// Covers for the sidebar's playlists (`playlist_art`).
     PlaylistArt(std::collections::HashMap<String, Vec<String>>),
     Lyrics(String, Option<needle_core::media::Lyrics>),
@@ -967,7 +974,7 @@ impl AppView {
             lookup_busy: false,
             pending_mbid: None,
             _scrobbler: integrations::ScrobbleWorker::start(library_for_scrobbles),
-            output_devices: audio::devices().unwrap_or_default(),
+            output_devices: vec![],
             _watcher: watcher,
             last_history_id: None,
             muted_volume: None,
@@ -1100,8 +1107,18 @@ impl AppView {
             }
         })
         .detach();
+        view.list_output_devices();
         view.maybe_bench(window, cx);
         view
+    }
+
+    /// Lists the sound outputs on another thread: asking the system can take a while (50 ms
+    /// and more on Linux, where every sound layer is tried), which would stall the window.
+    fn list_output_devices(&self) {
+        let sender = self.sender.clone();
+        std::thread::spawn(move || {
+            let _ = sender.send(Event::OutputDevices(audio::devices().unwrap_or_default()));
+        });
     }
 
     fn notify(&mut self, text: impl Into<String>) {
@@ -1119,9 +1136,15 @@ impl AppView {
         });
     }
 
+    /// Reads the online services' state on another thread: it asks the keyring, which on
+    /// Linux goes over D-Bus and can take a while, most of all with no keyring running.
     fn refresh_services(&mut self) {
-        self.service_status = Some(integrations::secret_status());
-        self.scrobble_summary = integrations::scrobble_summary(&self.library).ok();
+        let (library, sender) = (self.library.clone(), self.sender.clone());
+        std::thread::spawn(move || {
+            let status = integrations::secret_status();
+            let summary = integrations::scrobble_summary(&library).ok();
+            let _ = sender.send(Event::Services(Box::new(status), summary));
+        });
     }
 
     /// Show `panel` in the side panel, or hide the side panel if it already shows it.
@@ -1338,6 +1361,11 @@ impl AppView {
                 }
                 Event::Update(result, asked) => self.update_checked(result, asked),
                 Event::UpdateStarted(result) => self.update_started(result, cx),
+                Event::OutputDevices(devices) => self.output_devices = devices,
+                Event::Services(status, summary) => {
+                    self.service_status = Some(*status);
+                    self.scrobble_summary = summary;
+                }
                 Event::PlaylistArt(art) => self.playlist_art = art,
                 Event::ImportProgress(message) => self.import.busy = Some(message),
                 Event::Plugin(action) => self.plugin_action(action, window, cx),
@@ -1786,7 +1814,7 @@ impl AppView {
         }
         if self.page == Page::Settings {
             self.glass_system = (glass::system_allows_transparency(), glass::windows_11());
-            self.output_devices = audio::devices().unwrap_or_default();
+            self.list_output_devices();
             self.refresh_services();
         }
         self.groups.clear();
