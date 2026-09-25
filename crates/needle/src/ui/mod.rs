@@ -1,5 +1,6 @@
 mod ambient;
 mod assets;
+mod bench;
 mod chrome;
 mod columns;
 mod discord;
@@ -98,6 +99,7 @@ actions!(
         ToggleLyrics,
         ToggleSidebar,
         GoBack,
+        GoForward,
         FocusNext,
         FocusPrevious,
         ToggleBigPlayer,
@@ -364,6 +366,8 @@ pub struct AppView {
     settings: Settings,
     page: Page,
     back: Vec<Page>,
+    /// Pages left by going back, for going forward again (a new page clears it).
+    forward: Vec<Page>,
     tracks: Vec<Track>,
     playlists: Vec<Playlist>,
     history: Vec<Listen>,
@@ -445,6 +449,8 @@ pub struct AppView {
     editor: Option<playlist_editor::PlaylistEditor>,
     /// When the seek bar was last moved by hand.
     seek_moved: Option<Instant>,
+    /// When `poll` last asked for a redraw (see `poll`).
+    polled_redraw: Instant,
     /// The seek bar is held: silent, and where to jump when it is let go.
     seek_held: bool,
     /// Where a held seek bar was left, and for which song.
@@ -624,6 +630,7 @@ pub fn run(library: Library, files: Vec<std::path::PathBuf>) -> Result<()> {
                 KeyBinding::new("ctrl-e", EditTags, tracks),
                 KeyBinding::new("ctrl-d", ToggleFavorite, tracks),
                 KeyBinding::new("alt-left", GoBack, tracks),
+                KeyBinding::new("alt-right", GoForward, tracks),
                 KeyBinding::new("backspace", GoBack, tracks),
                 KeyBinding::new("ctrl-f", FocusSearch, Some("Needle")),
                 KeyBinding::new("ctrl-k", OpenPalette, Some("Needle")),
@@ -789,6 +796,7 @@ impl AppView {
                         )
                     {
                         this.back.push(this.page.clone());
+                        this.forward.clear();
                         this.page = Page::Songs;
                     }
                     this.refresh(cx);
@@ -858,6 +866,7 @@ impl AppView {
             settings,
             page: Page::Home,
             back: vec![],
+            forward: vec![],
             tracks: vec![],
             selection: Selection::default(),
             focused: None,
@@ -925,6 +934,7 @@ impl AppView {
             editor: None,
             add_songs: None,
             seek_moved: None,
+            polled_redraw: Instant::now(),
             seek_held: false,
             seek_to: None,
             confirm_delete: false,
@@ -1065,6 +1075,7 @@ impl AppView {
             }
         })
         .detach();
+        view.maybe_bench(window, cx);
         view
     }
 
@@ -1118,6 +1129,11 @@ impl AppView {
     }
 
     fn poll(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        // A redraw costs the whole window, so poll asks for one only when something shown
+        // changed (and once a second, for anything that follows the clock).
+        let shown_before = shown_playback(&self.playback);
+        let (line_before, toast_before) = (self.lyric_line, self.toast.is_some());
+        let mut events = false;
         let playback = self.player.state();
         if playback.error != self.playback.error
             && let Some(error) = &playback.error
@@ -1185,10 +1201,13 @@ impl AppView {
         };
         // While the bar is held (and a moment after, while the jump lands), it stays where the
         // pointer put it instead of being pulled back to the old position.
+        // The bar moves in steps of a thousandth, well under a pixel on most windows; a
+        // smaller change is not visible and would only cost a redraw.
         if !self.seek_held
             && self
                 .seek_moved
                 .is_none_or(|at| at.elapsed() > Duration::from_millis(600))
+            && (self.seek.read(cx).value().start() - value).abs() >= 1.
         {
             self.seek
                 .update(cx, |state, cx| state.set_value(value, window, cx));
@@ -1200,6 +1219,7 @@ impl AppView {
             }
         }
         while let Ok(event) = self.events.try_recv() {
+            events = true;
             match event {
                 Event::Imported(progress) => {
                     if progress.done {
@@ -1474,7 +1494,15 @@ impl AppView {
                 }
             }
         }
-        cx.notify();
+        if events
+            || shown_playback(&self.playback) != shown_before
+            || self.lyric_line != line_before
+            || self.toast.is_some() != toast_before
+            || self.polled_redraw.elapsed() >= Duration::from_secs(1)
+        {
+            self.polled_redraw = Instant::now();
+            cx.notify();
+        }
     }
 
     fn search_text(&self, cx: &App) -> String {
@@ -1649,15 +1677,36 @@ impl AppView {
             if self.back.len() > 50 {
                 self.back.remove(0);
             }
+            self.forward.clear();
         }
         self.open(page, window, cx);
     }
     fn go_back(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         if let Some(page) = self.back.pop() {
             self.remember_scroll();
+            self.forward.push(self.page.clone());
             self.open(page, window, cx);
             self.scroll_for_back();
         }
+    }
+    fn go_forward(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if let Some(page) = self.forward.pop() {
+            self.remember_scroll();
+            self.back.push(self.page.clone());
+            self.open(page, window, cx);
+        }
+    }
+    /// The mouse's back button: it leaves full screen or the big player first, as Esc does,
+    /// and then goes back a page.
+    fn mouse_back(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if self.immersive {
+            self.set_immersive(false, window, cx);
+        } else if self.big {
+            self.big = false;
+        } else {
+            self.go_back(window, cx);
+        }
+        cx.notify();
     }
     fn open(&mut self, page: Page, window: &mut Window, cx: &mut Context<Self>) {
         self.details_here = false;
@@ -2341,6 +2390,37 @@ impl Drop for AppView {
     }
 }
 
+/// What of the playback state the window shows, apart from the exact position (only its whole
+/// seconds, as the time reads): when this changes, the window needs a redraw.
+fn shown_playback(p: &needle_core::audio::PlaybackState) -> impl PartialEq + use<> {
+    (
+        (
+            p.current.as_ref().map(|c| c.track.id.clone()),
+            p.queue_version,
+            p.playing,
+            p.position.floor() as i64,
+            p.volume.to_bits(),
+            p.loading,
+        ),
+        (
+            p.output.clone(),
+            p.output_device.clone(),
+            p.output_rate,
+            p.output_channels,
+            p.error.clone(),
+            p.output_notice.clone(),
+        ),
+        (
+            p.repeat,
+            p.exclusive,
+            p.replay_gain,
+            p.album_gain,
+            p.loop_range.map(|(a, b)| (a.to_bits(), b.to_bits())),
+            p.stems.clone(),
+        ),
+    )
+}
+
 impl Render for AppView {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         self.update_palette(window, cx);
@@ -2549,6 +2629,18 @@ impl Render for AppView {
                 cx.notify();
             }))
             .on_action(cx.listener(|this, _: &GoBack, window, cx| this.go_back(window, cx)))
+            .on_action(cx.listener(|this, _: &GoForward, window, cx| this.go_forward(window, cx)))
+            // The mouse's side buttons, heard before anything under the pointer can keep them.
+            .capture_any_mouse_down(cx.listener(|this, event: &MouseDownEvent, window, cx| {
+                match event.button {
+                    MouseButton::Navigate(NavigationDirection::Back) => this.mouse_back(window, cx),
+                    MouseButton::Navigate(NavigationDirection::Forward) => {
+                        this.go_forward(window, cx);
+                        cx.notify();
+                    }
+                    _ => {}
+                }
+            }))
             .on_action(cx.listener(|this, _: &OpenPalette, window, cx| {
                 if this.palette.open {
                     this.close_palette(window, cx)

@@ -163,8 +163,13 @@ impl AppView {
             let moving = big == Glide::Moving || side == Glide::Moving;
             // Lyrics that just opened have no layout for a frame or two: wait for it (up to
             // half a second), or the sung line would stay out of view until the next one.
+            // Only for lyrics on screen: hidden ones never get a layout, and waiting for them
+            // redrew the window 30 times after every line.
+            let big_shown = self.big || self.immersive;
+            let side_shown = self.panel_shown == Some(super::Panel::Lyrics);
             let waiting = !moving
-                && (big == Glide::NotLaidOut || side == Glide::NotLaidOut)
+                && ((big_shown && big == Glide::NotLaidOut)
+                    || (side_shown && side == Glide::NotLaidOut))
                 && self.lyric_glide_waits < 30;
             self.lyric_glide_waits = if waiting {
                 self.lyric_glide_waits + 1
