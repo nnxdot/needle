@@ -1,3 +1,9 @@
+# 1.5.1
+A quick fix for 1.5.0.
+- Needle no longer closes when a song's title or lyrics have curly quotes or Japanese or Chinese letters in a place too narrow for them (Windows).
+- The seek bar is silent while you hold it, and the song goes on from where you let go: no more stutter or pops, and the bar no longer slides on by itself.
+- On an album sorted by another column, the # column counts the songs in order instead of showing jumbled track numbers.
+
 # 1.5.0
 Needle comes to Linux, and your music can fill the whole screen.
 ! **Needle for Linux.** Needle now runs on Linux as well as Windows: Ubuntu, Fedora, Mint, and more. Everything you know is there, from lyrics and themes to plugins and your music server, with media keys, the tray icon, Discord status, and your keyring. It draws its own window and needs no GTK.

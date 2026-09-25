@@ -47,6 +47,12 @@ pub struct MiniView {
     expanded: bool,
     tab: Tab,
     pinned: bool,
+    /// When the seek bar was last moved by hand: it is not pulled back while the jump lands.
+    seek_moved: Option<std::time::Instant>,
+    /// The seek bar is held: silent, and where to jump when it is let go.
+    seek_held: bool,
+    /// Where a held seek bar was left, and for which song.
+    seek_to: Option<(String, f64)>,
     /// Linux: the title strip was pressed; moving the pointer now starts a window move.
     drag_armed: bool,
     glass_applied: Option<(super::glass::Material, bool)>,
@@ -96,14 +102,19 @@ impl AppView {
                     let sliders = vec![
                         cx.subscribe(&seek, |this: &mut MiniView, _, event: &SliderEvent, cx| {
                             let SliderEvent::Change(value) = event;
+                            this.seek_moved = Some(std::time::Instant::now());
                             let Some(app) = this.app.upgrade() else {
                                 return;
                             };
                             let a = app.read(cx);
                             if let Some(item) = &a.playback.current {
-                                a.player.send(Command::Seek(
-                                    value.start() as f64 / 1000.0 * item.track.duration,
-                                ));
+                                let to = value.start() as f64 / 1000.0 * item.track.duration;
+                                // Held: the jump waits for the bar to be let go.
+                                if this.seek_held {
+                                    this.seek_to = Some((item.track.id.clone(), to));
+                                } else {
+                                    a.player.send(Command::Seek(to));
+                                }
                             }
                         }),
                         cx.subscribe(
@@ -128,6 +139,9 @@ impl AppView {
                         tab: Tab::Next,
                         pinned: false,
                         drag_armed: false,
+                        seek_moved: None,
+                        seek_held: false,
+                        seek_to: None,
                         glass_applied: None,
                     }
                 });
@@ -340,7 +354,11 @@ impl Render for MiniView {
             }
             _ => 0.,
         };
-        if (self.seek.read(cx).value().start() - seek_value).abs() > 0.5 {
+        let dragging = self.seek_held
+            || self
+                .seek_moved
+                .is_some_and(|at| at.elapsed() < std::time::Duration::from_millis(600));
+        if !dragging && (self.seek.read(cx).value().start() - seek_value).abs() > 0.5 {
             self.seek
                 .update(cx, |s, cx| s.set_value(seek_value, window, cx));
         }
@@ -393,6 +411,16 @@ impl Render for MiniView {
             .size_full()
             .relative()
             .overflow_hidden()
+            // A held seek bar is let go wherever the button comes up.
+            .capture_any_mouse_up(cx.listener(|this, event: &MouseUpEvent, _, cx| {
+                if event.button == MouseButton::Left {
+                    this.release_seek(cx)
+                }
+            }))
+            .on_mouse_up_out(
+                MouseButton::Left,
+                cx.listener(|this, _, _, cx| this.release_seek(cx)),
+            )
             // Ambient has no desktop glass behind the mini player: keep a solid base.
             .bg(if ambient { p.chrome } else { p.back })
             .text_color(p.ink)
@@ -553,7 +581,7 @@ impl Render for MiniView {
                         )
                         .w(px(32.)),
                     )
-                    .child(Slider::new(&seek).flex_1().disabled(current.is_none()))
+                    .child(self.seek_bar(&seek, current.is_none(), cx))
                     .child(
                         faint(
                             current
@@ -707,6 +735,45 @@ impl Render for MiniView {
 }
 
 impl MiniView {
+    /// The seek bar: silent while held, one jump when let go (as in the main window).
+    fn seek_bar(&self, seek: &Entity<SliderState>, disabled: bool, cx: &mut Context<Self>) -> Div {
+        div()
+            .flex_1()
+            .when(!disabled, |el| {
+                el.capture_any_mouse_down(cx.listener(|this, event: &MouseDownEvent, _, cx| {
+                    if event.button == MouseButton::Left && !this.seek_held {
+                        this.seek_held = true;
+                        this.seek_to = None;
+                        if let Some(app) = this.app.upgrade() {
+                            app.read(cx).player.send(Command::Scrub(true));
+                        }
+                    }
+                }))
+            })
+            .child(Slider::new(seek).disabled(disabled))
+    }
+
+    /// Lets go of a held seek bar: one jump, if the same song still plays, then the sound
+    /// comes back.
+    fn release_seek(&mut self, cx: &mut Context<Self>) {
+        if std::mem::take(&mut self.seek_held) {
+            if let Some(app) = self.app.upgrade() {
+                let a = app.read(cx);
+                if let Some((id, to)) = self.seek_to.take()
+                    && a.playback
+                        .current
+                        .as_ref()
+                        .is_some_and(|c| c.track.id == id)
+                {
+                    a.player.send(Command::Seek(to));
+                }
+                a.player.send(Command::Scrub(false));
+            }
+            self.seek_to = None;
+            self.seek_moved = Some(std::time::Instant::now());
+        }
+    }
+
     /// Open the lower panel on `tab`, or fold it away when it is already showing.
     fn toggle(&mut self, tab: Tab, window: &mut Window) {
         let same =

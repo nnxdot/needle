@@ -443,6 +443,12 @@ pub struct AppView {
     loading: bool,
     /// The playlist window, while it is open.
     editor: Option<playlist_editor::PlaylistEditor>,
+    /// When the seek bar was last moved by hand.
+    seek_moved: Option<Instant>,
+    /// The seek bar is held: silent, and where to jump when it is let go.
+    seek_held: bool,
+    /// Where a held seek bar was left, and for which song.
+    seek_to: Option<(String, f64)>,
     /// The "Add songs" window of a playlist, while it is open.
     add_songs: Option<playlist_editor::AddSongs>,
     confirm_delete: bool,
@@ -822,10 +828,15 @@ impl AppView {
             }),
             cx.subscribe(&seek, |this, _, event, _| {
                 let SliderEvent::Change(value) = event;
+                this.seek_moved = Some(Instant::now());
                 if let Some(item) = &this.playback.current {
-                    this.player.send(Command::Seek(
-                        value.start() as f64 / 1000.0 * item.track.duration,
-                    ));
+                    let to = value.start() as f64 / 1000.0 * item.track.duration;
+                    // Held: the jump waits for the bar to be let go (see seek_bar).
+                    if this.seek_held {
+                        this.seek_to = Some((item.track.id.clone(), to));
+                    } else {
+                        this.player.send(Command::Seek(to));
+                    }
                 }
             }),
         ];
@@ -913,6 +924,9 @@ impl AppView {
             loading: true,
             editor: None,
             add_songs: None,
+            seek_moved: None,
+            seek_held: false,
+            seek_to: None,
             confirm_delete: false,
             editing: false,
             matches: vec![],
@@ -1169,8 +1183,16 @@ impl AppView {
             }
             _ => 0.,
         };
-        self.seek
-            .update(cx, |state, cx| state.set_value(value, window, cx));
+        // While the bar is held (and a moment after, while the jump lands), it stays where the
+        // pointer put it instead of being pulled back to the old position.
+        if !self.seek_held
+            && self
+                .seek_moved
+                .is_none_or(|at| at.elapsed() > Duration::from_millis(600))
+        {
+            self.seek
+                .update(cx, |state, cx| state.set_value(value, window, cx));
+        }
         if let Some(toast) = &self.toast {
             let life = if toast.error { 14 } else { 6 };
             if toast.shown.elapsed() > Duration::from_secs(life) {
@@ -2216,6 +2238,49 @@ impl AppView {
         cx.notify();
     }
 
+    /// The seek bar. While it is held the music is silent and the bar only moves; letting go
+    /// jumps once to where it was left and plays on.
+    pub(super) fn seek_bar(
+        &self,
+        id: &'static str,
+        disabled: bool,
+        cx: &mut Context<Self>,
+    ) -> impl IntoElement {
+        div()
+            .id(id)
+            .flex_1()
+            // Heard before the slider, whose handle keeps its mouse events to itself.
+            .when(!disabled, |el| {
+                el.capture_any_mouse_down(cx.listener(|this, event: &MouseDownEvent, _, _| {
+                    if event.button == MouseButton::Left && !this.seek_held {
+                        this.seek_held = true;
+                        this.seek_to = None;
+                        this.player.send(Command::Scrub(true));
+                    }
+                }))
+            })
+            .child(gpui_component::slider::Slider::new(&self.seek).disabled(disabled))
+    }
+
+    /// Lets go of a held seek bar: one jump, if the same song still plays, then the sound
+    /// comes back. The whole window listens for the button, so this works even when the bar
+    /// itself is gone, for example after F11 while it was held.
+    fn release_seek(&mut self) {
+        if std::mem::take(&mut self.seek_held) {
+            if let Some((id, to)) = self.seek_to.take()
+                && self
+                    .playback
+                    .current
+                    .as_ref()
+                    .is_some_and(|c| c.track.id == id)
+            {
+                self.player.send(Command::Seek(to));
+            }
+            self.player.send(Command::Scrub(false));
+            self.seek_moved = Some(Instant::now());
+        }
+    }
+
     fn lookup(&mut self, cx: &mut Context<Self>) {
         if let Some(track) = &self.focused {
             let library = self.library.clone();
@@ -2348,6 +2413,15 @@ impl Render for AppView {
         div()
             .id("needle-app")
             .key_context("Needle")
+            .capture_any_mouse_up(cx.listener(|this, event: &MouseUpEvent, _, _| {
+                if event.button == MouseButton::Left {
+                    this.release_seek()
+                }
+            }))
+            .on_mouse_up_out(
+                MouseButton::Left,
+                cx.listener(|this, _, _, _| this.release_seek()),
+            )
             // A theme file dropped on the window is added and chosen; other files go to the
             // plugin that opens their type.
             .on_drop(cx.listener(|this, paths: &ExternalPaths, window, cx| {

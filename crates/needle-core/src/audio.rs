@@ -126,6 +126,9 @@ pub enum Command {
     Next,
     Previous,
     Seek(f64),
+    /// The seek bar is held (`true`) or let go (`false`): silent while it is held, and playing
+    /// again (if it was) once it is let go.
+    Scrub(bool),
     Volume(f32),
     Configure(Box<Settings>),
     Stop,
@@ -273,6 +276,8 @@ fn loop_restart(range: Option<(f64, f64)>, position: f64) -> Option<f64> {
 }
 /// Previous restarts the current track after this many seconds.
 const RESTART_AFTER: f64 = 3.0;
+/// The most seeks or volume changes merged into one before the worker ticks again.
+const COALESCE: usize = 256;
 
 /// The play queue, independent of any output device. `staged` items are
 /// already appended to the output; `pending` items are not. Items held aside
@@ -704,6 +709,8 @@ struct Worker {
     endings: Vec<(String, Arc<crate::crossfade::Ending>)>,
     /// The playing song's ending, so Next can keep a skipped song from fading under the next.
     active_ending: Option<Arc<crate::crossfade::Ending>>,
+    /// Playback is held silent while the seek bar is held, and goes on when it is let go.
+    scrub_resume: bool,
     /// A song from a music server that is connecting: shown as playing (at 0:00) until its
     /// first samples arrive, so the old song does not stay on screen meanwhile.
     loading: Option<QueueItem>,
@@ -748,6 +755,7 @@ impl Worker {
             ending: None,
             endings: Vec::new(),
             active_ending: None,
+            scrub_resume: false,
             library,
             state,
             settings,
@@ -898,6 +906,7 @@ impl Worker {
         self.release();
         self.queue.clear_playing();
         self.playing = false;
+        self.scrub_resume = false;
         self.loading = None;
     }
     /// Keeps `items` as a paused queue at `position` with no output open.
@@ -1209,6 +1218,8 @@ impl Worker {
                     self.queue.cycle = cycle;
                 }
             }
+            // Paused while the seek bar is held: it stays paused when the bar is let go.
+            Command::Toggle if std::mem::take(&mut self.scrub_resume) => {}
             Command::Toggle => {
                 if self.sink.is_none() {
                     if let Some(active) = self.queue.active.clone() {
@@ -1262,6 +1273,20 @@ impl Worker {
                     self.seek(0.0)?;
                 } else if let Some(items) = self.queue.back() {
                     self.play(items)?;
+                }
+            }
+            Command::Scrub(held) => {
+                if held && self.playing {
+                    if let Some(sink) = &self.sink {
+                        sink.pause();
+                    }
+                    self.playing = false;
+                    self.scrub_resume = true;
+                } else if !held && std::mem::take(&mut self.scrub_resume) && self.sink.is_some() {
+                    self.playing = true;
+                    if let Some(sink) = &self.sink {
+                        sink.play();
+                    }
                 }
             }
             Command::Seek(seconds) => {
@@ -1595,7 +1620,8 @@ impl Worker {
             state.queue = queue;
             state.queue_version = self.queue.version;
         }
-        state.playing = self.playing;
+        // Held silent under the seek bar still counts as playing.
+        state.playing = self.playing || self.scrub_resume;
         state.position = position;
         state.volume = self.settings.volume;
         state.repeat = self.queue.repeat;
@@ -1609,11 +1635,26 @@ impl Worker {
     fn run(mut self, rx: Receiver<Command>) {
         loop {
             match rx.recv_timeout(Duration::from_millis(25)) {
-                Ok(command) => match self.handle(command) {
-                    Ok(true) => {}
-                    Ok(false) => break,
-                    Err(e) => self.fail(e),
-                },
+                Ok(command) => {
+                    // Dragging the seek bar or the volume sends a command for every step; only
+                    // the last of a run matters, and doing each one in turn made the audio stutter
+                    // and the bar trail behind the pointer.
+                    let (command, next) = coalesce(command, &rx);
+                    let mut running = true;
+                    for command in std::iter::once(command).chain(next) {
+                        match self.handle(command) {
+                            Ok(true) => {}
+                            Ok(false) => {
+                                running = false;
+                                break;
+                            }
+                            Err(e) => self.fail(e),
+                        }
+                    }
+                    if !running {
+                        break;
+                    }
+                }
                 Err(crossbeam_channel::RecvTimeoutError::Disconnected) => {
                     let _ = self.save_session();
                     self.close();
@@ -1626,6 +1667,26 @@ impl Worker {
             }
         }
     }
+}
+
+/// `command`, or the last of the same kind (a seek, or a volume) waiting right behind it, and
+/// the first different command taken from the channel on the way, which still has to run.
+/// At most `COALESCE` commands are taken, so a steady stream still lets the worker tick.
+fn coalesce(mut command: Command, rx: &Receiver<Command>) -> (Command, Option<Command>) {
+    for _ in 0..COALESCE {
+        if !matches!(command, Command::Seek(_) | Command::Volume(_)) {
+            return (command, None);
+        }
+        match rx.try_recv() {
+            Ok(next @ Command::Seek(_)) if matches!(command, Command::Seek(_)) => command = next,
+            Ok(next @ Command::Volume(_)) if matches!(command, Command::Volume(_)) => {
+                command = next
+            }
+            Ok(other) => return (command, Some(other)),
+            Err(_) => return (command, None),
+        }
+    }
+    (command, None)
 }
 
 /// Exclusive WASAPI path at the file's native rate. No volume or DSP processing.
@@ -1847,6 +1908,37 @@ mod tests {
             Queue::restore(&Session::default(), Session::default().resolve_with(lookup)).1,
             0.0
         );
+    }
+
+    #[test]
+    fn a_run_of_seeks_or_volumes_becomes_its_last() {
+        let (tx, rx) = crossbeam_channel::unbounded();
+        for s in [2.0, 3.0, 4.0] {
+            tx.send(Command::Seek(s)).unwrap();
+        }
+        tx.send(Command::Next).unwrap();
+        tx.send(Command::Volume(0.2)).unwrap();
+        tx.send(Command::Volume(0.4)).unwrap();
+        let (last, next) = coalesce(Command::Seek(1.0), &rx);
+        assert!(matches!(last, Command::Seek(s) if s == 4.0));
+        assert!(matches!(next, Some(Command::Next)));
+        let first = rx.try_recv().unwrap();
+        let (last, next) = coalesce(first, &rx);
+        assert!(matches!(last, Command::Volume(v) if v == 0.4));
+        assert!(next.is_none());
+        // Other commands pass through as they are.
+        assert!(matches!(
+            coalesce(Command::Next, &rx),
+            (Command::Next, None)
+        ));
+        // A steady stream is merged in bounded runs, so the worker still gets to tick.
+        for s in 0..COALESCE * 2 {
+            tx.send(Command::Seek(s as f64)).unwrap();
+        }
+        let (last, next) = coalesce(Command::Seek(-1.0), &rx);
+        assert!(matches!(last, Command::Seek(s) if s == (COALESCE - 1) as f64));
+        assert!(next.is_none());
+        assert_eq!(rx.len(), COALESCE);
     }
 
     #[test]
@@ -2410,6 +2502,32 @@ mod tests {
         assert_eq!(rig.state().output, "USB DAC");
         assert!(rig.worker.position() >= position - 0.01);
         rig.until_active("a");
+    }
+
+    #[test]
+    fn a_held_seek_bar_pauses_and_letting_go_resumes_only_what_it_paused() {
+        let opener = FakeOpener::with(&["Speakers"], Some("Speakers"));
+        let mut rig = rig(opener, Settings::default());
+        let list = rig.items(&["a", "b"]);
+        rig.run(Command::Play(list.clone()));
+        rig.run(Command::Scrub(true));
+        assert!(!rig.worker.playing);
+        assert!(rig.state().playing, "shows as playing while held");
+        rig.run(Command::Scrub(false));
+        assert!(rig.worker.playing);
+        // Pausing while held stays paused after the bar is let go.
+        rig.run(Command::Scrub(true));
+        rig.run(Command::Toggle);
+        rig.run(Command::Scrub(false));
+        assert!(!rig.worker.playing);
+        assert!(!rig.state().playing);
+        // Stopping while held does not come back to life on release.
+        rig.run(Command::Toggle);
+        rig.run(Command::Scrub(true));
+        rig.run(Command::Stop);
+        rig.run(Command::Scrub(false));
+        assert!(!rig.worker.playing);
+        assert!(rig.worker.sink.is_none());
     }
 
     #[test]
