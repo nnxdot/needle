@@ -337,7 +337,7 @@ impl TextLayout {
             .line_height
             .to_pixels(font_size.into(), window.rem_size());
 
-        let mut runs = if let Some(runs) = runs {
+        let runs = if let Some(runs) = runs {
             runs
         } else {
             vec![text_style.to_run(text.len())]
@@ -382,6 +382,10 @@ impl TextLayout {
                 }
 
                 let mut line_wrapper = cx.text_system().line_wrapper(text_style.font(), font_size);
+                // Needle patch: truncation shortens the runs, and a text can be measured more
+                // than once (at different widths), so each measure starts from the text's own
+                // runs. Shortened runs from an earlier measure could end inside a character.
+                let mut runs = runs.clone();
                 let text = if let Some(truncate_width) = truncate_width {
                     line_wrapper.truncate_line(
                         text.clone(),
