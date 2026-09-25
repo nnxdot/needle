@@ -47,9 +47,10 @@ pub fn executable() -> Option<PathBuf> {
     }) {
         return Some(system);
     }
+    // Developing on Windows: the one built into the source tree (a Windows program).
     let source_tree =
         Path::new(env!("CARGO_MANIFEST_DIR")).join("../../third-party/ffmpeg/needle-ffmpeg.exe");
-    (cfg!(debug_assertions) && source_tree.is_file()).then_some(source_tree)
+    (cfg!(windows) && cfg!(debug_assertions) && source_tree.is_file()).then_some(source_tree)
 }
 
 enum Message {
@@ -366,10 +367,24 @@ mod tests {
         Path::new(env!("CARGO_MANIFEST_DIR")).join("testdata/eac3-5.1.m4a")
     }
 
+    /// Whether a decoder is there to test with. Windows must have its own (built by
+    /// scripts/build-ffmpeg.sh); elsewhere the system's FFmpeg is used, and without it the
+    /// test is skipped.
+    fn decoder_here() -> bool {
+        if executable().is_some() {
+            return true;
+        }
+        if cfg!(windows) {
+            panic!("third-party/ffmpeg/needle-ffmpeg.exe is missing; run scripts/build-ffmpeg.sh");
+        }
+        eprintln!("skipped: no FFmpeg on this computer");
+        false
+    }
+
     #[test]
     fn dolby_digital_plus_plays_as_stereo_and_seeks() {
-        if executable().is_none() {
-            panic!("third-party/ffmpeg/needle-ffmpeg.exe is missing; run scripts/build-ffmpeg.sh");
+        if !decoder_here() {
+            return;
         }
         let source = open(&fixture()).unwrap();
         assert_eq!((source.channels(), source.sample_rate()), (2, 48_000));
@@ -412,6 +427,9 @@ mod tests {
 
     #[test]
     fn the_player_plays_dolby_files() {
+        if !decoder_here() {
+            return;
+        }
         let decoded = crate::audio_file::decode(&fixture()).unwrap();
         assert_eq!(decoded.channels(), 2);
         assert!(decoded.take(48_000).any(|s| s.abs() > 0.05));
@@ -419,6 +437,9 @@ mod tests {
 
     #[test]
     fn files_it_cannot_read_fail_at_once() {
+        if !decoder_here() {
+            return;
+        }
         let dir = tempfile::tempdir().unwrap();
         let broken = dir.path().join("broken.m4a");
         std::fs::write(&broken, b"not an mp4 file at all").unwrap();

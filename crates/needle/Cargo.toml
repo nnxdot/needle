@@ -47,6 +47,15 @@ souvlaki = "0.8"
 tray-icon = "0.25.1"
 windows-sys = { version = "0.52", features = ["Win32_Foundation", "Win32_Graphics_Dwm", "Win32_Graphics_Gdi", "Win32_System_Registry", "Win32_UI_Controls", "Win32_UI_WindowsAndMessaging"] }
 
+[target.'cfg(target_os = "macos")'.dependencies]
+# Shaders compiled when Needle starts, so building needs no full Xcode (only its command line
+# tools).
+gpui = { version = "=0.2.2", features = ["runtime_shaders"] }
+# Media keys and the Now Playing panel (MPNowPlayingInfoCenter).
+souvlaki = "0.8"
+# The menu bar icon.
+tray-icon = "0.25.1"
+
 [dev-dependencies]
 tempfile = "3"
 

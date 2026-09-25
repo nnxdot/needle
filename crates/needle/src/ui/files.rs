@@ -1,23 +1,31 @@
-//! Opening folders and showing files in the system's file manager: File Explorer on Windows;
-//! on Linux the desktop's file manager (Nautilus, Dolphin, Nemo…), through D-Bus or xdg-open.
+//! Opening folders and showing files in the system's file manager: File Explorer on Windows,
+//! Finder on macOS, and on Linux the desktop's file manager (Nautilus, Dolphin, Nemo…),
+//! through D-Bus or xdg-open.
 use std::path::Path;
 
 /// The menu item that shows a file in its folder.
 pub const SHOW_IN_FOLDER: &str = if cfg!(windows) {
     "Show in File Explorer"
+} else if cfg!(target_os = "macos") {
+    "Show in Finder"
 } else {
     "Show in folder"
 };
 
 /// The file manager's program, by its full path, so a program of the same name elsewhere on
-/// `PATH` is never run instead: Windows' own `explorer.exe`, or the system's `xdg-open`.
+/// `PATH` is never run instead: Windows' own `explorer.exe`, macOS's `open`, or the system's
+/// `xdg-open`.
 fn file_manager() -> Option<std::path::PathBuf> {
     #[cfg(windows)]
     {
         let windows = std::env::var_os("SystemRoot").unwrap_or_else(|| r"C:\Windows".into());
         Some(Path::new(&windows).join("explorer.exe")).filter(|p| p.is_file())
     }
-    #[cfg(not(windows))]
+    #[cfg(target_os = "macos")]
+    {
+        Some(std::path::PathBuf::from("/usr/bin/open")).filter(|p| p.is_file())
+    }
+    #[cfg(target_os = "linux")]
     {
         ["/usr/bin/xdg-open", "/bin/xdg-open"]
             .iter()
@@ -61,7 +69,14 @@ pub fn show_file(file: &Path) {
                 .spawn();
         }
     }
-    #[cfg(not(windows))]
+    #[cfg(target_os = "macos")]
+    {
+        // `open -R` shows the file selected in Finder.
+        if let Some(open) = file_manager() {
+            let _ = std::process::Command::new(open).arg("-R").arg(file).spawn();
+        }
+    }
+    #[cfg(target_os = "linux")]
     {
         // The freedesktop FileManager1 interface selects the file; without it, open the folder.
         std::thread::spawn({
@@ -77,7 +92,7 @@ pub fn show_file(file: &Path) {
     }
 }
 
-#[cfg(not(windows))]
+#[cfg(target_os = "linux")]
 fn select_in_file_manager(file: &Path) -> bool {
     let Ok(file) = std::path::absolute(file) else {
         return false;
@@ -97,7 +112,7 @@ fn select_in_file_manager(file: &Path) -> bool {
 }
 
 /// Percent-encode a path for a file:// URI, keeping the slashes.
-#[cfg(not(windows))]
+#[cfg(target_os = "linux")]
 fn encode_path(path: &str) -> String {
     path.bytes()
         .map(|b| match b {
