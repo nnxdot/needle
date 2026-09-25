@@ -47,10 +47,17 @@ pub fn executable() -> Option<PathBuf> {
     }) {
         return Some(system);
     }
-    // Developing on Windows: the one built into the source tree (a Windows program).
-    let source_tree =
-        Path::new(env!("CARGO_MANIFEST_DIR")).join("../../third-party/ffmpeg/needle-ffmpeg.exe");
-    (cfg!(windows) && cfg!(debug_assertions) && source_tree.is_file()).then_some(source_tree)
+    // Developing on Windows: the one built into the source tree (a Windows program). Only
+    // in that build, so no build folder's path is written into a release.
+    #[cfg(all(windows, debug_assertions))]
+    {
+        let source_tree = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../third-party/ffmpeg/needle-ffmpeg.exe");
+        if source_tree.is_file() {
+            return Some(source_tree);
+        }
+    }
+    None
 }
 
 enum Message {
