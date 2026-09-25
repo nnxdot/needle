@@ -447,7 +447,8 @@ pub struct AppView {
     seek_moved: Option<Instant>,
     /// The seek bar is held: silent, and where to jump when it is let go.
     seek_held: bool,
-    seek_to: Option<f64>,
+    /// Where a held seek bar was left, and for which song.
+    seek_to: Option<(String, f64)>,
     /// The "Add songs" window of a playlist, while it is open.
     add_songs: Option<playlist_editor::AddSongs>,
     confirm_delete: bool,
@@ -832,7 +833,7 @@ impl AppView {
                     let to = value.start() as f64 / 1000.0 * item.track.duration;
                     // Held: the jump waits for the bar to be let go (see seek_bar).
                     if this.seek_held {
-                        this.seek_to = Some(to);
+                        this.seek_to = Some((item.track.id.clone(), to));
                     } else {
                         this.player.send(Command::Seek(to));
                     }
@@ -2244,15 +2245,6 @@ impl AppView {
         disabled: bool,
         cx: &mut Context<Self>,
     ) -> impl IntoElement {
-        let release = |this: &mut Self| {
-            if std::mem::take(&mut this.seek_held) {
-                if let Some(to) = this.seek_to.take() {
-                    this.player.send(Command::Seek(to));
-                }
-                this.player.send(Command::Scrub(false));
-                this.seek_moved = Some(Instant::now());
-            }
-        };
         div()
             .id(id)
             .flex_1()
@@ -2265,17 +2257,27 @@ impl AppView {
                         this.player.send(Command::Scrub(true));
                     }
                 }))
-                .capture_any_mouse_up(cx.listener(move |this, event: &MouseUpEvent, _, _| {
-                    if event.button == MouseButton::Left {
-                        release(this)
-                    }
-                }))
-                .on_mouse_up_out(
-                    MouseButton::Left,
-                    cx.listener(move |this, _, _, _| release(this)),
-                )
             })
             .child(gpui_component::slider::Slider::new(&self.seek).disabled(disabled))
+    }
+
+    /// Lets go of a held seek bar: one jump, if the same song still plays, then the sound
+    /// comes back. The whole window listens for the button, so this works even when the bar
+    /// itself is gone, for example after F11 while it was held.
+    fn release_seek(&mut self) {
+        if std::mem::take(&mut self.seek_held) {
+            if let Some((id, to)) = self.seek_to.take()
+                && self
+                    .playback
+                    .current
+                    .as_ref()
+                    .is_some_and(|c| c.track.id == id)
+            {
+                self.player.send(Command::Seek(to));
+            }
+            self.player.send(Command::Scrub(false));
+            self.seek_moved = Some(Instant::now());
+        }
     }
 
     fn lookup(&mut self, cx: &mut Context<Self>) {
@@ -2410,6 +2412,15 @@ impl Render for AppView {
         div()
             .id("needle-app")
             .key_context("Needle")
+            .capture_any_mouse_up(cx.listener(|this, event: &MouseUpEvent, _, _| {
+                if event.button == MouseButton::Left {
+                    this.release_seek()
+                }
+            }))
+            .on_mouse_up_out(
+                MouseButton::Left,
+                cx.listener(|this, _, _, _| this.release_seek()),
+            )
             // A theme file dropped on the window is added and chosen; other files go to the
             // plugin that opens their type.
             .on_drop(cx.listener(|this, paths: &ExternalPaths, window, cx| {
