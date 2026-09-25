@@ -213,7 +213,7 @@ impl AppView {
         cx.notify();
     }
 
-    fn menu_entries(&self) -> Vec<Entry> {
+    fn menu_entries(&self, cx: &App) -> Vec<Entry> {
         let Some(menu) = &self.menu else {
             return vec![];
         };
@@ -337,6 +337,18 @@ impl AppView {
                         key: "playlists",
                     },
                 ];
+                if self.arrangeable_playlist(cx).is_some() {
+                    entries.push(Entry::item(
+                        "close",
+                        if many {
+                            format!("Remove {count} from this playlist")
+                        } else {
+                            "Remove from this playlist".into()
+                        },
+                        None,
+                        |this, _, cx| this.remove_from_playlist(cx),
+                    ));
+                }
                 if self.plugins.commands().iter().any(|c| c.for_tracks) {
                     entries.push(Entry::Sub {
                         icon: "plugin",
@@ -480,7 +492,7 @@ impl AppView {
         if self.menu.is_none() {
             return false;
         }
-        let entries = self.menu_entries();
+        let entries = self.menu_entries(cx);
         let selectable: Vec<usize> = entries
             .iter()
             .enumerate()
@@ -586,7 +598,7 @@ impl AppView {
             self.tracks.get(menu.index)?;
         }
         let p = pal(cx);
-        let entries = self.menu_entries();
+        let entries = self.menu_entries(cx);
         let highlight = menu.highlight;
         let rows = Self::menu_rows(&entries, highlight, cx);
         let title = match menu.sub {

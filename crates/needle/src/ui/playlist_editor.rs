@@ -844,3 +844,209 @@ impl AppView {
         cx.notify();
     }
 }
+
+/// The "Add songs" window of a playlist of picked songs: search the library, add with +.
+pub struct AddSongs {
+    playlist: String,
+    input: Entity<InputState>,
+    results: Vec<Track>,
+    generation: u64,
+    _subscription: Subscription,
+}
+
+impl AppView {
+    pub(super) fn open_add_songs(
+        &mut self,
+        playlist: &Playlist,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let input = cx
+            .new(|cx| InputState::new(window, cx).placeholder("Search your songs, or type a rule"));
+        input.update(cx, |s, cx| s.focus(window, cx));
+        let subscription = cx.subscribe_in(&input, window, |this, _, event: &InputEvent, _, cx| {
+            if matches!(event, InputEvent::Change) {
+                this.search_to_add(cx);
+            }
+        });
+        self.add_songs = Some(AddSongs {
+            playlist: playlist.id.clone(),
+            input,
+            results: vec![],
+            generation: 0,
+            _subscription: subscription,
+        });
+        self.search_to_add(cx);
+        cx.notify();
+    }
+
+    fn search_to_add(&mut self, cx: &mut Context<Self>) {
+        let Some(add) = self.add_songs.as_mut() else {
+            return;
+        };
+        add.generation += 1;
+        let generation = add.generation;
+        let text = add.input.read(cx).value().trim().to_string();
+        let library = self.library.clone();
+        cx.spawn(async move |this, cx| {
+            let found = cx
+                .background_executor()
+                .spawn(async move { library.search(&text).unwrap_or_default() })
+                .await;
+            let _ = this.update(cx, |this, cx| {
+                if let Some(add) = this.add_songs.as_mut()
+                    && add.generation == generation
+                {
+                    add.results = found.into_iter().take(100).collect();
+                    cx.notify();
+                }
+            });
+        })
+        .detach();
+    }
+
+    pub(super) fn add_songs_view(
+        &self,
+        window: &Window,
+        cx: &mut Context<Self>,
+    ) -> Option<impl IntoElement> {
+        let add = self.add_songs.as_ref()?;
+        let playlist = self.playlists.iter().find(|p| p.id == add.playlist)?;
+        let p = pal(cx);
+        let room = super::widgets::content_size(window);
+        let card_w = f32::from(room.width).min(600.) - 48.;
+        let card_h = (f32::from(room.height) - 64.).min(640.);
+        let inside: std::collections::HashSet<&String> = playlist.track_ids.iter().collect();
+        let rows = add.results.iter().enumerate().map(|(i, track)| {
+            let added = inside.contains(&track.id);
+            let (id, song) = (playlist.id.clone(), track.clone());
+            div()
+                .id(("add-song", i))
+                .h(px(52.))
+                .px_2()
+                .rounded(px(8.))
+                .flex()
+                .items_center()
+                .gap_3()
+                .hover(|s| s.bg(p.ink.opacity(0.05)))
+                .child(artwork(Some(track), 38., cx))
+                .child(
+                    div()
+                        .flex_1()
+                        .min_w_0()
+                        .child(
+                            div()
+                                .text_size(px(13.5))
+                                .truncate()
+                                .child(track.title.clone()),
+                        )
+                        .child(meta(track.display_artist().to_string(), cx).truncate()),
+                )
+                .child(if added {
+                    glyph("check")
+                        .size(px(18.))
+                        .text_color(p.accent)
+                        .mr_2()
+                        .into_any_element()
+                } else {
+                    icon_button(("add-song-plus", i), "plus", "Add to this playlist")
+                        .on_click(cx.listener(move |this, _, _, cx| {
+                            this.add_to_playlist(&id, vec![song.clone()]);
+                            this.refresh(cx);
+                            cx.notify();
+                        }))
+                        .into_any_element()
+                })
+        });
+        let count = playlist.track_ids.len();
+        let card = div()
+            .id("add-songs")
+            .occlude()
+            .w(px(card_w))
+            .h(px(card_h))
+            .rounded(px(16.))
+            .bg(cx.theme().popover)
+            .border_1()
+            .border_color(p.line)
+            .shadow_lg()
+            .overflow_hidden()
+            .flex()
+            .flex_col()
+            .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
+            .child(
+                div()
+                    .px_6()
+                    .pt_6()
+                    .pb_3()
+                    .flex()
+                    .flex_col()
+                    .gap_3()
+                    .child(display(format!("Add songs to “{}”", playlist.name), 22.).truncate())
+                    .child(Input::new(&add.input)),
+            )
+            .child(
+                div()
+                    .id("add-songs-list")
+                    .flex_1()
+                    .min_h_0()
+                    .overflow_y_scroll()
+                    .px_4()
+                    .pb_2()
+                    .children(rows)
+                    .when(add.results.is_empty(), |el| {
+                        el.child(div().p_4().child(faint("No songs match.", cx)))
+                    }),
+            )
+            .child(
+                div()
+                    .flex_shrink_0()
+                    .px_6()
+                    .py_3()
+                    .border_t_1()
+                    .border_color(p.line_soft)
+                    .flex()
+                    .items_center()
+                    .child(faint(
+                        if count == 1 {
+                            "1 song in the playlist".to_string()
+                        } else {
+                            format!("{count} songs in the playlist")
+                        },
+                        cx,
+                    ))
+                    .child(div().flex_1())
+                    .child(
+                        Button::new("add-songs-done")
+                            .primary()
+                            .label("Done")
+                            .px_5()
+                            .on_click(cx.listener(|this, _, _, cx| {
+                                this.add_songs = None;
+                                cx.notify();
+                            })),
+                    ),
+            );
+        Some(
+            deferred(
+                div()
+                    .id("add-songs-backdrop")
+                    .absolute()
+                    .inset_0()
+                    .occlude()
+                    .bg(gpui::black().opacity(if p.dark { 0.55 } else { 0.3 }))
+                    .flex()
+                    .justify_center()
+                    .items_center()
+                    .on_mouse_down(
+                        MouseButton::Left,
+                        cx.listener(|this, _, _, cx| {
+                            this.add_songs = None;
+                            cx.notify();
+                        }),
+                    )
+                    .child(card),
+            )
+            .with_priority(2),
+        )
+    }
+}
