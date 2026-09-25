@@ -1,5 +1,10 @@
 //! What's new: after an update, one large card shows once with what the new version brings.
-//! The notes live in `whats-new.md`, one `# version` section each, newest first.
+//! The notes live in `whats-new.md`, one `# version` section each, newest first. Each change
+//! is shown as large as it is:
+//!
+//! - `! **Title.** Text` a milestone, across the top in its own coloured panel;
+//! - `- [icon] **Title.** Text` a feature, with an icon (any glyph name; `[icon]` may be left out);
+//! - `- Text` (no bold title) a small change, in the short list at the end.
 use super::{
     AppView, pal,
     widgets::{display, glyph, meta, small_button, strong},
@@ -9,11 +14,36 @@ use gpui_component::{ActiveTheme, button::ButtonVariants};
 
 const NOTES: &str = include_str!("../../whats-new.md");
 
-/// One version's notes: a line to open with, then each change's title and text.
+/// A change with a title: a milestone or a feature.
+#[derive(Debug, PartialEq)]
+pub struct Change {
+    pub icon: String,
+    pub title: String,
+    pub body: String,
+}
+
+/// One version's notes.
+#[derive(Debug, Default)]
 pub struct Notes {
     pub version: String,
     pub intro: String,
-    pub items: Vec<(String, String)>,
+    pub milestones: Vec<Change>,
+    pub features: Vec<Change>,
+    pub small: Vec<String>,
+}
+
+/// "[icon] **Title.** Text" (the icon may be left out) into its parts; `None` without a title.
+fn change(text: &str) -> Option<Change> {
+    let (icon, rest) = match text.strip_prefix('[').and_then(|r| r.split_once(']')) {
+        Some((icon, rest)) => (icon.trim().to_string(), rest.trim_start()),
+        None => (String::new(), text),
+    };
+    let (title, body) = rest.strip_prefix("**")?.split_once("**")?;
+    Some(Change {
+        icon,
+        title: title.trim().trim_end_matches('.').to_string(),
+        body: body.trim().to_string(),
+    })
 }
 
 /// Every version in `text`, newest first.
@@ -23,24 +53,28 @@ fn parse(text: &str) -> Vec<Notes> {
         if let Some(version) = line.strip_prefix("# ") {
             all.push(Notes {
                 version: version.trim().to_string(),
-                intro: String::new(),
-                items: Vec::new(),
+                ..Default::default()
             });
-        } else if let Some(notes) = all.last_mut() {
-            if let Some(item) = line.strip_prefix("- ") {
-                // "**Title.** Text": the bold part is the title.
-                let (title, body) = item
-                    .strip_prefix("**")
-                    .and_then(|rest| rest.split_once("**"))
-                    .map(|(title, body)| (title.trim().to_string(), body.trim().to_string()))
-                    .unwrap_or_else(|| (String::new(), item.to_string()));
-                notes.items.push((title, body));
-            } else if !line.is_empty() {
-                if !notes.intro.is_empty() {
-                    notes.intro.push(' ');
-                }
-                notes.intro.push_str(line);
+            continue;
+        }
+        let Some(notes) = all.last_mut() else {
+            continue;
+        };
+        if let Some(item) = line.strip_prefix("! ") {
+            match change(item) {
+                Some(c) => notes.milestones.push(c),
+                None => notes.small.push(item.to_string()),
             }
+        } else if let Some(item) = line.strip_prefix("- ") {
+            match change(item) {
+                Some(c) => notes.features.push(c),
+                None => notes.small.push(item.to_string()),
+            }
+        } else if !line.is_empty() {
+            if !notes.intro.is_empty() {
+                notes.intro.push(' ');
+            }
+            notes.intro.push_str(line);
         }
     }
     all
@@ -75,7 +109,43 @@ impl AppView {
     pub(super) fn whats_new_view(&self, cx: &mut Context<Self>) -> Option<impl IntoElement> {
         let notes = self.whats_new.as_ref()?;
         let p = pal(cx);
-        let items = notes.items.iter().enumerate().map(|(i, (title, body))| {
+        let body = |text: &str, size: f32, cx: &App| {
+            meta(text.to_string(), cx)
+                .w_full()
+                .text_size(px(size))
+                .line_height(relative(1.5))
+        };
+        // Milestones: each in its own panel of the accent colour, with a large title.
+        let milestones = notes.milestones.iter().map(|m| {
+            div()
+                .w_full()
+                .p_6()
+                .rounded(px(14.))
+                .border_1()
+                .border_color(p.accent.opacity(0.45))
+                .bg(linear_gradient(
+                    135.,
+                    linear_color_stop(p.accent.opacity(0.26), 0.),
+                    linear_color_stop(p.accent.opacity(0.06), 1.),
+                ))
+                .flex()
+                .flex_col()
+                .gap_2()
+                .child(
+                    div()
+                        .flex()
+                        .items_center()
+                        .gap_3()
+                        .child(
+                            glyph(if m.icon.is_empty() { "logo" } else { &m.icon })
+                                .size(px(30.))
+                                .text_color(p.accent),
+                        )
+                        .child(display(m.title.clone(), 26.).text_color(p.ink)),
+                )
+                .child(body(&m.body, 14.5, cx).text_color(p.ink_2))
+        });
+        let features = notes.features.iter().map(|f| {
             div()
                 .flex()
                 .items_start()
@@ -83,16 +153,17 @@ impl AppView {
                 .child(
                     div()
                         .flex_none()
-                        .size(px(34.))
-                        .rounded_full()
+                        .size(px(38.))
+                        .rounded(px(10.))
                         .bg(p.accent_soft)
                         .flex()
                         .items_center()
                         .justify_center()
-                        .text_size(px(14.))
-                        .font_weight(FontWeight::SEMIBOLD)
-                        .text_color(p.accent)
-                        .child((i + 1).to_string()),
+                        .child(
+                            glyph(if f.icon.is_empty() { "check" } else { &f.icon })
+                                .size(px(19.))
+                                .text_color(p.accent),
+                        ),
                 )
                 .child(
                     div()
@@ -101,25 +172,45 @@ impl AppView {
                         .flex()
                         .flex_col()
                         .gap_1()
-                        .when(!title.is_empty(), |el| {
-                            el.child(
-                                strong(title.trim_end_matches('.').to_string()).text_size(px(15.)),
-                            )
-                        })
-                        .child(
-                            meta(body.clone(), cx)
-                                .w_full()
-                                .text_size(px(13.5))
-                                .line_height(relative(1.5)),
-                        ),
+                        .child(strong(f.title.clone()).text_size(px(15.)))
+                        .child(body(&f.body, 13.5, cx)),
                 )
+        });
+        let small = (!notes.small.is_empty()).then(|| {
+            div()
+                .flex()
+                .flex_col()
+                .gap_2()
+                .pt_1()
+                .child(
+                    div()
+                        .text_size(px(12.5))
+                        .font_weight(FontWeight::SEMIBOLD)
+                        .text_color(p.ink_3)
+                        .child("Also in this update"),
+                )
+                .children(notes.small.iter().map(|text| {
+                    div()
+                        .flex()
+                        .items_start()
+                        .gap_2()
+                        .child(
+                            div()
+                                .flex_none()
+                                .mt(px(7.))
+                                .size(px(4.))
+                                .rounded_full()
+                                .bg(p.ink_3),
+                        )
+                        .child(body(text, 12.5, cx).flex_1().min_w_0())
+                }))
         });
         let card = div()
             .id("whats-new")
             .occlude()
-            .w(px(620.))
+            .w(px(640.))
             .max_w_full()
-            .max_h(relative(0.86))
+            .max_h(relative(0.88))
             .rounded(px(16.))
             .bg(cx.theme().popover)
             .border_1()
@@ -129,33 +220,19 @@ impl AppView {
             .flex()
             .flex_col()
             .child(
-                // A band of the accent colour across the top, with the logo.
                 div()
                     .px_8()
                     .pt_8()
-                    .pb_6()
-                    .bg(linear_gradient(
-                        180.,
-                        linear_color_stop(p.accent.opacity(0.22), 0.),
-                        linear_color_stop(p.accent.opacity(0.), 1.),
-                    ))
+                    .pb_5()
                     .flex()
                     .flex_col()
                     .gap_2()
-                    .child(glyph("logo").size(px(36.)).text_color(p.accent))
                     .child(display(
                         format!("What's new in Needle {}", notes.version),
                         30.,
                     ))
                     .when(!notes.intro.is_empty(), |el| {
-                        el.child(
-                            div()
-                                .w_full()
-                                .text_size(px(15.))
-                                .text_color(p.ink_2)
-                                .line_height(relative(1.5))
-                                .child(notes.intro.clone()),
-                        )
+                        el.child(body(&notes.intro, 15., cx))
                     }),
             )
             .child(
@@ -169,7 +246,9 @@ impl AppView {
                     .flex()
                     .flex_col()
                     .gap_5()
-                    .children(items),
+                    .children(milestones)
+                    .children(features)
+                    .children(small),
             )
             .child(
                 div()
@@ -227,30 +306,29 @@ impl AppView {
 #[cfg(test)]
 mod tests {
     #[test]
-    fn reads_versions_intros_and_items() {
+    fn reads_each_size_of_change() {
         let all = super::parse(
-            "# 2.0.0\nBig news.\n- **One thing.** It does this.\n- Plain line\n\n# 1.9.0\n- **Old.** Before.\n",
+            "# 2.0.0\nBig news.\n! **A milestone.** It is big.\n- [lyrics] **A feature.** It does this.\n- **No icon.** Still a feature.\n- A small fix.\n\n# 1.9.0\n- **Old.** Before.\n",
         );
         assert_eq!(all.len(), 2);
-        assert_eq!(all[0].version, "2.0.0");
-        assert_eq!(all[0].intro, "Big news.");
-        assert_eq!(
-            all[0].items[0],
-            ("One thing.".into(), "It does this.".into())
-        );
-        assert_eq!(all[0].items[1], (String::new(), "Plain line".into()));
-        assert_eq!(all[1].items.len(), 1);
+        let new = &all[0];
+        assert_eq!(new.version, "2.0.0");
+        assert_eq!(new.intro, "Big news.");
+        assert_eq!(new.milestones[0].title, "A milestone");
+        assert_eq!(new.milestones[0].body, "It is big.");
+        assert_eq!(new.features[0].icon, "lyrics");
+        assert_eq!(new.features[0].title, "A feature");
+        assert_eq!(new.features[1].icon, "");
+        assert_eq!(new.small, vec!["A small fix.".to_string()]);
+        assert_eq!(all[1].features.len(), 1);
     }
 
     #[test]
     fn the_shipped_notes_read() {
         let newest = super::notes(None).expect("whats-new.md has a version");
-        assert!(!newest.items.is_empty());
-        assert!(
-            newest
-                .items
-                .iter()
-                .all(|(title, body)| !title.is_empty() && !body.is_empty())
-        );
+        assert!(!newest.milestones.is_empty() || !newest.features.is_empty());
+        for change in newest.milestones.iter().chain(&newest.features) {
+            assert!(!change.title.is_empty() && !change.body.is_empty());
+        }
     }
 }
