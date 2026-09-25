@@ -843,6 +843,56 @@ impl Worker {
         }
         self.output = None;
     }
+    /// Act on the songs the output has started since last time: the listen, the speaker's
+    /// details, the queue, and which ending is the playing song's.
+    fn take_started(&mut self) {
+        while let Ok((epoch, item)) = self.started_rx.try_recv() {
+            if epoch != self.epoch {
+                continue;
+            }
+            // This song's ending (the first one queued for it) is now the playing one's.
+            self.active_ending = self
+                .endings
+                .iter()
+                .position(|(id, _)| *id == item.track.id)
+                .map(|i| self.endings.remove(i).1);
+            let continuing = self
+                .listen
+                .as_ref()
+                .is_some_and(|listen| listen.track_id == item.track.id)
+                && self.queue.active.is_none();
+            if !continuing {
+                self.finish_listen();
+                self.listen = Some(Listen {
+                    id: uuid::Uuid::new_v4().to_string(),
+                    track_id: item.track.id.clone(),
+                    title: item.track.title.clone(),
+                    artist: item.track.artist.clone(),
+                    album: item.track.album.clone(),
+                    started_at: chrono::Utc::now().timestamp(),
+                    listened_seconds: 0.0,
+                    duration: item.track.duration,
+                    qualified: false,
+                });
+            }
+            if let Some(control) = self.network() {
+                control.set_meta(speaker_meta(&item.track));
+            }
+            if self
+                .loading
+                .as_ref()
+                .is_some_and(|l| l.track.id == item.track.id)
+            {
+                self.loading = None;
+            }
+            self.queue.started(item);
+            // The next song is already loading for a gapless start; fetch the one after it
+            // too if it is on a server, so skipping ahead does not wait for the network.
+            if let Some(after) = self.queue.pending.front().filter(|i| i.track.is_streamed()) {
+                crate::sources::prefetch(&after.track);
+            }
+        }
+    }
     fn close(&mut self) {
         self.finish_listen();
         self.release();
@@ -1188,7 +1238,9 @@ impl Worker {
             Command::Next => {
                 self.loop_range = None;
                 // A skipped song does not fade out under the next one. Only the playing one: a
-                // later copy of the same song in the queue keeps its crossfade.
+                // later copy of the same song in the queue keeps its crossfade. A song that has
+                // just started counts, so its start is taken in first.
+                self.take_started();
                 if let Some(ending) = self.active_ending.take() {
                     ending.skip();
                 }
@@ -1487,52 +1539,7 @@ impl Worker {
         {
             listen.listened_seconds += elapsed;
         }
-        while let Ok((epoch, item)) = self.started_rx.try_recv() {
-            if epoch != self.epoch {
-                continue;
-            }
-            // This song's ending (the first one queued for it) is now the playing one's.
-            self.active_ending = self
-                .endings
-                .iter()
-                .position(|(id, _)| *id == item.track.id)
-                .map(|i| self.endings.remove(i).1);
-            let continuing = self
-                .listen
-                .as_ref()
-                .is_some_and(|listen| listen.track_id == item.track.id)
-                && self.queue.active.is_none();
-            if !continuing {
-                self.finish_listen();
-                self.listen = Some(Listen {
-                    id: uuid::Uuid::new_v4().to_string(),
-                    track_id: item.track.id.clone(),
-                    title: item.track.title.clone(),
-                    artist: item.track.artist.clone(),
-                    album: item.track.album.clone(),
-                    started_at: chrono::Utc::now().timestamp(),
-                    listened_seconds: 0.0,
-                    duration: item.track.duration,
-                    qualified: false,
-                });
-            }
-            if let Some(control) = self.network() {
-                control.set_meta(speaker_meta(&item.track));
-            }
-            if self
-                .loading
-                .as_ref()
-                .is_some_and(|l| l.track.id == item.track.id)
-            {
-                self.loading = None;
-            }
-            self.queue.started(item);
-            // The next song is already loading for a gapless start; fetch the one after it
-            // too if it is on a server, so skipping ahead does not wait for the network.
-            if let Some(after) = self.queue.pending.front().filter(|i| i.track.is_streamed()) {
-                crate::sources::prefetch(&after.track);
-            }
-        }
+        self.take_started();
         if self.sink.is_some() {
             if self.playing
                 && let Some(a) = loop_restart(self.loop_range, self.position())

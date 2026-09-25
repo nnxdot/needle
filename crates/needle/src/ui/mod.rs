@@ -1638,6 +1638,7 @@ impl AppView {
         }
     }
     fn open(&mut self, page: Page, window: &mut Window, cx: &mut Context<Self>) {
+        self.details_here = false;
         self.page = page;
         self.page_serial += 1;
         self.pending_scroll = None;
