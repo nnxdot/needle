@@ -1,11 +1,4 @@
 # 1.6.1
-Small fixes and a new look for the mini player.
-- [mini] **Cover view in the mini player.** Point at the cover and press its button: the cover fills the mini player, with the song and the controls over it. The song is centred, as in Apple Music.
-- With the player in the top bar, dragging the seek bar or the volume no longer keeps them stuck to the pointer.
-- A short window keeps the sidebar's Settings, Import, and Fix my library in reach: the rest of the sidebar scrolls.
-- The mini player's lyrics and queue buttons are as large as its other buttons.
-
-# 1.6.0
 Needle gets faster and calmer, and you can lay it out your way.
 ! **Faster everywhere.** Needle redraws only what changes, so it uses a fraction of the processor it did: pages at rest redraw 7 to 15 times a second instead of 40 to 70, and a start uses about a sixth of the work. Large covers are drawn from small copies, which saves memory and smooths scrolling.
 - [panel] **Player in the top bar.** Turn it on in Settings › Appearance: the controls, the song playing, and the volume sit in the title bar, as in Apple Music, and the search field moves to the bottom.
@@ -16,6 +9,10 @@ Needle gets faster and calmer, and you can lay it out your way.
 - The search field can be hidden in Settings › Appearance; Ctrl+F then opens the command palette.
 - A music server that does not answer no longer freezes Play, Pause, and Next.
 - Your music server's song list is refreshed on start only when it is over 6 hours old, a little after Needle opens.
+- [mini] **Cover view in the mini player.** Point at the cover and press its button: the cover fills the mini player, with the song and the controls over it. The song is centred, as in Apple Music.
+- With the player in the top bar, dragging the seek bar or the volume no longer keeps them stuck to the pointer.
+- A short window keeps the sidebar's Settings, Import, and Fix my library in reach: the rest of the sidebar scrolls.
+- The mini player's lyrics and queue buttons are as large as its other buttons.
 
 # 1.5.2
 A quick fix for 1.5.0.

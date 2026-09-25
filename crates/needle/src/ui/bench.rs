@@ -258,6 +258,30 @@ fn steps() -> Vec<Step> {
             tick: None,
         },
         Step {
+            name: "mini cover view",
+            start: |v, _, cx| {
+                let Some(mini) = v.mini else {
+                    return;
+                };
+                let on = mini.update(cx, |root, window, cx| {
+                    let root = root.downcast::<gpui_component::Root>().ok()?;
+                    let view = root
+                        .read(cx)
+                        .view()
+                        .clone()
+                        .downcast::<super::mini::MiniView>()
+                        .ok()?;
+                    view.update(cx, |m, cx| {
+                        m.set_art(true, window);
+                        cx.notify();
+                        Some(m.cover_view())
+                    })
+                });
+                gpui::frame_log_note(|| format!("mini cover view on: {:?}", on.ok().flatten()));
+            },
+            tick: None,
+        },
+        Step {
             name: "playlist editor",
             start: |v, w, cx| {
                 gpui::frame_log_note(|| format!("mini player opened: {}", v.mini.is_some()));
