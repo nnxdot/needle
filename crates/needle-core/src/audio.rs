@@ -199,10 +199,19 @@ impl Player {
     pub fn state(&self) -> PlaybackState {
         self.state.lock().unwrap_or_else(|p| p.into_inner()).clone()
     }
+    /// Stops the worker. It gets a few seconds to save the session and close the output; one
+    /// that is stuck (for example on a music server that does not answer) is left behind, so
+    /// Needle still closes at once, and an update never waits on it.
     pub fn shutdown(&self) {
         self.send(Command::Shutdown);
         if let Some(worker) = self.worker.lock().unwrap().take() {
-            let _ = worker.join();
+            let until = Instant::now() + SHUTDOWN_WAIT;
+            while !worker.is_finished() && Instant::now() < until {
+                std::thread::sleep(Duration::from_millis(10));
+            }
+            if worker.is_finished() {
+                let _ = worker.join();
+            }
         }
     }
 }
@@ -278,6 +287,8 @@ fn loop_restart(range: Option<(f64, f64)>, position: f64) -> Option<f64> {
 const RESTART_AFTER: f64 = 3.0;
 /// The most seeks or volume changes merged into one before the worker ticks again.
 const COALESCE: usize = 256;
+/// How long closing waits for the audio worker to finish.
+const SHUTDOWN_WAIT: Duration = Duration::from_secs(3);
 
 /// The play queue, independent of any output device. `staged` items are
 /// already appended to the output; `pending` items are not. Items held aside
@@ -1159,6 +1170,23 @@ impl Worker {
         }
     }
     fn handle(&mut self, command: Command) -> Result<bool> {
+        // A command can open a song, which can wait on a music server, and closing Needle does
+        // not wait for that (see `Player::shutdown`). So what played until now is saved before
+        // the command changes anything. Seeks, volume, and sound settings come too often and do
+        // not change the queue.
+        if !matches!(
+            command,
+            Command::Seek(_)
+                | Command::Volume(_)
+                | Command::Scrub(_)
+                | Command::Dsp(_)
+                | Command::Loop(_)
+                | Command::SpeakerDelays(_)
+                | Command::Shutdown
+        ) && let Err(e) = self.save_session()
+        {
+            crate::logfile::warn(format!("Could not save the playback session: {e:#}"));
+        }
         match command {
             Command::Shutdown => {
                 self.save_session()?;
