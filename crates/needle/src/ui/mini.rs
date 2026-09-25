@@ -834,6 +834,11 @@ impl MiniView {
         }
     }
 
+    /// Whether the cover view is on.
+    pub(super) fn cover_view(&self) -> bool {
+        self.art
+    }
+
     /// The button that switches between the small cover and the cover view.
     fn art_button(&self, cx: &mut Context<Self>) -> Stateful<Div> {
         div()
@@ -859,7 +864,7 @@ impl MiniView {
     }
 
     /// The cover view on or off; the window takes its size.
-    fn set_art(&mut self, on: bool, window: &mut Window) {
+    pub(super) fn set_art(&mut self, on: bool, window: &mut Window) {
         self.art = on;
         let inside = if on {
             self.expanded = false;
