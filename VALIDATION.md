@@ -116,9 +116,10 @@ Opening an existing large library for the first time after this change builds th
 ## 1.5.1 checks
 
 - Crash: all six crash reports from 1.5.0 were the same DirectWrite panic (a text run ending inside a character after an earlier truncation). `cargo run -p needle --example text_truncation_check` draws truncated rows with ’, セ, and 虚 at several widths: it panicked on the 1.5.0 code and draws every frame with the fix.
-- Seek bar: a test checks that a run of seeks (or volume changes) becomes its last one. Holding the bar pauses the sound and letting go jumps once and plays on; tried by hand in the player bar on Windows.
+- Seek bar: a test checks that a run of seeks (or volume changes) becomes its last one. Holding the bar pauses the sound and letting go jumps once and plays on; tried by hand in the player bar on Windows before the review fixes.
 - The # column counts rows when an album is sorted by another column; tried by hand.
 - `cargo clippy --workspace --all-targets` is clean and `cargo test --workspace` passes on Windows and in the Ubuntu 24.04 container (`scripts/linux-check.sh`).
+- Macroscope reviewed pull request #5; all 4 comments (a steady stream of seeks, Pause or Stop while the bar is held, a held bar after F11 or after the song changes, and the handle held still) were fixed and resolved, and its last check passed. A test covers Pause and Stop while the bar is held and the bound on merged seeks.
 
 ## 1.5.0 checks
 
