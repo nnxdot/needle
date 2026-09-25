@@ -27,22 +27,41 @@ struct Session {
     queue: Vec<(String, String)>,
     position: f64,
     repeat: Repeat,
+    /// What played before, for Previous (the latest [`PREVIOUS_KEPT`]).
+    #[serde(default)]
+    previous: Vec<(String, String)>,
+    /// The whole list Repeat All plays again; empty in sessions saved before it was kept.
+    #[serde(default)]
+    cycle: Vec<(String, String)>,
+}
+/// How many played songs a saved session keeps for Previous.
+const PREVIOUS_KEPT: usize = 500;
+/// A session's songs, found in the library.
+struct Restored {
+    /// The current song, then the ones after it.
+    items: Vec<QueueItem>,
+    previous: Vec<QueueItem>,
+    cycle: Vec<QueueItem>,
 }
 impl Session {
-    fn resolve(&self, library: &Library) -> Vec<QueueItem> {
+    fn resolve(&self, library: &Library) -> Restored {
         self.resolve_with(|id| library.track(id).ok().flatten())
     }
-    fn resolve_with(&self, lookup: impl Fn(&str) -> Option<Track>) -> Vec<QueueItem> {
-        self.current
-            .iter()
-            .chain(self.queue.iter())
-            .filter_map(|(id, reason)| {
+    fn resolve_with(&self, lookup: impl Fn(&str) -> Option<Track>) -> Restored {
+        let find = |list: &mut dyn Iterator<Item = &(String, String)>| -> Vec<QueueItem> {
+            list.filter_map(|(id, reason)| {
                 lookup(id).filter(|t| !t.missing).map(|track| QueueItem {
                     track,
                     reason: reason.clone(),
                 })
             })
             .collect()
+        };
+        Restored {
+            items: find(&mut self.current.iter().chain(self.queue.iter())),
+            previous: find(&mut self.previous.iter()),
+            cycle: find(&mut self.cycle.iter()),
+        }
     }
 }
 /// Written every few seconds; the full session is rewritten only when the queue changes.
@@ -276,7 +295,16 @@ enum Edit {
     Rebuild(Vec<QueueItem>),
 }
 impl Queue {
-    fn restore(session: &Session, items: Vec<QueueItem>) -> (Self, f64) {
+    fn restore(session: &Session, restored: Restored) -> (Self, f64) {
+        let Restored {
+            items,
+            previous,
+            mut cycle,
+        } = restored;
+        // Sessions saved before the cycle was kept: repeat what is known of it.
+        if cycle.is_empty() {
+            cycle = previous.iter().chain(items.iter()).cloned().collect();
+        }
         let mut items = items.into_iter();
         let active = items.next();
         let mut pending: VecDeque<_> = items.collect();
@@ -297,6 +325,8 @@ impl Queue {
             active,
             pending,
             repeat_tail,
+            previous,
+            cycle,
             repeat: session.repeat,
             version: 1,
             ..Default::default()
@@ -316,6 +346,11 @@ impl Queue {
                 .collect(),
             position,
             repeat: self.repeat,
+            previous: self.previous[self.previous.len().saturating_sub(PREVIOUS_KEPT)..]
+                .iter()
+                .map(identity)
+                .collect(),
+            cycle: self.cycle.iter().map(identity).collect(),
         }
     }
     fn touch(&mut self) {
@@ -691,8 +726,8 @@ impl Worker {
         {
             session.position = mark.position;
         }
-        let items = session.resolve(&library);
-        let (queue, resume_position) = Queue::restore(&session, items);
+        let restored = session.resolve(&library);
+        let (queue, resume_position) = Queue::restore(&session, restored);
         let saved_version = queue.version;
         let dsp = crate::dsp::DspControl::new(settings.dsp.clone(), Default::default());
         Self {
@@ -1733,6 +1768,7 @@ mod tests {
             ],
             position: 12.5,
             repeat: Repeat::Off,
+            ..Default::default()
         };
         let lookup = |id: &str| {
             (id != "gone").then(|| Track {
@@ -1743,8 +1779,8 @@ mod tests {
             })
         };
         let resolved = session.resolve_with(lookup);
-        assert_eq!(ids(&resolved), ["a", "b", "c"]);
-        let (queue, position) = Queue::restore(&session, resolved.clone());
+        assert_eq!(ids(&resolved.items), ["a", "b", "c"]);
+        let (queue, position) = Queue::restore(&session, session.resolve_with(lookup));
         assert_eq!(ids(&queue.active), ["a"]);
         assert_eq!(ids(&queue.pending), ["b", "c"]);
         assert_eq!(position, 12.5);
@@ -1758,13 +1794,50 @@ mod tests {
             repeat: Repeat::One,
             ..session.clone()
         };
-        let (queue, position) = Queue::restore(&ended, resolved);
+        let (queue, position) = Queue::restore(&ended, ended.resolve_with(lookup));
         assert_eq!(position, 0.0);
         assert!(queue.pending.is_empty());
         assert_eq!(ids(&queue.repeat_tail), ["b", "c"]);
         assert_eq!(ids(&queue.upcoming()), ["b", "c"]);
         assert_eq!(queue.session(0.0).queue.len(), 2);
-        assert_eq!(Queue::restore(&Session::default(), vec![]).1, 0.0);
+        assert_eq!(
+            Queue::restore(&Session::default(), Session::default().resolve_with(lookup)).1,
+            0.0
+        );
+    }
+
+    #[test]
+    fn session_keeps_what_played_and_the_repeat_cycle() {
+        let lookup = |id: &str| {
+            Some(Track {
+                id: id.into(),
+                duration: 60.0,
+                ..Default::default()
+            })
+        };
+        let pair = |id: &str| (id.to_string(), "album".to_string());
+        // An album of five, now on the fourth song.
+        let session = Session {
+            current: Some(pair("d")),
+            queue: vec![pair("e")],
+            previous: vec![pair("a"), pair("b"), pair("c")],
+            cycle: ["a", "b", "c", "d", "e"].map(pair).to_vec(),
+            repeat: Repeat::All,
+            ..Default::default()
+        };
+        let (queue, _) = Queue::restore(&session, session.resolve_with(lookup));
+        assert_eq!(ids(&queue.previous), ["a", "b", "c"]);
+        assert_eq!(ids(&queue.after_end()), ["a", "b", "c", "d", "e"]);
+        let saved = queue.session(0.0);
+        assert_eq!(saved.previous.len(), 3);
+        assert_eq!(saved.cycle.len(), 5);
+        // A session from before: the cycle is what is known.
+        let old = Session {
+            cycle: vec![],
+            ..session
+        };
+        let (queue, _) = Queue::restore(&old, old.resolve_with(lookup));
+        assert_eq!(ids(&queue.after_end()), ["a", "b", "c", "d", "e"]);
     }
 
     #[test]
