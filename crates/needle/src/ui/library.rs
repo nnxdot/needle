@@ -1067,7 +1067,9 @@ impl AppView {
         let height = self.settings.layout.row_height.clamp(32., 76.);
         // Compact rows hold one line: a small cover, then the title and artist side by side.
         let compact = height < 50.;
-        let number = if album_view && track.track_number > 0 {
+        // An album in its own order shows track numbers; sorted by anything else, the numbers
+        // would jump about, so rows are counted instead.
+        let number = if album_view && self.sort == Sort::Default && track.track_number > 0 {
             track.track_number.to_string()
         } else {
             thousands(self.page_offset + index + 1)

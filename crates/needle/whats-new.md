@@ -1,6 +1,7 @@
 # 1.5.1
 A quick fix for 1.5.0.
 - Needle no longer closes when a song's title or lyrics have curly quotes or Japanese or Chinese letters in a place too narrow for them (Windows).
+- On an album sorted by another column, the # column counts the songs in order instead of showing jumbled track numbers.
 
 # 1.5.0
 Needle comes to Linux, and your music can fill the whole screen.
