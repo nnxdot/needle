@@ -1265,23 +1265,6 @@ impl Worker {
         }
     }
     fn handle(&mut self, command: Command) -> Result<bool> {
-        // A command can open a song, which can wait on a music server, and closing Needle does
-        // not wait for that (see `Player::shutdown`). So what played until now is saved before
-        // the command changes anything. Seeks, volume, and sound settings come too often and do
-        // not change the queue.
-        if !matches!(
-            command,
-            Command::Seek(_)
-                | Command::Volume(_)
-                | Command::Scrub(_)
-                | Command::Dsp(_)
-                | Command::Loop(_)
-                | Command::SpeakerDelays(_)
-                | Command::Shutdown
-        ) && let Err(e) = self.save_session()
-        {
-            crate::logfile::warn(format!("Could not save the playback session: {e:#}"));
-        }
         match command {
             Command::Shutdown => {
                 self.save_session()?;
