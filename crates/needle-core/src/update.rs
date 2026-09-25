@@ -35,21 +35,25 @@ pub enum Package {
 }
 
 impl Package {
-    /// Whether `name` is this kind of download for a computer with `arch` (as in
-    /// `std::env::consts::ARCH`).
-    fn fits(self, name: &str, arch: &str) -> bool {
+    /// Whether `name` is this kind of download of Needle `version` for a computer with `arch`
+    /// (as in `std::env::consts::ARCH`). Only Needle's own file for exactly this version
+    /// fits, so an older or unrelated package in a release is never taken.
+    fn fits(self, name: &str, version: &str, arch: &str) -> bool {
         let name = name.to_lowercase();
         match self {
-            Self::WindowsInstaller => name.contains("setup") && name.ends_with(".exe"),
+            Self::WindowsInstaller => name == format!("needle-setup-{version}.exe"),
             Self::Deb => {
                 let arch = match arch {
                     "x86_64" => "amd64",
                     "aarch64" => "arm64",
                     other => other,
                 };
-                name.ends_with(&format!("_{arch}.deb"))
+                name == format!("needle_{version}_{arch}.deb")
             }
-            Self::Rpm => name.ends_with(&format!(".{arch}.rpm")),
+            Self::Rpm => {
+                name.starts_with(&format!("needle-{version}-"))
+                    && name.ends_with(&format!(".{arch}.rpm"))
+            }
         }
     }
 }
@@ -67,6 +71,9 @@ pub fn installed_package() -> Option<Package> {
         *FOUND.get_or_init(|| {
             let exe = std::env::current_exe().ok()?.canonicalize().ok()?;
             let owns = |program: &str, flag: &str| {
+                let Some(program) = system_tool(program) else {
+                    return false;
+                };
                 std::process::Command::new(program)
                     .arg(flag)
                     .arg(&exe)
@@ -124,11 +131,12 @@ pub(crate) fn from_json(
     }
     let assets = release["assets"].as_array()?;
     let url = |a: &Value| a["browser_download_url"].as_str().map(str::to_string);
+    let version = tag.trim_start_matches(['v', 'V']).to_lowercase();
     let found = package.and_then(|package| {
         let asset = assets.iter().find(|a| {
             a["name"]
                 .as_str()
-                .is_some_and(|name| package.fits(name, arch))
+                .is_some_and(|name| package.fits(name, &version, arch))
         })?;
         Some((package, asset["name"].as_str()?.to_string(), url(asset)?))
     });
@@ -179,8 +187,10 @@ pub(crate) fn sha256_file(path: &Path) -> Result<String> {
     Ok(format!("{:x}", hasher.finalize()))
 }
 
-/// Download the installer into `directory` and check it. The release must list a checksum for
-/// it; an unchecked installer is never run.
+/// Download the installer into a new folder of its own inside `directory` (the system's
+/// temporary folder) and check it. The release must list a checksum for it; an unchecked
+/// installer is never run. The folder is made fresh, with a random name, readable and
+/// writable by this user only, so no one else can swap the file before it is installed.
 pub fn download(release: &Release, directory: &Path) -> Result<PathBuf> {
     if release.package.is_none() {
         bail!(
@@ -192,8 +202,8 @@ pub fn download(release: &Release, directory: &Path) -> Result<PathBuf> {
     let list = client.get(list_url).send()?.error_for_status()?.text()?;
     let expected = expected_hash(&list, &release.installer)
         .context("The checksum list does not include the installer.")?;
-    std::fs::create_dir_all(directory)?;
-    let path = directory.join(&release.installer);
+    let folder = private_folder(directory)?;
+    let path = folder.join(&release.installer);
     let mut response = reqwest::blocking::Client::builder()
         .timeout(std::time::Duration::from_secs(600))
         .build()?
@@ -209,6 +219,38 @@ pub fn download(release: &Release, directory: &Path) -> Result<PathBuf> {
         bail!("The download did not match its checksum, so it was deleted.");
     }
     Ok(path)
+}
+
+/// A new folder inside `parent` that only this user can use. It must not exist yet, so a
+/// folder (or link) someone else put there in advance is never used.
+fn private_folder(parent: &Path) -> Result<PathBuf> {
+    let folder = parent.join(format!("needle-update-{}", uuid::Uuid::new_v4().simple()));
+    #[cfg(unix)]
+    let builder = {
+        use std::os::unix::fs::DirBuilderExt;
+        let mut builder = std::fs::DirBuilder::new();
+        builder.mode(0o700);
+        builder
+    };
+    #[cfg(not(unix))]
+    let builder = std::fs::DirBuilder::new();
+    builder.create(&folder).with_context(|| {
+        format!(
+            "Could not make a folder for the update in {}",
+            parent.display()
+        )
+    })?;
+    Ok(folder)
+}
+
+/// A system program by its full path, from the places the system keeps its own tools, so a
+/// program of the same name elsewhere on `PATH` is never run instead.
+#[cfg(unix)]
+fn system_tool(name: &str) -> Option<PathBuf> {
+    ["/usr/bin", "/bin", "/usr/sbin", "/sbin"]
+        .iter()
+        .map(|dir| Path::new(dir).join(name))
+        .find(|path| path.is_file())
 }
 
 /// Install the checked download. On Windows the installer runs quietly: it closes Needle,
@@ -229,36 +271,49 @@ pub fn install(release: &Release, installer: &Path) -> Result<()> {
                 .context("Could not start the installer")?;
             Ok(())
         }
+        #[cfg(unix)]
         Some(Package::Deb | Package::Rpm) => install_linux(release, installer),
+        #[cfg(not(unix))]
+        Some(Package::Deb | Package::Rpm) => bail!("Linux packages install only on Linux."),
         None => bail!("This copy of Needle cannot update itself."),
     }
 }
 
+#[cfg(unix)]
 fn install_linux(release: &Release, package: &Path) -> Result<()> {
-    let on_path = |program: &str| {
-        std::env::var_os("PATH").is_some_and(|paths| {
-            std::env::split_paths(&paths).any(|dir| dir.join(program).is_file())
-        })
-    };
+    let tool = |name: &str| system_tool(name).map(|p| p.to_string_lossy().to_string());
     let package = package.to_string_lossy().to_string();
-    let command: Vec<&str> = match release.package {
-        Some(Package::Deb) => vec!["apt-get", "install", "-y", "--allow-downgrades", &package],
-        Some(Package::Rpm) if on_path("dnf") => vec!["dnf", "install", "-y", &package],
-        Some(Package::Rpm) if on_path("zypper") => vec![
-            "zypper",
-            "--non-interactive",
-            "install",
-            "--allow-unsigned-rpm",
-            &package,
+    let command: Vec<String> = match (
+        release.package,
+        tool("apt-get"),
+        tool("dnf"),
+        tool("zypper"),
+    ) {
+        (Some(Package::Deb), Some(apt), _, _) => {
+            vec![
+                apt,
+                "install".into(),
+                "-y".into(),
+                "--allow-downgrades".into(),
+                package,
+            ]
+        }
+        (Some(Package::Rpm), _, Some(dnf), _) => vec![dnf, "install".into(), "-y".into(), package],
+        (Some(Package::Rpm), _, None, Some(zypper)) => vec![
+            zypper,
+            "--non-interactive".into(),
+            "install".into(),
+            "--allow-unsigned-rpm".into(),
+            package,
         ],
         _ => bail!("No package tool was found to install the update with."),
     };
-    if !on_path("pkexec") {
+    let Some(pkexec) = system_tool("pkexec") else {
         bail!(
             "Installing needs pkexec (polkit), which this system does not have. Install the update from the release page instead."
         );
-    }
-    let status = std::process::Command::new("pkexec")
+    };
+    let status = std::process::Command::new(pkexec)
         .args(&command)
         .status()
         .context("Could not start pkexec")?;
@@ -269,7 +324,7 @@ fn install_linux(release: &Release, package: &Path) -> Result<()> {
     }
     // Start the new Needle once this one has closed, so it does not find this one running.
     if let Ok(exe) = std::env::current_exe() {
-        let _ = std::process::Command::new("sh")
+        let _ = std::process::Command::new("/bin/sh")
             .args(["-c", "sleep 1; exec \"$0\""])
             .arg(exe.to_string_lossy().trim_end_matches(" (deleted)"))
             .spawn();
@@ -328,6 +383,15 @@ mod tests {
             Some((None, String::new()))
         );
         assert_eq!(pick(None, "x86_64"), Some((None, String::new())));
+        // An older or unrelated package in the release is never taken.
+        let odd: Value = serde_json::from_str(
+            r#"{"tag_name":"v1.5.0","assets":[
+                {"name":"needle_1.4.3_amd64.deb","browser_download_url":"https://d/old"},
+                {"name":"other_1.5.0_amd64.deb","browser_download_url":"https://d/other"}]}"#,
+        )
+        .unwrap();
+        let release = from_json("1.4.3", &odd, Some(Package::Deb), "x86_64").unwrap();
+        assert_eq!(release.package, None);
         // A release with only Windows downloads never hands Linux the installer.
         let windows_only: Value = serde_json::from_str(
             r#"{"tag_name":"v1.5.0","assets":[{"name":"Needle-Setup-1.5.0.exe","browser_download_url":"https://d/setup"}]}"#,

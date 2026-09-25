@@ -106,7 +106,8 @@ impl AppView {
             return;
         };
         self.update = Some(UpdateState::Downloading(release.clone()));
-        let directory = std::env::temp_dir().join("needle-update");
+        // The update gets a new private folder of its own in here.
+        let directory = std::env::temp_dir();
         let sender = self.sender.clone();
         std::thread::spawn(move || {
             let result = update::download(&release, &directory)

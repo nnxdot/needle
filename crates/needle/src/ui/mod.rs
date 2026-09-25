@@ -472,6 +472,8 @@ pub struct AppView {
     immersive_lyrics: bool,
     /// A wait for the controls to rest is running.
     immersive_waiting: bool,
+    /// Immersive mode took the window to full screen, so leaving it takes it back.
+    immersive_toggled: bool,
     /// The window's size before immersive mode, given back when it ends.
     immersive_restore: Option<Size<Pixels>>,
     big_serial: usize,
@@ -499,6 +501,8 @@ pub struct AppView {
     mini_lyric_glide: bool,
     /// The lyrics are easing toward the sung line.
     lyric_glide: bool,
+    /// Frames waited for newly opened lyrics to be laid out before gliding.
+    lyric_glide_waits: u8,
     artist_images: std::collections::HashMap<String, Option<String>>,
     recent: Vec<Listen>,
     /// The tracks behind `recent`, for covers.
@@ -930,6 +934,7 @@ impl AppView {
             immersive_lyrics: true,
             immersive_waiting: false,
             immersive_restore: None,
+            immersive_toggled: false,
             big_serial: 0,
             big_tint: (gpui::transparent_black(), gpui::transparent_black(), 0),
             looks: Default::default(),
@@ -947,6 +952,7 @@ impl AppView {
             mini_lyrics_scroll: ScrollHandle::new(),
             mini_lyric_glide: false,
             lyric_glide: false,
+            lyric_glide_waits: 0,
             artist_images: Default::default(),
             recent: vec![],
             recent_tracks: Default::default(),
@@ -1308,8 +1314,13 @@ impl AppView {
                     }
                 }
                 Event::Lyrics(id, lyrics) => {
-                    self.lyrics = Some((id, lyrics));
-                    self.lyric_line = None;
+                    // A late answer for a song that is no longer playing (a lookup started
+                    // again after turning a plugin on, say) must not replace this song's.
+                    let current = self.playback.current.as_ref().map(|c| &c.track.id);
+                    if current.is_none_or(|current| *current == id) {
+                        self.lyrics = Some((id, lyrics));
+                        self.lyric_line = None;
+                    }
                 }
                 Event::ArtistImage(name, path) => {
                     self.artist_images.insert(name, path);

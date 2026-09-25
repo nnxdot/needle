@@ -253,7 +253,7 @@ impl AppView {
     pub(super) fn sound_body(&self, cx: &mut Context<Self>) -> Div {
         let p = pal(cx);
         let dsp = self.settings.dsp.clone();
-        let exclusive = self.settings.exclusive;
+        let exclusive = cfg!(windows) && self.settings.exclusive;
         let clip_risk = dsp.eq && dsp.preamp_db > dsp.suggested_preamp() + 0.01;
         let mut preset_rows: Vec<Div> = vec![];
         for (i, (name, preamp, bands)) in PRESETS.iter().enumerate() {

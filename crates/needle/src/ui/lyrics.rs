@@ -160,7 +160,18 @@ impl AppView {
         if self.lyric_glide {
             let big = glide(&self.lyrics_scroll, self.lyric_line, cx);
             let side = glide(&self.panel_lyrics_scroll, self.lyric_line, cx);
-            self.lyric_glide = big || side;
+            let moving = big == Glide::Moving || side == Glide::Moving;
+            // Lyrics that just opened have no layout for a frame or two: wait for it (up to
+            // half a second), or the sung line would stay out of view until the next one.
+            let waiting = !moving
+                && (big == Glide::NotLaidOut || side == Glide::NotLaidOut)
+                && self.lyric_glide_waits < 30;
+            self.lyric_glide_waits = if waiting {
+                self.lyric_glide_waits + 1
+            } else {
+                0
+            };
+            self.lyric_glide = moving || waiting;
             if self.lyric_glide {
                 window.request_animation_frame();
             }
@@ -171,7 +182,8 @@ impl AppView {
     /// they are still moving.
     pub(super) fn glide_mini_lyrics(&mut self, cx: &App) -> bool {
         if self.mini_lyric_glide {
-            self.mini_lyric_glide = glide(&self.mini_lyrics_scroll, self.lyric_line, cx);
+            self.mini_lyric_glide =
+                glide(&self.mini_lyrics_scroll, self.lyric_line, cx) == Glide::Moving;
         }
         self.mini_lyric_glide
     }
@@ -480,9 +492,21 @@ fn lyric_target(scroll: &ScrollHandle, line: usize) -> Option<f32> {
 }
 
 /// Move `scroll` a step toward the sung line. Returns whether it still has further to go.
-fn glide(scroll: &ScrollHandle, line: Option<usize>, cx: &App) -> bool {
-    let Some(target) = line.and_then(|line| lyric_target(scroll, line)) else {
-        return false;
+/// How a glide went this frame.
+#[derive(Clone, Copy, PartialEq)]
+enum Glide {
+    Moving,
+    Done,
+    /// The line has no place yet (the lyrics were just opened, or are not shown).
+    NotLaidOut,
+}
+
+fn glide(scroll: &ScrollHandle, line: Option<usize>, cx: &App) -> Glide {
+    let Some(line) = line else {
+        return Glide::Done;
+    };
+    let Some(target) = lyric_target(scroll, line) else {
+        return Glide::NotLaidOut;
     };
     let mut offset = scroll.offset();
     let now = f32::from(offset.y);
@@ -494,5 +518,5 @@ fn glide(scroll: &ScrollHandle, line: Option<usize>, cx: &App) -> bool {
     let done = (target - next).abs() < 0.5;
     offset.y = px(if done { target } else { next });
     scroll.set_offset(offset);
-    !done
+    if done { Glide::Done } else { Glide::Moving }
 }

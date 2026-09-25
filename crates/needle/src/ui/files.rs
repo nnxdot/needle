@@ -9,13 +9,31 @@ pub const SHOW_IN_FOLDER: &str = if cfg!(windows) {
     "Show in folder"
 };
 
+/// The file manager's program, by its full path, so a program of the same name elsewhere on
+/// `PATH` is never run instead: Windows' own `explorer.exe`, or the system's `xdg-open`.
+fn file_manager() -> Option<std::path::PathBuf> {
+    #[cfg(windows)]
+    {
+        let windows = std::env::var_os("SystemRoot").unwrap_or_else(|| r"C:\Windows".into());
+        Some(Path::new(&windows).join("explorer.exe")).filter(|p| p.is_file())
+    }
+    #[cfg(not(windows))]
+    {
+        ["/usr/bin/xdg-open", "/bin/xdg-open"]
+            .iter()
+            .map(std::path::PathBuf::from)
+            .find(|p| p.is_file())
+    }
+}
+
 /// Open `folder` in the file manager. False when none could be started.
 pub fn open_folder(folder: &Path) -> bool {
-    #[cfg(windows)]
-    let opened = std::process::Command::new("explorer").arg(folder).spawn();
-    #[cfg(not(windows))]
-    let opened = std::process::Command::new("xdg-open").arg(folder).spawn();
-    opened.is_ok()
+    file_manager().is_some_and(|program| {
+        std::process::Command::new(program)
+            .arg(folder)
+            .spawn()
+            .is_ok()
+    })
 }
 
 impl super::AppView {
@@ -36,10 +54,12 @@ impl super::AppView {
 pub fn show_file(file: &Path) {
     #[cfg(windows)]
     {
-        let _ = std::process::Command::new("explorer")
-            .arg("/select,")
-            .arg(file)
-            .spawn();
+        if let Some(explorer) = file_manager() {
+            let _ = std::process::Command::new(explorer)
+                .arg("/select,")
+                .arg(file)
+                .spawn();
+        }
     }
     #[cfg(not(windows))]
     {

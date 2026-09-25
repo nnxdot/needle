@@ -38,7 +38,12 @@ pub fn executable() -> Option<PathBuf> {
     if let Some(system) = std::env::var_os("PATH").and_then(|paths| {
         std::env::split_paths(&paths)
             .map(|dir| dir.join("ffmpeg"))
-            .find(|path| path.is_file())
+            // A file that can run: a later entry is tried when an earlier one cannot.
+            .find(|path| {
+                use std::os::unix::fs::PermissionsExt;
+                path.metadata()
+                    .is_ok_and(|m| m.is_file() && m.permissions().mode() & 0o111 != 0)
+            })
     }) {
         return Some(system);
     }
@@ -149,7 +154,12 @@ fn parse_audio_line(text: &str) -> Option<(u32, u16)> {
     let layout = layout.split('(').next().unwrap_or_default();
     let channels = match layout {
         "mono" => 1,
-        "stereo" => 2,
+        "stereo" | "downmix" => 2,
+        // FFmpeg's named layouts.
+        "quad" => 4,
+        "hexagonal" => 6,
+        "octagonal" => 8,
+        "hexadecagonal" => 16,
         l => {
             // "5.1" is six channels, "7.1" eight; "6 channels" says so.
             if let Some(n) = l.strip_suffix(" channels") {
@@ -390,6 +400,14 @@ mod tests {
             Some((44_100, 2))
         );
         assert_eq!(super::parse_audio_line("no audio here"), None);
+        assert_eq!(
+            super::parse_audio_line("Stream #0:0: Audio: pcm_s24le, 96000 Hz, quad, s32"),
+            Some((96_000, 4))
+        );
+        assert_eq!(
+            super::parse_audio_line("Stream #0:0: Audio: flac, 48000 Hz, hexagonal, s16"),
+            Some((48_000, 6))
+        );
     }
 
     #[test]

@@ -382,18 +382,29 @@ fn plugin_lyrics(
     if providers.is_empty() {
         return Ok(None);
     }
+    // Each part in JSON, so no two songs share a key ("a:b" + "c" is not "a" + "b:c").
     let key = format!(
-        "plugin-lyrics:{}:{}:{}:{}:{:.0}",
-        providers.join(","),
-        track.artist,
-        track.title,
-        track.album,
-        track.duration
+        "plugin-lyrics:{}",
+        serde_json::to_string(&(
+            &providers,
+            &track.artist,
+            &track.title,
+            &track.album,
+            track.duration.round() as i64
+        ))?
     );
     if let Some(hit) = cached::<Option<Lyrics>>(library, &key)? {
         return Ok(hit);
     }
-    let found = host.lyrics(track).and_then(|found| {
+    // A failure is not an answer: nothing is kept, and the next play asks again.
+    let found = match host.lyrics(track) {
+        Ok(found) => found,
+        Err(problem) => {
+            crate::logfile::warn(format!("Lyrics plugins: {problem:#}"));
+            return Ok(None);
+        }
+    };
+    let found = found.and_then(|found| {
         if found.instrumental {
             return Some(Lyrics {
                 lines: vec![],

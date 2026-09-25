@@ -229,7 +229,7 @@ pub fn default_device() -> Option<String> {
 /// measured, otherwise track gain; the matching peak limits the gain so the
 /// result does not clip, and the boost is capped at +24 dB.
 pub fn replay_gain_factor(track: &Track, settings: &Settings) -> f64 {
-    if !settings.replay_gain || settings.exclusive {
+    if !settings.replay_gain || (cfg!(windows) && settings.exclusive) {
         return 1.0;
     }
     let (db, peak) = match (settings.album_gain, track.album_replay_gain) {
@@ -301,8 +301,9 @@ impl Queue {
             previous,
             mut cycle,
         } = restored;
-        // Sessions saved before the cycle was kept: repeat what is known of it.
-        if cycle.is_empty() {
+        // Sessions saved before the cycle was kept: repeat what is known of it. A saved cycle
+        // whose songs are all gone now stays empty.
+        if session.cycle.is_empty() {
             cycle = previous.iter().chain(items.iter()).cloned().collect();
         }
         let mut items = items.into_iter();
@@ -698,14 +699,21 @@ struct Worker {
     stems: Option<(String, std::path::PathBuf)>,
     /// The last queued song's ending, which the next song may crossfade over.
     ending: Option<(Track, Arc<crate::crossfade::Ending>)>,
-    /// Each queued song's ending by track id (the latest few), so Next can keep a skipped
-    /// song from fading under the next one.
+    /// The endings of queued songs that have not started yet, in playing order, by track id;
+    /// each moves to `active_ending` as its song starts.
     endings: Vec<(String, Arc<crate::crossfade::Ending>)>,
+    /// The playing song's ending, so Next can keep a skipped song from fading under the next.
+    active_ending: Option<Arc<crate::crossfade::Ending>>,
     /// A song from a music server that is connecting: shown as playing (at 0:00) until its
     /// first samples arrive, so the old song does not stay on screen meanwhile.
     loading: Option<QueueItem>,
 }
 impl Worker {
+    /// Whether output is exclusive. That is WASAPI's, so elsewhere the setting (kept as it is,
+    /// for when the library is opened on Windows again) is ignored.
+    fn exclusive(&self) -> bool {
+        cfg!(windows) && self.settings.exclusive
+    }
     fn new(
         library: Library,
         state: Arc<Mutex<PlaybackState>>,
@@ -739,6 +747,7 @@ impl Worker {
             stems: None,
             ending: None,
             endings: Vec::new(),
+            active_ending: None,
             library,
             state,
             settings,
@@ -820,6 +829,9 @@ impl Worker {
     }
     /// Drops the output device without touching the queue.
     fn release(&mut self) {
+        // The output's queued songs go with it, and their endings too.
+        self.endings.clear();
+        self.active_ending = None;
         self.epoch += 1;
         self.ending = None;
         if let Some(sink) = self.sink.take() {
@@ -860,7 +872,7 @@ impl Worker {
         // Exclusive output is WASAPI's; elsewhere the setting (synced from Windows, say) is
         // ignored and Needle plays through the shared output.
         #[cfg(windows)]
-        if self.settings.exclusive && !self.speaker() {
+        if self.exclusive() && !self.speaker() {
             if self.exclusive.is_some() {
                 return Ok(());
             }
@@ -1001,7 +1013,7 @@ impl Worker {
             let stems = self
                 .stems
                 .as_ref()
-                .filter(|(id, _)| *id == item.track.id && !self.settings.exclusive)
+                .filter(|(id, _)| *id == item.track.id && !self.exclusive())
                 .and_then(|(_, dir)| {
                     crate::stems::StemSource::open(dir, self.stem_mix.clone()).ok()
                 });
@@ -1023,7 +1035,7 @@ impl Worker {
             };
             let gain = replay_gain_factor(&item.track, &self.settings);
             // Exclusive output stays bit-exact; the sound tools only apply to shared output.
-            let processed: Box<dyn Source + Send> = if self.settings.exclusive
+            let processed: Box<dyn Source + Send> = if self.exclusive()
                 || self.settings.dsp.is_transparent() && !self.settings.dsp.eq
             {
                 Box::new(source.amplify(gain as f32))
@@ -1061,7 +1073,7 @@ impl Worker {
         source: Box<dyn Source + Send>,
     ) -> Box<dyn Source + Send> {
         let fade = self.settings.crossfade as f64;
-        if fade <= 0. || self.settings.exclusive {
+        if fade <= 0. || self.exclusive() {
             self.ending = None;
             return source;
         }
@@ -1077,7 +1089,7 @@ impl Worker {
         }
         if track.duration > fade * 3. {
             let (head, ending) = crate::crossfade::split(source, track.duration, fade);
-            if self.endings.len() >= 8 {
+            if self.endings.len() >= 32 {
                 self.endings.remove(0);
             }
             self.endings.push((track.id.clone(), ending.clone()));
@@ -1175,13 +1187,10 @@ impl Worker {
             }
             Command::Next => {
                 self.loop_range = None;
-                // A skipped song does not fade out under the next one.
-                if let Some(active) = &self.queue.active {
-                    for (id, ending) in &self.endings {
-                        if *id == active.track.id {
-                            ending.skip();
-                        }
-                    }
+                // A skipped song does not fade out under the next one. Only the playing one: a
+                // later copy of the same song in the queue keeps its crossfade.
+                if let Some(ending) = self.active_ending.take() {
+                    ending.skip();
                 }
                 if let Some(next) = self.queue.next_held() {
                     self.play(vec![next])?;
@@ -1220,7 +1229,7 @@ impl Worker {
             Command::Volume(volume) => {
                 self.settings.volume = volume.clamp(0.0, 1.0);
                 if let Some(sink) = &self.sink {
-                    sink.set_volume(if self.settings.exclusive {
+                    sink.set_volume(if self.exclusive() {
                         1.0
                     } else {
                         self.settings.volume
@@ -1268,7 +1277,7 @@ impl Worker {
                 self.dsp.set(dsp.clone());
                 self.settings.dsp = dsp;
                 self.library.save_settings(&self.settings)?;
-                if was_off && !self.settings.exclusive && self.queue.active.is_some() {
+                if was_off && !self.exclusive() && self.queue.active.is_some() {
                     let current = self.queue.active.clone();
                     let position = self.position();
                     let was_playing = self.playing;
@@ -1482,6 +1491,12 @@ impl Worker {
             if epoch != self.epoch {
                 continue;
             }
+            // This song's ending (the first one queued for it) is now the playing one's.
+            self.active_ending = self
+                .endings
+                .iter()
+                .position(|(id, _)| *id == item.track.id)
+                .map(|i| self.endings.remove(i).1);
             let continuing = self
                 .listen
                 .as_ref()
@@ -1577,10 +1592,10 @@ impl Worker {
         state.position = position;
         state.volume = self.settings.volume;
         state.repeat = self.queue.repeat;
-        state.replay_gain = self.settings.replay_gain && !self.settings.exclusive;
+        state.replay_gain = self.settings.replay_gain && !self.exclusive();
         state.album_gain = state.replay_gain && self.settings.album_gain;
         state.loop_range = self.loop_range;
-        state.exclusive = self.settings.exclusive;
+        state.exclusive = self.exclusive();
         state.stems = self.stems.as_ref().map(|(id, _)| id.clone());
         Ok(())
     }
@@ -1746,8 +1761,13 @@ mod tests {
         };
         assert_eq!(replay_gain_factor(&quiet, &settings), 16.0);
         assert_eq!(replay_gain_factor(&Track::default(), &settings), 1.0);
+        // Exclusive output (Windows only) plays bit for bit, so without ReplayGain.
         settings.exclusive = true;
-        assert_eq!(replay_gain_factor(&track, &settings), 1.0);
+        if cfg!(windows) {
+            assert_eq!(replay_gain_factor(&track, &settings), 1.0);
+        } else {
+            assert_ne!(replay_gain_factor(&track, &settings), 1.0);
+        }
     }
 
     #[test]

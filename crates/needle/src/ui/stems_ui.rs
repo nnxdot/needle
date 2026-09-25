@@ -160,7 +160,7 @@ impl AppView {
             .is_some_and(|c| c.track.id == track.id);
         let job = self.stems.job.clone().filter(|(id, _, _)| *id == track.id);
         let busy_elsewhere = self.stems.job.is_some() && job.is_none();
-        let exclusive = self.settings.exclusive;
+        let exclusive = cfg!(windows) && self.settings.exclusive;
         let channels: Vec<AnyElement> = if ready {
             STEMS
                 .iter()

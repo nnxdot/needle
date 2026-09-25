@@ -310,7 +310,8 @@ pub enum PluginEvent {
     /// Ask the plugins that find lyrics for a song's.
     Lyrics {
         song: Box<Track>,
-        reply: Sender<Option<PluginLyrics>>,
+        /// `Err` when a plugin failed and none had lyrics: then "no lyrics" is not known.
+        reply: Sender<Result<Option<PluginLyrics>, String>>,
     },
 }
 
@@ -430,9 +431,12 @@ impl PluginHost {
     }
     /// Ask the plugins that find lyrics (the turned-on ones, in order) for a song's: the first
     /// timed lyrics, or else the first plain ones. `None` at once when no plugin finds lyrics.
-    pub fn lyrics(&self, track: &Track) -> Option<PluginLyrics> {
+    ///
+    /// `Err` when the plugins could not be asked, took too long, or failed without any of them
+    /// finding lyrics: then it is not known that the song has none.
+    pub fn lyrics(&self, track: &Track) -> Result<Option<PluginLyrics>> {
         if !self.plugins().iter().any(|p| p.enabled && p.lyrics) {
-            return None;
+            return Ok(None);
         }
         let (reply, answer) = crossbeam_channel::bounded(1);
         self.tx
@@ -440,8 +444,12 @@ impl PluginHost {
                 song: Box::new(track.clone()),
                 reply,
             })
-            .ok()?;
-        answer.recv_timeout(Duration::from_secs(30)).ok().flatten()
+            .map_err(|_| anyhow::anyhow!("Plugins are not running"))?;
+        match answer.recv_timeout(Duration::from_secs(30)) {
+            Ok(Ok(found)) => Ok(found),
+            Ok(Err(problem)) => bail!("{problem}"),
+            Err(_) => bail!("The lyrics plugins did not answer in time"),
+        }
     }
     /// The turned-on plugins that find lyrics, by id: part of the key lyrics are kept under.
     pub fn lyrics_plugins(&self) -> Vec<String> {
@@ -626,13 +634,18 @@ fn run(
                 let map = lyrics_song_map(&song);
                 let mut plain = None;
                 let mut timed = None;
+                let mut failed = None;
                 for plugin in loaded
                     .iter_mut()
                     .filter(|p| p.info.enabled && p.info.lyrics)
                 {
                     let name = plugin.info.manifest.name.clone();
-                    let Ok(value) = call_source(plugin, "lyrics", vec![map.clone().into()]) else {
-                        continue;
+                    let value = match call_source(plugin, "lyrics", vec![map.clone().into()]) {
+                        Ok(value) => value,
+                        Err(problem) => {
+                            failed.get_or_insert(format!("{name}: {problem}"));
+                            continue;
+                        }
                     };
                     match read_lyrics(&value, &name) {
                         Some(found) if found.timed || found.instrumental => {
@@ -645,7 +658,11 @@ fn run(
                         None => {}
                     }
                 }
-                let _ = reply.send(timed.or(plain));
+                let _ = reply.send(match (timed.or(plain), failed) {
+                    (Some(found), _) => Ok(Some(found)),
+                    (None, Some(problem)) => Err(problem),
+                    (None, None) => Ok(None),
+                });
             }
             PluginEvent::Rated { track_id, stars } => {
                 if let Ok(Some(track)) = library.track(&track_id)
@@ -3279,12 +3296,12 @@ name = \"{name}\"
             duration: 60.,
             ..Default::default()
         };
-        let found = host.lyrics(&song("Song")).unwrap();
+        let found = host.lyrics(&song("Song")).unwrap().unwrap();
         assert_eq!(found.provider, "Timed words");
         assert!(found.timed);
         assert_eq!(found.text, "[00:01.00]Artist sings");
         // Only plain lyrics anywhere: those.
-        let plain = host.lyrics(&song("Other")).unwrap();
+        let plain = host.lyrics(&song("Other")).unwrap().unwrap();
         assert_eq!(
             (plain.provider.as_str(), plain.timed),
             ("Plain words", false)
