@@ -47,6 +47,9 @@ impl AppView {
             HostAction::Toggle => self.player.send(Command::Toggle),
             HostAction::Next => self.player.send(Command::Next),
             HostAction::Previous => self.player.send(Command::Previous),
+            HostAction::ServerSongs { generation, tracks } => {
+                self.server_songs_found(generation, tracks)
+            }
             HostAction::LibraryChanged => {
                 self.playlists = self.library.playlists().unwrap_or_default();
                 self.refresh(cx);

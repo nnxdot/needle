@@ -231,8 +231,15 @@ fn steps() -> Vec<Step> {
             tick: Some(|v, t, _, cx| scroll_list(v, t, cx)),
         },
         Step {
+            // Folded with the compact sidebar off: no sidebar at all.
+            name: "sidebar hidden",
+            start: |v, _, _| v.settings.layout.compact_sidebar = false,
+            tick: None,
+        },
+        Step {
             name: "back to songs",
             start: |v, w, cx| {
+                v.settings.layout.compact_sidebar = true;
                 v.toggle_sidebar();
                 open(v, Page::Songs, w, cx);
             },

@@ -23,8 +23,13 @@ impl AppView {
         let narrow = width < 1100.;
         let hidden = self.settings.layout.sidebar_hidden;
         // With the sidebar folded to its strip, the corner is as wide, with the logo alone;
-        // the button to unfold it is the strip's first icon.
-        let corner = if hidden { RAIL } else { sidebar };
+        // the button to unfold it is the strip's first icon. Hidden altogether, a small corner
+        // keeps the logo and the button.
+        let corner = match (hidden, self.settings.layout.compact_sidebar) {
+            (false, _) => sidebar,
+            (true, true) => RAIL,
+            (true, false) => 92.,
+        };
         // The title bar does not shrink its contents, so size the search field from the room
         // left beside the sidebar column, back button, palette button, and window buttons.
         let search_width =
@@ -1115,12 +1120,13 @@ impl AppView {
     /// The title bar's corner above the sidebar: the logo, the name, and the fold button.
     fn title_corner(&self, corner: f32, hidden: bool, cx: &mut Context<Self>) -> Div {
         let p = pal(cx);
+        let rail = hidden && self.settings.layout.compact_sidebar;
         div()
             .w(px(corner))
             .flex_shrink_0()
             .h_full()
-            .when(hidden, |el| el.justify_center())
-            .when(!hidden, |el| el.pl_4().pr_2())
+            .when(rail, |el| el.justify_center())
+            .when(!rail, |el| el.pl_4().pr_2())
             .flex()
             .items_center()
             .gap_2()
@@ -1134,14 +1140,22 @@ impl AppView {
                         .child("Needle"),
                 )
             })
-            .when(!hidden, |el| {
+            .when(!rail, |el| {
                 el.child(
-                    icon_button("toggle-sidebar", "panel", "Fold the sidebar (Ctrl+B)")
-                        .small()
-                        .on_click(cx.listener(|this, _, _, cx| {
-                            this.toggle_sidebar();
-                            cx.notify();
-                        })),
+                    icon_button(
+                        "toggle-sidebar",
+                        "panel",
+                        if hidden {
+                            "Show the sidebar (Ctrl+B)"
+                        } else {
+                            "Fold the sidebar (Ctrl+B)"
+                        },
+                    )
+                    .small()
+                    .on_click(cx.listener(|this, _, _, cx| {
+                        this.toggle_sidebar();
+                        cx.notify();
+                    })),
                 )
             })
     }

@@ -97,6 +97,15 @@ Status: **open**, **fixed**, or **kept** (looked at, and left as it is, with the
   sidebar to a 60-point strip of page icons (names as tips, the page shown marked by an
   accent bar at the edge, groups split by thin lines, playlists and the bottom buttons as
   icons); its first icon unfolds it again. The benchmark scrolls Songs with it folded.
+- **Compact sidebar** (done, on by default): Settings › Appearance. On, folding the sidebar
+  leaves the strip of icons; off, folding hides it altogether, as before.
+- **octo-fiesta** (done, experimental, off by default): the Navidrome / Subsonic plugin
+  (1.3.0) has a switch, "Search the server as you type (experimental)", in Settings › Online
+  services. On, typing a search on Songs asks the server (after a 0.45 s pause); songs it
+  finds that are not in the library show above the list under "On your server", to play or
+  queue. Through octo-fiesta these include songs from its streaming services, fetched when
+  played. Tested with a pretend server: off, nothing is asked; on, only the song not in the
+  library comes back. Not tried against a real octo-fiesta.
 - **Player in the top bar** (done, off by default): Settings › Appearance. The title bar
   holds the play controls, the song playing with its seek bar, and the volume, lyrics, and
   queue; the search field moves to the bottom, and its suggestions open upward.

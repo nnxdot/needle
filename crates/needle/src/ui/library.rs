@@ -945,6 +945,7 @@ impl AppView {
             .min_h_0()
             .flex()
             .flex_col()
+            .children(self.server_songs_block(cx))
             .child(
                 div()
                     .h(px(32.))

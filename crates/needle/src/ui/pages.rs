@@ -777,6 +777,16 @@ impl AppView {
                         cx,
                     ))
                     .child(setting_row(
+                        "Compact sidebar",
+                        "Folding the sidebar (Ctrl+B) leaves a strip of page icons. Turn this off to hide the sidebar altogether instead.",
+                        Switch::new("compact-sidebar").checked(self.settings.layout.compact_sidebar).on_click(cx.listener(|this, checked: &bool, _, cx| {
+                            this.settings.layout.compact_sidebar = *checked;
+                            this.persist_settings();
+                            cx.notify();
+                        })),
+                        cx,
+                    ))
+                    .child(setting_row(
                         "Player in the top bar",
                         "The play controls, the song playing, and the volume sit in the title bar, as in Apple Music, and the search field moves to the bottom. Off by default.",
                         Switch::new("player-on-top").checked(self.settings.layout.player_on_top).on_click(cx.listener(|this, checked: &bool, _, cx| {
