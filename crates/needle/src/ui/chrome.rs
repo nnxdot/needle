@@ -101,18 +101,6 @@ impl AppView {
                 )
             })
             .child(content)
-            // While a slider is dragged (the seek bar or volume in the top bar), the whole bar
-            // claims the mouse: otherwise Windows takes a release over the title bar as its
-            // own, Needle never hears the button come up, and the slider stays stuck to the
-            // pointer.
-            // (Not while songs are dragged: they may be dropped on the queue button there.)
-            .when(
-                self.seek_held
-                    || cx
-                        .active_drag_type()
-                        .is_some_and(|t| t != std::any::TypeId::of::<super::flow::DraggedTracks>()),
-                |el| el.child(div().id("drag-guard").absolute().inset_0().occlude()),
-            )
             .into_any_element()
     }
 
@@ -1256,6 +1244,9 @@ impl AppView {
                     .items_center()
                     .gap_2()
                     .pl_2()
+                    // Each group claims the mouse, or Windows takes presses there (on the
+                    // sliders too) as the title bar's, and never reports letting go.
+                    .occlude()
                     .child(
                         icon_button("back", "chevron-left", "Back · Alt+Left")
                             .small()
@@ -1277,6 +1268,7 @@ impl AppView {
                         div()
                             .w_full()
                             .max_w(px(600.))
+                            .occlude()
                             .h(px(48.))
                             .rounded(px(8.))
                             .bg(p.raised.opacity(if p.back.a < 1. { 0.75 } else { 1. }))
@@ -1404,6 +1396,7 @@ impl AppView {
                     .items_center()
                     .gap_1()
                     .pr_2()
+                    .occlude()
                     .when(wide, |el| el.child(self.loop_button(cx)))
                     .child(self.volume_control(if wide { 100. } else { 70. }, cx))
                     .when(wide, |el| {
