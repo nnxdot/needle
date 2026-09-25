@@ -32,7 +32,14 @@ impl AppView {
             self.immersive_restore =
                 (!window.is_maximized() && !window.is_fullscreen()).then(|| window.viewport_size());
         }
-        if on != window.is_fullscreen() {
+        // Leaving undoes what entering did, even when the system has not reported full screen
+        // yet (entering and leaving quickly): asking the window would say it is not.
+        if on {
+            self.immersive_toggled = !window.is_fullscreen();
+            if self.immersive_toggled {
+                window.toggle_fullscreen();
+            }
+        } else if std::mem::take(&mut self.immersive_toggled) {
             window.toggle_fullscreen();
         }
         if !on && let Some(size) = self.immersive_restore.take() {

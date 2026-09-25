@@ -710,6 +710,30 @@ impl AppView {
                 },
             )
             .child(body)
+            // Below a playlist's songs: drop here to move songs to the end.
+            .when(
+                self.arrangeable_playlist(cx).is_some() && !self.tracks.is_empty(),
+                |el| {
+                    let (line, end) = (p.accent, self.tracks.len());
+                    el.child(
+                        div()
+                            .id("playlist-end")
+                            .flex_shrink_0()
+                            .h(px(32.))
+                            .mx_6()
+                            .border_t_2()
+                            .border_color(gpui::transparent_black())
+                            .drag_over::<super::flow::DraggedTracks>(move |s, _, _, _| {
+                                s.border_color(line)
+                            })
+                            .on_drop(cx.listener(
+                                move |this, dragged: &super::flow::DraggedTracks, _, cx| {
+                                    this.move_in_playlist(&dragged.ids, end, cx)
+                                },
+                            )),
+                    )
+                },
+            )
             .when(
                 self.page.is_tracks() && !self.page.is_grid() && self.matched_total > PAGE_SIZE,
                 |el| {
