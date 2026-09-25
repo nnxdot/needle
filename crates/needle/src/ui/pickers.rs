@@ -1,7 +1,7 @@
 //! Whether Needle can open a file picker. On Linux the picker comes from the desktop portal
 //! (or zenity); a system with neither would otherwise open nothing and say nothing.
 use super::AppView;
-use gpui::Context;
+use gpui::{Context, Window};
 
 /// Shown when no picker can open.
 pub const MISSING: &str = "Needle could not open a file picker. Install xdg-desktop-portal with the portal for your desktop (xdg-desktop-portal-gnome, -kde, or -gtk), or zenity.";
@@ -47,6 +47,34 @@ fn on_path(program: &str) -> bool {
 }
 
 impl AppView {
+    /// Open a file dialog (`dialog`, with rfd) off the window's thread, then act on what was
+    /// chosen. A dialog on the window's own thread lets Windows call back into the window
+    /// while it is busy, which crashes.
+    pub(super) fn pick_then<T: Send + 'static>(
+        &mut self,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+        dialog: impl FnOnce() -> Option<T> + Send + 'static,
+        then: impl FnOnce(&mut Self, T, &mut Window, &mut Context<Self>) + 'static,
+    ) {
+        if !self.can_pick(cx) {
+            return;
+        }
+        cx.spawn_in(window, async move |this, cx| {
+            let chosen = cx
+                .background_executor()
+                .spawn(async move { dialog() })
+                .await;
+            if let Some(chosen) = chosen {
+                let _ = this.update_in(cx, |this, window, cx| {
+                    then(this, chosen, window, cx);
+                    cx.notify();
+                });
+            }
+        })
+        .detach();
+    }
+
     /// Whether a file picker can open; if not, say so and why.
     pub(super) fn can_pick(&mut self, cx: &mut Context<Self>) -> bool {
         if available() {

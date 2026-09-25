@@ -512,7 +512,9 @@ impl AppView {
                     .child(
                         small_button("editor-picture", "Choose picture…")
                             .ghost()
-                            .on_click(cx.listener(|this, _, _, cx| this.pick_playlist_picture(cx))),
+                            .on_click(cx.listener(|this, _, window, cx| {
+                                this.pick_playlist_picture(window, cx)
+                            })),
                     )
                     .when(shown_cover.is_some(), |el| {
                         el.child(
@@ -827,21 +829,22 @@ impl AppView {
     }
 
     /// Choose a picture for the playlist.
-    fn pick_playlist_picture(&mut self, cx: &mut Context<Self>) {
-        if !self.can_pick(cx) {
-            return;
-        }
-        let Some(path) = rfd::FileDialog::new()
-            .set_title("Choose a picture for the playlist")
-            .add_filter("Pictures", &["png", "jpg", "jpeg", "webp", "gif", "bmp"])
-            .pick_file()
-        else {
-            return;
-        };
-        if let Some(editor) = self.editor.as_mut() {
-            editor.picked_cover = Some(path.to_string_lossy().into());
-        }
-        cx.notify();
+    fn pick_playlist_picture(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.pick_then(
+            window,
+            cx,
+            || {
+                rfd::FileDialog::new()
+                    .set_title("Choose a picture for the playlist")
+                    .add_filter("Pictures", &["png", "jpg", "jpeg", "webp", "gif", "bmp"])
+                    .pick_file()
+            },
+            |this, path, _, _| {
+                if let Some(editor) = this.editor.as_mut() {
+                    editor.picked_cover = Some(path.to_string_lossy().into());
+                }
+            },
+        );
     }
 }
 
