@@ -29,6 +29,7 @@ mod plugin_ask;
 mod plugin_ui;
 mod radio;
 mod remote_ui;
+mod server_search;
 mod sound;
 mod sources_ui;
 mod speakers;
@@ -452,6 +453,10 @@ pub struct AppView {
     seek_moved: Option<Instant>,
     /// When `poll` last asked for a redraw (see `poll`).
     polled_redraw: Instant,
+    /// Songs the music servers found for the search, not in the library (`server_search`).
+    server_songs: Vec<needle_core::model::Track>,
+    /// Counts searches sent to the servers, so a late answer is dropped.
+    server_search: u64,
     /// Cover copies made so far (see `thumbs`), to draw again when new ones are in.
     thumbs_seen: u64,
     /// The seek bar is held: silent, and where to jump when it is let go.
@@ -807,6 +812,7 @@ impl AppView {
                     }
                     this.refresh(cx);
                     this.update_suggestions(cx);
+                    this.search_servers(cx);
                 }
                 InputEvent::Focus => {
                     this.search_focused = true;
@@ -942,6 +948,8 @@ impl AppView {
             seek_moved: None,
             polled_redraw: Instant::now(),
             thumbs_seen: 0,
+            server_songs: vec![],
+            server_search: 0,
             seek_held: false,
             seek_to: None,
             confirm_delete: false,
@@ -2460,7 +2468,12 @@ impl Render for AppView {
         let width = widgets::content_size(window).width;
         // Folded, the sidebar is a strip of page icons (see `chrome::RAIL`).
         let sidebar = if self.settings.layout.sidebar_hidden {
-            chrome::RAIL
+            // Or gone altogether, with the compact sidebar turned off in Settings.
+            if self.settings.layout.compact_sidebar {
+                chrome::RAIL
+            } else {
+                0.
+            }
         } else {
             self.settings.layout.sidebar_width.clamp(200., 260.)
         };
@@ -2753,7 +2766,7 @@ impl Render for AppView {
                                 .min_h_0()
                                 .flex()
                                 .bg(p.back)
-                                .child(self.sidebar(sidebar, cx))
+                                .when(sidebar > 0., |el| el.child(self.sidebar(sidebar, cx)))
                                 .child(
                                     // The content surface: flush with the window's right edge
                                     // and the player, one hairline and a rounded corner where it
