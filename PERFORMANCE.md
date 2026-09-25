@@ -91,6 +91,23 @@ Status: **open**, **fixed**, or **kept** (looked at, and left as it is, with the
 11. **157 threads** (kept). An empty profile runs 126: GPUI and the other libraries start
     worker pools sized to the processor, and idle threads cost almost nothing.
 
+13. **Listing sound outputs and reading the keyring stalled the window** (fixed). Both ran on
+    the UI thread when Needle started and when Settings opened; on Linux (WSL) opening
+    Settings took 53 ms. Both now run on another thread (`list_output_devices`,
+    `refresh_services`), and the stall is gone.
+
+## Linux (WSL, Ubuntu, WSLg Wayland)
+
+The `.deb` built by `scripts/build-linux.sh` was installed in WSL and the whole benchmark
+run with `scripts/linux-bench.sh` (a copy of a real profile, a song playing): every step,
+including the player in the top bar, the folded and hidden sidebar, the mini player, the
+playlist editor, full screen, and the mouse's back and forward buttons, ran without a crash
+or an error (only the expected "no keyring" warning in WSL). WSL draws in software, so its
+speed says nothing about real Linux. Clippy is clean and the tests pass in Ubuntu 24.04, and
+the packages install and start on Ubuntu 24.04 and Fedora 44. Note: to install a rebuilt
+package of the same version, use `dpkg -i`; `apt-get install --reinstall` put back its cached
+older copy.
+
 ## Also asked for during this work
 
 - **Mouse side buttons** (done): Back and Forward go between pages (Back leaves full screen or

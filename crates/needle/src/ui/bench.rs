@@ -253,8 +253,26 @@ fn steps() -> Vec<Step> {
             tick: None,
         },
         Step {
+            name: "mini player",
+            start: |v, w, cx| v.open_mini(w, cx),
+            tick: None,
+        },
+        Step {
+            name: "playlist editor",
+            start: |v, w, cx| {
+                gpui::frame_log_note(|| format!("mini player opened: {}", v.mini.is_some()));
+                if let Some(mini) = v.mini.take() {
+                    let _ = mini.update(cx, |_, window, _| window.remove_window());
+                }
+                v.open_playlist_editor(None, vec![], None, w, cx);
+            },
+            tick: None,
+        },
+        Step {
             name: "back to songs",
             start: |v, w, cx| {
+                gpui::frame_log_note(|| format!("playlist editor opened: {}", v.editor.is_some()));
+                v.editor = None;
                 v.settings.layout.compact_sidebar = true;
                 v.toggle_sidebar();
                 open(v, Page::Songs, w, cx);
@@ -312,6 +330,12 @@ impl AppView {
                 view.update(cx, |v, _| format!("{:?}", v.page))
                     .unwrap_or_default()
             };
+            // A history of its own: Home, then Songs; Back goes to Home, Forward to Songs.
+            let _ = view.update_in(cx, |v, window, cx| {
+                open(v, Page::Home, window, cx);
+                open(v, Page::Songs, window, cx);
+            });
+            cx.background_executor().timer(STEP / 4).await;
             let before = page(cx);
             for direction in [NavigationDirection::Back, NavigationDirection::Forward] {
                 let _ = cx.update(|window, cx| {
