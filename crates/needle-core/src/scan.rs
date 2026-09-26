@@ -546,6 +546,14 @@ fn replace_verified(
             track.format.to_lowercase()
         ));
         fs::copy(original, &backup)?;
+        // The copy keeps a read-only file's permissions; the backup is Needle's own, so it
+        // is made writable to stamp it.
+        let mut permissions = fs::metadata(&backup)?.permissions();
+        if permissions.readonly() {
+            #[allow(clippy::permissions_set_readonly_false)]
+            permissions.set_readonly(false);
+            fs::set_permissions(&backup, permissions)?;
+        }
         // A copy keeps the original's dates on macOS (and its modified date on Windows), so
         // the backup is stamped with now: backups are listed newest first by it.
         fs::File::options()
