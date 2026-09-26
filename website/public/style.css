@@ -473,6 +473,12 @@ code { font-family: ui-monospace, "Cascadia Code", Consolas, monospace; font-siz
 .download .platform:first-of-type { margin-top: 0; }
 .download .actions + .platform { margin-top: 30px; }
 .download .fine a { color: #1b1308; }
+/* macOS: the Terminal command, selected whole with one click. */
+.download .command { margin: 0 auto 12px; }
+.download .command code {
+  display: inline-block; max-width: 100%; overflow-x: auto; white-space: nowrap; user-select: all;
+  padding: 12px 18px; border-radius: 12px; font-size: 14px; background: #1b1308; color: var(--cream);
+}
 .download-icon { display: block; margin: 0 auto 32px; border-radius: 28px; box-shadow: 0 30px 60px -24px rgb(35 26 12 / .7); }
 
 /* ---------- footer: the name, large */
