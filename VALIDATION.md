@@ -113,6 +113,14 @@ Opening an existing large library for the first time after this change builds th
 - Film grain is off by default and has a strength slider.
 - Discord Rich Presence uses Needle's own Discord application. A live test with Discord open showed a "Listening" presence named Needle with the uploaded logo and a time bar for eight seconds, confirmed by Discord's reply, and then cleared it. A second live test showed "Listening to Armageddon" with the artist, the album, and the album cover found in the iTunes catalog (Discord proxied the image), with the Needle logo as the small badge. A test checks the cover match: a different artist never counts, and the same song on the same album wins over remixes. It talks only to the local Discord pipe and first checks that the program serving the pipe is a Discord client (Discord, Canary, PTB, Development, Vesktop, Equibop, Legcord, or WebCord); a live check against this PC's Discord passed. Tests cover the activity message (listening type, 2–128 character fields, time bar in milliseconds, paused state without a time bar) and the client name check.
 
+## 1.6.1 for macOS checks
+
+- Built and tested on a MacBook Air (M4, macOS 15.7): clippy clean, all tests passing (18, 18, 195), including Dolby files through the Mac FFmpeg and an update that swaps the app from a real disk image.
+- The whole benchmark (`scripts/mac-bench.sh`) ran without a crash or error; frames were built in about 8 to 13 ms on average. The Intel copy of FFmpeg was checked under Rosetta, but the app is for Apple silicon only (ONNX Runtime has no prebuilt library for Intel Macs).
+- The app opened from Applications (Launch Services) saves plugin passwords in the Keychain; started over SSH, macOS refuses (no user session), which is expected.
+- Privacy: the programs, the Info.plist, and the disk image hold no Apple ID, team, user name, or computer name. The build runs with the home folder rewritten (`--remap-path-prefix`), the programs are stripped, extended attributes are cleared, and the app is signed ad hoc (no identity). The only `/Users/` paths are ONNX Runtime's own build machine (`/Users/runner/work/ort-artifacts`).
+- Top bar by hand on the Mac: the window buttons have room, and the palette button shows one ⌘.
+
 ## 1.6.1 checks
 
 - Top bar: the play controls, the song box (with the seek bar), and the right-hand buttons (with the volume) claim the mouse, so Windows no longer takes a press there as the title bar's and loses the release; checked by hand on Windows by the user before release. A first attempt (a cover over the bar while dragging) did not help and was removed.

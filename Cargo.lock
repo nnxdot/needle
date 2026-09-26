@@ -4821,6 +4821,7 @@ dependencies = [
  "ebur128",
  "hound",
  "keyring",
+ "libc",
  "lofty",
  "md5",
  "notify 8.2.0",
