@@ -444,7 +444,6 @@ fn replace_bundle(image: &Path, bundle: &Path) -> Result<()> {
     // Names of the update's own, never there before, so nothing else beside the app is touched.
     let unique = uuid::Uuid::new_v4().simple();
     let fresh = bundle.with_file_name(format!(".Needle-update-{unique}.app"));
-    let old = bundle.with_file_name(format!(".Needle-old-{unique}.app"));
     let copied = run(
         &tool("ditto")?,
         &[mount.join("Needle.app").as_os_str(), fresh.as_os_str()],
@@ -457,15 +456,28 @@ fn replace_bundle(image: &Path, bundle: &Path) -> Result<()> {
         let _ = std::fs::remove_dir_all(&fresh);
         return Err(error.context("Could not copy the new Needle"));
     }
-    // A running program is not disturbed when its folder is renamed.
-    std::fs::rename(&bundle, &old).context("Could not move the old Needle aside")?;
-    if let Err(error) = std::fs::rename(&fresh, &bundle) {
-        let _ = std::fs::rename(&old, &bundle);
+    // The two are swapped in one step, so an update stopped at any moment leaves a Needle.app
+    // that opens. A running program is not disturbed when its folder moves.
+    if let Err(error) = swap(&fresh, &bundle) {
         let _ = std::fs::remove_dir_all(&fresh);
-        return Err(anyhow::Error::from(error).context("Could not put the new Needle in place"));
+        return Err(error.context("Could not put the new Needle in place"));
     }
-    let _ = std::fs::remove_dir_all(&old);
+    // The old copy is where the new one was.
+    let _ = std::fs::remove_dir_all(&fresh);
     let _ = std::fs::remove_dir(&mount);
+    Ok(())
+}
+
+/// Swaps two folders in one step (APFS and HFS+ can).
+#[cfg(target_os = "macos")]
+fn swap(a: &Path, b: &Path) -> Result<()> {
+    use std::os::unix::ffi::OsStrExt;
+    let a = std::ffi::CString::new(a.as_os_str().as_bytes())?;
+    let b = std::ffi::CString::new(b.as_os_str().as_bytes())?;
+    // SAFETY: two valid C strings for the paths.
+    if unsafe { libc::renamex_np(a.as_ptr(), b.as_ptr(), libc::RENAME_SWAP) } != 0 {
+        return Err(std::io::Error::last_os_error().into());
+    }
     Ok(())
 }
 

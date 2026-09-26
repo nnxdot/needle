@@ -59,9 +59,10 @@ fi
 staging=$(mktemp -d "$target/.needle-install.XXXXXX")
 ditto "$mount/Needle.app" "$staging/Needle.app" || { rm -rf "$staging"; fail "could not copy Needle."; }
 xattr -dr com.apple.quarantine "$staging/Needle.app" 2>/dev/null || true
-rm -rf "$target/Needle.app"
+# Two quick moves, then the old copy is deleted: Needle.app is missing only between them.
+[ -e "$target/Needle.app" ] && mv "$target/Needle.app" "$staging/Needle-old.app"
 mv "$staging/Needle.app" "$target/Needle.app"
-rmdir "$staging"
+rm -rf "$staging"
 
 say "Needle $version is in $target. Opening it…"
 open "$target/Needle.app"
