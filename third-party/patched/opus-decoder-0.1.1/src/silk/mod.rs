@@ -419,19 +419,6 @@ impl SilkDecoder {
             Ok(parsed) => parsed,
             Err(err) => {
                 if packet_idx == 0 && (12..=15).contains(&config) {
-                    // #region agent log H66
-                    append_silk_debug_log(
-                        "silk-hybrid-parse-header-error",
-                        "H66",
-                        &format!(
-                            "{{\"packet_idx\":{},\"error\":\"{}\",\"tell\":{},\"tell_frac\":{}}}",
-                            packet_idx,
-                            err,
-                            dec.tell(),
-                            dec.tell_frac()
-                        ),
-                    );
-                    // #endregion
                 }
                 return Err(err);
             }
@@ -463,19 +450,6 @@ impl SilkDecoder {
             trace_pkt0,
         ) {
             if packet_idx == 0 && (12..=15).contains(&config) {
-                // #region agent log H67
-                append_silk_debug_log(
-                    "silk-hybrid-lbrr-error",
-                    "H67",
-                    &format!(
-                        "{{\"packet_idx\":{},\"error\":\"{}\",\"tell\":{},\"tell_frac\":{}}}",
-                        packet_idx,
-                        err,
-                        dec.tell(),
-                        dec.tell_frac()
-                    ),
-                );
-                // #endregion
             }
             return Err(err);
         }
@@ -500,19 +474,6 @@ impl SilkDecoder {
             trace_pkt0,
         ) {
             if packet_idx == 0 && (12..=15).contains(&config) {
-                // #region agent log H68
-                append_silk_debug_log(
-                    "silk-hybrid-main-payload-error",
-                    "H68",
-                    &format!(
-                        "{{\"packet_idx\":{},\"error\":\"{}\",\"tell\":{},\"tell_frac\":{}}}",
-                        packet_idx,
-                        err,
-                        dec.tell(),
-                        dec.tell_frac()
-                    ),
-                );
-                // #endregion
             }
             return Err(err);
         }

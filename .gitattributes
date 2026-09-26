@@ -1,3 +1,4 @@
 * text=auto eol=lf
 *.crate binary
 *.opus binary
+third-party/ffmpeg/needle-ffmpeg-macos binary

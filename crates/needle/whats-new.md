@@ -1,5 +1,6 @@
 # 1.6.1
 Needle gets faster and calmer, and you can lay it out your way.
+- [globe] **Needle for Mac.** Needle now runs on Macs with Apple silicon (M1 or newer), with the menu bar icon, media keys, Now Playing, and your passwords in the Keychain. Get it from needle.nnx.fyi.
 ! **Faster everywhere.** Needle redraws only what changes, so it uses a fraction of the processor it did: pages at rest redraw 7 to 15 times a second instead of 40 to 70, and a start uses about a sixth of the work. Large covers are drawn from small copies, which saves memory and smooths scrolling.
 - [panel] **Player in the top bar.** Turn it on in Settings › Appearance: the controls, the song playing, and the volume sit in the title bar, as in Apple Music, and the search field moves to the bottom.
 - [menu] **Compact sidebar.** Also in Settings › Appearance: folding the sidebar (Ctrl+B) leaves a strip of page icons.

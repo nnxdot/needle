@@ -9,6 +9,8 @@ pub const SERVICE_NAME: &str = "nnx.Needle";
 /// Where secrets are kept, as people know it.
 pub const STORE_NAME: &str = if cfg!(windows) {
     "Windows Credential Manager"
+} else if cfg!(target_os = "macos") {
+    "the macOS Keychain"
 } else {
     "GNOME Keyring or KWallet"
 };
@@ -77,14 +79,14 @@ pub trait SecretStore: Send + Sync {
 /// Windows Credential Manager, or on Linux the Secret Service (GNOME Keyring, KWallet). Other
 /// platforms report that no secure store is available.
 pub struct SystemStore;
-#[cfg(any(windows, target_os = "linux"))]
+#[cfg(any(windows, target_os = "linux", target_os = "macos"))]
 impl SystemStore {
     fn entry(kind: SecretKind) -> Result<keyring::Entry> {
         keyring::Entry::new(SERVICE_NAME, kind.account())
             .map_err(|e| anyhow::anyhow!("{STORE_NAME}: {e}"))
     }
 }
-#[cfg(any(windows, target_os = "linux"))]
+#[cfg(any(windows, target_os = "linux", target_os = "macos"))]
 impl SecretStore for SystemStore {
     fn get(&self, kind: SecretKind) -> Result<Option<String>> {
         match Self::entry(kind)?.get_password() {
@@ -105,7 +107,7 @@ impl SecretStore for SystemStore {
         }
     }
 }
-#[cfg(not(any(windows, target_os = "linux")))]
+#[cfg(not(any(windows, target_os = "linux", target_os = "macos")))]
 impl SecretStore for SystemStore {
     fn get(&self, _: SecretKind) -> Result<Option<String>> {
         Ok(None)
@@ -149,7 +151,12 @@ pub fn redact(text: &str, secrets: &[&str]) -> String {
 pub mod plugin {
     use anyhow::Result;
 
-    #[cfg(all(not(test), not(windows), not(target_os = "linux")))]
+    #[cfg(all(
+        not(test),
+        not(windows),
+        not(target_os = "linux"),
+        not(target_os = "macos")
+    ))]
     fn memory() -> &'static std::sync::Mutex<std::collections::HashMap<String, String>> {
         static STORE: std::sync::LazyLock<
             std::sync::Mutex<std::collections::HashMap<String, String>>,
@@ -173,7 +180,7 @@ pub mod plugin {
     }
 
     pub fn get(plugin: &str, key: &str) -> Result<Option<String>> {
-        #[cfg(all(any(windows, target_os = "linux"), not(test)))]
+        #[cfg(all(any(windows, target_os = "linux", target_os = "macos"), not(test)))]
         {
             let entry = keyring::Entry::new(super::SERVICE_NAME, &account(plugin, key))
                 .map_err(|e| anyhow::anyhow!("{}: {e}", super::STORE_NAME))?;
@@ -185,12 +192,12 @@ pub mod plugin {
                 }
             }
         }
-        #[cfg(any(test, not(any(windows, target_os = "linux"))))]
+        #[cfg(any(test, not(any(windows, target_os = "linux", target_os = "macos"))))]
         Ok(memory().lock().unwrap().get(&account(plugin, key)).cloned())
     }
 
     pub fn set(plugin: &str, key: &str, value: &str) -> Result<()> {
-        #[cfg(all(any(windows, target_os = "linux"), not(test)))]
+        #[cfg(all(any(windows, target_os = "linux", target_os = "macos"), not(test)))]
         {
             keyring::Entry::new(super::SERVICE_NAME, &account(plugin, key))
                 .and_then(|e| e.set_password(value))
@@ -198,7 +205,7 @@ pub mod plugin {
                     anyhow::anyhow!("{} could not save a plugin secret: {e}", super::STORE_NAME)
                 })
         }
-        #[cfg(any(test, not(any(windows, target_os = "linux"))))]
+        #[cfg(any(test, not(any(windows, target_os = "linux", target_os = "macos"))))]
         {
             memory()
                 .lock()
@@ -209,7 +216,7 @@ pub mod plugin {
     }
 
     pub fn delete(plugin: &str, key: &str) -> Result<()> {
-        #[cfg(all(any(windows, target_os = "linux"), not(test)))]
+        #[cfg(all(any(windows, target_os = "linux", target_os = "macos"), not(test)))]
         {
             let entry = keyring::Entry::new(super::SERVICE_NAME, &account(plugin, key))
                 .map_err(|e| anyhow::anyhow!("{}: {e}", super::STORE_NAME))?;
@@ -221,7 +228,7 @@ pub mod plugin {
                 ),
             }
         }
-        #[cfg(any(test, not(any(windows, target_os = "linux"))))]
+        #[cfg(any(test, not(any(windows, target_os = "linux", target_os = "macos"))))]
         {
             memory().lock().unwrap().remove(&account(plugin, key));
             Ok(())

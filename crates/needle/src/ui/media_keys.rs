@@ -1,6 +1,6 @@
 //! System media controls, through `souvlaki`: on Windows, media keys, the lock screen, and the
 //! volume flyout (System Media Transport Controls); on Linux, MPRIS, which desktops, media
-//! keys, and tools like playerctl use.
+//! keys, and tools like playerctl use; on macOS, media keys and Now Playing in Control Center.
 use super::{AppView, Event};
 use gpui::Window;
 use needle_core::audio::Command;
@@ -20,7 +20,7 @@ pub enum Key {
 }
 
 pub struct MediaKeys {
-    #[cfg(any(windows, target_os = "linux"))]
+    #[cfg(any(windows, target_os = "linux", target_os = "macos"))]
     controls: souvlaki::MediaControls,
     /// Song id, playing, and when the position was last told.
     shown: Option<(String, bool, Instant)>,
@@ -30,7 +30,7 @@ pub struct MediaKeys {
 
 impl MediaKeys {
     /// Connect the main window to the system's media controls.
-    #[cfg(any(windows, target_os = "linux"))]
+    #[cfg(any(windows, target_os = "linux", target_os = "macos"))]
     pub fn new(
         window: &Window,
         sender: crossbeam_channel::Sender<Event>,
@@ -88,7 +88,7 @@ impl MediaKeys {
         })
     }
 
-    #[cfg(not(any(windows, target_os = "linux")))]
+    #[cfg(not(any(windows, target_os = "linux", target_os = "macos")))]
     pub fn new(
         _: &Window,
         _: crossbeam_channel::Sender<Event>,
@@ -102,7 +102,7 @@ impl AppView {
     /// Tell Windows what is playing: on a new song, on play/pause, and every few seconds so
     /// the position stays right.
     pub(super) fn update_media_keys(&mut self) {
-        #[cfg(any(windows, target_os = "linux"))]
+        #[cfg(any(windows, target_os = "linux", target_os = "macos"))]
         {
             use souvlaki::{MediaMetadata, MediaPlayback, MediaPosition};
             let Some(keys) = self.media_keys.as_mut() else {

@@ -546,6 +546,26 @@ fn replace_verified(
             track.format.to_lowercase()
         ));
         fs::copy(original, &backup)?;
+        // The copy keeps a read-only file's permissions; the backup is Needle's own, so it
+        // is made writable (by this user only) to stamp it.
+        let mut permissions = fs::metadata(&backup)?.permissions();
+        if permissions.readonly() {
+            #[cfg(unix)]
+            {
+                use std::os::unix::fs::PermissionsExt;
+                permissions.set_mode(permissions.mode() | 0o200);
+            }
+            #[cfg(not(unix))]
+            #[allow(clippy::permissions_set_readonly_false)]
+            permissions.set_readonly(false);
+            fs::set_permissions(&backup, permissions)?;
+        }
+        // A copy keeps the original's dates on macOS (and its modified date on Windows), so
+        // the backup is stamped with now: backups are listed newest first by it.
+        fs::File::options()
+            .write(true)
+            .open(&backup)?
+            .set_modified(std::time::SystemTime::now())?;
         fs::rename(&temporary, original)
             .context("Unable to replace audio file; original and backup are intact")?;
         import_one(library, original)?;
@@ -788,7 +808,10 @@ pub fn tag_backups(library: &Library, track_id: &str) -> Result<Vec<TagBackup>> 
             continue;
         }
         let metadata = fs::metadata(&path)?;
-        let created = metadata.created().or_else(|_| metadata.modified())?;
+        // When it was made: the later of its two dates (older backups on Windows have only
+        // the creation date right; new ones everywhere are stamped when made).
+        let modified = metadata.modified()?;
+        let created = metadata.created().map_or(modified, |c| c.max(modified));
         found.push((created, path, metadata.len()));
     }
     found.sort_by(|a, b| b.0.cmp(&a.0).then_with(|| a.1.cmp(&b.1)));
