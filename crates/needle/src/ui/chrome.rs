@@ -37,9 +37,9 @@ impl AppView {
             self.settings.layout.compact_sidebar,
         ) {
             // The buttons alone, above the strip of icons.
-            (true, true, true) => 84.,
+            (true, true, true) => MAC_BUTTONS + 8.,
             // The buttons, then the one to show the sidebar.
-            (true, true, false) => 124.,
+            (true, true, false) => MAC_BUTTONS + 48.,
             _ => corner,
         };
         // The title bar does not shrink its contents, so size the search field from the room
@@ -1176,7 +1176,11 @@ impl AppView {
                     .text_color(p.ink_3)
                     .hover(|s| s.bg(p.raised).text_color(p.ink))
                     .flex_shrink_0()
-                    .child(glyph("command").size(px(14.)).text_color(p.ink_3))
+                    // On macOS the shortcut text starts with the same ⌘, so the icon only
+                    // stands alone.
+                    .when(!cfg!(target_os = "macos") || narrow, |el| {
+                        el.child(glyph("command").size(px(14.)).text_color(p.ink_3))
+                    })
                     .when(!narrow, |el| el.child(super::widgets::keys("Ctrl K")))
                     .tooltip(|window, cx| {
                         gpui_component::tooltip::Tooltip::new(
@@ -1200,7 +1204,7 @@ impl AppView {
             .when(rail && !mac, |el| el.justify_center())
             .when(!rail || mac, |el| el.pl_4().pr_2())
             // Room for macOS's window buttons, left of the logo.
-            .when(mac, |el| el.pl(px(80.)))
+            .when(mac, |el| el.pl(px(MAC_BUTTONS)))
             .flex()
             .items_center()
             .gap_2()
@@ -1208,7 +1212,8 @@ impl AppView {
             .when(!(mac && hidden), |el| {
                 el.child(glyph("logo").size(px(20.)).text_color(p.accent))
             })
-            .when(!hidden, |el| {
+            // Not on macOS, where the window buttons take the room (the menu bar names it).
+            .when(!hidden && !mac, |el| {
                 el.child(
                     div()
                         .flex_1()
@@ -1217,6 +1222,7 @@ impl AppView {
                         .child("Needle"),
                 )
             })
+            .when(!hidden && mac, |el| el.child(div().flex_1()))
             // Not over the big player, where the sidebar is not shown.
             .when(!rail && !self.big, |el| {
                 el.child(
@@ -1526,6 +1532,10 @@ impl AppView {
 
 /// The sidebar folded to a strip of icons, as in Apple Music.
 pub(super) const RAIL: f32 = 60.;
+
+/// macOS: the room its window buttons take at the title bar's left (they end near 70 px; see
+/// `traffic_light_position`), with a clear gap after them.
+const MAC_BUTTONS: f32 = 92.;
 
 /// One icon of the folded sidebar: its name shows as a tip, and the page shown is marked by
 /// a soft square and a short accent bar at the strip's edge.
