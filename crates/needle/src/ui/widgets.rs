@@ -17,12 +17,33 @@ pub fn icon(name: &str) -> Icon {
 }
 
 /// Square ghost button carrying one of Needle's icons.
+/// A shortcut as the system names it: on macOS, Command (⌘) where Windows and Linux use Ctrl
+/// (the key bindings use GPUI's `secondary`, which is the same), Option (⌥) for Alt, and
+/// Control-Command-F for F11. Elsewhere the text as it is.
+pub fn keys(text: &str) -> SharedString {
+    if !cfg!(target_os = "macos") {
+        return SharedString::from(text.to_string());
+    }
+    text.replace("Ctrl + ", "⌘ ")
+        .replace("Ctrl+", "⌘")
+        .replace("Ctrl-click", "⌘-click")
+        .replace("Ctrl ", "⌘")
+        .replace("Alt + ", "⌥ ")
+        .replace("Alt+", "⌥")
+        .replace("F11", "⌃⌘F")
+        .into()
+}
+
 pub fn icon_button(
     id: impl Into<ElementId>,
     name: &str,
     tooltip: impl Into<SharedString>,
 ) -> Button {
-    Button::new(id).ghost().icon(icon(name)).tooltip(tooltip)
+    let tooltip: SharedString = tooltip.into();
+    Button::new(id)
+        .ghost()
+        .icon(icon(name))
+        .tooltip(keys(&tooltip))
 }
 
 pub fn meta(text: impl Into<SharedString>, cx: &App) -> Div {

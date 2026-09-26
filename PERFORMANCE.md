@@ -96,6 +96,16 @@ Status: **open**, **fixed**, or **kept** (looked at, and left as it is, with the
     Settings took 53 ms. Both now run on another thread (`list_output_devices`,
     `refresh_services`), and the stall is gone.
 
+14. **Flaky audio tests** (open, older than this work). A few audio tests (for example
+    `jumping_to_a_song_follows_it_when_the_queue_changed`,
+    `stalled_output_and_default_changes_reopen_the_device`) fail now and then: on
+    Windows 7 runs in 20 with 1.5.2's code, about 1 in 20 now. The tests' pretend output
+    takes 20 ms of sound per 1 ms pause, so how fast a song plays depends on the timer (from
+    real speed to twenty times it), and some tests check the playing song right after a
+    command, before the output has started it. A steady pretend speed was tried: songs meant
+    to end within a test's 10 s then took too long (8 in 40 failed), so it was undone. The
+    fix is to make those tests wait for what they check instead of checking at once.
+
 ## Linux (WSL, Ubuntu, WSLg Wayland)
 
 The `.deb` built by `scripts/build-linux.sh` was installed in WSL and the whole benchmark

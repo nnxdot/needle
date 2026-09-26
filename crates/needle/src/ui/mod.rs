@@ -111,6 +111,7 @@ actions!(
         EnqueueSelection,
         OpenMiniPlayer,
         ToggleImmersive,
+        QuitNeedle,
     ]
 );
 
@@ -634,54 +635,71 @@ pub fn run(library: Library, files: Vec<std::path::PathBuf>) -> Result<()> {
                 enabled: !settings.reduce_motion && motion::system_allows_animation(),
             });
             timing::bind_keys(cx);
+            // macOS: an app menu with Quit (Cmd+Q), and Control-Command-F for full screen.
+            #[cfg(target_os = "macos")]
+            {
+                cx.on_action(|_: &QuitNeedle, cx| cx.quit());
+                cx.bind_keys([
+                    KeyBinding::new("cmd-q", QuitNeedle, None),
+                    KeyBinding::new("ctrl-cmd-f", ToggleImmersive, Some("Needle")),
+                ]);
+                cx.set_menus(vec![Menu {
+                    name: "Needle".into(),
+                    items: vec![MenuItem::action("Quit Needle", QuitNeedle)],
+                }]);
+            }
             let tracks = Some("Needle && !Input");
             cx.bind_keys([
                 KeyBinding::new("space", TogglePlayback, tracks),
-                KeyBinding::new("ctrl-right", NextTrack, tracks),
-                KeyBinding::new("ctrl-left", PreviousTrack, tracks),
+                KeyBinding::new("secondary-right", NextTrack, tracks),
+                KeyBinding::new("secondary-left", PreviousTrack, tracks),
                 KeyBinding::new("right", SeekForward, tracks),
                 KeyBinding::new("left", SeekBackward, tracks),
-                KeyBinding::new("ctrl-up", VolumeUp, tracks),
-                KeyBinding::new("ctrl-down", VolumeDown, tracks),
+                KeyBinding::new("secondary-up", VolumeUp, tracks),
+                KeyBinding::new("secondary-down", VolumeDown, tracks),
                 KeyBinding::new("up", SelectPrevious, tracks),
                 KeyBinding::new("down", SelectNext, tracks),
                 KeyBinding::new("shift-up", ExtendPrevious, tracks),
                 KeyBinding::new("shift-down", ExtendNext, tracks),
-                KeyBinding::new("ctrl-a", SelectAllTracks, tracks),
+                KeyBinding::new("secondary-a", SelectAllTracks, tracks),
                 KeyBinding::new("enter", PlaySelection, tracks),
                 KeyBinding::new("shift-enter", PlayNextSelection, tracks),
-                KeyBinding::new("ctrl-enter", EnqueueSelection, tracks),
-                KeyBinding::new("ctrl-e", EditTags, tracks),
-                KeyBinding::new("ctrl-d", ToggleFavorite, tracks),
+                KeyBinding::new("secondary-enter", EnqueueSelection, tracks),
+                KeyBinding::new("secondary-e", EditTags, tracks),
+                KeyBinding::new("secondary-d", ToggleFavorite, tracks),
                 KeyBinding::new("alt-left", GoBack, tracks),
                 KeyBinding::new("alt-right", GoForward, tracks),
                 KeyBinding::new("backspace", GoBack, tracks),
-                KeyBinding::new("ctrl-f", FocusSearch, Some("Needle")),
-                KeyBinding::new("ctrl-k", OpenPalette, Some("Needle")),
-                KeyBinding::new("ctrl-o", ImportFolder, Some("Needle")),
-                KeyBinding::new("ctrl-j", ToggleQueue, Some("Needle")),
-                KeyBinding::new("ctrl-l", ToggleLyrics, Some("Needle")),
-                KeyBinding::new("ctrl-b", ToggleSidebar, Some("Needle")),
+                KeyBinding::new("secondary-f", FocusSearch, Some("Needle")),
+                KeyBinding::new("secondary-k", OpenPalette, Some("Needle")),
+                KeyBinding::new("secondary-o", ImportFolder, Some("Needle")),
+                KeyBinding::new("secondary-j", ToggleQueue, Some("Needle")),
+                KeyBinding::new("secondary-l", ToggleLyrics, Some("Needle")),
+                KeyBinding::new("secondary-b", ToggleSidebar, Some("Needle")),
                 KeyBinding::new("escape", EscapePanel, Some("Needle")),
                 KeyBinding::new("tab", FocusNext, tracks),
-                KeyBinding::new("ctrl-p", ToggleBigPlayer, Some("Needle")),
-                KeyBinding::new("ctrl-m", OpenMiniPlayer, Some("Needle")),
+                KeyBinding::new("secondary-p", ToggleBigPlayer, Some("Needle")),
+                KeyBinding::new("secondary-m", OpenMiniPlayer, Some("Needle")),
                 KeyBinding::new("f11", ToggleImmersive, Some("Needle")),
                 KeyBinding::new("shift-tab", FocusPrevious, Some("Needle")),
-                KeyBinding::new("ctrl-1", GoTo(0), Some("Needle")),
-                KeyBinding::new("ctrl-2", GoTo(1), Some("Needle")),
-                KeyBinding::new("ctrl-3", GoTo(2), Some("Needle")),
-                KeyBinding::new("ctrl-4", GoTo(3), Some("Needle")),
-                KeyBinding::new("ctrl-5", GoTo(4), Some("Needle")),
-                KeyBinding::new("ctrl-6", GoTo(5), Some("Needle")),
-                KeyBinding::new("ctrl-7", GoTo(6), Some("Needle")),
-                KeyBinding::new("ctrl-,", GoTo(7), Some("Needle")),
+                KeyBinding::new("secondary-1", GoTo(0), Some("Needle")),
+                KeyBinding::new("secondary-2", GoTo(1), Some("Needle")),
+                KeyBinding::new("secondary-3", GoTo(2), Some("Needle")),
+                KeyBinding::new("secondary-4", GoTo(3), Some("Needle")),
+                KeyBinding::new("secondary-5", GoTo(4), Some("Needle")),
+                KeyBinding::new("secondary-6", GoTo(5), Some("Needle")),
+                KeyBinding::new("secondary-7", GoTo(6), Some("Needle")),
+                KeyBinding::new("secondary-,", GoTo(7), Some("Needle")),
             ]);
             let bounds = Bounds::centered(None, size(px(1380.), px(880.)), cx);
             let options = WindowOptions {
                 window_bounds: Some(WindowBounds::Windowed(bounds)),
                 window_min_size: Some(size(px(MIN_WINDOW.0), px(MIN_WINDOW.1))),
-                titlebar: Some(TitleBar::title_bar_options()),
+                titlebar: Some(TitlebarOptions {
+                    // macOS: the window buttons in the middle of Needle's title bar.
+                    traffic_light_position: Some(point(px(16.), px(17.))),
+                    ..TitleBar::title_bar_options()
+                }),
                 // Linux: Needle draws its own title bar, so ask the desktop not to add one.
                 window_decorations: cfg!(target_os = "linux").then_some(WindowDecorations::Client),
                 // Linux desktops find the name and icon through the launcher of this id.
@@ -1875,7 +1893,7 @@ impl AppView {
         window.focus(&self.focus);
         if modifiers.shift && !self.tracks.is_empty() {
             self.extend_to(index, cx);
-        } else if modifiers.control {
+        } else if modifiers.secondary() {
             if !self.selection.ids.remove(&track.id) {
                 self.selection.ids.insert(track.id.clone());
             }

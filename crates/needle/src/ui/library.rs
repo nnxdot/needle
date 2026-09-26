@@ -207,7 +207,7 @@ impl AppView {
                             .on_click(cx.listener(|this, _, _, cx| this.demo(cx))),
                     ),
             )
-            .child(faint("Ctrl+O adds a folder at any time. No account needed.", cx))
+            .child(faint(super::widgets::keys("Ctrl+O adds a folder at any time. No account needed."), cx))
             .child(
                 Button::new("empty-import")
                     .ghost()

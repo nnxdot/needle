@@ -76,7 +76,9 @@
         <h2>Installing</h2>
         <dl class="api">
           <dt>Which download do I need?</dt>
-          <dd>On Windows, the installer is best for most people. It adds Needle to the Start menu and to "Open with" for music files, and it needs no administrator rights. The portable zip runs from any folder, with nothing installed. On Linux, take the <code>.deb</code> for Ubuntu, Linux Mint, and Debian, or the <code>.rpm</code> for Fedora and openSUSE.</dd>
+          <dd>On Windows, the installer is best for most people. It adds Needle to the Start menu and to "Open with" for music files, and it needs no administrator rights. The portable zip runs from any folder, with nothing installed. On Linux, take the <code>.deb</code> for Ubuntu, Linux Mint, and Debian, or the <code>.rpm</code> for Fedora and openSUSE. On a Mac, use the Terminal command below.</dd>
+          <dt>How do I install it on a Mac?</dt>
+          <dd>Needle runs on Macs with Apple silicon (M1 or newer) and macOS 11 or newer. Open <b>Terminal</b> and paste <code>curl -fsSL https://needle.nnx.fyi/install-mac.sh | bash</code>. It downloads Needle, checks it against the published checksums, puts it in Applications, and opens it. You can also download the <a href="/download/Needle-1.6.1-macos.dmg">disk image</a> and drag Needle to Applications. Needle is signed without an Apple developer account, so the first time you open a copy from the disk image macOS stops it: open <b>System Settings › Privacy &amp; Security</b> and choose <b>Open Anyway</b>. The first time Needle saves a password, macOS asks to let it use your keychain: choose <b>Always Allow</b>.</dd>
           <dt>How do I install it on Linux?</dt>
           <dd>Open the downloaded file, and your software center installs it; or in a terminal, <code>sudo apt install ./needle_1.6.1_amd64.deb</code> on Ubuntu and Mint, or <code>sudo dnf install ./needle-1.6.1-1.x86_64.rpm</code> on Fedora. Needle then appears with your other apps. It needs Ubuntu 24.04, Linux Mint 22, Debian 13, Fedora 40, or newer. For the tray icon on GNOME, add the AppIndicator extension. Dolby Atmos music plays with FFmpeg, which the package asks for.</dd>
           <dt>Windows says "Windows protected your PC"</dt>
@@ -84,9 +86,9 @@
           <dt>Can I install it with winget?</dt>
           <dd>Yes, once Needle is in the winget catalogue: <code>winget install nnxdot.Needle</code>.</dd>
           <dt>How do I update?</dt>
-          <dd>Needle checks for a new version once a day and tells you when one is out. Install it from <b>Settings › Online services</b>. On Linux, your system asks for your password once, as for any other update. After an update, Needle shows what is new. Needle 1.0.0 cannot find updates by itself; install a newer version from this site once.</dd>
+          <dd>Needle checks for a new version once a day and tells you when one is out. Install it from <b>Settings › Online services</b>. On Linux, your system asks for your password once, as for any other update. On a Mac, Needle replaces itself in Applications; macOS may ask again to let it use your keychain. After an update, Needle shows what is new. Needle 1.0.0 cannot find updates by itself; install a newer version from this site once.</dd>
           <dt>How do I uninstall?</dt>
-          <dd>In Windows Settings, open <b>Apps › Installed apps</b>, find Needle, and choose <b>Uninstall</b>. Your library and history stay in <code>%LOCALAPPDATA%\nnx\Needle\data</code>, in case you come back. Delete that folder to remove them. On Linux, remove the <code>needle</code> package with your software center, <code>apt</code>, or <code>dnf</code>; your library stays in <code>~/.local/share/needle</code>.</dd>
+          <dd>In Windows Settings, open <b>Apps › Installed apps</b>, find Needle, and choose <b>Uninstall</b>. Your library and history stay in <code>%LOCALAPPDATA%\nnx\Needle\data</code>, in case you come back. Delete that folder to remove them. On Linux, remove the <code>needle</code> package with your software center, <code>apt</code>, or <code>dnf</code>; your library stays in <code>~/.local/share/needle</code>. On a Mac, drag Needle from Applications to the Trash; your library stays in <code>~/Library/Application Support/studio.nnx.Needle</code>.</dd>
         </dl>
       </section>
 

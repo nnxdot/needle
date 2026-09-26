@@ -1,5 +1,5 @@
-//! Hide to tray: with it on, Needle has an icon in the notification area, and closing (or
-//! "Hide to tray") hides the window while the music plays on. The icon's menu shows Needle
+//! Hide to tray: with it on, Needle has an icon in the notification area (the menu bar on
+//! macOS), and closing (or "Hide to tray") hides the window while the music plays on. The icon's menu shows Needle
 //! again, controls playback, or quits; clicking the icon shows Needle.
 use super::{AppView, Event};
 use gpui::*;
@@ -16,7 +16,7 @@ pub enum TrayAction {
 
 /// The icon, while hide to tray is on.
 pub struct Tray {
-    #[cfg(windows)]
+    #[cfg(any(windows, target_os = "macos"))]
     _icon: tray_icon::TrayIcon,
     #[cfg(target_os = "linux")]
     handle: ksni::blocking::Handle<LinuxTray>,
@@ -112,7 +112,7 @@ impl Drop for Tray {
 }
 
 impl Tray {
-    #[cfg(windows)]
+    #[cfg(any(windows, target_os = "macos"))]
     fn new(sender: crossbeam_channel::Sender<Event>) -> anyhow::Result<Self> {
         use tray_icon::{
             Icon, MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent,
@@ -129,7 +129,17 @@ impl Tray {
             &MenuItem::with_id("quit", "Quit Needle", true, None),
         ])?;
         // The app icon Needle's build embeds as resource 1.
+        #[cfg(windows)]
         let icon = Icon::from_resource(1, Some((32, 32)))?;
+        // macOS: the logo, at the menu bar's size (22 points, twice that for sharp screens).
+        #[cfg(target_os = "macos")]
+        let icon = {
+            let logo = image::load_from_memory(include_bytes!("../../assets/needle-1024.png"))?
+                .resize(44, 44, image::imageops::FilterType::Lanczos3)
+                .to_rgba8();
+            let (width, height) = logo.dimensions();
+            Icon::from_rgba(logo.into_raw(), width, height)?
+        };
         let tray = TrayIconBuilder::new()
             .with_icon(icon)
             .with_tooltip("Needle")
@@ -172,9 +182,9 @@ impl Tray {
         })?;
         Ok(Self { handle })
     }
-    #[cfg(not(any(windows, target_os = "linux")))]
+    #[cfg(not(any(windows, target_os = "linux", target_os = "macos")))]
     fn new(_sender: crossbeam_channel::Sender<Event>) -> anyhow::Result<Self> {
-        anyhow::bail!("The tray is only on Windows and Linux")
+        anyhow::bail!("The tray is only on Windows, macOS, and Linux")
     }
 }
 

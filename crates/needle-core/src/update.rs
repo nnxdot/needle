@@ -32,6 +32,8 @@ pub enum Package {
     Deb,
     /// Fedora, openSUSE: `needle-<version>-1.x86_64.rpm` (or `.aarch64`).
     Rpm,
+    /// macOS, Apple silicon: `Needle-<version>-macos.dmg`, holding `Needle.app`.
+    MacApp,
 }
 
 impl Package {
@@ -54,6 +56,7 @@ impl Package {
                 name.starts_with(&format!("needle-{version}-"))
                     && name.ends_with(&format!(".{arch}.rpm"))
             }
+            Self::MacApp => arch == "aarch64" && name == format!("needle-{version}-macos.dmg"),
         }
     }
 }
@@ -91,10 +94,35 @@ pub fn installed_package() -> Option<Package> {
             }
         })
     }
-    #[cfg(not(any(windows, target_os = "linux")))]
+    // macOS: an app bundle this user can replace (in Applications, as the disk image and the
+    // install script put it).
+    #[cfg(target_os = "macos")]
+    {
+        mac_bundle().map(|_| Package::MacApp)
+    }
+    #[cfg(not(any(windows, target_os = "linux", target_os = "macos")))]
     {
         None
     }
+}
+
+/// The `.app` folder this Needle runs from, when this user can replace it.
+#[cfg(target_os = "macos")]
+fn mac_bundle() -> Option<PathBuf> {
+    let exe = std::env::current_exe().ok()?.canonicalize().ok()?;
+    // <bundle>.app/Contents/MacOS/Needle
+    let bundle = exe.parent()?.parent()?.parent()?;
+    let folder = bundle.parent()?;
+    let writable = |path: &Path| {
+        use std::os::unix::ffi::OsStrExt;
+        let Ok(text) = std::ffi::CString::new(path.as_os_str().as_bytes()) else {
+            return false;
+        };
+        // SAFETY: a valid C string for the path.
+        unsafe { libc::access(text.as_ptr(), libc::W_OK) == 0 }
+    };
+    (bundle.extension().is_some_and(|e| e == "app") && writable(bundle) && writable(folder))
+        .then(|| bundle.to_path_buf())
 }
 
 fn parts(version: &str) -> Vec<u64> {
@@ -298,6 +326,16 @@ pub fn install(release: &Release, installer: &Path) -> Result<()> {
         }
         #[cfg(not(unix))]
         Some(Package::Deb | Package::Rpm) => bail!("Linux packages install only on Linux."),
+        #[cfg(target_os = "macos")]
+        Some(Package::MacApp) => {
+            let installed = install_mac(installer);
+            if let Some(folder) = installer.parent() {
+                let _ = std::fs::remove_dir_all(folder);
+            }
+            installed
+        }
+        #[cfg(not(target_os = "macos"))]
+        Some(Package::MacApp) => bail!("The macOS app installs only on macOS."),
         None => bail!("This copy of Needle cannot update itself."),
     }
 }
@@ -355,6 +393,99 @@ fn install_linux(release: &Release, package: &Path) -> Result<()> {
     Ok(())
 }
 
+/// Swaps the running `Needle.app` for the one in the checked disk image: the new copy goes
+/// next to the old one first, so a failure leaves the old one as it was. Needle starts again
+/// a moment after it closes.
+#[cfg(target_os = "macos")]
+fn install_mac(image: &Path) -> Result<()> {
+    let bundle = mac_bundle().context("Needle's app folder cannot be replaced by this user.")?;
+    replace_bundle(image, &bundle)?;
+    // Start the new Needle once this one has closed (up to 30 s), so `open` does not just
+    // bring this one to the front.
+    let _ = std::process::Command::new("/bin/sh")
+        .args([
+            "-c",
+            "i=0; while kill -0 \"$1\" 2>/dev/null && [ $i -lt 150 ]; do sleep 0.2; i=$((i+1)); done; exec /usr/bin/open \"$0\"",
+        ])
+        .arg(&bundle)
+        .arg(std::process::id().to_string())
+        .spawn();
+    Ok(())
+}
+
+/// Puts the `Needle.app` from the disk image `image` in place of `bundle`.
+#[cfg(target_os = "macos")]
+fn replace_bundle(image: &Path, bundle: &Path) -> Result<()> {
+    let tool = |name: &str| system_tool(name).with_context(|| format!("{name} is missing"));
+    let run = |program: &Path, args: &[&std::ffi::OsStr]| -> Result<()> {
+        let status = std::process::Command::new(program)
+            .args(args)
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .status()
+            .with_context(|| format!("Could not start {}", program.display()))?;
+        if !status.success() {
+            bail!("{} stopped with {status}", program.display());
+        }
+        Ok(())
+    };
+    let hdiutil = tool("hdiutil")?;
+    let mount = image.with_extension("mounted");
+    std::fs::create_dir(&mount)?;
+    let bundle = bundle.to_path_buf();
+    run(
+        &hdiutil,
+        &[
+            "attach".as_ref(),
+            "-nobrowse".as_ref(),
+            "-readonly".as_ref(),
+            "-noautoopen".as_ref(),
+            "-mountpoint".as_ref(),
+            mount.as_os_str(),
+            image.as_os_str(),
+        ],
+    )
+    .context("Could not open the disk image")?;
+    // Names of the update's own, never there before, so nothing else beside the app is touched.
+    let unique = uuid::Uuid::new_v4().simple();
+    let fresh = bundle.with_file_name(format!(".Needle-update-{unique}.app"));
+    let copied = run(
+        &tool("ditto")?,
+        &[mount.join("Needle.app").as_os_str(), fresh.as_os_str()],
+    );
+    let _ = run(
+        &hdiutil,
+        &["detach".as_ref(), "-quiet".as_ref(), mount.as_os_str()],
+    );
+    if let Err(error) = copied {
+        let _ = std::fs::remove_dir_all(&fresh);
+        return Err(error.context("Could not copy the new Needle"));
+    }
+    // The two are swapped in one step, so an update stopped at any moment leaves a Needle.app
+    // that opens. A running program is not disturbed when its folder moves.
+    if let Err(error) = swap(&fresh, &bundle) {
+        let _ = std::fs::remove_dir_all(&fresh);
+        return Err(error.context("Could not put the new Needle in place"));
+    }
+    // The old copy is where the new one was.
+    let _ = std::fs::remove_dir_all(&fresh);
+    let _ = std::fs::remove_dir(&mount);
+    Ok(())
+}
+
+/// Swaps two folders in one step (APFS and HFS+ can).
+#[cfg(target_os = "macos")]
+fn swap(a: &Path, b: &Path) -> Result<()> {
+    use std::os::unix::ffi::OsStrExt;
+    let a = std::ffi::CString::new(a.as_os_str().as_bytes())?;
+    let b = std::ffi::CString::new(b.as_os_str().as_bytes())?;
+    // SAFETY: two valid C strings for the paths.
+    if unsafe { libc::renamex_np(a.as_ptr(), b.as_ptr(), libc::RENAME_SWAP) } != 0 {
+        return Err(std::io::Error::last_os_error().into());
+    }
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -378,6 +509,7 @@ mod tests {
                 {"name":"needle_1.5.0_amd64.deb","browser_download_url":"https://d/deb"},
                 {"name":"needle_1.5.0_arm64.deb","browser_download_url":"https://d/deb-arm"},
                 {"name":"needle-1.5.0-1.x86_64.rpm","browser_download_url":"https://d/rpm"},
+                {"name":"Needle-1.5.0-macos.dmg","browser_download_url":"https://d/dmg"},
                 {"name":"SHA256SUMS.txt","browser_download_url":"https://d/sums"}]}"#,
         )
         .unwrap();
@@ -406,6 +538,15 @@ mod tests {
             Some((None, String::new()))
         );
         assert_eq!(pick(None, "x86_64"), Some((None, String::new())));
+        // The Mac app is for Apple silicon only.
+        assert_eq!(
+            pick(Some(Package::MacApp), "aarch64"),
+            Some((Some(Package::MacApp), "https://d/dmg".into()))
+        );
+        assert_eq!(
+            pick(Some(Package::MacApp), "x86_64"),
+            Some((None, String::new()))
+        );
         // An older or unrelated package in the release is never taken.
         let odd: Value = serde_json::from_str(
             r#"{"tag_name":"v1.5.0","assets":[
@@ -423,6 +564,48 @@ mod tests {
         let release = from_json("1.4.3", &windows_only, Some(Package::Deb), "x86_64").unwrap();
         assert_eq!(release.package, None);
         assert!(release.installer_url.is_empty());
+    }
+
+    /// macOS: an update swaps the app for the one in the disk image, and leaves nothing else.
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn a_mac_update_replaces_the_app_from_the_disk_image() {
+        let dir = tempfile::tempdir().unwrap();
+        let make = |root: &Path, text: &str| {
+            let macos = root.join("Needle.app/Contents/MacOS");
+            std::fs::create_dir_all(&macos).unwrap();
+            std::fs::write(macos.join("Needle"), text).unwrap();
+        };
+        let source = dir.path().join("source");
+        make(&source, "new");
+        let image = dir.path().join("update/Needle-9.9.9-macos.dmg");
+        std::fs::create_dir_all(image.parent().unwrap()).unwrap();
+        let made = std::process::Command::new("/usr/bin/hdiutil")
+            .args([
+                "create",
+                "-quiet",
+                "-fs",
+                "HFS+",
+                "-format",
+                "UDZO",
+                "-srcfolder",
+            ])
+            .arg(&source)
+            .arg(&image)
+            .status()
+            .unwrap();
+        assert!(made.success());
+        let apps = dir.path().join("Applications");
+        make(&apps, "old");
+        replace_bundle(&image, &apps.join("Needle.app")).unwrap();
+        let installed = std::fs::read_to_string(apps.join("Needle.app/Contents/MacOS/Needle"));
+        assert_eq!(installed.unwrap(), "new");
+        let left: Vec<_> = std::fs::read_dir(&apps)
+            .unwrap()
+            .map(|e| e.unwrap().file_name())
+            .collect();
+        assert_eq!(left, ["Needle.app"]);
+        assert!(!image.with_extension("mounted").exists());
     }
 
     #[test]

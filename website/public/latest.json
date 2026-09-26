@@ -1,28 +1,32 @@
 {
-    "html_url":  "https://needle.nnx.fyi/",
-    "tag_name":  "v1.6.1",
-    "assets":  [
-                   {
-                       "name":  "Needle-1.6.1-windows-x64.zip",
-                       "browser_download_url":  "https://needle.nnx.fyi/download/Needle-1.6.1-windows-x64.zip"
-                   },
-                   {
-                       "name":  "Needle-Setup-1.6.1.exe",
-                       "browser_download_url":  "https://needle.nnx.fyi/download/Needle-Setup-1.6.1.exe"
-                   },
-                   {
-                       "name":  "needle_1.6.1_amd64.deb",
-                       "browser_download_url":  "https://needle.nnx.fyi/download/needle_1.6.1_amd64.deb"
-                   },
-                   {
-                       "name":  "needle-1.6.1-1.x86_64.rpm",
-                       "browser_download_url":  "https://needle.nnx.fyi/download/needle-1.6.1-1.x86_64.rpm"
-                   },
-                   {
-                       "name":  "SHA256SUMS.txt",
-                       "browser_download_url":  "https://needle.nnx.fyi/download/SHA256SUMS.txt"
-                   }
-               ],
-    "prerelease":  false,
-    "draft":  false
+    "html_url": "https://needle.nnx.fyi/",
+    "tag_name": "v1.6.1",
+    "assets": [
+        {
+            "name": "Needle-1.6.1-windows-x64.zip",
+            "browser_download_url": "https://needle.nnx.fyi/download/Needle-1.6.1-windows-x64.zip"
+        },
+        {
+            "name": "Needle-Setup-1.6.1.exe",
+            "browser_download_url": "https://needle.nnx.fyi/download/Needle-Setup-1.6.1.exe"
+        },
+        {
+            "name": "needle_1.6.1_amd64.deb",
+            "browser_download_url": "https://needle.nnx.fyi/download/needle_1.6.1_amd64.deb"
+        },
+        {
+            "name": "needle-1.6.1-1.x86_64.rpm",
+            "browser_download_url": "https://needle.nnx.fyi/download/needle-1.6.1-1.x86_64.rpm"
+        },
+        {
+            "name": "Needle-1.6.1-macos.dmg",
+            "browser_download_url": "https://needle.nnx.fyi/download/Needle-1.6.1-macos.dmg"
+        },
+        {
+            "name": "SHA256SUMS.txt",
+            "browser_download_url": "https://needle.nnx.fyi/download/SHA256SUMS.txt"
+        }
+    ],
+    "prerelease": false,
+    "draft": false
 }
