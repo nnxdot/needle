@@ -45,8 +45,12 @@ impl AppView {
             .flex_col()
             .gap_2()
             .child(setting_row(
-                "Hide to tray",
-                "Puts Needle in the notification area by the clock. Closing the window hides it there and the music plays on; click the icon to bring Needle back, or right-click it to play, pause, skip, or quit.",
+                if cfg!(target_os = "macos") { "Keep in the menu bar" } else { "Hide to tray" },
+                if cfg!(target_os = "macos") {
+                    "Puts Needle in the menu bar. Closing the window hides it there and the music plays on; click the icon to play, pause, skip, show Needle, or quit."
+                } else {
+                    "Puts Needle in the notification area by the clock. Closing the window hides it there and the music plays on; click the icon to bring Needle back, or right-click it to play, pause, skip, or quit."
+                },
                 Switch::new("tray-on").checked(self.settings.tray).on_click(cx.listener(|this, checked: &bool, _, cx| {
                     this.settings.tray = *checked;
                     this.persist_settings();
