@@ -400,10 +400,15 @@ fn install_linux(release: &Release, package: &Path) -> Result<()> {
 fn install_mac(image: &Path) -> Result<()> {
     let bundle = mac_bundle().context("Needle's app folder cannot be replaced by this user.")?;
     replace_bundle(image, &bundle)?;
-    // Start the new Needle once this one has closed, so it does not find this one running.
+    // Start the new Needle once this one has closed (up to 30 s), so `open` does not just
+    // bring this one to the front.
     let _ = std::process::Command::new("/bin/sh")
-        .args(["-c", "sleep 1; exec /usr/bin/open \"$0\""])
+        .args([
+            "-c",
+            "i=0; while kill -0 \"$1\" 2>/dev/null && [ $i -lt 150 ]; do sleep 0.2; i=$((i+1)); done; exec /usr/bin/open \"$0\"",
+        ])
         .arg(&bundle)
+        .arg(std::process::id().to_string())
         .spawn();
     Ok(())
 }
