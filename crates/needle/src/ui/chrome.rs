@@ -30,6 +30,18 @@ impl AppView {
             (true, true) => RAIL,
             (true, false) => 92.,
         };
+        // macOS draws its window buttons at the top left: the corner makes room for them.
+        let corner = match (
+            cfg!(target_os = "macos"),
+            hidden,
+            self.settings.layout.compact_sidebar,
+        ) {
+            // The buttons alone, above the strip of icons.
+            (true, true, true) => 84.,
+            // The buttons, then the one to show the sidebar.
+            (true, true, false) => 124.,
+            _ => corner,
+        };
         // The title bar does not shrink its contents, so size the search field from the room
         // left beside the sidebar column, back button, palette button, and window buttons.
         let search_width =
@@ -592,9 +604,9 @@ impl AppView {
                             .hover(|s| s.opacity(0.85))
                             .child(artwork(current.as_ref(), 56., cx))
                             .tooltip(|window, cx| {
-                                gpui_component::tooltip::Tooltip::new(
+                                gpui_component::tooltip::Tooltip::new(super::widgets::keys(
                                     "Open the big player · Ctrl+P",
-                                )
+                                ))
                                 .build(window, cx)
                             })
                             .on_click(cx.listener(|this, _, _, cx| {
@@ -1048,7 +1060,7 @@ impl AppView {
             .ml_1()
             .icon(icon("lyrics"))
             .selected(lyrics_open)
-            .tooltip("Lyrics · Ctrl+L")
+            .tooltip(super::widgets::keys("Lyrics · Ctrl+L"))
             .on_click(cx.listener(|this, _, _, cx| {
                 this.toggle_panel(Panel::Lyrics);
                 cx.notify();
@@ -1076,7 +1088,7 @@ impl AppView {
                     .ml_1()
                     .icon(icon("queue"))
                     .selected(queue_open)
-                    .tooltip("Queue · Ctrl+J")
+                    .tooltip(super::widgets::keys("Queue · Ctrl+J"))
                     .on_click(cx.listener(|this, _, _, cx| {
                         this.toggle_panel(Panel::Queue);
                         cx.notify();
@@ -1165,7 +1177,7 @@ impl AppView {
                     .hover(|s| s.bg(p.raised).text_color(p.ink))
                     .flex_shrink_0()
                     .child(glyph("command").size(px(14.)).text_color(p.ink_3))
-                    .when(!narrow, |el| el.child("Ctrl K"))
+                    .when(!narrow, |el| el.child(super::widgets::keys("Ctrl K")))
                     .tooltip(|window, cx| {
                         gpui_component::tooltip::Tooltip::new(
                             "Command palette: go anywhere, do anything",
@@ -1180,16 +1192,22 @@ impl AppView {
     fn title_corner(&self, corner: f32, hidden: bool, cx: &mut Context<Self>) -> Div {
         let p = pal(cx);
         let rail = hidden && self.settings.layout.compact_sidebar;
+        let mac = cfg!(target_os = "macos");
         div()
             .w(px(corner))
             .flex_shrink_0()
             .h_full()
-            .when(rail, |el| el.justify_center())
-            .when(!rail, |el| el.pl_4().pr_2())
+            .when(rail && !mac, |el| el.justify_center())
+            .when(!rail || mac, |el| el.pl_4().pr_2())
+            // Room for macOS's window buttons, left of the logo.
+            .when(mac, |el| el.pl(px(80.)))
             .flex()
             .items_center()
             .gap_2()
-            .child(glyph("logo").size(px(20.)).text_color(p.accent))
+            // On macOS a folded sidebar's corner holds only the window buttons.
+            .when(!(mac && hidden), |el| {
+                el.child(glyph("logo").size(px(20.)).text_color(p.accent))
+            })
             .when(!hidden, |el| {
                 el.child(
                     div()
@@ -1303,9 +1321,9 @@ impl AppView {
                                     .hover(|s| s.opacity(0.85))
                                     .child(artwork(current.as_ref(), 40., cx))
                                     .tooltip(|window, cx| {
-                                        gpui_component::tooltip::Tooltip::new(
+                                        gpui_component::tooltip::Tooltip::new(super::widgets::keys(
                                             "Open the big player · Ctrl+P",
-                                        )
+                                        ))
                                         .build(window, cx)
                                     })
                                     .on_click(cx.listener(|this, _, _, cx| {
@@ -1558,6 +1576,6 @@ fn rail_item(
                 .into_any_element()
         }))
         .tooltip(move |window, cx| {
-            gpui_component::tooltip::Tooltip::new(name.clone()).build(window, cx)
+            gpui_component::tooltip::Tooltip::new(super::widgets::keys(&name)).build(window, cx)
         })
 }

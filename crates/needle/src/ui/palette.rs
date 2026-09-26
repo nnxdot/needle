@@ -632,7 +632,12 @@ impl AppView {
                             }),
                     )
                     .when_some(entry.hint, |el, hint| {
-                        el.child(div().text_size(px(11.)).text_color(p.ink_3).child(hint))
+                        el.child(
+                            div()
+                                .text_size(px(11.))
+                                .text_color(p.ink_3)
+                                .child(super::widgets::keys(hint)),
+                        )
                     })
                     .on_click(cx.listener(move |this, _, window, cx| {
                         this.close_palette(window, cx);

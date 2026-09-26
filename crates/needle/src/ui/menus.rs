@@ -578,7 +578,12 @@ impl AppView {
                         }))
                         .child(div().flex_1().truncate().child(label))
                         .when_some(hint, |el, hint| {
-                            el.child(div().text_size(px(11.)).text_color(p.ink_3).child(hint))
+                            el.child(
+                                div()
+                                    .text_size(px(11.))
+                                    .text_color(p.ink_3)
+                                    .child(super::widgets::keys(hint)),
+                            )
                         })
                         .when(sub, |el| {
                             el.child(glyph("chevron-right").size(px(14.)).text_color(p.ink_3))

@@ -286,7 +286,7 @@ impl AppView {
                         .border_color(p.line)
                         .bg(p.raised)
                         .text_size(px(12.))
-                        .child(keys),
+                        .child(super::widgets::keys(keys)),
                 )
                 .child(
                     div()

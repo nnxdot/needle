@@ -173,7 +173,7 @@ impl AppView {
                         .on_click(cx.listener(|this, _, window, cx| this.edit_tags(window, cx))),
                 )
                 .when(self.editing, |el| el.child(self.tag_editor(cx)))
-                .child(faint("Shift-click selects a range. Ctrl-click adds or removes one track. Right-click for more.", cx).line_height(relative(1.5)))
+                .child(faint(super::widgets::keys("Shift-click selects a range. Ctrl-click adds or removes one track. Right-click for more."), cx).line_height(relative(1.5)))
                 .into_any_element();
         }
         let track = self

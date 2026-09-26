@@ -1061,7 +1061,7 @@ impl AppView {
                                         .text_size(px(12.))
                                         .max_w_full()
                                         .flex_none()
-                                        .child(*keys),
+                                        .child(super::widgets::keys(keys)),
                                 ))
                                 .child(meta(*what, cx))
                         })),
