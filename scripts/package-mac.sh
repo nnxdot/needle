@@ -12,7 +12,9 @@ cd "$here"
 version=$(sed -n 's/^version = "\(.*\)"/\1/p' Cargo.toml | head -1)
 export MACOSX_DEPLOYMENT_TARGET=11.0
 # No home folder's name in the programs (panic messages carry source paths).
-export RUSTFLAGS="${RUSTFLAGS:-} --remap-path-prefix=$HOME=/build"
+# CARGO_ENCODED_RUSTFLAGS (split on 0x1f, not spaces), so a home folder with a space works.
+unset RUSTFLAGS
+export CARGO_ENCODED_RUSTFLAGS="--remap-path-prefix=$HOME=/build"
 target_dir="${CARGO_TARGET_DIR:-$here/target}"
 
 ffmpeg="$here/third-party/ffmpeg/needle-ffmpeg-macos"

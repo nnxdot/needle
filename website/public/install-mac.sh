@@ -55,11 +55,13 @@ if pgrep -xq Needle; then
     osascript -e 'tell application id "fyi.nnx.Needle" to quit' 2>/dev/null || true
     for _ in $(seq 20); do pgrep -xq Needle || break; sleep 0.5; done
 fi
-rm -rf "$target/Needle.app.installing"
-ditto "$mount/Needle.app" "$target/Needle.app.installing"
-xattr -dr com.apple.quarantine "$target/Needle.app.installing" 2>/dev/null || true
+# The new copy goes into a folder of its own first, so a failed copy leaves the old one.
+staging=$(mktemp -d "$target/.needle-install.XXXXXX")
+ditto "$mount/Needle.app" "$staging/Needle.app" || { rm -rf "$staging"; fail "could not copy Needle."; }
+xattr -dr com.apple.quarantine "$staging/Needle.app" 2>/dev/null || true
 rm -rf "$target/Needle.app"
-mv "$target/Needle.app.installing" "$target/Needle.app"
+mv "$staging/Needle.app" "$target/Needle.app"
+rmdir "$staging"
 
 say "Needle $version is in $target. Opening it…"
 open "$target/Needle.app"

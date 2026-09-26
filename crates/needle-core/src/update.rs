@@ -441,10 +441,10 @@ fn replace_bundle(image: &Path, bundle: &Path) -> Result<()> {
         ],
     )
     .context("Could not open the disk image")?;
-    let fresh = bundle.with_extension("app-update");
-    let old = bundle.with_extension("app-old");
-    let _ = std::fs::remove_dir_all(&fresh);
-    let _ = std::fs::remove_dir_all(&old);
+    // Names of the update's own, never there before, so nothing else beside the app is touched.
+    let unique = uuid::Uuid::new_v4().simple();
+    let fresh = bundle.with_file_name(format!(".Needle-update-{unique}.app"));
+    let old = bundle.with_file_name(format!(".Needle-old-{unique}.app"));
     let copied = run(
         &tool("ditto")?,
         &[mount.join("Needle.app").as_os_str(), fresh.as_os_str()],
