@@ -23,6 +23,10 @@ import androidx.compose.animation.fadeOut
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.basicMarquee
+import androidx.compose.foundation.layout.offset
+import androidx.compose.material.icons.rounded.KeyboardArrowDown
+import kotlinx.coroutines.launch
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.gestures.detectVerticalDragGestures
@@ -50,6 +54,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.QueueMusic
 import androidx.compose.material.icons.rounded.Lyrics
 import androidx.compose.material.icons.rounded.Cast
+import androidx.compose.material.icons.rounded.Computer
 import androidx.compose.material.icons.rounded.Favorite
 import androidx.compose.material.icons.rounded.FavoriteBorder
 import androidx.compose.material.icons.rounded.Pause
@@ -137,8 +142,8 @@ private fun MiniPlayerBody(p: fyi.nnx.needle.core.Playback, song: Song, onOpen: 
                 detectHorizontalDragGestures(
                     onDragEnd = {
                         when {
-                            drag < -160f -> { haptics(false); core.next() }
-                            drag > 160f -> { haptics(false); core.previous() }
+                            drag < -160f -> { haptics(false); Controls.next() }
+                            drag > 160f -> { haptics(false); Controls.previous() }
                         }
                         drag = 0f
                     },
@@ -158,7 +163,7 @@ private fun MiniPlayerBody(p: fyi.nnx.needle.core.Playback, song: Song, onOpen: 
                 Column(Modifier.weight(1f)) {
                     Text(song.title, style = MaterialTheme.typography.bodyLarge, maxLines = 1, overflow = TextOverflow.Ellipsis)
                     Text(
-                        song.artist,
+                        if (song.onComputer()) "On your computer · ${song.artist}" else song.artist,
                         style = MaterialTheme.typography.bodySmall,
                         color = androidx.compose.material3.LocalContentColor.current.copy(alpha = 0.75f),
                         maxLines = 1,
@@ -168,7 +173,7 @@ private fun MiniPlayerBody(p: fyi.nnx.needle.core.Playback, song: Song, onOpen: 
                 // Round while paused, a softer square while it plays.
                 androidx.compose.material3.FilledIconToggleButton(
                     checked = p.playing,
-                    onCheckedChange = { haptics(false); core.toggle() },
+                    onCheckedChange = { haptics(false); Controls.toggle() },
                     shapes = androidx.compose.material3.IconButtonDefaults.toggleableShapes(),
                     colors = androidx.compose.material3.IconButtonDefaults.filledIconToggleButtonColors(
                         containerColor = MaterialTheme.colorScheme.primary,
@@ -177,7 +182,7 @@ private fun MiniPlayerBody(p: fyi.nnx.needle.core.Playback, song: Song, onOpen: 
                         checkedContentColor = MaterialTheme.colorScheme.onPrimary,
                     ),
                 ) { PlayPauseIcon(p.playing, 26.dp) }
-                IconButton(onClick = { core.next() }) {
+                IconButton(onClick = { Controls.next() }) {
                     Icon(Icons.Rounded.SkipNext, contentDescription = "Next", modifier = Modifier.size(30.dp))
                 }
             }
@@ -238,23 +243,37 @@ fun FullPlayer(onClose: () -> Unit, open: (Route) -> Unit) {
     val song = p.current ?: return
     var panel by rememberSaveable { mutableStateOf(Panel.Cover) }
     val haptics = rememberHaptics()
-    var favorite by remember(song.id) { mutableStateOf(song.rating >= 4) }
+    var favorite by remember(song.id) { mutableStateOf(runCatching { core.isFavorite(song.id) }.getOrDefault(song.rating >= 4)) }
     // The A-B loop: the first tap marks A, the second B, the third lets go.
     var loopStart by remember(song.id) { mutableStateOf<Double?>(null) }
     val looping = remember(p.position, song.id) { core.loopRange() }
     // Pulled down far enough, the player closes.
     var pull by remember { mutableFloatStateOf(0f) }
+    var dragging by remember { mutableStateOf(false) }
+    // Let go short of closing, the player springs back up; closed, it is ready again at the top.
+    val shown by animateFloatAsState(if (dragging) pull else 0f, if (dragging) androidx.compose.animation.core.snap() else spring(dampingRatio = 0.8f, stiffness = 400f), label = "pull")
+    val closer = androidx.compose.runtime.rememberCoroutineScope()
 
     CoverTheme(song.artwork, dark = true) {
     Box(
         Modifier
             .fillMaxSize()
-            .graphicsLayer { translationY = pull.coerceAtLeast(0f) }
+            .graphicsLayer { translationY = (if (dragging) pull else shown).coerceAtLeast(0f) }
             .clickable(enabled = false) {}
             .pointerInput(Unit) {
                 detectVerticalDragGestures(
-                    onDragEnd = { if (pull > 220f) onClose() else pull = 0f },
-                    onDragCancel = { pull = 0f },
+                    onDragStart = { dragging = true },
+                    onDragEnd = {
+                        if (pull > 220f) {
+                            onClose()
+                            // Kept where it was while it slides away, then back at the top.
+                            closer.launch { kotlinx.coroutines.delay(500); dragging = false; pull = 0f }
+                        } else {
+                            dragging = false
+                            pull = 0f
+                        }
+                    },
+                    onDragCancel = { dragging = false; pull = 0f },
                 ) { _, dy -> pull += dy }
             },
     ) {
@@ -263,16 +282,37 @@ fun FullPlayer(onClose: () -> Unit, open: (Route) -> Unit) {
             Column(
                 Modifier.fillMaxSize().statusBarsPadding().navigationBarsPadding().padding(horizontal = 28.dp),
             ) {
-                // The handle to pull the player down by.
-                Box(
-                    Modifier
-                        .padding(top = 8.dp, bottom = 8.dp)
-                        .align(Alignment.CenterHorizontally)
-                        .size(width = 40.dp, height = 5.dp)
-                        .clip(CircleShape)
-                        .background(Color.White.copy(alpha = 0.45f))
-                        .clickable(onClick = onClose),
-                )
+                // The top row: close at the left, the handle to pull the player down by in the
+                // middle, and the song's heart and menu at the right, clear of its name.
+                Box(Modifier.fillMaxWidth().padding(top = 4.dp)) {
+                    IconButton(onClick = onClose, modifier = Modifier.align(Alignment.CenterStart).offset(x = (-12).dp)) {
+                        Icon(Icons.Rounded.KeyboardArrowDown, contentDescription = "Close the player", modifier = Modifier.size(30.dp))
+                    }
+                    Box(
+                        Modifier
+                            .align(Alignment.Center)
+                            .size(width = 40.dp, height = 5.dp)
+                            .clip(CircleShape)
+                            .background(Color.White.copy(alpha = 0.45f))
+                            .clickable(onClick = onClose),
+                    )
+                    if (!song.onComputer()) Row(Modifier.align(Alignment.CenterEnd).offset(x = 12.dp)) {
+                        IconButton(onClick = {
+                            haptics(false)
+                            runCatching { core.toggleFavorite(song.id) }
+                                .onSuccess { favorite = it; showMessage(if (it) "Added to favorites" else "Taken out of favorites") }
+                                .onFailure { showMessage("Could not change favorites: ${it.message}") }
+                            NeedleApp.instance.libraryVersion.value++
+                        }) {
+                            Icon(
+                                if (favorite) Icons.Rounded.Favorite else Icons.Rounded.FavoriteBorder,
+                                contentDescription = if (favorite) "Take out of favorites" else "Add to favorites",
+                                tint = if (favorite) MaterialTheme.colorScheme.primary else Color.White.copy(alpha = 0.8f),
+                            )
+                        }
+                        SongMenu(song, open)
+                    }
+                }
                 if (panel != Panel.Cover) SmallNowPlaying(song)
                 Box(Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.Center) {
                     when (panel) {
@@ -282,34 +322,23 @@ fun FullPlayer(onClose: () -> Unit, open: (Route) -> Unit) {
                     }
                 }
                 if (panel == Panel.Cover) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Column(Modifier.weight(1f)) {
-                            Text(
-                                song.title,
-                                style = MaterialTheme.typography.headlineMedium,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis,
-                            )
-                            Text(
-                                song.artist,
-                                style = MaterialTheme.typography.titleMedium,
-                                color = Color.White.copy(alpha = 0.7f),
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis,
-                            )
-                        }
-                        IconButton(onClick = {
-                            haptics(false)
-                            favorite = runCatching { core.toggleFavorite(song.id) }.getOrDefault(favorite)
-                            NeedleApp.instance.libraryVersion.value++
-                        }) {
-                            Icon(
-                                if (favorite) Icons.Rounded.Favorite else Icons.Rounded.FavoriteBorder,
-                                contentDescription = if (favorite) "Take out of favorites" else "Add to favorites",
-                                tint = if (favorite) MaterialTheme.colorScheme.primary else Color.White.copy(alpha = 0.7f),
-                            )
-                        }
-                        SongMenu(song, open)
+                    // A name too long for the width slides slowly along, as in Apple Music.
+                    Column(Modifier.fillMaxWidth()) {
+                        Text(
+                            song.title,
+                            style = MaterialTheme.typography.headlineMedium,
+                            maxLines = 1,
+                            modifier = Modifier.basicMarquee(iterations = Int.MAX_VALUE, initialDelayMillis = 2000, repeatDelayMillis = 3000),
+                        )
+                        Text(
+                            song.artist,
+                            style = MaterialTheme.typography.titleMedium,
+                            color = Color.White.copy(alpha = 0.7f),
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier.clip(RoundedCornerShape(6.dp)).clickable(enabled = !song.onComputer()) { open(Route.Artist(song.artist)) },
+                        )
+                        if (song.onComputer()) OnComputerChip(Modifier.padding(top = 8.dp))
                     }
                 }
                 SeekBar(position = p.position, duration = song.duration, playing = p.playing)
@@ -356,14 +385,14 @@ private fun PlayerControls(playing: Boolean, haptics: (Boolean) -> Unit) {
         verticalAlignment = Alignment.CenterVertically,
     ) {
         androidx.compose.material3.FilledTonalIconButton(
-            onClick = { haptics(false); core.previous() },
+            onClick = { haptics(false); Controls.previous() },
             shapes = androidx.compose.material3.IconButtonDefaults.shapes(),
             colors = side,
             modifier = Modifier.size(width = 64.dp, height = 56.dp),
         ) { Icon(Icons.Rounded.SkipPrevious, contentDescription = "Previous", modifier = Modifier.size(30.dp)) }
         androidx.compose.material3.FilledIconToggleButton(
             checked = playing,
-            onCheckedChange = { haptics(false); core.toggle() },
+            onCheckedChange = { haptics(false); Controls.toggle() },
             shapes = androidx.compose.material3.IconButtonDefaults.toggleableShapes(),
             colors = androidx.compose.material3.IconButtonDefaults.filledIconToggleButtonColors(
                 containerColor = MaterialTheme.colorScheme.primary,
@@ -374,7 +403,7 @@ private fun PlayerControls(playing: Boolean, haptics: (Boolean) -> Unit) {
             modifier = Modifier.size(width = 88.dp, height = 72.dp),
         ) { PlayPauseIcon(playing, 36.dp) }
         androidx.compose.material3.FilledTonalIconButton(
-            onClick = { haptics(false); core.next() },
+            onClick = { haptics(false); Controls.next() },
             shapes = androidx.compose.material3.IconButtonDefaults.shapes(),
             colors = side,
             modifier = Modifier.size(width = 64.dp, height = 56.dp),
@@ -406,9 +435,9 @@ private fun PlayerToolbar(
         verticalAlignment = Alignment.CenterVertically,
     ) {
         RoundToggle(panel == Panel.Lyrics, { onPanel(Panel.Lyrics) }) { Icon(Icons.Rounded.Lyrics, contentDescription = "Lyrics") }
-        RoundToggle(false, { core.shuffle(); showMessage("Shuffled what is up next") }) { Icon(Icons.Rounded.Shuffle, contentDescription = "Shuffle what is up next") }
+        RoundToggle(false, { Controls.shuffle(); showMessage("Shuffled what is up next") }) { Icon(Icons.Rounded.Shuffle, contentDescription = "Shuffle what is up next") }
         RoundToggle(repeat != RepeatMode.OFF, {
-            core.setRepeat(
+            Controls.setRepeat(
                 when (repeat) {
                     RepeatMode.OFF -> RepeatMode.ALL
                     RepeatMode.ALL -> RepeatMode.ONE
@@ -480,6 +509,19 @@ private fun PlayerCover(song: Song, playing: Boolean) {
     }
 }
 
+/** Says the song plays on the computer, with the computer's icon. */
+@Composable
+private fun OnComputerChip(modifier: Modifier = Modifier) {
+    Row(
+        modifier.clip(CircleShape).background(Color.White.copy(alpha = 0.14f)).padding(horizontal = 10.dp, vertical = 4.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(6.dp),
+    ) {
+        Icon(androidx.compose.material.icons.Icons.Rounded.Computer, contentDescription = null, modifier = Modifier.size(16.dp))
+        Text("Playing on your computer", style = MaterialTheme.typography.labelMedium)
+    }
+}
+
 /** The song, small, above the lyrics or the queue. */
 @Composable
 private fun SmallNowPlaying(song: Song) {
@@ -512,12 +554,12 @@ private fun SeekBar(position: Double, duration: Double, playing: Boolean) {
                 .fillMaxWidth()
                 .height(28.dp)
                 .pointerInput(length) {
-                    detectTapGestures { core.seek((it.x / size.width).coerceIn(0f, 1f) * length.toDouble()) }
+                    detectTapGestures { Controls.seek((it.x / size.width).coerceIn(0f, 1f) * length.toDouble()) }
                 }
                 .pointerInput(length) {
                     detectHorizontalDragGestures(
                         onDragStart = { held = (it.x / size.width).coerceIn(0f, 1f) },
-                        onDragEnd = { held?.let { core.seek(it * length.toDouble()) }; held = null },
+                        onDragEnd = { held?.let { Controls.seek(it * length.toDouble()) }; held = null },
                         onDragCancel = { held = null },
                     ) { change, _ -> held = (change.position.x / size.width).coerceIn(0f, 1f) }
                 },
@@ -593,7 +635,7 @@ private fun LyricsPanel(song: Song, position: Double, time: () -> Unit) {
                         .fillMaxWidth()
                         .graphicsLayer { scaleX = grow; scaleY = grow; transformOrigin = TransformOrigin(0f, 0.5f) }
                         .clip(RoundedCornerShape(8.dp))
-                        .clickable { core.seek(line.time) }
+                        .clickable { Controls.seek(line.time) }
                         .padding(vertical = 12.dp),
                 )
             }
@@ -603,7 +645,7 @@ private fun LyricsPanel(song: Song, position: Double, time: () -> Unit) {
 
 @Composable
 private fun UpNextPanel(version: ULong) {
-    val songs by rememberLoaded(version) { upNext() }
+    val songs by rememberLoaded(version) { Controls.upNext() }
     val list = songs.orEmpty()
     Column(Modifier.fillMaxHeight()) {
         Text("Up next", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, modifier = Modifier.padding(vertical = 8.dp))
@@ -616,7 +658,7 @@ private fun UpNextPanel(version: ULong) {
                 // Swiped away, a song leaves the queue.
                 val dismiss = rememberSwipeToDismissBoxState()
                 LaunchedEffect(dismiss.currentValue) {
-                    if (dismiss.currentValue != SwipeToDismissBoxValue.Settled) core.removeUpNext(i.toUInt())
+                    if (dismiss.currentValue != SwipeToDismissBoxValue.Settled && !song.onComputer()) core.removeUpNext(i.toUInt())
                 }
                 SwipeToDismissBox(
                     state = dismiss,
@@ -629,7 +671,7 @@ private fun UpNextPanel(version: ULong) {
                     },
                 ) {
                     Row(
-                        Modifier.fillMaxWidth().clip(RoundedCornerShape(8.dp)).clickable { core.jump(i.toUInt()) }.padding(vertical = 6.dp),
+                        Modifier.fillMaxWidth().clip(RoundedCornerShape(8.dp)).clickable { Controls.jump(i, song) }.padding(vertical = 6.dp),
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(12.dp),
                     ) {

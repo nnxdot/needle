@@ -19,6 +19,10 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.only
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.material.icons.Icons
@@ -154,7 +158,6 @@ fun NeedleRoot() {
                     contentWindowInsets = androidx.compose.material3.ScaffoldDefaults.contentWindowInsets.only(
                         androidx.compose.foundation.layout.WindowInsetsSides.Horizontal + androidx.compose.foundation.layout.WindowInsetsSides.Bottom,
                     ),
-                    snackbarHost = { SnackbarHost(snackbar) },
                     bottomBar = {
                         Column {
                             AnimatedVisibility(
@@ -215,7 +218,20 @@ fun NeedleRoot() {
                             // The colour pages run on behind the mini player and the tabs; their
                             // lists leave room at the foot instead.
                             CompositionLocalProvider(LocalBottomInset provides if (fullBleed) padding.calculateBottomPadding() else 0.dp) {
-                                Box(if (fullBleed) Modifier else Modifier.padding(padding).statusBarsPadding()) { Page(route, open) }
+                                Box(if (fullBleed) Modifier else Modifier.padding(padding).statusBarsPadding()) {
+                                    Page(route, open)
+                                    // What scrolls up fades into the page below the status bar,
+                                    // rather than stopping at a hard edge.
+                                    if (!fullBleed) {
+                                        val page = MaterialTheme.colorScheme.background
+                                        Box(
+                                            Modifier
+                                                .fillMaxWidth()
+                                                .height(20.dp)
+                                                .background(androidx.compose.ui.graphics.Brush.verticalGradient(listOf(page, page.copy(alpha = 0f)))),
+                                        )
+                                    }
+                                }
                             }
                         }
                     }
@@ -230,6 +246,14 @@ fun NeedleRoot() {
                         FullPlayer(onClose = { playerOpen = false }, open = { playerOpen = false; open(it) })
                     }
                 }
+                // Messages show above everything, the player too, and clear of the mini player.
+                SnackbarHost(
+                    snackbar,
+                    Modifier
+                        .align(androidx.compose.ui.Alignment.BottomCenter)
+                        .navigationBarsPadding()
+                        .padding(bottom = if (playerOpen) 16.dp else if (hasSong) 150.dp else 80.dp),
+                )
                 Overlays(snackbar)
             }
         }

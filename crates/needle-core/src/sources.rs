@@ -302,8 +302,16 @@ pub fn status(library: &Library, plugin: &str) -> (usize, Option<i64>) {
     (count as usize, synced)
 }
 
+/// Covers from music servers still to download.
+static COVERS_LEFT: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+
+/// How many covers from music servers are still on their way.
+pub fn covers_left() -> usize {
+    COVERS_LEFT.load(std::sync::atomic::Ordering::Relaxed)
+}
+
 /// Download covers, several at once and one per cover, and give them to their tracks.
-/// `progress` is called every couple of seconds while covers arrive, so views can show them.
+/// `progress` is called every second while covers arrive, so views can show them.
 pub fn fetch_covers(
     library: &Library,
     covers: &[(String, String, String)],
@@ -321,10 +329,13 @@ pub fn fetch_covers(
             .push(track);
     }
     let jobs = Mutex::new(by_cover.into_values().collect::<Vec<_>>());
+    let count = jobs.lock().unwrap_or_else(|e| e.into_inner()).len();
+    COVERS_LEFT.fetch_add(count, std::sync::atomic::Ordering::Relaxed);
     let done = std::sync::atomic::AtomicUsize::new(0);
     let told = Mutex::new(Instant::now());
     std::thread::scope(|scope| {
-        for _ in 0..6 {
+        // Servers make each small cover on request, so several at once hide the wait.
+        for _ in 0..12 {
             scope.spawn(|| {
                 loop {
                     let Some((link, tracks)) = jobs.lock().unwrap_or_else(|e| e.into_inner()).pop()
@@ -351,6 +362,7 @@ pub fn fetch_covers(
                         }
                         Ok(path)
                     })();
+                    COVERS_LEFT.fetch_sub(1, std::sync::atomic::Ordering::Relaxed);
                     let Ok(path) = saved else {
                         continue;
                     };
@@ -363,7 +375,7 @@ pub fn fetch_covers(
                         }
                     }
                     let mut last = told.lock().unwrap_or_else(|e| e.into_inner());
-                    if last.elapsed() > Duration::from_secs(2) {
+                    if last.elapsed() > Duration::from_secs(1) {
                         *last = Instant::now();
                         drop(last);
                         progress();

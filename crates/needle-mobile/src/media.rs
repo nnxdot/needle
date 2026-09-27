@@ -56,7 +56,8 @@ pub struct Notes {
     pub text: String,
 }
 
-const NOTES: &str = include_str!("../../needle/whats-new.md");
+// The app's own notes: its versions carry the desktop's numbers, and list the phone's changes only.
+const NOTES: &str = include_str!("../whats-new.md");
 
 impl Needle {
     /// Lyrics timed on the phone live in the app's own storage, since Android does not let it

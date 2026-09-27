@@ -186,14 +186,19 @@ private fun Progress(now: Now) {
     )
 }
 
+/** Previous, play, and next; `room` is the width they may take, and they shrink to fit it. */
 @Composable
-private fun Controls(now: Now, play: Dp = 64.dp) {
+private fun Controls(now: Now, room: Dp, play: Dp = 64.dp) {
+    val compact = room < 176.dp
+    val round = if (compact) 34.dp else 42.dp
+    val gap = if (compact) 6.dp else 10.dp
+    val pill = if (compact) minOf(52.dp, room - round * 2 - gap * 2) else play
     Row(verticalAlignment = Alignment.CenterVertically) {
-        Round(R.drawable.ic_widget_previous, "Previous", actionRunCallback<Previous>())
-        Spacer(GlanceModifier.width(10.dp))
-        PlayPill(now, play)
-        Spacer(GlanceModifier.width(10.dp))
-        Round(R.drawable.ic_widget_next, "Next", actionRunCallback<Next>())
+        Round(R.drawable.ic_widget_previous, "Previous", actionRunCallback<Previous>(), round)
+        Spacer(GlanceModifier.width(gap))
+        PlayPill(now, pill.coerceAtLeast(40.dp), if (compact) 40.dp else 48.dp)
+        Spacer(GlanceModifier.width(gap))
+        Round(R.drawable.ic_widget_next, "Next", actionRunCallback<Next>(), round)
     }
 }
 
@@ -214,9 +219,9 @@ private fun PlayPill(now: Now, width: Dp, height: Dp = 48.dp) {
 }
 
 @Composable
-private fun Round(icon: Int, label: String, action: androidx.glance.action.Action) {
-    Box(GlanceModifier.size(42.dp).cornerRadius(21.dp).background(Glass).clickable(action), contentAlignment = Alignment.Center) {
-        Image(ImageProvider(icon), contentDescription = label, colorFilter = ColorFilter.tint(White), modifier = GlanceModifier.size(22.dp))
+private fun Round(icon: Int, label: String, action: androidx.glance.action.Action, size: Dp = 42.dp) {
+    Box(GlanceModifier.size(size).cornerRadius(size / 2).background(Glass).clickable(action), contentAlignment = Alignment.Center) {
+        Image(ImageProvider(icon), contentDescription = label, colorFilter = ColorFilter.tint(White), modifier = GlanceModifier.size(size * 0.52f))
     }
 }
 
@@ -247,7 +252,8 @@ private fun Small(now: Now) {
 @Composable
 private fun Wide(now: Now) {
     val size = LocalSize.current
-    val side = minOf(size.height - 28.dp, size.width * 0.4f).coerceAtLeast(64.dp)
+    val side = minOf(size.height - 28.dp, size.width * 0.36f).coerceAtLeast(56.dp)
+    val room = size.width - 28.dp - side - 14.dp
     Backdrop(now) {
         Row(GlanceModifier.fillMaxSize().padding(14.dp), verticalAlignment = Alignment.CenterVertically) {
             CoverImage(now, side)
@@ -257,7 +263,7 @@ private fun Wide(now: Now) {
                 Spacer(GlanceModifier.height(10.dp))
                 Progress(now)
                 Spacer(GlanceModifier.height(10.dp))
-                Controls(now)
+                Controls(now, room)
             }
         }
     }
@@ -278,7 +284,7 @@ private fun Large(now: Now) {
             Spacer(GlanceModifier.height(12.dp))
             Progress(now)
             Spacer(GlanceModifier.height(12.dp))
-            Row(GlanceModifier.fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally) { Controls(now, 88.dp) }
+            Row(GlanceModifier.fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally) { Controls(now, LocalSize.current.width - 36.dp, 88.dp) }
         }
     }
 }
@@ -287,21 +293,22 @@ class Toggle : ActionCallback {
     override suspend fun onAction(context: Context, glanceId: GlanceId, parameters: ActionParameters) {
         val core = NeedleApp.instance.core
         // Nothing to go on with: shuffle the whole library.
-        if (core.playback().current == null) core.play(core.songs().shuffled().take(200).map { it.id }, 0u) else core.toggle()
+        if (NeedleApp.instance.playback.value?.current == null) core.play(core.songs().shuffled().take(200).map { it.id }, 0u)
+        else fyi.nnx.needle.ui.Controls.toggle()
         updateWidgets(context)
     }
 }
 
 class Next : ActionCallback {
     override suspend fun onAction(context: Context, glanceId: GlanceId, parameters: ActionParameters) {
-        NeedleApp.instance.core.next()
+        fyi.nnx.needle.ui.Controls.next()
         updateWidgets(context)
     }
 }
 
 class Previous : ActionCallback {
     override suspend fun onAction(context: Context, glanceId: GlanceId, parameters: ActionParameters) {
-        NeedleApp.instance.core.previous()
+        fyi.nnx.needle.ui.Controls.previous()
         updateWidgets(context)
     }
 }

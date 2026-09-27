@@ -171,6 +171,15 @@ impl Needle {
         Ok(favorite)
     }
 
+    /// A song's stars now (0 to 5); the song a list or the player holds may be older.
+    pub fn rating(&self, id: String) -> u8 {
+        self.library
+            .track(&id)
+            .ok()
+            .flatten()
+            .map_or(0, |t| t.rating.clamp(0, 5) as u8)
+    }
+
     pub fn is_favorite(&self, id: String) -> bool {
         self.library
             .track(&id)

@@ -138,6 +138,8 @@ pub struct SourceInfo {
     /// When it was last synced (Unix seconds).
     pub synced_at: Option<i64>,
     pub syncing: bool,
+    /// Songs received so far while it syncs, so views can count them in.
+    pub received: usize,
     /// What went wrong signing in or syncing.
     pub error: Option<String>,
 }
@@ -863,6 +865,10 @@ fn run(
                 } else {
                     songs.extend(list.iter().filter_map(crate::sources::Song::from_value));
                 }
+                let received = songs.len();
+                if let Some(source) = &mut target.info.source {
+                    source.received = received;
+                }
                 // Pages until an empty one. The limit only stops a plugin that never ends.
                 let endless = page >= MAX_SYNC_PAGES;
                 if error.is_none() && !list.is_empty() && !endless {
@@ -870,6 +876,8 @@ fn run(
                         plugin,
                         page: page + 1,
                     });
+                    // Shows the count so far.
+                    publish(&loaded);
                     continue;
                 }
                 let songs = syncing.remove(&plugin).unwrap_or_default();
@@ -885,6 +893,7 @@ fn run(
                 };
                 if let Some(source) = &mut target.info.source {
                     source.syncing = false;
+                    source.received = 0;
                     source.error = outcome.as_ref().err().cloned();
                 }
                 refresh_source(target, &library);

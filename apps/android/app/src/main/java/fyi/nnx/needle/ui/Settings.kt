@@ -12,6 +12,7 @@ import androidx.compose.animation.animateContentSize
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.material.icons.rounded.Check
 import androidx.compose.material3.toShape
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.foundation.clickable
@@ -556,6 +557,74 @@ private fun AppearanceSettings() {
         Divider()
         TextButton(onClick = { importTheme.launch(arrayOf("*/*")) }, modifier = Modifier.padding(8.dp)) { Text("Add a theme file") }
     }
+    Group("Text") {
+        Text("Title font", style = MaterialTheme.typography.bodyLarge, modifier = Modifier.padding(start = 16.dp, top = 14.dp))
+        Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            listOf("flex" to "Poster", "fraunces" to "Serif", "system" to "Plain").forEach { (id, label) ->
+                StyleTile(label, app.titleFont == id, Modifier.weight(1f), { update { it.copy(titleFont = id) } }) {
+                    Text("Aa", style = MaterialTheme.typography.headlineMedium.copy(fontFamily = titleFamilyFor(id), fontWeight = androidx.compose.ui.text.font.FontWeight.Black))
+                }
+            }
+        }
+        Divider()
+        var scale by remember(app.textScale) { mutableFloatStateOf(app.textScale) }
+        SliderRow(
+            "Text size",
+            when {
+                scale < 0.95f -> "Smaller"
+                scale > 1.15f -> "Largest"
+                scale > 1.05f -> "Larger"
+                else -> "Usual"
+            },
+            scale, 0.85f..1.3f, steps = 8,
+            onChange = { scale = it },
+            onDone = { update { it.copy(textScale = scale) } },
+        )
+        Divider()
+        Text("Density", style = MaterialTheme.typography.bodyLarge, modifier = Modifier.padding(start = 16.dp, top = 14.dp))
+        Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            listOf("compact" to "Compact", "comfortable" to "Comfortable", "spacious" to "Spacious").forEach { (id, label) ->
+                StyleTile(label, app.density == id, Modifier.weight(1f), { update { it.copy(density = id) } }) {
+                    // Three rows, as close as the choice sets them.
+                    val gap = when (id) { "compact" -> 3.dp; "spacious" -> 9.dp; else -> 6.dp }
+                    Column(verticalArrangement = Arrangement.spacedBy(gap)) {
+                        repeat(3) {
+                            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(5.dp)) {
+                                Box(Modifier.size(8.dp).clip(RoundedCornerShape(2.dp)).background(MaterialTheme.colorScheme.primary))
+                                Box(Modifier.size(width = 34.dp, height = 4.dp).clip(RoundedCornerShape(2.dp)).background(MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f)))
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+    Group("Accent", footer = "Where no cover gives the colour: buttons, what is playing, and links.") {
+        val swatches = listOf(
+            "" to Color(0xFFE2B46C), "#E5484D" to Color(0xFFE5484D), "#E93D82" to Color(0xFFE93D82),
+            "#8E4EC6" to Color(0xFF8E4EC6), "#3E63DD" to Color(0xFF3E63DD), "#0090FF" to Color(0xFF0090FF),
+            "#12A594" to Color(0xFF12A594), "#46A758" to Color(0xFF46A758), "#F76B15" to Color(0xFFF76B15),
+        )
+        Row(
+            Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 16.dp),
+            horizontalArrangement = Arrangement.SpaceBetween,
+        ) {
+            swatches.forEach { (id, color) ->
+                val chosen = app.accentColor.equals(id, ignoreCase = true)
+                Box(
+                    Modifier
+                        .size(32.dp)
+                        .clip(androidx.compose.foundation.shape.CircleShape)
+                        .background(color)
+                        .border(if (chosen) 3.dp else 0.dp, MaterialTheme.colorScheme.onSurface, androidx.compose.foundation.shape.CircleShape)
+                        .clickable { update { it.copy(accentColor = id) } },
+                    contentAlignment = Alignment.Center,
+                ) {
+                    if (chosen) Icon(androidx.compose.material.icons.Icons.Rounded.Check, contentDescription = "Chosen", tint = Color.White, modifier = Modifier.size(18.dp))
+                }
+            }
+        }
+    }
     Group("Colour", footer = "Colours from covers are made the way Android makes them from your wallpaper, so text on them always reads.") {
         SwitchRow("Pages in their cover's colours", "Albums, playlists, and artists take the colours of their cover", app.coverColors) { on -> update { it.copy(coverColors = on) } }
         Divider()
@@ -574,6 +643,16 @@ private fun AppearanceSettings() {
         Divider()
         var blur by remember(app.backdropBlur) { mutableFloatStateOf(app.backdropBlur) }
         SliderRow("Softness", "${blur.toInt()}", blur, 20f..120f, onChange = { blur = it }, onDone = { update { it.copy(backdropBlur = blur) } })
+        Divider()
+        var grain by remember(app.grain) { mutableFloatStateOf(app.grain) }
+        SliderRow(
+            "Grain",
+            if (grain < 0.05f) "None" else "${(grain * 100).toInt()}%",
+            grain, 0f..1f,
+            summary = "A fine film grain over the whole app, as on the desktop",
+            onChange = { grain = it },
+            onDone = { update { it.copy(grain = if (grain < 0.05f) 0f else grain) } },
+        )
     }
     Group("Player") {
         Text("Seek bar", style = MaterialTheme.typography.bodyLarge, modifier = Modifier.padding(start = 16.dp, top = 14.dp))

@@ -119,6 +119,7 @@ fun PluginsScreen(open: (Route) -> Unit) {
     }
 }
 
+@OptIn(androidx.compose.material3.ExperimentalMaterial3ExpressiveApi::class)
 @Composable
 fun PluginScreen(id: String) {
     val plugins = rememberPlugins()
@@ -167,7 +168,17 @@ fun PluginScreen(id: String) {
                                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                                 )
                             }
-                            if (source.syncing) Text("Bringing in the song list…", color = MaterialTheme.colorScheme.primary)
+                            if (source.syncing) {
+                                // The server sends its list in pages; the count grows as they come.
+                                Text(
+                                    if (source.received > 0u) "Bringing in the song list… ${count(source.received.toInt(), "song")} so far" else "Asking the server for its songs…",
+                                    color = MaterialTheme.colorScheme.primary,
+                                )
+                                androidx.compose.material3.LinearWavyProgressIndicator(modifier = Modifier.fillMaxWidth())
+                            } else if (source.coversLeft > 0u) {
+                                Text("Bringing in covers… ${count(source.coversLeft.toInt(), "cover")} to go", color = MaterialTheme.colorScheme.primary)
+                                androidx.compose.material3.LinearWavyProgressIndicator(modifier = Modifier.fillMaxWidth())
+                            }
                             Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                                 FilledTonalButton(enabled = !source.syncing, onClick = { core.sourceSync(plugin.id) }) { Text("Bring in songs again") }
                                 TextButton(onClick = { core.sourceSignOut(plugin.id) }) { Text("Sign out") }

@@ -39,6 +39,10 @@ pub struct MusicSource {
     pub songs: u32,
     pub synced_at: Option<i64>,
     pub syncing: bool,
+    /// Songs received so far while it syncs.
+    pub received: u32,
+    /// Covers from music servers still on their way.
+    pub covers_left: u32,
     pub error: Option<String>,
 }
 
@@ -332,6 +336,8 @@ impl Needle {
                     songs: s.songs as u32,
                     synced_at: s.synced_at,
                     syncing: s.syncing,
+                    received: s.received as u32,
+                    covers_left: needle_core::sources::covers_left() as u32,
                     error: s.error,
                 }),
             })
