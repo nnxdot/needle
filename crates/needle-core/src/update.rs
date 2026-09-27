@@ -34,6 +34,8 @@ pub enum Package {
     Rpm,
     /// macOS, Apple silicon: `Needle-<version>-macos.dmg`, holding `Needle.app`.
     MacApp,
+    /// Android: `Needle-<version>-android.apk`, which Android's installer puts in.
+    AndroidApk,
 }
 
 impl Package {
@@ -57,6 +59,7 @@ impl Package {
                     && name.ends_with(&format!(".{arch}.rpm"))
             }
             Self::MacApp => arch == "aarch64" && name == format!("needle-{version}-macos.dmg"),
+            Self::AndroidApk => name == format!("needle-{version}-android.apk"),
         }
     }
 }
@@ -100,7 +103,16 @@ pub fn installed_package() -> Option<Package> {
     {
         mac_bundle().map(|_| Package::MacApp)
     }
-    #[cfg(not(any(windows, target_os = "linux", target_os = "macos")))]
+    #[cfg(target_os = "android")]
+    {
+        Some(Package::AndroidApk)
+    }
+    #[cfg(not(any(
+        windows,
+        target_os = "linux",
+        target_os = "macos",
+        target_os = "android"
+    )))]
     {
         None
     }
@@ -336,6 +348,8 @@ pub fn install(release: &Release, installer: &Path) -> Result<()> {
         }
         #[cfg(not(target_os = "macos"))]
         Some(Package::MacApp) => bail!("The macOS app installs only on macOS."),
+        // The app hands the checked file to Android's installer, which asks the person.
+        Some(Package::AndroidApk) => bail!("Android's installer puts the app in."),
         None => bail!("This copy of Needle cannot update itself."),
     }
 }
@@ -510,6 +524,7 @@ mod tests {
                 {"name":"needle_1.5.0_arm64.deb","browser_download_url":"https://d/deb-arm"},
                 {"name":"needle-1.5.0-1.x86_64.rpm","browser_download_url":"https://d/rpm"},
                 {"name":"Needle-1.5.0-macos.dmg","browser_download_url":"https://d/dmg"},
+                {"name":"Needle-1.5.0-android.apk","browser_download_url":"https://d/apk"},
                 {"name":"SHA256SUMS.txt","browser_download_url":"https://d/sums"}]}"#,
         )
         .unwrap();
@@ -546,6 +561,11 @@ mod tests {
         assert_eq!(
             pick(Some(Package::MacApp), "x86_64"),
             Some((None, String::new()))
+        );
+        // One Android app for every processor.
+        assert_eq!(
+            pick(Some(Package::AndroidApk), "aarch64"),
+            Some((Some(Package::AndroidApk), "https://d/apk".into()))
         );
         // An older or unrelated package in the release is never taken.
         let odd: Value = serde_json::from_str(
