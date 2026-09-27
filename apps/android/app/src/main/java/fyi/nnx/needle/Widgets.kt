@@ -64,6 +64,15 @@ suspend fun updateWidgets(context: Context) {
 
 // ---------- Now playing
 
+/** The cover's darkest strong colour, for the widget's background; Needle's charcoal without one. */
+private fun tint(art: Bitmap?): Color {
+    val swatch = art?.let { androidx.palette.graphics.Palette.from(it).generate() }
+    val rgb = swatch?.darkVibrantSwatch?.rgb ?: swatch?.darkMutedSwatch?.rgb ?: return Color(0xFF1B1918)
+    // Darkened, so white text always reads on it.
+    val c = Color(rgb)
+    return Color(c.red * 0.55f, c.green * 0.55f, c.blue * 0.55f)
+}
+
 class NowPlayingWidget : GlanceAppWidget() {
     override val sizeMode = SizeMode.Exact
 
@@ -71,42 +80,80 @@ class NowPlayingWidget : GlanceAppWidget() {
         val core = NeedleApp.instance.core
         val playback = runCatching { core.playback() }.getOrNull()
         val song = playback?.current
-        val art = cover(song?.artwork)
-        provideContent { GlanceTheme { NowPlaying(song, playback?.playing == true, art) } }
+        val art = cover(song?.artwork, 320)
+        val back = tint(art)
+        provideContent {
+            GlanceTheme {
+                if (androidx.glance.LocalSize.current.width < 200.dp) Square(song, playback?.playing == true, art, back)
+                else NowPlaying(song, playback?.playing == true, art, back)
+            }
+        }
     }
 }
 
+/** Small: the cover fills it, with play or pause in a corner. */
 @Composable
-private fun NowPlaying(song: Song?, playing: Boolean, art: Bitmap?) {
+private fun Square(song: Song?, playing: Boolean, art: Bitmap?, back: Color) {
+    Box(
+        GlanceModifier.fillMaxSize().background(ColorProvider(back)).cornerRadius(28.dp).clickable(actionStartActivity<MainActivity>()),
+        contentAlignment = Alignment.BottomEnd,
+    ) {
+        if (art != null) Image(ImageProvider(art), contentDescription = song?.title, contentScale = androidx.glance.layout.ContentScale.Crop, modifier = GlanceModifier.fillMaxSize().cornerRadius(28.dp))
+        else Box(GlanceModifier.fillMaxSize(), contentAlignment = Alignment.Center) { Image(ImageProvider(R.drawable.ic_widget_play), contentDescription = null, modifier = GlanceModifier.size(36.dp)) }
+        Box(GlanceModifier.padding(10.dp)) { PlayButton(playing, 48) }
+    }
+}
+
+/** Wide: the cover at the left, the song, and the buttons, on the cover's own colour. */
+@Composable
+private fun NowPlaying(song: Song?, playing: Boolean, art: Bitmap?, back: Color) {
+    // The cover fills the widget's height (and at most 45% of its width).
+    val size = androidx.glance.LocalSize.current
+    val side = minOf(size.height - 24.dp, size.width * 0.45f).coerceAtLeast(72.dp)
     Row(
-        GlanceModifier.fillMaxSize().background(Back).cornerRadius(24.dp).padding(12.dp)
+        GlanceModifier.fillMaxSize().background(ColorProvider(back)).cornerRadius(28.dp).padding(12.dp)
             .clickable(actionStartActivity<MainActivity>()),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Box(GlanceModifier.size(72.dp).cornerRadius(12.dp).background(ColorProvider(Color(0xFF2B2927))), contentAlignment = Alignment.Center) {
-            if (art != null) Image(ImageProvider(art), contentDescription = null, modifier = GlanceModifier.size(72.dp).cornerRadius(12.dp))
-            else Text("♪", style = TextStyle(color = Amber, fontSize = 28.sp))
+        Box(GlanceModifier.size(side).cornerRadius(20.dp).background(ColorProvider(Color(0x33FFFFFF))), contentAlignment = Alignment.Center) {
+            if (art != null) Image(ImageProvider(art), contentDescription = null, contentScale = androidx.glance.layout.ContentScale.Crop, modifier = GlanceModifier.size(side).cornerRadius(20.dp))
+            else Image(ImageProvider(R.drawable.ic_widget_play), contentDescription = null, modifier = GlanceModifier.size(32.dp))
         }
-        Spacer(GlanceModifier.width(12.dp))
+        Spacer(GlanceModifier.width(14.dp))
         Column(GlanceModifier.defaultWeight()) {
-            Text(song?.title ?: "Needle", maxLines = 1, style = TextStyle(color = Ink, fontSize = 15.sp, fontWeight = FontWeight.Bold))
-            Text(song?.artist ?: "Nothing playing", maxLines = 1, style = TextStyle(color = Faint, fontSize = 13.sp))
-            Spacer(GlanceModifier.size(6.dp))
+            Text(song?.title ?: "Needle", maxLines = 2, style = TextStyle(color = ColorProvider(Color.White), fontSize = 18.sp, fontWeight = FontWeight.Bold))
+            Text(song?.artist ?: "Tap play for a shuffle of your music", maxLines = 1, style = TextStyle(color = ColorProvider(Color(0xCCFFFFFF)), fontSize = 14.sp))
+            Spacer(GlanceModifier.size(14.dp))
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Button(R.drawable.ic_widget_previous, "Previous", actionRunCallback<Previous>())
-                Spacer(GlanceModifier.width(8.dp))
-                Button(if (playing) R.drawable.ic_widget_pause else R.drawable.ic_widget_play, if (playing) "Pause" else "Play", actionRunCallback<Toggle>())
-                Spacer(GlanceModifier.width(8.dp))
+                Spacer(GlanceModifier.width(10.dp))
+                PlayButton(playing, 52)
+                Spacer(GlanceModifier.width(10.dp))
                 Button(R.drawable.ic_widget_next, "Next", actionRunCallback<Next>())
             }
         }
     }
 }
 
+/** Play or pause, in Needle's amber, round. */
+@Composable
+private fun PlayButton(playing: Boolean, size: Int) {
+    Box(
+        GlanceModifier.size(size.dp).cornerRadius((size / 2).dp).background(Amber).clickable(actionRunCallback<Toggle>()),
+        contentAlignment = Alignment.Center,
+    ) {
+        Image(
+            ImageProvider(if (playing) R.drawable.ic_widget_pause_dark else R.drawable.ic_widget_play_dark),
+            contentDescription = if (playing) "Pause" else "Play",
+            modifier = GlanceModifier.size((size * 0.5).dp),
+        )
+    }
+}
+
 @Composable
 private fun Button(icon: Int, label: String, action: androidx.glance.action.Action) {
     Box(
-        GlanceModifier.size(40.dp).cornerRadius(20.dp).background(ColorProvider(Color(0xFF353230))).clickable(action),
+        GlanceModifier.size(40.dp).cornerRadius(20.dp).background(ColorProvider(Color(0x26FFFFFF))).clickable(action),
         contentAlignment = Alignment.Center,
     ) { Image(ImageProvider(icon), contentDescription = label, modifier = GlanceModifier.size(22.dp)) }
 }
@@ -150,7 +197,7 @@ class RecentWidget : GlanceAppWidget() {
         val arts = albums.map { cover(it.artwork, 192) }
         provideContent {
             GlanceTheme {
-                Column(GlanceModifier.fillMaxSize().background(Back).cornerRadius(24.dp).padding(12.dp)) {
+                Column(GlanceModifier.fillMaxSize().background(Back).cornerRadius(28.dp).padding(14.dp)) {
                     Text("Recently added", style = TextStyle(color = Ink, fontSize = 14.sp, fontWeight = FontWeight.Bold))
                     Spacer(GlanceModifier.size(8.dp))
                     if (albums.isEmpty()) {
@@ -165,7 +212,7 @@ class RecentWidget : GlanceAppWidget() {
                                 contentAlignment = Alignment.Center,
                             ) {
                                 val art = arts[i]
-                                if (art != null) Image(ImageProvider(art), contentDescription = album.title, modifier = GlanceModifier.size(72.dp).cornerRadius(10.dp))
+                                if (art != null) Image(ImageProvider(art), contentDescription = album.title, contentScale = androidx.glance.layout.ContentScale.Crop, modifier = GlanceModifier.size(76.dp).cornerRadius(14.dp))
                                 else Text(album.title.take(12), maxLines = 2, style = TextStyle(color = Faint, fontSize = 11.sp), modifier = GlanceModifier.size(72.dp).padding(6.dp))
                             }
                         }
