@@ -172,12 +172,16 @@ fun SectionHeader(text: String, modifier: Modifier = Modifier, onMore: (() -> Un
 }
 
 @Composable
-fun AlbumTile(album: Album, modifier: Modifier = Modifier, onClick: () -> Unit) {
+@OptIn(ExperimentalFoundationApi::class)
+fun AlbumTile(album: Album, modifier: Modifier = Modifier, open: ((Route) -> Unit)? = null, onClick: () -> Unit) {
     val interaction = remember { MutableInteractionSource() }
+    var menu by remember { mutableStateOf(false) }
+    val haptics = rememberHaptics()
+    if (menu) AlbumSheet(album, open) { menu = false }
     Column(
         modifier
             .pressScale(interaction)
-            .clickable(interactionSource = interaction, indication = null, onClick = onClick),
+            .combinedClickable(interactionSource = interaction, indication = null, onClick = onClick, onLongClick = { haptics(true); menu = true }),
     ) {
         Cover(album.artwork, Modifier.fillMaxWidth().aspectRatio(1f).sharedCover("album-${album.key}"))
         Text(
@@ -205,7 +209,7 @@ fun SongMenu(song: Song, open: ((Route) -> Unit)?, remove: (() -> Unit)? = null)
     SongMenu(song, open, shown, remove) { shown = it }
 }
 
-/** The menu, opened from outside too (a long press on the row). */
+/** The menu's button; the menu itself is a sheet (see [SongSheet]). Opened from outside too. */
 @Composable
 fun SongMenu(
     song: Song,
@@ -214,91 +218,10 @@ fun SongMenu(
     remove: (() -> Unit)? = null,
     onShown: (Boolean) -> Unit,
 ) {
-    val done = { onShown(false) }
-    Box {
-        IconButton(onClick = { onShown(true) }) {
-            Icon(Icons.Rounded.MoreVert, contentDescription = "More", tint = MaterialTheme.colorScheme.onSurfaceVariant)
-        }
-        DropdownMenu(expanded = shown, onDismissRequest = done) {
-            // The stars first: a tap on one sets them, a tap on the same one clears them.
-            var stars by remember(song.id, shown) { mutableStateOf(song.rating.toInt()) }
-            Row(Modifier.padding(horizontal = 12.dp, vertical = 4.dp)) {
-                (1..5).forEach { n ->
-                    IconButton(onClick = {
-                        stars = if (stars == n) 0 else n
-                        runCatching { core.rate(song.id, stars.toUByte()) }
-                        NeedleApp.instance.libraryVersion.value++
-                    }) {
-                        Icon(
-                            if (n <= stars) Icons.Rounded.Star else Icons.Rounded.StarBorder,
-                            contentDescription = "$n stars",
-                            tint = if (n <= stars) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                    }
-                }
-            }
-            HorizontalDivider()
-            DropdownMenuItem(
-                text = { Text("Play next") },
-                leadingIcon = { Icon(Icons.Rounded.QueuePlayNext, null) },
-                onClick = { done(); core.playNext(listOf(song.id)) },
-            )
-            DropdownMenuItem(
-                text = { Text("Add to queue") },
-                leadingIcon = { Icon(Icons.AutoMirrored.Rounded.QueueMusic, null) },
-                onClick = { done(); core.enqueue(listOf(song.id)) },
-            )
-            DropdownMenuItem(
-                text = { Text("Add to a playlist") },
-                leadingIcon = { Icon(Icons.AutoMirrored.Rounded.PlaylistAdd, null) },
-                onClick = { done(); Ui.sheet.value = Sheet.AddToPlaylist(listOf(song.id)) },
-            )
-            DropdownMenuItem(
-                text = { Text("Start radio") },
-                leadingIcon = { Icon(Icons.Rounded.Radio, null) },
-                onClick = {
-                    done()
-                    showMessage("Starting radio from ${song.title}…")
-                    NeedleApp.instance.scope.launch { runCatching { core.startRadio(song.id) } }
-                },
-            )
-            if (remove != null) {
-                DropdownMenuItem(
-                    text = { Text("Remove from this playlist") },
-                    leadingIcon = { Icon(Icons.Rounded.RemoveCircleOutline, null) },
-                    onClick = { done(); remove() },
-                )
-            }
-            if (open != null) {
-                DropdownMenuItem(
-                    text = { Text("Time the lyrics") },
-                    leadingIcon = { Icon(Icons.Rounded.Lyrics, null) },
-                    onClick = { done(); open(Route.Timing(song.id)) },
-                )
-                DropdownMenuItem(
-                    text = { Text("Go to album") },
-                    leadingIcon = { Icon(Icons.Rounded.Album, null) },
-                    onClick = { done(); open(Route.AlbumOf(song.album, song.id)) },
-                )
-                DropdownMenuItem(
-                    text = { Text("Go to artist") },
-                    leadingIcon = { Icon(Icons.Rounded.Person, null) },
-                    onClick = { done(); open(Route.Artist(song.artist)) },
-                )
-            }
-            // Commands from plugins that act on songs.
-            val commands = remember(shown) { if (shown) runCatching { core.plugins() }.getOrDefault(emptyList()).filter { it.enabled } else emptyList() }
-            commands.forEach { plugin ->
-                plugin.commands.filter { it.forSongs }.forEach { command ->
-                    DropdownMenuItem(
-                        text = { Text(command.title) },
-                        leadingIcon = { Icon(Icons.Rounded.Extension, null) },
-                        onClick = { done(); core.runPluginCommand(plugin.id, command.id, listOf(song.id)) },
-                    )
-                }
-            }
-        }
+    IconButton(onClick = { onShown(true) }) {
+        Icon(Icons.Rounded.MoreVert, contentDescription = "More", tint = MaterialTheme.colorScheme.onSurfaceVariant)
     }
+    if (shown) SongSheet(song, open, remove) { onShown(false) }
 }
 
 @OptIn(ExperimentalFoundationApi::class)
