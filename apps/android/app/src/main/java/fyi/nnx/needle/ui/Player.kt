@@ -16,6 +16,7 @@ import androidx.compose.runtime.DisposableEffect
 import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.text.withStyle
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.togetherWith
@@ -47,6 +48,9 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.QueueMusic
 import androidx.compose.material.icons.rounded.Lyrics
+import androidx.compose.material.icons.rounded.Cast
+import androidx.compose.material.icons.rounded.Favorite
+import androidx.compose.material.icons.rounded.FavoriteBorder
 import androidx.compose.material.icons.rounded.Pause
 import androidx.compose.material.icons.rounded.PlayArrow
 import androidx.compose.material.icons.rounded.Repeat
@@ -223,12 +227,16 @@ private fun PlayerBackdrop(song: Song) {
 private enum class Panel { Cover, Lyrics, UpNext }
 
 @Composable
-fun FullPlayer(onClose: () -> Unit) {
+fun FullPlayer(onClose: () -> Unit, open: (Route) -> Unit) {
     val playback by NeedleApp.instance.playback.collectAsState()
     val p = playback ?: return
     val song = p.current ?: return
     var panel by rememberSaveable { mutableStateOf(Panel.Cover) }
     val haptics = rememberHaptics()
+    var favorite by remember(song.id) { mutableStateOf(song.rating >= 4) }
+    // The A-B loop: the first tap marks A, the second B, the third lets go.
+    var loopStart by remember(song.id) { mutableStateOf<Double?>(null) }
+    val looping = remember(p.position, song.id) { core.loopRange() }
     // Pulled down far enough, the player closes.
     var pull by remember { mutableFloatStateOf(0f) }
 
@@ -275,7 +283,7 @@ fun FullPlayer(onClose: () -> Unit) {
                                 RoundedCornerShape(12.dp),
                             )
                         }
-                        Panel.Lyrics -> LyricsPanel(song, p.position)
+                        Panel.Lyrics -> LyricsPanel(song, p.position) { open(Route.Timing(song.id)) }
                         Panel.UpNext -> UpNextPanel(p.queueVersion)
                     }
                 }
@@ -297,7 +305,18 @@ fun FullPlayer(onClose: () -> Unit) {
                                 overflow = TextOverflow.Ellipsis,
                             )
                         }
-                        SongMenu(song, null)
+                        IconButton(onClick = {
+                            haptics(false)
+                            favorite = runCatching { core.toggleFavorite(song.id) }.getOrDefault(favorite)
+                            NeedleApp.instance.libraryVersion.value++
+                        }) {
+                            Icon(
+                                if (favorite) Icons.Rounded.Favorite else Icons.Rounded.FavoriteBorder,
+                                contentDescription = if (favorite) "Take out of favorites" else "Add to favorites",
+                                tint = if (favorite) MaterialTheme.colorScheme.primary else Color.White.copy(alpha = 0.7f),
+                            )
+                        }
+                        SongMenu(song, open)
                     }
                 }
                 SeekBar(position = p.position, duration = song.duration)
@@ -325,6 +344,22 @@ fun FullPlayer(onClose: () -> Unit) {
                         Icon(Icons.Rounded.Lyrics, contentDescription = "Lyrics")
                     }
                     Row {
+                        RoundToggle(looping.isNotEmpty() || loopStart != null, {
+                            when {
+                                looping.isNotEmpty() -> { core.setLoop(null, null); loopStart = null; showMessage("Loop off") }
+                                loopStart == null -> { loopStart = p.position; showMessage("Loop from ${time(p.position)}: tap again where it ends") }
+                                else -> {
+                                    core.setLoop(loopStart, p.position)
+                                    showMessage("Looping ${time(loopStart!!)} to ${time(p.position)}")
+                                    loopStart = null
+                                }
+                            }
+                        }) {
+                            Text(if (looping.isNotEmpty()) "A-B" else if (loopStart != null) "A…" else "A-B", style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.Bold)
+                        }
+                        IconButton(onClick = { Ui.sheet.value = Sheet.PlayOn }) {
+                            Icon(Icons.Rounded.Cast, contentDescription = "Play on", tint = Color.White.copy(alpha = 0.7f))
+                        }
                         IconButton(onClick = { core.shuffle() }) {
                             Icon(Icons.Rounded.Shuffle, contentDescription = "Shuffle what is up next", tint = Color.White.copy(alpha = 0.7f))
                         }
@@ -418,7 +453,7 @@ private fun SeekBar(position: Double, duration: Double) {
 }
 
 @Composable
-private fun LyricsPanel(song: Song, position: Double) {
+private fun LyricsPanel(song: Song, position: Double, time: () -> Unit) {
     val lyrics by rememberLoaded(song.id) { lyrics(song.id) }
     val lines = lyrics?.lines.orEmpty()
     val state = rememberLazyListState()
@@ -434,21 +469,37 @@ private fun LyricsPanel(song: Song, position: Double) {
         onDispose { view.keepScreenOn = false }
     }
     when {
-        lyrics == null || (lines.isEmpty() && lyrics?.plain.isNullOrBlank()) -> Text(
-            if (lyrics?.instrumental == true) "Instrumental" else "No lyrics for this song",
-            style = MaterialTheme.typography.titleMedium,
-            color = Color.White.copy(alpha = 0.6f),
-        )
+        lyrics == null || (lines.isEmpty() && lyrics?.plain.isNullOrBlank()) -> Column(horizontalAlignment = Alignment.CenterHorizontally) {
+            Text(
+                if (lyrics?.instrumental == true) "Instrumental" else "No lyrics for this song",
+                style = MaterialTheme.typography.titleMedium,
+                color = Color.White.copy(alpha = 0.6f),
+            )
+            if (lyrics?.instrumental != true) {
+                androidx.compose.material3.TextButton(onClick = time) { Text("Add and time them", color = Color.White) }
+            }
+        }
         lines.isEmpty() -> LazyColumn(Modifier.fillMaxSize()) {
             item { Text(lyrics!!.plain, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold) }
+            item { androidx.compose.material3.TextButton(onClick = time) { Text("Time these lyrics", color = Color.White) } }
         }
         else -> LazyColumn(Modifier.fillMaxSize(), state = state) {
             itemsIndexed(lines) { i, line ->
                 val lit = !app.liveLyrics || i == now
                 val alpha by animateFloatAsState(if (lit) 1f else if (i < now) 0.25f else 0.4f, tween(300), label = "line")
                 val grow by animateFloatAsState(if (i == now && app.liveLyrics) 1f else 0.94f, spring(dampingRatio = 0.7f, stiffness = 300f), label = "line size")
+                // Karaoke: the words sung so far are lit, the rest wait.
+                val sung = if (i == now && line.words.isNotEmpty() && app.liveLyrics) {
+                    androidx.compose.ui.text.buildAnnotatedString {
+                        line.words.forEach { word ->
+                            withStyle(androidx.compose.ui.text.SpanStyle(color = if (word.time <= position) Color.White else Color.White.copy(alpha = 0.4f))) {
+                                append(word.text)
+                            }
+                        }
+                    }
+                } else null
                 Text(
-                    line.text.ifBlank { "♪" },
+                    sung ?: androidx.compose.ui.text.AnnotatedString(line.text.ifBlank { "♪" }),
                     style = MaterialTheme.typography.headlineMedium,
                     fontWeight = FontWeight.Bold,
                     color = Color.White.copy(alpha = alpha),

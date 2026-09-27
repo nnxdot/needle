@@ -42,6 +42,10 @@ import androidx.compose.material.icons.rounded.Equalizer
 import androidx.compose.material.icons.rounded.Folder
 import androidx.compose.material.icons.rounded.GraphicEq
 import androidx.compose.material.icons.rounded.Info
+import androidx.compose.material.icons.rounded.Extension
+import androidx.compose.material.icons.rounded.Computer
+import androidx.compose.material.icons.rounded.Sync
+import androidx.compose.material.icons.rounded.NewReleases
 import androidx.compose.material.icons.rounded.LibraryMusic
 import androidx.compose.material.icons.rounded.Palette
 import androidx.compose.material.icons.rounded.PlayCircle
@@ -98,7 +102,20 @@ enum class SettingsSection(val title: String, val summary: String, val icon: Ima
     Sound("Sound", "Equalizer, balance, and headphones", Icons.Rounded.Equalizer, Color(0xFFB39DDB)),
     Appearance("Appearance", "Colours, motion, and lyrics", Icons.Rounded.Palette, Color(0xFFE8A07F)),
     Scrobbling("Scrobbling", "Last.fm and ListenBrainz", Icons.Rounded.GraphicEq, Color(0xFFD1706B)),
-    About("About", "Version and privacy", Icons.Rounded.Info, Color(0xFF9CC99A)),
+    Plugins("Plugins", "Music servers, NetEase lyrics, effects", Icons.Rounded.Extension, Color(0xFF7FC8B8)),
+    Computer("Your computer", "Control Needle there, play its music here", Icons.Rounded.Computer, Color(0xFF9FB4E8)),
+    Sync("Sync", "Move history, ratings, and playlists", Icons.Rounded.Sync, Color(0xFFE8C77F)),
+    WhatsNew("What's new", "In this version of Needle", Icons.Rounded.NewReleases, Color(0xFFE89FC4)),
+    About("About", "Version, updates, and privacy", Icons.Rounded.Info, Color(0xFF9CC99A)),
+}
+
+/** Sections that are pages of their own elsewhere in the app. */
+private fun SettingsSection.route(): Route = when (this) {
+    SettingsSection.Plugins -> Route.Plugins
+    SettingsSection.Computer -> Route.Connect
+    SettingsSection.Sync -> Route.Sync
+    SettingsSection.WhatsNew -> Route.WhatsNew
+    else -> Route.SettingsPage(this)
 }
 
 @Composable
@@ -111,7 +128,7 @@ fun SettingsScreen(open: (Route) -> Unit) {
                     Row(
                         Modifier
                             .fillMaxWidth()
-                            .clickable { open(Route.SettingsPage(section)) }
+                            .clickable { open(section.route()) }
                             .padding(horizontal = 16.dp, vertical = 14.dp),
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(16.dp),
@@ -134,7 +151,7 @@ fun SettingsScreen(open: (Route) -> Unit) {
 }
 
 @Composable
-fun SettingsSectionScreen(section: SettingsSection) {
+fun SettingsSectionScreen(section: SettingsSection, open: (Route) -> Unit) {
     LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = 32.dp)) {
         item { LargeTitle(section.title) }
         item {
@@ -145,6 +162,7 @@ fun SettingsSectionScreen(section: SettingsSection) {
                 SettingsSection.Appearance -> AppearanceSettings()
                 SettingsSection.Scrobbling -> ScrobblingSettings()
                 SettingsSection.About -> AboutPage()
+                else -> {}
             }
         }
     }
@@ -288,6 +306,10 @@ private fun LibrarySettings() {
                 }
             }
         }
+        val context = LocalContext.current
+        TextButton(onClick = { background { core.addDemoLibrary(File(context.filesDir, "demo").absolutePath) } }, modifier = Modifier.padding(start = 8.dp, bottom = 8.dp)) {
+            Text("Add a few demo songs")
+        }
     }
     Group("Reading") {
         Column(Modifier.fillMaxWidth().padding(16.dp).animateContentSize(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -429,6 +451,7 @@ private fun SoundSettingsPage() {
         Divider()
         SwitchRow("Mono", "Both sides play the same, for one earbud", s.mono) { save(s.copy(mono = it)) }
         Divider()
+        UsbBitPerfect()
         var balance by remember(s.balance) { mutableStateOf(s.balance) }
         SliderRow(
             "Balance",
@@ -443,6 +466,7 @@ private fun SoundSettingsPage() {
             onDone = { save(s.copy(balance = balance)) },
         )
     }
+    PluginEffects()
 }
 
 /** Ten upright bars, dragged up and down, with a line through their tops. */
@@ -628,6 +652,14 @@ private fun AboutPage() {
             Text("Version $version · preview", color = MaterialTheme.colorScheme.onSurfaceVariant)
             Spacer(Modifier.height(8.dp))
             Text("Your music, on your phone. No account, no ads, no tracking.", style = MaterialTheme.typography.bodyMedium)
+        }
+    }
+    Group("Updates") { UpdatesRow() }
+    Group("Privacy", footer = "A crash report holds what went wrong, with file paths and names taken out. Nothing is sent otherwise.") {
+        var crashes by remember { mutableStateOf(core.crashReports()) }
+        SwitchRow("Send crash reports", "To needle.nnx.fyi, when Needle stops by mistake", crashes) { on ->
+            crashes = on
+            background { core.setCrashReports(on) }
         }
     }
     Group {

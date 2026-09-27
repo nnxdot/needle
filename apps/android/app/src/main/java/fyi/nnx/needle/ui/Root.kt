@@ -16,6 +16,8 @@ import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Home
@@ -25,6 +27,10 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
+import androidx.compose.material3.NavigationRail
+import androidx.compose.material3.NavigationRailItem
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -39,6 +45,7 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.platform.LocalConfiguration
 import fyi.nnx.needle.NeedleApp
 import fyi.nnx.needle.core.Album
 
@@ -61,6 +68,19 @@ sealed interface Route {
     data class Genre(val name: String) : Route
     /** One section of Settings. */
     data class SettingsPage(val section: SettingsSection) : Route
+    data object Favorites : Route
+    data object RecentlyAdded : Route
+    data object History : Route
+    /** A music folder or a folder in one; `null` lists the music folders. */
+    data class Folder(val path: String?) : Route
+    data class Wrapped(val year: Int?) : Route
+    data object Plugins : Route
+    data class Plugin(val id: String) : Route
+    data object Connect : Route
+    data object Sync : Route
+    data object WhatsNew : Route
+    /** Timing a song's lyrics by tapping along. */
+    data class Timing(val songId: String) : Route
 }
 
 enum class Tab(val label: String, val icon: ImageVector, val root: Route) {
@@ -81,6 +101,13 @@ fun NeedleRoot() {
     val stack = stacks[tab] ?: listOf(tab.root)
     val open: (Route) -> Unit = { stacks[tab] = stack + it }
     val hasSong = playback?.current != null
+    val snackbar = remember { SnackbarHostState() }
+    // Tablets and unfolded phones get a rail of tabs at the side, as Material asks.
+    val wide = LocalConfiguration.current.screenWidthDp >= 600
+    val chooseTab: (Tab) -> Unit = { t ->
+        // Tapping the open tab again goes back to its first page.
+        if (t == tab) stacks[t] = listOf(t.root) else tab = t
+    }
 
     LaunchedEffect(Unit) {
         NeedleApp.instance.openPlayer.collect {
@@ -94,8 +121,25 @@ fun NeedleRoot() {
     SharedTransitionLayout(Modifier.fillMaxSize()) {
         CompositionLocalProvider(LocalShared provides this) {
             Box(Modifier.fillMaxSize()) {
+                Row(Modifier.fillMaxSize()) {
+                if (wide) {
+                    NavigationRail(containerColor = MaterialTheme.colorScheme.surfaceContainerLow) {
+                        Spacer(Modifier.weight(1f))
+                        Tab.entries.forEach { t ->
+                            NavigationRailItem(
+                                selected = t == tab,
+                                onClick = { chooseTab(t) },
+                                icon = { Icon(t.icon, contentDescription = null) },
+                                label = { Text(t.label) },
+                            )
+                        }
+                        Spacer(Modifier.weight(1f))
+                    }
+                }
                 Scaffold(
+                    modifier = Modifier.weight(1f),
                     containerColor = MaterialTheme.colorScheme.background,
+                    snackbarHost = { SnackbarHost(snackbar) },
                     bottomBar = {
                         Column {
                             AnimatedVisibility(
@@ -107,17 +151,16 @@ fun NeedleRoot() {
                                     MiniPlayer(onOpen = { playerOpen = true })
                                 }
                             }
-                            NavigationBar(containerColor = MaterialTheme.colorScheme.surfaceContainerLow) {
-                                Tab.entries.forEach { t ->
-                                    NavigationBarItem(
-                                        selected = t == tab,
-                                        onClick = {
-                                            // Tapping the open tab again goes back to its first page.
-                                            if (t == tab) stacks[t] = listOf(t.root) else tab = t
-                                        },
-                                        icon = { Icon(t.icon, contentDescription = null) },
-                                        label = { Text(t.label) },
-                                    )
+                            if (!wide) {
+                                NavigationBar(containerColor = MaterialTheme.colorScheme.surfaceContainerLow) {
+                                    Tab.entries.forEach { t ->
+                                        NavigationBarItem(
+                                            selected = t == tab,
+                                            onClick = { chooseTab(t) },
+                                            icon = { Icon(t.icon, contentDescription = null) },
+                                            label = { Text(t.label) },
+                                        )
+                                    }
                                 }
                             }
                         }
@@ -149,15 +192,17 @@ fun NeedleRoot() {
                         }
                     }
                 }
+                }
                 AnimatedVisibility(
                     visible = playerOpen && hasSong,
                     enter = if (reduce) fadeIn(tween(150)) else slideInVertically(tween(380)) { it } + fadeIn(tween(200)),
                     exit = if (reduce) fadeOut(tween(150)) else slideOutVertically(tween(300)) { it } + fadeOut(tween(250)),
                 ) {
                     CompositionLocalProvider(LocalAnimated provides this) {
-                        FullPlayer(onClose = { playerOpen = false })
+                        FullPlayer(onClose = { playerOpen = false }, open = { playerOpen = false; open(it) })
                     }
                 }
+                Overlays(snackbar)
             }
         }
     }
@@ -180,6 +225,17 @@ private fun Page(route: Route, open: (Route) -> Unit) {
         is Route.Artist -> ArtistScreen(route.name, open)
         is Route.Playlist -> PlaylistScreen(route, open)
         is Route.Genre -> GenreScreen(route.name, open)
-        is Route.SettingsPage -> SettingsSectionScreen(route.section)
+        is Route.SettingsPage -> SettingsSectionScreen(route.section, open)
+        Route.Favorites -> FavoritesScreen(open)
+        Route.RecentlyAdded -> RecentlyAddedScreen(open)
+        Route.History -> HistoryScreen(open)
+        is Route.Folder -> FoldersScreen(route.path, open)
+        is Route.Wrapped -> WrappedScreen(route.year, open)
+        Route.Plugins -> PluginsScreen(open)
+        is Route.Plugin -> PluginScreen(route.id)
+        Route.Connect -> ConnectScreen()
+        Route.Sync -> SyncScreen()
+        Route.WhatsNew -> WhatsNewScreen()
+        is Route.Timing -> TimingScreen(route.songId)
     }
 }

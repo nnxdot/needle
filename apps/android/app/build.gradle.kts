@@ -53,4 +53,6 @@ dependencies {
     implementation("androidx.palette:palette-ktx:1.0.0")
     // UniFFI's Kotlin bindings call the Rust library through JNA.
     implementation("net.java.dev.jna:jna:5.19.1@aar")
+    // Scans the QR code of Needle on a computer (Google's scanner: no camera permission).
+    implementation("com.google.android.gms:play-services-code-scanner:16.1.0")
 }

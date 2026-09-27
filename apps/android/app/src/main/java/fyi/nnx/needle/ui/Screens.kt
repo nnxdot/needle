@@ -40,6 +40,12 @@ import androidx.compose.material.icons.rounded.Search
 import androidx.compose.material.icons.rounded.Settings
 import androidx.compose.material.icons.rounded.Shuffle
 import androidx.compose.material.icons.rounded.Style
+import androidx.compose.material.icons.rounded.Favorite
+import androidx.compose.material.icons.rounded.Folder
+import androidx.compose.material.icons.rounded.History
+import androidx.compose.material.icons.rounded.LibraryAdd
+import androidx.compose.material.icons.rounded.Computer
+import androidx.compose.material.icons.rounded.AutoAwesome
 import androidx.compose.material3.Button
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
@@ -50,6 +56,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.TextField
 import androidx.compose.material3.TextFieldDefaults
 import androidx.compose.runtime.Composable
@@ -75,6 +82,7 @@ import fyi.nnx.needle.core.Album
 import fyi.nnx.needle.core.Song
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
 private fun play(songs: List<Song>, start: Int = 0) {
@@ -112,6 +120,12 @@ fun HomeScreen(open: (Route) -> Unit) {
         albumShelf(if (h.recent.isNotEmpty()) "Jump back in" else "Recently added", lead, 220, open)
         if (h.recent.isNotEmpty()) albumShelf("Recently added", h.added, 150, open)
         albumShelf("Most played", h.mostPlayed, 150, open)
+        item {
+            Row(Modifier.fillMaxWidth().padding(horizontal = Edge, vertical = 24.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                HomeCard(Icons.Rounded.AutoAwesome, "Your year", "Your listening, told back", Modifier.weight(1f)) { open(Route.Wrapped(null)) }
+                HomeCard(Icons.Rounded.Computer, "Your computer", "Play from Needle there", Modifier.weight(1f)) { open(Route.Connect) }
+            }
+        }
     }
 }
 
@@ -127,6 +141,24 @@ private fun LazyListScope.albumShelf(title: String, albums: List<Album>, size: I
                 AlbumTile(album, Modifier.width(size.dp)) { open(Route.AlbumPage(album)) }
             }
         }
+    }
+}
+
+@Composable
+private fun HomeCard(icon: androidx.compose.ui.graphics.vector.ImageVector, title: String, detail: String, modifier: Modifier, onClick: () -> Unit) {
+    val interaction = remember { androidx.compose.foundation.interaction.MutableInteractionSource() }
+    Column(
+        modifier
+            .pressScale(interaction)
+            .clip(RoundedCornerShape(24.dp))
+            .background(MaterialTheme.colorScheme.surfaceContainer)
+            .clickable(interactionSource = interaction, indication = null, onClick = onClick)
+            .padding(16.dp),
+        verticalArrangement = Arrangement.spacedBy(6.dp),
+    ) {
+        Icon(icon, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+        Text(title, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+        Text(detail, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
     }
 }
 
@@ -157,7 +189,14 @@ private fun EmptyLibrary(scanning: Boolean, open: (Route) -> Unit) {
             textAlign = TextAlign.Center,
             modifier = Modifier.padding(top = 8.dp, bottom = 24.dp),
         )
-        if (!scanning) Button(onClick = { open(Route.Settings) }) { Text("Choose a music folder") }
+        if (!scanning) {
+            Button(onClick = { open(Route.Settings) }) { Text("Choose a music folder") }
+            val context = androidx.compose.ui.platform.LocalContext.current
+            TextButton(onClick = {
+                val folder = java.io.File(context.filesDir, "demo").absolutePath
+                NeedleApp.instance.scope.launch(Dispatchers.IO) { runCatching { core.addDemoLibrary(folder) } }
+            }) { Text("Or try a few demo songs") }
+        }
     }
 }
 
@@ -189,6 +228,10 @@ fun LibraryScreen(open: (Route) -> Unit) {
                 NavRow(Icons.Rounded.Album, "Albums") { open(Route.Albums) }
                 NavRow(Icons.Rounded.MusicNote, "Songs") { open(Route.Songs) }
                 NavRow(Icons.Rounded.Style, "Genres") { open(Route.Genres) }
+                NavRow(Icons.Rounded.Folder, "Folders") { open(Route.Folder(null)) }
+                NavRow(Icons.Rounded.Favorite, "Favorites") { open(Route.Favorites) }
+                NavRow(Icons.Rounded.LibraryAdd, "Recently added") { open(Route.RecentlyAdded) }
+                NavRow(Icons.Rounded.History, "History") { open(Route.History) }
             }
         }
         val added = home?.added.orEmpty()
@@ -288,8 +331,69 @@ fun GenreScreen(name: String, open: (Route) -> Unit) {
 
 @Composable
 fun PlaylistScreen(route: Route.Playlist, open: (Route) -> Unit) {
-    val songs by rememberLoaded(route.id) { playlistSongs(route.id) }
-    SongListPage(route.name, songs, open)
+    val detail by rememberLoaded(route.id) { playlistDetail(route.id) }
+    val playing = currentId()
+    var deleting by remember { mutableStateOf(false) }
+    val d = detail
+    val list = d?.songs.orEmpty()
+    LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = 24.dp)) {
+        item { LargeTitle(d?.name ?: route.name) }
+        if (d != null) {
+            item {
+                Column(Modifier.padding(horizontal = Edge), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    if (d.description.isNotBlank()) Text(d.description, style = MaterialTheme.typography.bodyLarge)
+                    d.rule?.let { Text("Smart: $it", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant) }
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        TextButton(onClick = { Ui.sheet.value = Sheet.EditPlaylist(d.id) }) { Text("Edit") }
+                        TextButton(onClick = { deleting = true }) { Text("Delete") }
+                    }
+                }
+            }
+        }
+        if (detail == null) items(8) { SongPlaceholder() }
+        if (list.isNotEmpty()) item { PlayShuffle(list) }
+        if (d != null && list.isEmpty()) {
+            item {
+                Text(
+                    if (d.rule != null) "No songs match its rule yet." else "Add songs from any song's menu: Add to a playlist.",
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(Edge),
+                )
+            }
+        }
+        itemsIndexed(list, key = { i, s -> "$i-${s.id}" }) { i, song ->
+            SongRow(
+                song,
+                playing == song.id,
+                open,
+                remove = if (d?.rule == null) {
+                    {
+                        runCatching { core.removeFromPlaylist(route.id, i.toUInt()) }
+                        NeedleApp.instance.libraryVersion.value++
+                    }
+                } else null,
+            ) { play(list, i) }
+        }
+        if (list.isNotEmpty()) {
+            item { Text(songsAndLength(list), style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(horizontal = Edge, vertical = 16.dp)) }
+        }
+    }
+    if (deleting && d != null) {
+        androidx.compose.material3.AlertDialog(
+            onDismissRequest = { deleting = false },
+            title = { Text("Delete ${d.name}?") },
+            text = { Text("The playlist goes. Its songs stay in your library.") },
+            confirmButton = {
+                TextButton(onClick = {
+                    runCatching { core.deletePlaylist(d.id) }
+                    NeedleApp.instance.libraryVersion.value++
+                    deleting = false
+                    showMessage("Deleted ${d.name}")
+                }) { Text("Delete") }
+            },
+            dismissButton = { TextButton(onClick = { deleting = false }) { Text("Cancel") } },
+        )
+    }
 }
 
 /** Play and Shuffle, side by side: soft pills with amber words, as in Apple Music. */
@@ -322,6 +426,12 @@ fun PlaylistsScreen(open: (Route) -> Unit) {
     val list = playlists.orEmpty()
     LazyColumn(Modifier.fillMaxSize()) {
         item { LargeTitle("Playlists") }
+        item {
+            Row(Modifier.padding(horizontal = Edge, vertical = 8.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                Button(onClick = { Ui.sheet.value = Sheet.NewPlaylist(emptyList()) }) { Text("New playlist") }
+                FilledTonalButton(onClick = { Ui.sheet.value = Sheet.NewPlaylist(emptyList(), smart = true) }) { Text("New smart playlist") }
+            }
+        }
         if (playlists != null && list.isEmpty()) {
             item {
                 Text(
