@@ -1,15 +1,27 @@
 package fyi.nnx.needle.ui
 
+import android.os.Build
+import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.animateDpAsState
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectHorizontalDragGestures
+import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.gestures.detectVerticalDragGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.aspectRatio
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -20,10 +32,10 @@ import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.QueueMusic
-import androidx.compose.material.icons.rounded.KeyboardArrowDown
 import androidx.compose.material.icons.rounded.Lyrics
 import androidx.compose.material.icons.rounded.Pause
 import androidx.compose.material.icons.rounded.PlayArrow
@@ -32,33 +44,38 @@ import androidx.compose.material.icons.rounded.RepeatOne
 import androidx.compose.material.icons.rounded.Shuffle
 import androidx.compose.material.icons.rounded.SkipNext
 import androidx.compose.material.icons.rounded.SkipPrevious
-import androidx.compose.material3.FilledIconButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
-import androidx.compose.material3.IconButtonDefaults
-import androidx.compose.material3.IconToggleButton
-import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Slider
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.blur
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.material3.LocalContentColor
 import androidx.palette.graphics.Palette
+import coil3.compose.AsyncImage
 import coil3.imageLoader
 import coil3.request.ImageRequest
 import coil3.request.SuccessResult
@@ -70,7 +87,10 @@ import fyi.nnx.needle.core.Song
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
-/** The bar above the tabs: the song playing, play or pause, and next. Tap it for the player. */
+/**
+ * The song playing, floating above the tabs as in Apple Music: cover, title, play or pause, and
+ * next. Tap it for the full player.
+ */
 @Composable
 fun MiniPlayer(onOpen: () -> Unit) {
     val playback by NeedleApp.instance.playback.collectAsState()
@@ -78,50 +98,60 @@ fun MiniPlayer(onOpen: () -> Unit) {
     val song = p.current ?: return
     Surface(
         color = MaterialTheme.colorScheme.surfaceContainerHigh,
-        shape = RoundedCornerShape(24.dp),
+        shape = RoundedCornerShape(16.dp),
+        shadowElevation = 8.dp,
         modifier = Modifier
             .fillMaxWidth()
-            .padding(horizontal = 10.dp, vertical = 6.dp)
+            .padding(horizontal = 10.dp, vertical = 8.dp)
+            .clip(RoundedCornerShape(16.dp))
             .clickable(onClick = onOpen),
     ) {
-        Column {
+        Box {
             Row(
-                Modifier.padding(start = 8.dp, end = 4.dp, top = 8.dp, bottom = 6.dp),
+                Modifier.padding(start = 8.dp, end = 4.dp, top = 8.dp, bottom = 8.dp),
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(12.dp),
             ) {
-                Cover(song.artwork, Modifier.size(46.dp), RoundedCornerShape(14.dp))
+                Cover(song.artwork, Modifier.size(44.dp), SmallCoverShape)
                 Column(Modifier.weight(1f)) {
-                    Text(song.title, maxLines = 1, overflow = TextOverflow.Ellipsis, fontWeight = FontWeight.SemiBold)
+                    Text(song.title, style = MaterialTheme.typography.bodyLarge, maxLines = 1, overflow = TextOverflow.Ellipsis)
                     Text(
                         song.artist,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
                     )
                 }
                 IconButton(onClick = { core.toggle() }) {
-                    Icon(if (p.playing) Icons.Rounded.Pause else Icons.Rounded.PlayArrow, contentDescription = if (p.playing) "Pause" else "Play")
+                    Icon(
+                        if (p.playing) Icons.Rounded.Pause else Icons.Rounded.PlayArrow,
+                        contentDescription = if (p.playing) "Pause" else "Play",
+                        modifier = Modifier.size(30.dp),
+                    )
                 }
                 IconButton(onClick = { core.next() }) {
-                    Icon(Icons.Rounded.SkipNext, contentDescription = "Next")
+                    Icon(Icons.Rounded.SkipNext, contentDescription = "Next", modifier = Modifier.size(30.dp))
                 }
             }
-            LinearProgressIndicator(
-                progress = { if (song.duration > 0) (p.position / song.duration).toFloat().coerceIn(0f, 1f) else 0f },
-                modifier = Modifier.fillMaxWidth().padding(horizontal = 18.dp).padding(bottom = 6.dp).height(3.dp),
-                drawStopIndicator = {},
+            // A hairline of progress along the bottom edge.
+            val progress = if (song.duration > 0) (p.position / song.duration).toFloat().coerceIn(0f, 1f) else 0f
+            Box(
+                Modifier
+                    .align(Alignment.BottomStart)
+                    .fillMaxWidth(progress)
+                    .height(2.dp)
+                    .background(MaterialTheme.colorScheme.primary),
             )
         }
     }
 }
 
-/** The strongest colour of the cover, for the player's glow. */
+/** The cover's strongest colour, where the background cannot be a blurred cover. */
 @Composable
 private fun coverColor(path: String?): Color {
     val context = LocalContext.current
-    var color by remember { mutableStateOf(Color(0xFFE2B46C)) }
+    var color by remember { mutableStateOf(Color(0xFF3A2E20)) }
     LaunchedEffect(path) {
         if (path == null) return@LaunchedEffect
         val found = withContext(Dispatchers.IO) {
@@ -129,11 +159,41 @@ private fun coverColor(path: String?): Color {
             val bitmap = (context.imageLoader.execute(request) as? SuccessResult)?.image?.toBitmap()
                 ?: return@withContext null
             val palette = Palette.from(bitmap).generate()
-            (palette.vibrantSwatch ?: palette.dominantSwatch)?.rgb
+            (palette.darkVibrantSwatch ?: palette.dominantSwatch)?.rgb
         }
         if (found != null) color = Color(found)
     }
-    return animateColorAsState(color, label = "cover colour").value
+    return animateColorAsState(color, tween(400), label = "cover colour").value
+}
+
+/** Behind the player: the cover itself, blurred and darkened, as in Apple Music. */
+@Composable
+private fun PlayerBackdrop(song: Song) {
+    val glow = coverColor(song.artwork)
+    Box(Modifier.fillMaxSize().background(Color(0xFF0F0E0D))) {
+        if (Build.VERSION.SDK_INT >= 31 && song.artwork != null) {
+            AnimatedContent(song.artwork, transitionSpec = { fadeIn(tween(500)) togetherWith fadeOut(tween(500)) }, label = "backdrop") { art ->
+                AsyncImage(
+                    model = fileUri(art),
+                    contentDescription = null,
+                    contentScale = ContentScale.Crop,
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .graphicsLayer { scaleX = 1.4f; scaleY = 1.4f }
+                        .blur(90.dp),
+                )
+            }
+            Box(Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.35f)))
+        } else {
+            Box(Modifier.fillMaxSize().background(Brush.verticalGradient(listOf(glow, Color(0xFF0F0E0D)))))
+        }
+        // Darker at the foot, so the controls always read.
+        Box(
+            Modifier.fillMaxSize().background(
+                Brush.verticalGradient(0.5f to Color.Transparent, 1f to Color.Black.copy(alpha = 0.55f)),
+            ),
+        )
+    }
 }
 
 private enum class Panel { Cover, Lyrics, UpNext }
@@ -143,123 +203,195 @@ fun FullPlayer(onClose: () -> Unit) {
     val playback by NeedleApp.instance.playback.collectAsState()
     val p = playback ?: return
     val song = p.current ?: return
-    val glow = coverColor(song.artwork)
     var panel by rememberSaveable { mutableStateOf(Panel.Cover) }
-    // While the seek bar is held, it shows where the finger is, not the song.
-    var dragging by remember { mutableStateOf<Float?>(null) }
+    // Pulled down far enough, the player closes.
+    var pull by remember { mutableFloatStateOf(0f) }
 
-    Surface(color = MaterialTheme.colorScheme.background, modifier = Modifier.fillMaxSize()) {
     Box(
         Modifier
             .fillMaxSize()
-            .background(Brush.verticalGradient(listOf(glow.copy(alpha = 0.55f), Color.Transparent), endY = 1600f))
-            .clickable(enabled = false) {},
+            .graphicsLayer { translationY = pull.coerceAtLeast(0f) }
+            .clickable(enabled = false) {}
+            .pointerInput(Unit) {
+                detectVerticalDragGestures(
+                    onDragEnd = { if (pull > 220f) onClose() else pull = 0f },
+                    onDragCancel = { pull = 0f },
+                ) { _, dy -> pull += dy }
+            },
     ) {
-        Column(Modifier.fillMaxSize().statusBarsPadding().navigationBarsPadding().padding(horizontal = 24.dp)) {
-            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                IconButton(onClick = onClose) {
-                    Icon(Icons.Rounded.KeyboardArrowDown, contentDescription = "Close the player")
-                }
-                Text(
-                    song.album,
-                    style = MaterialTheme.typography.labelLarge,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                    modifier = Modifier.weight(1f).padding(horizontal = 8.dp),
+        PlayerBackdrop(song)
+        CompositionLocalProvider(LocalContentColor provides Color.White) {
+            Column(
+                Modifier.fillMaxSize().statusBarsPadding().navigationBarsPadding().padding(horizontal = 28.dp),
+            ) {
+                // The handle to pull the player down by.
+                Box(
+                    Modifier
+                        .padding(top = 8.dp, bottom = 8.dp)
+                        .align(Alignment.CenterHorizontally)
+                        .size(width = 40.dp, height = 5.dp)
+                        .clip(CircleShape)
+                        .background(Color.White.copy(alpha = 0.45f))
+                        .clickable(onClick = onClose),
                 )
-                Spacer(Modifier.size(48.dp))
-            }
-            Box(Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.Center) {
-                when (panel) {
-                    Panel.Cover -> {
-                        val corner by animateDpAsState(if (p.playing) 28.dp else 44.dp, label = "cover corner")
-                        val scale by androidx.compose.animation.core.animateFloatAsState(if (p.playing) 1f else 0.9f, label = "cover size")
-                        Cover(
-                            song.artwork,
-                            Modifier
-                                .fillMaxWidth(scale)
-                                .aspectRatio(1f),
-                            RoundedCornerShape(corner),
+                if (panel != Panel.Cover) SmallNowPlaying(song)
+                Box(Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.Center) {
+                    when (panel) {
+                        Panel.Cover -> {
+                            val scale by animateFloatAsState(if (p.playing) 1f else 0.82f, tween(350), label = "cover size")
+                            Cover(
+                                song.artwork,
+                                Modifier
+                                    .fillMaxWidth()
+                                    .aspectRatio(1f)
+                                    .graphicsLayer { scaleX = scale; scaleY = scale }
+                                    .shadow(if (p.playing) 32.dp else 12.dp, RoundedCornerShape(12.dp)),
+                                RoundedCornerShape(12.dp),
+                            )
+                        }
+                        Panel.Lyrics -> LyricsPanel(song, p.position)
+                        Panel.UpNext -> UpNextPanel(p.queueVersion)
+                    }
+                }
+                if (panel == Panel.Cover) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Column(Modifier.weight(1f)) {
+                            Text(
+                                song.title,
+                                style = MaterialTheme.typography.titleLarge,
+                                fontWeight = FontWeight.Bold,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                            )
+                            Text(
+                                song.artist,
+                                style = MaterialTheme.typography.titleMedium,
+                                color = Color.White.copy(alpha = 0.7f),
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                            )
+                        }
+                        SongMenu(song, null)
+                    }
+                }
+                SeekBar(position = p.position, duration = song.duration)
+                Row(
+                    Modifier.fillMaxWidth().padding(vertical = 16.dp),
+                    horizontalArrangement = Arrangement.SpaceEvenly,
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    IconButton(onClick = { core.previous() }, modifier = Modifier.size(72.dp)) {
+                        Icon(Icons.Rounded.SkipPrevious, contentDescription = "Previous", modifier = Modifier.size(48.dp))
+                    }
+                    IconButton(onClick = { core.toggle() }, modifier = Modifier.size(88.dp)) {
+                        Icon(
+                            if (p.playing) Icons.Rounded.Pause else Icons.Rounded.PlayArrow,
+                            contentDescription = if (p.playing) "Pause" else "Play",
+                            modifier = Modifier.size(64.dp),
                         )
                     }
-                    Panel.Lyrics -> LyricsPanel(song, p.position)
-                    Panel.UpNext -> UpNextPanel(p.queueVersion)
+                    IconButton(onClick = { core.next() }, modifier = Modifier.size(72.dp)) {
+                        Icon(Icons.Rounded.SkipNext, contentDescription = "Next", modifier = Modifier.size(48.dp))
+                    }
                 }
-            }
-            Text(song.title, style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
-            Text(song.artist, style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
-            val duration = song.duration.toFloat().coerceAtLeast(1f)
-            Slider(
-                value = dragging ?: p.position.toFloat().coerceIn(0f, duration),
-                onValueChange = { dragging = it },
-                onValueChangeFinished = {
-                    dragging?.let { core.seek(it.toDouble()) }
-                    dragging = null
-                },
-                valueRange = 0f..duration,
-                modifier = Modifier.padding(top = 12.dp),
-            )
-            Row(Modifier.fillMaxWidth()) {
-                Text(time((dragging ?: p.position.toFloat()).toDouble()), style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                Spacer(Modifier.weight(1f))
-                Text(time(song.duration), style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            }
-            Row(
-                Modifier.fillMaxWidth().padding(vertical = 12.dp),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                IconButton(onClick = { core.shuffle() }) { Icon(Icons.Rounded.Shuffle, contentDescription = "Shuffle what is up next") }
-                IconButton(onClick = { core.previous() }, modifier = Modifier.size(56.dp)) {
-                    Icon(Icons.Rounded.SkipPrevious, contentDescription = "Previous", modifier = Modifier.size(36.dp))
-                }
-                // Expressive: the button is rounder while paused, squarer while playing.
-                val corner by animateDpAsState(if (p.playing) 28.dp else 44.dp, label = "play corner")
-                FilledIconButton(
-                    onClick = { core.toggle() },
-                    shape = RoundedCornerShape(corner),
-                    colors = IconButtonDefaults.filledIconButtonColors(containerColor = MaterialTheme.colorScheme.primary),
-                    modifier = Modifier.size(88.dp),
+                Row(
+                    Modifier.fillMaxWidth().padding(bottom = 12.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    Icon(
-                        if (p.playing) Icons.Rounded.Pause else Icons.Rounded.PlayArrow,
-                        contentDescription = if (p.playing) "Pause" else "Play",
-                        modifier = Modifier.size(44.dp),
-                    )
-                }
-                IconButton(onClick = { core.next() }, modifier = Modifier.size(56.dp)) {
-                    Icon(Icons.Rounded.SkipNext, contentDescription = "Next", modifier = Modifier.size(36.dp))
-                }
-                IconButton(onClick = {
-                    core.setRepeat(
-                        when (p.repeat) {
-                            RepeatMode.OFF -> RepeatMode.ALL
-                            RepeatMode.ALL -> RepeatMode.ONE
-                            RepeatMode.ONE -> RepeatMode.OFF
-                        },
-                    )
-                }) {
-                    Icon(
-                        if (p.repeat == RepeatMode.ONE) Icons.Rounded.RepeatOne else Icons.Rounded.Repeat,
-                        contentDescription = "Repeat",
-                        tint = if (p.repeat == RepeatMode.OFF) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.primary,
-                    )
-                }
-            }
-            Row(
-                Modifier.fillMaxWidth().padding(bottom = 12.dp),
-                horizontalArrangement = Arrangement.SpaceEvenly,
-            ) {
-                IconToggleButton(checked = panel == Panel.Lyrics, onCheckedChange = { panel = if (it) Panel.Lyrics else Panel.Cover }) {
-                    Icon(Icons.Rounded.Lyrics, contentDescription = "Lyrics")
-                }
-                IconToggleButton(checked = panel == Panel.UpNext, onCheckedChange = { panel = if (it) Panel.UpNext else Panel.Cover }) {
-                    Icon(Icons.AutoMirrored.Rounded.QueueMusic, contentDescription = "Up next")
+                    RoundToggle(panel == Panel.Lyrics, { panel = if (panel == Panel.Lyrics) Panel.Cover else Panel.Lyrics }) {
+                        Icon(Icons.Rounded.Lyrics, contentDescription = "Lyrics")
+                    }
+                    Row {
+                        IconButton(onClick = { core.shuffle() }) {
+                            Icon(Icons.Rounded.Shuffle, contentDescription = "Shuffle what is up next", tint = Color.White.copy(alpha = 0.7f))
+                        }
+                        RoundToggle(p.repeat != RepeatMode.OFF, {
+                            core.setRepeat(
+                                when (p.repeat) {
+                                    RepeatMode.OFF -> RepeatMode.ALL
+                                    RepeatMode.ALL -> RepeatMode.ONE
+                                    RepeatMode.ONE -> RepeatMode.OFF
+                                },
+                            )
+                        }) {
+                            Icon(
+                                if (p.repeat == RepeatMode.ONE) Icons.Rounded.RepeatOne else Icons.Rounded.Repeat,
+                                contentDescription = "Repeat",
+                            )
+                        }
+                    }
+                    RoundToggle(panel == Panel.UpNext, { panel = if (panel == Panel.UpNext) Panel.Cover else Panel.UpNext }) {
+                        Icon(Icons.AutoMirrored.Rounded.QueueMusic, contentDescription = "Up next")
+                    }
                 }
             }
         }
     }
+}
+
+/** An icon button that shows a soft circle when on, as Apple Music's lyrics and queue buttons. */
+@Composable
+private fun RoundToggle(on: Boolean, onClick: () -> Unit, icon: @Composable () -> Unit) {
+    val fill by animateColorAsState(if (on) Color.White.copy(alpha = 0.2f) else Color.Transparent, label = "toggle")
+    IconButton(onClick = onClick, modifier = Modifier.clip(CircleShape).background(fill)) {
+        CompositionLocalProvider(LocalContentColor provides if (on) Color.White else Color.White.copy(alpha = 0.7f)) {
+            icon()
+        }
+    }
+}
+
+/** The song, small, above the lyrics or the queue. */
+@Composable
+private fun SmallNowPlaying(song: Song) {
+    Row(
+        Modifier.fillMaxWidth().padding(vertical = 8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(12.dp),
+    ) {
+        Cover(song.artwork, Modifier.size(56.dp), SmallCoverShape)
+        Column(Modifier.weight(1f)) {
+            Text(song.title, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            Text(song.artist, style = MaterialTheme.typography.bodyMedium, color = Color.White.copy(alpha = 0.7f), maxLines = 1, overflow = TextOverflow.Ellipsis)
+        }
+    }
+}
+
+/**
+ * A thin bar that thickens while held, as in Apple Music. The time shown follows the finger;
+ * the song moves only when it lets go.
+ */
+@Composable
+private fun SeekBar(position: Double, duration: Double) {
+    var held by remember { mutableStateOf<Float?>(null) }
+    val length = duration.coerceAtLeast(1.0).toFloat()
+    val shown = held ?: (position.toFloat() / length).coerceIn(0f, 1f)
+    val thickness by animateDpAsState(if (held != null) 10.dp else 5.dp, label = "seek thickness")
+    Column(Modifier.padding(top = 16.dp)) {
+        BoxWithConstraints(
+            Modifier
+                .fillMaxWidth()
+                .height(28.dp)
+                .pointerInput(length) {
+                    detectTapGestures { core.seek((it.x / size.width).coerceIn(0f, 1f) * length.toDouble()) }
+                }
+                .pointerInput(length) {
+                    detectHorizontalDragGestures(
+                        onDragStart = { held = (it.x / size.width).coerceIn(0f, 1f) },
+                        onDragEnd = { held?.let { core.seek(it * length.toDouble()) }; held = null },
+                        onDragCancel = { held = null },
+                    ) { change, _ -> held = (change.position.x / size.width).coerceIn(0f, 1f) }
+                },
+            contentAlignment = Alignment.CenterStart,
+        ) {
+            Box(Modifier.fillMaxWidth().height(thickness).clip(CircleShape).background(Color.White.copy(alpha = 0.25f)))
+            Box(Modifier.fillMaxWidth(shown).height(thickness).clip(CircleShape).background(Color.White.copy(alpha = if (held != null) 1f else 0.85f)))
+        }
+        Row(Modifier.fillMaxWidth()) {
+            Text(time((shown * length).toDouble()), style = MaterialTheme.typography.labelMedium, color = Color.White.copy(alpha = 0.6f))
+            Spacer(Modifier.weight(1f))
+            Text("-" + time(length.toDouble() - shown * length), style = MaterialTheme.typography.labelMedium, color = Color.White.copy(alpha = 0.6f))
+        }
     }
 }
 
@@ -270,31 +402,29 @@ private fun LyricsPanel(song: Song, position: Double) {
     val state = rememberLazyListState()
     val now = lines.indexOfLast { it.time <= position + 0.2 }
     LaunchedEffect(now) {
-        if (now >= 0) state.animateScrollToItem((now - 2).coerceAtLeast(0))
+        if (now >= 0) state.animateScrollToItem((now - 1).coerceAtLeast(0))
     }
     when {
         lyrics == null || (lines.isEmpty() && lyrics?.plain.isNullOrBlank()) -> Text(
             if (lyrics?.instrumental == true) "Instrumental" else "No lyrics for this song",
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            style = MaterialTheme.typography.titleMedium,
+            color = Color.White.copy(alpha = 0.6f),
         )
         lines.isEmpty() -> LazyColumn(Modifier.fillMaxSize()) {
-            item { Text(lyrics!!.plain, style = MaterialTheme.typography.titleLarge) }
+            item { Text(lyrics!!.plain, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold) }
         }
         else -> LazyColumn(Modifier.fillMaxSize(), state = state) {
             itemsIndexed(lines) { i, line ->
                 Text(
                     line.text.ifBlank { "♪" },
-                    style = MaterialTheme.typography.headlineSmall,
+                    style = MaterialTheme.typography.headlineMedium,
                     fontWeight = FontWeight.Bold,
-                    color = when {
-                        i == now -> MaterialTheme.colorScheme.onSurface
-                        i < now -> MaterialTheme.colorScheme.onSurface.copy(alpha = 0.3f)
-                        else -> MaterialTheme.colorScheme.onSurface.copy(alpha = 0.45f)
-                    },
+                    color = if (i == now) Color.White else Color.White.copy(alpha = 0.35f),
                     modifier = Modifier
                         .fillMaxWidth()
+                        .clip(RoundedCornerShape(8.dp))
                         .clickable { core.seek(line.time) }
-                        .padding(vertical = 10.dp),
+                        .padding(vertical = 12.dp),
                 )
             }
         }
@@ -305,13 +435,26 @@ private fun LyricsPanel(song: Song, position: Double) {
 private fun UpNextPanel(version: ULong) {
     val songs by rememberLoaded(version) { upNext() }
     val list = songs.orEmpty()
-    if (songs != null && list.isEmpty()) {
-        Text("Nothing up next", color = MaterialTheme.colorScheme.onSurfaceVariant)
-        return
-    }
-    LazyColumn(Modifier.fillMaxSize()) {
-        itemsIndexed(list) { i, song ->
-            SongRow(song) { core.jump(i.toUInt()) }
+    Column(Modifier.fillMaxHeight()) {
+        Text("Up next", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, modifier = Modifier.padding(vertical = 8.dp))
+        if (songs != null && list.isEmpty()) {
+            Text("Nothing up next", color = Color.White.copy(alpha = 0.6f))
+            return@Column
+        }
+        LazyColumn(Modifier.fillMaxSize()) {
+            itemsIndexed(list) { i, song ->
+                Row(
+                    Modifier.fillMaxWidth().clip(RoundedCornerShape(8.dp)).clickable { core.jump(i.toUInt()) }.padding(vertical = 6.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(12.dp),
+                ) {
+                    Cover(song.artwork, Modifier.size(44.dp), SmallCoverShape)
+                    Column(Modifier.weight(1f)) {
+                        Text(song.title, style = MaterialTheme.typography.bodyLarge, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        Text(song.artist, style = MaterialTheme.typography.bodyMedium, color = Color.White.copy(alpha = 0.6f), maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    }
+                }
+            }
         }
     }
 }

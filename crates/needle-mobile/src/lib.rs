@@ -144,6 +144,12 @@ pub struct Playlist {
 }
 
 #[derive(Clone, uniffi::Record)]
+pub struct Genre {
+    pub name: String,
+    pub songs: u32,
+}
+
+#[derive(Clone, uniffi::Record)]
 pub struct Home {
     pub recent: Vec<Album>,
     pub added: Vec<Album>,
@@ -360,6 +366,56 @@ impl Needle {
             .filter(|t| !t.missing)
             .map(Song::from)
             .collect())
+    }
+
+    /// The album a song is on.
+    pub fn album_of(&self, song_id: String) -> Result<Option<Album>> {
+        let Some(track) = self.library.track(&song_id)? else {
+            return Ok(None);
+        };
+        let quoted = format!(
+            "\"{}\"",
+            track.album.replace('\\', "\\\\").replace('"', "\\\"")
+        );
+        let albums = self.library.albums(&format!("album = {quoted}"))?;
+        // Several artists can have an album of the same name: the one this song is on.
+        let found = albums
+            .iter()
+            .find(|a| {
+                self.library
+                    .album_tracks(&a.key)
+                    .is_ok_and(|tracks| tracks.iter().any(|t| t.id == song_id))
+            })
+            .or(albums.first())
+            .cloned();
+        Ok(found.map(Album::from))
+    }
+
+    /// The library's genres, by name, with how many songs each has.
+    pub fn genres(&self) -> Result<Vec<Genre>> {
+        Ok(self
+            .library
+            .genres()?
+            .into_iter()
+            .map(|(name, songs)| Genre {
+                name,
+                songs: songs as u32,
+            })
+            .collect())
+    }
+
+    pub fn genre_songs(&self, name: String) -> Result<Vec<Song>> {
+        // As the desktop quotes a value in a search.
+        let quoted = format!("\"{}\"", name.replace('\\', "\\\\").replace('"', "\\\""));
+        let mut songs: Vec<Song> = self
+            .library
+            .search(&format!("genre = {quoted}"))?
+            .iter()
+            .filter(|t| !t.missing)
+            .map(Song::from)
+            .collect();
+        songs.sort_by_key(|s| s.title.to_lowercase());
+        Ok(songs)
     }
 
     /// Every song, by title.

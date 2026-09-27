@@ -7,30 +7,34 @@ import androidx.compose.material3.darkColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.graphics.Color
 
-/** Needle's Night palette (warm charcoal) with its amber accent, as on desktop. */
+/**
+ * Needle's Night palette with its amber accent. The page is a deeper charcoal than the desktop
+ * window so covers carry the colour, as in Apple Music; amber marks what is playing, links, and
+ * the main actions only.
+ */
 val NeedleColors = darkColorScheme(
     primary = Color(0xFFE2B46C),
     onPrimary = Color(0xFF231A0C),
-    primaryContainer = Color(0xFF5B4526),
+    primaryContainer = Color(0xFF4A3920),
     onPrimaryContainer = Color(0xFFF6DDB4),
     secondary = Color(0xFFD4BFA0),
     onSecondary = Color(0xFF2A2116),
-    secondaryContainer = Color(0xFF41372A),
-    onSecondaryContainer = Color(0xFFF1DFC6),
+    secondaryContainer = Color(0xFF2E2A26),
+    onSecondaryContainer = Color(0xFFE2B46C),
     tertiary = Color(0xFFB9C7FF),
-    background = Color(0xFF201E1D),
-    onBackground = Color(0xFFEFEDEB),
-    surface = Color(0xFF201E1D),
-    onSurface = Color(0xFFEFEDEB),
-    surfaceVariant = Color(0xFF353230),
-    onSurfaceVariant = Color(0xFFBDB8B3),
-    surfaceContainerLowest = Color(0xFF191716),
-    surfaceContainerLow = Color(0xFF242221),
-    surfaceContainer = Color(0xFF2B2927),
-    surfaceContainerHigh = Color(0xFF353230),
-    surfaceContainerHighest = Color(0xFF3F3B38),
+    background = Color(0xFF141312),
+    onBackground = Color(0xFFF1EFED),
+    surface = Color(0xFF141312),
+    onSurface = Color(0xFFF1EFED),
+    surfaceVariant = Color(0xFF2B2927),
+    onSurfaceVariant = Color(0xFFA8A29C),
+    surfaceContainerLowest = Color(0xFF0F0E0D),
+    surfaceContainerLow = Color(0xFF1B1918),
+    surfaceContainer = Color(0xFF211F1E),
+    surfaceContainerHigh = Color(0xFF2B2927),
+    surfaceContainerHighest = Color(0xFF353230),
     outline = Color(0xFF6B6560),
-    outlineVariant = Color(0xFF3D3936),
+    outlineVariant = Color(0xFF2E2B29),
 )
 
 @OptIn(ExperimentalMaterial3ExpressiveApi::class)
