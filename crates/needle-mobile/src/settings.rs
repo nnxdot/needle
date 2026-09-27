@@ -1,0 +1,293 @@
+//! Settings for the phone app: what the core plays with (crossfade, ReplayGain, the
+//! equalizer, scrobbling), and the app's own look, kept beside the library's settings.
+use crate::{Needle, NeedleError, Result};
+use needle_core::{
+    audio::Command,
+    dsp,
+    integrations::{self, Credentials, LastfmPending},
+};
+use serde::{Deserialize, Serialize};
+use std::sync::Mutex;
+
+#[derive(Clone, uniffi::Record)]
+pub struct PlaybackSettings {
+    /// Seconds songs overlap as one ends and the next begins (0 = off).
+    pub crossfade: f32,
+    /// Even out loudness with the songs' ReplayGain tags.
+    pub replay_gain: bool,
+    /// With ReplayGain: keep an album's own quiet and loud songs as they are.
+    pub album_gain: bool,
+    /// Look up lyrics online (LRCLIB) when a song has none.
+    pub online_media: bool,
+}
+
+#[derive(Clone, uniffi::Record)]
+pub struct SoundSettings {
+    pub eq: bool,
+    pub preamp: f32,
+    /// Gain in dB for each of [`Needle::eq_bands`].
+    pub bands: Vec<f32>,
+    pub preset: String,
+    /// −1 fully left, +1 fully right.
+    pub balance: f32,
+    pub mono: bool,
+    pub crossfeed: bool,
+}
+
+#[derive(Clone, uniffi::Record)]
+pub struct EqPreset {
+    pub name: String,
+    pub preamp: f32,
+    pub bands: Vec<f32>,
+}
+
+/// The app's own look and behaviour.
+#[derive(Clone, Serialize, Deserialize, uniffi::Record)]
+#[serde(default)]
+pub struct AppSettings {
+    /// The player's background is the playing cover, blurred.
+    pub cover_backdrop: bool,
+    /// Colours from the wallpaper (Android 12 and newer) instead of Needle's amber.
+    pub wallpaper_colors: bool,
+    /// Needle's own switch, besides Android's "Remove animations".
+    pub reduce_motion: bool,
+    /// Lyrics move with the song, the line playing lit.
+    pub live_lyrics: bool,
+    /// A little vibration on play, pause, and long presses.
+    pub haptics: bool,
+    /// The player opens by itself when a song is chosen.
+    pub open_player_on_play: bool,
+    /// Keep the screen on while the lyrics show.
+    pub keep_screen_on_lyrics: bool,
+}
+
+impl Default for AppSettings {
+    fn default() -> Self {
+        Self {
+            cover_backdrop: true,
+            wallpaper_colors: false,
+            reduce_motion: false,
+            live_lyrics: true,
+            haptics: true,
+            open_player_on_play: false,
+            keep_screen_on_lyrics: false,
+        }
+    }
+}
+
+#[derive(Clone, uniffi::Record)]
+pub struct Accounts {
+    /// Signed in to Last.fm as this user (empty name when Last.fm did not give one).
+    pub lastfm_user: Option<String>,
+    /// Scrobbles go to Last.fm.
+    pub lastfm_on: bool,
+    /// This build has a Last.fm application key, so signing in needs only the browser.
+    pub lastfm_key_built_in: bool,
+    pub listenbrainz_user: Option<String>,
+    pub listenbrainz_on: bool,
+    /// Listens waiting to be sent.
+    pub waiting: u32,
+    pub problem: Option<String>,
+}
+
+const APP_KEY: &str = "android.app";
+
+/// A Last.fm sign-in waiting for the browser.
+pub(crate) static PENDING: Mutex<Option<LastfmPending>> = Mutex::new(None);
+
+fn failed(error: anyhow::Error) -> NeedleError {
+    NeedleError::from(error)
+}
+
+#[uniffi::export]
+impl Needle {
+    pub fn playback_settings(&self) -> Result<PlaybackSettings> {
+        let s = self.library.settings()?;
+        Ok(PlaybackSettings {
+            crossfade: s.crossfade,
+            replay_gain: s.replay_gain,
+            album_gain: s.album_gain,
+            online_media: s.online_media,
+        })
+    }
+
+    /// Changes the player's settings; the song playing goes on from where it was.
+    pub fn set_playback_settings(&self, value: PlaybackSettings) -> Result<()> {
+        let mut s = self.library.settings()?;
+        s.crossfade = value.crossfade.clamp(0., 12.);
+        s.replay_gain = value.replay_gain;
+        s.album_gain = value.album_gain;
+        s.online_media = value.online_media;
+        self.player.send(Command::Configure(Box::new(s)));
+        Ok(())
+    }
+
+    /// The equalizer's band frequencies, in Hz.
+    pub fn eq_bands(&self) -> Vec<f32> {
+        dsp::BANDS.iter().map(|f| *f as f32).collect()
+    }
+
+    pub fn eq_presets(&self) -> Vec<EqPreset> {
+        dsp::PRESETS
+            .iter()
+            .map(|(name, preamp, bands)| EqPreset {
+                name: name.to_string(),
+                preamp: *preamp,
+                bands: bands.to_vec(),
+            })
+            .collect()
+    }
+
+    pub fn sound_settings(&self) -> Result<SoundSettings> {
+        let d = self.library.settings()?.dsp;
+        Ok(SoundSettings {
+            eq: d.eq,
+            preamp: d.preamp_db,
+            bands: d.bands.to_vec(),
+            preset: d.preset,
+            balance: d.balance,
+            mono: d.mono,
+            crossfeed: d.crossfeed,
+        })
+    }
+
+    /// Changes the equalizer and effects at once, as the song plays.
+    pub fn set_sound_settings(&self, value: SoundSettings) -> Result<()> {
+        let mut d = self.library.settings()?.dsp;
+        d.eq = value.eq;
+        d.preamp_db = value.preamp.clamp(-24., 12.);
+        for (band, gain) in d.bands.iter_mut().zip(value.bands) {
+            *band = gain.clamp(-12., 12.);
+        }
+        d.preset = value.preset;
+        d.balance = value.balance.clamp(-1., 1.);
+        d.mono = value.mono;
+        d.crossfeed = value.crossfeed;
+        // The phone app offers the ten bands only.
+        d.mode = "graphic".into();
+        self.player.send(Command::Dsp(d));
+        Ok(())
+    }
+
+    pub fn app_settings(&self) -> AppSettings {
+        self.library
+            .get_json::<AppSettings>(APP_KEY)
+            .ok()
+            .flatten()
+            .unwrap_or_default()
+    }
+
+    pub fn set_app_settings(&self, value: AppSettings) -> Result<()> {
+        Ok(self.library.set_json(APP_KEY, &value)?)
+    }
+
+    /// Stops reading a music folder; its songs leave the library.
+    pub fn remove_folder(&self, path: String) -> Result<()> {
+        let db = self.library.connection()?;
+        db.execute("DELETE FROM roots WHERE path=?", [&path])
+            .map_err(|e| failed(e.into()))?;
+        let prefix = format!("{}/", path.trim_end_matches('/'));
+        db.execute(
+            "DELETE FROM tracks WHERE substr(path,1,length(?1))=?1",
+            [&prefix],
+        )
+        .map_err(|e| failed(e.into()))?;
+        Ok(())
+    }
+
+    pub fn accounts(&self) -> Accounts {
+        let status = integrations::secret_status();
+        let settings = self.library.settings().unwrap_or_default();
+        let credentials = Credentials::load();
+        let waiting = integrations::scrobble_status(&self.library)
+            .map(|rows| rows.len() as u32)
+            .unwrap_or(0);
+        Accounts {
+            lastfm_user: status
+                .lastfm
+                .configured
+                .then(|| status.lastfm.user.clone().unwrap_or_default()),
+            lastfm_on: settings.lastfm_enabled,
+            lastfm_key_built_in: !credentials.lastfm_api_key.is_empty()
+                && !credentials.lastfm_secret.is_empty(),
+            listenbrainz_user: status
+                .listenbrainz
+                .configured
+                .then(|| status.listenbrainz.user.clone().unwrap_or_default()),
+            listenbrainz_on: settings.listenbrainz_enabled,
+            waiting,
+            problem: status
+                .store_error
+                .or(status.lastfm.rejected)
+                .or(status.listenbrainz.rejected),
+        }
+    }
+
+    /// Starts signing in to Last.fm: returns the page to open in the browser. Without a key
+    /// built into this build, `api_key` and `secret` are the listener's own.
+    pub fn lastfm_begin(&self, api_key: String, secret: String) -> Result<String> {
+        let credentials = Credentials::load();
+        let (key, secret) = if api_key.trim().is_empty() {
+            (credentials.lastfm_api_key, credentials.lastfm_secret)
+        } else {
+            (api_key, secret)
+        };
+        let pending = integrations::lastfm_begin(&key, &secret)?;
+        let url = pending.auth_url.clone();
+        *PENDING.lock().unwrap() = Some(pending);
+        Ok(url)
+    }
+
+    /// Finishes signing in to Last.fm once the listener allowed Needle in the browser.
+    pub fn lastfm_complete(&self) -> Result<String> {
+        let pending = PENDING
+            .lock()
+            .unwrap()
+            .take()
+            .ok_or_else(|| NeedleError::Failed("Start signing in to Last.fm first".into()))?;
+        match integrations::lastfm_complete(&pending) {
+            Ok(user) => {
+                self.set_scrobbling(Some(true), None)?;
+                Ok(user)
+            }
+            Err(error) => {
+                // Not allowed yet: keep it, so the listener can try again after allowing.
+                *PENDING.lock().unwrap() = Some(pending);
+                Err(error.into())
+            }
+        }
+    }
+
+    pub fn listenbrainz_sign_in(&self, token: String) -> Result<String> {
+        let user = integrations::listenbrainz_sign_in(&token)?;
+        self.set_scrobbling(None, Some(true))?;
+        Ok(user)
+    }
+
+    /// `service` is "lastfm" or "listenbrainz".
+    pub fn sign_out(&self, service: String) -> Result<()> {
+        match service.as_str() {
+            "lastfm" => {
+                integrations::lastfm_sign_out()?;
+                self.set_scrobbling(Some(false), None)
+            }
+            _ => {
+                integrations::listenbrainz_sign_out()?;
+                self.set_scrobbling(None, Some(false))
+            }
+        }
+    }
+
+    /// Turns sending to a service on or off (`None` leaves it as it is).
+    pub fn set_scrobbling(&self, lastfm: Option<bool>, listenbrainz: Option<bool>) -> Result<()> {
+        let mut s = self.library.settings()?;
+        if let Some(on) = lastfm {
+            s.lastfm_enabled = on;
+        }
+        if let Some(on) = listenbrainz {
+            s.listenbrainz_enabled = on;
+        }
+        self.player.send(Command::Configure(Box::new(s)));
+        Ok(())
+    }
+}

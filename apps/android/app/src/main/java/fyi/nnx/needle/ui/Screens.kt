@@ -41,6 +41,8 @@ import androidx.compose.material.icons.rounded.Settings
 import androidx.compose.material.icons.rounded.Shuffle
 import androidx.compose.material.icons.rounded.Style
 import androidx.compose.material3.Button
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.HorizontalDivider
@@ -75,7 +77,10 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
 
-private fun play(songs: List<Song>, start: Int = 0) = core.play(songs.map { it.id }, start.toUInt())
+private fun play(songs: List<Song>, start: Int = 0) {
+    core.play(songs.map { it.id }, start.toUInt())
+    NeedleApp.instance.openPlayer.tryEmit(Unit)
+}
 
 private fun shuffle(songs: List<Song>) = play(songs.shuffled())
 
@@ -158,9 +163,13 @@ private fun EmptyLibrary(scanning: Boolean, open: (Route) -> Unit) {
 
 // ---------- Library
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun LibraryScreen(open: (Route) -> Unit) {
     val home by rememberLoaded { home() }
+    val scan by NeedleApp.instance.scan.collectAsState()
+    // Pull down to read the music folders again.
+    PullToRefreshBox(isRefreshing = scan.running, onRefresh = { core.rescan() }, modifier = Modifier.fillMaxSize()) {
     LazyVerticalGrid(
         columns = GridCells.Fixed(2),
         contentPadding = PaddingValues(bottom = 24.dp),
@@ -168,7 +177,11 @@ fun LibraryScreen(open: (Route) -> Unit) {
         verticalArrangement = Arrangement.spacedBy(20.dp),
         modifier = Modifier.fillMaxSize(),
     ) {
-        full { LargeTitle("Library") }
+        full {
+            LargeTitle("Library") {
+                IconButton(onClick = { open(Route.Settings) }) { Icon(Icons.Rounded.Settings, contentDescription = "Settings") }
+            }
+        }
         full {
             Column {
                 NavRow(Icons.AutoMirrored.Rounded.QueueMusic, "Playlists") { open(Route.Playlists) }
@@ -184,13 +197,20 @@ fun LibraryScreen(open: (Route) -> Unit) {
             albumGrid(added, open)
         }
     }
+    }
 }
 
 private fun LazyGridScope.full(content: @Composable () -> Unit) =
     item(span = { GridItemSpan(maxLineSpan) }) { content() }
 
-/** Albums two to a row, with the page's side margins. */
-private fun LazyGridScope.albumGrid(albums: List<Album>, open: (Route) -> Unit) {
+/** Albums two to a row, with the page's side margins; soft placeholders while they load. */
+private fun LazyGridScope.albumGrid(albums: List<Album>?, open: (Route) -> Unit) {
+    if (albums == null) {
+        items(6) { i ->
+            AlbumPlaceholder(Modifier.padding(start = if (i % 2 == 0) Edge else 0.dp, end = if (i % 2 == 1) Edge else 0.dp))
+        }
+        return
+    }
     gridItemsIndexed(albums, key = { _, a -> a.key }) { i, album ->
         AlbumTile(
             album,
@@ -210,7 +230,7 @@ fun AlbumsScreen(open: (Route) -> Unit) {
         modifier = Modifier.fillMaxSize(),
     ) {
         full { LargeTitle("Albums") }
-        albumGrid(albums.orEmpty(), open)
+        albumGrid(albums, open)
     }
 }
 
@@ -246,6 +266,7 @@ private fun SongListPage(title: String, songs: List<Song>?, open: (Route) -> Uni
     val list = songs.orEmpty()
     LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = 24.dp)) {
         item { LargeTitle(title) }
+        if (songs == null) items(8) { SongPlaceholder() }
         if (list.isNotEmpty()) item { PlayShuffle(list) }
         itemsIndexed(list, key = { _, s -> s.id }) { i, song ->
             SongRow(song, playing == song.id, open) { play(list, i) }
@@ -351,6 +372,7 @@ fun AlbumScreen(album: Album, open: (Route) -> Unit) {
                     Modifier
                         .fillMaxWidth(0.7f)
                         .aspectRatio(1f)
+                        .sharedCover("album-${album.key}")
                         .shadow(24.dp, CoverShape, ambientColor = Color.Black, spotColor = Color.Black),
                 )
                 Text(
@@ -404,6 +426,9 @@ fun AlbumOfScreen(route: Route.AlbumOf, open: (Route) -> Unit) {
 @Composable
 fun ArtistScreen(name: String, open: (Route) -> Unit) {
     val albums by rememberLoaded(name) { artistAlbums(name) }
+    val top by rememberLoaded(name) { artistSongs(name) }
+    val playing = currentId()
+    val songs = top.orEmpty()
     LazyVerticalGrid(
         columns = GridCells.Fixed(2),
         contentPadding = PaddingValues(bottom = 24.dp),
@@ -411,9 +436,27 @@ fun ArtistScreen(name: String, open: (Route) -> Unit) {
         verticalArrangement = Arrangement.spacedBy(20.dp),
         modifier = Modifier.fillMaxSize(),
     ) {
-        full { LargeTitle(name.ifBlank { "Unknown artist" }) }
+        full {
+            Column(Modifier.fillMaxWidth().padding(top = 24.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+                RoundCover(albums?.firstNotNullOfOrNull { it.artwork }, 160.dp)
+                Text(
+                    name.ifBlank { "Unknown artist" },
+                    style = MaterialTheme.typography.headlineMedium,
+                    fontWeight = FontWeight.Bold,
+                    textAlign = TextAlign.Center,
+                    modifier = Modifier.padding(top = 16.dp, start = Edge, end = Edge),
+                )
+            }
+        }
+        if (songs.isNotEmpty()) {
+            full { PlayShuffle(songs) }
+            full { SectionHeader("Top songs", Modifier.padding(top = 0.dp)) }
+            gridItemsIndexed(songs.take(5), key = { _, s -> "top-" + s.id }, span = { _, _ -> GridItemSpan(maxLineSpan) }) { i, song ->
+                SongRow(song, playing == song.id, open, divider = i < minOf(5, songs.size) - 1) { play(songs, i) }
+            }
+        }
         full { SectionHeader("Albums", Modifier.padding(top = 0.dp)) }
-        albumGrid(albums.orEmpty(), open)
+        albumGrid(albums, open)
     }
 }
 

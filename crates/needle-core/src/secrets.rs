@@ -1,4 +1,5 @@
 //! Account secrets live in the operating system's credential store, never in the library database.
+#[cfg_attr(target_os = "android", allow(unused_imports))]
 use anyhow::{Result, bail};
 use std::{collections::HashMap, sync::Mutex};
 
@@ -15,6 +16,8 @@ pub const STORE_NAME: &str = if cfg!(windows) {
     "Windows Credential Manager"
 } else if cfg!(target_os = "macos") {
     "the macOS Keychain"
+} else if cfg!(target_os = "android") {
+    "Needle's private app storage"
 } else {
     "GNOME Keyring or KWallet"
 };
@@ -111,7 +114,85 @@ impl SecretStore for SystemStore {
         }
     }
 }
-#[cfg(not(any(windows, target_os = "linux", target_os = "macos")))]
+#[cfg(target_os = "android")]
+impl SecretStore for SystemStore {
+    fn get(&self, kind: SecretKind) -> Result<Option<String>> {
+        Ok(android::get(kind.account()))
+    }
+    fn set(&self, kind: SecretKind, value: &str) -> Result<()> {
+        android::set(kind.account(), Some(value))
+    }
+    fn delete(&self, kind: SecretKind) -> Result<()> {
+        android::set(kind.account(), None)
+    }
+}
+
+/// Android has no keyring for apps: secrets are kept in a file in the app's own storage, which
+/// Android lets no other app read. The app names the folder once at start ([`set_android_folder`]).
+#[cfg(target_os = "android")]
+mod android {
+    use anyhow::{Context, Result};
+    use std::{
+        collections::HashMap,
+        path::PathBuf,
+        sync::{Mutex, OnceLock},
+    };
+
+    static FOLDER: OnceLock<PathBuf> = OnceLock::new();
+    static LOCK: Mutex<()> = Mutex::new(());
+
+    pub fn set_folder(folder: PathBuf) {
+        let _ = FOLDER.set(folder);
+    }
+
+    fn file() -> Option<PathBuf> {
+        FOLDER.get().map(|f| f.join("secrets.json"))
+    }
+
+    fn read() -> HashMap<String, String> {
+        file()
+            .and_then(|f| std::fs::read(f).ok())
+            .and_then(|b| serde_json::from_slice(&b).ok())
+            .unwrap_or_default()
+    }
+
+    pub fn get(account: &str) -> Option<String> {
+        let _guard = LOCK.lock().unwrap_or_else(|p| p.into_inner());
+        read().remove(account).filter(|v| !v.is_empty())
+    }
+
+    pub fn set(account: &str, value: Option<&str>) -> Result<()> {
+        let _guard = LOCK.lock().unwrap_or_else(|p| p.into_inner());
+        let path = file().context("Needle's storage is not ready yet")?;
+        let mut all = read();
+        match value {
+            Some(v) => all.insert(account.to_string(), v.to_string()),
+            None => all.remove(account),
+        };
+        // Written aside, then moved over, so a crash never leaves half a file.
+        let partial = path.with_extension("part");
+        std::fs::write(&partial, serde_json::to_vec(&all)?)?;
+        {
+            use std::os::unix::fs::PermissionsExt;
+            std::fs::set_permissions(&partial, std::fs::Permissions::from_mode(0o600))?;
+        }
+        std::fs::rename(&partial, &path)?;
+        Ok(())
+    }
+}
+
+/// Android: the folder, in the app's own storage, where secrets are kept.
+#[cfg(target_os = "android")]
+pub fn set_android_folder(folder: std::path::PathBuf) {
+    android::set_folder(folder);
+}
+
+#[cfg(not(any(
+    windows,
+    target_os = "linux",
+    target_os = "macos",
+    target_os = "android"
+)))]
 impl SecretStore for SystemStore {
     fn get(&self, _: SecretKind) -> Result<Option<String>> {
         Ok(None)
@@ -159,7 +240,8 @@ pub mod plugin {
         not(test),
         not(windows),
         not(target_os = "linux"),
-        not(target_os = "macos")
+        not(target_os = "macos"),
+        not(target_os = "android")
     ))]
     fn memory() -> &'static std::sync::Mutex<std::collections::HashMap<String, String>> {
         static STORE: std::sync::LazyLock<
@@ -196,7 +278,17 @@ pub mod plugin {
                 }
             }
         }
-        #[cfg(any(test, not(any(windows, target_os = "linux", target_os = "macos"))))]
+        #[cfg(all(target_os = "android", not(test)))]
+        return Ok(super::android::get(&account(plugin, key)));
+        #[cfg(any(
+            test,
+            not(any(
+                windows,
+                target_os = "linux",
+                target_os = "macos",
+                target_os = "android"
+            ))
+        ))]
         Ok(memory().lock().unwrap().get(&account(plugin, key)).cloned())
     }
 
@@ -209,7 +301,17 @@ pub mod plugin {
                     anyhow::anyhow!("{} could not save a plugin secret: {e}", super::STORE_NAME)
                 })
         }
-        #[cfg(any(test, not(any(windows, target_os = "linux", target_os = "macos"))))]
+        #[cfg(all(target_os = "android", not(test)))]
+        return super::android::set(&account(plugin, key), Some(value));
+        #[cfg(any(
+            test,
+            not(any(
+                windows,
+                target_os = "linux",
+                target_os = "macos",
+                target_os = "android"
+            ))
+        ))]
         {
             memory()
                 .lock()
@@ -232,7 +334,17 @@ pub mod plugin {
                 ),
             }
         }
-        #[cfg(any(test, not(any(windows, target_os = "linux", target_os = "macos"))))]
+        #[cfg(all(target_os = "android", not(test)))]
+        return super::android::set(&account(plugin, key), None);
+        #[cfg(any(
+            test,
+            not(any(
+                windows,
+                target_os = "linux",
+                target_os = "macos",
+                target_os = "android"
+            ))
+        ))]
         {
             memory().lock().unwrap().remove(&account(plugin, key));
             Ok(())

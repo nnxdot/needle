@@ -2,7 +2,10 @@ package fyi.nnx.needle.ui
 
 import android.net.Uri
 import androidx.compose.foundation.background
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -42,6 +45,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
@@ -161,8 +165,13 @@ fun SectionHeader(text: String, modifier: Modifier = Modifier, onMore: (() -> Un
 
 @Composable
 fun AlbumTile(album: Album, modifier: Modifier = Modifier, onClick: () -> Unit) {
-    Column(modifier.clickable(onClick = onClick)) {
-        Cover(album.artwork, Modifier.fillMaxWidth().aspectRatio(1f))
+    val interaction = remember { MutableInteractionSource() }
+    Column(
+        modifier
+            .pressScale(interaction)
+            .clickable(interactionSource = interaction, indication = null, onClick = onClick),
+    ) {
+        Cover(album.artwork, Modifier.fillMaxWidth().aspectRatio(1f).sharedCover("album-${album.key}"))
         Text(
             album.title.ifBlank { "Unknown album" },
             style = MaterialTheme.typography.bodyMedium,
@@ -185,37 +194,44 @@ fun AlbumTile(album: Album, modifier: Modifier = Modifier, onClick: () -> Unit) 
 @Composable
 fun SongMenu(song: Song, open: ((Route) -> Unit)?) {
     var shown by remember { mutableStateOf(false) }
+    SongMenu(song, open, shown) { shown = it }
+}
+
+/** The menu, opened from outside too (a long press on the row). */
+@Composable
+fun SongMenu(song: Song, open: ((Route) -> Unit)?, shown: Boolean, onShown: (Boolean) -> Unit) {
     Box {
-        IconButton(onClick = { shown = true }) {
+        IconButton(onClick = { onShown(true) }) {
             Icon(Icons.Rounded.MoreVert, contentDescription = "More", tint = MaterialTheme.colorScheme.onSurfaceVariant)
         }
-        DropdownMenu(expanded = shown, onDismissRequest = { shown = false }) {
+        DropdownMenu(expanded = shown, onDismissRequest = { onShown(false) }) {
             DropdownMenuItem(
                 text = { Text("Play next") },
                 leadingIcon = { Icon(Icons.Rounded.QueuePlayNext, null) },
-                onClick = { shown = false; core.playNext(listOf(song.id)) },
+                onClick = { onShown(false); core.playNext(listOf(song.id)) },
             )
             DropdownMenuItem(
                 text = { Text("Add to queue") },
                 leadingIcon = { Icon(Icons.AutoMirrored.Rounded.PlaylistAdd, null) },
-                onClick = { shown = false; core.enqueue(listOf(song.id)) },
+                onClick = { onShown(false); core.enqueue(listOf(song.id)) },
             )
             if (open != null) {
                 DropdownMenuItem(
                     text = { Text("Go to album") },
                     leadingIcon = { Icon(Icons.Rounded.Album, null) },
-                    onClick = { shown = false; open(Route.AlbumOf(song.album, song.id)) },
+                    onClick = { onShown(false); open(Route.AlbumOf(song.album, song.id)) },
                 )
                 DropdownMenuItem(
                     text = { Text("Go to artist") },
                     leadingIcon = { Icon(Icons.Rounded.Person, null) },
-                    onClick = { shown = false; open(Route.Artist(song.artist)) },
+                    onClick = { onShown(false); open(Route.Artist(song.artist)) },
                 )
             }
         }
     }
 }
 
+@OptIn(ExperimentalFoundationApi::class)
 /**
  * A song in a list: its cover (or its number on an album page), title and artist, and its menu,
  * over a hairline that starts where the text does.
@@ -231,21 +247,39 @@ fun SongRow(
     onClick: () -> Unit,
 ) {
     val lead: Dp = if (number) 36.dp else 52.dp
-    Column(modifier.fillMaxWidth().clickable(onClick = onClick)) {
+    var menu by remember { mutableStateOf(false) }
+    val haptics = rememberHaptics()
+    val isPlaying = playing && NeedleApp.instance.playback.collectAsState().value?.playing == true
+    Column(
+        modifier
+            .fillMaxWidth()
+            .combinedClickable(onClick = onClick, onLongClick = { haptics(true); menu = true }),
+    ) {
         Row(
             Modifier.fillMaxWidth().heightIn(min = 60.dp).padding(start = Edge, end = 4.dp),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(14.dp),
         ) {
             if (number) {
-                Text(
-                    if (song.trackNumber > 0) song.trackNumber.toString() else "–",
-                    style = MaterialTheme.typography.bodyLarge,
-                    color = if (playing) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.width(22.dp),
-                )
+                Box(Modifier.width(22.dp)) {
+                    if (playing) {
+                        PlayingBars(isPlaying)
+                    } else {
+                        Text(
+                            if (song.trackNumber > 0) song.trackNumber.toString() else "–",
+                            style = MaterialTheme.typography.bodyLarge,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                }
             } else {
-                Cover(song.artwork, Modifier.size(48.dp), SmallCoverShape)
+                Box(Modifier.size(48.dp), contentAlignment = Alignment.Center) {
+                    Cover(song.artwork, Modifier.fillMaxSize(), SmallCoverShape)
+                    if (playing) {
+                        Box(Modifier.fillMaxSize().clip(SmallCoverShape).background(Color.Black.copy(alpha = 0.45f)))
+                        PlayingBars(isPlaying, color = Color.White)
+                    }
+                }
             }
             Column(Modifier.weight(1f).padding(vertical = 8.dp)) {
                 Text(
@@ -265,7 +299,7 @@ fun SongRow(
                     )
                 }
             }
-            SongMenu(song, open)
+            SongMenu(song, open, menu) { menu = it }
         }
         if (divider) {
             HorizontalDivider(

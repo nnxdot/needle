@@ -1422,6 +1422,13 @@ impl Worker {
                 persisted.volume = self.settings.volume;
                 self.library.save_settings(&persisted)?;
             }
+            // Nothing open yet (the session from last time, waiting for Play): the new settings
+            // apply when it opens, and the waiting song stays as it is.
+            Command::Configure(settings) if self.sink.is_none() => {
+                self.settings = *settings;
+                self.dsp.set(self.settings.dsp.clone());
+                self.library.save_settings(&self.settings)?;
+            }
             Command::Configure(settings) => {
                 let current = self.queue.active.clone();
                 let position = self.position();
@@ -1460,7 +1467,11 @@ impl Worker {
                 self.dsp.set(dsp.clone());
                 self.settings.dsp = dsp;
                 self.library.save_settings(&self.settings)?;
-                if was_off && !self.exclusive() && self.queue.active.is_some() {
+                if was_off
+                    && !self.exclusive()
+                    && self.queue.active.is_some()
+                    && self.sink.is_some()
+                {
                     let current = self.queue.active.clone();
                     let position = self.position();
                     let was_playing = self.playing;
@@ -1475,6 +1486,7 @@ impl Worker {
                     }
                 }
             }
+            Command::Stems(stems) if self.sink.is_none() => self.stems = stems,
             Command::Stems(stems) => {
                 // Restart the current track at the same place from the new source.
                 self.stems = stems;
@@ -2763,6 +2775,52 @@ mod tests {
         assert_eq!(ids(&worker.queue.active), ["a"]);
         assert_eq!(ids(&worker.queue.pending), ["b", "c"]);
         assert!((worker.resume_position - 30.0).abs() < 0.5);
+    }
+
+    /// A session waiting from last time keeps its song and place when the equalizer or the
+    /// settings change before anything plays.
+    #[test]
+    fn settings_changed_before_play_keep_the_waiting_song() {
+        let mut rig = rig(FakeOpener::with(&[], Some("Speakers")), Settings::default());
+        let list = rig.items(&["a", "b"]);
+        for item in &list {
+            let track = Track {
+                path: item.track.id.clone(),
+                ..item.track.clone()
+            };
+            rig.worker.library.upsert(&track).unwrap();
+        }
+        rig.run(Command::Play(list));
+        rig.until_active("a");
+        rig.run(Command::Toggle);
+        rig.run(Command::Seek(30.0));
+        rig.run(Command::Shutdown);
+        let mut worker = Worker::new(
+            rig.worker.library.clone(),
+            Arc::new(Mutex::new(PlaybackState::default())),
+            Settings::default(),
+            Box::new(FakeOpener::default()),
+        );
+        let mut bands = [0.; 10];
+        bands[0] = 6.;
+        let dsp = crate::dsp::Dsp {
+            eq: true,
+            bands,
+            ..Default::default()
+        };
+        worker.handle(Command::Dsp(dsp)).unwrap();
+        let settings = Settings {
+            crossfade: 3.,
+            ..worker.settings.clone()
+        };
+        worker
+            .handle(Command::Configure(Box::new(settings)))
+            .unwrap();
+        assert_eq!(ids(&worker.queue.active), ["a"]);
+        assert_eq!(ids(&worker.queue.pending), ["b"]);
+        assert!((worker.resume_position - 30.0).abs() < 0.5);
+        assert!(worker.settings.dsp.eq);
+        assert_eq!(worker.settings.crossfade, 3.);
     }
 
     #[test]
