@@ -5,6 +5,7 @@ import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.scaleIn
@@ -63,6 +64,7 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.toShape
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
@@ -111,19 +113,20 @@ fun MiniPlayer(onOpen: () -> Unit) {
     val playback by NeedleApp.instance.playback.collectAsState()
     val p = playback ?: return
     val song = p.current ?: return
-    CoverTheme(song.artwork) { MiniPlayerBody(p, song, onOpen) }
+    val app by NeedleApp.instance.app.collectAsState()
+    CoverTheme(if (app.miniPlayerColored) song.artwork else null) { MiniPlayerBody(p, song, onOpen, app.miniPlayerColored) }
 }
 
 @OptIn(androidx.compose.material3.ExperimentalMaterial3ExpressiveApi::class)
 @Composable
-private fun MiniPlayerBody(p: fyi.nnx.needle.core.Playback, song: Song, onOpen: () -> Unit) {
+private fun MiniPlayerBody(p: fyi.nnx.needle.core.Playback, song: Song, onOpen: () -> Unit, colored: Boolean) {
     val haptics = rememberHaptics()
     // Swiped sideways, it skips: left for the next song, right for the one before.
     var drag by remember { mutableFloatStateOf(0f) }
     val shift by animateFloatAsState(drag, spring(dampingRatio = 0.7f, stiffness = 500f), label = "mini swipe")
     Surface(
-        color = MaterialTheme.colorScheme.primaryContainer,
-        contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
+        color = if (colored) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceContainerHigh,
+        contentColor = if (colored) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurface,
         shape = RoundedCornerShape(20.dp),
         shadowElevation = 8.dp,
         modifier = Modifier
@@ -157,7 +160,7 @@ private fun MiniPlayerBody(p: fyi.nnx.needle.core.Playback, song: Song, onOpen: 
                     Text(
                         song.artist,
                         style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.75f),
+                        color = androidx.compose.material3.LocalContentColor.current.copy(alpha = 0.75f),
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
                     )
@@ -180,13 +183,13 @@ private fun MiniPlayerBody(p: fyi.nnx.needle.core.Playback, song: Song, onOpen: 
             }
             // Progress along the foot: a wave while it plays, flat while it rests (Android 16).
             val progress = if (song.duration > 0) (p.position / song.duration).toFloat().coerceIn(0f, 1f) else 0f
-            val wave by animateFloatAsState(if (p.playing && !reduceMotion()) 1f else 0f, tween(400), label = "wave")
-            androidx.compose.material3.LinearWavyProgressIndicator(
-                progress = { progress },
-                amplitude = { wave },
-                color = MaterialTheme.colorScheme.primary,
-                trackColor = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.15f),
-                modifier = Modifier.align(Alignment.BottomCenter).fillMaxWidth().padding(horizontal = 14.dp).height(6.dp),
+            ProgressLine(
+                progress,
+                p.playing,
+                MaterialTheme.colorScheme.primary,
+                androidx.compose.material3.LocalContentColor.current.copy(alpha = 0.15f),
+                Modifier.align(Alignment.BottomCenter).padding(horizontal = 14.dp).height(6.dp),
+                big = false,
             )
         }
     }
@@ -273,19 +276,7 @@ fun FullPlayer(onClose: () -> Unit, open: (Route) -> Unit) {
                 if (panel != Panel.Cover) SmallNowPlaying(song)
                 Box(Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.Center) {
                     when (panel) {
-                        Panel.Cover -> {
-                            val scale by animateFloatAsState(if (p.playing) 1f else 0.82f, tween(350), label = "cover size")
-                            Cover(
-                                song.artwork,
-                                Modifier
-                                    .fillMaxWidth()
-                                    .aspectRatio(1f)
-                                    .sharedCover("now-${song.id}")
-                                    .graphicsLayer { scaleX = scale; scaleY = scale }
-                                    .shadow(if (p.playing) 32.dp else 12.dp, RoundedCornerShape(12.dp)),
-                                RoundedCornerShape(12.dp),
-                            )
-                        }
+                        Panel.Cover -> PlayerCover(song, p.playing)
                         Panel.Lyrics -> LyricsPanel(song, p.position) { open(Route.Timing(song.id)) }
                         Panel.UpNext -> UpNextPanel(p.queueVersion)
                     }
@@ -323,53 +314,24 @@ fun FullPlayer(onClose: () -> Unit, open: (Route) -> Unit) {
                 }
                 SeekBar(position = p.position, duration = song.duration, playing = p.playing)
                 PlayerControls(p.playing, haptics)
-                Row(
-                    Modifier.fillMaxWidth().padding(bottom = 12.dp),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    RoundToggle(panel == Panel.Lyrics, { panel = if (panel == Panel.Lyrics) Panel.Cover else Panel.Lyrics }) {
-                        Icon(Icons.Rounded.Lyrics, contentDescription = "Lyrics")
-                    }
-                    Row {
-                        RoundToggle(looping.isNotEmpty() || loopStart != null, {
-                            when {
-                                looping.isNotEmpty() -> { core.setLoop(null, null); loopStart = null; showMessage("Loop off") }
-                                loopStart == null -> { loopStart = p.position; showMessage("Loop from ${time(p.position)}: tap again where it ends") }
-                                else -> {
-                                    core.setLoop(loopStart, p.position)
-                                    showMessage("Looping ${time(loopStart!!)} to ${time(p.position)}")
-                                    loopStart = null
-                                }
+                PlayerToolbar(
+                    panel = panel,
+                    onPanel = { panel = if (panel == it) Panel.Cover else it },
+                    repeat = p.repeat,
+                    looping = looping.isNotEmpty(),
+                    loopStarted = loopStart != null,
+                    onLoop = {
+                        when {
+                            looping.isNotEmpty() -> { core.setLoop(null, null); loopStart = null; showMessage("Loop off") }
+                            loopStart == null -> { loopStart = p.position; showMessage("Loop from ${time(p.position)}: tap again where it ends") }
+                            else -> {
+                                core.setLoop(loopStart, p.position)
+                                showMessage("Looping ${time(loopStart!!)} to ${time(p.position)}")
+                                loopStart = null
                             }
-                        }) {
-                            Text(if (looping.isNotEmpty()) "A-B" else if (loopStart != null) "A…" else "A-B", style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.Bold)
                         }
-                        IconButton(onClick = { Ui.sheet.value = Sheet.PlayOn }) {
-                            Icon(Icons.Rounded.Cast, contentDescription = "Play on", tint = Color.White.copy(alpha = 0.7f))
-                        }
-                        IconButton(onClick = { core.shuffle() }) {
-                            Icon(Icons.Rounded.Shuffle, contentDescription = "Shuffle what is up next", tint = Color.White.copy(alpha = 0.7f))
-                        }
-                        RoundToggle(p.repeat != RepeatMode.OFF, {
-                            core.setRepeat(
-                                when (p.repeat) {
-                                    RepeatMode.OFF -> RepeatMode.ALL
-                                    RepeatMode.ALL -> RepeatMode.ONE
-                                    RepeatMode.ONE -> RepeatMode.OFF
-                                },
-                            )
-                        }) {
-                            Icon(
-                                if (p.repeat == RepeatMode.ONE) Icons.Rounded.RepeatOne else Icons.Rounded.Repeat,
-                                contentDescription = "Repeat",
-                            )
-                        }
-                    }
-                    RoundToggle(panel == Panel.UpNext, { panel = if (panel == Panel.UpNext) Panel.Cover else Panel.UpNext }) {
-                        Icon(Icons.AutoMirrored.Rounded.QueueMusic, contentDescription = "Up next")
-                    }
-                }
+                    },
+                )
             }
         }
     }
@@ -389,16 +351,16 @@ private fun PlayerControls(playing: Boolean, haptics: (Boolean) -> Unit) {
         contentColor = Color.White,
     )
     Row(
-        Modifier.fillMaxWidth().padding(vertical = 18.dp),
-        horizontalArrangement = Arrangement.spacedBy(12.dp, Alignment.CenterHorizontally),
+        Modifier.fillMaxWidth().padding(top = 14.dp, bottom = 18.dp),
+        horizontalArrangement = Arrangement.spacedBy(14.dp, Alignment.CenterHorizontally),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         androidx.compose.material3.FilledTonalIconButton(
             onClick = { haptics(false); core.previous() },
             shapes = androidx.compose.material3.IconButtonDefaults.shapes(),
             colors = side,
-            modifier = Modifier.size(width = 84.dp, height = 72.dp),
-        ) { Icon(Icons.Rounded.SkipPrevious, contentDescription = "Previous", modifier = Modifier.size(36.dp)) }
+            modifier = Modifier.size(width = 64.dp, height = 56.dp),
+        ) { Icon(Icons.Rounded.SkipPrevious, contentDescription = "Previous", modifier = Modifier.size(30.dp)) }
         androidx.compose.material3.FilledIconToggleButton(
             checked = playing,
             onCheckedChange = { haptics(false); core.toggle() },
@@ -409,14 +371,56 @@ private fun PlayerControls(playing: Boolean, haptics: (Boolean) -> Unit) {
                 checkedContainerColor = MaterialTheme.colorScheme.primary,
                 checkedContentColor = MaterialTheme.colorScheme.onPrimary,
             ),
-            modifier = Modifier.size(width = 120.dp, height = 96.dp),
-        ) { PlayPauseIcon(playing, 48.dp) }
+            modifier = Modifier.size(width = 88.dp, height = 72.dp),
+        ) { PlayPauseIcon(playing, 36.dp) }
         androidx.compose.material3.FilledTonalIconButton(
             onClick = { haptics(false); core.next() },
             shapes = androidx.compose.material3.IconButtonDefaults.shapes(),
             colors = side,
-            modifier = Modifier.size(width = 84.dp, height = 72.dp),
-        ) { Icon(Icons.Rounded.SkipNext, contentDescription = "Next", modifier = Modifier.size(36.dp)) }
+            modifier = Modifier.size(width = 64.dp, height = 56.dp),
+        ) { Icon(Icons.Rounded.SkipNext, contentDescription = "Next", modifier = Modifier.size(30.dp)) }
+    }
+}
+
+/**
+ * Lyrics, shuffle, repeat, the A-B loop, Play on, and Up next: six buttons of one kind, evenly
+ * spaced on a soft pill (Material 3 Expressive's floating toolbar). A button that is on fills.
+ */
+@Composable
+private fun PlayerToolbar(
+    panel: Panel,
+    onPanel: (Panel) -> Unit,
+    repeat: RepeatMode,
+    looping: Boolean,
+    loopStarted: Boolean,
+    onLoop: () -> Unit,
+) {
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .padding(bottom = 12.dp)
+            .clip(CircleShape)
+            .background(Color.White.copy(alpha = 0.1f))
+            .padding(horizontal = 6.dp, vertical = 4.dp),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        RoundToggle(panel == Panel.Lyrics, { onPanel(Panel.Lyrics) }) { Icon(Icons.Rounded.Lyrics, contentDescription = "Lyrics") }
+        RoundToggle(false, { core.shuffle(); showMessage("Shuffled what is up next") }) { Icon(Icons.Rounded.Shuffle, contentDescription = "Shuffle what is up next") }
+        RoundToggle(repeat != RepeatMode.OFF, {
+            core.setRepeat(
+                when (repeat) {
+                    RepeatMode.OFF -> RepeatMode.ALL
+                    RepeatMode.ALL -> RepeatMode.ONE
+                    RepeatMode.ONE -> RepeatMode.OFF
+                },
+            )
+        }) { Icon(if (repeat == RepeatMode.ONE) Icons.Rounded.RepeatOne else Icons.Rounded.Repeat, contentDescription = "Repeat") }
+        RoundToggle(looping || loopStarted, onLoop) {
+            Text(if (loopStarted) "A…" else "A-B", style = MaterialTheme.typography.labelLarge)
+        }
+        RoundToggle(false, { Ui.sheet.value = Sheet.PlayOn }) { Icon(Icons.Rounded.Cast, contentDescription = "Play on") }
+        RoundToggle(panel == Panel.UpNext, { onPanel(Panel.UpNext) }) { Icon(Icons.AutoMirrored.Rounded.QueueMusic, contentDescription = "Up next") }
     }
 }
 
@@ -427,6 +431,51 @@ private fun RoundToggle(on: Boolean, onClick: () -> Unit, icon: @Composable () -
     IconButton(onClick = onClick, modifier = Modifier.clip(CircleShape).background(fill)) {
         CompositionLocalProvider(LocalContentColor provides if (on) Color.White else Color.White.copy(alpha = 0.7f)) {
             icon()
+        }
+    }
+}
+
+/**
+ * The playing cover, in the shape chosen in Settings › Appearance: a rounded square; a record
+ * that turns while the song plays; or one of Material's shapes, slowly turning.
+ */
+@OptIn(androidx.compose.material3.ExperimentalMaterial3ExpressiveApi::class)
+@Composable
+private fun PlayerCover(song: Song, playing: Boolean) {
+    val app by NeedleApp.instance.app.collectAsState()
+    val scale by animateFloatAsState(if (playing) 1f else 0.82f, tween(350), label = "cover size")
+    val reduce = reduceMotion()
+    val spin = androidx.compose.animation.core.rememberInfiniteTransition(label = "spin")
+    val turn by spin.animateFloat(
+        0f, 360f,
+        androidx.compose.animation.core.infiniteRepeatable(tween(if (app.coverShape == "round") 12_000 else 40_000, easing = androidx.compose.animation.core.LinearEasing)),
+        label = "turn",
+    )
+    // The turn holds where it is while paused, rather than jumping back.
+    var held by remember { mutableFloatStateOf(0f) }
+    var offset by remember { mutableFloatStateOf(0f) }
+    LaunchedEffect(playing) { if (!playing) held = turn else offset = held - turn }
+    val angle = if (reduce || app.coverShape == "square") 0f else if (playing) turn + offset else held
+    val shape = when (app.coverShape) {
+        "round" -> CircleShape
+        "shape" -> androidx.compose.material3.MaterialShapes.Cookie12Sided.toShape()
+        else -> RoundedCornerShape(12.dp)
+    }
+    Box(contentAlignment = Alignment.Center) {
+        Cover(
+            song.artwork,
+            Modifier
+                .fillMaxWidth()
+                .aspectRatio(1f)
+                .sharedCover("now-${song.id}")
+                .graphicsLayer { scaleX = scale; scaleY = scale; rotationZ = angle }
+                .shadow(if (playing) 32.dp else 12.dp, shape),
+            shape,
+        )
+        // A record's label hole.
+        if (app.coverShape == "round") {
+            Box(Modifier.size(34.dp).graphicsLayer { scaleX = scale; scaleY = scale }.clip(CircleShape).background(Color.Black.copy(alpha = 0.55f)))
+            Box(Modifier.size(10.dp).clip(CircleShape).background(Color(0xFF0F0E0D)))
         }
     }
 }
@@ -474,16 +523,8 @@ private fun SeekBar(position: Double, duration: Double, playing: Boolean) {
                 },
             contentAlignment = Alignment.CenterStart,
         ) {
-            val wave by animateFloatAsState(if (playing && held == null && !reduceMotion()) 1f else 0f, tween(350), label = "seek wave")
             if (held == null) {
-                androidx.compose.material3.LinearWavyProgressIndicator(
-                    progress = { shown },
-                    amplitude = { wave },
-                    color = Color.White,
-                    trackColor = Color.White.copy(alpha = 0.25f),
-                    wavelength = 36.dp,
-                    modifier = Modifier.fillMaxWidth().height(14.dp),
-                )
+                ProgressLine(shown, playing, Color.White, Color.White.copy(alpha = 0.25f))
             } else {
                 Box(Modifier.fillMaxWidth().height(thickness).clip(CircleShape).background(Color.White.copy(alpha = 0.25f)))
                 Box(Modifier.fillMaxWidth(shown).height(thickness).clip(CircleShape).background(Color.White))

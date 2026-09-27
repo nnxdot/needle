@@ -29,6 +29,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.ProvidableCompositionLocal
 import androidx.compose.runtime.collectAsState
@@ -167,9 +168,10 @@ fun Modifier.sharedCover(key: String): Modifier = composed {
     val shared = LocalShared.current
     val animated = LocalAnimated.current
     if (shared == null || animated == null || reduceMotion()) return@composed this
+    val scope = LocalSharedScope.current
     with(shared) {
         this@composed.sharedElement(
-            rememberSharedContentState(key),
+            rememberSharedContentState("$scope/$key"),
             animated,
             boundsTransform = { _, _ -> spring(dampingRatio = 0.85f, stiffness = 380f) },
         )
@@ -208,3 +210,18 @@ fun androidx.compose.foundation.lazy.grid.LazyGridState.headerScroll(): Float =
 
 /** Room a full-bleed page leaves at its foot for the mini player and the tabs over it. */
 val LocalBottomInset: ProvidableCompositionLocal<Dp> = compositionLocalOf { 0.dp }
+
+/** Which tab a page is in, so covers fly only between pages of the same tab. */
+val LocalSharedScope: ProvidableCompositionLocal<String> = compositionLocalOf { "" }
+
+/** Whether the page on screen has one to go back to. */
+val LocalCanGoBack: ProvidableCompositionLocal<Boolean> = compositionLocalOf { false }
+
+/** Back, as Android's back gesture does it. */
+@Composable
+fun BackButton(modifier: Modifier = Modifier) {
+    val back = androidx.activity.compose.LocalOnBackPressedDispatcherOwner.current
+    androidx.compose.material3.IconButton(onClick = { back?.onBackPressedDispatcher?.onBackPressed() }, modifier = modifier) {
+        androidx.compose.material3.Icon(androidx.compose.material.icons.Icons.AutoMirrored.Rounded.ArrowBack, contentDescription = "Back")
+    }
+}

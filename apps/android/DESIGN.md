@@ -35,7 +35,16 @@ marks only what plays, the main action, and links.
   change of cover blends over, never snaps.
 - The top of those pages and the player: the cover, huge, blurred, and slowly drifting
   (`CoverBackdrop`). The pages run up under the status bar and down behind the mini player.
-- Everything else: the theme's own surfaces.
+- Everything else: the theme's own surfaces; with "Colours from what's playing" on, the whole
+  app takes the playing song's scheme.
+- Settings › Appearance chooses: cover colours on pages, colours from what is playing, the mini
+  player's colour, the moving backdrop and its softness, the seek bar (wave, line, thick), and
+  the player's cover (square, a turning record, a Material shape).
+
+## Navigation
+
+- Every page opened from another has a back button at its top left, besides the back gesture.
+- Covers fly between pages of one tab only; switching tabs cross-fades.
 
 ## Type
 

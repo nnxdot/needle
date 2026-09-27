@@ -14,6 +14,8 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
@@ -48,24 +50,7 @@ import java.io.File
 // ---------- What's new
 
 @Composable
-fun WhatsNewScreen() {
-    val notes = remember { core.whatsNew() }
-    LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = 32.dp)) {
-        item { LargeTitle("What's new") }
-        notes.take(6).forEach { note ->
-            item { SectionHeader("Needle ${note.version}") }
-            item {
-                Column(Modifier.padding(horizontal = Edge), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    note.text.lines().filter { it.isNotBlank() }.forEach { line ->
-                        // "- [icon] **Title.** words": the icon hint is for desktop.
-                        val clean = line.removePrefix("! ").removePrefix("- ").replace(Regex("^\\[[^\\]]*\\]\\s*"), "").replace("**", "")
-                        Text(if (line.startsWith("- ") || line.startsWith("! ")) "• $clean" else clean, style = MaterialTheme.typography.bodyLarge)
-                    }
-                }
-            }
-        }
-    }
-}
+fun WhatsNewScreen() = WhatsNewPage()
 
 // ---------- The sync file
 
@@ -230,9 +215,19 @@ fun UpdatesRow() {
                         result.onSuccess {
                             found = it
                             status = if (it == null) "Needle ${core.version()} is the latest." else "Needle ${it.version} is out."
-                        }.onFailure { status = "Could not check: ${it.message}" }
+                            showMessage(if (it == null) "You're up to date" else "Needle ${it.version} is out")
+                        }.onFailure {
+                            status = "Could not check: ${it.message}"
+                            showMessage("Could not check for updates")
+                        }
                     }
-                }) { Text("Check for updates") }
+                }) {
+                    if (busy) {
+                        androidx.compose.material3.CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp)
+                        Spacer(Modifier.width(10.dp))
+                        Text("Checking…")
+                    } else Text("Check for updates")
+                }
             } else if (update.installable) {
                 Button(enabled = !busy, onClick = {
                     busy = true

@@ -134,19 +134,23 @@ fun Cover(path: String?, modifier: Modifier = Modifier, shape: Shape = CoverShap
 /** A page's large title, left-aligned under the status bar. */
 @Composable
 fun LargeTitle(text: String, modifier: Modifier = Modifier, action: @Composable () -> Unit = {}) {
+    val back = LocalCanGoBack.current
+    Column(modifier.fillMaxWidth()) {
+        // Pages opened from another get a way back at the top, as Android's own apps do.
+        if (back) BackButton(Modifier.padding(start = 6.dp, top = 4.dp))
     Row(
-        modifier.fillMaxWidth().padding(start = Edge, end = 8.dp, top = 16.dp, bottom = 8.dp),
+        Modifier.fillMaxWidth().padding(start = Edge, end = 8.dp, top = if (back) 0.dp else 16.dp, bottom = 8.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Text(
             text,
             style = MaterialTheme.typography.headlineLarge,
-            fontWeight = FontWeight.Bold,
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
             modifier = Modifier.weight(1f),
         )
         action()
+    }
     }
 }
 

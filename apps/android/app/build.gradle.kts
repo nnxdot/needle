@@ -37,6 +37,9 @@ android {
         compose = true
     }
 
+    // The website's Privacy and Help pages ship inside the app, read in its own pages.
+    sourceSets["main"].assets.directories.add(layout.buildDirectory.dir("generated/site-assets").get().asFile.path)
+
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
@@ -69,3 +72,10 @@ dependencies {
     implementation("androidx.glance:glance-appwidget:1.2.0")
     implementation("androidx.glance:glance-material3:1.2.0")
 }
+
+// Copies the website's Privacy and Help pages in, so the app always has the current words.
+val copySitePages by tasks.registering(Copy::class) {
+    from(rootProject.file("../../website/public")) { include("privacy.html", "help.html") }
+    into(layout.buildDirectory.dir("generated/site-assets/site"))
+}
+tasks.named("preBuild") { dependsOn(copySitePages) }

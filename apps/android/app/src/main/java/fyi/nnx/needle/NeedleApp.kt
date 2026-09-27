@@ -38,6 +38,8 @@ class NeedleApp : Application() {
         AppSettings(
             coverBackdrop = true, wallpaperColors = false, reduceMotion = false, liveLyrics = true,
             haptics = true, openPlayerOnPlay = false, keepScreenOnLyrics = false, theme = "night",
+            coverColors = true, ambientColors = false, movingBackdrop = true, backdropBlur = 70f,
+            seekStyle = "wave", miniPlayerColored = true, coverShape = "square",
         ),
     )
     /** The app's own look and behaviour (Settings › Appearance). */

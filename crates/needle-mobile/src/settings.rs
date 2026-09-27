@@ -61,6 +61,20 @@ pub struct AppSettings {
     pub keep_screen_on_lyrics: bool,
     /// "night", "midnight", "day", or a custom theme's id.
     pub theme: String,
+    /// Album, playlist, and artist pages take their cover's colours.
+    pub cover_colors: bool,
+    /// The whole app takes the colours of the song playing.
+    pub ambient_colors: bool,
+    /// The blurred cover behind pages and the player turns slowly.
+    pub moving_backdrop: bool,
+    /// How soft that blurred cover is, 20 to 120.
+    pub backdrop_blur: f32,
+    /// The seek bar and the mini player's progress: "wave", "line", or "thick".
+    pub seek_style: String,
+    /// The mini player takes the playing cover's colour, rather than the page's.
+    pub mini_player_colored: bool,
+    /// The player's cover: "square", "round" (a turning record), or "shape" (Material's shapes).
+    pub cover_shape: String,
 }
 
 impl Default for AppSettings {
@@ -74,6 +88,13 @@ impl Default for AppSettings {
             open_player_on_play: false,
             keep_screen_on_lyrics: false,
             theme: "night".into(),
+            cover_colors: true,
+            ambient_colors: false,
+            moving_backdrop: true,
+            backdrop_blur: 70.0,
+            seek_style: "wave".into(),
+            mini_player_colored: true,
+            cover_shape: "square".into(),
         }
     }
 }

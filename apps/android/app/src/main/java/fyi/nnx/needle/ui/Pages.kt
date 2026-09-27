@@ -109,7 +109,8 @@ private fun playingId(): String? = NeedleApp.instance.playback.collectAsState().
 @OptIn(ExperimentalMaterial3ExpressiveApi::class)
 @Composable
 fun DetailFrame(art: String?, title: String, scrolled: () -> Float, menu: (() -> Unit)?, content: @Composable () -> Unit) {
-    CoverTheme(art) {
+    val app by NeedleApp.instance.app.collectAsState()
+    CoverTheme(if (app.coverColors) art else null) {
         Box(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
             content()
             val limit = with(androidx.compose.ui.platform.LocalDensity.current) { 340.dp.toPx() }
@@ -503,7 +504,7 @@ fun HomeScreen(open: (Route) -> Unit) {
     val scan by NeedleApp.instance.scan.collectAsState()
     Page(greeting(), actions = {
         IconButton(onClick = { open(Route.Settings) }) { Icon(Icons.Rounded.Settings, contentDescription = "Settings") }
-    }) { padding, scroll ->
+    }, navigation = { NeedleMark() }) { padding, scroll ->
         LazyColumn(Modifier.fillMaxSize().padding(padding).then(scroll), contentPadding = PaddingValues(bottom = 32.dp)) {
             if (count == 0u) {
                 item { HomeEmpty(scan.running, open) }
@@ -524,6 +525,23 @@ fun HomeScreen(open: (Route) -> Unit) {
             if (h.recent.isNotEmpty()) shelf("Recently added", h.added, open)
             shelf("Most played", h.mostPlayed, open)
         }
+    }
+}
+
+/** Needle's record and its name, at the top of Home. */
+@Composable
+private fun NeedleMark() {
+    Row(Modifier.padding(start = 16.dp, end = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+        androidx.compose.foundation.Image(
+            androidx.compose.ui.res.painterResource(fyi.nnx.needle.R.drawable.needle_logo),
+            contentDescription = null,
+            modifier = Modifier.size(30.dp).clip(RoundedCornerShape(8.dp)),
+        )
+        Text(
+            "Needle",
+            style = MaterialTheme.typography.titleLarge.copy(fontFamily = titleFamily(0.2f)),
+            modifier = Modifier.padding(start = 10.dp),
+        )
     }
 }
 

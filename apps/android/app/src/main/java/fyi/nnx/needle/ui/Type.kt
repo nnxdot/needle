@@ -7,7 +7,6 @@ import androidx.compose.ui.text.font.Font
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontVariation
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.unit.em
 import androidx.compose.ui.unit.sp
 import fyi.nnx.needle.R
 
@@ -53,7 +52,9 @@ private fun TextStyle.text() = copy(fontFamily = Flex)
 private fun TextStyle.title(weight: Int, tight: Double) = copy(
     fontFamily = titleFamily(0.4f),
     fontWeight = FontWeight(weight),
-    letterSpacing = tight.em,
+    // In sp, as Material's own styles are: a text field blends one style into another, and
+    // it cannot blend em into sp.
+    letterSpacing = (tight * fontSize.value).sp,
 )
 
 /** Needle's type: Material's sizes, in Roboto Flex; the large sizes narrow and heavy. */
@@ -64,10 +65,10 @@ val NeedleType = Typography(
     headlineLarge = Base.headlineLarge.title(900, -0.02),
     headlineMedium = Base.headlineMedium.title(800, -0.015),
     headlineSmall = Base.headlineSmall.title(800, -0.01),
-    titleLarge = Base.titleLarge.text().copy(fontWeight = FontWeight.Bold, letterSpacing = (-0.005).em),
+    titleLarge = Base.titleLarge.text().copy(fontWeight = FontWeight.Bold),
     titleMedium = Base.titleMedium.text().copy(fontWeight = FontWeight.SemiBold),
     titleSmall = Base.titleSmall.text().copy(fontWeight = FontWeight.SemiBold),
-    bodyLarge = Base.bodyLarge.text().copy(fontSize = 16.sp, letterSpacing = 0.01.em),
+    bodyLarge = Base.bodyLarge.text(),
     bodyMedium = Base.bodyMedium.text(),
     bodySmall = Base.bodySmall.text(),
     labelLarge = Base.labelLarge.text().copy(fontWeight = FontWeight.SemiBold),

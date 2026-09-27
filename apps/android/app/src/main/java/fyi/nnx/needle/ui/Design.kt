@@ -77,6 +77,7 @@ fun Page(
     title: String,
     subtitle: String? = null,
     actions: @Composable RowScope.() -> Unit = {},
+    navigation: @Composable () -> Unit = {},
     content: @Composable (padding: PaddingValues, scroll: Modifier) -> Unit,
 ) {
     val behavior = TopAppBarDefaults.exitUntilCollapsedScrollBehavior()
@@ -85,7 +86,8 @@ fun Page(
         contentWindowInsets = WindowInsets(0),
         topBar = {
             MediumFlexibleTopAppBar(
-                title = { Text(title, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis) },
+                title = { Text(title, maxLines = 1, overflow = TextOverflow.Ellipsis) },
+                navigationIcon = { if (LocalCanGoBack.current) BackButton() else navigation() },
                 subtitle = subtitle?.let { { Text(it, color = MaterialTheme.colorScheme.onSurfaceVariant) } },
                 actions = actions,
                 scrollBehavior = behavior,
@@ -196,11 +198,16 @@ fun MenuRow(icon: ImageVector, label: String, tint: Color = MaterialTheme.colorS
 
 /** An icon set in the one icon shape, for tiles and empty states. */
 @Composable
-fun ShapedIcon(icon: ImageVector, size: Int = 48) {
+fun ShapedIcon(
+    icon: ImageVector,
+    size: Int = 48,
+    container: Color = MaterialTheme.colorScheme.primaryContainer,
+    content: Color = MaterialTheme.colorScheme.onPrimaryContainer,
+) {
     androidx.compose.foundation.layout.Box(
-        Modifier.size(size.dp).clip(iconShape()).background(MaterialTheme.colorScheme.primaryContainer),
+        Modifier.size(size.dp).clip(iconShape()).background(container),
         contentAlignment = Alignment.Center,
-    ) { Icon(icon, contentDescription = null, tint = MaterialTheme.colorScheme.onPrimaryContainer, modifier = Modifier.size((size * 0.46).dp)) }
+    ) { Icon(icon, contentDescription = null, tint = content, modifier = Modifier.size((size * 0.46).dp)) }
 }
 
 /**
