@@ -2,3 +2,4 @@
 *.crate binary
 *.opus binary
 third-party/ffmpeg/needle-ffmpeg-macos binary
+*.bat text eol=crlf
