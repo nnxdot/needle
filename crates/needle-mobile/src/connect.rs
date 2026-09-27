@@ -194,6 +194,17 @@ impl Needle {
         self.pc_post("seek", json!({ "seconds": seconds }))
     }
 
+    /// "off", "all", or "one".
+    pub fn pc_repeat(&self, mode: String) -> Result<()> {
+        self.pc_post("repeat", json!({ "mode": mode }))
+    }
+
+    /// Plays the song `index` places into what is up next on the computer (`id` makes sure
+    /// the list has not changed meanwhile).
+    pub fn pc_jump(&self, index: u32, id: String) -> Result<()> {
+        self.pc_post("jump", json!({ "index": index, "id": id }))
+    }
+
     pub fn pc_volume(&self, value: f32) -> Result<()> {
         self.pc_post("volume", json!({ "value": value.clamp(0., 1.) }))
     }

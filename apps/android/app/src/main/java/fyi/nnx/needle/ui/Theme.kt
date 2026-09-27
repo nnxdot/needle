@@ -14,6 +14,9 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.toArgb
+import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.ui.platform.LocalContext
 import fyi.nnx.needle.NeedleApp
 import fyi.nnx.needle.core.ThemeInfo
@@ -123,8 +126,21 @@ fun NeedleTheme(content: @Composable () -> Unit) {
     }
     val light = base == DayColors
     // From the wallpaper when asked (Android 12 and newer); the page stays the theme's own.
+    // A chosen accent: Material's colour roles made from it, on the theme's own page.
+    val accent = remember(app.accentColor, light, base) {
+        hex(app.accentColor)?.let { seed ->
+            val made = coverScheme(seed.toArgb(), dark = !light, black = base == MidnightColors)
+            base.copy(
+                primary = made.primary, onPrimary = made.onPrimary,
+                primaryContainer = made.primaryContainer, onPrimaryContainer = made.onPrimaryContainer,
+                secondaryContainer = made.secondaryContainer, onSecondaryContainer = made.primary,
+                tertiary = made.tertiary, surfaceTint = made.surfaceTint,
+            )
+        }
+    }
     val colors = when {
         custom != null -> base.with(custom)
+        accent != null -> accent
         app.wallpaperColors && Build.VERSION.SDK_INT >= 31 -> {
             val dynamic = if (light) dynamicLightColorScheme(context) else dynamicDarkColorScheme(context)
             dynamic.copy(
@@ -135,10 +151,45 @@ fun NeedleTheme(content: @Composable () -> Unit) {
         }
         else -> base
     }
+    val type = remember(app.titleFont, app.textScale) { needleType(app.titleFont, app.textScale) }
     MaterialExpressiveTheme(
         colorScheme = colors,
         motionScheme = if (reduceMotion()) MotionScheme.standard() else MotionScheme.expressive(),
-        typography = NeedleType,
-        content = content,
-    )
+        typography = type,
+    ) {
+        androidx.compose.runtime.CompositionLocalProvider(
+            LocalTitleFont provides app.titleFont,
+            LocalRows provides Rows.of(app.density),
+        ) {
+            androidx.compose.foundation.layout.Box {
+                content()
+                if (app.grain > 0f) Grain(app.grain)
+            }
+        }
+    }
+}
+
+/**
+ * Film grain over the whole app, as on the desktop: a small tile of noise, repeated, faint.
+ * It lets touches through.
+ */
+@Composable
+private fun Grain(amount: Float) {
+    val tile = remember {
+        val size = 128
+        val random = java.util.Random(7)
+        val pixels = IntArray(size * size) {
+            val v = random.nextInt(256)
+            android.graphics.Color.argb(255, v, v, v)
+        }
+        android.graphics.Bitmap.createBitmap(pixels, size, size, android.graphics.Bitmap.Config.ARGB_8888).asImageBitmap()
+    }
+    val brush = remember(tile) {
+        androidx.compose.ui.graphics.ShaderBrush(
+            androidx.compose.ui.graphics.ImageShader(tile, androidx.compose.ui.graphics.TileMode.Repeated, androidx.compose.ui.graphics.TileMode.Repeated),
+        )
+    }
+    androidx.compose.foundation.Canvas(androidx.compose.ui.Modifier.fillMaxSize()) {
+        drawRect(brush, alpha = (amount * 0.12f).coerceIn(0f, 0.12f), blendMode = androidx.compose.ui.graphics.BlendMode.Overlay)
+    }
 }

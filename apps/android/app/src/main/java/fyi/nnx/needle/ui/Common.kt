@@ -87,7 +87,10 @@ fun <T> rememberLoaded(vararg keys: Any?, load: Needle.() -> T): State<T?> {
     }
 }
 
-fun fileUri(path: String?): Uri? = path?.let { Uri.fromFile(File(it)) }
+/** A cover's place: a file on the phone, or a link (covers from Needle on a computer). */
+fun fileUri(path: String?): Uri? = path?.let {
+    if (it.startsWith("http://") || it.startsWith("https://")) Uri.parse(it) else Uri.fromFile(File(it))
+}
 
 fun time(seconds: Double): String {
     val s = seconds.coerceAtLeast(0.0).toLong()
@@ -229,6 +232,19 @@ fun SongMenu(
 }
 
 @OptIn(ExperimentalFoundationApi::class)
+/** How close list rows sit (Settings › Appearance › Density). */
+data class Rows(val height: Dp, val cover: Dp, val gap: Dp) {
+    companion object {
+        fun of(density: String) = when (density) {
+            "compact" -> Rows(48.dp, 38.dp, 12.dp)
+            "spacious" -> Rows(72.dp, 56.dp, 16.dp)
+            else -> Rows(60.dp, 48.dp, 14.dp)
+        }
+    }
+}
+
+val LocalRows = androidx.compose.runtime.compositionLocalOf { Rows.of("comfortable") }
+
 /**
  * A song in a list: its cover (or its number on an album page), title and artist, and its menu,
  * over a hairline that starts where the text does.
@@ -244,7 +260,8 @@ fun SongRow(
     remove: (() -> Unit)? = null,
     onClick: () -> Unit,
 ) {
-    val lead: Dp = if (number) 36.dp else 52.dp
+    val rows = LocalRows.current
+    val lead: Dp = if (number) 36.dp else rows.cover + 4.dp
     var menu by remember { mutableStateOf(false) }
     val haptics = rememberHaptics()
     val isPlaying = playing && NeedleApp.instance.playback.collectAsState().value?.playing == true
@@ -254,9 +271,9 @@ fun SongRow(
             .combinedClickable(onClick = onClick, onLongClick = { haptics(true); menu = true }),
     ) {
         Row(
-            Modifier.fillMaxWidth().heightIn(min = 60.dp).padding(start = Edge, end = 4.dp),
+            Modifier.fillMaxWidth().heightIn(min = rows.height).padding(start = Edge, end = 4.dp),
             verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(14.dp),
+            horizontalArrangement = Arrangement.spacedBy(rows.gap),
         ) {
             if (number) {
                 Box(Modifier.width(22.dp)) {
@@ -271,7 +288,7 @@ fun SongRow(
                     }
                 }
             } else {
-                Box(Modifier.size(48.dp), contentAlignment = Alignment.Center) {
+                Box(Modifier.size(rows.cover), contentAlignment = Alignment.Center) {
                     Cover(song.artwork, Modifier.fillMaxSize(), SmallCoverShape)
                     if (playing) {
                         Box(Modifier.fillMaxSize().clip(SmallCoverShape).background(Color.Black.copy(alpha = 0.45f)))
@@ -279,7 +296,7 @@ fun SongRow(
                     }
                 }
             }
-            Column(Modifier.weight(1f).padding(vertical = 8.dp)) {
+            Column(Modifier.weight(1f).padding(vertical = if (rows.height < 56.dp) 4.dp else 8.dp)) {
                 Text(
                     song.title,
                     style = MaterialTheme.typography.bodyLarge,
@@ -302,7 +319,7 @@ fun SongRow(
         if (divider) {
             HorizontalDivider(
                 color = MaterialTheme.colorScheme.outlineVariant,
-                modifier = Modifier.padding(start = Edge + lead + 14.dp),
+                modifier = Modifier.padding(start = Edge + lead + rows.gap),
             )
         }
     }

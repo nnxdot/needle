@@ -22,6 +22,13 @@ import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.material.icons.automirrored.rounded.QueueMusic
 import androidx.compose.material.icons.rounded.AutoAwesome
 import androidx.compose.material.icons.rounded.Build
+import androidx.compose.material.icons.rounded.Computer
+import androidx.compose.material.icons.rounded.DirectionsCar
+import androidx.compose.material.icons.rounded.GraphicEq
+import androidx.compose.material.icons.rounded.Palette
+import androidx.compose.material.icons.rounded.PlayCircle
+import androidx.compose.material.icons.rounded.Sync
+import androidx.compose.material.icons.rounded.Widgets
 import androidx.compose.material.icons.rounded.Extension
 import androidx.compose.material.icons.rounded.ExpandMore
 import androidx.compose.material.icons.rounded.Fullscreen
@@ -76,6 +83,13 @@ private fun noteIcon(name: String): ImageVector = when (name) {
     "lyrics" -> Icons.Rounded.Lyrics
     "playlist" -> Icons.AutoMirrored.Rounded.QueueMusic
     "plugin" -> Icons.Rounded.Extension
+    "palette" -> Icons.Rounded.Palette
+    "player" -> Icons.Rounded.PlayCircle
+    "computer" -> Icons.Rounded.Computer
+    "widget" -> Icons.Rounded.Widgets
+    "car" -> Icons.Rounded.DirectionsCar
+    "sound" -> Icons.Rounded.GraphicEq
+    "sync" -> Icons.Rounded.Sync
     else -> Icons.Rounded.AutoAwesome
 }
 

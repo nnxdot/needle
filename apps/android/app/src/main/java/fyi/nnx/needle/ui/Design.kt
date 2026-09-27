@@ -125,13 +125,18 @@ fun SongSheet(song: Song, open: ((Route) -> Unit)?, remove: (() -> Unit)?, onDis
                 }
             }
             // The stars: a tap sets them, a tap on the same one clears them.
-            var stars by remember(song.id) { mutableIntStateOf(song.rating.toInt()) }
+            var stars by remember(song.id) { mutableIntStateOf(runCatching { core.rating(song.id).toInt() }.getOrDefault(song.rating.toInt())) }
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.Center) {
                 (1..5).forEach { n ->
                     IconButton(onClick = {
                         haptics(false)
-                        stars = if (stars == n) 0 else n
-                        runCatching { core.rate(song.id, stars.toUByte()) }
+                        val want = if (stars == n) 0 else n
+                        runCatching { core.rate(song.id, want.toUByte()) }
+                            .onSuccess {
+                                stars = want
+                                showMessage(if (want == 0) "Stars taken off" else "Rated ${"★".repeat(want)}")
+                            }
+                            .onFailure { showMessage("Could not rate it: ${it.message}") }
                         NeedleApp.instance.libraryVersion.value++
                     }) {
                         Icon(

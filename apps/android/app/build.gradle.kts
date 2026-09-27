@@ -59,6 +59,8 @@ dependencies {
     implementation("androidx.lifecycle:lifecycle-runtime-compose:2.11.0")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.11.0")
     implementation("io.coil-kt.coil3:coil-compose:3.6.3")
+    // Covers from Needle on a computer, over the home network.
+    implementation("io.coil-kt.coil3:coil-network-okhttp:3.6.3")
     implementation("androidx.media3:media3-session:1.11.1")
     // The playing cover's colour for the full player.
     implementation("androidx.palette:palette-ktx:1.0.0")

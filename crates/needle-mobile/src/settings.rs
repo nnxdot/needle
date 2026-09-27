@@ -75,6 +75,17 @@ pub struct AppSettings {
     pub mini_player_colored: bool,
     /// The player's cover: "square", "round" (a turning record), or "shape" (Material's shapes).
     pub cover_shape: String,
+    /// Font for titles: "flex" (Roboto Flex, narrow and heavy), "fraunces" (a soft serif, as
+    /// on the desktop), or "system".
+    pub title_font: String,
+    /// All text larger or smaller: 0.85 to 1.3.
+    pub text_scale: f32,
+    /// How close lists sit: "compact", "comfortable", or "spacious".
+    pub density: String,
+    /// The accent where no cover gives one: a hex colour like "#3e63dd", or empty for amber.
+    pub accent_color: String,
+    /// Film grain over the whole app, 0 (none) to 1, as on the desktop.
+    pub grain: f32,
 }
 
 impl Default for AppSettings {
@@ -95,6 +106,11 @@ impl Default for AppSettings {
             seek_style: "wave".into(),
             mini_player_colored: true,
             cover_shape: "square".into(),
+            title_font: "flex".into(),
+            text_scale: 1.0,
+            density: "comfortable".into(),
+            accent_color: String::new(),
+            grain: 0.0,
         }
     }
 }

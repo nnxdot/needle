@@ -14,6 +14,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import fyi.nnx.needle.ui.asPlayback
 import java.io.File
 
 /** Holds Needle's core for the whole app: the screens and the background player share it. */
@@ -25,8 +26,22 @@ class NeedleApp : Application() {
     val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
 
     private val _playback = MutableStateFlow<Playback?>(null)
-    /** What plays, read from the core a few times a second. */
+    /**
+     * What plays, read from the core a few times a second; or what the computer plays, while
+     * the phone shows that (see [remoteShown]).
+     */
     val playback: StateFlow<Playback?> = _playback
+
+    private val _remote = MutableStateFlow<fyi.nnx.needle.core.PcState?>(null)
+    /** What Needle on the computer plays, while the phone is connected to it. */
+    val remote: StateFlow<fyi.nnx.needle.core.PcState?> = _remote
+
+    private val _remoteShown = MutableStateFlow(false)
+    /**
+     * The phone shows the computer's player: the phone is not playing, and the computer is
+     * (or the phone has nothing of its own to show).
+     */
+    val remoteShown: StateFlow<Boolean> = _remoteShown
 
     private val _scan = MutableStateFlow(ScanStatus(false, 0u, 0u, "", null))
     val scan: StateFlow<ScanStatus> = _scan
@@ -40,6 +55,7 @@ class NeedleApp : Application() {
             haptics = true, openPlayerOnPlay = false, keepScreenOnLyrics = false, theme = "night",
             coverColors = true, ambientColors = false, movingBackdrop = true, backdropBlur = 70f,
             seekStyle = "wave", miniPlayerColored = true, coverShape = "square",
+            titleFont = "flex", textScale = 1f, density = "comfortable", accentColor = "", grain = 0f,
         ),
     )
     /** The app's own look and behaviour (Settings › Appearance). */
@@ -65,7 +81,11 @@ class NeedleApp : Application() {
             var wasScanning = false
             var shown: Pair<String?, Boolean>? = null
             while (isActive) {
-                val playback = core.playback()
+                val local = core.playback()
+                val pc = _remote.value
+                val showPc = pc?.current != null && !local.playing && (pc.playing || local.current == null)
+                _remoteShown.value = showPc
+                val playback = if (showPc) pc!!.asPlayback() else local
                 _playback.value = playback
                 // The widgets follow the song and play or pause.
                 val now = playback.current?.id to playback.playing
@@ -83,6 +103,13 @@ class NeedleApp : Application() {
                 }
                 wasScanning = scan.running
                 delay(if (scan.running) 300 else 200)
+            }
+        }
+        // Needle on the computer, once a second while connected to it.
+        scope.launch(Dispatchers.IO) {
+            while (isActive) {
+                _remote.value = if (core.pcConnected()) runCatching { core.pcState() }.getOrNull() else null
+                delay(1000)
             }
         }
         // Crash reports from earlier runs, when that is on.
