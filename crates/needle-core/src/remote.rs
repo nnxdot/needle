@@ -327,6 +327,32 @@ fn serve(
                 None => respond(&stream, "404 Not Found", "text/plain", b"No cover"),
             }
         }
+        // A song's file, for Needle on a phone to play (Connect). Songs of a CUE sheet, and
+        // ones from music servers, have no file of their own to send.
+        ("GET", audio) if audio.starts_with("api/audio/") => {
+            let id = decode(&audio["api/audio/".len()..]);
+            let file = library
+                .track(&id)
+                .ok()
+                .flatten()
+                .filter(|t| {
+                    t.cue.is_none() && !t.missing && !t.path.starts_with(crate::sources::SCHEME)
+                })
+                .and_then(|t| std::fs::File::open(&t.path).ok())
+                .and_then(|file| Some((file.metadata().ok()?.len(), file)));
+            match file {
+                Some((length, mut file)) => {
+                    let mut out = &stream;
+                    write!(
+                        out,
+                        "HTTP/1.1 200 OK\r\nContent-Type: application/octet-stream\r\nContent-Length: {length}\r\nCache-Control: no-store\r\nX-Content-Type-Options: nosniff\r\nConnection: close\r\n\r\n"
+                    )?;
+                    std::io::copy(&mut file, &mut out)?;
+                    Ok(())
+                }
+                None => respond(&stream, "404 Not Found", "text/plain", b"No file"),
+            }
+        }
         ("POST", action) if action.starts_with("api/") => {
             match act(&action[4..], &request.body, player, library) {
                 Ok(()) => respond(&stream, "200 OK", "application/json", b"{}"),
@@ -475,10 +501,12 @@ mod tests {
     fn the_remote_needs_its_key_and_controls_the_player() {
         let dir = tempfile::tempdir().unwrap();
         let library = Library::open(dir.path()).unwrap();
+        let song = dir.path().join("song.flac");
+        std::fs::write(&song, b"fLaC and some music").unwrap();
         library
             .upsert(&crate::model::Track {
                 id: "t1".into(),
-                path: "C:/nowhere/song.flac".into(),
+                path: song.to_string_lossy().into(),
                 title: "Harbor Lights".into(),
                 artist: "Mara Quinn".into(),
                 duration: 200.,
@@ -513,6 +541,10 @@ mod tests {
         assert_eq!(cover.headers()["content-type"], "image/png");
         assert_eq!(cover.bytes().unwrap().len(), 100_004);
         assert_eq!(get(port, &format!("/r/{key}/api/cover/none")).0, 404);
+        // The song's file, whole, for a phone to play.
+        let (status, audio) = get(port, &format!("/r/{key}/api/audio/t1"));
+        assert_eq!((status, audio.as_str()), (200, "fLaC and some music"));
+        assert_eq!(get(port, &format!("/r/{key}/api/audio/none")).0, 404);
         // IPv6 works too, where the computer has it.
         if let Ok(response) = reqwest::blocking::get(format!("http://[::1]:{port}/r/{key}/")) {
             assert_eq!(response.status(), 200);

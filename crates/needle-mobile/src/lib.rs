@@ -20,6 +20,8 @@ uniffi::setup_scaffolding!();
 
 #[cfg(target_os = "android")]
 mod android;
+mod app;
+mod connect;
 mod media;
 mod more;
 mod plugins;
@@ -227,6 +229,18 @@ impl Needle {
         log(false, "player started");
         let plugin_state = Arc::new(plugins::PluginState::default());
         let host = plugins::start(&library, &player, plugin_state.clone());
+        // Songs streamed from Needle on a computer (Connect) go by their own name; the rest
+        // are the plugins' music servers.
+        {
+            let host = host.clone();
+            needle_core::sources::set_resolver(move |plugin, id| {
+                if plugin == connect::PC {
+                    connect::stream_link(id)
+                } else {
+                    host.stream_link(plugin, id)
+                }
+            });
+        }
         plugins::follow_playback(
             player.clone(),
             library.clone(),
