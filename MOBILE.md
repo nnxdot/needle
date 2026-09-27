@@ -38,11 +38,56 @@ on Android, **Liquid Glass** (iOS 26) on iPhone.
 - Library: albums, artists, songs, as on desktop.
 - Settings: the desktop sections, shorter.
 
+## Needle's features on a phone
+
+### Carry over well
+
+- Playback: lossless formats (FLAC, ALAC, WAV, …), Opus, gapless, crossfade, ReplayGain, and
+  the loudness scan that measures it.
+- Sound: the equalizer, crossfeed, and plugin sound effects.
+- Lyrics: timed lyrics, karaoke, `.lrc` files, NetEase, and the lyrics timing editor (tap along).
+- Library: albums, artists, genres, songs, folders, favorites, recently added, history, search,
+  covers, star ratings, CUE sheets.
+- Smart search ("rating is at least 4", a folder path) and smart playlists; playlist pictures.
+- Radio from the library.
+- A-B loop (repeat part of a song).
+- Colour from the playing cover, and the immersive full screen (drifting cover, large lyrics).
+- Listening stats (the History page) and Wrapped.
+- Scrobbling: Last.fm and ListenBrainz.
+- Servers: Navidrome / Subsonic, with the experimental octo-fiesta search.
+- Online lookups (off until turned on): LRCLIB lyrics, MusicBrainz and Wikidata artist photos.
+- Themes, and plugins (the plugin engine is Rust, so it runs on a phone).
+- Casting: Chromecast and DLNA. AirPlay is harder on Android.
+- The sync file: history, ratings, and playlists exported and imported as one encrypted file with
+  a passphrase (`crates/needle-core/src/sync.rs`); no audio or passwords. A base for phone and PC
+  sync.
+- The demo library, What's new, and crash reports.
+
+### Work, but changed for a phone
+
+- The big player / full screen becomes the phone's full player.
+- The mini player becomes the bottom bar, the lock screen, and the notification player.
+- Media keys and the tray become Android's media controls, Bluetooth buttons, and Android Auto.
+- Sound outputs: Android picks the speaker or headphones; Needle offers only a few choices.
+- Exclusive mode (Windows) becomes bit-perfect USB DAC output (Android 14 and newer).
+- Dolby (Atmos) music needs FFmpeg built for Android.
+- The phone remote turns around: the app controls the desktop Needle (see Connect below).
+- The command palette becomes a search that also runs actions.
+- Drag and drop becomes long-press menus.
+- Updates: the Play Store; or, for a directly installed APK, Needle's own updater (Android asks
+  to allow it).
+
 ### Hard on a phone
 
-- Stems.
+- Stems (too heavy).
 - Tag editing and Fix my library (desktop jobs).
+- Importing from other players.
+- Discord status (Discord's phone app does not allow it).
 - Plugins that need a desktop.
+
+### Desktop only
+
+- Window glass (Mica, Acrylic), window sizes, the tray, and the command line tool.
 
 ## iPhone
 
