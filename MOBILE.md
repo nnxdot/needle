@@ -53,6 +53,27 @@ on Android, **Liquid Glass** (iOS 26) on iPhone.
   Dynamic Island controls, CarPlay.
 - Limit: only music imported through the Files app, or streamed.
 
+## Live Activities and widgets
+
+### Live Activities (iPhone) and Live Updates (Android)
+
+- The playing song needs no Live Activity: iPhone shows it on the lock screen and in the Dynamic
+  Island through Now Playing (`MPNowPlayingInfoCenter`), as Apple Music does. On Android it is
+  the media notification, the lock screen player, and the quick settings player.
+- A Live Activity (ActivityKit) fits other things: a sleep timer counting down, music syncing or
+  downloading from the home Needle or a server, and radio showing what is up next.
+- Android's equivalent is Live Updates (Android 16 and newer), for progress such as a sync.
+
+### Widgets
+
+- Android: Jetpack Glance, in Material style. iPhone: WidgetKit, with the Liquid Glass look.
+- Now playing: the cover, the song, and play, pause, and skip.
+- Recently played: tap an album to play it.
+- Playlists: shortcuts to favourite playlists.
+- Radio: one tap starts radio from the library.
+- Stats: listening time this week, or a Wrapped-style fact.
+- iPhone also: lock screen widgets and Control Center buttons (for example "Play my radio").
+
 ## Publishing
 
 - **Android:** free as an APK installed directly; Play Store is $25 once.
