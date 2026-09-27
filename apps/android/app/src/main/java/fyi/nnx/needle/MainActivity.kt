@@ -2,8 +2,11 @@ package fyi.nnx.needle
 
 import android.Manifest
 import android.content.ComponentName
+import android.content.Intent
+import android.net.Uri
 import android.os.Build
 import android.os.Bundle
+import android.provider.MediaStore
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
@@ -13,6 +16,10 @@ import androidx.media3.session.SessionToken
 import com.google.common.util.concurrent.ListenableFuture
 import fyi.nnx.needle.ui.NeedleRoot
 import fyi.nnx.needle.ui.NeedleTheme
+import fyi.nnx.needle.ui.showMessage
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import java.io.File
 
 class MainActivity : ComponentActivity() {
     private var controller: ListenableFuture<MediaController>? = null
@@ -26,6 +33,12 @@ class MainActivity : ComponentActivity() {
                 NeedleRoot()
             }
         }
+        if (savedInstanceState == null) openFrom(intent)
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        openFrom(intent)
     }
 
     override fun onStart() {
@@ -40,6 +53,44 @@ class MainActivity : ComponentActivity() {
         controller = null
         super.onStop()
     }
+
+    /** A music file opened with Needle from another app: it plays, and joins the library. */
+    private fun openFrom(intent: Intent?) {
+        if (intent?.action != Intent.ACTION_VIEW) return
+        val uri = intent.data ?: return
+        val app = NeedleApp.instance
+        app.scope.launch(Dispatchers.IO) {
+            val path = pathOf(uri) ?: copy(uri)
+            val song = path?.let { runCatching { app.core.openFile(it) }.getOrNull() }
+            if (song == null) {
+                showMessage("Needle could not open that. It may not be a music file Needle can play.")
+            } else {
+                app.libraryVersion.value++
+                app.openPlayer.tryEmit(Unit)
+            }
+        }
+    }
+
+    /** The file's own path, when Android's media list knows it (music on the phone). */
+    private fun pathOf(uri: Uri): String? {
+        if (uri.scheme == "file") return uri.path
+        return runCatching {
+            contentResolver.query(uri, arrayOf(MediaStore.MediaColumns.DATA), null, null, null)?.use { c ->
+                if (c.moveToFirst()) c.getString(0) else null
+            }
+        }.getOrNull()?.takeIf { File(it).canRead() }
+    }
+
+    /** A copy in the app's own storage, for a file from elsewhere (a download, a message). */
+    private fun copy(uri: Uri): String? = runCatching {
+        val name = contentResolver.query(uri, arrayOf(MediaStore.MediaColumns.DISPLAY_NAME), null, null, null)?.use { c ->
+            if (c.moveToFirst()) c.getString(0) else null
+        } ?: "opened-${System.currentTimeMillis()}"
+        val folder = File(filesDir, "opened").apply { mkdirs() }
+        val file = File(folder, name.replace('/', '_'))
+        contentResolver.openInputStream(uri)!!.use { input -> file.outputStream().use { input.copyTo(it) } }
+        file.absolutePath
+    }.getOrNull()
 
     private fun askPermissions() {
         val wanted = buildList {
