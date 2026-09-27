@@ -484,7 +484,8 @@ private fun UpNextPanel(version: ULong) {
                 SwipeToDismissBox(
                     state = dismiss,
                     backgroundContent = {
-                        Box(
+                        // Only while a row is being swiped; the rows themselves are see-through.
+                        if (dismiss.dismissDirection != SwipeToDismissBoxValue.Settled) Box(
                             Modifier.fillMaxSize().clip(RoundedCornerShape(8.dp)).background(Color.White.copy(alpha = 0.12f)).padding(horizontal = 16.dp),
                             contentAlignment = Alignment.CenterEnd,
                         ) { Text("Remove", color = Color.White.copy(alpha = 0.8f)) }
