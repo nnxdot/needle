@@ -176,7 +176,7 @@ fun MiniPlayer(onOpen: () -> Unit) {
 
 /** The cover's strongest colour, where the background cannot be a blurred cover. */
 @Composable
-private fun coverColor(path: String?): Color {
+internal fun coverColor(path: String?): Color {
     val context = LocalContext.current
     var color by remember { mutableStateOf(Color(0xFF3A2E20)) }
     LaunchedEffect(path) {

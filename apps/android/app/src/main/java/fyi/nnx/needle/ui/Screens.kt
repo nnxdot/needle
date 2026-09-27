@@ -202,48 +202,7 @@ private fun EmptyLibrary(scanning: Boolean, open: (Route) -> Unit) {
 
 // ---------- Library
 
-@OptIn(ExperimentalMaterial3Api::class)
-@Composable
-fun LibraryScreen(open: (Route) -> Unit) {
-    val home by rememberLoaded { home() }
-    val scan by NeedleApp.instance.scan.collectAsState()
-    // Pull down to read the music folders again.
-    PullToRefreshBox(isRefreshing = scan.running, onRefresh = { core.rescan() }, modifier = Modifier.fillMaxSize()) {
-    LazyVerticalGrid(
-        columns = GridCells.Fixed(2),
-        contentPadding = PaddingValues(bottom = 24.dp),
-        horizontalArrangement = Arrangement.spacedBy(16.dp),
-        verticalArrangement = Arrangement.spacedBy(20.dp),
-        modifier = Modifier.fillMaxSize(),
-    ) {
-        full {
-            LargeTitle("Library") {
-                IconButton(onClick = { open(Route.Settings) }) { Icon(Icons.Rounded.Settings, contentDescription = "Settings") }
-            }
-        }
-        full {
-            Column {
-                NavRow(Icons.AutoMirrored.Rounded.QueueMusic, "Playlists") { open(Route.Playlists) }
-                NavRow(Icons.Rounded.Person, "Artists") { open(Route.Artists) }
-                NavRow(Icons.Rounded.Album, "Albums") { open(Route.Albums) }
-                NavRow(Icons.Rounded.MusicNote, "Songs") { open(Route.Songs) }
-                NavRow(Icons.Rounded.Style, "Genres") { open(Route.Genres) }
-                NavRow(Icons.Rounded.Folder, "Folders") { open(Route.Folder(null)) }
-                NavRow(Icons.Rounded.Favorite, "Favorites") { open(Route.Favorites) }
-                NavRow(Icons.Rounded.LibraryAdd, "Recently added") { open(Route.RecentlyAdded) }
-                NavRow(Icons.Rounded.History, "History") { open(Route.History) }
-            }
-        }
-        val added = home?.added.orEmpty()
-        if (added.isNotEmpty()) {
-            full { SectionHeader("Recently added", Modifier.padding(top = 4.dp)) }
-            albumGrid(added, open)
-        }
-    }
-    }
-}
-
-private fun LazyGridScope.full(content: @Composable () -> Unit) =
+internal fun LazyGridScope.full(content: @Composable () -> Unit) =
     item(span = { GridItemSpan(maxLineSpan) }) { content() }
 
 /** Albums two to a row, with the page's side margins; soft placeholders while they load. */

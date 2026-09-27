@@ -27,6 +27,8 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
+import androidx.compose.material3.ShortNavigationBar
+import androidx.compose.material3.ShortNavigationBarItem
 import androidx.compose.material3.NavigationRail
 import androidx.compose.material3.NavigationRailItem
 import androidx.compose.material3.SnackbarHost
@@ -89,7 +91,7 @@ enum class Tab(val label: String, val icon: ImageVector, val root: Route) {
     Search("Search", Icons.Rounded.Search, Route.Search),
 }
 
-@OptIn(ExperimentalSharedTransitionApi::class)
+@OptIn(ExperimentalSharedTransitionApi::class, androidx.compose.material3.ExperimentalMaterial3ExpressiveApi::class)
 @Composable
 fun NeedleRoot() {
     var tab by rememberSaveable { mutableStateOf(Tab.Home) }
@@ -152,9 +154,10 @@ fun NeedleRoot() {
                                 }
                             }
                             if (!wide) {
-                                NavigationBar(containerColor = MaterialTheme.colorScheme.surfaceContainerLow) {
+                                // Material 3 Expressive's shorter bar.
+                                ShortNavigationBar(containerColor = MaterialTheme.colorScheme.surfaceContainerLow) {
                                     Tab.entries.forEach { t ->
-                                        NavigationBarItem(
+                                        ShortNavigationBarItem(
                                             selected = t == tab,
                                             onClick = { chooseTab(t) },
                                             icon = { Icon(t.icon, contentDescription = null) },
