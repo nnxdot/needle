@@ -74,6 +74,33 @@ on Android, **Liquid Glass** (iOS 26) on iPhone.
 - Stats: listening time this week, or a Wrapped-style fact.
 - iPhone also: lock screen widgets and Control Center buttons (for example "Play my radio").
 
+## Connect (like Spotify Connect)
+
+### What Needle has now: the phone remote
+
+- Turned on in Settings; a QR code opens a control page in the phone's browser (nothing to
+  install). Code: `crates/needle-core/src/remote.rs`, `remote.html`.
+- Play, pause, next, previous, seek, volume, shuffle, repeat; search the library and play, play
+  next, or add to the queue; jump to a song in the queue.
+- Only private-network addresses (home network, or a VPN using them); every address holds a long
+  random key.
+
+### What Spotify Connect has that Needle does not
+
+1. Devices found by themselves (Needle needs the QR code).
+2. Moving playback between devices at the same spot.
+3. The phone as the speaker (the remote only controls the PC).
+4. Working away from home (Spotify goes through its own servers).
+
+### What a phone app could add
+
+- Discovery of PCs running Needle on the network with Bonjour / mDNS: no QR code.
+- Moving playback both ways between PC and phone: the song, the queue, and the position.
+- Playing the PC's music on the phone, streamed over the home network.
+- One PC controlling another PC the same way.
+- Away from home: through a VPN such as Tailscale, with no NNX server; or through a relay server,
+  which needs accounts and servers (see the account discussion: optional, end-to-end encrypted).
+
 ## Publishing
 
 - **Android:** free as an APK installed directly; Play Store is $25 once.
