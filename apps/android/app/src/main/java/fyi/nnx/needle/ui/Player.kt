@@ -6,6 +6,16 @@ import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
+import androidx.compose.animation.core.spring
+import androidx.compose.animation.scaleIn
+import androidx.compose.animation.scaleOut
+import androidx.compose.material3.SwipeToDismissBox
+import androidx.compose.material3.SwipeToDismissBoxValue
+import androidx.compose.material3.rememberSwipeToDismissBoxState
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.ui.graphics.TransformOrigin
+import androidx.compose.ui.platform.LocalView
+import androidx.compose.ui.unit.Dp
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.togetherWith
@@ -96,6 +106,10 @@ fun MiniPlayer(onOpen: () -> Unit) {
     val playback by NeedleApp.instance.playback.collectAsState()
     val p = playback ?: return
     val song = p.current ?: return
+    val haptics = rememberHaptics()
+    // Swiped sideways, it skips: left for the next song, right for the one before.
+    var drag by remember { mutableFloatStateOf(0f) }
+    val shift by animateFloatAsState(drag, spring(dampingRatio = 0.7f, stiffness = 500f), label = "mini swipe")
     Surface(
         color = MaterialTheme.colorScheme.surfaceContainerHigh,
         shape = RoundedCornerShape(16.dp),
@@ -103,6 +117,19 @@ fun MiniPlayer(onOpen: () -> Unit) {
         modifier = Modifier
             .fillMaxWidth()
             .padding(horizontal = 10.dp, vertical = 8.dp)
+            .graphicsLayer { translationX = shift; alpha = 1f - (kotlin.math.abs(shift) / 900f).coerceIn(0f, 0.5f) }
+            .pointerInput(song.id) {
+                detectHorizontalDragGestures(
+                    onDragEnd = {
+                        when {
+                            drag < -160f -> { haptics(false); core.next() }
+                            drag > 160f -> { haptics(false); core.previous() }
+                        }
+                        drag = 0f
+                    },
+                    onDragCancel = { drag = 0f },
+                ) { _, dx -> drag += dx }
+            }
             .clip(RoundedCornerShape(16.dp))
             .clickable(onClick = onOpen),
     ) {
@@ -112,7 +139,7 @@ fun MiniPlayer(onOpen: () -> Unit) {
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(12.dp),
             ) {
-                Cover(song.artwork, Modifier.size(44.dp), SmallCoverShape)
+                Cover(song.artwork, Modifier.size(44.dp).sharedCover("now-${song.id}"), SmallCoverShape)
                 Column(Modifier.weight(1f)) {
                     Text(song.title, style = MaterialTheme.typography.bodyLarge, maxLines = 1, overflow = TextOverflow.Ellipsis)
                     Text(
@@ -123,12 +150,8 @@ fun MiniPlayer(onOpen: () -> Unit) {
                         overflow = TextOverflow.Ellipsis,
                     )
                 }
-                IconButton(onClick = { core.toggle() }) {
-                    Icon(
-                        if (p.playing) Icons.Rounded.Pause else Icons.Rounded.PlayArrow,
-                        contentDescription = if (p.playing) "Pause" else "Play",
-                        modifier = Modifier.size(30.dp),
-                    )
+                IconButton(onClick = { haptics(false); core.toggle() }) {
+                    PlayPauseIcon(p.playing, 30.dp)
                 }
                 IconButton(onClick = { core.next() }) {
                     Icon(Icons.Rounded.SkipNext, contentDescription = "Next", modifier = Modifier.size(30.dp))
@@ -171,7 +194,8 @@ private fun coverColor(path: String?): Color {
 private fun PlayerBackdrop(song: Song) {
     val glow = coverColor(song.artwork)
     Box(Modifier.fillMaxSize().background(Color(0xFF0F0E0D))) {
-        if (Build.VERSION.SDK_INT >= 31 && song.artwork != null) {
+        val app by NeedleApp.instance.app.collectAsState()
+        if (app.coverBackdrop && Build.VERSION.SDK_INT >= 31 && song.artwork != null) {
             AnimatedContent(song.artwork, transitionSpec = { fadeIn(tween(500)) togetherWith fadeOut(tween(500)) }, label = "backdrop") { art ->
                 AsyncImage(
                     model = fileUri(art),
@@ -204,6 +228,7 @@ fun FullPlayer(onClose: () -> Unit) {
     val p = playback ?: return
     val song = p.current ?: return
     var panel by rememberSaveable { mutableStateOf(Panel.Cover) }
+    val haptics = rememberHaptics()
     // Pulled down far enough, the player closes.
     var pull by remember { mutableFloatStateOf(0f) }
 
@@ -244,6 +269,7 @@ fun FullPlayer(onClose: () -> Unit) {
                                 Modifier
                                     .fillMaxWidth()
                                     .aspectRatio(1f)
+                                    .sharedCover("now-${song.id}")
                                     .graphicsLayer { scaleX = scale; scaleY = scale }
                                     .shadow(if (p.playing) 32.dp else 12.dp, RoundedCornerShape(12.dp)),
                                 RoundedCornerShape(12.dp),
@@ -283,12 +309,8 @@ fun FullPlayer(onClose: () -> Unit) {
                     IconButton(onClick = { core.previous() }, modifier = Modifier.size(72.dp)) {
                         Icon(Icons.Rounded.SkipPrevious, contentDescription = "Previous", modifier = Modifier.size(48.dp))
                     }
-                    IconButton(onClick = { core.toggle() }, modifier = Modifier.size(88.dp)) {
-                        Icon(
-                            if (p.playing) Icons.Rounded.Pause else Icons.Rounded.PlayArrow,
-                            contentDescription = if (p.playing) "Pause" else "Play",
-                            modifier = Modifier.size(64.dp),
-                        )
+                    IconButton(onClick = { haptics(false); core.toggle() }, modifier = Modifier.size(88.dp)) {
+                        PlayPauseIcon(p.playing, 64.dp)
                     }
                     IconButton(onClick = { core.next() }, modifier = Modifier.size(72.dp)) {
                         Icon(Icons.Rounded.SkipNext, contentDescription = "Next", modifier = Modifier.size(48.dp))
@@ -401,8 +423,15 @@ private fun LyricsPanel(song: Song, position: Double) {
     val lines = lyrics?.lines.orEmpty()
     val state = rememberLazyListState()
     val now = lines.indexOfLast { it.time <= position + 0.2 }
-    LaunchedEffect(now) {
-        if (now >= 0) state.animateScrollToItem((now - 1).coerceAtLeast(0))
+    val app by NeedleApp.instance.app.collectAsState()
+    LaunchedEffect(now, app.liveLyrics) {
+        if (app.liveLyrics && now >= 0) state.animateScrollToItem((now - 1).coerceAtLeast(0))
+    }
+    // Keeps the screen on while the lyrics show, when that is on.
+    val view = LocalView.current
+    DisposableEffect(app.keepScreenOnLyrics) {
+        view.keepScreenOn = app.keepScreenOnLyrics
+        onDispose { view.keepScreenOn = false }
     }
     when {
         lyrics == null || (lines.isEmpty() && lyrics?.plain.isNullOrBlank()) -> Text(
@@ -415,13 +444,17 @@ private fun LyricsPanel(song: Song, position: Double) {
         }
         else -> LazyColumn(Modifier.fillMaxSize(), state = state) {
             itemsIndexed(lines) { i, line ->
+                val lit = !app.liveLyrics || i == now
+                val alpha by animateFloatAsState(if (lit) 1f else if (i < now) 0.25f else 0.4f, tween(300), label = "line")
+                val grow by animateFloatAsState(if (i == now && app.liveLyrics) 1f else 0.94f, spring(dampingRatio = 0.7f, stiffness = 300f), label = "line size")
                 Text(
                     line.text.ifBlank { "♪" },
                     style = MaterialTheme.typography.headlineMedium,
                     fontWeight = FontWeight.Bold,
-                    color = if (i == now) Color.White else Color.White.copy(alpha = 0.35f),
+                    color = Color.White.copy(alpha = alpha),
                     modifier = Modifier
                         .fillMaxWidth()
+                        .graphicsLayer { scaleX = grow; scaleY = grow; transformOrigin = TransformOrigin(0f, 0.5f) }
                         .clip(RoundedCornerShape(8.dp))
                         .clickable { core.seek(line.time) }
                         .padding(vertical = 12.dp),
@@ -442,19 +475,50 @@ private fun UpNextPanel(version: ULong) {
             return@Column
         }
         LazyColumn(Modifier.fillMaxSize()) {
-            itemsIndexed(list) { i, song ->
-                Row(
-                    Modifier.fillMaxWidth().clip(RoundedCornerShape(8.dp)).clickable { core.jump(i.toUInt()) }.padding(vertical = 6.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(12.dp),
+            itemsIndexed(list, key = { i, s -> "$i-${s.id}" }) { i, song ->
+                // Swiped away, a song leaves the queue.
+                val dismiss = rememberSwipeToDismissBoxState()
+                LaunchedEffect(dismiss.currentValue) {
+                    if (dismiss.currentValue != SwipeToDismissBoxValue.Settled) core.removeUpNext(i.toUInt())
+                }
+                SwipeToDismissBox(
+                    state = dismiss,
+                    backgroundContent = {
+                        Box(
+                            Modifier.fillMaxSize().clip(RoundedCornerShape(8.dp)).background(Color.White.copy(alpha = 0.12f)).padding(horizontal = 16.dp),
+                            contentAlignment = Alignment.CenterEnd,
+                        ) { Text("Remove", color = Color.White.copy(alpha = 0.8f)) }
+                    },
                 ) {
-                    Cover(song.artwork, Modifier.size(44.dp), SmallCoverShape)
-                    Column(Modifier.weight(1f)) {
-                        Text(song.title, style = MaterialTheme.typography.bodyLarge, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                        Text(song.artist, style = MaterialTheme.typography.bodyMedium, color = Color.White.copy(alpha = 0.6f), maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    Row(
+                        Modifier.fillMaxWidth().clip(RoundedCornerShape(8.dp)).clickable { core.jump(i.toUInt()) }.padding(vertical = 6.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(12.dp),
+                    ) {
+                        Cover(song.artwork, Modifier.size(44.dp), SmallCoverShape)
+                        Column(Modifier.weight(1f)) {
+                            Text(song.title, style = MaterialTheme.typography.bodyLarge, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                            Text(song.artist, style = MaterialTheme.typography.bodyMedium, color = Color.White.copy(alpha = 0.6f), maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        }
                     }
                 }
             }
         }
+    }
+}
+
+/** Play and pause, turning into each other. */
+@Composable
+private fun PlayPauseIcon(playing: Boolean, size: Dp) {
+    AnimatedContent(
+        playing,
+        transitionSpec = { (scaleIn(tween(180), 0.6f) + fadeIn(tween(180))) togetherWith (scaleOut(tween(140), 0.6f) + fadeOut(tween(140))) },
+        label = "play pause",
+    ) { on ->
+        Icon(
+            if (on) Icons.Rounded.Pause else Icons.Rounded.PlayArrow,
+            contentDescription = if (on) "Pause" else "Play",
+            modifier = Modifier.size(size),
+        )
     }
 }

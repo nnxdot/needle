@@ -18,6 +18,7 @@ path = "uniffi-bindgen.rs"
 anyhow = "1"
 # No stems: ONNX Runtime has no prebuilt library for Android.
 needle-core = { path = "../needle-core", default-features = false }
+serde = { version = "1", features = ["derive"] }
 thiserror = "2"
 uniffi = { version = "0.32", features = ["cli"] }
 

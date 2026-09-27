@@ -33,6 +33,9 @@ pub mod remote;
 pub mod rules;
 pub mod scan;
 mod secrets;
+/// Android: where the app keeps its secrets (see `secrets`).
+#[cfg(target_os = "android")]
+pub use secrets::set_android_folder;
 pub mod sources;
 pub mod stems;
 pub mod sync;

@@ -1,11 +1,17 @@
 package fyi.nnx.needle.ui
 
+import android.os.Build
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.material3.MaterialExpressiveTheme
 import androidx.compose.material3.MotionScheme
 import androidx.compose.material3.darkColorScheme
+import androidx.compose.material3.dynamicDarkColorScheme
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
+import fyi.nnx.needle.NeedleApp
 
 /**
  * Needle's Night palette with its amber accent. The page is a deeper charcoal than the desktop
@@ -40,9 +46,21 @@ val NeedleColors = darkColorScheme(
 @OptIn(ExperimentalMaterial3ExpressiveApi::class)
 @Composable
 fun NeedleTheme(content: @Composable () -> Unit) {
+    val app by NeedleApp.instance.app.collectAsState()
+    val context = LocalContext.current
+    // From the wallpaper when asked (Android 12 and newer); the page stays deep, so covers lead.
+    val colors = if (app.wallpaperColors && Build.VERSION.SDK_INT >= 31) {
+        dynamicDarkColorScheme(context).copy(
+            background = NeedleColors.background,
+            surface = NeedleColors.surface,
+            surfaceContainerLowest = NeedleColors.surfaceContainerLowest,
+        )
+    } else {
+        NeedleColors
+    }
     MaterialExpressiveTheme(
-        colorScheme = NeedleColors,
-        motionScheme = MotionScheme.expressive(),
+        colorScheme = colors,
+        motionScheme = if (reduceMotion()) MotionScheme.standard() else MotionScheme.expressive(),
         content = content,
     )
 }

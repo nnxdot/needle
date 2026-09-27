@@ -20,6 +20,7 @@ uniffi::setup_scaffolding!();
 
 #[cfg(target_os = "android")]
 mod android;
+mod settings;
 
 /// Android's log (logcat), for crashes on the Rust side, which would otherwise go nowhere.
 #[cfg(target_os = "android")]
@@ -207,6 +208,8 @@ pub struct Needle {
     player: Player,
     scan: Arc<Mutex<ScanStatus>>,
     scanning: Arc<AtomicBool>,
+    /// Sends listens to Last.fm and ListenBrainz when they are on.
+    _scrobbler: needle_core::integrations::ScrobbleWorker,
 }
 
 #[uniffi::export]
@@ -218,10 +221,13 @@ impl Needle {
             log(true, &format!("Needle stopped: {info}"));
         }));
         log(false, &format!("starting in {data_dir}"));
+        #[cfg(target_os = "android")]
+        needle_core::set_android_folder(PathBuf::from(&data_dir));
         let library = Library::open(PathBuf::from(data_dir))?;
         let player = Player::new(library.clone());
         log(false, "player started");
         Ok(Arc::new(Self {
+            _scrobbler: needle_core::integrations::ScrobbleWorker::start(library.clone()),
             library,
             player,
             scan: Arc::default(),
@@ -431,6 +437,27 @@ impl Needle {
         Ok(songs)
     }
 
+    /// An artist's most played songs.
+    pub fn artist_songs(&self, name: String) -> Result<Vec<Song>> {
+        Ok(self
+            .library
+            .top_tracks(&name, 10)?
+            .iter()
+            .filter(|t| !t.missing)
+            .map(Song::from)
+            .collect())
+    }
+
+    /// Takes a song out of the songs up next.
+    pub fn remove_up_next(&self, index: u32) {
+        self.player.send(Command::Remove(index as usize));
+    }
+
+    /// Moves a song up next from one place to another.
+    pub fn move_up_next(&self, from: u32, to: u32) {
+        self.player.send(Command::Move(from as usize, to as usize));
+    }
+
     /// Songs matching a search, as on desktop (words, or rules like "rating is at least 4").
     pub fn search(&self, query: String) -> Result<Vec<Song>> {
         Ok(self
@@ -531,12 +558,20 @@ impl Needle {
             .collect()
     }
 
-    /// The song's lyrics from its own file or a `.lrc` beside it (no online lookups).
+    /// The song's lyrics from its own file or a `.lrc` beside it, then (when on) LRCLIB.
     pub fn lyrics(&self, id: String) -> Result<Option<Lyrics>> {
         let Some(track) = self.library.track(&id)? else {
             return Ok(None);
         };
-        Ok(needle_core::media::local_lyrics(&track).map(|l| Lyrics {
+        let online = self.library.settings().is_ok_and(|s| s.online_media);
+        let found = match needle_core::media::lyrics(&self.library, &track, online, None) {
+            Ok(found) => found,
+            Err(error) => {
+                log(true, &format!("Lyrics for {}: {error:#}", track.title));
+                None
+            }
+        };
+        Ok(found.map(|l| Lyrics {
             lines: l
                 .lines
                 .into_iter()
