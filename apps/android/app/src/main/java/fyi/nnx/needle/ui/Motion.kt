@@ -175,3 +175,36 @@ fun Modifier.sharedCover(key: String): Modifier = composed {
         )
     }
 }
+
+/** When the page on screen opened (uptime in ms), so rows know whether to come in with it. */
+val LocalPageOpened: ProvidableCompositionLocal<Long> = compositionLocalOf { 0L }
+
+/**
+ * Rows and tiles come in one after another as a page opens: up a little, and from clear. Rows
+ * that scroll in later just appear, so a list never waits on its own motion.
+ */
+fun Modifier.entrance(index: Int): Modifier = composed {
+    val opened = LocalPageOpened.current
+    val reduce = reduceMotion()
+    val fresh = remember { !reduce && index < 14 && android.os.SystemClock.uptimeMillis() - opened < 600 }
+    if (!fresh) return@composed this
+    val progress = remember { androidx.compose.animation.core.Animatable(0f) }
+    androidx.compose.runtime.LaunchedEffect(Unit) {
+        kotlinx.coroutines.delay(60L + index * 35L)
+        progress.animateTo(1f, spring(dampingRatio = 0.85f, stiffness = 260f))
+    }
+    graphicsLayer {
+        alpha = progress.value
+        translationY = (1f - progress.value) * 28.dp.toPx()
+    }
+}
+
+/** How far a list has scrolled past its first item, in pixels (large once it is gone). */
+fun androidx.compose.foundation.lazy.LazyListState.headerScroll(): Float =
+    if (firstVisibleItemIndex == 0) firstVisibleItemScrollOffset.toFloat() else 100_000f
+
+fun androidx.compose.foundation.lazy.grid.LazyGridState.headerScroll(): Float =
+    if (firstVisibleItemIndex == 0) firstVisibleItemScrollOffset.toFloat() else 100_000f
+
+/** Room a full-bleed page leaves at its foot for the mini player and the tabs over it. */
+val LocalBottomInset: ProvidableCompositionLocal<Dp> = compositionLocalOf { 0.dp }

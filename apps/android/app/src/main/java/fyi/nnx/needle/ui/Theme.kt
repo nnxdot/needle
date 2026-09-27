@@ -138,6 +138,7 @@ fun NeedleTheme(content: @Composable () -> Unit) {
     MaterialExpressiveTheme(
         colorScheme = colors,
         motionScheme = if (reduceMotion()) MotionScheme.standard() else MotionScheme.expressive(),
+        typography = NeedleType,
         content = content,
     )
 }

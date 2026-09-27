@@ -19,6 +19,8 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.only
+import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Home
 import androidx.compose.material.icons.rounded.LibraryMusic
@@ -48,6 +50,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.unit.dp
 import fyi.nnx.needle.NeedleApp
 import fyi.nnx.needle.core.Album
 
@@ -141,6 +144,11 @@ fun NeedleRoot() {
                 Scaffold(
                     modifier = Modifier.weight(1f),
                     containerColor = MaterialTheme.colorScheme.background,
+                    // The top is left to each page: most keep clear of the status bar, and the
+                    // album, artist, and playlist pages run their colour up under it.
+                    contentWindowInsets = androidx.compose.material3.ScaffoldDefaults.contentWindowInsets.only(
+                        androidx.compose.foundation.layout.WindowInsetsSides.Horizontal + androidx.compose.foundation.layout.WindowInsetsSides.Bottom,
+                    ),
                     snackbarHost = { SnackbarHost(snackbar) },
                     bottomBar = {
                         Column {
@@ -187,11 +195,17 @@ fun NeedleRoot() {
                                 else -> fadeIn(tween(220, delayMillis = 60)) togetherWith fadeOut(tween(120))
                             }
                         },
-                        modifier = Modifier.padding(padding),
                         label = "page",
                     ) { (_, pages) ->
-                        CompositionLocalProvider(LocalAnimated provides this) {
-                            Page(pages.last(), open)
+                        val opened = remember { android.os.SystemClock.uptimeMillis() }
+                        CompositionLocalProvider(LocalAnimated provides this, LocalPageOpened provides opened) {
+                            val route = pages.last()
+                            val fullBleed = route is Route.AlbumPage || route is Route.AlbumOf || route is Route.Artist || route is Route.Playlist
+                            // The colour pages run on behind the mini player and the tabs; their
+                            // lists leave room at the foot instead.
+                            CompositionLocalProvider(LocalBottomInset provides if (fullBleed) padding.calculateBottomPadding() else 0.dp) {
+                                Box(if (fullBleed) Modifier else Modifier.padding(padding).statusBarsPadding()) { Page(route, open) }
+                            }
                         }
                     }
                 }
