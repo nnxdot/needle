@@ -59,6 +59,8 @@ dependencies {
     implementation("androidx.media3:media3-session:1.11.1")
     // The playing cover's colour for the full player.
     implementation("androidx.palette:palette-ktx:1.0.0")
+    // A full Material colour scheme from one cover colour (Material's own colour maths).
+    implementation("com.materialkolor:material-color-utilities:5.0.1")
     // UniFFI's Kotlin bindings call the Rust library through JNA.
     implementation("net.java.dev.jna:jna:5.19.1@aar")
     // Scans the QR code of Needle on a computer (Google's scanner: no camera permission).

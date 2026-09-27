@@ -29,10 +29,18 @@ marks only what plays, the main action, and links.
 
 ## Colour
 
-- Album, playlist, and artist pages: the cover's colour fills the top and fades into the page,
-  as Apple Music does.
-- The player: the blurred cover behind it.
+- Album, playlist, and artist pages, the player, and the mini player take the cover's whole
+  Material colour scheme (`CoverTheme`: Material's colour maths on the cover's colour). The page
+  is tinted with the cover's hue; buttons, menus, and the playing song use its colours; a
+  change of cover blends over, never snaps.
+- The top of those pages and the player: the cover, huge, blurred, and slowly drifting
+  (`CoverBackdrop`). The pages run up under the status bar and down behind the mini player.
 - Everything else: the theme's own surfaces.
+
+## Type
+
+- Roboto Flex, one variable font. Text at its usual width; display and headline sizes narrow
+  and heavy (`titleFamily`), as posters are. Big titles grow narrower as their page scrolls.
 
 ## Menus
 
@@ -45,5 +53,12 @@ marks only what plays, the main action, and links.
 ## Motion
 
 - Pages slide a little and fade; covers move between the grid, the page, and the player.
+- Rows and tiles come in one after another as a page opens (`entrance`), never when scrolled to.
+- On album and playlist pages, the cover shrinks toward its top and fades as the page
+  scrolls; the artist photo moves slower than the page. A bar with the name fades in once
+  the top has gone.
+- Buttons change shape (Material 3 Expressive): pressed ones square their corners a little;
+  play is round while paused and a softer square while playing.
+- Progress is a wave while music plays and a flat line while it rests (Android 16).
 - Presses shrink a little and spring back. Nothing bounces for show.
 - "Reduce motion" (or Android's own setting) turns it into cross-fades.

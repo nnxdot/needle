@@ -105,18 +105,26 @@ import kotlinx.coroutines.withContext
  * The song playing, floating above the tabs as in Apple Music: cover, title, play or pause, and
  * next. Tap it for the full player.
  */
+@OptIn(androidx.compose.material3.ExperimentalMaterial3ExpressiveApi::class)
 @Composable
 fun MiniPlayer(onOpen: () -> Unit) {
     val playback by NeedleApp.instance.playback.collectAsState()
     val p = playback ?: return
     val song = p.current ?: return
+    CoverTheme(song.artwork) { MiniPlayerBody(p, song, onOpen) }
+}
+
+@OptIn(androidx.compose.material3.ExperimentalMaterial3ExpressiveApi::class)
+@Composable
+private fun MiniPlayerBody(p: fyi.nnx.needle.core.Playback, song: Song, onOpen: () -> Unit) {
     val haptics = rememberHaptics()
     // Swiped sideways, it skips: left for the next song, right for the one before.
     var drag by remember { mutableFloatStateOf(0f) }
     val shift by animateFloatAsState(drag, spring(dampingRatio = 0.7f, stiffness = 500f), label = "mini swipe")
     Surface(
-        color = MaterialTheme.colorScheme.surfaceContainerHigh,
-        shape = RoundedCornerShape(16.dp),
+        color = MaterialTheme.colorScheme.primaryContainer,
+        contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
+        shape = RoundedCornerShape(20.dp),
         shadowElevation = 8.dp,
         modifier = Modifier
             .fillMaxWidth()
@@ -134,7 +142,7 @@ fun MiniPlayer(onOpen: () -> Unit) {
                     onDragCancel = { drag = 0f },
                 ) { _, dx -> drag += dx }
             }
-            .clip(RoundedCornerShape(16.dp))
+            .clip(RoundedCornerShape(20.dp))
             .clickable(onClick = onOpen),
     ) {
         Box {
@@ -149,26 +157,36 @@ fun MiniPlayer(onOpen: () -> Unit) {
                     Text(
                         song.artist,
                         style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.75f),
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
                     )
                 }
-                IconButton(onClick = { haptics(false); core.toggle() }) {
-                    PlayPauseIcon(p.playing, 30.dp)
-                }
+                // Round while paused, a softer square while it plays.
+                androidx.compose.material3.FilledIconToggleButton(
+                    checked = p.playing,
+                    onCheckedChange = { haptics(false); core.toggle() },
+                    shapes = androidx.compose.material3.IconButtonDefaults.toggleableShapes(),
+                    colors = androidx.compose.material3.IconButtonDefaults.filledIconToggleButtonColors(
+                        containerColor = MaterialTheme.colorScheme.primary,
+                        contentColor = MaterialTheme.colorScheme.onPrimary,
+                        checkedContainerColor = MaterialTheme.colorScheme.primary,
+                        checkedContentColor = MaterialTheme.colorScheme.onPrimary,
+                    ),
+                ) { PlayPauseIcon(p.playing, 26.dp) }
                 IconButton(onClick = { core.next() }) {
                     Icon(Icons.Rounded.SkipNext, contentDescription = "Next", modifier = Modifier.size(30.dp))
                 }
             }
-            // A hairline of progress along the bottom edge.
+            // Progress along the foot: a wave while it plays, flat while it rests (Android 16).
             val progress = if (song.duration > 0) (p.position / song.duration).toFloat().coerceIn(0f, 1f) else 0f
-            Box(
-                Modifier
-                    .align(Alignment.BottomStart)
-                    .fillMaxWidth(progress)
-                    .height(2.dp)
-                    .background(MaterialTheme.colorScheme.primary),
+            val wave by animateFloatAsState(if (p.playing && !reduceMotion()) 1f else 0f, tween(400), label = "wave")
+            androidx.compose.material3.LinearWavyProgressIndicator(
+                progress = { progress },
+                amplitude = { wave },
+                color = MaterialTheme.colorScheme.primary,
+                trackColor = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.15f),
+                modifier = Modifier.align(Alignment.BottomCenter).fillMaxWidth().padding(horizontal = 14.dp).height(6.dp),
             )
         }
     }
@@ -181,14 +199,9 @@ internal fun coverColor(path: String?): Color {
     var color by remember { mutableStateOf(Color(0xFF3A2E20)) }
     LaunchedEffect(path) {
         if (path == null) return@LaunchedEffect
-        val found = withContext(Dispatchers.IO) {
-            val request = ImageRequest.Builder(context).data(fileUri(path)).size(96).allowHardware(false).build()
-            val bitmap = (context.imageLoader.execute(request) as? SuccessResult)?.image?.toBitmap()?.let(::trimBars)
-                ?: return@withContext null
-            val palette = Palette.from(bitmap).generate()
-            (palette.darkVibrantSwatch ?: palette.dominantSwatch)?.rgb
-        }
-        if (found != null) color = Color(found)
+        val found = coverSeed(context, path) ?: return@LaunchedEffect
+        // Deep enough for white on it.
+        color = Color(com.materialkolor.hct.Hct.fromInt(found).let { if (it.tone > 32) it.withTone(32.0) else it }.toInt())
     }
     return animateColorAsState(color, tween(400), label = "cover colour").value
 }
@@ -200,18 +213,7 @@ private fun PlayerBackdrop(song: Song) {
     Box(Modifier.fillMaxSize().background(Color(0xFF0F0E0D))) {
         val app by NeedleApp.instance.app.collectAsState()
         if (app.coverBackdrop && Build.VERSION.SDK_INT >= 31 && song.artwork != null) {
-            AnimatedContent(song.artwork, transitionSpec = { fadeIn(tween(500)) togetherWith fadeOut(tween(500)) }, label = "backdrop") { art ->
-                AsyncImage(
-                    model = coverRequest(fileUri(art)),
-                    contentDescription = null,
-                    contentScale = ContentScale.Crop,
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .graphicsLayer { scaleX = 1.4f; scaleY = 1.4f }
-                        .blur(90.dp),
-                )
-            }
-            Box(Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.35f)))
+            CoverBackdrop(song.artwork, Modifier.fillMaxSize(), dim = 0.3f)
         } else {
             Box(Modifier.fillMaxSize().background(Brush.verticalGradient(listOf(glow, Color(0xFF0F0E0D)))))
         }
@@ -240,6 +242,7 @@ fun FullPlayer(onClose: () -> Unit, open: (Route) -> Unit) {
     // Pulled down far enough, the player closes.
     var pull by remember { mutableFloatStateOf(0f) }
 
+    CoverTheme(song.artwork, dark = true) {
     Box(
         Modifier
             .fillMaxSize()
@@ -292,8 +295,7 @@ fun FullPlayer(onClose: () -> Unit, open: (Route) -> Unit) {
                         Column(Modifier.weight(1f)) {
                             Text(
                                 song.title,
-                                style = MaterialTheme.typography.titleLarge,
-                                fontWeight = FontWeight.Bold,
+                                style = MaterialTheme.typography.headlineMedium,
                                 maxLines = 1,
                                 overflow = TextOverflow.Ellipsis,
                             )
@@ -319,22 +321,8 @@ fun FullPlayer(onClose: () -> Unit, open: (Route) -> Unit) {
                         SongMenu(song, open)
                     }
                 }
-                SeekBar(position = p.position, duration = song.duration)
-                Row(
-                    Modifier.fillMaxWidth().padding(vertical = 16.dp),
-                    horizontalArrangement = Arrangement.SpaceEvenly,
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    IconButton(onClick = { core.previous() }, modifier = Modifier.size(72.dp)) {
-                        Icon(Icons.Rounded.SkipPrevious, contentDescription = "Previous", modifier = Modifier.size(48.dp))
-                    }
-                    IconButton(onClick = { haptics(false); core.toggle() }, modifier = Modifier.size(88.dp)) {
-                        PlayPauseIcon(p.playing, 64.dp)
-                    }
-                    IconButton(onClick = { core.next() }, modifier = Modifier.size(72.dp)) {
-                        Icon(Icons.Rounded.SkipNext, contentDescription = "Next", modifier = Modifier.size(48.dp))
-                    }
-                }
+                SeekBar(position = p.position, duration = song.duration, playing = p.playing)
+                PlayerControls(p.playing, haptics)
                 Row(
                     Modifier.fillMaxWidth().padding(bottom = 12.dp),
                     horizontalArrangement = Arrangement.SpaceBetween,
@@ -385,6 +373,51 @@ fun FullPlayer(onClose: () -> Unit, open: (Route) -> Unit) {
             }
         }
     }
+    }
+}
+
+/**
+ * Previous, play or pause, and next, as Android 16's media controls: one large button in the
+ * cover's colour, round while paused and a softer square while playing, between two wide
+ * buttons. Each squeezes a little as it is pressed.
+ */
+@OptIn(androidx.compose.material3.ExperimentalMaterial3ExpressiveApi::class)
+@Composable
+private fun PlayerControls(playing: Boolean, haptics: (Boolean) -> Unit) {
+    val side = androidx.compose.material3.IconButtonDefaults.filledTonalIconButtonColors(
+        containerColor = Color.White.copy(alpha = 0.14f),
+        contentColor = Color.White,
+    )
+    Row(
+        Modifier.fillMaxWidth().padding(vertical = 18.dp),
+        horizontalArrangement = Arrangement.spacedBy(12.dp, Alignment.CenterHorizontally),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        androidx.compose.material3.FilledTonalIconButton(
+            onClick = { haptics(false); core.previous() },
+            shapes = androidx.compose.material3.IconButtonDefaults.shapes(),
+            colors = side,
+            modifier = Modifier.size(width = 84.dp, height = 72.dp),
+        ) { Icon(Icons.Rounded.SkipPrevious, contentDescription = "Previous", modifier = Modifier.size(36.dp)) }
+        androidx.compose.material3.FilledIconToggleButton(
+            checked = playing,
+            onCheckedChange = { haptics(false); core.toggle() },
+            shapes = androidx.compose.material3.IconButtonDefaults.toggleableShapes(),
+            colors = androidx.compose.material3.IconButtonDefaults.filledIconToggleButtonColors(
+                containerColor = MaterialTheme.colorScheme.primary,
+                contentColor = MaterialTheme.colorScheme.onPrimary,
+                checkedContainerColor = MaterialTheme.colorScheme.primary,
+                checkedContentColor = MaterialTheme.colorScheme.onPrimary,
+            ),
+            modifier = Modifier.size(width = 120.dp, height = 96.dp),
+        ) { PlayPauseIcon(playing, 48.dp) }
+        androidx.compose.material3.FilledTonalIconButton(
+            onClick = { haptics(false); core.next() },
+            shapes = androidx.compose.material3.IconButtonDefaults.shapes(),
+            colors = side,
+            modifier = Modifier.size(width = 84.dp, height = 72.dp),
+        ) { Icon(Icons.Rounded.SkipNext, contentDescription = "Next", modifier = Modifier.size(36.dp)) }
+    }
 }
 
 /** An icon button that shows a soft circle when on, as Apple Music's lyrics and queue buttons. */
@@ -419,7 +452,7 @@ private fun SmallNowPlaying(song: Song) {
  * the song moves only when it lets go.
  */
 @Composable
-private fun SeekBar(position: Double, duration: Double) {
+private fun SeekBar(position: Double, duration: Double, playing: Boolean) {
     var held by remember { mutableStateOf<Float?>(null) }
     val length = duration.coerceAtLeast(1.0).toFloat()
     val shown = held ?: (position.toFloat() / length).coerceIn(0f, 1f)
@@ -441,8 +474,20 @@ private fun SeekBar(position: Double, duration: Double) {
                 },
             contentAlignment = Alignment.CenterStart,
         ) {
-            Box(Modifier.fillMaxWidth().height(thickness).clip(CircleShape).background(Color.White.copy(alpha = 0.25f)))
-            Box(Modifier.fillMaxWidth(shown).height(thickness).clip(CircleShape).background(Color.White.copy(alpha = if (held != null) 1f else 0.85f)))
+            val wave by animateFloatAsState(if (playing && held == null && !reduceMotion()) 1f else 0f, tween(350), label = "seek wave")
+            if (held == null) {
+                androidx.compose.material3.LinearWavyProgressIndicator(
+                    progress = { shown },
+                    amplitude = { wave },
+                    color = Color.White,
+                    trackColor = Color.White.copy(alpha = 0.25f),
+                    wavelength = 36.dp,
+                    modifier = Modifier.fillMaxWidth().height(14.dp),
+                )
+            } else {
+                Box(Modifier.fillMaxWidth().height(thickness).clip(CircleShape).background(Color.White.copy(alpha = 0.25f)))
+                Box(Modifier.fillMaxWidth(shown).height(thickness).clip(CircleShape).background(Color.White))
+            }
         }
         Row(Modifier.fillMaxWidth()) {
             Text(time((shown * length).toDouble()), style = MaterialTheme.typography.labelMedium, color = Color.White.copy(alpha = 0.6f))
