@@ -11,6 +11,9 @@ import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateContentSize
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.material3.toShape
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectVerticalDragGestures
 import androidx.compose.foundation.layout.Arrangement
@@ -161,7 +164,7 @@ fun SettingsSectionScreen(section: SettingsSection, open: (Route) -> Unit) {
                 SettingsSection.Sound -> SoundSettingsPage()
                 SettingsSection.Appearance -> AppearanceSettings()
                 SettingsSection.Scrobbling -> ScrobblingSettings()
-                SettingsSection.About -> AboutPage()
+                SettingsSection.About -> AboutPage(open)
                 else -> {}
             }
         }
@@ -521,6 +524,7 @@ private fun frequencyLabel(hz: Float) = if (hz >= 1000) "${(hz / 1000).toInt()}k
 
 // ---------- Appearance
 
+@OptIn(androidx.compose.material3.ExperimentalMaterial3ExpressiveApi::class)
 @Composable
 private fun AppearanceSettings() {
     val app by NeedleApp.instance.app.collectAsState()
@@ -552,11 +556,47 @@ private fun AppearanceSettings() {
         Divider()
         TextButton(onClick = { importTheme.launch(arrayOf("*/*")) }, modifier = Modifier.padding(8.dp)) { Text("Add a theme file") }
     }
-    Group("Colour") {
-        SwitchRow("Cover behind the player", "The playing cover, blurred, fills the player", app.coverBackdrop) { on -> update { it.copy(coverBackdrop = on) } }
+    Group("Colour", footer = "Colours from covers are made the way Android makes them from your wallpaper, so text on them always reads.") {
+        SwitchRow("Pages in their cover's colours", "Albums, playlists, and artists take the colours of their cover", app.coverColors) { on -> update { it.copy(coverColors = on) } }
+        Divider()
+        SwitchRow("Colours from what's playing", "The whole app takes the colours of the song playing, and changes with it", app.ambientColors) { on -> update { it.copy(ambientColors = on) } }
+        Divider()
+        SwitchRow("Mini player in the song's colour", "Otherwise it matches the page", app.miniPlayerColored) { on -> update { it.copy(miniPlayerColored = on) } }
         if (Build.VERSION.SDK_INT >= 31) {
             Divider()
-            SwitchRow("Colours from your wallpaper", "Instead of Needle's amber", app.wallpaperColors) { on -> update { it.copy(wallpaperColors = on) } }
+            SwitchRow("Colours from your wallpaper", "Instead of Needle's amber, where no cover gives the colour", app.wallpaperColors) { on -> update { it.copy(wallpaperColors = on) } }
+        }
+    }
+    Group("Backdrop", footer = if (Build.VERSION.SDK_INT >= 31) null else "Android 12 or newer blurs the cover; this phone shows its colour instead.") {
+        SwitchRow("Cover behind the player", "The playing cover, blurred, fills the player", app.coverBackdrop) { on -> update { it.copy(coverBackdrop = on) } }
+        Divider()
+        SwitchRow("Moving backdrop", "The blurred cover turns slowly behind pages and the player", app.movingBackdrop) { on -> update { it.copy(movingBackdrop = on) } }
+        Divider()
+        var blur by remember(app.backdropBlur) { mutableFloatStateOf(app.backdropBlur) }
+        SliderRow("Softness", "${blur.toInt()}", blur, 20f..120f, onChange = { blur = it }, onDone = { update { it.copy(backdropBlur = blur) } })
+    }
+    Group("Player") {
+        Text("Seek bar", style = MaterialTheme.typography.bodyLarge, modifier = Modifier.padding(start = 16.dp, top = 14.dp))
+        Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            SeekStyle.entries.forEach { style ->
+                StyleTile(style.label, app.seekStyle == style.id, Modifier.weight(1f), { update { it.copy(seekStyle = style.id) } }) {
+                    ProgressLine(0.6f, true, MaterialTheme.colorScheme.primary, MaterialTheme.colorScheme.onSurface.copy(alpha = 0.2f), style = style)
+                }
+            }
+        }
+        Divider()
+        Text("Cover", style = MaterialTheme.typography.bodyLarge, modifier = Modifier.padding(start = 16.dp, top = 14.dp))
+        Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            listOf("square" to "Square", "round" to "Record", "shape" to "Shape").forEach { (id, label) ->
+                StyleTile(label, app.coverShape == id, Modifier.weight(1f), { update { it.copy(coverShape = id) } }) {
+                    val shape = when (id) {
+                        "round" -> androidx.compose.foundation.shape.CircleShape
+                        "shape" -> androidx.compose.material3.MaterialShapes.Cookie12Sided.toShape()
+                        else -> RoundedCornerShape(8.dp)
+                    }
+                    Box(Modifier.size(40.dp).clip(shape).background(MaterialTheme.colorScheme.primary))
+                }
+            }
         }
     }
     Group("Motion", footer = "Android's own \"Remove animations\" turns motion off too.") {
@@ -568,6 +608,25 @@ private fun AppearanceSettings() {
         SwitchRow("Follow the song", "The line playing is lit and stays in view", app.liveLyrics) { on -> update { it.copy(liveLyrics = on) } }
         Divider()
         SwitchRow("Keep the screen on", "While the lyrics show", app.keepScreenOnLyrics) { on -> update { it.copy(keepScreenOnLyrics = on) } }
+    }
+}
+
+/** A choice shown as what it looks like, with its name under it. */
+@Composable
+private fun StyleTile(label: String, selected: Boolean, modifier: Modifier, onClick: () -> Unit, preview: @Composable () -> Unit) {
+    val border = if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outlineVariant
+    Column(
+        modifier
+            .clip(RoundedCornerShape(16.dp))
+            .border(if (selected) 2.dp else 1.dp, border, RoundedCornerShape(16.dp))
+            .background(if (selected) MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.35f) else Color.Transparent)
+            .clickable(onClick = onClick)
+            .padding(12.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.spacedBy(10.dp),
+    ) {
+        Box(Modifier.fillMaxWidth().height(44.dp), contentAlignment = Alignment.Center) { preview() }
+        Text(label, style = MaterialTheme.typography.labelLarge, color = if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface)
     }
 }
 
@@ -669,7 +728,7 @@ private fun ScrobblingSettings() {
 // ---------- About
 
 @Composable
-private fun AboutPage() {
+private fun AboutPage(open: (Route) -> Unit) {
     val context = LocalContext.current
     fun visit(url: String) = context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
     val version = remember { runCatching { context.packageManager.getPackageInfo(context.packageName, 0).versionName }.getOrNull() ?: "" }
@@ -692,9 +751,9 @@ private fun AboutPage() {
     Group {
         LinkRow("Website", "needle.nnx.fyi") { visit("https://needle.nnx.fyi") }
         Divider()
-        LinkRow("Privacy", "What Needle sends, and when") { visit("https://needle.nnx.fyi/privacy") }
+        LinkRow("Privacy", "What Needle sends, and when") { open(Route.Document(Doc.Privacy)) }
         Divider()
-        LinkRow("Help", "Questions and answers") { visit("https://needle.nnx.fyi/help") }
+        LinkRow("Help", "Questions and answers") { open(Route.Document(Doc.Help)) }
     }
 }
 

@@ -16,6 +16,8 @@ import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.requiredSize
+import androidx.compose.runtime.collectAsState
 import androidx.compose.material3.ColorScheme
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.darkColorScheme
@@ -194,13 +196,17 @@ private fun blend(a: ColorScheme, b: ColorScheme, t: Float): ColorScheme = if (t
 /**
  * The cover, huge and blurred, drifting slowly behind a page, as Apple Music's moving
  * backgrounds do. Android 11 and older cannot blur, so they get the cover's colour instead.
+ * `fade` lets it melt into the page at its foot.
  */
 @Composable
-fun CoverBackdrop(path: String?, modifier: Modifier = Modifier, dim: Float = 0.35f) {
+fun CoverBackdrop(path: String?, modifier: Modifier = Modifier, dim: Float = 0.35f, fade: Boolean = true) {
     val page = MaterialTheme.colorScheme.background
-    val reduce = reduceMotion()
-    Box(modifier.clipToBounds().background(page)) {
+    val app by fyi.nnx.needle.NeedleApp.instance.app.collectAsState()
+    val still = reduceMotion() || !app.movingBackdrop
+    androidx.compose.foundation.layout.BoxWithConstraints(modifier.clipToBounds().background(page), contentAlignment = androidx.compose.ui.Alignment.Center) {
         if (path != null && Build.VERSION.SDK_INT >= 31) {
+            // A square wider than the box's diagonal, so no corner shows as it turns.
+            val side = kotlin.math.hypot(maxWidth.value, maxHeight.value).dp * 1.15f
             val drift = rememberInfiniteTransition(label = "drift")
             val turn by drift.animateFloat(0f, 360f, infiniteRepeatable(tween(90_000, easing = LinearEasing)), label = "turn")
             AnimatedContent(path, transitionSpec = { fadeIn(tween(600)) togetherWith fadeOut(tween(600)) }, label = "backdrop") { art ->
@@ -209,22 +215,19 @@ fun CoverBackdrop(path: String?, modifier: Modifier = Modifier, dim: Float = 0.3
                     contentDescription = null,
                     contentScale = ContentScale.Crop,
                     modifier = Modifier
-                        .fillMaxSize()
+                        .requiredSize(side)
                         .graphicsLayer {
-                            val r = if (reduce) 0f else turn
+                            val r = if (still) 0f else turn
                             rotationZ = r
-                            scaleX = 1.9f
-                            scaleY = 1.9f
-                            translationX = if (reduce) 0f else kotlin.math.sin(Math.toRadians(r * 2.0)).toFloat() * size.width * 0.08f
+                            translationX = if (still) 0f else kotlin.math.sin(Math.toRadians(r * 2.0)).toFloat() * size.width * 0.06f
                         }
-                        .blur(70.dp),
+                        .blur(app.backdropBlur.toInt().coerceIn(20, 120).dp),
                 )
             }
             Box(Modifier.fillMaxSize().background(page.copy(alpha = dim)))
         } else {
             Box(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.6f)))
         }
-        // Fades into the page at the foot.
-        Box(Modifier.fillMaxSize().background(Brush.verticalGradient(0.35f to Color.Transparent, 1f to page)))
+        if (fade) Box(Modifier.fillMaxSize().background(Brush.verticalGradient(0.35f to Color.Transparent, 1f to page)))
     }
 }

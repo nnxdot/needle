@@ -60,6 +60,12 @@
                 android:resource="@xml/file_paths" />
         </provider>
 
+        <!-- Covers for the lock screen, the notification, and Android Auto (read-only). -->
+        <provider
+            android:name=".ArtworkProvider"
+            android:authorities="${applicationId}.artwork"
+            android:exported="true" />
+
         <service
             android:name=".PlaybackService"
             android:exported="true"

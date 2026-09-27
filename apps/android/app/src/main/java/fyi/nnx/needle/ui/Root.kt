@@ -86,6 +86,8 @@ sealed interface Route {
     data object WhatsNew : Route
     /** Timing a song's lyrics by tapping along. */
     data class Timing(val songId: String) : Route
+    /** Privacy or Help, in the app. */
+    data class Document(val doc: Doc) : Route
 }
 
 enum class Tab(val label: String, val icon: ImageVector, val root: Route) {
@@ -123,6 +125,9 @@ fun NeedleRoot() {
         if (playerOpen) playerOpen = false else stacks[tab] = stack.dropLast(1)
     }
 
+    val app by NeedleApp.instance.app.collectAsState()
+    // Settings › Appearance › Colours from what is playing: every page in the song's colours.
+    CoverTheme(if (app.ambientColors) playback?.current?.artwork else null) {
     SharedTransitionLayout(Modifier.fillMaxSize()) {
         CompositionLocalProvider(LocalShared provides this) {
             Box(Modifier.fillMaxSize()) {
@@ -196,9 +201,15 @@ fun NeedleRoot() {
                             }
                         },
                         label = "page",
-                    ) { (_, pages) ->
+                    ) { (pageTab, pages) ->
                         val opened = remember { android.os.SystemClock.uptimeMillis() }
-                        CompositionLocalProvider(LocalAnimated provides this, LocalPageOpened provides opened) {
+                        CompositionLocalProvider(
+                            LocalAnimated provides this,
+                            LocalPageOpened provides opened,
+                            LocalCanGoBack provides (pages.size > 1),
+                            // Covers fly only between pages of one tab, never across tabs.
+                            LocalSharedScope provides pageTab.name,
+                        ) {
                             val route = pages.last()
                             val fullBleed = route is Route.AlbumPage || route is Route.AlbumOf || route is Route.Artist || route is Route.Playlist
                             // The colour pages run on behind the mini player and the tabs; their
@@ -222,6 +233,7 @@ fun NeedleRoot() {
                 Overlays(snackbar)
             }
         }
+    }
     }
 }
 
@@ -254,5 +266,6 @@ private fun Page(route: Route, open: (Route) -> Unit) {
         Route.Sync -> SyncScreen()
         Route.WhatsNew -> WhatsNewScreen()
         is Route.Timing -> TimingScreen(route.songId)
+        is Route.Document -> DocScreen(route.doc)
     }
 }
