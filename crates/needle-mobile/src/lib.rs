@@ -113,6 +113,8 @@ pub struct Album {
     pub songs: u32,
     pub duration: f64,
     pub artwork: Option<String>,
+    /// When it came into the library (Unix seconds).
+    pub added_at: i64,
 }
 
 impl From<AlbumSummary> for Album {
@@ -125,6 +127,7 @@ impl From<AlbumSummary> for Album {
             songs: a.tracks as u32,
             duration: a.duration,
             artwork: a.artwork,
+            added_at: a.added_at,
         }
     }
 }
@@ -153,6 +156,8 @@ pub struct Playlist {
 pub struct Genre {
     pub name: String,
     pub songs: u32,
+    /// A cover from the genre, for its tile.
+    pub artwork: Option<String>,
 }
 
 #[derive(Clone, uniffi::Record)]
@@ -428,9 +433,18 @@ impl Needle {
             .library
             .genres()?
             .into_iter()
-            .map(|(name, songs)| Genre {
-                name,
-                songs: songs as u32,
+            .map(|(name, songs)| {
+                let quoted = needle_core::query::quote(&name);
+                let artwork = self
+                    .library
+                    .search(&format!("genre = {quoted} order by play_count desc limit 30"))
+                    .ok()
+                    .and_then(|tracks| tracks.into_iter().find_map(|t| t.artwork));
+                Genre {
+                    name,
+                    songs: songs as u32,
+                    artwork,
+                }
             })
             .collect())
     }
