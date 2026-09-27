@@ -58,11 +58,12 @@ fun SettingsScreen() {
     }
     val music = File(Environment.getExternalStorageDirectory(), Environment.DIRECTORY_MUSIC).path
 
+    Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState())) {
+        LargeTitle("Settings")
     Column(
-        Modifier.fillMaxSize().verticalScroll(rememberScrollState()).statusBarsPadding().padding(20.dp),
+        Modifier.padding(horizontal = Edge),
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
-        Text("Settings", style = MaterialTheme.typography.displaySmall, fontWeight = FontWeight.Bold)
         Text("Music folders", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold, modifier = Modifier.padding(top = 12.dp))
         folders.orEmpty().forEach { folder ->
             ListItem(
@@ -104,5 +105,6 @@ fun SettingsScreen() {
         }
         Text("About", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold, modifier = Modifier.padding(top = 20.dp))
         Text("Needle for Android · preview", color = MaterialTheme.colorScheme.onSurfaceVariant)
+    }
     }
 }
