@@ -1,6 +1,6 @@
 # Needle on phones (plan, not started)
 
-Android first, iPhone later. Each app uses its own platform's design: **Material 3 Expressive**
+Each app uses its own platform's design: **Material 3 Expressive**
 on Android, **Liquid Glass** (iOS 26) on iPhone.
 
 ## Why it is a big job
@@ -38,13 +38,13 @@ on Android, **Liquid Glass** (iOS 26) on iPhone.
 - Library: albums, artists, songs, as on desktop.
 - Settings: the desktop sections, shorter.
 
-### Left out at first
+### Hard on a phone
 
 - Stems.
 - Tag editing and Fix my library (desktop jobs).
 - Plugins that need a desktop.
 
-## iPhone (later)
+## iPhone
 
 - **UI:** SwiftUI with Liquid Glass: the tab bar, mini player, and buttons get the glass look
   from the system.
@@ -58,14 +58,6 @@ on Android, **Liquid Glass** (iOS 26) on iPhone.
 - **Android:** free as an APK installed directly; Play Store is $25 once.
 - **iPhone:** needs the $99 a year Apple Developer account in practice (a free self-signed app
   stops working after 7 days).
-
-## Order of work
-
-1. The Rust core as a shared library for Android and iOS, with UniFFI bindings.
-2. Android v1: playback and the library, then the full player and lyrics, then streaming from
-   the home Needle.
-3. Test on the user's phone from the APK (no Play Store).
-4. Then the Play Store, and iPhone if the Apple account is bought.
 
 ## Easier alternative
 
