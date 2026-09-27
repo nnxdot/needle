@@ -133,7 +133,7 @@ fun ConnectScreen() {
                 val current = s?.current
                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(14.dp)) {
                     AsyncImage(
-                        model = current?.cover,
+                        model = coverRequest(current?.cover),
                         contentDescription = null,
                         contentScale = ContentScale.Crop,
                         modifier = Modifier.size(64.dp).clip(SmallCoverShape).background(MaterialTheme.colorScheme.surfaceContainerHigh),
@@ -180,7 +180,7 @@ fun ConnectScreen() {
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(14.dp),
             ) {
-                AsyncImage(song.cover, contentDescription = null, contentScale = ContentScale.Crop, modifier = Modifier.size(48.dp).clip(SmallCoverShape).background(MaterialTheme.colorScheme.surfaceContainerHigh))
+                AsyncImage(coverRequest(song.cover), contentDescription = null, contentScale = ContentScale.Crop, modifier = Modifier.size(48.dp).clip(SmallCoverShape).background(MaterialTheme.colorScheme.surfaceContainerHigh))
                 Column(Modifier.weight(1f)) {
                     Text(song.title, style = MaterialTheme.typography.bodyLarge, maxLines = 1, overflow = TextOverflow.Ellipsis)
                     Text(song.artist, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)

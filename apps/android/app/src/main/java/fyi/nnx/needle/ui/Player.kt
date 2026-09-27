@@ -183,7 +183,7 @@ internal fun coverColor(path: String?): Color {
         if (path == null) return@LaunchedEffect
         val found = withContext(Dispatchers.IO) {
             val request = ImageRequest.Builder(context).data(fileUri(path)).size(96).allowHardware(false).build()
-            val bitmap = (context.imageLoader.execute(request) as? SuccessResult)?.image?.toBitmap()
+            val bitmap = (context.imageLoader.execute(request) as? SuccessResult)?.image?.toBitmap()?.let(::trimBars)
                 ?: return@withContext null
             val palette = Palette.from(bitmap).generate()
             (palette.darkVibrantSwatch ?: palette.dominantSwatch)?.rgb
@@ -202,7 +202,7 @@ private fun PlayerBackdrop(song: Song) {
         if (app.coverBackdrop && Build.VERSION.SDK_INT >= 31 && song.artwork != null) {
             AnimatedContent(song.artwork, transitionSpec = { fadeIn(tween(500)) togetherWith fadeOut(tween(500)) }, label = "backdrop") { art ->
                 AsyncImage(
-                    model = fileUri(art),
+                    model = coverRequest(fileUri(art)),
                     contentDescription = null,
                     contentScale = ContentScale.Crop,
                     modifier = Modifier
