@@ -1,0 +1,27 @@
+[package]
+name = "needle-mobile"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+# Needle's core for the phone apps: a library the Android app loads, with Kotlin bindings made
+# by UniFFI (`cargo run -p needle-mobile --bin uniffi-bindgen`).
+[lib]
+name = "needle_mobile"
+crate-type = ["cdylib", "lib"]
+
+[[bin]]
+name = "uniffi-bindgen"
+path = "uniffi-bindgen.rs"
+
+[dependencies]
+anyhow = "1"
+# No stems: ONNX Runtime has no prebuilt library for Android.
+needle-core = { path = "../needle-core", default-features = false }
+thiserror = "2"
+uniffi = { version = "0.32", features = ["cli"] }
+
+[target.'cfg(target_os = "android")'.dependencies]
+# The audio output (cpal) asks Android for its devices through the app's Java context.
+jni = "0.21"
+ndk-context = "0.1"

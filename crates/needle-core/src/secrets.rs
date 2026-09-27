@@ -4,6 +4,10 @@ use std::{collections::HashMap, sync::Mutex};
 
 /// Windows Credential Manager entries appear as `<account>.nnx.Needle`; on Linux the
 /// Secret Service item has the service `nnx.Needle` and the account as its user.
+#[cfg_attr(
+    not(any(windows, target_os = "linux", target_os = "macos")),
+    allow(dead_code)
+)]
 pub const SERVICE_NAME: &str = "nnx.Needle";
 
 /// Where secrets are kept, as people know it.

@@ -1,5 +1,5 @@
 [workspace]
-members = ["crates/needle-core", "crates/needle"]
+members = ["crates/needle-core", "crates/needle", "crates/needle-mobile"]
 resolver = "2"
 
 [workspace.package]
