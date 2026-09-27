@@ -122,7 +122,7 @@ fun Cover(path: String?, modifier: Modifier = Modifier, shape: Shape = CoverShap
             )
         } else {
             AsyncImage(
-                model = fileUri(path),
+                model = coverRequest(fileUri(path)),
                 contentDescription = null,
                 contentScale = ContentScale.Crop,
                 modifier = Modifier.fillMaxSize(),

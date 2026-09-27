@@ -47,7 +47,7 @@ private fun cover(path: String?, size: Int = 256): Bitmap? = path?.let {
         val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
         BitmapFactory.decodeFile(it, bounds)
         val step = maxOf(1, minOf(bounds.outWidth, bounds.outHeight) / size)
-        BitmapFactory.decodeFile(it, BitmapFactory.Options().apply { inSampleSize = step })
+        BitmapFactory.decodeFile(it, BitmapFactory.Options().apply { inSampleSize = step })?.let { b -> fyi.nnx.needle.ui.trimBars(b) }
     }.getOrNull()
 }
 
