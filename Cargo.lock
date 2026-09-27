@@ -4976,12 +4976,15 @@ name = "needle-mobile"
 version = "1.6.1"
 dependencies = [
  "anyhow",
+ "chrono",
  "jni",
  "ndk-context",
  "needle-core",
  "serde",
+ "serde_json",
  "thiserror 2.0.20",
  "uniffi",
+ "uuid",
 ]
 
 [[package]]
