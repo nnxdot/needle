@@ -15,6 +15,10 @@ if command -v cygpath > /dev/null; then app="$(cygpath -m "$app")"; fi
 
 cargo ndk -t arm64-v8a -t x86_64 -P 26 -o "$app/src/main/jniLibs" \
     build --release -p needle-mobile
+# Needle's Dolby decoder (see build-ffmpeg-android.sh), beside the core.
+for abi in arm64-v8a x86_64; do
+    cp "$here/third-party/ffmpeg/android/$abi/libneedle_ffmpeg.so" "$app/src/main/jniLibs/$abi/"
+done
 cargo run -q -p needle-mobile --bin uniffi-bindgen -- generate \
     --library target/x86_64-linux-android/release/libneedle_mobile.so \
     --language kotlin \

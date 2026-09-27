@@ -37,7 +37,7 @@ class NeedleApp : Application() {
     private val _app = MutableStateFlow(
         AppSettings(
             coverBackdrop = true, wallpaperColors = false, reduceMotion = false, liveLyrics = true,
-            haptics = true, openPlayerOnPlay = false, keepScreenOnLyrics = false,
+            haptics = true, openPlayerOnPlay = false, keepScreenOnLyrics = false, theme = "night",
         ),
     )
     /** The app's own look and behaviour (Settings › Appearance). */
@@ -58,17 +58,33 @@ class NeedleApp : Application() {
         NativeBridge.initAndroid(this)
         core = Needle(File(filesDir, "needle").absolutePath)
         _app.value = core.appSettings()
+        core.setDecoder(File(applicationInfo.nativeLibraryDir, "libneedle_ffmpeg.so").absolutePath)
         scope.launch {
             var wasScanning = false
+            var shown: Pair<String?, Boolean>? = null
             while (isActive) {
-                _playback.value = core.playback()
+                val playback = core.playback()
+                _playback.value = playback
+                // The widgets follow the song and play or pause.
+                val now = playback.current?.id to playback.playing
+                if (now != shown) {
+                    shown = now
+                    launch { updateWidgets(this@NeedleApp) }
+                }
                 val scan = core.scanStatus()
                 _scan.value = scan
-                if (wasScanning && !scan.running) libraryVersion.value++
+                if (scan.running) ScanNotice.show(this@NeedleApp, scan)
+                if (wasScanning && !scan.running) {
+                    libraryVersion.value++
+                    ScanNotice.hide(this@NeedleApp)
+                    launch { updateWidgets(this@NeedleApp) }
+                }
                 wasScanning = scan.running
                 delay(if (scan.running) 300 else 200)
             }
         }
+        // Crash reports from earlier runs, when that is on.
+        scope.launch { runCatching { core.sendCrashReports() } }
         // Read the music folders again at start, for songs added since.
         if (core.folders().isNotEmpty()) core.rescan()
     }

@@ -64,6 +64,15 @@ impl Needle {
         Ok(Some(song))
     }
 
+    /// Where Needle's Dolby decoder is: the app's own library folder, where Android lets it
+    /// run (`libneedle_ffmpeg.so`).
+    pub fn set_decoder(&self, path: String) {
+        if std::path::Path::new(&path).is_file() {
+            // SAFETY: set once at start, before any song opens and needs it.
+            unsafe { std::env::set_var("NEEDLE_FFMPEG", path) };
+        }
+    }
+
     /// Needle's version.
     pub fn version(&self) -> String {
         env!("CARGO_PKG_VERSION").into()

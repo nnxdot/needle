@@ -525,6 +525,33 @@ private fun frequencyLabel(hz: Float) = if (hz >= 1000) "${(hz / 1000).toInt()}k
 private fun AppearanceSettings() {
     val app by NeedleApp.instance.app.collectAsState()
     val update = NeedleApp.instance::updateApp
+    val context = LocalContext.current
+    var themes by remember { mutableStateOf(core.themes()) }
+    val importTheme = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        val path = uri?.let { copyToCache(context, it) } ?: return@rememberLauncherForActivityResult
+        runCatching { core.importTheme(path) }
+            .onSuccess { name -> themes = core.themes(); showMessage("Added $name") }
+            .onFailure { showMessage(it.message ?: "Could not add that theme") }
+    }
+    Group("Look", footer = "Themes made on desktop, or from needle.nnx.fyi/themes, work here too.") {
+        Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            listOf("night" to "Night", "midnight" to "Midnight", "day" to "Day").forEach { (id, label) ->
+                FilterChip(selected = app.theme == id, onClick = { update { it.copy(theme = id) } }, label = { Text(label) })
+            }
+        }
+        themes.forEach { theme ->
+            Divider()
+            Row(
+                Modifier.fillMaxWidth().clickable { update { it.copy(theme = theme.id) } }.padding(horizontal = 16.dp, vertical = 14.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text(theme.name, style = MaterialTheme.typography.bodyLarge, modifier = Modifier.weight(1f))
+                if (app.theme == theme.id) Text("On", color = MaterialTheme.colorScheme.primary)
+            }
+        }
+        Divider()
+        TextButton(onClick = { importTheme.launch(arrayOf("*/*")) }, modifier = Modifier.padding(8.dp)) { Text("Add a theme file") }
+    }
     Group("Colour") {
         SwitchRow("Cover behind the player", "The playing cover, blurred, fills the player", app.coverBackdrop) { on -> update { it.copy(coverBackdrop = on) } }
         if (Build.VERSION.SDK_INT >= 31) {

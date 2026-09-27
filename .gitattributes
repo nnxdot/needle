@@ -3,3 +3,4 @@
 *.opus binary
 third-party/ffmpeg/needle-ffmpeg-macos binary
 *.bat text eol=crlf
+third-party/ffmpeg/android/*/libneedle_ffmpeg.so binary

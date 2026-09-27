@@ -59,6 +59,8 @@ pub struct AppSettings {
     pub open_player_on_play: bool,
     /// Keep the screen on while the lyrics show.
     pub keep_screen_on_lyrics: bool,
+    /// "night", "midnight", "day", or a custom theme's id.
+    pub theme: String,
 }
 
 impl Default for AppSettings {
@@ -71,6 +73,7 @@ impl Default for AppSettings {
             haptics: true,
             open_player_on_play: false,
             keep_screen_on_lyrics: false,
+            theme: "night".into(),
         }
     }
 }

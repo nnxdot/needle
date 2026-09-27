@@ -291,3 +291,60 @@ impl Needle {
         Ok(ids.len() as u32)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use needle_core::{audio::Player, database::Library, remote};
+
+    /// The phone finds, controls, and streams from Needle on a computer through its remote.
+    #[test]
+    fn the_phone_connects_to_a_computer() {
+        let computer = tempfile::tempdir().unwrap();
+        let library = Library::open(computer.path()).unwrap();
+        let song = computer.path().join("harbor.flac");
+        std::fs::write(&song, b"fLaC the music itself").unwrap();
+        library
+            .upsert(&Track {
+                id: "t1".into(),
+                path: song.to_string_lossy().into(),
+                title: "Harbor Lights".into(),
+                artist: "Mara Quinn".into(),
+                duration: 200.,
+                ..Default::default()
+            })
+            .unwrap();
+        let player = Player::new(library.clone());
+        let key = remote::new_key();
+        let server = remote::start(player.clone(), library, key.clone()).unwrap();
+        let link = format!("127.0.0.1:{}/r/{key}", server.port);
+
+        let phone = tempfile::tempdir().unwrap();
+        let needle = Needle::new(phone.path().to_string_lossy().into()).unwrap();
+        assert!(
+            needle
+                .connect_pc("192.168.1.5:47380/nothing".into())
+                .is_err()
+        );
+        needle.connect_pc(link).unwrap();
+        assert!(needle.pc_connected());
+        let state = needle.pc_state().unwrap();
+        assert!(!state.playing);
+        let found = needle.pc_search("harbor".into()).unwrap();
+        assert_eq!(found[0].title, "Harbor Lights");
+        // A computer song streams from its own address.
+        let url = stream_link("t1").unwrap();
+        let bytes = reqwest::blocking::get(url).unwrap().bytes().unwrap();
+        assert_eq!(&bytes[..], b"fLaC the music itself");
+        needle.pc_volume(0.4).unwrap();
+        let start = std::time::Instant::now();
+        while (player.state().volume - 0.4).abs() > 1e-6 && start.elapsed().as_secs() < 5 {
+            std::thread::sleep(Duration::from_millis(20));
+        }
+        assert!((player.state().volume - 0.4).abs() < 1e-6);
+        needle.disconnect_pc();
+        assert!(!needle.pc_connected());
+        player.shutdown();
+        needle.shutdown();
+    }
+}

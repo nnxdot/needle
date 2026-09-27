@@ -471,6 +471,16 @@ fun AlbumScreen(album: Album, open: (Route) -> Unit) {
     val songs by rememberLoaded(album.key) { albumSongs(album.key) }
     val playing = currentId()
     val list = songs.orEmpty()
+    // No cover: look for one online (Cover Art Archive), when online lookups are on.
+    LaunchedEffect(album.key, list.isNotEmpty()) {
+        val first = list.firstOrNull() ?: return@LaunchedEffect
+        if (album.artwork == null && list.all { it.artwork == null }) {
+            val found = withContext(Dispatchers.IO) {
+                runCatching { if (core.playbackSettings().onlineMedia) core.fetchCover(first.id) else 0u }.getOrDefault(0u)
+            }
+            if (found > 0u) NeedleApp.instance.libraryVersion.value++
+        }
+    }
     LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = 32.dp)) {
         item {
             Column(
@@ -548,7 +558,8 @@ fun ArtistScreen(name: String, open: (Route) -> Unit) {
     ) {
         full {
             Column(Modifier.fillMaxWidth().padding(top = 24.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-                RoundCover(albums?.firstNotNullOfOrNull { it.artwork }, 160.dp)
+                val photo by rememberLoaded(name) { artistPhoto(name) }
+                RoundCover(photo ?: albums?.firstNotNullOfOrNull { it.artwork }, 160.dp)
                 Text(
                     name.ifBlank { "Unknown artist" },
                     style = MaterialTheme.typography.headlineMedium,
@@ -584,10 +595,21 @@ fun SearchScreen(open: (Route) -> Unit) {
     var songs by remember { mutableStateOf<List<Song>>(emptyList()) }
     val genres by rememberLoaded { genres() }
     val playing = currentId()
+    var server by remember { mutableStateOf<Pair<ULong, List<Song>>?>(null) }
     LaunchedEffect(query) {
         delay(200)
         songs = if (query.isBlank()) emptyList()
         else withContext(Dispatchers.IO) { runCatching { core.search(query) }.getOrDefault(emptyList()) }
+        // Music servers that search (octo-fiesta) answer a moment later.
+        server = null
+        if (query.isNotBlank()) {
+            val number = withContext(Dispatchers.IO) { core.searchServers(query) }
+            repeat(8) {
+                delay(500)
+                val found = withContext(Dispatchers.IO) { core.serverResults(number) }
+                if (found.isNotEmpty()) { server = number to found; return@LaunchedEffect }
+            }
+        }
     }
     LazyVerticalGrid(
         columns = GridCells.Fixed(2),
@@ -652,6 +674,12 @@ fun SearchScreen(open: (Route) -> Unit) {
             }
             itemsIndexedFull(songs) { i, song ->
                 SongRow(song, playing == song.id, open) { play(songs, i) }
+            }
+            server?.let { (number, found) ->
+                full { SectionHeader("On your server") }
+                gridItemsIndexed(found, key = { _, s -> "server-" + s.id }, span = { _, _ -> GridItemSpan(maxLineSpan) }) { i, song ->
+                    SongRow(song, playing == song.id, null) { core.playServerSongs(number, i.toUInt()) }
+                }
             }
         }
     }
