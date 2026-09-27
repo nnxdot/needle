@@ -25,6 +25,14 @@ android {
         }
     }
 
+    packaging {
+        // Library files are unpacked on the phone, so Needle's Dolby decoder (a program, named
+        // libneedle_ffmpeg.so) can be run from there.
+        jniLibs {
+            useLegacyPackaging = true
+        }
+    }
+
     buildFeatures {
         compose = true
     }
@@ -55,4 +63,7 @@ dependencies {
     implementation("net.java.dev.jna:jna:5.19.1@aar")
     // Scans the QR code of Needle on a computer (Google's scanner: no camera permission).
     implementation("com.google.android.gms:play-services-code-scanner:16.1.0")
+    // Home screen widgets.
+    implementation("androidx.glance:glance-appwidget:1.2.0")
+    implementation("androidx.glance:glance-material3:1.2.0")
 }

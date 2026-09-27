@@ -275,3 +275,91 @@ impl Needle {
         needle_core::logfile::send_pending(&self.library.directory, on) as u32
     }
 }
+
+#[derive(Clone, uniffi::Record)]
+pub struct ThemeInfo {
+    /// The file's name without `.toml`.
+    pub id: String,
+    pub name: String,
+    /// "dark" (Night), "midnight", or "light" (Day).
+    pub base: String,
+    /// The colours it changes, by slot ("page", "accent", …), as `#rrggbb`.
+    pub colors: std::collections::HashMap<String, String>,
+}
+
+fn read_theme(path: &std::path::Path) -> Option<ThemeInfo> {
+    let meta = std::fs::metadata(path).ok()?;
+    // As on desktop: a theme is a small file.
+    if meta.len() > 64 * 1024 {
+        return None;
+    }
+    let value: toml::Value = std::fs::read_to_string(path).ok()?.parse().ok()?;
+    let id = path.file_stem()?.to_string_lossy().to_string();
+    Some(ThemeInfo {
+        name: value
+            .get("name")
+            .and_then(|v| v.as_str())
+            .unwrap_or(&id)
+            .to_string(),
+        base: value
+            .get("base")
+            .and_then(|v| v.as_str())
+            .unwrap_or("dark")
+            .to_string(),
+        colors: value
+            .get("colors")
+            .and_then(|c| c.as_table())
+            .map(|t| {
+                t.iter()
+                    .filter_map(|(k, v)| Some((k.clone(), v.as_str()?.to_string())))
+                    .filter(|(_, v)| v.starts_with('#'))
+                    .collect()
+            })
+            .unwrap_or_default(),
+        id,
+    })
+}
+
+#[uniffi::export]
+impl Needle {
+    /// Custom themes, as on desktop: TOML files in Needle's `themes` folder and in the `themes`
+    /// folders of plugins.
+    pub fn themes(&self) -> Vec<ThemeInfo> {
+        let mut folders = vec![self.library.directory.join("themes")];
+        folders.extend(
+            self.plugins
+                .plugins()
+                .into_iter()
+                .filter(|p| p.enabled)
+                .map(|p| p.folder.join("themes")),
+        );
+        let mut themes: Vec<ThemeInfo> = folders
+            .iter()
+            .filter_map(|f| std::fs::read_dir(f).ok())
+            .flatten()
+            .flatten()
+            .map(|e| e.path())
+            .filter(|p| p.extension().is_some_and(|e| e == "toml"))
+            .filter_map(|p| read_theme(&p))
+            .collect();
+        themes.sort_by_key(|t| t.name.to_lowercase());
+        themes
+    }
+
+    /// Adds a theme file (from the website, or made on desktop) to Needle's themes.
+    pub fn import_theme(&self, path: String) -> Result<String> {
+        let source = std::path::Path::new(&path);
+        let theme = read_theme(source)
+            .ok_or_else(|| NeedleError::Failed("That is not a Needle theme file".into()))?;
+        let folder = self.library.directory.join("themes");
+        std::fs::create_dir_all(&folder).map_err(anyhow::Error::from)?;
+        let slug: String = theme
+            .name
+            .to_lowercase()
+            .chars()
+            .map(|c| if c.is_alphanumeric() { c } else { '-' })
+            .collect();
+        std::fs::copy(source, folder.join(format!("{slug}.toml"))).map_err(anyhow::Error::from)?;
+        Ok(theme.name)
+    }
+}
