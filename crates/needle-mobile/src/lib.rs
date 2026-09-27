@@ -20,6 +20,9 @@ uniffi::setup_scaffolding!();
 
 #[cfg(target_os = "android")]
 mod android;
+mod media;
+mod more;
+mod plugins;
 mod settings;
 
 /// Android's log (logcat), for crashes on the Rust side, which would otherwise go nowhere.
@@ -179,20 +182,6 @@ pub struct Playback {
     pub error: Option<String>,
 }
 
-#[derive(Clone, uniffi::Record)]
-pub struct LyricLine {
-    pub time: f64,
-    pub text: String,
-}
-
-#[derive(Clone, uniffi::Record)]
-pub struct Lyrics {
-    /// Timed lines; empty when only plain text is known.
-    pub lines: Vec<LyricLine>,
-    pub plain: String,
-    pub instrumental: bool,
-}
-
 #[derive(Clone, Default, uniffi::Record)]
 pub struct ScanStatus {
     pub running: bool,
@@ -208,6 +197,12 @@ pub struct Needle {
     player: Player,
     scan: Arc<Mutex<ScanStatus>>,
     scanning: Arc<AtomicBool>,
+    /// A radio station is being worked out.
+    measuring: Arc<AtomicBool>,
+    /// Songs are being measured for radio.
+    analysing: Arc<AtomicBool>,
+    plugins: needle_core::plugins::PluginHost,
+    plugin_state: Arc<plugins::PluginState>,
     /// Sends listens to Last.fm and ListenBrainz when they are on.
     _scrobbler: needle_core::integrations::ScrobbleWorker,
 }
@@ -217,8 +212,12 @@ impl Needle {
     /// Opens (or makes) Needle's library in `data_dir`, the app's own files folder.
     #[uniffi::constructor]
     pub fn new(data_dir: String) -> Result<Arc<Self>> {
-        std::panic::set_hook(Box::new(|info| {
+        // Needle's log and crash reports, as on desktop; crashes also go to Android's log.
+        needle_core::logfile::init(std::path::Path::new(&data_dir));
+        let earlier = std::panic::take_hook();
+        std::panic::set_hook(Box::new(move |info| {
             log(true, &format!("Needle stopped: {info}"));
+            earlier(info);
         }));
         log(false, &format!("starting in {data_dir}"));
         #[cfg(target_os = "android")]
@@ -226,12 +225,24 @@ impl Needle {
         let library = Library::open(PathBuf::from(data_dir))?;
         let player = Player::new(library.clone());
         log(false, "player started");
+        let plugin_state = Arc::new(plugins::PluginState::default());
+        let host = plugins::start(&library, &player, plugin_state.clone());
+        plugins::follow_playback(
+            player.clone(),
+            library.clone(),
+            host.clone(),
+            Arc::new(AtomicBool::new(false)),
+        );
         Ok(Arc::new(Self {
+            plugins: host,
+            plugin_state,
             _scrobbler: needle_core::integrations::ScrobbleWorker::start(library.clone()),
             library,
             player,
             scan: Arc::default(),
             scanning: Arc::default(),
+            measuring: Arc::default(),
+            analysing: Arc::default(),
         }))
     }
 
@@ -556,33 +567,6 @@ impl Needle {
             .iter()
             .map(|q| Song::from(&q.track))
             .collect()
-    }
-
-    /// The song's lyrics from its own file or a `.lrc` beside it, then (when on) LRCLIB.
-    pub fn lyrics(&self, id: String) -> Result<Option<Lyrics>> {
-        let Some(track) = self.library.track(&id)? else {
-            return Ok(None);
-        };
-        let online = self.library.settings().is_ok_and(|s| s.online_media);
-        let found = match needle_core::media::lyrics(&self.library, &track, online, None) {
-            Ok(found) => found,
-            Err(error) => {
-                log(true, &format!("Lyrics for {}: {error:#}", track.title));
-                None
-            }
-        };
-        Ok(found.map(|l| Lyrics {
-            lines: l
-                .lines
-                .into_iter()
-                .map(|line| LyricLine {
-                    time: line.time,
-                    text: line.text,
-                })
-                .collect(),
-            plain: l.plain,
-            instrumental: l.instrumental,
-        }))
     }
 
     /// Saves the session and stops playback, for when the app closes.
