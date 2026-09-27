@@ -114,6 +114,7 @@ pub fn download_model(
 }
 
 /// Decode a file to planar stereo at 44.1 kHz.
+#[cfg_attr(not(feature = "stems"), allow(dead_code))]
 fn load_stereo(track: &Track) -> Result<[Vec<f32>; 2]> {
     let source = crate::audio_file::decode_track(track)?;
     let channels = source.channels().max(1) as usize;
@@ -138,6 +139,7 @@ fn load_stereo(track: &Track) -> Result<[Vec<f32>; 2]> {
     resample(planar, rate)
 }
 
+#[cfg_attr(not(feature = "stems"), allow(dead_code))]
 fn resample(input: [Vec<f32>; 2], from: u32) -> Result<[Vec<f32>; 2]> {
     use rubato::{FftFixedIn, Resampler};
     let chunk = 4096;
@@ -181,6 +183,7 @@ fn resample(input: [Vec<f32>; 2], from: u32) -> Result<[Vec<f32>; 2]> {
 }
 
 /// Linear fade-in and fade-out over the overlap, as the reference implementation uses.
+#[cfg_attr(not(feature = "stems"), allow(dead_code))]
 fn window_weights() -> Vec<f32> {
     let mut w = vec![1f32; WINDOW];
     for i in 0..OVERLAP {
@@ -213,6 +216,26 @@ pub fn separate(
     if !model_ready(library) {
         bail!("The stem model is not downloaded yet");
     }
+    separate_with_model(library, track, cancel, &mut progress)
+}
+
+#[cfg(not(feature = "stems"))]
+fn separate_with_model(
+    _library: &Library,
+    _track: &Track,
+    _cancel: &AtomicBool,
+    _progress: &mut impl FnMut(f32),
+) -> Result<PathBuf> {
+    bail!("Stems are not part of this build of Needle")
+}
+
+#[cfg(feature = "stems")]
+fn separate_with_model(
+    library: &Library,
+    track: &Track,
+    cancel: &AtomicBool,
+    progress: &mut impl FnMut(f32),
+) -> Result<PathBuf> {
     progress(0.);
     let mix = load_stereo(track).with_context(|| format!("Cannot read {}", track.title))?;
     let frames = mix[0].len();
