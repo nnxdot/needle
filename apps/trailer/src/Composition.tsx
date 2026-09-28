@@ -9,7 +9,7 @@ import { Bento } from "./scenes";
 const FPS = 30;
 const DROP = 112.017;
 const LEAD = 4;
-const LENGTH = 1080;
+const LENGTH = 990;
 
 export const Trailer: React.FC = () => (
   <>
@@ -39,7 +39,7 @@ export const Trailer: React.FC = () => (
       <Series.Sequence durationInFrames={120} name="Carousel">
         <Carousel />
       </Series.Sequence>
-      <Series.Sequence durationInFrames={210} name="Bento">
+      <Series.Sequence durationInFrames={120} name="Bento">
         <Bento />
       </Series.Sequence>
       <Series.Sequence durationInFrames={120} name="Maker">

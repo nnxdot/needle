@@ -285,7 +285,7 @@ export const Bento: React.FC = () => {
   // The finale: the grid settles, then the whole of it breathes in a touch.
   // Starts close on the Needle tile, and pulls back to show everything in under a second.
   const pull = interpolate(frame, [0, 24], [0, 1], { extrapolateLeft: "clamp", extrapolateRight: "clamp", easing: Easing.bezier(0.2, 0.9, 0.1, 1) });
-  const settle = interpolate(pull, [0, 1], [2.6, 1]) * interpolate(frame, [24, 200], [1.02, 1], { extrapolateLeft: "clamp", extrapolateRight: "clamp" });
+  const settle = interpolate(pull, [0, 1], [2.6, 1]) * interpolate(frame, [24, 120], [1, 0.97], { extrapolateLeft: "clamp", extrapolateRight: "clamp" });
   return (
     <Scene out={20}>
       <AbsoluteFill style={{ padding: 56, scale: settle, transformOrigin: "18% 26%", filter: pull < 0.98 ? `blur(${(1 - pull) * 6}px)` : undefined }}>
