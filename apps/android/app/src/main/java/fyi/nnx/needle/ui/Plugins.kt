@@ -94,7 +94,7 @@ fun PluginsScreen(open: (Route) -> Unit) {
         items(plugins.orEmpty(), key = { it.id }) { plugin ->
             Column(Modifier.fillMaxWidth().clickable { open(Route.Plugin(plugin.id)) }) {
                 Row(
-                    Modifier.fillMaxWidth().heightIn(min = 64.dp).padding(start = Edge, end = 12.dp, top = 8.dp, bottom = 8.dp),
+                    Modifier.fillMaxWidth().heightIn(min = LocalRows.current.height + 4.dp).padding(start = Edge, end = 12.dp, top = LocalRows.current.pad / 1.5f, bottom = LocalRows.current.pad / 1.5f),
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(12.dp),
                 ) {

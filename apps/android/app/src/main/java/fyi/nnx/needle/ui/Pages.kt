@@ -427,7 +427,7 @@ fun ArtistScreen(name: String, open: (Route) -> Unit) {
             state = state,
             contentPadding = PaddingValues(bottom = 32.dp + LocalBottomInset.current),
             horizontalArrangement = Arrangement.spacedBy(14.dp),
-            verticalArrangement = Arrangement.spacedBy(18.dp),
+            verticalArrangement = Arrangement.spacedBy(LocalRows.current.grid),
             modifier = Modifier.fillMaxSize(),
         ) {
             full { ArtistHero(art, shown, albums?.size, songs.size, { state.headerScroll() }) }
@@ -586,7 +586,7 @@ private fun LazyListScope.shelf(title: String, albums: List<Album>, open: (Route
     if (albums.isEmpty()) return
     item { SectionHeader(title, onMore = { open(Route.Albums) }) }
     item {
-        LazyRow(contentPadding = PaddingValues(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(14.dp)) {
+        LazyRow(contentPadding = PaddingValues(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(LocalRows.current.grid - 4.dp)) {
             items(albums, key = { it.key }) { album -> AlbumTile(album, Modifier.width(150.dp), open) { open(Route.AlbumPage(album)) } }
         }
     }

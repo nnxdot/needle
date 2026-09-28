@@ -121,7 +121,7 @@ fun AlbumsScreen(open: (Route) -> Unit) {
             columns = GridCells.Fixed(2),
             contentPadding = PaddingValues(bottom = 24.dp),
             horizontalArrangement = Arrangement.spacedBy(16.dp),
-            verticalArrangement = Arrangement.spacedBy(20.dp),
+            verticalArrangement = Arrangement.spacedBy(LocalRows.current.grid),
             modifier = Modifier.fillMaxSize().padding(padding).then(scroll),
         ) { albumGrid(albums, open) }
     }
@@ -134,11 +134,11 @@ fun ArtistsScreen(open: (Route) -> Unit) {
         LazyColumn(Modifier.fillMaxSize().padding(padding).then(scroll), contentPadding = PaddingValues(bottom = 24.dp)) {
             items(artists.orEmpty(), key = { it.name }) { artist ->
                 Row(
-                    Modifier.fillMaxWidth().clickable { open(Route.Artist(artist.name)) }.padding(horizontal = Edge, vertical = 6.dp),
+                    Modifier.fillMaxWidth().clickable { open(Route.Artist(artist.name)) }.padding(horizontal = Edge, vertical = LocalRows.current.pad / 2),
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(14.dp),
                 ) {
-                    RoundCover(artist.artwork, 52.dp)
+                    RoundCover(artist.artwork, LocalRows.current.cover + 4.dp)
                     Text(artist.name.ifBlank { "Unknown artist" }, style = MaterialTheme.typography.bodyLarge, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 }
             }
@@ -192,11 +192,11 @@ fun PlaylistsScreen(open: (Route) -> Unit) {
             }
             items(list, key = { it.id }) { playlist ->
                 Row(
-                    Modifier.fillMaxWidth().clickable { open(Route.Playlist(playlist.id, playlist.name)) }.padding(horizontal = Edge, vertical = 4.dp),
+                    Modifier.fillMaxWidth().clickable { open(Route.Playlist(playlist.id, playlist.name)) }.padding(horizontal = Edge, vertical = LocalRows.current.pad / 2),
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(14.dp),
                 ) {
-                    Cover(playlist.artwork, Modifier.size(52.dp), SmallCoverShape)
+                    Cover(playlist.artwork, Modifier.size(LocalRows.current.cover + 4.dp), SmallCoverShape)
                     Column(Modifier.weight(1f)) {
                         Text(playlist.name, style = MaterialTheme.typography.bodyLarge, maxLines = 1, overflow = TextOverflow.Ellipsis)
                         Text(

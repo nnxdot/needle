@@ -181,7 +181,7 @@ private fun AlbumGrid(albums: List<Album>?, open: (Route) -> Unit, scroll: Modif
         columns = GridCells.Adaptive(160.dp),
         contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 8.dp, bottom = 32.dp),
         horizontalArrangement = Arrangement.spacedBy(14.dp),
-        verticalArrangement = Arrangement.spacedBy(20.dp),
+        verticalArrangement = Arrangement.spacedBy(LocalRows.current.grid),
         modifier = Modifier.fillMaxSize().then(scroll),
     ) {
         header()
@@ -240,7 +240,7 @@ private fun Artists(open: (Route) -> Unit, scroll: Modifier) {
         columns = GridCells.Adaptive(104.dp),
         contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 8.dp, bottom = 32.dp),
         horizontalArrangement = Arrangement.spacedBy(12.dp),
-        verticalArrangement = Arrangement.spacedBy(20.dp),
+        verticalArrangement = Arrangement.spacedBy(LocalRows.current.grid),
         modifier = Modifier.fillMaxSize().then(scroll),
     ) {
         items(artists.orEmpty(), key = { it.name }) { artist ->
@@ -283,7 +283,7 @@ private fun Playlists(open: (Route) -> Unit, scroll: Modifier) {
     androidx.compose.foundation.lazy.LazyColumn(Modifier.fillMaxSize().then(scroll), contentPadding = PaddingValues(bottom = 32.dp)) {
         item {
             Row(
-                Modifier.fillMaxWidth().clickable { Ui.sheet.value = Sheet.NewPlaylist(emptyList()) }.heightIn(min = 72.dp).padding(horizontal = 16.dp),
+                Modifier.fillMaxWidth().clickable { Ui.sheet.value = Sheet.NewPlaylist(emptyList()) }.heightIn(min = LocalRows.current.height + 12.dp).padding(horizontal = 16.dp),
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(14.dp),
             ) {
@@ -296,7 +296,7 @@ private fun Playlists(open: (Route) -> Unit, scroll: Modifier) {
         items(playlists.orEmpty().size, key = { playlists!![it].id }) { i ->
             val playlist = playlists!![i]
             Row(
-                Modifier.fillMaxWidth().clickable { open(Route.Playlist(playlist.id, playlist.name)) }.heightIn(min = 72.dp).padding(horizontal = 16.dp),
+                Modifier.fillMaxWidth().clickable { open(Route.Playlist(playlist.id, playlist.name)) }.heightIn(min = LocalRows.current.height + 12.dp).padding(horizontal = 16.dp),
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(14.dp),
             ) {

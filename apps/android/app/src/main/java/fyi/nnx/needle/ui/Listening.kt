@@ -126,7 +126,7 @@ fun FoldersScreen(path: String?, open: (Route) -> Unit) {
 private fun FolderRow(name: String, detail: String, artwork: String?, onClick: () -> Unit) {
     Column(Modifier.fillMaxWidth().clickable(onClick = onClick)) {
         Row(
-            Modifier.fillMaxWidth().heightIn(min = 64.dp).padding(horizontal = Edge, vertical = 8.dp),
+            Modifier.fillMaxWidth().heightIn(min = LocalRows.current.height + 4.dp).padding(horizontal = Edge, vertical = LocalRows.current.pad / 1.5f),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(14.dp),
         ) {
