@@ -87,8 +87,9 @@ val DayColors = lightColorScheme(
     outlineVariant = Color(0xFFDDD8D2),
 )
 
-private fun hex(text: String?): Color? = text?.removePrefix("#")?.let {
-    runCatching { Color(("FF" + it.take(6)).toLong(16)) }.getOrNull()
+/** "#3e63dd" as a colour; nothing for anything but six hex digits (an empty accent is amber). */
+private fun hex(text: String?): Color? = text?.trim()?.removePrefix("#")?.takeIf { Regex("[0-9a-fA-F]{6}").matches(it) }?.let {
+    Color(("FF$it").toLong(16))
 }
 
 /** A desktop theme's colours on Android's colour roles. */
