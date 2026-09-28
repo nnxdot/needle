@@ -137,7 +137,7 @@ fun SettingsScreen(open: (Route) -> Unit) {
                         Modifier
                             .fillMaxWidth()
                             .clickable { open(section.route()) }
-                            .padding(horizontal = 16.dp, vertical = 14.dp),
+                            .padding(horizontal = 16.dp, vertical = LocalRows.current.pad + 2.dp),
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(16.dp),
                     ) {
@@ -217,9 +217,9 @@ private fun SwitchRow(title: String, summary: String?, checked: Boolean, enabled
     Row(
         Modifier
             .fillMaxWidth()
-            .heightIn(min = 64.dp)
+            .heightIn(min = LocalRows.current.height + 4.dp)
             .clickable(enabled = enabled) { haptics(false); onChange(!checked) }
-            .padding(horizontal = 16.dp, vertical = 12.dp),
+            .padding(horizontal = 16.dp, vertical = LocalRows.current.pad),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(16.dp),
     ) {
@@ -243,7 +243,7 @@ private fun SliderRow(
     onChange: (Float) -> Unit,
     onDone: () -> Unit,
 ) {
-    Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp)) {
+    Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = LocalRows.current.pad)) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text(title, style = MaterialTheme.typography.bodyLarge, modifier = Modifier.weight(1f))
             Text(shown, style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary)
@@ -551,7 +551,7 @@ private fun AppearanceSettings() {
         themes.forEach { theme ->
             Divider()
             Row(
-                Modifier.fillMaxWidth().clickable { update { it.copy(theme = theme.id) } }.padding(horizontal = 16.dp, vertical = 14.dp),
+                Modifier.fillMaxWidth().clickable { update { it.copy(theme = theme.id) } }.padding(horizontal = 16.dp, vertical = LocalRows.current.pad + 2.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 Text(theme.name, style = MaterialTheme.typography.bodyLarge, modifier = Modifier.weight(1f))
@@ -889,7 +889,7 @@ private fun AboutPage(open: (Route) -> Unit) {
 @Composable
 private fun LinkRow(title: String, summary: String, onClick: () -> Unit) {
     Row(
-        Modifier.fillMaxWidth().clickable(onClick = onClick).padding(horizontal = 16.dp, vertical = 14.dp),
+        Modifier.fillMaxWidth().clickable(onClick = onClick).padding(horizontal = 16.dp, vertical = LocalRows.current.pad + 2.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Column(Modifier.weight(1f)) {

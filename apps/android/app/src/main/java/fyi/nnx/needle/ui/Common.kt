@@ -233,12 +233,21 @@ fun SongMenu(
 
 @OptIn(ExperimentalFoundationApi::class)
 /** How close list rows sit (Settings › Appearance › Density). */
-data class Rows(val height: Dp, val cover: Dp, val gap: Dp) {
+data class Rows(
+    /** A song row's height, its cover, and the gap between them. */
+    val height: Dp,
+    val cover: Dp,
+    val gap: Dp,
+    /** Space above and below the words of any other row (settings, menus, lists). */
+    val pad: Dp,
+    /** Space between covers in grids and shelves. */
+    val grid: Dp,
+) {
     companion object {
         fun of(density: String) = when (density) {
-            "compact" -> Rows(48.dp, 38.dp, 12.dp)
-            "spacious" -> Rows(72.dp, 56.dp, 16.dp)
-            else -> Rows(60.dp, 48.dp, 14.dp)
+            "compact" -> Rows(48.dp, 38.dp, 12.dp, 6.dp, 10.dp)
+            "spacious" -> Rows(76.dp, 60.dp, 18.dp, 20.dp, 30.dp)
+            else -> Rows(60.dp, 48.dp, 14.dp, 12.dp, 20.dp)
         }
     }
 }
@@ -330,7 +339,7 @@ fun SongRow(
 fun NavRow(icon: androidx.compose.ui.graphics.vector.ImageVector, text: String, onClick: () -> Unit) {
     Column(Modifier.fillMaxWidth().clickable(onClick = onClick)) {
         Row(
-            Modifier.fillMaxWidth().heightIn(min = 56.dp).padding(start = Edge, end = 12.dp),
+            Modifier.fillMaxWidth().heightIn(min = LocalRows.current.height - 4.dp).padding(start = Edge, end = 12.dp),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(18.dp),
         ) {

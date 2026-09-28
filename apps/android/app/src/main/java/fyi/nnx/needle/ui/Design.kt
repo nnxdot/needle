@@ -192,7 +192,7 @@ fun MenuGroup(content: @Composable ColumnScope.() -> Unit) {
 @Composable
 fun MenuRow(icon: ImageVector, label: String, tint: Color = MaterialTheme.colorScheme.onSurface, onClick: () -> Unit) {
     Row(
-        Modifier.fillMaxWidth().heightIn(min = 56.dp).clickable(onClick = onClick).padding(horizontal = 20.dp),
+        Modifier.fillMaxWidth().heightIn(min = LocalRows.current.height - 4.dp).clickable(onClick = onClick).padding(horizontal = 20.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(18.dp),
     ) {
