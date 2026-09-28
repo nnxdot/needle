@@ -285,7 +285,7 @@ export const Bento: React.FC = () => {
   // The finale: the grid settles, then the whole of it breathes in a touch.
   const settle = interpolate(frame, [40, 240], [1.03, 1], { extrapolateLeft: "clamp", extrapolateRight: "clamp", easing: EASE });
   return (
-    <Scene>
+    <Scene out={30}>
       <AbsoluteFill style={{ padding: 56, scale: settle }}>
         <div
           style={{
@@ -382,6 +382,27 @@ export const End: React.FC = () => {
         <Headline text={<span style={{ fontFamily: "Fraunces", fontWeight: 600, letterSpacing: "-0.02em" }}>Needle on Android</span>} start={14} size={120} />
         <Headline text="No account. No ads. No tracking." start={28} size={40} weight={500} color={MUTED} style={{ marginTop: 22, letterSpacing: "-0.01em" }} />
         <Headline text="needle.nnx.fyi" start={40} size={36} weight={600} color={AMBER} style={{ marginTop: 40, letterSpacing: "0em" }} />
+      </AbsoluteFill>
+    </Scene>
+  );
+};
+
+// ---------- 8. Made by NNX.
+
+export const Maker: React.FC = () => {
+  const t = useRise(8, 36);
+  return (
+    <Scene bg="#000" out={40}>
+      <AbsoluteFill style={{ justifyContent: "center", alignItems: "center" }}>
+        <Img
+          src={staticFile("nnx-logo.png")}
+          style={{
+            width: 420,
+            opacity: t,
+            scale: interpolate(t, [0, 1], [0.94, 1]),
+            filter: `blur(${(1 - t) * 10}px)`,
+          }}
+        />
       </AbsoluteFill>
     </Scene>
   );

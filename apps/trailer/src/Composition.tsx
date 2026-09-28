@@ -1,6 +1,6 @@
 import { Audio } from "@remotion/media";
 import { Composition, interpolate, Series, staticFile } from "remotion";
-import { Bento, Colour, Intro, Lyrics, Player, Tour } from "./scenes";
+import { Bento, Colour, Intro, Lyrics, Maker, Player, Tour } from "./scenes";
 
 // The music: Justice, Tame Impala, "Neverender" (Rampa Remix), 120 beats a minute, so a bar
 // is 2 s (60 frames). It starts 4 s before its drop (1:52.017), and the drop lands as the first
@@ -8,7 +8,7 @@ import { Bento, Colour, Intro, Lyrics, Player, Tour } from "./scenes";
 const FPS = 30;
 const DROP = 112.017;
 const LEAD = 4;
-const LENGTH = 1020;
+const LENGTH = 1140;
 
 export const Trailer: React.FC = () => (
   <>
@@ -16,7 +16,7 @@ export const Trailer: React.FC = () => (
       src={staticFile("music.m4a")}
       trimBefore={Math.round((DROP - LEAD) * FPS)}
       volume={(f) =>
-        interpolate(f, [0, 20, LENGTH - 60, LENGTH], [0, 1, 1, 0], { extrapolateLeft: "clamp", extrapolateRight: "clamp" })
+        interpolate(f, [0, 20, LENGTH - 90, LENGTH], [0, 1, 1, 0], { extrapolateLeft: "clamp", extrapolateRight: "clamp" })
       }
     />
     <Series>
@@ -37,6 +37,9 @@ export const Trailer: React.FC = () => (
       </Series.Sequence>
       <Series.Sequence durationInFrames={240} name="Bento">
         <Bento />
+      </Series.Sequence>
+      <Series.Sequence durationInFrames={120} name="Maker">
+        <Maker />
       </Series.Sequence>
     </Series>
   </>

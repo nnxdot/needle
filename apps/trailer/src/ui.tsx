@@ -33,10 +33,10 @@ export const useRise = (start: number, length = 24) => {
 };
 
 /** Fades a whole scene in at its start and out at its end. */
-export const Scene: React.FC<{ children: React.ReactNode; bg?: string }> = ({ children, bg = PAGE }) => {
+export const Scene: React.FC<{ children: React.ReactNode; bg?: string; out?: number }> = ({ children, bg = PAGE, out = 10 }) => {
   const frame = useCurrentFrame();
   const { durationInFrames } = useVideoConfig();
-  const opacity = interpolate(frame, [0, 10, durationInFrames - 10, durationInFrames], [0, 1, 1, 0], {
+  const opacity = interpolate(frame, [0, 10, durationInFrames - out, durationInFrames], [0, 1, 1, 0], {
     extrapolateLeft: "clamp",
     extrapolateRight: "clamp",
   });
