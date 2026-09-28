@@ -361,29 +361,74 @@ export const Lyrics: React.FC = () => {
   );
 };
 
-// ---------- 6. A 3D carousel of everything else, spinning.
+// ---------- 6. Coverflow: the rest of the app, one screen per beat.
 
-const ring = ["home_night", "library", "albums", "search", "songmenu", "upnext", "appearance_night", "settings"];
+const flow = [
+  { src: "home_night", name: "Home" },
+  { src: "library", name: "Library" },
+  { src: "albums", name: "Albums" },
+  { src: "search", name: "Search" },
+  { src: "artist", name: "Artists" },
+  { src: "songmenu", name: "Menus" },
+  { src: "upnext", name: "Up next" },
+  { src: "appearance_night", name: "Appearance" },
+];
 
 export const Carousel: React.FC = () => {
   const frame = useCurrentFrame();
-  const spin = interpolate(frame, [0, 120], [0, 200], { easing: Easing.inOut(Easing.quad) });
-  const radius = 1350;
+  // One step a beat: a quick glide on the beat, then it holds.
+  const step = Math.min(flow.length - 1, Math.floor(frame / BEAT));
+  const glide = interpolate(frame % BEAT, [0, 9], [0, 1], { ...clamp, easing: SNAP });
+  const pos = frame < BEAT ? 0 : Math.min(flow.length - 1, step - 1 + glide);
+  const current = flow[Math.round(pos)];
+  const H = 660;
   return (
-    <Whip bg="#0B0A09">
-      <AbsoluteFill style={{ alignItems: "center", paddingTop: 70 }}>
-        <div style={{ fontSize: 96, fontWeight: 900, letterSpacing: "-0.045em", color: INK }}>All of it. Beautifully.</div>
+    <Whip bg="#070605">
+      {/* The screen in front tints the room. */}
+      <Img
+        key={current.src}
+        src={staticFile(`shots/${current.src}.png`)}
+        style={{ position: "absolute", left: "25%", top: "5%", width: "50%", height: "80%", objectFit: "cover", filter: "blur(140px) saturate(1.4)", opacity: 0.35 }}
+      />
+      <AbsoluteFill style={{ alignItems: "center", paddingTop: 64 }}>
+        <div style={{ fontSize: 30, fontWeight: 600, color: AMBER, letterSpacing: "0.01em" }}>Everything in its place</div>
       </AbsoluteFill>
-      <AbsoluteFill style={{ justifyContent: "center", alignItems: "center", perspective: 2600, top: 140 }}>
-        <div style={{ position: "relative", width: 1, height: 1, transformStyle: "preserve-3d", transform: `translateZ(${-radius}px) rotateY(${-spin}deg)` }}>
-          {ring.map((s, i) => {
-            const a = (i / ring.length) * 360;
-            return (
-              <div key={s} style={{ position: "absolute", left: -180, top: -390, transform: `rotateY(${a}deg) translateZ(${radius}px)`, backfaceVisibility: "hidden" }}>
-                <Phone src={s} h={740} />
-              </div>
-            );
-          })}
+      <AbsoluteFill style={{ perspective: 1800, alignItems: "center", justifyContent: "center", top: 40 }}>
+        {flow.map((f, i) => {
+          const d = i - pos;
+          const a = Math.min(1, Math.abs(d));
+          const side = Math.sign(d);
+          const x = d * 130 + side * a * 220;
+          return (
+            <div
+              key={f.src}
+              style={{
+                position: "absolute",
+                zIndex: 100 - Math.round(Math.abs(d) * 10),
+                transform: `translateX(${x}px) translateZ(${-a * 260}px) rotateY(${-side * a * 50}deg)`,
+                opacity: interpolate(Math.abs(d), [3, 4], [1, 0], clamp),
+                filter: `brightness(${1 - a * 0.45})`,
+                WebkitBoxReflect: "below 14px linear-gradient(transparent 72%, rgba(255,255,255,0.22))",
+              }}
+            >
+              <Phone src={f.src} h={H} />
+            </div>
+          );
+        })}
+      </AbsoluteFill>
+      <AbsoluteFill style={{ alignItems: "center", paddingTop: 108 }}>
+        <div
+          key={current.name}
+          style={{
+            fontSize: 64,
+            fontWeight: 850,
+            letterSpacing: "-0.04em",
+            color: INK,
+            opacity: interpolate(frame % BEAT, [0, 5], [frame < BEAT ? 1 : 0.2, 1], clamp),
+            translate: `0px ${interpolate(frame % BEAT, [0, 8], [frame < BEAT ? 0 : 14, 0], { ...clamp, easing: SNAP })}px`,
+          }}
+        >
+          {current.name}
         </div>
       </AbsoluteFill>
     </Whip>
