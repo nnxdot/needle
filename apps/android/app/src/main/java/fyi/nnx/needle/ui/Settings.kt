@@ -13,6 +13,10 @@ import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.material.icons.rounded.Check
+import androidx.compose.material.icons.rounded.Forward10
+import androidx.compose.material.icons.rounded.PlayArrow
+import androidx.compose.material.icons.rounded.SkipNext
+import androidx.compose.material.icons.rounded.SkipPrevious
 import androidx.compose.material3.toShape
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.foundation.clickable
@@ -676,6 +680,52 @@ private fun AppearanceSettings() {
                     Box(Modifier.size(40.dp).clip(shape).background(MaterialTheme.colorScheme.primary))
                 }
             }
+        }
+        Divider()
+        Text("Buttons", style = MaterialTheme.typography.bodyLarge, modifier = Modifier.padding(start = 16.dp, top = 14.dp))
+        Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            listOf("expressive" to "Expressive", "round" to "Round", "minimal" to "Minimal").forEach { (id, label) ->
+                StyleTile(label, app.controlStyle == id, Modifier.weight(1f), { update { it.copy(controlStyle = id) } }) {
+                    // Previous, play, and next, small, in the style.
+                    val primary = MaterialTheme.colorScheme.primary
+                    val soft = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.15f)
+                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                        when (id) {
+                            "round" -> {
+                                Box(Modifier.size(16.dp).clip(androidx.compose.foundation.shape.CircleShape).background(soft))
+                                Box(Modifier.size(24.dp).clip(androidx.compose.foundation.shape.CircleShape).background(primary))
+                                Box(Modifier.size(16.dp).clip(androidx.compose.foundation.shape.CircleShape).background(soft))
+                            }
+                            "minimal" -> {
+                                Icon(androidx.compose.material.icons.Icons.Rounded.SkipPrevious, null, Modifier.size(18.dp))
+                                Icon(androidx.compose.material.icons.Icons.Rounded.PlayArrow, null, Modifier.size(28.dp))
+                                Icon(androidx.compose.material.icons.Icons.Rounded.SkipNext, null, Modifier.size(18.dp))
+                            }
+                            else -> {
+                                Box(Modifier.size(width = 18.dp, height = 16.dp).clip(RoundedCornerShape(8.dp)).background(soft))
+                                Box(Modifier.size(width = 28.dp, height = 22.dp).clip(RoundedCornerShape(7.dp)).background(primary))
+                                Box(Modifier.size(width = 18.dp, height = 16.dp).clip(RoundedCornerShape(8.dp)).background(soft))
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        Divider()
+        Text("Beside play", style = MaterialTheme.typography.bodyLarge, modifier = Modifier.padding(start = 16.dp, top = 14.dp))
+        Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            listOf(
+                Triple("skip", "Skip songs", androidx.compose.material.icons.Icons.Rounded.SkipNext),
+                Triple("jump", "10 seconds", androidx.compose.material.icons.Icons.Rounded.Forward10),
+            ).forEach { (id, label, icon) ->
+                StyleTile(label, app.sideButtons == id, Modifier.weight(1f), { update { it.copy(sideButtons = id) } }) {
+                    Icon(icon, contentDescription = null, modifier = Modifier.size(30.dp))
+                }
+            }
+        }
+        Divider()
+        SwitchRow("Volume in the player", "A slider under the buttons for the phone's music volume; while playing on your computer, it is always there, for the computer's", app.volumeSlider) { on ->
+            update { it.copy(volumeSlider = on) }
         }
     }
     Group("Motion", footer = "Android's own \"Remove animations\" turns motion off too.") {

@@ -54,6 +54,12 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.QueueMusic
 import androidx.compose.material.icons.rounded.Lyrics
 import androidx.compose.material.icons.rounded.Cast
+import androidx.compose.material.icons.automirrored.rounded.VolumeUp
+import androidx.compose.material.icons.automirrored.rounded.VolumeDown
+import androidx.compose.material.icons.rounded.QueuePlayNext
+import androidx.compose.material.icons.rounded.Forward10
+import androidx.compose.material.icons.rounded.Replay10
+import androidx.compose.material.icons.rounded.Search
 import androidx.compose.material.icons.rounded.Computer
 import androidx.compose.material.icons.rounded.Favorite
 import androidx.compose.material.icons.rounded.FavoriteBorder
@@ -249,6 +255,7 @@ fun FullPlayer(onClose: () -> Unit, open: (Route) -> Unit) {
     val looping = remember(p.position, song.id) { core.loopRange() }
     // Pulled down far enough, the player closes.
     var pull by remember { mutableFloatStateOf(0f) }
+    var searching by remember { mutableStateOf(false) }
     var dragging by remember { mutableStateOf(false) }
     // Let go short of closing, the player springs back up; closed, it is ready again at the top.
     val shown by animateFloatAsState(if (dragging) pull else 0f, if (dragging) androidx.compose.animation.core.snap() else spring(dampingRatio = 0.8f, stiffness = 400f), label = "pull")
@@ -296,8 +303,11 @@ fun FullPlayer(onClose: () -> Unit, open: (Route) -> Unit) {
                             .background(Color.White.copy(alpha = 0.45f))
                             .clickable(onClick = onClose),
                     )
-                    if (!song.onComputer()) Row(Modifier.align(Alignment.CenterEnd).offset(x = 12.dp)) {
-                        IconButton(onClick = {
+                    Row(Modifier.align(Alignment.CenterEnd).offset(x = 12.dp)) {
+                        IconButton(onClick = { searching = true }) {
+                            Icon(Icons.Rounded.Search, contentDescription = "Add songs", tint = Color.White.copy(alpha = 0.8f))
+                        }
+                        if (!song.onComputer()) IconButton(onClick = {
                             haptics(false)
                             runCatching { core.toggleFavorite(song.id) }
                                 .onSuccess { favorite = it; showMessage(if (it) "Added to favorites" else "Taken out of favorites") }
@@ -310,9 +320,10 @@ fun FullPlayer(onClose: () -> Unit, open: (Route) -> Unit) {
                                 tint = if (favorite) MaterialTheme.colorScheme.primary else Color.White.copy(alpha = 0.8f),
                             )
                         }
-                        SongMenu(song, open)
+                        if (!song.onComputer()) SongMenu(song, open)
                     }
                 }
+                if (searching) PlayerSearch(song.onComputer()) { searching = false }
                 if (panel != Panel.Cover) SmallNowPlaying(song)
                 Box(Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.Center) {
                     when (panel) {
@@ -342,7 +353,9 @@ fun FullPlayer(onClose: () -> Unit, open: (Route) -> Unit) {
                     }
                 }
                 SeekBar(position = p.position, duration = song.duration, playing = p.playing)
-                PlayerControls(p.playing, haptics)
+                PlayerControls(p.playing, p.position, song.duration, haptics)
+                val app by NeedleApp.instance.app.collectAsState()
+                if (song.onComputer() || app.volumeSlider) VolumeRow(song.onComputer())
                 PlayerToolbar(
                     panel = panel,
                     onPanel = { panel = if (panel == it) Panel.Cover else it },
@@ -374,40 +387,207 @@ fun FullPlayer(onClose: () -> Unit, open: (Route) -> Unit) {
  */
 @OptIn(androidx.compose.material3.ExperimentalMaterial3ExpressiveApi::class)
 @Composable
-private fun PlayerControls(playing: Boolean, haptics: (Boolean) -> Unit) {
-    val side = androidx.compose.material3.IconButtonDefaults.filledTonalIconButtonColors(
-        containerColor = Color.White.copy(alpha = 0.14f),
-        contentColor = Color.White,
-    )
+private fun PlayerControls(playing: Boolean, position: Double, duration: Double, haptics: (Boolean) -> Unit) {
+    val app by NeedleApp.instance.app.collectAsState()
+    val jump = app.sideButtons == "jump"
+    val back = { haptics(false); if (jump) Controls.seek((position - 10).coerceAtLeast(0.0)) else Controls.previous() }
+    val ahead = { haptics(false); if (jump) Controls.seek((position + 10).coerceAtMost(duration)) else Controls.next() }
+    val toggle = { haptics(false); Controls.toggle() }
+    val backIcon = if (jump) Icons.Rounded.Replay10 else Icons.Rounded.SkipPrevious
+    val aheadIcon = if (jump) Icons.Rounded.Forward10 else Icons.Rounded.SkipNext
+    val backLabel = if (jump) "Back 10 seconds" else "Previous"
+    val aheadLabel = if (jump) "Ahead 10 seconds" else "Next"
     Row(
         Modifier.fillMaxWidth().padding(top = 14.dp, bottom = 18.dp),
-        horizontalArrangement = Arrangement.spacedBy(14.dp, Alignment.CenterHorizontally),
+        horizontalArrangement = Arrangement.spacedBy(if (app.controlStyle == "minimal") 36.dp else 14.dp, Alignment.CenterHorizontally),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        androidx.compose.material3.FilledTonalIconButton(
-            onClick = { haptics(false); Controls.previous() },
-            shapes = androidx.compose.material3.IconButtonDefaults.shapes(),
-            colors = side,
-            modifier = Modifier.size(width = 64.dp, height = 56.dp),
-        ) { Icon(Icons.Rounded.SkipPrevious, contentDescription = "Previous", modifier = Modifier.size(30.dp)) }
-        androidx.compose.material3.FilledIconToggleButton(
-            checked = playing,
-            onCheckedChange = { haptics(false); Controls.toggle() },
-            shapes = androidx.compose.material3.IconButtonDefaults.toggleableShapes(),
-            colors = androidx.compose.material3.IconButtonDefaults.filledIconToggleButtonColors(
-                containerColor = MaterialTheme.colorScheme.primary,
-                contentColor = MaterialTheme.colorScheme.onPrimary,
-                checkedContainerColor = MaterialTheme.colorScheme.primary,
-                checkedContentColor = MaterialTheme.colorScheme.onPrimary,
+        when (app.controlStyle) {
+            // Round: three circles, the middle one large and in the cover's colour.
+            "round" -> {
+                val side = androidx.compose.material3.IconButtonDefaults.filledTonalIconButtonColors(containerColor = Color.White.copy(alpha = 0.14f), contentColor = Color.White)
+                androidx.compose.material3.FilledTonalIconButton(onClick = back, colors = side, shape = CircleShape, modifier = Modifier.size(60.dp)) {
+                    Icon(backIcon, contentDescription = backLabel, modifier = Modifier.size(28.dp))
+                }
+                androidx.compose.material3.FilledIconButton(
+                    onClick = toggle,
+                    shape = CircleShape,
+                    colors = androidx.compose.material3.IconButtonDefaults.filledIconButtonColors(containerColor = MaterialTheme.colorScheme.primary, contentColor = MaterialTheme.colorScheme.onPrimary),
+                    modifier = Modifier.size(80.dp),
+                ) { PlayPauseIcon(playing, 38.dp) }
+                androidx.compose.material3.FilledTonalIconButton(onClick = ahead, colors = side, shape = CircleShape, modifier = Modifier.size(60.dp)) {
+                    Icon(aheadIcon, contentDescription = aheadLabel, modifier = Modifier.size(28.dp))
+                }
+            }
+            // Minimal: the icons alone, large and white, as in Apple Music.
+            "minimal" -> {
+                IconButton(onClick = back, modifier = Modifier.size(64.dp)) { Icon(backIcon, contentDescription = backLabel, modifier = Modifier.size(44.dp)) }
+                IconButton(onClick = toggle, modifier = Modifier.size(80.dp)) { PlayPauseIcon(playing, 64.dp) }
+                IconButton(onClick = ahead, modifier = Modifier.size(64.dp)) { Icon(aheadIcon, contentDescription = aheadLabel, modifier = Modifier.size(44.dp)) }
+            }
+            // Expressive (Android 16's media controls): one large button in the cover's colour,
+            // round while paused and a softer square while playing, between two wide ones.
+            // Each squeezes a little as it is pressed.
+            else -> {
+                val side = androidx.compose.material3.IconButtonDefaults.filledTonalIconButtonColors(containerColor = Color.White.copy(alpha = 0.14f), contentColor = Color.White)
+                androidx.compose.material3.FilledTonalIconButton(
+                    onClick = back,
+                    shapes = androidx.compose.material3.IconButtonDefaults.shapes(),
+                    colors = side,
+                    modifier = Modifier.size(width = 64.dp, height = 56.dp),
+                ) { Icon(backIcon, contentDescription = backLabel, modifier = Modifier.size(30.dp)) }
+                androidx.compose.material3.FilledIconToggleButton(
+                    checked = playing,
+                    onCheckedChange = { toggle() },
+                    shapes = androidx.compose.material3.IconButtonDefaults.toggleableShapes(),
+                    colors = androidx.compose.material3.IconButtonDefaults.filledIconToggleButtonColors(
+                        containerColor = MaterialTheme.colorScheme.primary,
+                        contentColor = MaterialTheme.colorScheme.onPrimary,
+                        checkedContainerColor = MaterialTheme.colorScheme.primary,
+                        checkedContentColor = MaterialTheme.colorScheme.onPrimary,
+                    ),
+                    modifier = Modifier.size(width = 88.dp, height = 72.dp),
+                ) { PlayPauseIcon(playing, 36.dp) }
+                androidx.compose.material3.FilledTonalIconButton(
+                    onClick = ahead,
+                    shapes = androidx.compose.material3.IconButtonDefaults.shapes(),
+                    colors = side,
+                    modifier = Modifier.size(width = 64.dp, height = 56.dp),
+                ) { Icon(aheadIcon, contentDescription = aheadLabel, modifier = Modifier.size(30.dp)) }
+            }
+        }
+    }
+}
+
+/**
+ * The volume: the computer's while playing there, otherwise the phone's own music volume
+ * (the same one its buttons change).
+ */
+@Composable
+private fun VolumeRow(computer: Boolean) {
+    val context = androidx.compose.ui.platform.LocalContext.current
+    val audio = remember { context.getSystemService(android.content.Context.AUDIO_SERVICE) as android.media.AudioManager }
+    val stream = android.media.AudioManager.STREAM_MUSIC
+    val remote by NeedleApp.instance.remote.collectAsState()
+    var held by remember { mutableStateOf<Float?>(null) }
+    // The phone's volume can change by its buttons, so it is read again every half second.
+    var phone by remember { mutableFloatStateOf(audio.getStreamVolume(stream).toFloat() / audio.getStreamMaxVolume(stream)) }
+    LaunchedEffect(computer) {
+        while (!computer) {
+            phone = audio.getStreamVolume(stream).toFloat() / audio.getStreamMaxVolume(stream)
+            kotlinx.coroutines.delay(500)
+        }
+    }
+    val value = held ?: if (computer) remote?.volume ?: 1f else phone
+    Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth().padding(bottom = 10.dp)) {
+        Icon(Icons.AutoMirrored.Rounded.VolumeDown, contentDescription = null, tint = Color.White.copy(alpha = 0.7f))
+        androidx.compose.material3.Slider(
+            value = value,
+            onValueChange = { v ->
+                held = v
+                if (!computer) audio.setStreamVolume(stream, (v * audio.getStreamMaxVolume(stream)).toInt(), 0)
+            },
+            onValueChangeFinished = {
+                val v = held
+                if (computer && v != null) {
+                    NeedleApp.instance.scope.launch(kotlinx.coroutines.Dispatchers.IO) {
+                        runCatching { core.pcVolume(v) }.onFailure { showMessage(it.message ?: "Your computer did not answer") }
+                    }
+                }
+                if (!computer && v != null) phone = v
+                held = null
+            },
+            colors = androidx.compose.material3.SliderDefaults.colors(
+                thumbColor = Color.White,
+                activeTrackColor = Color.White,
+                inactiveTrackColor = Color.White.copy(alpha = 0.25f),
             ),
-            modifier = Modifier.size(width = 88.dp, height = 72.dp),
-        ) { PlayPauseIcon(playing, 36.dp) }
-        androidx.compose.material3.FilledTonalIconButton(
-            onClick = { haptics(false); Controls.next() },
-            shapes = androidx.compose.material3.IconButtonDefaults.shapes(),
-            colors = side,
-            modifier = Modifier.size(width = 64.dp, height = 56.dp),
-        ) { Icon(Icons.Rounded.SkipNext, contentDescription = "Next", modifier = Modifier.size(30.dp)) }
+            modifier = Modifier.weight(1f).padding(horizontal = 8.dp),
+        )
+        Icon(Icons.AutoMirrored.Rounded.VolumeUp, contentDescription = null, tint = Color.White.copy(alpha = 0.7f))
+    }
+}
+
+/**
+ * Search from the player, to add songs to what plays: the computer's music while playing there,
+ * the phone's own otherwise. A song can play now, next, or at the end.
+ */
+@OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class)
+@Composable
+private fun PlayerSearch(computer: Boolean, onDismiss: () -> Unit) {
+    var query by remember { mutableStateOf("") }
+    var found by remember { mutableStateOf<List<Song>>(emptyList()) }
+    LaunchedEffect(query) {
+        kotlinx.coroutines.delay(250)
+        found = if (query.isBlank()) emptyList() else kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+            runCatching {
+                if (computer) core.pcSearch(query).map { it.asSong() } else core.search(query)
+            }.getOrDefault(emptyList())
+        }
+    }
+    fun act(song: Song, how: String) {
+        val id = song.id.removePrefix(PcPrefix)
+        NeedleApp.instance.scope.launch(kotlinx.coroutines.Dispatchers.IO) {
+            runCatching {
+                when {
+                    computer && how == "now" -> core.pcPlay(listOf(id))
+                    computer && how == "next" -> core.pcPlayNext(listOf(id))
+                    computer -> core.pcEnqueue(listOf(id))
+                    how == "now" -> core.play(listOf(id), 0u)
+                    how == "next" -> core.playNext(listOf(id))
+                    else -> core.enqueue(listOf(id))
+                }
+            }.onSuccess {
+                showMessage(
+                    when (how) {
+                        "now" -> "Playing ${song.title}"
+                        "next" -> "${song.title} plays next"
+                        else -> "Added ${song.title} to the queue"
+                    },
+                )
+            }.onFailure { showMessage(it.message ?: "It did not work") }
+        }
+    }
+    androidx.compose.material3.ModalBottomSheet(onDismissRequest = onDismiss, containerColor = MaterialTheme.colorScheme.surfaceContainerLow) {
+        Column(Modifier.fillMaxWidth().fillMaxHeight(0.85f).padding(horizontal = 16.dp)) {
+            Text(
+                if (computer) "Add from your computer" else "Add songs",
+                style = MaterialTheme.typography.headlineSmall,
+                modifier = Modifier.padding(start = 4.dp, bottom = 12.dp),
+            )
+            androidx.compose.material3.TextField(
+                value = query,
+                onValueChange = { query = it },
+                placeholder = { Text("Songs, albums, artists") },
+                leadingIcon = { Icon(Icons.Rounded.Search, contentDescription = null) },
+                singleLine = true,
+                shape = RoundedCornerShape(28.dp),
+                colors = androidx.compose.material3.TextFieldDefaults.colors(
+                    focusedIndicatorColor = Color.Transparent,
+                    unfocusedIndicatorColor = Color.Transparent,
+                    focusedContainerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
+                    unfocusedContainerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
+                ),
+                modifier = Modifier.fillMaxWidth(),
+            )
+            LazyColumn(Modifier.fillMaxSize().padding(top = 8.dp)) {
+                itemsIndexed(found, key = { i, s -> "$i-${s.id}" }) { _, song ->
+                    Row(
+                        Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).clickable { act(song, "now") }.padding(vertical = 6.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(12.dp),
+                    ) {
+                        Cover(song.artwork, Modifier.size(48.dp), SmallCoverShape)
+                        Column(Modifier.weight(1f)) {
+                            Text(song.title, style = MaterialTheme.typography.bodyLarge, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                            Text(song.artist, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        }
+                        IconButton(onClick = { act(song, "next") }) { Icon(Icons.Rounded.QueuePlayNext, contentDescription = "Play next") }
+                        IconButton(onClick = { act(song, "end") }) { Icon(Icons.AutoMirrored.Rounded.QueueMusic, contentDescription = "Add to the queue") }
+                    }
+                }
+            }
+        }
     }
 }
 
@@ -582,7 +762,11 @@ private fun SeekBar(position: Double, duration: Double, playing: Boolean) {
 
 @Composable
 private fun LyricsPanel(song: Song, position: Double, time: () -> Unit) {
-    val lyrics by rememberLoaded(song.id) { lyrics(song.id) }
+    val lyrics by rememberLoaded(song.id) {
+        if (song.onComputer()) {
+            pcLyrics(fyi.nnx.needle.core.PcSong(song.id.removePrefix(PcPrefix), song.title, song.artist, song.album, song.duration, song.artwork))
+        } else lyrics(song.id)
+    }
     val lines = lyrics?.lines.orEmpty()
     val state = rememberLazyListState()
     val now = lines.indexOfLast { it.time <= position + 0.2 }
@@ -603,7 +787,7 @@ private fun LyricsPanel(song: Song, position: Double, time: () -> Unit) {
                 style = MaterialTheme.typography.titleMedium,
                 color = Color.White.copy(alpha = 0.6f),
             )
-            if (lyrics?.instrumental != true) {
+            if (lyrics?.instrumental != true && !song.onComputer()) {
                 androidx.compose.material3.TextButton(onClick = time) { Text("Add and time them", color = Color.White) }
             }
         }

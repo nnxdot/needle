@@ -116,17 +116,21 @@ impl Needle {
                 None
             }
         };
-        Ok(found.map(|l| Lyrics {
-            source: match l.source {
-                media::LyricsSource::Sidecar | media::LyricsSource::Embedded => "file",
-                media::LyricsSource::Plugin => "plugin",
-                _ => "online",
+        Ok(found.map(shown))
+    }
+
+    /// Lyrics for a song playing on the computer, looked up from the phone (LRCLIB and the
+    /// lyrics plugins, when online lookups are on) by its title, artist, album, and length.
+    pub fn pc_lyrics(&self, song: crate::connect::PcSong) -> Option<Lyrics> {
+        let online = self.library.settings().is_ok_and(|s| s.online_media);
+        let track = crate::connect::streamed(&song);
+        match media::lyrics(&self.library, &track, online, Some(&self.plugins)) {
+            Ok(found) => found.map(shown),
+            Err(error) => {
+                log(true, &format!("Lyrics for {}: {error:#}", track.title));
+                None
             }
-            .into(),
-            lines: l.lines.into_iter().map(line).collect(),
-            plain: l.plain,
-            instrumental: l.instrumental,
-        }))
+        }
     }
 
     /// Saves lyrics timed on the phone (one time per line, in seconds).
@@ -362,5 +366,20 @@ impl Needle {
             .collect();
         std::fs::copy(source, folder.join(format!("{slug}.toml"))).map_err(anyhow::Error::from)?;
         Ok(theme.name)
+    }
+}
+
+/// Lyrics from the core, as the app shows them.
+fn shown(l: media::Lyrics) -> Lyrics {
+    Lyrics {
+        source: match l.source {
+            media::LyricsSource::Sidecar | media::LyricsSource::Embedded => "file",
+            media::LyricsSource::Plugin => "plugin",
+            _ => "online",
+        }
+        .into(),
+        lines: l.lines.into_iter().map(line).collect(),
+        plain: l.plain,
+        instrumental: l.instrumental,
     }
 }

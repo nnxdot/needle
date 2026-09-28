@@ -55,8 +55,8 @@ import androidx.glance.unit.ColorProvider
 import fyi.nnx.needle.core.Song
 
 /*
- * Home screen widgets, drawn like the app's player: the cover, blurred, fills the widget;
- * the cover itself sits on it; the play button is a pill in the cover's own colour.
+ * Home screen widgets, drawn like the app's player: a deep shade of the cover's colour fills
+ * the widget; the cover sits on it; the play button is a pill in the cover's own colour.
  */
 
 /** A cover, small, for a widget (widgets hold pictures in memory, so it stays small). */
@@ -70,15 +70,15 @@ private fun cover(path: String?, size: Int = 256): Bitmap? = path?.let {
 }
 
 /**
- * The cover as a soft, dark wash: shrunk to a few pixels and grown back, which blurs it, then
- * darkened so white text reads on it.
+ * The widget's background: a deep shade of the cover's own colour, dark enough for white text;
+ * Needle's charcoal without a cover.
  */
-private fun wash(art: Bitmap?, dark: Float = 0.5f): Bitmap? = art?.let {
-    val tiny = Bitmap.createScaledBitmap(it, 12, 12, true)
-    val soft = Bitmap.createScaledBitmap(tiny, 240, 240, true)
-    val out = soft.copy(Bitmap.Config.ARGB_8888, true)
-    Canvas(out).drawColor(android.graphics.Color.argb((dark * 255).toInt(), 0, 0, 0))
-    out
+private fun deep(art: Bitmap?): Color {
+    val palette = art?.let { androidx.palette.graphics.Palette.from(it).generate() }
+    val rgb = palette?.darkVibrantSwatch?.rgb ?: palette?.vibrantSwatch?.rgb ?: palette?.darkMutedSwatch?.rgb
+        ?: return Color(0xFF1B1918)
+    val hct = com.materialkolor.hct.Hct.fromInt(rgb)
+    return Color(com.materialkolor.hct.Hct.from(hct.hue, minOf(hct.chroma, 40.0), 18.0).toInt())
 }
 
 /** The cover's lively colour for the play button, light enough for a dark icon on it. */
@@ -105,7 +105,7 @@ suspend fun updateWidgets(context: Context) {
 
 // ---------- Now playing
 
-private class Now(val song: Song?, val playing: Boolean, val progress: Float, val art: Bitmap?, val wash: Bitmap?, val accent: Color)
+private class Now(val song: Song?, val playing: Boolean, val progress: Float, val art: Bitmap?, val back: Color, val accent: Color)
 
 class NowPlayingWidget : GlanceAppWidget() {
     override val sizeMode = SizeMode.Exact
@@ -123,12 +123,13 @@ class NowPlayingWidget : GlanceAppWidget() {
         provideContent {
             val (song, playing, step) = shown.collectAsState(Triple(null, false, 0)).value
             val art = androidx.compose.runtime.remember(song?.artwork) { cover(song?.artwork, 320) }
-            val soft = androidx.compose.runtime.remember(art) { wash(art) }
+            val back = androidx.compose.runtime.remember(art) { deep(art) }
             val color = androidx.compose.runtime.remember(art) { accent(art) }
-            val now = Now(song, playing, step / 50f, art, soft, color)
+            val now = Now(song, playing, step / 50f, art, back, color)
             GlanceTheme {
                 val size = LocalSize.current
                 when {
+                    size.height < 120.dp -> Strip(now)
                     size.width < 200.dp -> Small(now)
                     size.height < 250.dp -> Wide(now)
                     else -> Large(now)
@@ -138,16 +139,13 @@ class NowPlayingWidget : GlanceAppWidget() {
     }
 }
 
-/** The blurred cover behind everything, or Needle's charcoal. */
+/** The cover's deep colour behind everything. */
 @Composable
 private fun Backdrop(now: Now, content: @Composable () -> Unit) {
     Box(
-        GlanceModifier.fillMaxSize().cornerRadius(28.dp).background(ColorProvider(Color(0xFF1B1918)))
+        GlanceModifier.fillMaxSize().cornerRadius(28.dp).background(ColorProvider(now.back))
             .clickable(actionStartActivity<MainActivity>()),
-    ) {
-        now.wash?.let { Image(ImageProvider(it), contentDescription = null, contentScale = ContentScale.FillBounds, modifier = GlanceModifier.fillMaxSize()) }
-        content()
-    }
+    ) { content() }
 }
 
 @Composable
@@ -232,6 +230,36 @@ private fun Mark() {
         Image(ImageProvider(R.drawable.needle_logo), contentDescription = null, modifier = GlanceModifier.size(18.dp).cornerRadius(5.dp))
         Spacer(GlanceModifier.width(6.dp))
         Text("Needle", style = TextStyle(color = Faint, fontSize = 12.sp, fontWeight = FontWeight.Medium))
+    }
+}
+
+/**
+ * One row (4×1, the size it starts at): a small cover, the song and artist, and the buttons,
+ * as a music notification is laid out.
+ */
+@Composable
+private fun Strip(now: Now) {
+    val size = LocalSize.current
+    val cover = (size.height - 16.dp).coerceIn(36.dp, 56.dp)
+    Box(
+        GlanceModifier.fillMaxSize().cornerRadius(size.height / 2).background(ColorProvider(now.back))
+            .clickable(actionStartActivity<MainActivity>()),
+        contentAlignment = Alignment.Center,
+    ) {
+        Row(GlanceModifier.fillMaxSize().padding(horizontal = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+            CoverImage(now, cover, cover / 2)
+            Spacer(GlanceModifier.width(10.dp))
+            Column(GlanceModifier.defaultWeight()) {
+                Text(now.song?.title ?: "Needle", maxLines = 1, style = TextStyle(color = White, fontSize = 14.sp, fontWeight = FontWeight.Bold))
+                Text(now.song?.artist ?: "Tap play for a shuffle", maxLines = 1, style = TextStyle(color = Soft, fontSize = 12.sp))
+            }
+            Spacer(GlanceModifier.width(4.dp))
+            Round(R.drawable.ic_widget_previous, "Previous", actionRunCallback<Previous>(), 36.dp)
+            Spacer(GlanceModifier.width(4.dp))
+            PlayPill(now, 44.dp, 36.dp)
+            Spacer(GlanceModifier.width(4.dp))
+            Round(R.drawable.ic_widget_next, "Next", actionRunCallback<Next>(), 36.dp)
+        }
     }
 }
 
@@ -327,15 +355,14 @@ class RecentWidget : GlanceAppWidget() {
     override suspend fun provideGlance(context: Context, id: GlanceId) {
         val albums = runCatching { NeedleApp.instance.core.home().added.take(4) }.getOrDefault(emptyList())
         val arts = albums.map { cover(it.artwork, 192) }
-        val back = wash(arts.firstOrNull { it != null }, 0.6f)
+        val back = deep(arts.firstOrNull { it != null })
         provideContent {
             GlanceTheme {
                 val size = LocalSize.current
                 // As many covers as fit, each with its name under it.
                 val count = ((size.width - 28.dp) / 84.dp).toInt().coerceIn(1, 4)
                 val side = ((size.width - 28.dp - 10.dp * (count - 1)) / count).coerceAtMost(size.height - 76.dp).coerceAtLeast(48.dp)
-                Box(GlanceModifier.fillMaxSize().cornerRadius(28.dp).background(ColorProvider(Color(0xFF1B1918)))) {
-                    back?.let { Image(ImageProvider(it), contentDescription = null, contentScale = ContentScale.FillBounds, modifier = GlanceModifier.fillMaxSize()) }
+                Box(GlanceModifier.fillMaxSize().cornerRadius(28.dp).background(ColorProvider(back))) {
                     Column(GlanceModifier.fillMaxSize().padding(14.dp)) {
                         Row(GlanceModifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                             Text("Recently added", style = TextStyle(color = White, fontSize = 16.sp, fontWeight = FontWeight.Bold), modifier = GlanceModifier.defaultWeight())

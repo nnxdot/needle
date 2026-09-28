@@ -10,6 +10,7 @@ import android.provider.MediaStore
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.core.splashscreen.SplashScreen.Companion.installSplashScreen
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.media3.session.MediaController
 import androidx.media3.session.SessionToken
@@ -25,6 +26,28 @@ class MainActivity : ComponentActivity() {
     private var controller: ListenableFuture<MediaController>? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
+        // Needle's record while it starts; then the record turns, grows, and fades into the app.
+        installSplashScreen().setOnExitAnimationListener { splash ->
+            val icon = splash.iconView
+            val reduce = android.provider.Settings.Global.getFloat(contentResolver, android.provider.Settings.Global.ANIMATOR_DURATION_SCALE, 1f) == 0f
+            if (reduce) {
+                splash.remove()
+                return@setOnExitAnimationListener
+            }
+            icon.animate()
+                .rotationBy(120f)
+                .scaleX(1.25f)
+                .scaleY(1.25f)
+                .setDuration(420)
+                .setInterpolator(android.view.animation.PathInterpolator(0.3f, 0f, 0.1f, 1f))
+                .start()
+            splash.view.animate()
+                .alpha(0f)
+                .setStartDelay(120)
+                .setDuration(300)
+                .withEndAction { splash.remove() }
+                .start()
+        }
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
         askPermissions()

@@ -86,6 +86,13 @@ pub struct AppSettings {
     pub accent_color: String,
     /// Film grain over the whole app, 0 (none) to 1, as on the desktop.
     pub grain: f32,
+    /// The player's buttons: "expressive" (Material shapes that change as they are pressed),
+    /// "round", or "minimal" (icons only, as in Apple Music).
+    pub control_style: String,
+    /// The buttons beside play: "skip" (the song before and after) or "jump" (10 seconds).
+    pub side_buttons: String,
+    /// A volume slider in the player (always there while playing on the computer).
+    pub volume_slider: bool,
 }
 
 impl Default for AppSettings {
@@ -111,6 +118,9 @@ impl Default for AppSettings {
             density: "comfortable".into(),
             accent_color: String::new(),
             grain: 0.0,
+            control_style: "expressive".into(),
+            side_buttons: "skip".into(),
+            volume_slider: false,
         }
     }
 }

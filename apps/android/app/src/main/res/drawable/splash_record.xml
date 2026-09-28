@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Needle's record for the splash screen: amber grooves on the Night page, with its tonearm.
+     Everything sits inside the 160 dp circle Android keeps (the icon is 240 dp). -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="240dp" android:height="240dp"
+    android:viewportWidth="240" android:viewportHeight="240">
+    <group android:name="record" android:pivotX="114" android:pivotY="126">
+        <path android:fillColor="#E2B46C"
+            android:pathData="M114,64a62,62 0,1 0,0.1 0z" />
+        <path android:strokeColor="#C39148" android:strokeWidth="2" android:fillColor="#00000000"
+            android:pathData="M114,74a52,52 0,1 0,0.1 0z M114,84a42,42 0,1 0,0.1 0z M114,94a32,32 0,1 0,0.1 0z" />
+        <!-- A highlight across the grooves, so the turning shows. -->
+        <path android:fillColor="#33FFFFFF"
+            android:pathData="M114,126 L152,76 A62,62 0 0,1 170,100 Z" />
+        <path android:fillColor="#141312" android:pathData="M114,104a22,22 0,1 0,0.1 0z" />
+        <path android:fillColor="#E2B46C" android:pathData="M114,120a6,6 0,1 0,0.1 0z" />
+    </group>
+    <group android:name="arm" android:pivotX="168" android:pivotY="70" android:rotation="-38">
+        <path android:strokeColor="#F1E6D3" android:strokeWidth="9" android:strokeLineCap="round"
+            android:pathData="M168,70 L136,112" />
+        <path android:fillColor="#F1E6D3" android:pathData="M168,58a12,12 0,1 0,0.1 0z" />
+        <path android:fillColor="#141312" android:pathData="M168,65a5,5 0,1 0,0.1 0z" />
+    </group>
+</vector>

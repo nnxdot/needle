@@ -56,6 +56,7 @@ class NeedleApp : Application() {
             coverColors = true, ambientColors = false, movingBackdrop = true, backdropBlur = 70f,
             seekStyle = "wave", miniPlayerColored = true, coverShape = "square",
             titleFont = "flex", textScale = 1f, density = "comfortable", accentColor = "", grain = 0f,
+            controlStyle = "expressive", sideButtons = "skip", volumeSlider = false,
         ),
     )
     /** The app's own look and behaviour (Settings › Appearance). */

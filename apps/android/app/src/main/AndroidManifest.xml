@@ -32,6 +32,7 @@
 
         <activity
             android:name=".MainActivity"
+            android:theme="@style/Theme.Needle.Starting"
             android:exported="true"
             android:launchMode="singleTask"
             android:windowSoftInputMode="adjustResize">
