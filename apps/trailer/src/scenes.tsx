@@ -169,7 +169,7 @@ export const Tour: React.FC = () => {
 type Tile = { col: string; row: string; children: React.ReactNode; tint?: string; delay: number };
 
 const Card: React.FC<Tile> = ({ col, row, children, tint = "#1A1816", delay }) => {
-  const t = useRise(delay, 26);
+  const t = useRise(delay, 14);
   return (
     <div
       style={{
@@ -283,10 +283,12 @@ const Remote: React.FC<{ color: string }> = ({ color }) => {
 export const Bento: React.FC = () => {
   const frame = useCurrentFrame();
   // The finale: the grid settles, then the whole of it breathes in a touch.
-  const settle = interpolate(frame, [40, 240], [1.03, 1], { extrapolateLeft: "clamp", extrapolateRight: "clamp", easing: EASE });
+  // Starts close on the Needle tile, and pulls back to show everything in under a second.
+  const pull = interpolate(frame, [0, 24], [0, 1], { extrapolateLeft: "clamp", extrapolateRight: "clamp", easing: Easing.bezier(0.2, 0.9, 0.1, 1) });
+  const settle = interpolate(pull, [0, 1], [2.6, 1]) * interpolate(frame, [24, 200], [1.02, 1], { extrapolateLeft: "clamp", extrapolateRight: "clamp" });
   return (
-    <Scene out={30}>
-      <AbsoluteFill style={{ padding: 56, scale: settle }}>
+    <Scene out={20}>
+      <AbsoluteFill style={{ padding: 56, scale: settle, transformOrigin: "18% 26%", filter: pull < 0.98 ? `blur(${(1 - pull) * 6}px)` : undefined }}>
         <div
           style={{
             display: "grid",
@@ -298,7 +300,7 @@ export const Bento: React.FC = () => {
           }}
         >
           {/* The name: the biggest tile. */}
-          <Card col="1 / 3" row="1 / 3" tint="#1F1A12" delay={0}>
+          <Card col="1 / 3" row="1 / 3" tint="#1F1A12" delay={6}>
             <Img src={staticFile("icon.png")} style={{ position: "absolute", left: 34, top: 34, width: 110, height: 110, borderRadius: 26 }} />
             <div style={{ position: "absolute", left: 34, bottom: 34 }}>
               <div style={{ fontFamily: "Fraunces", fontSize: 92, color: INK, lineHeight: 1 }}>Needle</div>
@@ -307,18 +309,18 @@ export const Bento: React.FC = () => {
             </div>
           </Card>
 
-          <Card col="3 / 5" row="1 / 3" tint="#2A1414" delay={4}>
+          <Card col="3 / 5" row="1 / 3" tint="#2A1414" delay={8}>
             <Crop src="album2" top={180} w={460} style={{ left: 100, top: 30 }} />
             <div style={{ position: "absolute", inset: 0, background: "linear-gradient(transparent 45%, #2A1414 80%)" }} />
             <Label big="Cover colours" small="Every page takes its album's colours." />
           </Card>
 
-          <Card col="5 / 7" row="1 / 2" tint="#1C2220" delay={8}>
+          <Card col="5 / 7" row="1 / 2" tint="#1C2220" delay={10}>
             <Img src={staticFile("shots/lyrics_crop.png")} style={{ position: "absolute", right: -10, top: -20, width: 270, opacity: 0.85 }} />
             <div style={{ position: "absolute", inset: 0, background: "linear-gradient(90deg, #1C2220 58%, rgba(28,34,32,0.3) 100%)" }} />
             <Label big="Timed lyrics" small="Word by word, LRCLIB and NetEase" size={40} />
           </Card>
-          <Card col="5 / 6" row="2 / 3" tint="#16201A" delay={10}>
+          <Card col="5 / 6" row="2 / 3" tint="#16201A" delay={11}>
             <Badge icon="headphones" color="#8FD3A8" />
             <Label big="Dolby Atmos" small="Played as stereo" size={34} />
           </Card>
@@ -327,37 +329,37 @@ export const Bento: React.FC = () => {
             <Label big="Bit-perfect" small="To USB DACs" size={34} />
           </Card>
 
-          <Card col="1 / 2" row="3 / 5" tint="#1A1816" delay={14}>
+          <Card col="1 / 2" row="3 / 5" tint="#1A1816" delay={13}>
             <Crop src="player_record" top={250} w={290} style={{ left: -6, top: 24 }} />
             <div style={{ position: "absolute", inset: 0, background: "linear-gradient(transparent 40%, #1A1816 75%)" }} />
             <Label big="Your player" small="Record, shape, or square" size={34} />
           </Card>
 
-          <Card col="2 / 4" row="3 / 4" tint="#221C10" delay={16}>
+          <Card col="2 / 4" row="3 / 4" tint="#221C10" delay={14}>
             <Remote color={AMBER} />
             <Label big="Your computer, from your phone" small="Scan a QR code. Play, skip, search, and turn it up." size={36} />
           </Card>
-          <Card col="2 / 3" row="4 / 5" tint="#151B22" delay={18}>
+          <Card col="2 / 3" row="4 / 5" tint="#151B22" delay={15}>
             <Badge icon="server" color="#8EC1F2" />
             <Label big="Navidrome" small="And Subsonic" size={34} />
           </Card>
-          <Card col="3 / 4" row="4 / 5" tint="#221614" delay={20}>
+          <Card col="3 / 4" row="4 / 5" tint="#221614" delay={16}>
             <Badge icon="tune" color="#F2A68E" />
             <Bars color="#F2A68E" />
             <Label big="10-band EQ" small="Crossfeed, balance, mono" size={34} />
           </Card>
 
-          <Card col="4 / 6" row="3 / 5" tint="#101614" delay={22}>
+          <Card col="4 / 6" row="3 / 5" tint="#101614" delay={17}>
             <Img src={staticFile("shots/widget_crop.png")} style={{ position: "absolute", left: 40, top: 44, width: 520 }} />
             <Badge icon="car" color="#8FD3C9" size={64} style={{ left: 40, top: 200 }} />
             <Label big="Widgets & Android Auto" small="Now playing on your home screen and in your car." size={38} />
           </Card>
 
-          <Card col="6 / 7" row="3 / 4" tint="#1E1520" delay={24}>
+          <Card col="6 / 7" row="3 / 4" tint="#1E1520" delay={18}>
             <Badge icon="sparkle" color="#E7A3E0" />
             <Label big="Your year" small="Told back" size={34} />
           </Card>
-          <Card col="6 / 7" row="4 / 5" tint="#1A1E14" delay={26}>
+          <Card col="6 / 7" row="4 / 5" tint="#1A1E14" delay={19}>
             <Badge icon="extension" color="#C4DB8A" />
             <Label big="Plugins" small="Themes, effects, sync" size={34} />
           </Card>
