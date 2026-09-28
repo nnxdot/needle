@@ -61,6 +61,8 @@ import java.io.File
 object Ui {
     val messages = MutableSharedFlow<String>(extraBufferCapacity = 8)
     val sheet = MutableStateFlow<Sheet?>(null)
+    /** The welcome guide, asked for again from Settings › About. */
+    val welcome = MutableStateFlow(false)
 }
 
 sealed interface Sheet {
@@ -68,6 +70,7 @@ sealed interface Sheet {
     data class NewPlaylist(val ids: List<String>, val smart: Boolean = false) : Sheet
     data class EditPlaylist(val id: String) : Sheet
     data object PlayOn : Sheet
+    data class EditTags(val ids: List<String>) : Sheet
 }
 
 fun showMessage(text: String) {
@@ -105,7 +108,8 @@ fun Overlays(snackbar: SnackbarHostState) {
         is Sheet.AddToPlaylist -> AddToPlaylistSheet(s.ids)
         is Sheet.NewPlaylist -> PlaylistDialog(null, s.ids, s.smart)
         is Sheet.EditPlaylist -> PlaylistDialog(s.id, emptyList(), false)
-        Sheet.PlayOn -> PlayOnSheet(context)
+        Sheet.PlayOn -> SpeakersSheet(context)
+        is Sheet.EditTags -> TagEditorDialog(s.ids) { Ui.sheet.value = null }
         null -> {}
     }
 }
@@ -174,7 +178,7 @@ private fun AddToPlaylistSheet(ids: List<String>) {
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(14.dp),
                     ) {
-                        Cover(playlist.artwork, Modifier.size(48.dp), SmallCoverShape)
+                        PlaylistCover(playlist, Modifier.size(48.dp), SmallCoverShape)
                         Column {
                             Text(playlist.name, style = MaterialTheme.typography.bodyLarge)
                             Text(count(playlist.songs.toInt(), "song"), style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -241,66 +245,4 @@ private fun PlaylistDialog(editing: String?, ids: List<String>, smartAtFirst: Bo
         },
         dismissButton = { TextButton(onClick = close) { Text("Cancel") } },
     )
-}
-
-/** Where the music plays: this phone, or a speaker on the network. */
-@OptIn(ExperimentalMaterial3Api::class)
-@Composable
-private fun PlayOnSheet(context: Context) {
-    var outputs by remember { mutableStateOf<List<Output>?>(null) }
-    var current by remember { mutableStateOf("") }
-    val scope = rememberCoroutineScope()
-    LaunchedEffect(Unit) {
-        // Finding speakers needs the phone to listen to the network's announcements.
-        val wifi = context.applicationContext.getSystemService(Context.WIFI_SERVICE) as WifiManager
-        val lock = wifi.createMulticastLock("needle-speakers").apply { setReferenceCounted(false); acquire() }
-        try {
-            current = withContext(Dispatchers.IO) { core.currentOutput() }
-            outputs = withContext(Dispatchers.IO) { runCatching { core.outputs() }.getOrDefault(emptyList()) }
-        } finally {
-            lock.release()
-        }
-    }
-    ModalBottomSheet(onDismissRequest = { Ui.sheet.value = null }) {
-        Column(Modifier.navigationBarsPadding().padding(bottom = 16.dp)) {
-            Text("Play on", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold, modifier = Modifier.padding(horizontal = Edge, vertical = 8.dp))
-            val list = outputs
-            if (list == null) {
-                Row(Modifier.padding(Edge), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                    CircularProgressIndicator(Modifier.size(20.dp), strokeWidth = 2.dp)
-                    Text("Looking for speakers on your network…", color = MaterialTheme.colorScheme.onSurfaceVariant)
-                }
-            }
-            list.orEmpty().forEach { output ->
-                val chosen = output.id == current
-                Row(
-                    Modifier.fillMaxWidth().clickable {
-                        scope.launch(Dispatchers.IO) { runCatching { core.setOutput(output.id) } }
-                        current = output.id
-                        Ui.sheet.value = null
-                    }.padding(horizontal = Edge, vertical = 14.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(16.dp),
-                ) {
-                    Icon(
-                        when (output.kind) {
-                            "phone" -> Icons.Rounded.PhoneAndroid
-                            "Chromecast" -> Icons.Rounded.Cast
-                            else -> Icons.Rounded.Speaker
-                        },
-                        contentDescription = null,
-                        tint = if (chosen) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                    Column(Modifier.weight(1f)) {
-                        Text(output.name, style = MaterialTheme.typography.bodyLarge, color = if (chosen) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface)
-                        if (output.kind != "phone") Text(output.kind, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    }
-                    if (chosen) Icon(Icons.Rounded.CheckCircle, contentDescription = "Playing here", tint = MaterialTheme.colorScheme.primary)
-                }
-            }
-            if (list != null && list.size == 1) {
-                Text("No speakers found. Chromecast, DLNA, and AirPlay speakers on the same Wi-Fi show here.", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(horizontal = Edge, vertical = 8.dp))
-            }
-        }
-    }
 }

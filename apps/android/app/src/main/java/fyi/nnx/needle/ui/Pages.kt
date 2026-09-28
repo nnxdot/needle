@@ -158,7 +158,7 @@ fun DetailFrame(art: String?, title: String, scrolled: () -> Float, menu: (() ->
  * back, and the name grows narrower.
  */
 @Composable
-fun DetailHeader(art: String?, title: String, sub: String?, meta: List<String>, scrolled: () -> Float, onSub: (() -> Unit)? = null, key: String? = null) {
+fun DetailHeader(art: String?, title: String, sub: String?, meta: List<String>, scrolled: () -> Float, onSub: (() -> Unit)? = null, key: String? = null, mosaic: List<String> = emptyList()) {
     val density = androidx.compose.ui.platform.LocalDensity.current
     val squeeze by remember { derivedStateOf { (scrolled() / with(density) { 260.dp.toPx() }).coerceIn(0f, 1f) } }
     Box(Modifier.fillMaxWidth()) {
@@ -167,7 +167,8 @@ fun DetailHeader(art: String?, title: String, sub: String?, meta: List<String>, 
             Modifier.fillMaxWidth().statusBarsPadding().padding(top = 56.dp, start = Edge, end = Edge, bottom = 4.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
-            Cover(
+            Mosaic(
+                mosaic,
                 art,
                 Modifier
                     .fillMaxWidth(0.72f)
@@ -183,6 +184,7 @@ fun DetailHeader(art: String?, title: String, sub: String?, meta: List<String>, 
                     }
                     .then(if (key != null) Modifier.sharedCover(key) else Modifier)
                     .shadow(28.dp, CoverShape, ambientColor = Color.Black, spotColor = Color.Black),
+                seed = title,
             )
             Text(
                 title,
@@ -257,10 +259,22 @@ fun RoundAction(icon: androidx.compose.ui.graphics.vector.ImageVector, label: St
     }
 }
 
-private fun LazyListScope.songList(list: List<Song>, playing: String?, open: (Route) -> Unit, numbered: Boolean, remove: ((Int) -> Unit)? = null) {
+private fun LazyListScope.songList(
+    list: List<Song>,
+    playing: String?,
+    open: (Route) -> Unit,
+    numbered: Boolean,
+    remove: ((Int) -> Unit)? = null,
+    reorder: Reorder? = null,
+) {
     itemsIndexed(list, key = { i, s -> "$i-${s.id}" }) { i, song ->
-        Box(Modifier.entrance(i)) {
-            SongRow(song, playing == song.id, open, number = numbered, remove = remove?.let { r -> { r(i) } }) { play(list, i) }
+        Box(Modifier.entrance(i).then(if (reorder != null) Modifier.reorderRow(reorder, i) else Modifier)) {
+            SongRow(
+                song, playing == song.id, open,
+                number = numbered,
+                remove = remove?.let { r -> { r(i) } },
+                trailing = reorder?.let { r -> { DragHandle(r, i) } },
+            ) { play(list, i) }
         }
     }
 }
@@ -352,6 +366,30 @@ fun PlaylistScreen(route: Route.Playlist, open: (Route) -> Unit) {
     var menu by remember { mutableStateOf(false) }
     val d = detail
     val list = d?.songs.orEmpty()
+    val context = androidx.compose.ui.platform.LocalContext.current
+    val picture = androidx.activity.compose.rememberLauncherForActivityResult(androidx.activity.result.contract.ActivityResultContracts.OpenDocument()) { uri ->
+        val path = uri?.let { copyToCache(context, it) } ?: return@rememberLauncherForActivityResult
+        runCatching { core.setPlaylistPicture(route.id, path) }.onFailure { showMessage(it.message ?: "Could not use that picture") }
+        java.io.File(path).delete()
+        NeedleApp.instance.libraryVersion.value++
+    }
+    val export = androidx.activity.compose.rememberLauncherForActivityResult(androidx.activity.result.contract.ActivityResultContracts.CreateDocument("audio/x-mpegurl")) { uri ->
+        uri ?: return@rememberLauncherForActivityResult
+        NeedleApp.instance.scope.launch(Dispatchers.IO) {
+            runCatching {
+                val file = java.io.File(context.cacheDir, "export.m3u8")
+                core.exportPlaylist(route.id, file.absolutePath)
+                context.contentResolver.openOutputStream(uri)!!.use { out -> file.inputStream().use { it.copyTo(out) } }
+                file.delete()
+            }.onSuccess { showMessage("Exported") }.onFailure { showMessage(it.message ?: "Could not export it") }
+        }
+    }
+    // Put in order: each row gets a handle to drag it by.
+    var arranging by remember { mutableStateOf(false) }
+    val reorder = rememberReorder(list.size) { from, to ->
+        runCatching { core.moveInPlaylist(route.id, from.toUInt(), to.toUInt()) }
+        NeedleApp.instance.libraryVersion.value++
+    }
     val art = summary?.artwork ?: list.firstNotNullOfOrNull { it.artwork }
     val name = d?.name ?: route.name
     DetailFrame(art, name, { state.headerScroll() }, { menu = true }) {
@@ -361,10 +399,17 @@ fun PlaylistScreen(route: Route.Playlist, open: (Route) -> Unit) {
                     art, name, d?.description?.ifBlank { null },
                     listOfNotNull(if (d?.rule != null) "Smart playlist" else "Playlist", d?.let { count(list.size, "song") }, d?.takeIf { list.isNotEmpty() }?.let { length(list) }),
                     { state.headerScroll() },
+                    mosaic = summary?.mosaic.orEmpty(),
                 )
             }
             if (d != null) {
                 item { PlayRow(list) { RoundAction(Icons.Rounded.Edit, "Edit") { Ui.sheet.value = Sheet.EditPlaylist(d.id) } } }
+                if (arranging) item {
+                    Row(Modifier.fillMaxWidth().padding(horizontal = Edge), verticalAlignment = Alignment.CenterVertically) {
+                        Text("Drag the handles to put songs in order", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.weight(1f))
+                        TextButton(onClick = { arranging = false }) { Text("Done") }
+                    }
+                }
             }
             if (detail == null) items(6) { SongPlaceholder() }
             if (d != null && list.isEmpty()) {
@@ -383,9 +428,19 @@ fun PlaylistScreen(route: Route.Playlist, open: (Route) -> Unit) {
             songList(list, playing, open, numbered = false, remove = if (d?.rule == null) { i ->
                 runCatching { core.removeFromPlaylist(route.id, i.toUInt()) }
                 NeedleApp.instance.libraryVersion.value++
-            } else null)
+            } else null, reorder = if (d?.rule == null && arranging) reorder else null)
         }
-        if (menu && d != null) PlaylistSheet(d, art, onDelete = { deleting = true }) { menu = false }
+        if (menu && d != null) PlaylistSheet(
+            d, art,
+            onDelete = { deleting = true },
+            onPicture = { picture.launch(arrayOf("image/*")) },
+            onCovers = {
+                runCatching { core.setPlaylistPicture(d.id, null) }
+                NeedleApp.instance.libraryVersion.value++
+            },
+            onExport = { export.launch("${d.name}.m3u8") },
+            onArrange = if (d.rule == null && list.size > 1) ({ arranging = true }) else null,
+        ) { menu = false }
     }
     if (deleting && d != null) {
         AlertDialog(
@@ -645,6 +700,7 @@ fun SearchScreen(open: (Route) -> Unit) {
             }
         }
     }
+    val hints = remember(query) { if (query.isBlank()) emptyList() else runCatching { core.suggest(query, query.length.toUInt()) }.getOrDefault(emptyList()) }
     Page("Search") { padding, scroll ->
         LazyVerticalGrid(
             columns = GridCells.Fixed(2),
@@ -671,6 +727,21 @@ fun SearchScreen(open: (Route) -> Unit) {
                     ),
                     modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp),
                 )
+            }
+            // Typing a smart rule (rating >= 4, genre = "K-pop"): what can come next, with
+            // the library's own names.
+            if (hints.isNotEmpty()) full {
+                androidx.compose.foundation.lazy.LazyRow(
+                    contentPadding = PaddingValues(horizontal = 16.dp),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    items(hints) { h ->
+                        androidx.compose.material3.SuggestionChip(
+                            onClick = { query = query.substring(0, h.start.toInt()) + h.insert + query.substring(h.end.toInt().coerceAtMost(query.length)) },
+                            label = { Text(h.label) },
+                        )
+                    }
+                }
             }
             if (query.isBlank()) {
                 val list = genres.orEmpty()

@@ -19,6 +19,13 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.PlaylistAdd
 import androidx.compose.material.icons.automirrored.rounded.QueueMusic
 import androidx.compose.material.icons.rounded.Album
+import androidx.compose.material.icons.rounded.GridView
+import androidx.compose.material.icons.rounded.Image
+import androidx.compose.material.icons.rounded.IosShare
+import androidx.compose.material.icons.rounded.SwapVert
+import androidx.compose.material.icons.rounded.CheckCircle
+import androidx.compose.material.icons.rounded.DownloadForOffline
+import androidx.compose.material.icons.rounded.SaveAlt
 import androidx.compose.material.icons.rounded.Delete
 import androidx.compose.material.icons.rounded.Edit
 import androidx.compose.material.icons.rounded.PlayArrow
@@ -161,6 +168,16 @@ fun SongSheet(song: Song, open: ((Route) -> Unit)?, remove: (() -> Unit)?, onDis
             MenuGroup {
                 MenuRow(Icons.AutoMirrored.Rounded.PlaylistAdd, "Add to a playlist") { act { Ui.sheet.value = Sheet.AddToPlaylist(listOf(song.id)) } }
                 if (remove != null) MenuRow(Icons.Rounded.RemoveCircleOutline, "Remove from this playlist") { act(remove) }
+                MenuRow(Icons.Rounded.CheckCircle, "Select") { act { Selection.start(song) } }
+            }
+            MenuGroup {
+                if (song.fromServer()) {
+                    val kept = remember(song.id) { runCatching { core.isKept(song.id) }.getOrDefault(false) }
+                    MenuRow(Icons.Rounded.DownloadForOffline, if (kept) "Stop keeping on this phone" else "Keep on this phone") { act { keepOffline(listOf(song.id), !kept) } }
+                    MenuRow(Icons.Rounded.SaveAlt, "Save to my music") { act { saveToMusic(listOf(song.id)) } }
+                } else {
+                    MenuRow(Icons.Rounded.Edit, "Edit tags") { act { Ui.sheet.value = Sheet.EditTags(listOf(song.id)) } }
+                }
             }
             if (open != null) {
                 MenuGroup {
@@ -275,7 +292,16 @@ fun AlbumSheet(album: fyi.nnx.needle.core.Album, open: ((Route) -> Unit)?, onDis
 
 /** A playlist's menu, from the More button on its page. */
 @Composable
-fun PlaylistSheet(detail: fyi.nnx.needle.core.PlaylistDetail, art: String?, onDelete: () -> Unit, onDismiss: () -> Unit) {
+fun PlaylistSheet(
+    detail: fyi.nnx.needle.core.PlaylistDetail,
+    art: String?,
+    onDelete: () -> Unit,
+    onPicture: () -> Unit = {},
+    onCovers: () -> Unit = {},
+    onExport: () -> Unit = {},
+    onArrange: (() -> Unit)? = null,
+    onDismiss: () -> Unit,
+) {
     val ids = detail.songs.map { it.id }
     ActionSheet(art, detail.name, if (detail.rule != null) "Smart playlist" else count(ids.size, "song"), onDismiss) { act ->
         if (ids.isNotEmpty()) {
@@ -286,6 +312,14 @@ fun PlaylistSheet(detail: fyi.nnx.needle.core.PlaylistDetail, art: String?, onDe
         }
         MenuGroup {
             MenuRow(Icons.Rounded.Edit, "Edit") { act { Ui.sheet.value = Sheet.EditPlaylist(detail.id) } }
+            if (onArrange != null) MenuRow(Icons.Rounded.SwapVert, "Put in order") { act(onArrange) }
+        }
+        MenuGroup {
+            MenuRow(Icons.Rounded.Image, "Choose a picture") { act(onPicture) }
+            MenuRow(Icons.Rounded.GridView, "Use its songs' covers") { act(onCovers) }
+            MenuRow(Icons.Rounded.IosShare, "Export as a playlist file") { act(onExport) }
+        }
+        MenuGroup {
             MenuRow(Icons.Rounded.Delete, "Delete playlist", tint = MaterialTheme.colorScheme.error) { act(onDelete) }
         }
     }

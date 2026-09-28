@@ -56,7 +56,7 @@ class NeedleApp : Application() {
             coverColors = true, ambientColors = false, movingBackdrop = true, backdropBlur = 70f,
             seekStyle = "wave", miniPlayerColored = true, coverShape = "square",
             titleFont = "flex", textScale = 1f, density = "comfortable", accentColor = "", grain = 0f,
-            controlStyle = "expressive", sideButtons = "skip", volumeSlider = false,
+            controlStyle = "expressive", sideButtons = "skip", volumeSlider = false, welcomed = false,
         ),
     )
     /** The app's own look and behaviour (Settings › Appearance). */
@@ -116,6 +116,20 @@ class NeedleApp : Application() {
                 if (heard != null) fyi.nnx.needle.ui.Live.heardAt = android.os.SystemClock.uptimeMillis()
                 _remote.value = heard
                 delay(if (_remoteShown.value) 700 else 1500)
+            }
+        }
+        // A newer Needle, asked about once a day when that is on (Settings › About).
+        scope.launch(Dispatchers.IO) {
+            val prefs = getSharedPreferences("needle", MODE_PRIVATE)
+            val last = prefs.getLong("lastUpdateCheck", 0L)
+            val now = System.currentTimeMillis()
+            val on = runCatching { core.playbackSettings().checkUpdates }.getOrDefault(false)
+            if (on && now - last > 24 * 3600 * 1000L) {
+                delay(8000)
+                runCatching { core.checkUpdate() }.onSuccess { found ->
+                    prefs.edit().putLong("lastUpdateCheck", now).apply()
+                    if (found != null) fyi.nnx.needle.ui.showMessage("Needle ${found.version} is out. Get it in Settings › About.")
+                }
             }
         }
         // Crash reports from earlier runs, when that is on.

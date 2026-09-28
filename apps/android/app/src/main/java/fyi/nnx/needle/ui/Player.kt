@@ -165,7 +165,7 @@ private fun MiniPlayerBody(p: fyi.nnx.needle.core.Playback, song: Song, onOpen: 
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(12.dp),
             ) {
-                Cover(song.artwork, Modifier.size(44.dp).sharedCover("now-${song.id}"), SmallCoverShape)
+                Cover(song.artwork, Modifier.size(44.dp).sharedCover("now-${song.id}"), SmallCoverShape, seed = song.album + song.artist)
                 Column(Modifier.weight(1f)) {
                     Text(song.title, style = MaterialTheme.typography.bodyLarge, maxLines = 1, overflow = TextOverflow.Ellipsis)
                     Text(
@@ -688,6 +688,7 @@ private fun PlayerCover(song: Song, playing: Boolean) {
                 .sharedCover("now-${song.id}")
                 .graphicsLayer { scaleX = scale; scaleY = scale; rotationZ = angle },
             shape,
+            seed = song.album + song.artist,
         )
         // A record's label hole.
         if (app.coverShape == "round") {
@@ -770,7 +771,10 @@ private fun SeekBar(position: Double, duration: Double, playing: Boolean) {
 
 @Composable
 private fun LyricsPanel(song: Song, position: Double, time: () -> Unit) {
-    val lyrics by rememberLoaded(song.id) {
+    // Looked up again after NetEase is added.
+    var retry by remember(song.id) { androidx.compose.runtime.mutableIntStateOf(0) }
+    var askingNetEase by remember(song.id) { mutableStateOf(false) }
+    val lyrics by rememberLoaded(song.id, retry) {
         if (song.onComputer()) {
             pcLyrics(fyi.nnx.needle.core.PcSong(song.id.removePrefix(PcPrefix), song.title, song.artist, song.album, song.duration, song.artwork))
         } else lyrics(song.id)
@@ -795,8 +799,22 @@ private fun LyricsPanel(song: Song, position: Double, time: () -> Unit) {
                 style = MaterialTheme.typography.titleMedium,
                 color = Color.White.copy(alpha = 0.6f),
             )
-            if (lyrics?.instrumental != true && !song.onComputer()) {
-                androidx.compose.material3.TextButton(onClick = time) { Text("Add and time them", color = Color.White) }
+            if (lyrics?.instrumental != true) {
+                // NetEase has timed lyrics for a great many songs, K-pop and J-pop above all.
+                androidx.compose.material3.TextButton(
+                    enabled = !askingNetEase,
+                    onClick = {
+                        askingNetEase = true
+                        NeedleApp.instance.scope.launch {
+                            kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) { runCatching { core.addNetease(song.id.removePrefix(PcPrefix)) } }
+                            showMessage("Looking on NetEase…")
+                            kotlinx.coroutines.delay(1500)
+                            retry++
+                            askingNetEase = false
+                        }
+                    },
+                ) { Text(if (askingNetEase) "Looking…" else "Also look on NetEase", color = Color.White) }
+                if (!song.onComputer()) androidx.compose.material3.TextButton(onClick = time) { Text("Add and time them", color = Color.White) }
             }
         }
         lines.isEmpty() -> LazyColumn(Modifier.fillMaxSize()) {
@@ -839,6 +857,9 @@ private fun LyricsPanel(song: Song, position: Double, time: () -> Unit) {
 private fun UpNextPanel(version: ULong) {
     val songs by rememberLoaded(version) { Controls.upNext() }
     val list = songs.orEmpty()
+    val onComputer = list.firstOrNull()?.onComputer() == true
+    // Up next on this phone can be put in order by dragging a song's handle.
+    val reorder = rememberReorder(list.size) { from, to -> core.moveUpNext(from.toUInt(), to.toUInt()) }
     Column(Modifier.fillMaxHeight()) {
         Text("Up next", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, modifier = Modifier.padding(vertical = 8.dp))
         if (songs != null && list.isEmpty()) {
@@ -853,6 +874,7 @@ private fun UpNextPanel(version: ULong) {
                     if (dismiss.currentValue != SwipeToDismissBoxValue.Settled && !song.onComputer()) core.removeUpNext(i.toUInt())
                 }
                 SwipeToDismissBox(
+                    modifier = if (onComputer) Modifier else Modifier.reorderRow(reorder, i),
                     state = dismiss,
                     backgroundContent = {
                         // Only while a row is being swiped; the rows themselves are see-through.
@@ -867,11 +889,12 @@ private fun UpNextPanel(version: ULong) {
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(12.dp),
                     ) {
-                        Cover(song.artwork, Modifier.size(44.dp), SmallCoverShape)
+                        Cover(song.artwork, Modifier.size(44.dp), SmallCoverShape, seed = song.album + song.artist)
                         Column(Modifier.weight(1f)) {
                             Text(song.title, style = MaterialTheme.typography.bodyLarge, maxLines = 1, overflow = TextOverflow.Ellipsis)
                             Text(song.artist, style = MaterialTheme.typography.bodyMedium, color = Color.White.copy(alpha = 0.6f), maxLines = 1, overflow = TextOverflow.Ellipsis)
                         }
+                        if (!onComputer) DragHandle(reorder, i, tint = Color.White.copy(alpha = 0.7f))
                     }
                 }
             }

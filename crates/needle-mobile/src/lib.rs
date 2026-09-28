@@ -26,6 +26,7 @@ mod media;
 mod more;
 mod plugins;
 mod settings;
+mod tools;
 
 /// Android's log (logcat), for crashes on the Rust side, which would otherwise go nowhere.
 #[cfg(target_os = "android")]
@@ -150,6 +151,8 @@ pub struct Playlist {
     /// Its own picture, or the first cover among its songs.
     pub artwork: Option<String>,
     pub songs: u32,
+    /// Up to four different covers of its songs, for a mosaic when it has no picture of its own.
+    pub mosaic: Vec<String>,
 }
 
 #[derive(Clone, uniffi::Record)]
@@ -376,7 +379,19 @@ impl Needle {
         let mut out = vec![];
         for playlist in self.library.playlists()? {
             let tracks = self.library.playlist_tracks(&playlist)?;
+            let mut mosaic: Vec<String> = vec![];
+            if playlist.cover.is_none() {
+                for a in tracks.iter().filter_map(|t| t.artwork.clone()) {
+                    if !mosaic.contains(&a) {
+                        mosaic.push(a);
+                    }
+                    if mosaic.len() == 4 {
+                        break;
+                    }
+                }
+            }
             out.push(Playlist {
+                mosaic,
                 artwork: playlist
                     .cover
                     .clone()
