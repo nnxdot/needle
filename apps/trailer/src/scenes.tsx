@@ -1,5 +1,5 @@
 import React from "react";
-import { AbsoluteFill, Easing, Img, interpolate, staticFile, useCurrentFrame } from "remotion";
+import { AbsoluteFill, Easing, Img, interpolate, spring, staticFile, useCurrentFrame, useVideoConfig } from "remotion";
 import { AMBER, EASE, Headline, INK, MUTED, Phone, Scene, useRise } from "./ui";
 
 // ---------- 1. Opening: the record, then the line.
@@ -169,23 +169,47 @@ export const Tour: React.FC = () => {
 type Tile = { col: string; row: string; children: React.ReactNode; tint?: string; delay: number };
 
 const Card: React.FC<Tile> = ({ col, row, children, tint = "#1A1816", delay }) => {
-  const t = useRise(delay, 14);
+  const frame = useCurrentFrame();
+  const { fps } = useVideoConfig();
+  // Springs in, tipped back a little, and settles with a soft overshoot; then floats.
+  const t = spring({ frame: frame - delay, fps, config: { damping: 13, stiffness: 140, mass: 0.7 } });
+  const o = interpolate(frame, [delay, delay + 6], [0, 1], { extrapolateLeft: "clamp", extrapolateRight: "clamp" });
+  const float = Math.sin((frame + delay * 7) / 22) * 4;
   return (
-    <div
-      style={{
-        gridColumn: col,
-        gridRow: row,
-        background: tint,
-        borderRadius: 36,
-        overflow: "hidden",
-        position: "relative",
-        opacity: t,
-        scale: interpolate(t, [0, 1], [0.92, 1]),
-        boxShadow: "inset 0 0 0 1px rgba(255,255,255,0.06)",
-      }}
-    >
-      {children}
+    <div style={{ gridColumn: col, gridRow: row, perspective: 1400 }}>
+      <div
+        style={{
+          width: "100%",
+          height: "100%",
+          background: tint,
+          borderRadius: 36,
+          overflow: "hidden",
+          position: "relative",
+          opacity: o,
+          transform: `translateY(${(1 - t) * 60 + float}px) scale(${interpolate(t, [0, 1], [0.86, 1])}) rotateX(${(1 - t) * 18}deg)`,
+          boxShadow: "inset 0 0 0 1px rgba(255,255,255,0.06)",
+        }}
+      >
+        {children}
+        <Sheen at={46 + delay * 2} />
+      </div>
     </div>
+  );
+};
+
+/** A soft band of light that sweeps across a tile once; tile after tile, it reads as one sweep. */
+const Sheen: React.FC<{ at: number }> = ({ at }) => {
+  const frame = useCurrentFrame();
+  const x = interpolate(frame, [at, at + 36], [-40, 140], { extrapolateLeft: "clamp", extrapolateRight: "clamp", easing: Easing.inOut(Easing.cubic) });
+  if (frame < at || frame > at + 36) return null;
+  return (
+    <AbsoluteFill
+      style={{
+        pointerEvents: "none",
+        mixBlendMode: "screen",
+        background: `linear-gradient(105deg, transparent ${x - 18}%, rgba(255,240,220,0.10) ${x}%, transparent ${x + 18}%)`,
+      }}
+    />
   );
 };
 
