@@ -204,6 +204,82 @@ const Crop: React.FC<{ src: string; top?: number; w: number; style?: React.CSSPr
   />
 );
 
+/** Material icons (rounded set), as SVG paths on a 24-unit grid. */
+const ICONS: Record<string, string> = {
+  headphones: "M12 1c-4.97 0-9 4.03-9 9v7c0 1.66 1.34 3 3 3h3v-8H5v-2c0-3.87 3.13-7 7-7s7 3.13 7 7v2h-4v8h3c1.66 0 3-1.34 3-3v-7c0-4.97-4.03-9-9-9z",
+  usb: "M15 7v4h1v2h-3V5h2l-3-4-3 4h2v8H8v-2.07c.7-.37 1.2-1.08 1.2-1.93 0-1.21-.99-2.2-2.2-2.2-1.21 0-2.2.99-2.2 2.2 0 .85.5 1.56 1.2 1.93V13c0 1.11.89 2 2 2h3v3.05c-.71.37-1.2 1.1-1.2 1.95 0 1.22.99 2.2 2.2 2.2 1.21 0 2.2-.98 2.2-2.2 0-.85-.49-1.58-1.2-1.95V15h3c1.11 0 2-.89 2-2v-2h1V7h-4z",
+  computer: "M20 18c1.1 0 1.99-.9 1.99-2L22 6c0-1.1-.9-2-2-2H4c-1.1 0-2 .9-2 2v10c0 1.1.9 2 2 2H0v2h24v-2h-4zM4 6h16v10H4V6z",
+  phone: "M17 1.01L7 1c-1.1 0-2 .9-2 2v18c0 1.1.9 2 2 2h10c1.1 0 2-.9 2-2V3c0-1.1-.9-1.99-2-1.99zM17 19H7V5h10v14z",
+  server: "M20 13H4c-.55 0-1 .45-1 1v6c0 .55.45 1 1 1h16c.55 0 1-.45 1-1v-6c0-.55-.45-1-1-1zM7 19c-1.1 0-2-.9-2-2s.9-2 2-2 2 .9 2 2-.9 2-2 2zM20 3H4c-.55 0-1 .45-1 1v6c0 .55.45 1 1 1h16c.55 0 1-.45 1-1V4c0-.55-.45-1-1-1zM7 9c-1.1 0-2-.9-2-2s.9-2 2-2 2 .9 2 2-.9 2-2 2z",
+  tune: "M3 17v2h6v-2H3zM3 5v2h10V5H3zm10 16v-2h8v-2h-8v-2h-2v6h2zM7 9v2H3v2h4v2h2V9H7zm14 4v-2H11v2h10zm-6-4h2V7h4V5h-4V3h-2v6z",
+  sparkle: "M19 9l1.25-2.75L23 5l-2.75-1.25L19 1l-1.25 2.75L15 5l2.75 1.25L19 9zm-7.5.5L9 4 6.5 9.5 1 12l5.5 2.5L9 20l2.5-5.5L17 12l-5.5-2.5zM19 15l-1.25 2.75L15 19l2.75 1.25L19 23l1.25-2.75L23 19l-2.75-1.25L19 15z",
+  extension: "M20.5 11H19V7c0-1.1-.9-2-2-2h-4V3.5C13 2.12 11.88 1 10.5 1S8 2.12 8 3.5V5H4c-1.1 0-1.99.9-1.99 2v3.8H3.5c1.49 0 2.7 1.21 2.7 2.7s-1.21 2.7-2.7 2.7H2V20c0 1.1.9 2 2 2h3.8v-1.5c0-1.49 1.21-2.7 2.7-2.7 1.49 0 2.7 1.21 2.7 2.7V22H17c1.1 0 2-.9 2-2v-4h1.5c1.38 0 2.5-1.12 2.5-2.5S21.88 11 20.5 11z",
+  car: "M18.92 6.01C18.72 5.42 18.16 5 17.5 5h-11c-.66 0-1.21.42-1.42 1.01L3 12v8c0 .55.45 1 1 1h1c.55 0 1-.45 1-1v-1h12v1c0 .55.45 1 1 1h1c.55 0 1-.45 1-1v-8l-2.08-5.99zM6.5 16c-.83 0-1.5-.67-1.5-1.5S5.67 13 6.5 13s1.5.67 1.5 1.5S7.33 16 6.5 16zm11 0c-.83 0-1.5-.67-1.5-1.5s.67-1.5 1.5-1.5 1.5.67 1.5 1.5-.67 1.5-1.5 1.5zM5 11l1.5-4.5h11L19 11H5z",
+};
+
+/** The app's scalloped "cookie" shape (nine soft bumps), as an SVG path around (50, 50). */
+const cookie = (() => {
+  const pts: string[] = [];
+  for (let i = 0; i <= 180; i++) {
+    const a = (i / 180) * Math.PI * 2;
+    const r = 44 + 4.5 * Math.cos(a * 9);
+    pts.push(`${(50 + r * Math.cos(a)).toFixed(2)},${(50 + r * Math.sin(a)).toFixed(2)}`);
+  }
+  return `M${pts.join("L")}Z`;
+})();
+
+/** An icon in the cookie shape, slowly turning, as the app shows its icons. */
+const Badge: React.FC<{ icon: string; color: string; size?: number; style?: React.CSSProperties }> = ({ icon, color, size = 64, style }) => {
+  const frame = useCurrentFrame();
+  return (
+    <div style={{ position: "absolute", left: 26, top: 24, width: size, height: size, ...style }}>
+      <svg viewBox="0 0 100 100" width={size} height={size} style={{ position: "absolute", rotate: `${frame * 0.4}deg` }}>
+        <path d={cookie} fill={color} />
+      </svg>
+      <svg viewBox="0 0 24 24" width={size * 0.48} height={size * 0.48} style={{ position: "absolute", left: size * 0.26, top: size * 0.26 }}>
+        <path d={ICONS[icon]} fill="#15120E" />
+      </svg>
+    </div>
+  );
+};
+
+/** Equalizer bars that move, for the EQ tile. */
+const Bars: React.FC<{ color: string }> = ({ color }) => {
+  const frame = useCurrentFrame();
+  return (
+    <div style={{ position: "absolute", right: 28, top: 28, display: "flex", gap: 6, alignItems: "flex-end", height: 56 }}>
+      {Array.from({ length: 8 }).map((_, i) => (
+        <div
+          key={i}
+          style={{
+            width: 9,
+            borderRadius: 5,
+            background: color,
+            opacity: 0.35 + (i % 3) * 0.2,
+            height: 12 + 44 * (0.5 + 0.5 * Math.sin(frame / (6 + i) + i * 1.3)),
+          }}
+        />
+      ))}
+    </div>
+  );
+};
+
+/** A phone and a computer joined by a moving dotted line, for the remote tile. */
+const Remote: React.FC<{ color: string }> = ({ color }) => {
+  const frame = useCurrentFrame();
+  return (
+    <div style={{ position: "absolute", left: 30, top: 28, display: "flex", alignItems: "center", gap: 18 }}>
+      <Badge icon="phone" color={color} size={70} style={{ position: "relative", left: 0, top: 0 }} />
+      <div style={{ display: "flex", gap: 10 }}>
+        {Array.from({ length: 7 }).map((_, i) => (
+          <div key={i} style={{ width: 9, height: 9, borderRadius: 5, background: color, opacity: 0.25 + 0.75 * Math.max(0, Math.sin(frame / 5 - i * 0.6)) }} />
+        ))}
+      </div>
+      <Badge icon="computer" color={color} size={70} style={{ position: "relative", left: 0, top: 0 }} />
+    </div>
+  );
+};
+
 export const Bento: React.FC = () => {
   const frame = useCurrentFrame();
   // The finale: the grid settles, then the whole of it breathes in a touch.
@@ -243,9 +319,11 @@ export const Bento: React.FC = () => {
             <Label big="Timed lyrics" small="Word by word, LRCLIB and NetEase" size={40} />
           </Card>
           <Card col="5 / 6" row="2 / 3" tint="#16201A" delay={10}>
+            <Badge icon="headphones" color="#8FD3A8" />
             <Label big="Dolby Atmos" small="Played as stereo" size={34} />
           </Card>
           <Card col="6 / 7" row="2 / 3" tint="#1B1A24" delay={12}>
+            <Badge icon="usb" color="#A9A6F0" />
             <Label big="Bit-perfect" small="To USB DACs" size={34} />
           </Card>
 
@@ -256,24 +334,31 @@ export const Bento: React.FC = () => {
           </Card>
 
           <Card col="2 / 4" row="3 / 4" tint="#221C10" delay={16}>
+            <Remote color={AMBER} />
             <Label big="Your computer, from your phone" small="Scan a QR code. Play, skip, search, and turn it up." size={36} />
           </Card>
-          <Card col="2 / 3" row="4 / 5" delay={18}>
+          <Card col="2 / 3" row="4 / 5" tint="#151B22" delay={18}>
+            <Badge icon="server" color="#8EC1F2" />
             <Label big="Navidrome" small="And Subsonic" size={34} />
           </Card>
-          <Card col="3 / 4" row="4 / 5" delay={20}>
+          <Card col="3 / 4" row="4 / 5" tint="#221614" delay={20}>
+            <Badge icon="tune" color="#F2A68E" />
+            <Bars color="#F2A68E" />
             <Label big="10-band EQ" small="Crossfeed, balance, mono" size={34} />
           </Card>
 
           <Card col="4 / 6" row="3 / 5" tint="#101614" delay={22}>
             <Img src={staticFile("shots/widget_crop.png")} style={{ position: "absolute", left: 40, top: 44, width: 520 }} />
+            <Badge icon="car" color="#8FD3C9" size={64} style={{ left: 40, top: 200 }} />
             <Label big="Widgets & Android Auto" small="Now playing on your home screen and in your car." size={38} />
           </Card>
 
           <Card col="6 / 7" row="3 / 4" tint="#1E1520" delay={24}>
+            <Badge icon="sparkle" color="#E7A3E0" />
             <Label big="Your year" small="Told back" size={34} />
           </Card>
-          <Card col="6 / 7" row="4 / 5" delay={26}>
+          <Card col="6 / 7" row="4 / 5" tint="#1A1E14" delay={26}>
+            <Badge icon="extension" color="#C4DB8A" />
             <Label big="Plugins" small="Themes, effects, sync" size={34} />
           </Card>
         </div>
