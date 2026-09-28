@@ -1,36 +1,47 @@
-import { Composition, Series } from "remotion";
+import { Audio } from "@remotion/media";
+import { Composition, interpolate, Series, staticFile } from "remotion";
 import { Bento, Colour, Intro, Lyrics, Player, Tour } from "./scenes";
 
+// The music: Justice, Tame Impala, "Neverender" (Rampa Remix), 120 beats a minute, so a bar
+// is 2 s (60 frames). It starts 4 s before its drop (1:52.017), and the drop lands as the first
+// scene of the app appears; every scene is a whole number of bars.
+const FPS = 30;
+const DROP = 112.017;
+const LEAD = 4;
+const LENGTH = 1020;
+
 export const Trailer: React.FC = () => (
-  <Series>
-    <Series.Sequence durationInFrames={105} name="Intro">
-      <Intro />
-    </Series.Sequence>
-    <Series.Sequence durationInFrames={150} name="Colour">
-      <Colour />
-    </Series.Sequence>
-    <Series.Sequence durationInFrames={150} name="Player">
-      <Player />
-    </Series.Sequence>
-    <Series.Sequence durationInFrames={135} name="Lyrics">
-      <Lyrics />
-    </Series.Sequence>
-    <Series.Sequence durationInFrames={180} name="Tour">
-      <Tour />
-    </Series.Sequence>
-    <Series.Sequence durationInFrames={240} name="Bento">
-      <Bento />
-    </Series.Sequence>
-  </Series>
+  <>
+    <Audio
+      src={staticFile("music.m4a")}
+      trimBefore={Math.round((DROP - LEAD) * FPS)}
+      volume={(f) =>
+        interpolate(f, [0, 20, LENGTH - 60, LENGTH], [0, 1, 1, 0], { extrapolateLeft: "clamp", extrapolateRight: "clamp" })
+      }
+    />
+    <Series>
+      <Series.Sequence durationInFrames={120} name="Intro">
+        <Intro />
+      </Series.Sequence>
+      <Series.Sequence durationInFrames={180} name="Colour">
+        <Colour />
+      </Series.Sequence>
+      <Series.Sequence durationInFrames={180} name="Player">
+        <Player />
+      </Series.Sequence>
+      <Series.Sequence durationInFrames={120} name="Lyrics">
+        <Lyrics />
+      </Series.Sequence>
+      <Series.Sequence durationInFrames={180} name="Tour">
+        <Tour />
+      </Series.Sequence>
+      <Series.Sequence durationInFrames={240} name="Bento">
+        <Bento />
+      </Series.Sequence>
+    </Series>
+  </>
 );
 
 export const MyComposition = () => (
-  <Composition
-    id="NeedleAndroid"
-    component={Trailer}
-    durationInFrames={960}
-    fps={30}
-    width={1920}
-    height={1080}
-  />
+  <Composition id="NeedleAndroid" component={Trailer} durationInFrames={LENGTH} fps={FPS} width={1920} height={1080} />
 );
