@@ -84,9 +84,12 @@ class NeedleApp : Application() {
             while (isActive) {
                 val local = core.playback()
                 val pc = _remote.value
-                val showPc = pc?.current != null && !local.playing && (pc.playing || local.current == null)
+                // Once shown, the computer's player stays while nothing plays here, so pausing
+                // the computer does not swap it for the phone's paused song.
+                val showPc = pc?.current != null && !local.playing &&
+                    (pc.playing || local.current == null || _remoteShown.value)
                 _remoteShown.value = showPc
-                val playback = if (showPc) pc!!.asPlayback() else local
+                val playback = if (showPc) fyi.nnx.needle.ui.Live.shape(pc!!).asPlayback() else local
                 _playback.value = playback
                 // The widgets follow the song and play or pause.
                 val now = playback.current?.id to playback.playing
@@ -109,8 +112,10 @@ class NeedleApp : Application() {
         // Needle on the computer, once a second while connected to it.
         scope.launch(Dispatchers.IO) {
             while (isActive) {
-                _remote.value = if (core.pcConnected()) runCatching { core.pcState() }.getOrNull() else null
-                delay(1000)
+                val heard = if (core.pcConnected()) runCatching { core.pcState() }.getOrNull() else null
+                if (heard != null) fyi.nnx.needle.ui.Live.heardAt = android.os.SystemClock.uptimeMillis()
+                _remote.value = heard
+                delay(if (_remoteShown.value) 700 else 1500)
             }
         }
         // Crash reports from earlier runs, when that is on.

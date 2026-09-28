@@ -468,7 +468,7 @@ private fun VolumeRow(computer: Boolean) {
     val context = androidx.compose.ui.platform.LocalContext.current
     val audio = remember { context.getSystemService(android.content.Context.AUDIO_SERVICE) as android.media.AudioManager }
     val stream = android.media.AudioManager.STREAM_MUSIC
-    val remote by NeedleApp.instance.remote.collectAsState()
+    val playback by NeedleApp.instance.playback.collectAsState()
     var held by remember { mutableStateOf<Float?>(null) }
     // The phone's volume can change by its buttons, so it is read again every half second.
     var phone by remember { mutableFloatStateOf(audio.getStreamVolume(stream).toFloat() / audio.getStreamMaxVolume(stream)) }
@@ -478,22 +478,19 @@ private fun VolumeRow(computer: Boolean) {
             kotlinx.coroutines.delay(500)
         }
     }
-    val value = held ?: if (computer) remote?.volume ?: 1f else phone
+    val value = held ?: if (computer) playback?.volume ?: 1f else phone
     Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth().padding(bottom = 10.dp)) {
         Icon(Icons.AutoMirrored.Rounded.VolumeDown, contentDescription = null, tint = Color.White.copy(alpha = 0.7f))
         androidx.compose.material3.Slider(
             value = value,
             onValueChange = { v ->
                 held = v
-                if (!computer) audio.setStreamVolume(stream, (v * audio.getStreamMaxVolume(stream)).toInt(), 0)
+                if (computer) Controls.volume(v, final = false)
+                else audio.setStreamVolume(stream, (v * audio.getStreamMaxVolume(stream)).toInt(), 0)
             },
             onValueChangeFinished = {
                 val v = held
-                if (computer && v != null) {
-                    NeedleApp.instance.scope.launch(kotlinx.coroutines.Dispatchers.IO) {
-                        runCatching { core.pcVolume(v) }.onFailure { showMessage(it.message ?: "Your computer did not answer") }
-                    }
-                }
+                if (computer && v != null) Controls.volume(v, final = true)
                 if (!computer && v != null) phone = v
                 held = null
             },

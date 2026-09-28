@@ -64,10 +64,27 @@ object Controls {
         }
     }
 
-    fun toggle() = if (onComputer()) pc { core.pcDo("toggle") } else core.toggle()
+    fun toggle() = if (onComputer()) {
+        Live.toggled(NeedleApp.instance.playback.value?.playing != true)
+        pc { core.pcDo("toggle") }
+    } else core.toggle()
     fun next() = if (onComputer()) pc { core.pcDo("next") } else core.next()
     fun previous() = if (onComputer()) pc { core.pcDo("previous") } else core.previous()
-    fun seek(seconds: Double) = if (onComputer()) pc { core.pcSeek(seconds) } else core.seek(seconds)
+    fun seek(seconds: Double) = if (onComputer()) {
+        Live.seeked(seconds)
+        pc { core.pcSeek(seconds) }
+    } else core.seek(seconds)
+
+    /** The computer's volume: shown at once, sent at most a few times a second while dragged. */
+    private var lastVolumeSent = 0L
+    fun volume(value: Float, final: Boolean) {
+        Live.volumed(value)
+        val t = android.os.SystemClock.uptimeMillis()
+        if (final || t - lastVolumeSent > 120) {
+            lastVolumeSent = t
+            pc { core.pcVolume(value) }
+        }
+    }
     fun shuffle() = if (onComputer()) pc { core.pcDo("shuffle") } else core.shuffle()
 
     fun setRepeat(mode: RepeatMode) = if (onComputer()) {
@@ -91,4 +108,52 @@ object Controls {
     fun upNext(): List<Song> =
         if (onComputer()) NeedleApp.instance.remote.value?.upNext?.map { it.asSong() }.orEmpty()
         else runCatching { core.upNext() }.getOrDefault(emptyList())
+}
+
+/**
+ * The computer is heard from about once a second. So the player never jumps, the phone fills
+ * in between: the song's place moves on by itself while it plays, and what the listener just
+ * did (play or pause, a new place, a new volume) shows at once and is kept until the computer
+ * says the same, or for a few seconds if it never does.
+ */
+object Live {
+    /** When the last state came from the computer (uptime, ms). */
+    @Volatile var heardAt = 0L
+
+    private class Wish<T>(val value: T, val at: Long)
+
+    @Volatile private var seek: Wish<Double>? = null
+    @Volatile private var playing: Wish<Boolean>? = null
+    @Volatile private var volume: Wish<Float>? = null
+
+    private const val KEEP = 3000L
+    private fun now() = android.os.SystemClock.uptimeMillis()
+
+    fun seeked(seconds: Double) { seek = Wish(seconds, now()) }
+    fun toggled(to: Boolean) { playing = Wish(to, now()) }
+    fun volumed(value: Float) { volume = Wish(value, now()) }
+
+    /** The computer's state, with the listener's wishes over it and the place moved on. */
+    fun shape(pc: PcState): PcState {
+        val t = now()
+        val wantPlay = playing?.takeIf { t - it.at < KEEP && it.value != pc.playing }
+        if (wantPlay == null) playing = null
+        val isPlaying = wantPlay?.value ?: pc.playing
+
+        // Where the song is: from the wished place (until the computer is near it), or from
+        // the last one heard, moved on by the time since while it plays.
+        val wantSeek = seek?.let { w ->
+            val expected = w.value + if (isPlaying) (t - w.at) / 1000.0 else 0.0
+            w.takeIf { t - w.at < KEEP && kotlin.math.abs(pc.position - expected) > 1.5 }
+        }
+        if (wantSeek == null) seek = null
+        val (base, since) = if (wantSeek != null) wantSeek.value to wantSeek.at else pc.position to heardAt
+        val length = pc.current?.duration ?: Double.MAX_VALUE
+        val position = (base + if (isPlaying) (t - since).coerceAtLeast(0) / 1000.0 else 0.0).coerceIn(0.0, length)
+
+        val wantVolume = volume?.takeIf { t - it.at < KEEP && kotlin.math.abs(it.value - pc.volume) > 0.02f }
+        if (wantVolume == null) volume = null
+
+        return pc.copy(playing = isPlaying, position = position, volume = wantVolume?.value ?: pc.volume)
+    }
 }
