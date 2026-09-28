@@ -10,15 +10,6 @@ export const BEAT = 15;
 const clamp = { extrapolateLeft: "clamp", extrapolateRight: "clamp" } as const;
 const SNAP = Easing.bezier(0.2, 0.9, 0.1, 1);
 
-/** How far into the current beat we are, 0 → 1, and which beat it is. */
-const useBeat = () => {
-  const frame = useCurrentFrame();
-  return { n: Math.floor(frame / BEAT), t: (frame % BEAT) / BEAT, frame };
-};
-
-/** A little punch at every beat: 1.06 on the beat, back to 1 before the next. */
-const punch = (t: number, amount = 0.06) => 1 + amount * Math.pow(1 - t, 3);
-
 /**
  * A scene that whips in from the right and out to the left, blurred as it moves, as a fast
  * camera pan does.
@@ -218,46 +209,76 @@ export const Drop: React.FC = () => {
   );
 };
 
-// ---------- 3. Colour: every two beats a new album, the whole screen in its colour.
+// ---------- 3. Colour: the cover's colour pours out of it and fills the screen, then the page.
 
 const colourPages = [
-  { src: "album", bg: "#E9DFA8", ink: "#4A3F0B" },
-  { src: "album2", bg: "#F3B5B0", ink: "#6B1F1A" },
-  { src: "artist", bg: "#D9564E", ink: "#FFF1EE" },
-  { src: "album", bg: "#E9DFA8", ink: "#4A3F0B" },
+  { src: "album", bg: "#E9DC9A", ink: "#3E3408" },
+  { src: "album2", bg: "#F2AFAA", ink: "#5E1814" },
+  { src: "album3", bg: "#8E9BB3", ink: "#141B2B" },
 ];
 
 export const Colour: React.FC = () => {
-  const { frame } = useBeat();
-  const step = Math.min(3, Math.floor(frame / 30));
-  const t = (frame % 30) / 30;
-  const page = colourPages[step];
-  const swing = interpolate(frame % 30, [0, 10], [1, 0], { ...clamp, easing: SNAP });
+  const frame = useCurrentFrame();
+  const { width, height } = useVideoConfig();
+  const STEP = 40;
+  const i = Math.min(colourPages.length - 1, Math.floor(frame / STEP));
+  const f = frame - i * STEP;
+  const page = colourPages[i];
+  const before = i > 0 ? colourPages[i - 1].bg : "#0B0A09";
+  const coverX = width * 0.66;
+  const coverY = height * 0.5;
+  // 1. The cover pops in, in the middle of where the phone will be.
+  const pop = interpolate(f, [0, 7], [0, 1], { ...clamp, easing: SNAP });
+  // 2. Its colour floods out of it in a circle.
+  const flood = interpolate(f, [4, 16], [0, 1], { ...clamp, easing: Easing.bezier(0.5, 0, 0.1, 1) });
+  // 3. The cover shrinks into the phone as its page slides in around it.
+  const settle = interpolate(f, [14, 26], [0, 1], { ...clamp, easing: SNAP });
+  const radius = Math.hypot(width, height) * flood;
+  const H = 880;
   return (
-    <Whip bg={page.bg}>
-      <AbsoluteFill style={{ flexDirection: "row", alignItems: "center", padding: "0 140px", gap: 80 }}>
-        <div style={{ flex: 1 }}>
-          <div style={{ fontSize: 150, fontWeight: 900, letterSpacing: "-0.05em", lineHeight: 0.92, color: page.ink }}>
-            Every
-            <br />
-            album,
-            <br />
-            its own
-            <br />
-            colours.
-          </div>
-        </div>
-        <div style={{ perspective: 2000 }}>
-          <Phone
-            src={page.src}
-            h={900}
-            style={{
-              transform: `translateX(${swing * 300}px) rotateY(${swing * -35 - 8}deg) scale(${punch(t, 0.03)})`,
-              filter: swing > 0.05 ? `blur(${swing * 12}px)` : undefined,
-            }}
-          />
+    <Whip bg={before}>
+      <AbsoluteFill style={{ backgroundColor: page.bg, clipPath: `circle(${radius}px at ${coverX}px ${coverY}px)` }} />
+      {/* The headline, in the album's own ink. */}
+      <AbsoluteFill style={{ justifyContent: "center", paddingLeft: 140 }}>
+        <div style={{ fontSize: 34, fontWeight: 650, color: page.ink, opacity: 0.7, marginBottom: 20, letterSpacing: "-0.01em" }}>Cover colours</div>
+        <div style={{ fontSize: 104, fontWeight: 850, letterSpacing: "-0.045em", lineHeight: 0.98, color: page.ink, width: 760 }}>
+          Every album
+          <br />
+          wears its
+          <br />
+          own colours.
         </div>
       </AbsoluteFill>
+      {/* The phone with the album's page arrives as the colour settles. */}
+      <div
+        style={{
+          position: "absolute",
+          left: coverX - (H * (1080 / 2400)) / 2 - H * 0.014,
+          top: coverY - H / 2,
+          opacity: settle,
+          translate: `0px ${(1 - settle) * 60}px`,
+        }}
+      >
+        <Phone src={page.src} h={H} />
+      </div>
+      {/* The cover itself, large, then gone into the page. */}
+      <Img
+        src={staticFile(`shots/${page.src}_cover.png`)}
+        style={{
+          position: "absolute",
+          width: 520,
+          height: 520,
+          left: coverX - 260,
+          top: coverY - 260,
+          borderRadius: 26,
+          boxShadow: "0 40px 100px rgba(0,0,0,0.35)",
+          opacity: pop * interpolate(settle, [0.7, 1], [1, 0], clamp),
+          // Lands exactly on the cover inside the phone's page (257 px wide, 211 px above the middle).
+          scale: interpolate(pop, [0, 1], [0.6, 1]) * interpolate(settle, [0, 1], [1, 0.49]),
+          translate: `0px ${settle * -211}px`,
+          rotate: `${(1 - pop) * -8}deg`,
+        }}
+      />
     </Whip>
   );
 };
