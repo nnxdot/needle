@@ -66,7 +66,7 @@ fn song(base: &str, v: &Value) -> PcSong {
 }
 
 /// A computer song as a track this phone can play: streamed from the computer.
-fn streamed(song: &PcSong) -> Track {
+pub(crate) fn streamed(song: &PcSong) -> Track {
     Track {
         id: sources::track_id(PC, &song.id),
         path: sources::path_for(PC, &song.id),
@@ -203,6 +203,16 @@ impl Needle {
     /// the list has not changed meanwhile).
     pub fn pc_jump(&self, index: u32, id: String) -> Result<()> {
         self.pc_post("jump", json!({ "index": index, "id": id }))
+    }
+
+    /// Adds the computer's songs `ids` to the end of what is up next there.
+    pub fn pc_enqueue(&self, ids: Vec<String>) -> Result<()> {
+        self.pc_post("enqueue", json!({ "ids": ids }))
+    }
+
+    /// Puts the computer's songs `ids` next in line there.
+    pub fn pc_play_next(&self, ids: Vec<String>) -> Result<()> {
+        self.pc_post("next-up", json!({ "ids": ids }))
     }
 
     pub fn pc_volume(&self, value: f32) -> Result<()> {

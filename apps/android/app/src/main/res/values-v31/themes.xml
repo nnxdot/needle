@@ -1,13 +1,11 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <style name="Theme.Needle" parent="android:Theme.Material.NoActionBar">
-        <item name="android:windowBackground">#201E1D</item>
-    </style>
-    <!-- The splash screen: Needle's record on the Night page, while the app starts. -->
+    <!-- Android 12 and newer: the same splash, with Needle's name at the foot. -->
     <style name="Theme.Needle.Starting" parent="Theme.SplashScreen">
         <item name="windowSplashScreenBackground">#141312</item>
         <item name="windowSplashScreenAnimatedIcon">@drawable/splash_animated</item>
         <item name="windowSplashScreenAnimationDuration">1000</item>
+        <item name="android:windowSplashScreenBrandingImage">@drawable/splash_name</item>
         <item name="postSplashScreenTheme">@style/Theme.Needle</item>
     </style>
 </resources>

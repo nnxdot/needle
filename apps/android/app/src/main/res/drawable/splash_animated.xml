@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- The splash: the record turns, and the arm swings down onto it. -->
+<animated-vector xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:aapt="http://schemas.android.com/aapt"
+    android:drawable="@drawable/splash_record">
+    <target android:name="record">
+        <aapt:attr name="android:animation">
+            <objectAnimator android:propertyName="rotation" android:duration="1000"
+                android:valueFrom="0" android:valueTo="240"
+                android:interpolator="@android:interpolator/linear" />
+        </aapt:attr>
+    </target>
+    <target android:name="arm">
+        <aapt:attr name="android:animation">
+            <objectAnimator android:propertyName="rotation" android:duration="700"
+                android:startOffset="150"
+                android:valueFrom="-38" android:valueTo="0"
+                android:interpolator="@android:interpolator/fast_out_slow_in" />
+        </aapt:attr>
+    </target>
+</animated-vector>
