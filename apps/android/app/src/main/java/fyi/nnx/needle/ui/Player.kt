@@ -260,6 +260,10 @@ fun FullPlayer(onClose: () -> Unit, open: (Route) -> Unit) {
     // Let go short of closing, the player springs back up; closed, it is ready again at the top.
     val shown by animateFloatAsState(if (dragging) pull else 0f, if (dragging) androidx.compose.animation.core.snap() else spring(dampingRatio = 0.8f, stiffness = 400f), label = "pull")
     val closer = androidx.compose.runtime.rememberCoroutineScope()
+    androidx.compose.runtime.DisposableEffect(Unit) {
+        playerShowing.value = true
+        onDispose { playerShowing.value = false }
+    }
 
     CoverTheme(song.artwork, dark = true) {
     Box(
