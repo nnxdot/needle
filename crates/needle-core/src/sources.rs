@@ -332,6 +332,7 @@ pub fn fetch_covers(
     let count = jobs.lock().unwrap_or_else(|e| e.into_inner()).len();
     COVERS_LEFT.fetch_add(count, std::sync::atomic::Ordering::Relaxed);
     let done = std::sync::atomic::AtomicUsize::new(0);
+    let failed = std::sync::atomic::AtomicUsize::new(0);
     let told = Mutex::new(Instant::now());
     std::thread::scope(|scope| {
         // Servers make each small cover on request, so several at once hide the wait.
@@ -363,8 +364,15 @@ pub fn fetch_covers(
                         Ok(path)
                     })();
                     COVERS_LEFT.fetch_sub(1, std::sync::atomic::Ordering::Relaxed);
-                    let Ok(path) = saved else {
-                        continue;
+                    let path = match saved {
+                        Ok(path) => path,
+                        Err(error) => {
+                            // A few, not thousands, when a whole server's covers fail alike.
+                            if failed.fetch_add(1, std::sync::atomic::Ordering::Relaxed) < 3 {
+                                crate::logfile::warn(format!("A cover from a music server: {error:#}"));
+                            }
+                            continue;
+                        }
                     };
                     for id in tracks {
                         if let Ok(Some(mut track)) = library.track(id) {

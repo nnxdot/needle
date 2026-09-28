@@ -667,15 +667,26 @@ private fun PlayerCover(song: Song, playing: Boolean) {
         "shape" -> androidx.compose.material3.MaterialShapes.Cookie12Sided.toShape()
         else -> RoundedCornerShape(12.dp)
     }
+    val depth by animateFloatAsState(if (playing) 1f else 0.4f, tween(350), label = "shadow")
     Box(contentAlignment = Alignment.Center) {
+        // The shadow: a soft dark glow behind the cover, drawn once. A true shadow of a turning
+        // or many-sided shape is worked out again every frame, and freezes slower phones.
+        Box(
+            Modifier
+                .fillMaxWidth()
+                .aspectRatio(1f)
+                .graphicsLayer { scaleX = scale * 0.96f; scaleY = scale * 0.96f; translationY = 18.dp.toPx() * depth; alpha = depth }
+                .background(
+                    Brush.radialGradient(0.55f to Color.Black.copy(alpha = 0.55f), 1f to Color.Transparent),
+                ),
+        )
         Cover(
             song.artwork,
             Modifier
                 .fillMaxWidth()
                 .aspectRatio(1f)
                 .sharedCover("now-${song.id}")
-                .graphicsLayer { scaleX = scale; scaleY = scale; rotationZ = angle }
-                .shadow(if (playing) 32.dp else 12.dp, shape),
+                .graphicsLayer { scaleX = scale; scaleY = scale; rotationZ = angle },
             shape,
         )
         // A record's label hole.
