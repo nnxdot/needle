@@ -14,6 +14,7 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.foundation.layout.fillMaxSize
@@ -110,6 +111,9 @@ fun ColorScheme.with(theme: ThemeInfo): ColorScheme {
     return s
 }
 
+/** True while the full player is on screen, so the status bar icons are white on it. */
+val playerShowing = androidx.compose.runtime.mutableStateOf(false)
+
 /** The look chosen in Settings › Appearance. */
 @OptIn(ExperimentalMaterial3ExpressiveApi::class)
 @Composable
@@ -153,6 +157,17 @@ fun NeedleTheme(content: @Composable () -> Unit) {
         else -> base
     }
     val type = remember(app.titleFont, app.textScale) { needleType(app.titleFont, app.textScale) }
+    // The clock and icons at the top follow Needle's page, not the phone's own light or dark mode.
+    val view = androidx.compose.ui.platform.LocalView.current
+    // The player is always dark, whatever the theme.
+    val lightPage = colors.background.luminance() > 0.5f && !playerShowing.value
+    if (!view.isInEditMode) androidx.compose.runtime.SideEffect {
+        val window = (view.context as? android.app.Activity)?.window ?: return@SideEffect
+        androidx.core.view.WindowCompat.getInsetsController(window, view).apply {
+            isAppearanceLightStatusBars = lightPage
+            isAppearanceLightNavigationBars = lightPage
+        }
+    }
     MaterialExpressiveTheme(
         colorScheme = colors,
         motionScheme = if (reduceMotion()) MotionScheme.standard() else MotionScheme.expressive(),
