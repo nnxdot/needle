@@ -111,41 +111,108 @@ export const Build: React.FC = () => {
   );
 };
 
-// ---------- 2. The drop: the name slams in and the phone flies up.
+/** Where the camera looks: from frame `at`, a scale and a point on the screenshot (0–1). */
+type Shot = { at: number; s: number; fx: number; fy: number; ox?: number };
+
+/**
+ * A camera over a phone: it glides from shot to shot, zooming into the part of the screen
+ * that matters, as Apple's product films do. A little motion blur while it travels.
+ */
+const Camera: React.FC<{ shots: Shot[]; children: React.ReactNode; w: number; h: number; travel?: number }> = ({
+  shots,
+  children,
+  w,
+  h,
+  travel = 14,
+}) => {
+  const frame = useCurrentFrame();
+  let i = 0;
+  while (i + 1 < shots.length && frame >= shots[i + 1].at) i++;
+  const cur = shots[i];
+  const prev = shots[Math.max(0, i - 1)];
+  const k = i === 0 ? 1 : interpolate(frame, [cur.at, cur.at + travel], [0, 1], { ...clamp, easing: SNAP });
+  const s = prev.s + (cur.s - prev.s) * k;
+  const fx = prev.fx + (cur.fx - prev.fx) * k;
+  const fy = prev.fy + (cur.fy - prev.fy) * k;
+  // Where on screen the point sits, from the middle: zoomed shots leave room for words.
+  const ox = (prev.ox ?? 0) + ((cur.ox ?? 0) - (prev.ox ?? 0)) * k;
+  const moving = k > 0 && k < 1 ? Math.sin(k * Math.PI) : 0;
+  return (
+    <div
+      style={{
+        transform: `translateX(${ox}px) scale(${s}) translate(${(0.5 - fx) * w}px, ${(0.5 - fy) * h}px)`,
+        filter: moving > 0.1 ? `blur(${moving * 3}px)` : undefined,
+      }}
+    >
+      {children}
+    </div>
+  );
+};
+
+/** One clean caption that changes with the shot: rises in, then leaves as the next comes. */
+const Caption: React.FC<{ items: { at: number; until: number; big: string; small?: string }[]; style?: React.CSSProperties }> = ({ items, style }) => {
+  const frame = useCurrentFrame();
+  const item = items.find((c) => frame >= c.at && frame < c.until);
+  if (!item) return null;
+  const t = interpolate(frame, [item.at, item.at + 10], [0, 1], { ...clamp, easing: SNAP });
+  const o = interpolate(frame, [item.until - 6, item.until], [1, 0], clamp);
+  return (
+    <div style={{ opacity: t * o, translate: `0px ${(1 - t) * 30}px`, filter: `blur(${(1 - t) * 10}px)`, ...style }}>
+      <div style={{ fontSize: 88, fontWeight: 850, letterSpacing: "-0.04em", color: INK, lineHeight: 1 }}>{item.big}</div>
+      {item.small && <div style={{ fontSize: 34, fontWeight: 500, color: MUTED, marginTop: 16, letterSpacing: "-0.01em" }}>{item.small}</div>}
+    </div>
+  );
+};
+
+// ---------- 2. The drop: the name, the phone, then a tour of its home page up close.
 
 export const Drop: React.FC = () => {
   const frame = useCurrentFrame();
   const white = interpolate(frame, [0, 10], [1, 0], clamp);
   const fly = interpolate(frame, [0, 22], [0, 1], { ...clamp, easing: SNAP });
-  const push = interpolate(frame, [0, 180], [1, 1.1], clamp);
+  const name = interpolate(frame, [30, 44], [1, 0], clamp);
+  const H = 900;
+  const W = H * (1080 / 2400);
   return (
     <Whip enter={false}>
-      <AbsoluteFill style={{ justifyContent: "center", alignItems: "center", scale: push }}>
-        <Slam
-          text="Needle"
-          at={0}
-          size={380}
-          font="Fraunces"
-          weight={600}
-          color="#4A4238"
-          style={{ position: "absolute", top: 250, letterSpacing: "-0.03em" }}
-        />
-        <div style={{ perspective: 2200 }}>
-          <Phone
-            src="home_night"
-            h={900}
-            style={{
-              transform: `translateY(${(1 - fly) * 900}px) rotateX(${(1 - fly) * 55}deg) rotateZ(${(1 - fly) * -12}deg) rotateY(${Math.sin(frame / 40) * 6}deg)`,
-            }}
-          />
-        </div>
+      <AbsoluteFill style={{ justifyContent: "center", alignItems: "center", opacity: name }}>
+        <Slam text="Needle" at={0} size={380} font="Fraunces" weight={600} color="#4A4238" style={{ letterSpacing: "-0.03em" }} />
       </AbsoluteFill>
-      <AbsoluteFill style={{ justifyContent: "center", paddingLeft: 120 }}>
-        <Slam text={<>Now on<br />Android.</>} at={45} size={120} />
+      <AbsoluteFill style={{ justifyContent: "center", alignItems: "center" }}>
+        <Camera
+          w={W}
+          h={H}
+          shots={[
+            { at: 0, s: 1, fx: 0.5, fy: 0.5 },
+            { at: 45, s: 2.1, fx: 0.4, fy: 0.37, ox: 380 },
+            { at: 90, s: 2.6, fx: 0.5, fy: 0.6, ox: 380 },
+            { at: 120, s: 2.4, fx: 0.5, fy: 0.9, ox: 380 },
+            { at: 150, s: 1.05, fx: 0.5, fy: 0.5 },
+          ]}
+        >
+          <div style={{ perspective: 2200 }}>
+            <Phone
+              src="home_night"
+              h={H}
+              style={{ transform: `translateY(${(1 - fly) * 900}px) rotateX(${(1 - fly) * 55}deg) rotateZ(${(1 - fly) * -12}deg)` }}
+            />
+          </div>
+        </Camera>
       </AbsoluteFill>
-      <AbsoluteFill style={{ justifyContent: "center", alignItems: "flex-end", paddingRight: 140 }}>
-        <Slam text={<>Made for<br />your music.</>} at={75} size={120} color={AMBER} style={{ textAlign: "right" }} />
-      </AbsoluteFill>
+      <AbsoluteFill
+        style={{
+          background: "linear-gradient(90deg, rgba(11,10,9,0.95) 0%, rgba(11,10,9,0.8) 30%, transparent 50%)",
+          opacity: interpolate(frame, [45, 58, 145, 155], [0, 1, 1, 0], clamp),
+        }}
+      />
+      <Caption
+        style={{ position: "absolute", left: 120, top: 440, width: 700 }}
+        items={[
+          { at: 50, until: 90, big: "Now on Android.", small: "Your library, on your phone." },
+          { at: 95, until: 120, big: "Built around you.", small: "Your year, and your computer." },
+          { at: 125, until: 150, big: "One tap away.", small: "The player follows you everywhere." },
+        ]}
+      />
       <AbsoluteFill style={{ backgroundColor: "#fff", opacity: white }} />
     </Whip>
   );
@@ -195,50 +262,60 @@ export const Colour: React.FC = () => {
   );
 };
 
-// ---------- 4. The player: its look changes on every beat.
+// ---------- 4. The player: four looks, the camera on what each one changes.
 
 const looks = [
-  { src: "player_record", word: "Record." },
-  { src: "player_shape", word: "Shape." },
-  { src: "player_expressive", word: "Square." },
-  { src: "player", word: "Minimal." },
+  { src: "player_record", big: "A turning record.", fy: 0.35, s: 1.9 },
+  { src: "player_shape", big: "Material shapes.", fy: 0.35, s: 1.9 },
+  { src: "player_expressive", big: "Expressive buttons.", fy: 0.76, s: 2.3 },
+  { src: "player", big: "Or keep it simple.", fy: 0.72, s: 1.7 },
 ];
 
 export const Player: React.FC = () => {
-  const { n, t, frame } = useBeat();
-  const look = looks[n % looks.length];
+  const frame = useCurrentFrame();
+  const i = Math.min(looks.length - 1, Math.floor(frame / 30));
+  const look = looks[i];
+  const t = (frame % 30) / 30;
+  const H = 900;
+  // Each look: arrives close, drifts a little closer while it holds.
+  const s = look.s * (1 + 0.06 * t);
+  const cut = interpolate(frame % 30, [0, 5], [1, 0], clamp);
   return (
     <Whip bg="#16120C">
       <Img
         src={staticFile(`shots/${look.src}.png`)}
         style={{ position: "absolute", inset: -100, width: "calc(100% + 200px)", height: "calc(100% + 200px)", objectFit: "cover", filter: "blur(80px) saturate(1.3)", opacity: 0.55 }}
       />
-      <AbsoluteFill style={{ flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 120 }}>
-        <div style={{ perspective: 2000 }}>
-          <Phone src={look.src} h={940} style={{ transform: `rotateY(${10 - frame * 0.1}deg) scale(${punch(t, 0.04)})` }} />
-        </div>
-        <div style={{ width: 700 }}>
-          <div style={{ fontSize: 120, fontWeight: 900, letterSpacing: "-0.05em", lineHeight: 0.95, color: INK }}>
-            Make it
-            <br />
-            yours.
-          </div>
-          <div
-            key={n}
-            style={{
-              fontSize: 120,
-              fontWeight: 900,
-              letterSpacing: "-0.05em",
-              color: AMBER,
-              marginTop: 10,
-              translate: `0px ${interpolate(t, [0, 0.35], [40, 0], { ...clamp, easing: SNAP })}px`,
-              opacity: interpolate(t, [0, 0.25], [0, 1], clamp),
-            }}
-          >
-            {look.word}
-          </div>
+      <AbsoluteFill style={{ justifyContent: "center", alignItems: "center", paddingLeft: 700 }}>
+        <div
+          style={{
+            transform: `scale(${s}) translate(0px, ${(0.5 - look.fy) * H}px)`,
+            filter: cut > 0.05 ? `blur(${cut * 14}px)` : undefined,
+          }}
+        >
+          <Phone src={look.src} h={H} />
         </div>
       </AbsoluteFill>
+      {/* The words sit on a soft dark wash, clear of the phone. */}
+      <AbsoluteFill style={{ background: "linear-gradient(90deg, rgba(10,8,5,0.9) 0%, rgba(10,8,5,0.6) 38%, transparent 60%)" }} />
+      <div style={{ position: "absolute", left: 120, top: 380 }}>
+        <div style={{ fontSize: 36, fontWeight: 600, color: AMBER, letterSpacing: "-0.01em", marginBottom: 18 }}>Make it yours.</div>
+        <div
+          key={i}
+          style={{
+            fontSize: 96,
+            fontWeight: 850,
+            letterSpacing: "-0.045em",
+            lineHeight: 1,
+            color: INK,
+            width: 640,
+            translate: `0px ${interpolate(frame % 30, [0, 9], [36, 0], { ...clamp, easing: SNAP })}px`,
+            opacity: interpolate(frame % 30, [0, 6], [0, 1], clamp),
+          }}
+        >
+          {look.big}
+        </div>
+      </div>
     </Whip>
   );
 };
