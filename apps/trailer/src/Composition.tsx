@@ -1,14 +1,15 @@
 import { Audio } from "@remotion/media";
 import { Composition, interpolate, Series, staticFile } from "remotion";
-import { Bento, Colour, Intro, Lyrics, Maker, Player, Tour } from "./scenes";
+import { Build, Carousel, Colour, Drop, Lyrics, Maker, Player } from "./cut";
+import { Bento } from "./scenes";
 
-// The music: Justice, Tame Impala, "Neverender" (Rampa Remix), 120 beats a minute, so a bar
-// is 2 s (60 frames). It starts 4 s before its drop (1:52.017), and the drop lands as the first
-// scene of the app appears; every scene is a whole number of bars.
+// The music: Justice, Tame Impala, "Neverender" (Rampa Remix), 120 beats a minute: a beat is
+// 15 frames. It starts 4 s before its drop (1:52.017); the covers cut faster and faster over
+// the build, and the drop lands on the name. Every scene is a whole number of bars.
 const FPS = 30;
 const DROP = 112.017;
 const LEAD = 4;
-const LENGTH = 1140;
+const LENGTH = 1080;
 
 export const Trailer: React.FC = () => (
   <>
@@ -16,26 +17,29 @@ export const Trailer: React.FC = () => (
       src={staticFile("music.m4a")}
       trimBefore={Math.round((DROP - LEAD) * FPS)}
       volume={(f) =>
-        interpolate(f, [0, 20, LENGTH - 90, LENGTH], [0, 1, 1, 0], { extrapolateLeft: "clamp", extrapolateRight: "clamp" })
+        interpolate(f, [0, 15, LENGTH - 90, LENGTH], [0, 1, 1, 0], { extrapolateLeft: "clamp", extrapolateRight: "clamp" })
       }
     />
     <Series>
-      <Series.Sequence durationInFrames={120} name="Intro">
-        <Intro />
+      <Series.Sequence durationInFrames={120} name="Build">
+        <Build />
       </Series.Sequence>
-      <Series.Sequence durationInFrames={180} name="Colour">
+      <Series.Sequence durationInFrames={180} name="Drop">
+        <Drop />
+      </Series.Sequence>
+      <Series.Sequence durationInFrames={120} name="Colour">
         <Colour />
       </Series.Sequence>
-      <Series.Sequence durationInFrames={180} name="Player">
+      <Series.Sequence durationInFrames={120} name="Player">
         <Player />
       </Series.Sequence>
-      <Series.Sequence durationInFrames={120} name="Lyrics">
+      <Series.Sequence durationInFrames={90} name="Lyrics">
         <Lyrics />
       </Series.Sequence>
-      <Series.Sequence durationInFrames={180} name="Tour">
-        <Tour />
+      <Series.Sequence durationInFrames={120} name="Carousel">
+        <Carousel />
       </Series.Sequence>
-      <Series.Sequence durationInFrames={240} name="Bento">
+      <Series.Sequence durationInFrames={210} name="Bento">
         <Bento />
       </Series.Sequence>
       <Series.Sequence durationInFrames={120} name="Maker">
