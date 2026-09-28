@@ -52,6 +52,10 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.foundation.layout.offset
+import androidx.compose.ui.unit.sp
+import androidx.compose.ui.graphics.luminance
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Shape
@@ -107,28 +111,88 @@ fun songsAndLength(songs: List<Song>): String {
     return "${count(songs.size, "song")}, $length"
 }
 
-/** A cover picture, or a note on a quiet surface when there is none. */
+/**
+ * A cover picture. Without one, a made-up cover as on desktop: a two-colour gradient and a
+ * large, cropped first letter, different for every album (`seed`) and the same every time.
+ */
 @Composable
-fun Cover(path: String?, modifier: Modifier = Modifier, shape: Shape = CoverShape) {
+fun Cover(path: String?, modifier: Modifier = Modifier, shape: Shape = CoverShape, seed: String? = null) {
     Box(
         modifier
             .clip(shape)
             .background(MaterialTheme.colorScheme.surfaceContainerHigh),
         contentAlignment = Alignment.Center,
     ) {
-        if (path == null) {
-            Icon(
+        when {
+            path != null -> AsyncImage(
+                model = coverRequest(fileUri(path)),
+                contentDescription = null,
+                contentScale = ContentScale.Crop,
+                modifier = Modifier.fillMaxSize(),
+            )
+            !seed.isNullOrBlank() -> MadeUpCover(seed)
+            else -> Icon(
                 Icons.Rounded.MusicNote,
                 contentDescription = null,
                 tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
                 modifier = Modifier.fillMaxSize(0.36f),
             )
-        } else {
-            AsyncImage(
-                model = coverRequest(fileUri(path)),
-                contentDescription = null,
-                contentScale = ContentScale.Crop,
-                modifier = Modifier.fillMaxSize(),
+        }
+    }
+}
+
+/** A playlist's picture: its own, a mosaic of four of its songs' covers, or one cover. */
+@Composable
+fun PlaylistCover(playlist: fyi.nnx.needle.core.Playlist, modifier: Modifier = Modifier, shape: Shape = SmallCoverShape) {
+    Mosaic(playlist.mosaic, playlist.artwork, modifier, shape, seed = playlist.name)
+}
+
+/** Four covers in a square, two by two; fewer than four shows the one cover instead. */
+@Composable
+fun Mosaic(covers: List<String>, artwork: String?, modifier: Modifier = Modifier, shape: Shape = CoverShape, seed: String? = null) {
+    if (covers.size < 4) {
+        Cover(artwork ?: covers.firstOrNull(), modifier, shape, seed = seed)
+        return
+    }
+    Column(modifier.clip(shape)) {
+        covers.take(4).chunked(2).forEach { pair ->
+            Row(Modifier.weight(1f)) {
+                pair.forEach { c -> Cover(c, Modifier.weight(1f).fillMaxSize(), androidx.compose.ui.graphics.RectangleShape) }
+            }
+        }
+    }
+}
+
+/** The same hash as desktop's, so an album's made-up cover matches on both. */
+private fun seedHash(seed: String): Long =
+    seed.lowercase().toByteArray().fold(2166136261L) { h, b -> ((h xor (b.toLong() and 0xff)) * 16777619L) and 0xffffffffL }
+
+/** The main colour of an album's made-up cover, for tinting like a real one. */
+fun seedColor(seed: String): Color = Color.hsl((seedHash(seed) % 360).toFloat(), 0.5f, 0.4f)
+
+@Composable
+private fun MadeUpCover(seed: String) {
+    val hash = seedHash(seed)
+    val h1 = (hash % 360).toFloat()
+    val h2 = (h1 + 21.6f + ((hash shr 9) % 12) * 3.6f) % 360f
+    val dark = MaterialTheme.colorScheme.background.luminance() < 0.5f
+    val (a, b) = if (dark) Color.hsl(h1, 0.42f, 0.34f) to Color.hsl(h2, 0.5f, 0.17f) else Color.hsl(h1, 0.5f, 0.8f) to Color.hsl(h2, 0.42f, 0.62f)
+    val letter = seed.firstOrNull { it.isLetterOrDigit() }?.uppercase() ?: "♪"
+    androidx.compose.foundation.layout.BoxWithConstraints(
+        Modifier.fillMaxSize().background(Brush.linearGradient(listOf(a, b))),
+    ) {
+        val size = maxWidth
+        if (size >= 28.dp) {
+            Text(
+                letter,
+                color = (if (dark) Color.White else Color.Black).copy(alpha = if (dark) 0.2f else 0.16f),
+                fontSize = (size.value * 0.78f).sp,
+                lineHeight = (size.value * 0.9f).sp,
+                fontFamily = titleFamily(0.2f),
+                fontWeight = FontWeight.SemiBold,
+                maxLines = 1,
+                softWrap = false,
+                modifier = Modifier.align(Alignment.BottomStart).offset(x = size * 0.08f, y = size * 0.2f),
             )
         }
     }
@@ -190,7 +254,7 @@ fun AlbumTile(album: Album, modifier: Modifier = Modifier, open: ((Route) -> Uni
             .pressScale(interaction)
             .combinedClickable(interactionSource = interaction, indication = null, onClick = onClick, onLongClick = { haptics(true); menu = true }),
     ) {
-        Cover(album.artwork, Modifier.fillMaxWidth().aspectRatio(1f).sharedCover("album-${album.key}"))
+        Cover(album.artwork, Modifier.fillMaxWidth().aspectRatio(1f).sharedCover("album-${album.key}"), seed = album.title + album.artist)
         Text(
             album.title.ifBlank { "Unknown album" },
             style = MaterialTheme.typography.bodyMedium,
@@ -267,9 +331,15 @@ fun SongRow(
     number: Boolean = false,
     divider: Boolean = true,
     remove: (() -> Unit)? = null,
+    /** Shown at the end instead of the menu, such as a handle to drag the row by. */
+    trailing: (@Composable () -> Unit)? = null,
     onClick: () -> Unit,
 ) {
     val rows = LocalRows.current
+    // Choosing many songs: a tap adds the row or takes it away.
+    val chosenSongs by Selection.songs.collectAsState()
+    val choosing = chosenSongs.isNotEmpty()
+    val chosen = chosenSongs.any { it.id == song.id }
     val lead: Dp = if (number) 36.dp else rows.cover + 4.dp
     var menu by remember { mutableStateOf(false) }
     val haptics = rememberHaptics()
@@ -277,7 +347,11 @@ fun SongRow(
     Column(
         modifier
             .fillMaxWidth()
-            .combinedClickable(onClick = onClick, onLongClick = { haptics(true); menu = true }),
+            .background(if (chosen) MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.45f) else Color.Transparent)
+            .combinedClickable(
+                onClick = { if (choosing) Selection.toggle(song) else onClick() },
+                onLongClick = { haptics(true); if (choosing) Selection.toggle(song) else menu = true },
+            ),
     ) {
         Row(
             Modifier.fillMaxWidth().heightIn(min = rows.height).padding(start = Edge, end = 4.dp),
@@ -298,7 +372,7 @@ fun SongRow(
                 }
             } else {
                 Box(Modifier.size(rows.cover), contentAlignment = Alignment.Center) {
-                    Cover(song.artwork, Modifier.fillMaxSize(), SmallCoverShape)
+                    Cover(song.artwork, Modifier.fillMaxSize(), SmallCoverShape, seed = song.album + song.artist)
                     if (playing) {
                         Box(Modifier.fillMaxSize().clip(SmallCoverShape).background(Color.Black.copy(alpha = 0.45f)))
                         PlayingBars(isPlaying, color = Color.White)
@@ -323,7 +397,11 @@ fun SongRow(
                     )
                 }
             }
-            SongMenu(song, open, menu, remove) { menu = it }
+            when {
+                choosing -> androidx.compose.material3.Checkbox(chosen, { Selection.toggle(song) })
+                trailing != null -> trailing()
+                else -> SongMenu(song, open, menu, remove) { menu = it }
+            }
         }
         if (divider) {
             HorizontalDivider(

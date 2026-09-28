@@ -300,7 +300,7 @@ private fun Playlists(open: (Route) -> Unit, scroll: Modifier) {
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(14.dp),
             ) {
-                Cover(playlist.artwork, Modifier.size(56.dp), SmallCoverShape)
+                PlaylistCover(playlist, Modifier.size(56.dp), SmallCoverShape)
                 Column(Modifier.weight(1f)) {
                     Text(playlist.name, style = MaterialTheme.typography.bodyLarge, maxLines = 1, overflow = TextOverflow.Ellipsis)
                     Text(

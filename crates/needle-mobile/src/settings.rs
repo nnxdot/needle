@@ -19,6 +19,14 @@ pub struct PlaybackSettings {
     pub album_gain: bool,
     /// Look up lyrics online (LRCLIB) when a song has none.
     pub online_media: bool,
+    /// When nothing is left up next, keep playing songs that match this search (empty: stop).
+    pub autoplay_query: String,
+    /// Measure each song's sound in the background, for radio.
+    pub sound_analysis: bool,
+    /// Scrobble with the artist's name as Apple Music writes it (키키 → KiiiKiii).
+    pub scrobble_corrections: bool,
+    /// Ask needle.nnx.fyi once a day whether a newer Needle is out.
+    pub check_updates: bool,
 }
 
 #[derive(Clone, uniffi::Record)]
@@ -32,6 +40,20 @@ pub struct SoundSettings {
     pub balance: f32,
     pub mono: bool,
     pub crossfeed: bool,
+    /// "graphic" (the ten sliders) or "parametric" (bands of any kind, frequency, and width).
+    pub mode: String,
+    pub parametric: Vec<EqBand>,
+}
+
+/// One band of the parametric equalizer.
+#[derive(Clone, uniffi::Record)]
+pub struct EqBand {
+    /// "peak", "lowshelf", "highshelf", "lowpass", "highpass", or "notch".
+    pub kind: String,
+    pub frequency: f32,
+    pub gain: f32,
+    pub q: f32,
+    pub on: bool,
 }
 
 #[derive(Clone, uniffi::Record)]
@@ -93,6 +115,8 @@ pub struct AppSettings {
     pub side_buttons: String,
     /// A volume slider in the player (always there while playing on the computer).
     pub volume_slider: bool,
+    /// The welcome guide was seen (or skipped).
+    pub welcomed: bool,
 }
 
 impl Default for AppSettings {
@@ -121,6 +145,7 @@ impl Default for AppSettings {
             control_style: "expressive".into(),
             side_buttons: "skip".into(),
             volume_slider: false,
+            welcomed: false,
         }
     }
 }
@@ -158,6 +183,10 @@ impl Needle {
             replay_gain: s.replay_gain,
             album_gain: s.album_gain,
             online_media: s.online_media,
+            autoplay_query: s.autoplay_query,
+            sound_analysis: s.sound_analysis,
+            scrobble_corrections: s.scrobble_corrections,
+            check_updates: s.check_updates,
         })
     }
 
@@ -168,7 +197,14 @@ impl Needle {
         s.replay_gain = value.replay_gain;
         s.album_gain = value.album_gain;
         s.online_media = value.online_media;
+        s.autoplay_query = value.autoplay_query.trim().to_string();
+        s.sound_analysis = value.sound_analysis;
+        s.scrobble_corrections = value.scrobble_corrections;
+        s.check_updates = value.check_updates;
         self.player.send(Command::Configure(Box::new(s)));
+        if value.sound_analysis {
+            self.measure_in_background();
+        }
         Ok(())
     }
 
@@ -194,10 +230,12 @@ impl Needle {
             eq: d.eq,
             preamp: d.preamp_db,
             bands: d.bands.to_vec(),
-            preset: d.preset,
+            preset: d.preset.clone(),
             balance: d.balance,
             mono: d.mono,
             crossfeed: d.crossfeed,
+            mode: if d.parametric_mode() { "parametric".into() } else { "graphic".into() },
+            parametric: d.parametric.iter().map(band).collect(),
         })
     }
 
@@ -213,10 +251,80 @@ impl Needle {
         d.balance = value.balance.clamp(-1., 1.);
         d.mono = value.mono;
         d.crossfeed = value.crossfeed;
-        // The phone app offers the ten bands only.
-        d.mode = "graphic".into();
+        d.mode = if value.mode == "parametric" { "parametric".into() } else { "graphic".into() };
+        d.parametric = value
+            .parametric
+            .into_iter()
+            .take(20)
+            .map(|b| dsp::ParamBand {
+                uid: uuid::Uuid::new_v4().to_string(),
+                kind: b.kind,
+                frequency: b.frequency.clamp(20., 20000.),
+                gain: b.gain.clamp(-24., 24.),
+                q: b.q.clamp(0.1, 10.),
+                on: b.on,
+            })
+            .collect();
         self.player.send(Command::Dsp(d));
         Ok(())
+    }
+
+    /// The listener's own saved equalizer settings, by name.
+    pub fn my_presets(&self) -> Vec<String> {
+        self.library.settings().map(|s| s.eq_presets.into_iter().map(|p| p.name).collect()).unwrap_or_default()
+    }
+
+    /// Saves the equalizer as it is now under `name` (replacing one of the same name).
+    pub fn save_preset(&self, name: String) -> Result<()> {
+        let name = name.trim().to_string();
+        if name.is_empty() {
+            return Err(NeedleError::Failed("Give the preset a name".into()));
+        }
+        let mut s = self.library.settings()?;
+        let preset = dsp::UserPreset::from_dsp(&name, &s.dsp);
+        s.eq_presets.retain(|p| p.name != name);
+        s.eq_presets.push(preset);
+        s.dsp.preset = name;
+        self.library.save_settings(&s)?;
+        self.player.send(Command::Dsp(s.dsp));
+        Ok(())
+    }
+
+    /// Uses a saved preset.
+    pub fn use_preset(&self, name: String) -> Result<()> {
+        let s = self.library.settings()?;
+        let preset = s
+            .eq_presets
+            .iter()
+            .find(|p| p.name == name)
+            .ok_or_else(|| NeedleError::Failed("That preset is gone".into()))?;
+        self.player.send(Command::Dsp(preset.apply(&s.dsp)));
+        Ok(())
+    }
+
+    pub fn delete_preset(&self, name: String) -> Result<()> {
+        let mut s = self.library.settings()?;
+        s.eq_presets.retain(|p| p.name != name);
+        Ok(self.library.save_settings(&s)?)
+    }
+
+    /// Reads a headphone correction (an AutoEq or Equalizer APO "ParametricEQ.txt") into the
+    /// parametric equalizer, and turns it on. Returns how many bands it has.
+    pub fn load_eq_file(&self, path: String) -> Result<u32> {
+        let text = std::fs::read_to_string(&path).map_err(anyhow::Error::from)?;
+        let (preamp, bands) = dsp::parse_parametric(&text)?;
+        let mut d = self.library.settings()?.dsp;
+        let count = bands.len() as u32;
+        d.eq = true;
+        d.mode = "parametric".into();
+        d.preamp_db = preamp.clamp(-24., 12.);
+        d.parametric = bands;
+        d.preset = std::path::Path::new(&path)
+            .file_stem()
+            .map(|s| s.to_string_lossy().trim_start_matches("picked-").to_string())
+            .unwrap_or_else(|| "Correction".into());
+        self.player.send(Command::Dsp(d));
+        Ok(count)
     }
 
     pub fn app_settings(&self) -> AppSettings {
@@ -339,5 +447,15 @@ impl Needle {
         }
         self.player.send(Command::Configure(Box::new(s)));
         Ok(())
+    }
+}
+
+fn band(b: &dsp::ParamBand) -> EqBand {
+    EqBand {
+        kind: b.kind.clone(),
+        frequency: b.frequency,
+        gain: b.gain,
+        q: b.q,
+        on: b.on,
     }
 }

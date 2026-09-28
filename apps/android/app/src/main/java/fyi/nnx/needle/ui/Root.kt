@@ -92,6 +92,10 @@ sealed interface Route {
     data class Timing(val songId: String) : Route
     /** Privacy or Help, in the app. */
     data class Document(val doc: Doc) : Route
+    data object FixLibrary : Route
+    data object Import : Route
+    /** A theme of your own; `null` makes a new one. */
+    data class ThemeEditor(val id: String?) : Route
 }
 
 enum class Tab(val label: String, val icon: ImageVector, val root: Route) {
@@ -125,7 +129,10 @@ fun NeedleRoot() {
             if (NeedleApp.instance.app.value.openPlayerOnPlay) playerOpen = true
         }
     }
-    BackHandler(enabled = playerOpen || stack.size > 1) {
+    // Back first stops choosing songs, when some are chosen.
+    val choosing by Selection.songs.collectAsState()
+    BackHandler(enabled = choosing.isNotEmpty()) { Selection.clear() }
+    BackHandler(enabled = choosing.isEmpty() && (playerOpen || stack.size > 1)) {
         if (playerOpen) playerOpen = false else stacks[tab] = stack.dropLast(1)
     }
 
@@ -160,6 +167,7 @@ fun NeedleRoot() {
                     ),
                     bottomBar = {
                         Column {
+                            SelectionBar()
                             AnimatedVisibility(
                                 visible = hasSong && !playerOpen,
                                 enter = fadeIn(tween(200)) + slideInVertically(tween(250)) { it / 2 },
@@ -255,6 +263,10 @@ fun NeedleRoot() {
                         .padding(bottom = if (playerOpen) 16.dp else if (hasSong) 150.dp else 80.dp),
                 )
                 Overlays(snackbar)
+                // The welcome guide, the first time Needle opens with no music yet.
+                val songs by rememberLoaded { songCount() }
+                val again by Ui.welcome.collectAsState()
+                if (again || (!app.welcomed && songs == 0u)) WelcomeGuide(open)
             }
         }
     }
@@ -291,5 +303,11 @@ private fun Page(route: Route, open: (Route) -> Unit) {
         Route.WhatsNew -> WhatsNewScreen()
         is Route.Timing -> TimingScreen(route.songId)
         is Route.Document -> DocScreen(route.doc)
+        Route.FixLibrary -> FixLibraryScreen()
+        Route.Import -> ImportScreen()
+        is Route.ThemeEditor -> {
+            val back = androidx.activity.compose.LocalOnBackPressedDispatcherOwner.current
+            ThemeEditorScreen(route.id) { back?.onBackPressedDispatcher?.onBackPressed() }
+        }
     }
 }

@@ -68,6 +68,9 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearWavyProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material.icons.rounded.Star
+import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.SegmentedButton
 import androidx.compose.material3.SegmentedButtonDefaults
 import androidx.compose.material3.SingleChoiceSegmentedButtonRow
@@ -164,10 +167,10 @@ fun SettingsSectionScreen(section: SettingsSection, open: (Route) -> Unit) {
         item { LargeTitle(section.title) }
         item {
             when (section) {
-                SettingsSection.Library -> LibrarySettings()
+                SettingsSection.Library -> LibrarySettings(open)
                 SettingsSection.Playback -> PlaybackSettingsPage()
                 SettingsSection.Sound -> SoundSettingsPage()
-                SettingsSection.Appearance -> AppearanceSettings()
+                SettingsSection.Appearance -> AppearanceSettings(open)
                 SettingsSection.Scrobbling -> ScrobblingSettings()
                 SettingsSection.About -> AboutPage(open)
                 else -> {}
@@ -274,7 +277,7 @@ private fun treePath(uri: Uri): String? {
 
 @OptIn(ExperimentalMaterial3ExpressiveApi::class)
 @Composable
-private fun LibrarySettings() {
+private fun LibrarySettings(open: (Route) -> Unit) {
     val folders by rememberLoaded { folders() }
     val scan by NeedleApp.instance.scan.collectAsState()
     val count by rememberLoaded(scan.running) { songCount() }
@@ -331,6 +334,27 @@ private fun LibrarySettings() {
                     FilledTonalButton(onClick = { core.rescan() }) { Text("Read the folders again") }
                 }
             }
+        }
+    }
+    val context = LocalContext.current
+    val backup = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/octet-stream")) { uri ->
+        uri ?: return@rememberLauncherForActivityResult
+        NeedleApp.instance.scope.launch(Dispatchers.IO) {
+            runCatching {
+                val file = File(context.cacheDir, "needle-backup.db")
+                core.backupLibrary(file.absolutePath)
+                context.contentResolver.openOutputStream(uri)!!.use { out -> file.inputStream().use { it.copyTo(out) } }
+                file.delete()
+            }.onSuccess { showMessage("Saved a backup of your library") }.onFailure { showMessage(it.message ?: "Could not save the backup") }
+        }
+    }
+    Group("Tools") {
+        LinkRow("Fix my library", "Duplicates, missing covers, album tags, and tidy files") { open(Route.FixLibrary) }
+        Divider()
+        LinkRow("Import", "Plays, stars, and playlists from iTunes, Spotify, Last.fm, and more") { open(Route.Import) }
+        Divider()
+        LinkRow("Back up the library", "Your songs' plays, stars, playlists, and settings, in one file") {
+            backup.launch("needle-library-${java.time.LocalDate.now()}.db")
         }
     }
     playback?.let { p ->
@@ -407,6 +431,30 @@ private fun PlaybackSettingsPage() {
             NeedleApp.instance.updateApp { it.copy(openPlayerOnPlay = on) }
         }
     }
+    Group("When Up next ends", footer = "Needle plays songs that match this search, as you would type it in Search. Leave it empty to stop.") {
+        var query by remember(s.autoplayQuery) { mutableStateOf(s.autoplayQuery) }
+        val problem = if (query.isNotBlank() && core.isRule(query)) core.checkRule(query) else null
+        OutlinedTextField(
+            query, { query = it },
+            label = { Text("Keep playing") },
+            placeholder = { Text("rating >= 4") },
+            singleLine = true,
+            isError = problem != null,
+            supportingText = problem?.let { { Text(it) } },
+            trailingIcon = {
+                if (query != s.autoplayQuery && problem == null) TextButton(onClick = { save(s.copy(autoplayQuery = query.trim())); showMessage("Saved") }) { Text("Save") }
+            },
+            modifier = Modifier.fillMaxWidth().padding(16.dp),
+        )
+    }
+    Group("Radio", footer = "Radio picks songs that sound alike, from how each one sounds. Measuring reads each song once, on this phone.") {
+        val measured by rememberLoaded(s.soundAnalysis) { measured() }
+        SwitchRow(
+            "Measure songs for radio",
+            measured?.let { m -> if (m.size == 2 && m[1] > 0u) "${m[0]} of ${m[1]} measured" else null } ?: "Reads songs in the background",
+            s.soundAnalysis,
+        ) { save(s.copy(soundAnalysis = it)) }
+    }
 }
 
 // ---------- Sound
@@ -422,15 +470,52 @@ private fun SoundSettingsPage() {
         sound = next
         background { core.setSoundSettings(next) }
     }
-    Group("Equalizer") {
-        SwitchRow("Equalizer", "Shape the sound with ten bands", s.eq) { save(s.copy(eq = it)) }
+    val context = LocalContext.current
+    var mine by remember { mutableStateOf(core.myPresets()) }
+    var naming by remember { mutableStateOf(false) }
+    fun reload() {
+        NeedleApp.instance.scope.launch {
+            sound = withContext(Dispatchers.IO) { runCatching { core.soundSettings() }.getOrNull() }
+            mine = withContext(Dispatchers.IO) { core.myPresets() }
+        }
+    }
+    val correction = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        val path = uri?.let { copyToCache(context, it) } ?: return@rememberLauncherForActivityResult
+        NeedleApp.instance.scope.launch {
+            withContext(Dispatchers.IO) { runCatching { core.loadEqFile(path) } }
+                .onSuccess { showMessage("Loaded a correction with ${count(it.toInt(), "band")}") }
+                .onFailure { showMessage(it.message ?: "That is not an equalizer file") }
+            java.io.File(path).delete()
+            kotlinx.coroutines.delay(300)
+            reload()
+        }
+    }
+    Group("Equalizer", footer = if (s.eq && s.mode == "parametric") "A headphone correction from AutoEq (ParametricEQ.txt) or Equalizer APO loads here." else null) {
+        SwitchRow("Equalizer", "Shape the sound", s.eq) { save(s.copy(eq = it)) }
         AnimatedVisibility(s.eq) {
             Column {
+                SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp)) {
+                    listOf("graphic" to "Ten bands", "parametric" to "Parametric").forEachIndexed { i, (mode, label) ->
+                        SegmentedButton(
+                            selected = s.mode == mode,
+                            onClick = { save(s.copy(mode = mode)) },
+                            shape = SegmentedButtonDefaults.itemShape(i, 2),
+                        ) { Text(label) }
+                    }
+                }
                 LazyRow(
                     contentPadding = PaddingValues(horizontal = 16.dp),
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
-                    items(presets) { preset ->
+                    items(mine) { name ->
+                        FilterChip(
+                            selected = s.preset == name,
+                            onClick = { background { core.usePreset(name) }; reload() },
+                            label = { Text(name) },
+                            leadingIcon = { Icon(Icons.Rounded.Star, contentDescription = "Yours", modifier = Modifier.size(16.dp)) },
+                        )
+                    }
+                    if (s.mode == "graphic") items(presets) { preset ->
                         FilterChip(
                             selected = s.preset == preset.name,
                             onClick = { save(s.copy(preset = preset.name, preamp = preset.preamp, bands = preset.bands)) },
@@ -438,7 +523,11 @@ private fun SoundSettingsPage() {
                         )
                     }
                 }
-                EqualizerBands(s.bands, bands) { changed -> save(s.copy(bands = changed, preset = "Custom")) }
+                if (s.mode == "graphic") {
+                    EqualizerBands(s.bands, bands) { changed -> save(s.copy(bands = changed, preset = "Custom")) }
+                } else {
+                    ParametricBands(s.parametric) { changed -> save(s.copy(parametric = changed, preset = "Custom")) }
+                }
                 var preamp by remember(s.preamp) { mutableStateOf(s.preamp) }
                 SliderRow(
                     "Preamp",
@@ -449,8 +538,35 @@ private fun SoundSettingsPage() {
                     onChange = { preamp = it },
                     onDone = { save(s.copy(preamp = preamp)) },
                 )
+                Row(Modifier.padding(horizontal = 8.dp, vertical = 4.dp)) {
+                    TextButton(onClick = { naming = true }) { Text("Save as a preset") }
+                    if (s.preset in mine) TextButton(onClick = { background { core.deletePreset(s.preset) }; mine = mine - s.preset }) { Text("Delete ${s.preset}") }
+                }
+                TextButton(onClick = { correction.launch(arrayOf("text/plain", "*/*")) }, modifier = Modifier.padding(start = 8.dp, bottom = 8.dp)) {
+                    Text("Load a headphone correction…")
+                }
             }
         }
+    }
+    if (naming) {
+        var name by remember { mutableStateOf("") }
+        AlertDialog(
+            onDismissRequest = { naming = false },
+            title = { Text("Save as a preset") },
+            text = { OutlinedTextField(name, { name = it }, label = { Text("Name") }, singleLine = true) },
+            confirmButton = {
+                TextButton(enabled = name.isNotBlank(), onClick = {
+                    naming = false
+                    NeedleApp.instance.scope.launch {
+                        withContext(Dispatchers.IO) { runCatching { core.savePreset(name) } }
+                            .onSuccess { showMessage("Saved $name") }
+                            .onFailure { showMessage(it.message ?: "Could not save it") }
+                        reload()
+                    }
+                }) { Text("Save") }
+            },
+            dismissButton = { TextButton(onClick = { naming = false }) { Text("Cancel") } },
+        )
     }
     Group("Headphones and speakers") {
         SwitchRow("Crossfeed", "Blends a little of each side into the other, as speakers do, for easier listening on headphones", s.crossfeed) {
@@ -531,7 +647,7 @@ private fun frequencyLabel(hz: Float) = if (hz >= 1000) "${(hz / 1000).toInt()}k
 
 @OptIn(androidx.compose.material3.ExperimentalMaterial3ExpressiveApi::class)
 @Composable
-private fun AppearanceSettings() {
+private fun AppearanceSettings(open: (Route) -> Unit) {
     val app by NeedleApp.instance.app.collectAsState()
     val update = NeedleApp.instance::updateApp
     val context = LocalContext.current
@@ -559,7 +675,11 @@ private fun AppearanceSettings() {
             }
         }
         Divider()
-        TextButton(onClick = { importTheme.launch(arrayOf("*/*")) }, modifier = Modifier.padding(8.dp)) { Text("Add a theme file") }
+        Row(Modifier.padding(8.dp), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+            TextButton(onClick = { open(Route.ThemeEditor(null)) }) { Text("Make a theme") }
+            TextButton(onClick = { importTheme.launch(arrayOf("*/*")) }) { Text("Add a theme file") }
+            if (themes.any { it.id == app.theme }) TextButton(onClick = { open(Route.ThemeEditor(app.theme)) }) { Text("Edit this one") }
+        }
     }
     Group("Text") {
         Text("Title font", style = MaterialTheme.typography.bodyLarge, modifier = Modifier.padding(start = 16.dp, top = 14.dp))
@@ -780,6 +900,8 @@ private fun ScrobblingSettings() {
         }
     }
     val a = accounts ?: return
+    var playback by remember { mutableStateOf<PlaybackSettings?>(null) }
+    LaunchedEffect(Unit) { playback = withContext(Dispatchers.IO) { runCatching { core.playbackSettings() }.getOrNull() } }
 
     Group("Last.fm", footer = "Songs you play past half their length (or four minutes) are sent, with the time you played them.") {
         if (a.lastfmUser != null) {
@@ -841,6 +963,15 @@ private fun ScrobblingSettings() {
             }
         }
     }
+    playback?.let { p ->
+        Group("Names", footer = "When your files write an artist another way (키키 rather than KiiiKiii), Last.fm files the song under the name Apple Music uses.") {
+            SwitchRow("Artists as Apple Music writes them", null, p.scrobbleCorrections) { on ->
+                val next = p.copy(scrobbleCorrections = on)
+                playback = next
+                background { core.setPlaybackSettings(next) }
+            }
+        }
+    }
     if (a.waiting > 0u) {
         Text(
             "${count(a.waiting.toInt(), "listen")} waiting to be sent.",
@@ -869,7 +1000,19 @@ private fun AboutPage(open: (Route) -> Unit) {
             Text("Your music, on your phone. No account, no ads, no tracking.", style = MaterialTheme.typography.bodyMedium)
         }
     }
-    Group("Updates") { UpdatesRow() }
+    var playback by remember { mutableStateOf<PlaybackSettings?>(null) }
+    LaunchedEffect(Unit) { playback = withContext(Dispatchers.IO) { runCatching { core.playbackSettings() }.getOrNull() } }
+    Group("Updates") {
+        UpdatesRow()
+        playback?.let { p ->
+            Divider()
+            SwitchRow("Check once a day", "Needle asks needle.nnx.fyi whether a newer version is out, and tells you", p.checkUpdates) { on ->
+                val next = p.copy(checkUpdates = on)
+                playback = next
+                background { core.setPlaybackSettings(next) }
+            }
+        }
+    }
     Group("Privacy", footer = "A crash report holds what went wrong, with file paths and names taken out. Nothing is sent otherwise.") {
         var crashes by remember { mutableStateOf(core.crashReports()) }
         SwitchRow("Send crash reports", "To needle.nnx.fyi, when Needle stops by mistake", crashes) { on ->
@@ -883,6 +1026,8 @@ private fun AboutPage(open: (Route) -> Unit) {
         LinkRow("Privacy", "What Needle sends, and when") { open(Route.Document(Doc.Privacy)) }
         Divider()
         LinkRow("Help", "Questions and answers") { open(Route.Document(Doc.Help)) }
+        Divider()
+        LinkRow("Welcome guide", "See it again") { Ui.welcome.value = true }
     }
 }
 
@@ -897,5 +1042,63 @@ private fun LinkRow(title: String, summary: String, onClick: () -> Unit) {
             Text(summary, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
         Icon(Icons.AutoMirrored.Rounded.KeyboardArrowRight, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
+    }
+}
+
+private val BandKinds = listOf("peak" to "Peak", "lowshelf" to "Low shelf", "highshelf" to "High shelf", "lowpass" to "Low pass", "highpass" to "High pass", "notch" to "Notch")
+
+/** The parametric equalizer: bands of any kind, each with its frequency, gain, and width. */
+@Composable
+private fun ParametricBands(bands: List<fyi.nnx.needle.core.EqBand>, onChange: (List<fyi.nnx.needle.core.EqBand>) -> Unit) {
+    var live by remember(bands) { mutableStateOf(bands) }
+    fun set(i: Int, band: fyi.nnx.needle.core.EqBand, done: Boolean) {
+        live = live.toMutableList().also { it[i] = band }
+        if (done) onChange(live)
+    }
+    Column(Modifier.padding(horizontal = 16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        live.forEachIndexed { i, band ->
+            Column(
+                Modifier.fillMaxWidth().clip(RoundedCornerShape(16.dp)).background(MaterialTheme.colorScheme.surfaceContainerHigh).padding(12.dp),
+            ) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    var open by remember { mutableStateOf(false) }
+                    Box {
+                        TextButton(onClick = { open = true }) { Text(BandKinds.firstOrNull { it.first == band.kind }?.second ?: band.kind) }
+                        DropdownMenu(open, { open = false }) {
+                            BandKinds.forEach { (kind, label) ->
+                                DropdownMenuItem(text = { Text(label) }, onClick = { open = false; set(i, band.copy(kind = kind), true) })
+                            }
+                        }
+                    }
+                    Text(
+                        "${if (band.frequency >= 1000) "%.1f kHz".format(band.frequency / 1000) else "${band.frequency.toInt()} Hz"} · %+.1f dB · Q %.2f".format(band.gain, band.q),
+                        style = MaterialTheme.typography.labelLarge,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.weight(1f),
+                    )
+                    Switch(band.on, { set(i, band.copy(on = it), true) })
+                    IconButton(onClick = { onChange(live.filterIndexed { j, _ -> j != i }) }) {
+                        Icon(Icons.Rounded.Delete, contentDescription = "Remove this band", tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                }
+                // Frequency on a log scale, as ears hear it.
+                Text("Frequency", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Slider(
+                    kotlin.math.log10(band.frequency.coerceIn(20f, 20000f)),
+                    { set(i, band.copy(frequency = Math.pow(10.0, it.toDouble()).toFloat()), false) },
+                    valueRange = kotlin.math.log10(20f)..kotlin.math.log10(20000f),
+                    onValueChangeFinished = { onChange(live) },
+                )
+                if (band.kind in listOf("peak", "lowshelf", "highshelf")) {
+                    Text("Gain", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Slider(band.gain, { set(i, band.copy(gain = it), false) }, valueRange = -12f..12f, onValueChangeFinished = { onChange(live) })
+                }
+                Text("Width (Q)", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Slider(band.q, { set(i, band.copy(q = it), false) }, valueRange = 0.2f..6f, onValueChangeFinished = { onChange(live) })
+            }
+        }
+        if (live.size < 20) TextButton(onClick = {
+            onChange(live + fyi.nnx.needle.core.EqBand(kind = "peak", frequency = 1000f, gain = 0f, q = 1f, on = true))
+        }) { Text("Add a band") }
     }
 }

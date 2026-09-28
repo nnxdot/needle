@@ -196,7 +196,7 @@ fun PlaylistsScreen(open: (Route) -> Unit) {
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(14.dp),
                 ) {
-                    Cover(playlist.artwork, Modifier.size(LocalRows.current.cover + 4.dp), SmallCoverShape)
+                    PlaylistCover(playlist, Modifier.size(LocalRows.current.cover + 4.dp), SmallCoverShape)
                     Column(Modifier.weight(1f)) {
                         Text(playlist.name, style = MaterialTheme.typography.bodyLarge, maxLines = 1, overflow = TextOverflow.Ellipsis)
                         Text(
