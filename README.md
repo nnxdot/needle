@@ -1,12 +1,26 @@
 # Needle
 
-A native Rust/GPUI music player with a local SQLite library. **0.9.1 is a working Windows preview.** [PROPOSAL.md](PROPOSAL.md) is the original product vision; [IMPLEMENTATION.md](IMPLEMENTATION.md) records the implemented scope and remaining work.
+A native music player for **Windows, macOS, and Linux**, built with Rust and GPUI. Organize the music you own, listen with synced lyrics, make smart playlists, and stream from your Navidrome or Subsonic server. Your library and listening history live in a local SQLite database.
 
-## Run
+**Version 1.6.1** · Free for personal, non-commercial use · [Download Needle](https://needle.nnx.fyi/#download) · [Help](https://needle.nnx.fyi/help) · [Privacy](https://needle.nnx.fyi/privacy)
 
-Open **`dist/Needle/Needle.exe`**. Choose **Add a music folder**, or try the three original demo recordings on the first-run screen. Files stay in their existing folders. No account is needed for playback, search, playlists, ratings, or history.
+## Install and start listening
 
-The portable folder also contains `needle-cli.exe`. The Windows build needs a working GPU driver and audio output. The package does not need Rust, Node, Python, or FFmpeg installed.
+Choose a package from the [download page](https://needle.nnx.fyi/#download):
+
+| Platform | Requirements | Installation |
+| --- | --- | --- |
+| Windows | Windows 10 or 11, 64-bit | Run the installer, or extract the portable ZIP and open `Needle.exe` inside the `Needle` folder. |
+| macOS | Apple silicon (M1 or newer), macOS 11 or newer | Open the disk image and drag Needle to Applications. See the [installation help](https://needle.nnx.fyi/help#install) for first-launch instructions. |
+| Linux | Ubuntu 24.04, Mint 22, Debian 13, Fedora 40, or newer; x86-64 | Install the `.deb` or `.rpm` package with your software center. |
+
+On Ubuntu, Mint, or Debian, you can also run `sudo apt install ./needle_1.6.1_amd64.deb`; on Fedora, run `sudo dnf install ./needle-1.6.1-1.x86_64.rpm` from the download folder. On GNOME, the tray icon needs an AppIndicator extension.
+
+Open Needle and choose **Add a music folder**, or try the three original demo recordings on the first-run screen. Files stay in their existing folders. No account is needed for local playback, search, playlists, ratings, or history. A working GPU driver and audio output are required.
+
+The Windows portable folder also contains `needle-cli.exe`. Ready-made packages do not require Rust, Node, or Python. Windows and macOS bundle a small FFmpeg decoder for Dolby playback; Linux packages request FFmpeg as a dependency. Published [SHA-256 checksums](https://needle.nnx.fyi/download/SHA256SUMS.txt) are available to verify downloads.
+
+The guide below describes the desktop app. Window glass and the Windows shortcuts are platform-specific.
 
 ## Listen and organize
 
@@ -28,7 +42,7 @@ The portable folder also contains `needle-cli.exe`. The Windows build needs a wo
 - **Lyrics.** Needle shows lyrics from an `.lrc` or `.txt` file beside the song, from the song's own tags, or (with online lookups on) from LRCLIB. Timed lyrics follow the song: the sung line is bold with a soft glow in the music's color, and the others fade back. Click a line to jump there.
 - **Artwork and artist photos.** Covers come from the file, then from `cover`/`folder`/`front`/`albumart` images (JPEG, PNG, or WebP) or a lone image in the folder. With online lookups on, missing covers come from the Cover Art Archive and artist photos from Wikimedia Commons via MusicBrainz and Wikidata; Settings can look up every missing cover at once.
 - **Sound.** The equalizer button in the player bar opens *Sound* (also in Settings › Sound): a 10-band graphic equalizer (31 Hz–16 kHz, ±12 dB) with a preamp and ten presets, or a parametric equalizer of up to 20 bands (peak, low and high shelf, low- and high-pass, notch; 20 Hz–20 kHz, ±24 dB, Q 0.1–20). *Load EQ file…* reads an AutoEq `ParametricEQ.txt` or an Equalizer APO configuration, *Save EQ file…* writes one, and *Save as preset* keeps your own. Also balance, mono, headphone crossfeed, and effects from plugins. Changes apply while you listen. These tools apply to shared output only; exclusive output stays bit-for-bit.
-- **Dolby Atmos music.** Dolby Digital and Dolby Digital Plus tracks in MP4/M4A files, such as Atmos downloads from Apple Music, play as 48 kHz stereo through `needle-ffmpeg.exe`, a small LGPL FFmpeg built only for them (`scripts/build-ffmpeg.sh`). Atmos height sound is not decoded.
+- **Dolby Atmos music.** DRM-free Dolby Digital and Dolby Digital Plus tracks in MP4/M4A files play as 48 kHz stereo through FFmpeg. Windows and macOS use a bundled LGPL decoder; Linux uses the system FFmpeg. Atmos height sound is not decoded.
 - **Several speakers at once.** *Play on several at once…* in the speaker menu plays on any mix of Chromecast, DLNA, and AirPlay speakers and this computer. Needle delays the quicker ones so all play in step, and Settings › Playback › *Speaker timing* moves each by up to a second, while it plays, to line them up by ear. A speaker that stops is dropped and the rest play on.
 - **Phone remote.** Settings › Playback › *Phone remote* serves a web page for phones on the same network: what is playing with its cover, play/pause/next/previous, seeking, repeat, shuffling Up next, volume, Up next (tap a song to play it), and search (tap to play, + to play next). It behaves like an app: no zooming or text selection while you use it. The address (shown as a QR code) holds a random key; *New address* locks out old ones. It answers only private-network addresses (home and office networks, and also VPNs that use them), so anyone who has the address and can reach this computer that way can use it. It is off by default.
 - **Hide to tray.** Settings › Playback › *Hide to tray* adds an icon by the clock. Closing the window then hides Needle there while the music plays on. Click the icon to bring it back; right-click it to play, pause, skip, or quit. *Hide to tray* is also in the command palette.
@@ -45,7 +59,7 @@ The portable folder also contains `needle-cli.exe`. The Windows build needs a wo
 - **Window glass.** The sidebar, title bar, and player bar are glass. By default they use Windows 11's Mica, a soft color from your wallpaper. Settings › Appearance › *Window glass* switches to Acrylic (frosted glass), Clear (see-through, no blur), or Solid. *See-through* sets how much shows through, and *Glass behind the page* lets a little show through the page too. The mini player uses the same glass. When Windows' own *Transparency effects* setting is off, Needle stays solid; on Windows 10, Mica falls back to Acrylic.
 - **Appearance.** Compact rows fit one line per song with a small cover; comfortable rows are taller with a larger cover. Text colors are checked by a test to meet WCAG AA contrast (4.5:1) on every surface in all three looks, for 27 different cover colors.
 
-Supported and exercised with generated fixtures: WAV PCM, AIFF PCM, FLAC, MP3, AAC and ALAC in M4A, Ogg Vorbis, and Ogg Opus (`.opus`, or Opus inside `.ogg`). WavPack, APE, DSD, DRM, and streaming services are not implemented. Raw AAC is not part of the validated format set.
+Supported formats include WAV PCM, AIFF PCM, FLAC, MP3, AAC, ALAC in M4A, Ogg Vorbis, Ogg Opus, WavPack (`.wv`), Monkey's Audio (`.ape`), and DSD in DSF files (converted to PCM). CUE sheets split an album file into tracks. DRM-protected music is not supported. Navidrome and Subsonic streaming is available through plugins; this does not provide access to subscription catalogs such as Spotify or Apple Music. See [VALIDATION.md](VALIDATION.md) for recorded format and playback checks.
 
 M3U8 exports preserve CUE entries as `album.cue#3`, where the number selects track 3 in that sheet. This is a Needle extension; other players may not recognize it. To import these playlists into Needle, import the CUE sheet and its referenced audio first. Repeated entries retain their order; unavailable sheets or track numbers are reported during playlist import.
 
@@ -60,7 +74,6 @@ artist contains "Björk" order by year desc
 format = "FLAC" and sample_rate >= 96000
 played(2025)
 missing
-```
 
 favorite and not played(30d) shuffle by artist limit 50
 genre in ("Jazz", "Soul") and duration < 5:00
@@ -158,13 +171,13 @@ The host API: `notify(text)`, `log(text)`, `now()`, `now_playing()`, `library_se
 
 A plugin can find lyrics by defining `lyrics(song)` (title, artist, album, album artist, and length) and returning `#{ synced: lrc }`, `#{ plain: text }`, or `#{ instrumental: true }`; turned-on lyrics plugins are asked in turn, when online lookups are on, for songs with no lyrics of their own and no timed ones on LRCLIB, and the first timed answer wins (kept a month, a miss a day). The bundled *NetEase lyrics* plugin (off until turned on) searches NetEase Cloud Music.
 
-A plugin with the `network` permission can be a music source: it defines `source()` (a name and sign-in fields), `signed_in()`, `sign_in(fields)`, `sign_out()`, `songs(page)` (pages of song maps until an empty one), `stream(id)` (an http(s) link), and optionally `playing(id)`, `played(id, started_at)`, and `rate(id, stars)`. Its songs become library tracks with the path `source://<plugin>/<id>` and a stable id, so ratings, plays, and playlists survive syncing again; songs the server stops listing are marked missing, never deleted. The whole list is fetched on sign-in, on start (at most every 30 minutes), and with *Update now*. Songs stream into `<data>/stream-cache` while the decoder reads what has arrived (FLAC, MP3, WAV, AAC/M4A, Ogg Vorbis; other types download first); the 2 GB played longest ago are removed first. A read past what has arrived makes the download jump there with an HTTP range request (servers that ignore ranges are read from the start), and gaps are filled afterwards. The song after the next one is prefetched. *Keep on this computer* (song menu, or the pin on a server album) moves songs to `<data>/stream-kept`, which is never pruned; Settings › Plugins shows how much is kept and can let it all go. Covers are downloaded once per link. Tag editing, stems, Fix my library, AcoustID, and measuring for radio skip streamed songs, and *Save to my music* downloads one into the first music folder as a normal file. Helpers: `secret`/`set_secret`/`delete_secret` (Windows Credential Manager, per plugin), `md5`, `random_text`, and `url_encode`.
+A plugin with the `network` permission can be a music source: it defines `source()` (a name and sign-in fields), `signed_in()`, `sign_in(fields)`, `sign_out()`, `songs(page)` (pages of song maps until an empty one), `stream(id)` (an http(s) link), and optionally `playing(id)`, `played(id, started_at)`, and `rate(id, stars)`. Its songs become library tracks with the path `source://<plugin>/<id>` and a stable id, so ratings, plays, and playlists survive syncing again; songs the server stops listing are marked missing, never deleted. The whole list is fetched on sign-in, on start (at most every 30 minutes), and with *Update now*. Songs stream into `<data>/stream-cache` while the decoder reads what has arrived (FLAC, MP3, WAV, AAC/M4A, Ogg Vorbis; other types download first); the 2 GB played longest ago are removed first. A read past what has arrived makes the download jump there with an HTTP range request (servers that ignore ranges are read from the start), and gaps are filled afterwards. The song after the next one is prefetched. *Keep on this computer* (song menu, or the pin on a server album) moves songs to `<data>/stream-kept`, which is never pruned; Settings › Plugins shows how much is kept and can let it all go. Covers are downloaded once per link. Tag editing, stems, Fix my library, AcoustID, and measuring for radio skip streamed songs, and *Save to my music* downloads one into the first music folder as a normal file. Helpers: `secret`/`set_secret`/`delete_secret` (the system credential store, per plugin), `md5`, `random_text`, and `url_encode`.
 
-The bundled **Navidrome / Subsonic** plugin (Settings › Plugins › *Set up*) signs in with a salted token (the password never leaves the computer and is kept in Credential Manager), lists songs with `search3` 250 at a time, streams the original file (`format=raw`), and sends plays (`scrobble`) and ratings (`setRating`) to the server. Its songs appear under *Servers* in the sidebar.
+The bundled **Navidrome / Subsonic** plugin (Settings › Plugins › *Set up*) signs in with a salted token (the password never leaves the computer and is kept in the system credential store), lists songs with `search3` 250 at a time, streams the original file (`format=raw`), and sends plays (`scrobble`) and ratings (`setRating`) to the server. Its songs appear under *Servers* in the sidebar.
 
 ## Data, backups, and layouts
 
-The default location is `%LOCALAPPDATA%\nnx\Needle\data` on Windows; Settings and `needle-cli doctor` show the resolved path. Use `--data-dir PATH` to isolate another library. The folder holds `library.db`, artwork and artist photos, tag backups, plugins, the stem model and split stems when used, and optional demos. Each tag write or restore first copies the file it replaces into `backups`; backups are not pruned automatically. A backup can be restored only when its decoded audio matches the current file. Back up through Settings or the CLI so SQLite’s WAL is included correctly.
+The default location is `%LOCALAPPDATA%\nnx\Needle\data` on Windows, `~/.local/share/needle` on Linux, and `~/Library/Application Support/studio.nnx.Needle` on macOS; Settings and `needle-cli doctor` show the resolved path. Use `--data-dir PATH` to isolate another library. The folder holds `library.db`, artwork and artist photos, tag backups, plugins, the stem model and split stems when used, and optional demos. Each tag write or restore first copies the file it replaces into `backups`; backups are not pruned automatically. A backup can be restored only when its decoded audio matches the current file. Back up through Settings or the CLI so SQLite’s WAL is included correctly.
 
 Encrypted bundles transfer history, ratings, and playlists between libraries containing the same music files. Use a passphrase of at least 12 characters. XChaCha20-Poly1305 authenticates the contents; Argon2 derives the key. Matching uses file hashes, existing nonzero local ratings win, listen IDs deduplicate, and newer playlist timestamps win. Unmatched files are reported. Imported history is never re-scrobbled. Audio, credentials, and playback position are excluded. This is **manual transfer**, not automatic peer-to-peer/CRDT sync.
 
@@ -192,14 +205,41 @@ Other commands include `devices`, `exclusive`, `history`, `demo`, `import-playli
 
 ## Build and verify
 
-Install Rust and the Visual Studio C++ build tools/Windows SDK. GPUI and its component library are pinned; dependencies are in Cargo.lock.
+Source access is governed by the [proprietary license](license.md); it does not grant permission to modify or redistribute Needle.
+
+For Windows development, install Rust and the Visual Studio C++ build tools/Windows SDK. GPUI and its component library are pinned; dependencies are in Cargo.lock.
 
 ```powershell
 cargo run -p needle --bin needle-desktop
 cargo test -p needle-core
 cargo clippy --workspace --all-targets -- -D warnings
 cargo fmt --all --check
-powershell -File scripts/build-windows.ps1
 ```
 
-[VALIDATION.md](VALIDATION.md) records the checks run here, including the 500,000-track benchmark. Audio smoke examples use a quiet generated tone and the actual output device. FFmpeg is used only to generate disposable verification fixtures, never by the shipped app.
+To package Windows, first build the Dolby decoder with `bash scripts/build-ffmpeg.sh` in MSYS2 UCRT64 (prerequisites are listed in the script), then run `powershell -File scripts/build-windows.ps1`. Install Inno Setup 6 if you also want an installer; otherwise the script creates the portable ZIP.
+
+For Linux packages, install Docker and run:
+
+```bash
+bash scripts/build-linux.sh
+```
+
+The script builds in Ubuntu 24.04 and writes `.deb` and `.rpm` packages to `dist/linux/`.
+
+For macOS, use an Apple silicon Mac with Rust and the Xcode Command Line Tools. Run `bash scripts/build-ffmpeg-mac.sh`, then `bash scripts/package-mac.sh` to create the disk image in `dist/`. See the script headers for prerequisites.
+
+[VALIDATION.md](VALIDATION.md) records the checks run here, including the 500,000-track benchmark. Audio smoke examples use a quiet generated tone and the actual output device. FFmpeg is used both for verification fixtures and for Dolby playback in the shipped app.
+
+
+## Project documentation
+
+- [Help and troubleshooting](https://needle.nnx.fyi/help)
+- [Plugin guide](https://needle.nnx.fyi/plugins) and [theme guide](https://needle.nnx.fyi/themes)
+- [Implementation notes](IMPLEMENTATION.md) and [validation records](VALIDATION.md)
+- [Original product proposal](PROPOSAL.md) (historical design goals, not a list of shipped features)
+
+## License
+
+Needle is proprietary software. Official releases are free for personal, non-commercial use. Modification, redistribution, and commercial use require permission except where applicable law or separate terms allow them. See [license.md](license.md) for the full terms.
+
+Third-party components retain their own licenses. See [THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md) and [third-party/licenses.txt](third-party/licenses.txt).
