@@ -13,7 +13,7 @@ Choose a package from the [download page](https://needle.nnx.fyi/#download):
 | Windows | Windows 10 or 11, 64-bit | Run the installer, or extract the portable ZIP and open `Needle.exe` inside the `Needle` folder. |
 | macOS | Apple silicon (M1 or newer), macOS 11 or newer | The current Mac build is 1.6.1. Open the disk image and drag Needle to Applications. See the [installation help](https://needle.nnx.fyi/help#install) for first-launch instructions. |
 | Linux | Ubuntu 24.04, Mint 22, Debian 13, Fedora 40, or newer; x86-64 | Install the `.deb` or `.rpm` package with your software center. |
-| Android | Android 8.0 or newer; ARM64 or x86_64 | Choose the ARM64 APK for most phones, or x86_64 for Intel/AMD devices and emulators. Release APKs are unsigned and must be signed before Android can install them. |
+| Android | Android 8.0 or newer; ARM64 or x86_64 | Choose the signed ARM64 APK for most phones, or x86_64 for Intel/AMD devices and emulators. Open the downloaded APK to install it. |
 
 On Ubuntu, Mint, or Debian, you can also run `sudo apt install ./needle_1.6.2_amd64.deb`; on Fedora, run `sudo dnf install ./needle-1.6.2-1.x86_64.rpm` from the download folder. On GNOME, the tray icon needs an AppIndicator extension.
 
@@ -229,7 +229,9 @@ The script builds in Ubuntu 24.04 and writes `.deb` and `.rpm` packages to `dist
 
 For macOS, use an Apple silicon Mac with Rust and the Xcode Command Line Tools. Run `bash scripts/build-ffmpeg-mac.sh`, then `bash scripts/package-mac.sh` to create the disk image in `dist/`. See the script headers for prerequisites.
 
-For Android, `bash scripts/android-build.sh release` builds the native libraries and a release APK containing both ARM64 and x86_64. Once the native libraries are built, run `./gradlew --no-daemon assembleRelease -PneedleAbis=arm64-v8a` or `-PneedleAbis=x86_64` from `apps/android` to package a single architecture. Copy each APK from `app/build/outputs/apk/release/app-release-unsigned.apk` before packaging the next architecture. Without `needleAbis`, both architectures are included. Release APKs must be signed before installation.
+For Android, `bash scripts/android-build.sh release` builds the native libraries and an unsigned release APK containing both ARM64 and x86_64. Once the native libraries are built, run `./gradlew --no-daemon assembleRelease -PneedleAbis=arm64-v8a` or `-PneedleAbis=x86_64` from `apps/android` to package a single architecture. Copy each APK from `app/build/outputs/apk/release/app-release-unsigned.apk` before packaging the next architecture. Without `needleAbis`, both architectures are included.
+
+On Windows, sign each release APK with `scripts/sign-android-release.ps1`, passing `-ApkPath` and `-BuildToolsDirectory` (the SDK's `build-tools/<version>` folder); Java must be on PATH. The helper creates or reuses a release key in `%USERPROFILE%/.android/needle-release`, stores its password with Windows user encryption, and verifies the signature and alignment. Keep the key and its encrypted password, along with the Windows user profile that can decrypt it, for future releases. Official APK downloads are signed release builds.
 
 [VALIDATION.md](VALIDATION.md) records the checks run here, including the 500,000-track benchmark. Audio smoke examples use a quiet generated tone and the actual output device. FFmpeg is used both for verification fixtures and for Dolby playback in the shipped app.
 

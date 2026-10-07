@@ -6,6 +6,14 @@ export default {
     if (url.pathname.startsWith("/download/")) {
       const name = decodeURIComponent(url.pathname.slice("/download/".length));
       if (!/^[A-Za-z0-9._-]+$/.test(name)) return new Response("Not found", { status: 404 });
+      // Earlier 1.6.2 links pointed at unsigned APKs, which Android cannot install.
+      if (/^Needle-1\.6\.2-android(?:-(?:arm64|x86_64))?-release-unsigned\.apk$/.test(name)) {
+        const signedName = name.replace("-unsigned.apk", ".apk");
+        return new Response(null, {
+          status: 302,
+          headers: { location: `/download/${signedName}`, "cache-control": "no-store" },
+        });
+      }
       const object = await env.DOWNLOADS.get(name);
       if (!object) return new Response("Not found", { status: 404 });
       const headers = new Headers();
