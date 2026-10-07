@@ -141,35 +141,48 @@ pub(crate) fn parse(packet: &[u8], records: &mut Records) -> Option<()> {
         let length = count(after + 8)?;
         let data = after + 10;
         let body = packet.get(data..data + length)?;
-        match kind {
-            12 => records
-                .pointers
-                .push((name.to_lowercase(), read_name(packet, data)?.0)),
-            33 => {
-                let port = u16::from_be_bytes([body[4], body[5]]);
-                records.services.insert(
-                    name.to_lowercase(),
-                    (read_name(packet, data + 6)?.0.to_lowercase(), port),
-                );
-            }
-            16 => {
-                let mut texts = vec![];
-                let mut i = 0;
-                while i < body.len() {
-                    let n = body[i] as usize;
-                    texts.push(String::from_utf8_lossy(body.get(i + 1..i + 1 + n)?).to_string());
-                    i += 1 + n;
+        let record = (|| -> Option<()> {
+            match kind {
+                12 => {
+                    let (target, end) = read_name(packet, data)?;
+                    if end > data + length {
+                        return None;
+                    }
+                    records.pointers.push((name.to_lowercase(), target));
                 }
-                records.texts.insert(name.to_lowercase(), texts);
+                33 if body.len() >= 7 => {
+                    let port = u16::from_be_bytes([body[4], body[5]]);
+                    let (target, end) = read_name(packet, data + 6)?;
+                    if end > data + length {
+                        return None;
+                    }
+                    records
+                        .services
+                        .insert(name.to_lowercase(), (target.to_lowercase(), port));
+                }
+                16 => {
+                    let mut texts = vec![];
+                    let mut i = 0;
+                    while i < body.len() {
+                        let n = body[i] as usize;
+                        texts
+                            .push(String::from_utf8_lossy(body.get(i + 1..i + 1 + n)?).to_string());
+                        i += 1 + n;
+                    }
+                    records.texts.insert(name.to_lowercase(), texts);
+                }
+                1 if length == 4 => {
+                    records.addresses.insert(
+                        name.to_lowercase(),
+                        IpAddr::from([body[0], body[1], body[2], body[3]]),
+                    );
+                }
+                _ => {}
             }
-            1 if length == 4 => {
-                records.addresses.insert(
-                    name.to_lowercase(),
-                    IpAddr::from([body[0], body[1], body[2], body[3]]),
-                );
-            }
-            _ => {}
-        }
+            Some(())
+        })();
+        // A malformed record must not suppress other answers in the same packet.
+        let _ = record;
         offset = data + length;
     }
     Some(())
@@ -329,5 +342,20 @@ mod tests {
         let mut packet = vec![0u8; 12];
         packet.extend([5, b'l', b'o', b'c', b'a', b'l', 0, 1, b'x', 0xc0, 12]);
         assert_eq!(read_name(&packet, 19), Some(("x.local".to_string(), 23)));
+    }
+
+    #[test]
+    fn short_service_records_do_not_discard_valid_records() {
+        for length in 0..7 {
+            let mut packet = vec![0, 0, 0x84, 0, 0, 0, 0, 2, 0, 0, 0, 0];
+            record(&mut packet, "broken.local", 33, &vec![0; length]);
+            record(&mut packet, "valid.local", 1, &[192, 168, 1, 40]);
+            let mut records = Records::default();
+            let _ = parse(&packet, &mut records);
+            assert_eq!(
+                records.addresses.get("valid.local"),
+                Some(&IpAddr::from([192, 168, 1, 40]))
+            );
+        }
     }
 }

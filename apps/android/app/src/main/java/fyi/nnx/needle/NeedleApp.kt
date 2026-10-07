@@ -48,6 +48,7 @@ class NeedleApp : Application() {
 
     /** Changes whenever the library may have changed (a scan finished), so lists load again. */
     val libraryVersion = MutableStateFlow(0)
+    val themeVersion = MutableStateFlow(0)
 
     private val _app = MutableStateFlow(
         AppSettings(

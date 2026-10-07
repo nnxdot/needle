@@ -746,6 +746,19 @@ struct Worker {
     loading: Option<QueueItem>,
 }
 impl Worker {
+    fn persist_audio_settings(&self) -> Result<()> {
+        self.library.update_settings(|s| {
+            s.volume = self.settings.volume;
+            s.output_device = self.settings.output_device.clone();
+            s.exclusive = self.settings.exclusive;
+            s.replay_gain = self.settings.replay_gain;
+            s.album_gain = self.settings.album_gain;
+            s.autoplay_query = self.settings.autoplay_query.clone();
+            s.crossfade = self.settings.crossfade;
+            s.dsp = self.settings.dsp.clone();
+        })?;
+        Ok(())
+    }
     /// Whether output is exclusive. That is WASAPI's, so elsewhere the setting (kept as it is,
     /// for when the library is opened on Windows again) is ignored.
     fn exclusive(&self) -> bool {
@@ -1418,16 +1431,15 @@ impl Worker {
                         self.settings.volume
                     });
                 }
-                let mut persisted = self.library.settings()?;
-                persisted.volume = self.settings.volume;
-                self.library.save_settings(&persisted)?;
+                self.library
+                    .update_settings(|s| s.volume = self.settings.volume)?;
             }
             // Nothing open yet (the session from last time, waiting for Play): the new settings
             // apply when it opens, and the waiting song stays as it is.
             Command::Configure(settings) if self.sink.is_none() => {
                 self.settings = *settings;
                 self.dsp.set(self.settings.dsp.clone());
-                self.library.save_settings(&self.settings)?;
+                self.persist_audio_settings()?;
             }
             Command::Configure(settings) => {
                 let current = self.queue.active.clone();
@@ -1438,7 +1450,7 @@ impl Worker {
                 self.close();
                 self.settings = *settings;
                 self.dsp.set(self.settings.dsp.clone());
-                self.library.save_settings(&self.settings)?;
+                self.persist_audio_settings()?;
                 if let Some(current) = current {
                     let mut items = vec![current];
                     items.extend(queue);
@@ -1458,7 +1470,9 @@ impl Worker {
                 {
                     group.delays = delays;
                     self.settings.output_device = Some(group.device_name());
-                    self.library.save_settings(&self.settings)?;
+                    self.library.update_settings(|s| {
+                        s.output_device = self.settings.output_device.clone()
+                    })?;
                 }
             }
             Command::Dsp(dsp) => {
@@ -1466,7 +1480,8 @@ impl Worker {
                 let was_off = self.settings.dsp.is_transparent() && !self.settings.dsp.eq;
                 self.dsp.set(dsp.clone());
                 self.settings.dsp = dsp;
-                self.library.save_settings(&self.settings)?;
+                self.library
+                    .update_settings(|s| s.dsp = self.settings.dsp.clone())?;
                 if was_off
                     && !self.exclusive()
                     && self.queue.active.is_some()
@@ -1652,7 +1667,7 @@ impl Worker {
                 .map(|o| o.name.clone())
                 .unwrap_or_default();
             self.settings.output_device = None;
-            let _ = self.library.save_settings(&self.settings);
+            let _ = self.library.update_settings(|s| s.output_device = None);
             self.recover(format!(
                 "{name} stopped playing ({reason}). Playing on this computer"
             ));
@@ -2272,6 +2287,27 @@ mod tests {
             hardware.names = names.iter().map(|n| n.to_string()).collect();
             hardware.default = default.map(String::from);
         }
+    }
+
+    #[test]
+    fn dsp_commands_preserve_new_presets_and_unrelated_preferences() {
+        let mut rig = rig(FakeOpener::default(), Settings::default());
+        let library = rig.worker.library.clone();
+        let mut saved = library.settings().unwrap();
+        saved
+            .eq_presets
+            .push(crate::dsp::UserPreset::from_dsp("New preset", &saved.dsp));
+        saved.theme = "light".into();
+        library.save_settings(&saved).unwrap();
+        rig.run(Command::Dsp(saved.dsp.clone()));
+        let persisted = library.settings().unwrap();
+        assert_eq!(persisted.eq_presets.len(), 1);
+        assert_eq!(persisted.theme, "light");
+        let mut saved = persisted;
+        saved.eq_presets.clear();
+        library.save_settings(&saved).unwrap();
+        rig.run(Command::Dsp(saved.dsp));
+        assert!(library.settings().unwrap().eq_presets.is_empty());
     }
 
     struct Rig {

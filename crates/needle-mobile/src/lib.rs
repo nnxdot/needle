@@ -21,6 +21,8 @@ uniffi::setup_scaffolding!();
 #[cfg(target_os = "android")]
 mod android;
 mod app;
+#[cfg(test)]
+mod audit_tests;
 mod connect;
 mod media;
 mod more;
@@ -452,7 +454,9 @@ impl Needle {
                 let quoted = needle_core::query::quote(&name);
                 let artwork = self
                     .library
-                    .search(&format!("genre = {quoted} order by play_count desc limit 30"))
+                    .search(&format!(
+                        "genre = {quoted} order by play_count desc limit 30"
+                    ))
                     .ok()
                     .and_then(|tracks| tracks.into_iter().find_map(|t| t.artwork));
                 Genre {
@@ -516,10 +520,76 @@ impl Needle {
     pub fn search(&self, query: String) -> Result<Vec<Song>> {
         Ok(self
             .library
-            .search(&query)?
+            .available_page(&query, 0, 300)?
             .iter()
             .filter(|t| !t.missing)
             .take(300)
+            .map(Song::from)
+            .collect())
+    }
+    pub fn search_songs_page(&self, query: String, offset: u32, size: u32) -> Result<Vec<Song>> {
+        Ok(self
+            .library
+            .available_page(&query, offset as usize, size.min(1000) as usize)?
+            .iter()
+            .map(Song::from)
+            .collect())
+    }
+    pub fn search_songs_count(&self, query: String) -> Result<u32> {
+        Ok(self.library.available_count(&query)? as u32)
+    }
+    pub fn album_songs_page(&self, key: String, offset: u32, size: u32) -> Result<Vec<Song>> {
+        let [artist, album]: [String; 2] =
+            serde_json::from_str(&key).map_err(anyhow::Error::from)?;
+        self.search_songs_page(
+            format!(
+                "album_artist = {} and album = {} order by disc, track_number, title",
+                needle_core::query::quote(&artist),
+                needle_core::query::quote(&album)
+            ),
+            offset,
+            size,
+        )
+    }
+    pub fn albums_page(&self, offset: u32, size: u32) -> Result<Vec<Album>> {
+        Ok(self
+            .library
+            .albums_page(offset as usize, size.min(1000) as usize)?
+            .into_iter()
+            .map(Album::from)
+            .collect())
+    }
+    pub fn playlists_page(&self, offset: u32, size: u32) -> Result<Vec<Playlist>> {
+        self.library
+            .playlists_page(offset as usize, size.min(1000) as usize)?
+            .into_iter()
+            .map(|p| {
+                let art = p.cover.clone().or_else(|| {
+                    self.library
+                        .playlist_available_page(&p, 0, 1)
+                        .ok()?
+                        .first()?
+                        .artwork
+                        .clone()
+                });
+                Ok(Playlist {
+                    id: p.id,
+                    name: p.name,
+                    description: p.description,
+                    songs: p.track_ids.len() as u32,
+                    smart: p.query.is_some(),
+                    artwork: art,
+                    mosaic: vec![],
+                })
+            })
+            .collect()
+    }
+    pub fn playlist_songs_page(&self, id: String, offset: u32, size: u32) -> Result<Vec<Song>> {
+        let p = self.playlist(&id)?;
+        Ok(self
+            .library
+            .playlist_available_page(&p, offset as usize, size.min(1000) as usize)?
+            .iter()
             .map(Song::from)
             .collect())
     }

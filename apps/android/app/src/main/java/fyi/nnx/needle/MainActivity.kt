@@ -79,6 +79,18 @@ class MainActivity : ComponentActivity() {
 
     /** A music file opened with Needle from another app: it plays, and joins the library. */
     private fun openFrom(intent: Intent?) {
+        if (intent?.action == "android.media.action.MEDIA_PLAY_FROM_SEARCH") {
+            val query = intent.getStringExtra(android.app.SearchManager.QUERY).orEmpty()
+            val app = NeedleApp.instance
+            app.scope.launch(Dispatchers.IO) {
+                runCatching {
+                    val songs = app.core.searchSongsPage(query, 0u, 300u)
+                    check(songs.isNotEmpty()) { "No songs match that search" }
+                    app.core.play(songs.map { it.id }, 0u)
+                }.onFailure { showMessage(it.message ?: "Could not play that search") }
+            }
+            return
+        }
         if (intent?.action != Intent.ACTION_VIEW) return
         val uri = intent.data ?: return
         val app = NeedleApp.instance
@@ -110,8 +122,7 @@ class MainActivity : ComponentActivity() {
             if (c.moveToFirst()) c.getString(0) else null
         } ?: "opened-${System.currentTimeMillis()}"
         val folder = File(filesDir, "opened").apply { mkdirs() }
-        val file = File(folder, name.replace('/', '_'))
-        contentResolver.openInputStream(uri)!!.use { input -> file.outputStream().use { input.copyTo(it) } }
+        val file = copyFileAtomically(folder, name, { contentResolver.openInputStream(uri) ?: error("Could not read the opened file") })
         file.absolutePath
     }.getOrNull()
 

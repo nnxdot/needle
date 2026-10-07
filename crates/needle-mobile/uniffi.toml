@@ -1,3 +1,5 @@
 [bindings.kotlin]
 package_name = "fyi.nnx.needle.core"
 cdylib_name = "needle_mobile"
+android = true
+android_cleaner = true

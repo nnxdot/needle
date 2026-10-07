@@ -23,6 +23,7 @@ pub struct PcSong {
     pub artist: String,
     pub album: String,
     pub duration: f64,
+    pub format: String,
     /// Where to load its cover from, when it has one.
     pub cover: Option<String>,
 }
@@ -61,6 +62,7 @@ fn song(base: &str, v: &Value) -> PcSong {
         artist: v["artist"].as_str().unwrap_or_default().into(),
         album: v["album"].as_str().unwrap_or_default().into(),
         duration: v["duration"].as_f64().unwrap_or_default(),
+        format: v["format"].as_str().unwrap_or_default().into(),
         id,
     }
 }
@@ -74,6 +76,7 @@ pub(crate) fn streamed(song: &PcSong) -> Track {
         artist: song.artist.clone(),
         album: song.album.clone(),
         duration: song.duration,
+        format: song.format.clone(),
         ..Default::default()
     }
 }
@@ -281,18 +284,22 @@ impl Needle {
         let mut wanted: Vec<Track> = vec![current.track.clone()];
         wanted.extend(state.queue.iter().take(40).map(|q| q.track.clone()));
         let mut ids = vec![];
-        for track in &wanted {
+        for (index, track) in wanted.iter().enumerate() {
             // A song streamed from the computer is already one of its own.
             if let Some((PC, id)) = sources::parse_path(&track.path) {
                 ids.push(id);
                 continue;
             }
-            let found = self.pc_search(format!("{} {}", track.title, track.display_artist()))?;
+            let found = self.pc_search(handoff_query(track))?;
             if let Some(same) = found.iter().find(|s| {
                 s.title.eq_ignore_ascii_case(&track.title)
                     && s.artist.eq_ignore_ascii_case(track.display_artist())
             }) {
                 ids.push(same.id.clone());
+            } else if index == 0 {
+                return Err(NeedleError::Failed(
+                    "Your computer does not have this song".into(),
+                ));
             }
         }
         if ids.is_empty() {
@@ -311,6 +318,14 @@ impl Needle {
         }
         Ok(ids.len() as u32)
     }
+}
+
+fn handoff_query(track: &Track) -> String {
+    format!(
+        "title = {} and artist = {}",
+        needle_core::query::quote(&track.title),
+        needle_core::query::quote(track.display_artist())
+    )
 }
 
 #[cfg(test)]
@@ -332,6 +347,7 @@ mod tests {
                 title: "Harbor Lights".into(),
                 artist: "Mara Quinn".into(),
                 duration: 200.,
+                format: "FLAC".into(),
                 ..Default::default()
             })
             .unwrap();
@@ -353,6 +369,10 @@ mod tests {
         assert!(!state.playing);
         let found = needle.pc_search("harbor".into()).unwrap();
         assert_eq!(found[0].title, "Harbor Lights");
+        assert_eq!(found[0].format, "FLAC");
+        assert_eq!(streamed(&found[0]).format, "FLAC");
+        let track = streamed(&found[0]);
+        assert_eq!(needle.pc_search(handoff_query(&track)).unwrap()[0].id, "t1");
         // A computer song streams from its own address.
         let url = stream_link("t1").unwrap();
         let bytes = reqwest::blocking::get(url).unwrap().bytes().unwrap();

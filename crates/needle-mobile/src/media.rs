@@ -283,8 +283,9 @@ impl Needle {
 
 #[derive(Clone, uniffi::Record)]
 pub struct ThemeInfo {
-    /// The file's name without `.toml`.
+    /// Scoped identity: `custom:name` or `custom:plugin/name`.
     pub id: String,
+    pub read_only: bool,
     pub name: String,
     /// "dark" (Night), "midnight", or "light" (Day).
     pub base: String,
@@ -298,7 +299,7 @@ fn read_theme(path: &std::path::Path) -> Option<ThemeInfo> {
     if meta.len() > 64 * 1024 {
         return None;
     }
-    let value: toml::Value = std::fs::read_to_string(path).ok()?.parse().ok()?;
+    let value: toml::Value = toml::from_str(&std::fs::read_to_string(path).ok()?).ok()?;
     let id = path.file_stem()?.to_string_lossy().to_string();
     Some(ThemeInfo {
         name: value
@@ -322,6 +323,7 @@ fn read_theme(path: &std::path::Path) -> Option<ThemeInfo> {
             })
             .unwrap_or_default(),
         id,
+        read_only: false,
     })
 }
 
@@ -330,22 +332,33 @@ impl Needle {
     /// Custom themes, as on desktop: TOML files in Needle's `themes` folder and in the `themes`
     /// folders of plugins.
     pub fn themes(&self) -> Vec<ThemeInfo> {
-        let mut folders = vec![self.library.directory.join("themes")];
+        let mut folders = vec![(self.library.directory.join("themes"), String::new())];
         folders.extend(
             self.plugins
                 .plugins()
                 .into_iter()
                 .filter(|p| p.enabled)
-                .map(|p| p.folder.join("themes")),
+                .map(|p| (p.folder.join("themes"), format!("{}/", p.manifest.id))),
         );
         let mut themes: Vec<ThemeInfo> = folders
             .iter()
-            .filter_map(|f| std::fs::read_dir(f).ok())
-            .flatten()
-            .flatten()
-            .map(|e| e.path())
-            .filter(|p| p.extension().is_some_and(|e| e == "toml"))
-            .filter_map(|p| read_theme(&p))
+            .flat_map(|(folder, prefix)| {
+                std::fs::read_dir(folder)
+                    .into_iter()
+                    .flatten()
+                    .flatten()
+                    .filter_map(|e| {
+                        let path = e.path();
+                        if !path.extension().is_some_and(|e| e == "toml") {
+                            return None;
+                        }
+                        let mut theme = read_theme(&path)?;
+                        theme.id = format!("custom:{prefix}{}", theme.id);
+                        theme.read_only = !prefix.is_empty();
+                        Some(theme)
+                    })
+                    .collect::<Vec<_>>()
+            })
             .collect();
         themes.sort_by_key(|t| t.name.to_lowercase());
         themes
@@ -356,17 +369,70 @@ impl Needle {
         let source = std::path::Path::new(&path);
         let theme = read_theme(source)
             .ok_or_else(|| NeedleError::Failed("That is not a Needle theme file".into()))?;
-        let folder = self.library.directory.join("themes");
-        std::fs::create_dir_all(&folder).map_err(anyhow::Error::from)?;
-        let slug: String = theme
-            .name
-            .to_lowercase()
-            .chars()
-            .map(|c| if c.is_alphanumeric() { c } else { '-' })
-            .collect();
-        std::fs::copy(source, folder.join(format!("{slug}.toml"))).map_err(anyhow::Error::from)?;
+        let text = std::fs::read_to_string(source).map_err(anyhow::Error::from)?;
+        save_theme_file(&self.library, None, &theme.name, &text)?;
         Ok(theme.name)
     }
+}
+
+/// New/imported themes get fresh identities; replacement requires an explicit owned ID.
+pub(crate) fn save_theme_file(
+    library: &needle_core::database::Library,
+    id: Option<&str>,
+    name: &str,
+    text: &str,
+) -> Result<String> {
+    use std::io::Write;
+    let folder = library.directory.join("themes");
+    std::fs::create_dir_all(&folder).map_err(anyhow::Error::from)?;
+    let slug = match id {
+        Some(id) => owned_theme_slug(id)?.to_owned(),
+        None => {
+            let name: String = name
+                .to_lowercase()
+                .chars()
+                .map(|c| if c.is_alphanumeric() { c } else { '-' })
+                .collect();
+            format!("{}-{}", name.trim_matches('-'), uuid::Uuid::new_v4())
+        }
+    };
+    let destination = folder.join(format!("{slug}.toml"));
+    if id.is_some() && !destination.is_file() {
+        return Err(NeedleError::Failed(
+            "That user theme is no longer available".into(),
+        ));
+    }
+    let temporary = folder.join(format!(".{}.tmp", uuid::Uuid::new_v4()));
+    let result = (|| -> anyhow::Result<()> {
+        let mut file = std::fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(&temporary)?;
+        file.write_all(text.as_bytes())?;
+        file.sync_all()?;
+        drop(file);
+        if id.is_some() {
+            std::fs::rename(&temporary, &destination)?;
+        } else {
+            std::fs::hard_link(&temporary, &destination)?;
+        }
+        Ok(())
+    })();
+    let _ = std::fs::remove_file(temporary);
+    result?;
+    Ok(format!("custom:{slug}"))
+}
+
+pub(crate) fn owned_theme_slug(id: &str) -> Result<&str> {
+    let slug = id
+        .strip_prefix("custom:")
+        .ok_or_else(|| NeedleError::Failed("Choose a user theme to edit".into()))?;
+    if slug.is_empty() || slug.contains(['/', '\\', ':']) || matches!(slug, "." | "..") {
+        return Err(NeedleError::Failed(
+            "Plugin themes are read-only; save a new copy instead".into(),
+        ));
+    }
+    Ok(slug)
 }
 
 /// Lyrics from the core, as the app shows them.

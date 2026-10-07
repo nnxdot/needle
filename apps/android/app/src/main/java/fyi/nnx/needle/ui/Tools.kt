@@ -104,28 +104,38 @@ private fun refresh() {
 }
 
 /** Runs `work` off the main thread, then `done` with its result (or says what went wrong). */
-private fun <T> work(work: () -> T, done: (T) -> Unit) {
-    NeedleApp.instance.scope.launch {
-        val result = withContext(Dispatchers.IO) { runCatching(work) }
-        withContext(Dispatchers.Main) {
-            result.onSuccess(done).onFailure { showMessage(it.message ?: "It did not work") }
-        }
+private fun <T> work(work: suspend () -> T, finished: () -> Unit = {}, done: (T) -> Unit) {
+    NeedleApp.instance.scope.launch(Dispatchers.Main) {
+        fyi.nnx.needle.performOperation(
+            { withContext(Dispatchers.IO) { work() } }, done,
+            { showMessage(it.message ?: "It did not work") }, finished,
+        )
     }
 }
 
 // ---------- Changing music files needs "All files access"
 
 /** Whether Needle may change music files (tags, tidying), which Android asks about once. */
-fun canChangeFiles(): Boolean = Build.VERSION.SDK_INT < 30 || Environment.isExternalStorageManager()
+fun canChangeFiles(context: Context = NeedleApp.instance): Boolean = when {
+    Build.VERSION.SDK_INT >= 30 -> Environment.isExternalStorageManager()
+    Build.VERSION.SDK_INT <= 28 -> androidx.core.content.ContextCompat.checkSelfPermission(context, android.Manifest.permission.WRITE_EXTERNAL_STORAGE) == android.content.pm.PackageManager.PERMISSION_GRANTED
+    else -> false // API 29 uses scoped storage; a raw path does not carry a write grant.
+}
 
 /**
  * Asks for "All files access" when it is missing, explaining why first; then runs `then`.
  * Returned as a function to call from a button.
  */
 @Composable
-fun rememberFileAccess(): (then: () -> Unit) -> Unit {
+fun rememberFileAccess(songIds: List<String> = emptyList()): (then: () -> Unit) -> Unit {
     val context = LocalContext.current
     var asking by remember { mutableStateOf<(() -> Unit)?>(null) }
+    var pending by remember { mutableStateOf<(() -> Unit)?>(null) }
+    val legacy = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
+        val action = pending
+        pending = null
+        if (granted) action?.invoke() else showMessage("File changes were not allowed. You can grant storage access in app settings and try again.")
+    }
     asking?.let { then ->
         AlertDialog(
             onDismissRequest = { asking = null },
@@ -139,18 +149,29 @@ fun rememberFileAccess(): (then: () -> Unit) -> Unit {
             confirmButton = {
                 TextButton(onClick = {
                     asking = null
-                    context.startActivity(
-                        Intent(AndroidSettings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION, Uri.parse("package:${context.packageName}"))
-                            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
-                    )
-                    // Android asks in its own settings; the person taps the button again after.
-                    showMessage("Turn on Needle, then come back and try again")
-                }) { Text("Open settings") }
+                    if (Build.VERSION.SDK_INT <= 28) {
+                        pending = then
+                        legacy.launch(android.Manifest.permission.WRITE_EXTERNAL_STORAGE)
+                    } else if (Build.VERSION.SDK_INT >= 30) {
+                        context.startActivity(
+                            Intent(AndroidSettings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION, Uri.parse("package:${context.packageName}"))
+                                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
+                        )
+                        // Android asks in its own settings; the person taps the button again after.
+                        showMessage("Turn on Needle, then come back and try again")
+                    } else {
+                        showMessage("Android 10 does not allow editing these shared files by path. Open a copy with Needle to edit files in its own storage.")
+                    }
+                }) { Text(when {
+                    Build.VERSION.SDK_INT <= 28 -> "Allow storage access"
+                    Build.VERSION.SDK_INT >= 30 -> "Open settings"
+                    else -> "How to edit a copy"
+                }) }
             },
             dismissButton = { TextButton(onClick = { asking = null }) { Text("Not now") } },
         )
     }
-    return { then -> if (canChangeFiles()) then() else asking = then }
+    return { then -> if (canChangeFiles(context) || (songIds.isNotEmpty() && runCatching { core.songsArePrivate(songIds) }.getOrDefault(false))) then() else asking = then }
 }
 
 // ---------- Tag editor
@@ -167,7 +188,7 @@ fun TagEditorDialog(ids: List<String>, onDone: () -> Unit) {
     var backups by remember { mutableStateOf<List<fyi.nnx.needle.core.TagBackupInfo>>(emptyList()) }
     var identifying by remember { mutableStateOf(false) }
     var saving by remember { mutableStateOf(false) }
-    val access = rememberFileAccess()
+    val access = rememberFileAccess(ids)
     LaunchedEffect(ids) {
         val tags = withContext(Dispatchers.IO) { ids.mapNotNull { runCatching { core.songTags(it) }.getOrNull() } }
         fun shared(f: (fyi.nnx.needle.core.SongTags) -> String) = tags.map(f).distinct().singleOrNull() ?: ""
@@ -199,8 +220,7 @@ fun TagEditorDialog(ids: List<String>, onDone: () -> Unit) {
             trackNumber = number("track").takeIf { ids.size == 1 },
         )
         saving = true
-        work({ core.editTags(ids, change) }) { r: TagReport ->
-            saving = false
+        work({ core.editTags(ids, change) }, finished = { saving = false }) { r: TagReport ->
             showMessage(if (r.failed.isEmpty()) "Saved the tags of ${count(r.saved.toInt(), "song")}" else "Saved ${r.saved}; ${r.failed.size} could not be changed")
             refresh()
             onDone()
@@ -284,7 +304,7 @@ private fun IdentifyDialog(id: String, onDone: (changed: Boolean) -> Unit) {
     var hasKey by remember { mutableStateOf(core.hasAcoustidKey()) }
     var matches by remember { mutableStateOf<List<SoundMatch>?>(null) }
     var busy by remember { mutableStateOf(false) }
-    val access = rememberFileAccess()
+    val access = rememberFileAccess(listOf(id))
     val context = LocalContext.current
     LaunchedEffect(hasKey) {
         if (hasKey) {
@@ -477,8 +497,7 @@ private fun MissingCovers() {
                 enabled = !busy,
                 onClick = {
                     busy = true
-                    work({ core.findCovers(list.map { it.id }) }) { found ->
-                        busy = false
+                    work({ core.findCovers(list.map { it.id }) }, finished = { busy = false }) { found ->
                         showMessage("Found ${count(found.toInt(), "cover")}")
                         refresh()
                         round++
@@ -527,7 +546,7 @@ private fun AlbumProblems() {
 @Composable
 private fun ReleaseDialog(album: AlbumProblem, onDone: (Boolean) -> Unit) {
     var choices by remember { mutableStateOf<List<ReleaseChoice>?>(null) }
-    val access = rememberFileAccess()
+    val access = rememberFileAccess(album.songIds)
     LaunchedEffect(album) {
         choices = withContext(Dispatchers.IO) {
             runCatching { core.findReleases(album.songIds) }.onFailure { showMessage(it.message ?: "MusicBrainz did not answer") }.getOrDefault(emptyList())
@@ -577,36 +596,42 @@ private fun ReleaseDialog(album: AlbumProblem, onDone: (Boolean) -> Unit) {
 private fun Tidy() {
     val patterns = remember { core.tidyPatterns() }
     var pattern by rememberSaveable { mutableStateOf(patterns.first()) }
-    var plan by remember { mutableStateOf<TidyPlan?>(null) }
     var busy by remember { mutableStateOf(false) }
     var canUndo by remember { mutableStateOf(core.canUndoTidy()) }
+    var failures by remember { mutableStateOf<List<fyi.nnx.needle.core.FileFailure>>(emptyList()) }
+    var round by remember { mutableIntStateOf(0) }
     val access = rememberFileAccess()
-    LaunchedEffect(pattern) { plan = null; plan = withContext(Dispatchers.IO) { core.planTidy(pattern) } }
+    val plannedLoad = rememberLoaded(pattern, round) { planTidy(pattern) }
+    val planned by plannedLoad
+    val plan = planned
     Column {
         Explain("Puts files in folders by artist and album, inside your music folders. It can be undone.")
         LazyRow(contentPadding = PaddingValues(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             items(patterns) { p -> FilterChip(selected = p == pattern, onClick = { pattern = p }, label = { Text(p.replace("{", "").replace("}", "")) }) }
         }
         val p = plan
-        if (p == null) Loading("Working it out…") else Card {
+        if (plannedLoad.loading) Loading("Working it out…") else if (p != null) Card {
             Text(if (p.moves == 0u) "Everything is where it should be." else "${count(p.moves.toInt(), "file")} to move", style = MaterialTheme.typography.titleMedium)
             Text("${p.inPlace} already in place${if (p.skipped > 0u) ", ${p.skipped} left alone" else ""}", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
             p.examples.forEach { Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 2, overflow = TextOverflow.Ellipsis) }
             if (p.moves > 0u) Button(enabled = !busy, onClick = {
                 access {
                     busy = true
-                    work({ core.tidy() }) { moved ->
-                        busy = false
-                        showMessage("Moved ${count(moved.toInt(), "file")}")
+                    work({ core.tidy() }, finished = { busy = false; canUndo = core.canUndoTidy() }) { result ->
+                        failures = result.failures
+                        showMessage("Moved ${count(result.moved.toInt(), "file")}${if (result.failures.isEmpty()) "" else "; ${result.failures.size} files could not be moved"}")
                         canUndo = core.canUndoTidy()
                         refresh()
-                        pattern = pattern
+                        round++
                     }
                 }
             }) { Text(if (busy) "Moving…" else "Move the files") }
         }
+        failures.forEach { failure ->
+            Card { Text(failure.path, style = MaterialTheme.typography.bodyMedium); Text(failure.reason, color = MaterialTheme.colorScheme.error) }
+        }
         if (canUndo) TextButton(onClick = {
-            access { work({ core.undoTidy() }) { back -> showMessage("Put back ${count(back.toInt(), "file")}"); canUndo = core.canUndoTidy(); refresh() } }
+            access { work({ core.undoTidy() }, finished = { canUndo = core.canUndoTidy(); refresh(); round++ }) { back -> showMessage("Put back ${count(back.toInt(), "file")}") } }
         }, modifier = Modifier.padding(horizontal = 8.dp)) { Text("Undo the last tidy") }
     }
 }
@@ -621,9 +646,9 @@ fun ImportScreen() {
     var result by remember { mutableStateOf<String?>(null) }
     var history by remember { mutableStateOf<String?>(null) }
     fun run(kind: String, uri: Uri?) {
-        val path = uri?.let { copyToCache(context, it) } ?: return
+        uri ?: return
         busy = true
-        work({ core.importFile(kind, path).also { File(path).delete() } }) { busy = false; result = it; refresh() }
+        work({ withPickedFile(context, uri) { core.importFile(kind, it) } }, finished = { busy = false }) { result = it; refresh() }
     }
     val itunes = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { run("itunes", it) }
     val spotify = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { run("spotify", it) }
@@ -661,7 +686,7 @@ fun ImportScreen() {
                 TextButton(enabled = user.isNotBlank() && (service != "lastfm" || key.isNotBlank()), onClick = {
                     history = null
                     busy = true
-                    work({ core.importHistory(service, user.trim(), key.trim()) }) { busy = false; result = it; refresh() }
+                    work({ core.importHistory(service, user.trim(), key.trim()) }, finished = { busy = false }) { result = it; refresh() }
                 }) { Text("Bring it in") }
             },
             dismissButton = { TextButton(onClick = { history = null }) { Text("Cancel") } },
@@ -754,14 +779,16 @@ fun ThemeEditorScreen(id: String?, back: () -> Unit) {
         item {
             Row(Modifier.padding(Edge), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                 Button(onClick = {
-                    work({ core.saveTheme(id, name, base, colors.toMap()) }) { saved ->
+                    work({ core.saveTheme(id?.takeUnless { existing?.readOnly == true }, name, base, colors.toMap()) }) { saved ->
+                        NeedleApp.instance.themeVersion.value++
                         NeedleApp.instance.updateApp { it.copy(theme = saved) }
                         showMessage("Saved $name")
                         back()
                     }
                 }) { Text("Save and use it") }
-                if (existing != null) TextButton(onClick = {
+                if (existing != null && !existing.readOnly) TextButton(onClick = {
                     work({ core.deleteTheme(existing.id) }) {
+                        NeedleApp.instance.themeVersion.value++
                         NeedleApp.instance.updateApp { it.copy(theme = "night") }
                         showMessage("Deleted ${existing.name}")
                         back()
@@ -898,4 +925,3 @@ private fun SpeakerRow(icon: androidx.compose.ui.graphics.vector.ImageVector, na
         Checkbox(on, onChange)
     }
 }
-

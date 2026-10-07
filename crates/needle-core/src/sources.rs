@@ -369,7 +369,9 @@ pub fn fetch_covers(
                         Err(error) => {
                             // A few, not thousands, when a whole server's covers fail alike.
                             if failed.fetch_add(1, std::sync::atomic::Ordering::Relaxed) < 3 {
-                                crate::logfile::warn(format!("A cover from a music server: {error:#}"));
+                                crate::logfile::warn(format!(
+                                    "A cover from a music server: {error:#}"
+                                ));
                             }
                             continue;
                         }

@@ -742,7 +742,7 @@ private fun SeekBar(position: Double, duration: Double, playing: Boolean) {
     val shown = held ?: (position.toFloat() / length).coerceIn(0f, 1f)
     val thickness by animateDpAsState(if (held != null) 10.dp else 5.dp, label = "seek thickness")
     Column(Modifier.padding(top = 16.dp)) {
-        BoxWithConstraints(
+        Box(
             Modifier
                 .fillMaxWidth()
                 .height(28.dp)
@@ -778,11 +778,12 @@ private fun LyricsPanel(song: Song, position: Double, time: () -> Unit) {
     // Looked up again after NetEase is added.
     var retry by remember(song.id) { androidx.compose.runtime.mutableIntStateOf(0) }
     var askingNetEase by remember(song.id) { mutableStateOf(false) }
-    val lyrics by rememberLoaded(song.id, retry) {
+    val lyricsLoad = rememberLoaded(song.id, retry) {
         if (song.onComputer()) {
-            pcLyrics(fyi.nnx.needle.core.PcSong(song.id.removePrefix(PcPrefix), song.title, song.artist, song.album, song.duration, song.artwork))
+            pcLyrics(fyi.nnx.needle.core.PcSong(song.id.removePrefix(PcPrefix), song.title, song.artist, song.album, song.duration, song.format, song.artwork))
         } else lyrics(song.id)
     }
+    val lyrics by lyricsLoad
     val lines = lyrics?.lines.orEmpty()
     val state = rememberLazyListState()
     val now = lines.indexOfLast { it.time <= position + 0.2 }
@@ -797,6 +798,8 @@ private fun LyricsPanel(song: Song, position: Double, time: () -> Unit) {
         onDispose { view.keepScreenOn = false }
     }
     when {
+        lyricsLoad.loading -> Text("Loading lyrics…", color = Color.White.copy(alpha = 0.6f))
+        lyricsLoad.failed -> Unit // The load failure offers Retry above this page.
         lyrics == null || (lines.isEmpty() && lyrics?.plain.isNullOrBlank()) -> Column(horizontalAlignment = Alignment.CenterHorizontally) {
             Text(
                 if (lyrics?.instrumental == true) "Instrumental" else "No lyrics for this song",
@@ -859,7 +862,8 @@ private fun LyricsPanel(song: Song, position: Double, time: () -> Unit) {
 
 @Composable
 private fun UpNextPanel(version: ULong) {
-    val songs by rememberLoaded(version) { Controls.upNext() }
+    val songsLoad = rememberLoaded(version) { Controls.upNext() }
+    val songs by songsLoad
     val list = songs.orEmpty()
     val onComputer = list.firstOrNull()?.onComputer() == true
     // Up next on this phone can be put in order by dragging a song's handle.

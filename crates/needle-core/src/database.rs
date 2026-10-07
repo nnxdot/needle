@@ -231,6 +231,90 @@ impl Library {
         };
         Ok(SearchPage { tracks, total })
     }
+    /// Page playable results without hydrating the rest of the library. The rule's
+    /// own global/per-group limits are applied before hiding missing entries.
+    pub fn available_page(
+        &self,
+        expression: &str,
+        offset: usize,
+        size: usize,
+    ) -> Result<Vec<Track>> {
+        let q = query::compile(expression, chrono::Utc::now().timestamp())?;
+        if q.spread.is_some() {
+            // Global spreading depends on the whole selected set.
+            return Ok(self
+                .search(expression)?
+                .into_iter()
+                .filter(|t| !t.missing)
+                .skip(offset)
+                .take(size)
+                .collect());
+        }
+        let db = self.connection()?;
+        let mut statement = db.prepare(&format!(
+            "SELECT data,rating,play_count,last_played,missing FROM (SELECT t.* FROM {} WHERE ({}) ORDER BY {} LIMIT {}) WHERE missing=0 LIMIT {} OFFSET {}",
+            q.from(), q.filter(), q.order, q.limit, size.min(500_000), offset.min(i64::MAX as usize),
+        ))?;
+        Ok(statement
+            .query_map(rusqlite::params_from_iter(q.parameters), Self::row_track)?
+            .collect::<rusqlite::Result<_>>()?)
+    }
+    pub fn available_count(&self, expression: &str) -> Result<usize> {
+        let q = query::compile(expression, chrono::Utc::now().timestamp())?;
+        let count: i64 = self.connection()?.query_row(&format!(
+            "SELECT count(*) FROM (SELECT t.missing FROM {} WHERE ({}) ORDER BY {} LIMIT {}) WHERE missing=0",
+            q.from(), q.filter(), q.order, q.limit,
+        ), rusqlite::params_from_iter(q.parameters), |r| r.get(0))?;
+        Ok(count as usize)
+    }
+
+    pub fn playlist_available_page(
+        &self,
+        playlist: &Playlist,
+        offset: usize,
+        size: usize,
+    ) -> Result<Vec<Track>> {
+        if let Some(q) = &playlist.query {
+            return self.available_page(q, offset, size);
+        }
+        let db = self.connection()?;
+        let mut statement = db.prepare("SELECT t.data,t.rating,t.play_count,t.last_played,t.missing FROM json_each(?1) e JOIN tracks t ON t.id=e.value WHERE t.missing=0 ORDER BY e.key LIMIT ?2 OFFSET ?3")?;
+        Ok(statement
+            .query_map(
+                params![
+                    serde_json::to_string(&playlist.track_ids)?,
+                    size.min(500_000) as i64,
+                    offset.min(i64::MAX as usize) as i64
+                ],
+                Self::row_track,
+            )?
+            .collect::<rusqlite::Result<_>>()?)
+    }
+
+    pub fn playlists_page(&self, offset: usize, size: usize) -> Result<Vec<Playlist>> {
+        let db = self.connection()?;
+        let mut statement =
+            db.prepare("SELECT data FROM playlists ORDER BY name COLLATE NOCASE LIMIT ? OFFSET ?")?;
+        let json = statement
+            .query_map(
+                params![
+                    size.min(500_000) as i64,
+                    offset.min(i64::MAX as usize) as i64
+                ],
+                |r| r.get::<_, String>(0),
+            )?
+            .collect::<rusqlite::Result<Vec<_>>>()?;
+        json.into_iter()
+            .map(|s| serde_json::from_str(&s).map_err(Into::into))
+            .collect()
+    }
+    pub fn playlist_by_id(&self, id: &str) -> Result<Option<Playlist>> {
+        let json: Option<String> = self
+            .connection()?
+            .query_row("SELECT data FROM playlists WHERE id=?", [id], |r| r.get(0))
+            .optional()?;
+        Ok(json.map(|s| serde_json::from_str(&s)).transpose()?)
+    }
     pub fn track(&self, id: &str) -> Result<Option<Track>> {
         Ok(self
             .connection()?
@@ -300,6 +384,27 @@ impl Library {
     }
     pub fn save_settings(&self, settings: &Settings) -> Result<()> {
         self.set_json("settings", settings)
+    }
+    /// Serialize field changes with other writers, preserving unrelated preferences.
+    pub fn update_settings(&self, update: impl FnOnce(&mut Settings)) -> Result<Settings> {
+        let mut db = self.connection()?;
+        let tx = db.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
+        let value: Option<String> = tx
+            .query_row("SELECT value FROM settings WHERE key='settings'", [], |r| {
+                r.get(0)
+            })
+            .optional()?;
+        let mut settings = value
+            .map(|s| serde_json::from_str(&s))
+            .transpose()?
+            .unwrap_or_default();
+        update(&mut settings);
+        tx.execute(
+            "INSERT INTO settings VALUES ('settings',?) ON CONFLICT(key) DO UPDATE SET value=excluded.value",
+            [serde_json::to_string(&settings)?],
+        )?;
+        tx.commit()?;
+        Ok(settings)
     }
     pub fn get_json<T: serde::de::DeserializeOwned>(&self, key: &str) -> Result<Option<T>> {
         let value: Option<String> = self
@@ -431,8 +536,34 @@ impl Library {
             .filter(|l| !l.is_empty() && !l.starts_with('#'))
         {
             let path = source.parent().unwrap_or(Path::new(".")).join(line);
-            if let Ok(path) = path.canonicalize()
-                && let Some(track) = self.track_by_path(&path.to_string_lossy())?
+            let path = match path.canonicalize() {
+                Ok(path) => Some(path.to_string_lossy().into_owned()),
+                Err(_) => match line.rsplit_once('#') {
+                    Some((sheet, number))
+                        if Path::new(sheet)
+                            .extension()
+                            .is_some_and(|e| e.eq_ignore_ascii_case("cue")) =>
+                    {
+                        let number: u32 = number
+                            .parse()
+                            .context("CUE playlist entries use sheet.cue#track-number")?;
+                        let sheet = source
+                            .parent()
+                            .unwrap_or(Path::new("."))
+                            .join(sheet)
+                            .canonicalize()
+                            .with_context(|| format!("CUE sheet is unavailable: {sheet}"))?;
+                        let entry = format!("{}#{number}", sheet.to_string_lossy());
+                        if self.track_by_path(&entry)?.is_none() {
+                            bail!("Import this CUE sheet before its playlist: {entry}");
+                        }
+                        Some(entry)
+                    }
+                    _ => None,
+                },
+            };
+            if let Some(path) = path
+                && let Some(track) = self.track_by_path(&path)?
             {
                 ids.push(track.id);
             }

@@ -264,7 +264,8 @@ fun NeedleRoot() {
                 )
                 Overlays(snackbar)
                 // The welcome guide, the first time Needle opens with no music yet.
-                val songs by rememberLoaded { songCount() }
+                val songsLoad = rememberLoaded { songCount() }
+                val songs by songsLoad
                 val again by Ui.welcome.collectAsState()
                 if (again || (!app.welcomed && songs == 0u)) WelcomeGuide(open)
             }

@@ -25,15 +25,19 @@ import java.io.File
  * browsers. Needle's own core plays the sound; this tells Android what plays and passes its
  * buttons on.
  */
+@androidx.annotation.OptIn(markerClass = [UnstableApi::class])
 class PlaybackService : MediaLibraryService() {
     private var session: MediaLibrarySession? = null
+    private var library: Library? = null
 
     @UnstableApi
     override fun onCreate() {
         super.onCreate()
         val core = NeedleApp.instance.core
         val player = NeedlePlayer(Looper.getMainLooper(), core)
-        session = MediaLibrarySession.Builder(this, player, Library(core)).build()
+        val callback = Library(core)
+        library = callback
+        session = MediaLibrarySession.Builder(this, player, callback).build()
     }
 
     override fun onGetSession(controllerInfo: MediaSession.ControllerInfo) = session
@@ -44,6 +48,8 @@ class PlaybackService : MediaLibraryService() {
             release()
         }
         session = null
+        library?.close()
+        library = null
         super.onDestroy()
     }
 }
@@ -57,6 +63,8 @@ private const val FAVORITES = "favorites"
 /** The library as a car shows it: shelves, then albums and playlists, then songs. */
 @UnstableApi
 private class Library(private val core: Needle) : MediaLibraryService.MediaLibrarySession.Callback {
+    private val executor = com.google.common.util.concurrent.MoreExecutors.listeningDecorator(java.util.concurrent.Executors.newSingleThreadExecutor())
+    fun close() { executor.shutdownNow() }
     private fun folder(id: String, title: String, subtitle: String? = null, art: String? = null): MediaItem =
         MediaItem.Builder()
             .setMediaId(id)
@@ -90,26 +98,30 @@ private class Library(private val core: Needle) : MediaLibraryService.MediaLibra
         pageSize: Int,
         params: MediaLibraryService.LibraryParams?,
     ): ListenableFuture<LibraryResult<ImmutableList<MediaItem>>> {
-        val items: List<MediaItem> = runCatching {
-            when {
-                parentId == ROOT -> listOf(
-                    folder(RECENT, "Recently added"),
-                    folder(ALBUMS, "Albums"),
-                    folder(PLAYLISTS, "Playlists"),
-                    folder(FAVORITES, "Favorites"),
-                )
-                parentId == RECENT -> core.home().added.map(::album)
-                parentId == ALBUMS -> core.albums().map(::album)
-                parentId == PLAYLISTS -> core.playlists().map { folder("playlist:${it.id}", it.name, null, it.artwork) }
-                parentId == FAVORITES -> songs(core.favorites())
-                parentId.startsWith("album:") -> songs(core.albumSongs(parentId.removePrefix("album:")))
-                parentId.startsWith("playlist:") -> songs(core.playlistSongs(parentId.removePrefix("playlist:")))
-                else -> emptyList()
-            }
-        }.getOrDefault(emptyList())
-        val from = (page * pageSize).coerceAtMost(items.size)
-        val to = (from + pageSize).coerceAtMost(items.size)
-        return Futures.immediateFuture(LibraryResult.ofItemList(ImmutableList.copyOf(items.subList(from, to)), params))
+        if (page < 0 || pageSize !in 1..1000 || page.toLong() * pageSize > UInt.MAX_VALUE.toLong()) {
+            return Futures.immediateFailedFuture(IllegalArgumentException("Invalid library page"))
+        }
+        val offset = (page.toLong() * pageSize).toUInt()
+        val size = pageSize.toUInt()
+        return executor.submit<LibraryResult<ImmutableList<MediaItem>>> {
+            val items: List<MediaItem> =
+                when {
+                    parentId == ROOT -> listOf(
+                        folder(RECENT, "Recently added"),
+                        folder(ALBUMS, "Albums"),
+                        folder(PLAYLISTS, "Playlists"),
+                        folder(FAVORITES, "Favorites"),
+                    ).drop(offset.toLong().coerceAtMost(4).toInt()).take(pageSize)
+                    parentId == RECENT -> core.home().added.drop(offset.toLong().coerceAtMost(20).toInt()).take(pageSize).map(::album)
+                    parentId == ALBUMS -> core.albumsPage(offset, size).map(::album)
+                    parentId == PLAYLISTS -> core.playlistsPage(offset, size).map { folder("playlist:${it.id}", it.name, null, it.artwork) }
+                    parentId == FAVORITES -> songs(core.searchSongsPage("rating >= 4 order by title", offset, size))
+                    parentId.startsWith("album:") -> songs(core.albumSongsPage(parentId.removePrefix("album:"), offset, size))
+                    parentId.startsWith("playlist:") -> songs(core.playlistSongsPage(parentId.removePrefix("playlist:"), offset, size))
+                    else -> emptyList()
+                }
+            LibraryResult.ofItemList(ImmutableList.copyOf(items), params)
+        }
     }
 
     /** The car picked something: the songs it named are played by Needle. */
@@ -117,7 +129,42 @@ private class Library(private val core: Needle) : MediaLibraryService.MediaLibra
         mediaSession: MediaSession,
         controller: MediaSession.ControllerInfo,
         mediaItems: MutableList<MediaItem>,
-    ): ListenableFuture<MutableList<MediaItem>> = Futures.immediateFuture(mediaItems)
+    ): ListenableFuture<MutableList<MediaItem>> = executor.submit<MutableList<MediaItem>> {
+        mediaItems.flatMap { item ->
+            val query = item.requestMetadata.searchQuery
+            if (query == null) listOf(item) else songs(core.searchSongsPage(query, 0u, 300u))
+        }.toMutableList()
+    }
+
+    override fun onSearch(
+        session: MediaLibraryService.MediaLibrarySession,
+        browser: MediaSession.ControllerInfo,
+        query: String,
+        params: MediaLibraryService.LibraryParams?,
+    ): ListenableFuture<LibraryResult<Void>> = executor.submit<LibraryResult<Void>> {
+        val count = core.searchSongsCount(query).toInt()
+        Handler(session.player.applicationLooper).post {
+            session.notifySearchResultChanged(browser, query, count, params)
+        }
+        LibraryResult.ofVoid(params)
+    }
+
+    override fun onGetSearchResult(
+        session: MediaLibraryService.MediaLibrarySession,
+        browser: MediaSession.ControllerInfo,
+        query: String,
+        page: Int,
+        pageSize: Int,
+        params: MediaLibraryService.LibraryParams?,
+    ): ListenableFuture<LibraryResult<ImmutableList<MediaItem>>> {
+        if (page < 0 || pageSize !in 1..1000 || page.toLong() * pageSize > UInt.MAX_VALUE.toLong()) {
+            return Futures.immediateFailedFuture(IllegalArgumentException("Invalid search page"))
+        }
+        return executor.submit<LibraryResult<ImmutableList<MediaItem>>> {
+            val found = core.searchSongsPage(query, (page.toLong() * pageSize).toUInt(), pageSize.toUInt())
+            LibraryResult.ofItemList(ImmutableList.copyOf(songs(found)), params)
+        }
+    }
 }
 
 /** The playing cover as a small picture, made once per cover. */

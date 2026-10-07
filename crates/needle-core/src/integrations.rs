@@ -833,16 +833,27 @@ pub fn flush_scrobbles(library: &Library, credentials: &Credentials) -> Result<u
     let _guard = SCROBBLE_LOCK.lock().unwrap();
     let settings = library.settings()?;
     let db = library.connection()?;
-    let mut statement=db.prepare("SELECT s.listen_id,s.service,h.data,s.attempts FROM scrobbles s JOIN listens h ON h.id=s.listen_id WHERE s.status='pending' AND s.next_attempt<=? ORDER BY h.started_at LIMIT 100")?;
+    let lastfm = settings.lastfm_enabled
+        && !credentials.lastfm_session.is_empty()
+        && !credentials.lastfm_api_key.is_empty()
+        && !credentials.lastfm_secret.is_empty()
+        && rejected("lastfm", credentials).is_none();
+    let listenbrainz = settings.listenbrainz_enabled
+        && !credentials.listenbrainz_token.is_empty()
+        && rejected("listenbrainz", credentials).is_none();
+    let mut statement=db.prepare("SELECT s.listen_id,s.service,h.data,s.attempts FROM scrobbles s JOIN listens h ON h.id=s.listen_id WHERE s.status='pending' AND s.next_attempt<=?1 AND ((s.service='lastfm' AND ?2) OR (s.service='listenbrainz' AND ?3)) ORDER BY h.started_at LIMIT 100")?;
     let rows = statement
-        .query_map([chrono::Utc::now().timestamp()], |r| {
-            Ok((
-                r.get::<_, String>(0)?,
-                r.get::<_, String>(1)?,
-                r.get::<_, String>(2)?,
-                r.get::<_, i64>(3)?,
-            ))
-        })?
+        .query_map(
+            params![chrono::Utc::now().timestamp(), lastfm, listenbrainz],
+            |r| {
+                Ok((
+                    r.get::<_, String>(0)?,
+                    r.get::<_, String>(1)?,
+                    r.get::<_, String>(2)?,
+                    r.get::<_, i64>(3)?,
+                ))
+            },
+        )?
         .collect::<std::result::Result<Vec<_>, _>>()?;
     let secrets = credentials.secrets();
     let mut sent = 0;

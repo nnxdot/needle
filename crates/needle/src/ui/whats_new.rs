@@ -469,4 +469,25 @@ mod tests {
             assert!(!change.title.is_empty() && !change.body.is_empty());
         }
     }
+
+    #[test]
+    fn the_shipped_notes_use_available_icons() {
+        use gpui::AssetSource;
+
+        let assets = super::super::assets::Assets;
+        for notes in super::parse(super::NOTES) {
+            for change in notes.milestones.iter().chain(&notes.features) {
+                if change.icon.is_empty() {
+                    continue;
+                }
+                let path = format!("needle/{}.svg", change.icon);
+                assert!(
+                    assets.load(&path).expect("load changelog icon").is_some(),
+                    "missing icon {path} for {} in {}",
+                    change.title,
+                    notes.version
+                );
+            }
+        }
+    }
 }

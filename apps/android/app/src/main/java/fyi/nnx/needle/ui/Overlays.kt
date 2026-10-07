@@ -56,6 +56,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.File
+import kotlinx.coroutines.ensureActive
 
 /** What floats over the screens: a sheet or a dialog at a time, and short messages. */
 object Ui {
@@ -120,9 +121,14 @@ private fun PluginQuestion(q: Notice.Question, done: () -> Unit) {
     var text by remember(q.id) { mutableStateOf(q.default) }
     val pick = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
         // A plugin reads the file's text: a copy in the app's cache is handed over.
-        val path = uri?.let { copyToCache(context, it) }
-        core.answer(q.id, null, path)
-        done()
+        if (uri == null) { core.answer(q.id, null, null); done() }
+        else NeedleApp.instance.scope.launch(kotlinx.coroutines.Dispatchers.Main) {
+            fyi.nnx.needle.performOperation({ copyToCache(context, uri) }, { path ->
+                // The plugin resumes asynchronously and reads this path after answer returns.
+                core.answer(q.id, null, path)
+                done()
+            }, { error -> showMessage(error.message ?: "Could not read that file") }, {})
+        }
     }
     if (q.file) {
         LaunchedEffect(q.id) { pick.launch(arrayOf("*/*")) }
@@ -144,17 +150,37 @@ private fun PluginQuestion(q: Notice.Question, done: () -> Unit) {
 }
 
 /** A file picked in Android's picker, copied where Needle can read it by path. */
-fun copyToCache(context: Context, uri: Uri): String? = runCatching {
-    val name = uri.lastPathSegment?.substringAfterLast('/')?.substringAfterLast(':')?.ifBlank { null } ?: "picked"
-    val file = File(context.cacheDir, "picked-$name")
-    context.contentResolver.openInputStream(uri)!!.use { input -> file.outputStream().use { input.copyTo(it) } }
-    file.absolutePath
-}.getOrNull()
+suspend fun copyToCache(context: Context, uri: Uri): String {
+    val name = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+        context.contentResolver.query(uri, arrayOf(android.provider.OpenableColumns.DISPLAY_NAME), null, null, null)?.use {
+            if (it.moveToFirst()) it.getString(0) else null
+        } ?: "picked"
+    }
+    return fyi.nnx.needle.copyFileOnIo(context.cacheDir, name) {
+        context.contentResolver.openInputStream(uri) ?: error("Could not read that file")
+    }.absolutePath
+}
+
+suspend fun <T> withPickedFile(context: Context, uri: Uri, action: (String) -> T): T {
+    val path = copyToCache(context, uri)
+    return try { action(path) } finally { File(path).delete() }
+}
+
+fun <T> pickedFile(context: Context, uri: Uri?, action: (String) -> T, finished: () -> Unit = {}, done: (T) -> Unit) {
+    if (uri == null) { finished(); return }
+    NeedleApp.instance.scope.launch(kotlinx.coroutines.Dispatchers.Main) {
+        fyi.nnx.needle.performOperation(
+            { kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) { withPickedFile(context, uri, action) } },
+            done, { showMessage(it.message ?: "Could not read that file") }, finished,
+        )
+    }
+}
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun AddToPlaylistSheet(ids: List<String>) {
-    val playlists by rememberLoaded { playlists() }
+    val playlistsLoad = rememberLoaded { playlists() }
+    val playlists by playlistsLoad
     ModalBottomSheet(onDismissRequest = { Ui.sheet.value = null }) {
         Column(Modifier.navigationBarsPadding().padding(bottom = 16.dp)) {
             Text("Add to a playlist", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold, modifier = Modifier.padding(horizontal = Edge, vertical = 8.dp))
@@ -193,7 +219,8 @@ private fun AddToPlaylistSheet(ids: List<String>) {
 /** Makes a playlist (of songs, or a smart one that follows a rule), or changes one. */
 @Composable
 private fun PlaylistDialog(editing: String?, ids: List<String>, smartAtFirst: Boolean) {
-    val detail by rememberLoaded(editing) { editing?.let { playlistDetail(it) } }
+    val detailLoad = rememberLoaded(editing) { editing?.let { playlistDetail(it) } }
+    val detail by detailLoad
     var name by remember(detail) { mutableStateOf(detail?.name ?: "") }
     var description by remember(detail) { mutableStateOf(detail?.description ?: "") }
     var smart by remember(detail) { mutableStateOf(detail?.rule != null || (editing == null && smartAtFirst)) }

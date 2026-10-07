@@ -24,12 +24,19 @@ enum Thumb {
     Ready(PathBuf),
     /// Being made; draw the stand-in until then.
     Making,
+    Failed(std::time::Instant),
+}
+
+type Key = (String, u32, (u64, Option<std::time::SystemTime>));
+fn stamp(path: &str) -> Option<(u64, Option<std::time::SystemTime>)> {
+    let metadata = std::fs::metadata(path).ok()?;
+    Some((metadata.len(), metadata.modified().ok()))
 }
 
 struct Thumbs {
     folder: PathBuf,
-    known: Mutex<HashMap<(String, u32), Thumb>>,
-    jobs: Mutex<Sender<(String, u32, PathBuf)>>,
+    known: Mutex<HashMap<Key, Thumb>>,
+    jobs: Mutex<Sender<(Key, PathBuf)>>,
 }
 
 static THUMBS: OnceLock<Thumbs> = OnceLock::new();
@@ -38,17 +45,29 @@ static MADE: AtomicU64 = AtomicU64::new(0);
 
 /// Where copies are kept; call once at start.
 pub fn start(folder: PathBuf) {
-    let (tx, rx) = channel::<(String, u32, PathBuf)>();
+    let (tx, rx) = channel::<(Key, PathBuf)>();
     // One thread: decoding a large cover is heavy, and a screenful of them at once would
     // take every core.
     std::thread::spawn(move || {
-        for (path, edge, out) in rx {
-            let made = make(&path, edge, &out);
+        for (key, out) in rx {
+            let (path, edge, version) = &key;
+            let made = make(path, *edge, &out);
             if let Some(thumbs) = THUMBS.get() {
                 let mut known = thumbs.known.lock().unwrap_or_else(|p| p.into_inner());
                 // A cover that cannot be read is drawn as it is (and fails there as before).
-                let file = if made { out } else { PathBuf::from(&path) };
-                known.insert((path, edge), Thumb::Ready(file));
+                if stamp(path).as_ref() != Some(version) {
+                    known.remove(&key);
+                    let _ = std::fs::remove_file(&out);
+                } else if known.contains_key(&key) {
+                    known.insert(
+                        key,
+                        if made {
+                            Thumb::Ready(out)
+                        } else {
+                            Thumb::Failed(std::time::Instant::now())
+                        },
+                    );
+                }
             }
             MADE.fetch_add(1, Ordering::Relaxed);
         }
@@ -76,25 +95,25 @@ pub fn for_size(path: &str, size: f32) -> Option<PathBuf> {
         return Some(PathBuf::from(path));
     };
     let mut known = thumbs.known.lock().unwrap_or_else(|p| p.into_inner());
-    let key = (path.to_string(), edge);
-    match known.get(&key) {
-        Some(Thumb::Ready(file)) => return Some(file.clone()),
-        Some(Thumb::Making) => return None,
-        None => {}
-    }
-    let Ok(meta) = std::fs::metadata(path) else {
-        known.insert(key, Thumb::Ready(PathBuf::from(path)));
+    let Some(version) = stamp(path) else {
         return Some(PathBuf::from(path));
     };
-    if meta.len() <= SMALL_FILE {
+    let key = (path.to_string(), edge, version);
+    known.retain(|k, _| k.0 != path || k.1 != edge || *k == key);
+    match known.get(&key) {
+        Some(Thumb::Ready(file)) if file.is_file() => return Some(file.clone()),
+        Some(Thumb::Making) => return None,
+        Some(Thumb::Failed(at)) if at.elapsed().as_secs() < 1 => return Some(PathBuf::from(path)),
+        _ => {}
+    }
+    if version.0 <= SMALL_FILE {
         known.insert(key, Thumb::Ready(PathBuf::from(path)));
         return Some(PathBuf::from(path));
     }
     // Named by the cover's path, size, and time, so a changed cover gets a new copy.
     let mut hasher = std::collections::hash_map::DefaultHasher::new();
     path.hash(&mut hasher);
-    meta.len().hash(&mut hasher);
-    meta.modified().ok().hash(&mut hasher);
+    version.hash(&mut hasher);
     let out = thumbs
         .folder
         .join(format!("{:016x}-{edge}.jpg", hasher.finish()));
@@ -102,13 +121,17 @@ pub fn for_size(path: &str, size: f32) -> Option<PathBuf> {
         known.insert(key, Thumb::Ready(out.clone()));
         return Some(out);
     }
-    known.insert(key, Thumb::Making);
-    let _ =
-        thumbs
-            .jobs
-            .lock()
-            .unwrap_or_else(|p| p.into_inner())
-            .send((path.to_string(), edge, out));
+    known.insert(key.clone(), Thumb::Making);
+    if thumbs
+        .jobs
+        .lock()
+        .unwrap_or_else(|p| p.into_inner())
+        .send((key.clone(), out))
+        .is_err()
+    {
+        known.insert(key, Thumb::Failed(std::time::Instant::now()));
+        return Some(PathBuf::from(path));
+    }
     None
 }
 
@@ -135,7 +158,11 @@ fn make(path: &str, edge: u32, out: &Path) -> bool {
             .encode_image(&small)
             .is_ok()
     });
-    written && std::fs::rename(&part, out).is_ok()
+    let completed = written && std::fs::rename(&part, out).is_ok();
+    if !completed {
+        let _ = std::fs::remove_file(part);
+    }
+    completed
 }
 
 #[cfg(test)]
@@ -183,8 +210,46 @@ mod tests {
         };
         assert!(made() >= 1);
         assert_ne!(copy, PathBuf::from(big_path.as_ref()));
-        let copy = image::open(&copy).unwrap();
-        assert!(copy.width() <= 256 && copy.height() <= 256);
+        let decoded = image::open(&copy).unwrap();
+        assert!(decoded.width() <= 256 && decoded.height() <= 256);
+        // Replacing the source at the same path must refresh during this session.
+        let replacement = image::RgbImage::from_fn(1600, 1600, |_, _| {
+            seed = seed.wrapping_mul(1_664_525).wrapping_add(1_013_904_223);
+            image::Rgb([(seed >> 24) as u8, (seed >> 16) as u8, (seed >> 8) as u8])
+        });
+        replacement
+            .save_with_format(big_path.as_ref(), image::ImageFormat::Png)
+            .unwrap();
+        std::fs::File::options()
+            .write(true)
+            .open(big_path.as_ref())
+            .unwrap()
+            .set_modified(std::time::SystemTime::now() + std::time::Duration::from_secs(2))
+            .unwrap();
+        assert_ne!(for_size(&big_path, 100.), Some(copy.clone()));
+        let started = std::time::Instant::now();
+        let refreshed = loop {
+            if let Some(file) = for_size(&big_path, 100.) {
+                break file;
+            }
+            assert!(started.elapsed().as_secs() < 20);
+            std::thread::sleep(std::time::Duration::from_millis(20));
+        };
+        assert_ne!(refreshed, copy);
+        assert_ne!(
+            std::fs::read(&refreshed).unwrap(),
+            std::fs::read(&copy).unwrap()
+        );
+        let refreshed_image = image::open(&refreshed).unwrap();
+        assert!(refreshed_image.width() <= 256 && refreshed_image.height() <= 256);
+        // Removing the generated copy also recovers without restarting the app.
+        std::fs::remove_file(&refreshed).unwrap();
+        assert_eq!(for_size(&big_path, 100.), None);
+        let started = std::time::Instant::now();
+        while for_size(&big_path, 100.).is_none() {
+            assert!(started.elapsed().as_secs() < 20);
+            std::thread::sleep(std::time::Duration::from_millis(20));
+        }
         let _ = std::fs::remove_dir_all(dir);
     }
 }

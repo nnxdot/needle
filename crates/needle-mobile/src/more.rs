@@ -86,6 +86,8 @@ pub struct PlaylistDetail {
     /// The rule of a smart playlist, as typed in search.
     pub rule: Option<String>,
     pub songs: Vec<Song>,
+    /// Stored positions of visible occurrences, including repeated songs.
+    pub positions: Vec<u32>,
 }
 
 fn stats(s: needle_core::history::HistoryStats, library: &needle_core::database::Library) -> Stats {
@@ -139,11 +141,9 @@ impl Needle {
             .collect())
     }
 
-    fn playlist(&self, id: &str) -> Result<Playlist> {
+    pub(crate) fn playlist(&self, id: &str) -> Result<Playlist> {
         self.library
-            .playlists()?
-            .into_iter()
-            .find(|p| p.id == id)
+            .playlist_by_id(id)?
             .ok_or_else(|| NeedleError::Failed("That playlist is gone".into()))
     }
 }
@@ -282,19 +282,42 @@ impl Needle {
 
     pub fn playlist_detail(&self, id: String) -> Result<PlaylistDetail> {
         let playlist = self.playlist(&id)?;
-        let songs = self
-            .library
-            .playlist_tracks(&playlist)?
-            .iter()
-            .filter(|t| !t.missing)
-            .map(Song::from)
-            .collect();
+        let (songs, positions) = if playlist.query.is_some() || playlist.rules.is_some() {
+            let songs: Vec<_> = self
+                .library
+                .playlist_tracks(&playlist)?
+                .iter()
+                .filter(|t| !t.missing)
+                .map(Song::from)
+                .collect();
+            let positions = (0..songs.len() as u32).collect();
+            (songs, positions)
+        } else {
+            let tracks: std::collections::HashMap<_, _> = self
+                .library
+                .tracks_by_ids(&playlist.track_ids)?
+                .into_iter()
+                .map(|t| (t.id.clone(), t))
+                .collect();
+            playlist
+                .track_ids
+                .iter()
+                .enumerate()
+                .filter_map(|(i, id)| {
+                    tracks
+                        .get(id)
+                        .filter(|t| !t.missing)
+                        .map(|t| (Song::from(t), i as u32))
+                })
+                .unzip()
+        };
         Ok(PlaylistDetail {
             id: playlist.id,
             name: playlist.name,
             description: playlist.description,
             rule: playlist.query,
             songs,
+            positions,
         })
     }
 

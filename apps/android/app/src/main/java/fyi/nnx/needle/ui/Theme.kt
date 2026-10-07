@@ -119,8 +119,9 @@ val playerShowing = androidx.compose.runtime.mutableStateOf(false)
 @Composable
 fun NeedleTheme(content: @Composable () -> Unit) {
     val app by NeedleApp.instance.app.collectAsState()
+    val themeVersion by NeedleApp.instance.themeVersion.collectAsState()
     val context = LocalContext.current
-    val custom = remember(app.theme) {
+    val custom = remember(app.theme, themeVersion) {
         if (app.theme in listOf("night", "midnight", "day")) null
         else runCatching { NeedleApp.instance.core.themes() }.getOrNull()?.firstOrNull { it.id == app.theme }
     }

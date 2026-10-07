@@ -47,6 +47,8 @@ The portable folder also contains `needle-cli.exe`. The Windows build needs a wo
 
 Supported and exercised with generated fixtures: WAV PCM, AIFF PCM, FLAC, MP3, AAC and ALAC in M4A, Ogg Vorbis, and Ogg Opus (`.opus`, or Opus inside `.ogg`). WavPack, APE, DSD, DRM, and streaming services are not implemented. Raw AAC is not part of the validated format set.
 
+M3U8 exports preserve CUE entries as `album.cue#3`, where the number selects track 3 in that sheet. This is a Needle extension; other players may not recognize it. To import these playlists into Needle, import the CUE sheet and its referenced audio first. Repeated entries retain their order; unavailable sheets or track numbers are reported during playlist import.
+
 Opus uses a pure-Rust decoder (a patched `opus-decoder` crate), so no system libraries are needed. Pre-skip, end trimming, the header's output gain, seeking, and mono/stereo/5.1 channel mappings are handled and tested. Its CELT output matched FFmpeg's libopus decode at over 100 dB SNR on the fixtures; hybrid (SILK+CELT) packets, typical of low-bitrate speech-like encodes, matched at about 44–54 dB, which is close but not identical. Opus R128 gain tags are not read, and only the first stream of a chained Ogg file plays.
 
 ## Rules
