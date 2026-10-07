@@ -3,6 +3,12 @@ plugins {
     id("org.jetbrains.kotlin.plugin.compose")
 }
 
+val packagedAbis = providers.gradleProperty("needleAbis").orNull
+    ?.split(',')?.map { it.trim() } ?: listOf("arm64-v8a", "x86_64")
+require(packagedAbis.isNotEmpty() && packagedAbis.all { it in listOf("arm64-v8a", "x86_64") }) {
+    "needleAbis must contain arm64-v8a, x86_64, or both, separated by commas"
+}
+
 android {
     namespace = "fyi.nnx.needle"
     compileSdk = 37
@@ -16,7 +22,7 @@ android {
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         ndk {
             // The Rust core is built for these by scripts/android-build.sh.
-            abiFilters += listOf("arm64-v8a", "x86_64")
+            abiFilters += packagedAbis
         }
     }
 
