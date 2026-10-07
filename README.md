@@ -1,8 +1,8 @@
 # Needle
 
-A native music player for **Windows, macOS, and Linux**, built with Rust and GPUI. Organize the music you own, listen with synced lyrics, make smart playlists, and stream from your Navidrome or Subsonic server. Your library and listening history live in a local SQLite database.
+A native music player for **Windows, macOS, Linux, and Android**, built with Rust, GPUI on desktop, and Jetpack Compose on Android. Organize the music you own, listen with synced lyrics, make smart playlists, and stream from your Navidrome or Subsonic server. Your library and listening history live in a local SQLite database.
 
-**Version 1.6.1** · Free for personal, non-commercial use · [Download Needle](https://needle.nnx.fyi/#download) · [Help](https://needle.nnx.fyi/help) · [Privacy](https://needle.nnx.fyi/privacy)
+**Version 1.6.2** · Free for personal, non-commercial use · [Download Needle](https://needle.nnx.fyi/#download) · [Help](https://needle.nnx.fyi/help) · [Privacy](https://needle.nnx.fyi/privacy)
 
 ## Install and start listening
 
@@ -11,10 +11,11 @@ Choose a package from the [download page](https://needle.nnx.fyi/#download):
 | Platform | Requirements | Installation |
 | --- | --- | --- |
 | Windows | Windows 10 or 11, 64-bit | Run the installer, or extract the portable ZIP and open `Needle.exe` inside the `Needle` folder. |
-| macOS | Apple silicon (M1 or newer), macOS 11 or newer | Open the disk image and drag Needle to Applications. See the [installation help](https://needle.nnx.fyi/help#install) for first-launch instructions. |
+| macOS | Apple silicon (M1 or newer), macOS 11 or newer | The current Mac build is 1.6.1. Open the disk image and drag Needle to Applications. See the [installation help](https://needle.nnx.fyi/help#install) for first-launch instructions. |
 | Linux | Ubuntu 24.04, Mint 22, Debian 13, Fedora 40, or newer; x86-64 | Install the `.deb` or `.rpm` package with your software center. |
+| Android | Android 8.0 or newer; ARM64 or x86_64 | The release APK is unsigned and must be signed before Android can install it. |
 
-On Ubuntu, Mint, or Debian, you can also run `sudo apt install ./needle_1.6.1_amd64.deb`; on Fedora, run `sudo dnf install ./needle-1.6.1-1.x86_64.rpm` from the download folder. On GNOME, the tray icon needs an AppIndicator extension.
+On Ubuntu, Mint, or Debian, you can also run `sudo apt install ./needle_1.6.2_amd64.deb`; on Fedora, run `sudo dnf install ./needle-1.6.2-1.x86_64.rpm` from the download folder. On GNOME, the tray icon needs an AppIndicator extension.
 
 Open Needle and choose **Add a music folder**, or try the three original demo recordings on the first-run screen. Files stay in their existing folders. No account is needed for local playback, search, playlists, ratings, or history. A working GPU driver and audio output are required.
 
