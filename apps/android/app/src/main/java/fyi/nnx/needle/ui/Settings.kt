@@ -278,9 +278,11 @@ private fun treePath(uri: Uri): String? {
 @OptIn(ExperimentalMaterial3ExpressiveApi::class)
 @Composable
 private fun LibrarySettings(open: (Route) -> Unit) {
-    val folders by rememberLoaded { folders() }
+    val foldersLoad = rememberLoaded { folders() }
+    val folders by foldersLoad
     val scan by NeedleApp.instance.scan.collectAsState()
-    val count by rememberLoaded(scan.running) { songCount() }
+    val countLoad = rememberLoaded(scan.running) { songCount() }
+    val count by countLoad
     var playback by remember { mutableStateOf<PlaybackSettings?>(null) }
     var removing by remember { mutableStateOf<String?>(null) }
     LaunchedEffect(Unit) { playback = withContext(Dispatchers.IO) { runCatching { core.playbackSettings() }.getOrNull() } }
@@ -448,7 +450,8 @@ private fun PlaybackSettingsPage() {
         )
     }
     Group("Radio", footer = "Radio picks songs that sound alike, from how each one sounds. Measuring reads each song once, on this phone.") {
-        val measured by rememberLoaded(s.soundAnalysis) { measured() }
+        val measuredLoad = rememberLoaded(s.soundAnalysis) { measured() }
+        val measured by measuredLoad
         SwitchRow(
             "Measure songs for radio",
             measured?.let { m -> if (m.size == 2 && m[1] > 0u) "${m[0]} of ${m[1]} measured" else null } ?: "Reads songs in the background",
@@ -480,13 +483,8 @@ private fun SoundSettingsPage() {
         }
     }
     val correction = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
-        val path = uri?.let { copyToCache(context, it) } ?: return@rememberLauncherForActivityResult
-        NeedleApp.instance.scope.launch {
-            withContext(Dispatchers.IO) { runCatching { core.loadEqFile(path) } }
-                .onSuccess { showMessage("Loaded a correction with ${count(it.toInt(), "band")}") }
-                .onFailure { showMessage(it.message ?: "That is not an equalizer file") }
-            java.io.File(path).delete()
-            kotlinx.coroutines.delay(300)
+        pickedFile(context, uri, { core.loadEqFile(it) }) {
+            showMessage("Loaded a correction with ${count(it.toInt(), "band")}")
             reload()
         }
     }
@@ -653,10 +651,11 @@ private fun AppearanceSettings(open: (Route) -> Unit) {
     val context = LocalContext.current
     var themes by remember { mutableStateOf(core.themes()) }
     val importTheme = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
-        val path = uri?.let { copyToCache(context, it) } ?: return@rememberLauncherForActivityResult
-        runCatching { core.importTheme(path) }
-            .onSuccess { name -> themes = core.themes(); showMessage("Added $name") }
-            .onFailure { showMessage(it.message ?: "Could not add that theme") }
+        pickedFile(context, uri, { core.importTheme(it) }) { name ->
+            themes = core.themes()
+            NeedleApp.instance.themeVersion.value++
+            showMessage("Added $name")
+        }
     }
     Group("Look", footer = "Themes made on desktop, or from needle.nnx.fyi/themes, work here too.") {
         Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {

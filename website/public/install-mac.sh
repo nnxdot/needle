@@ -26,10 +26,11 @@ cleanup() {
 }
 trap cleanup EXIT
 
-say "Finding the latest Needle…"
-version=$(curl -fsSL "$site/latest.json" | sed -n 's/.*"tag_name"[^"]*"v\{0,1\}\([0-9][0-9.]*\)".*/\1/p' | head -1)
-[ -n "$version" ] || fail "could not read the latest version from $site."
-image="Needle-$version-macos.dmg"
+say "Finding the latest Needle for Mac…"
+image=$(curl -fsSL "$site/latest.json" | sed -n 's/.*"name"[^"]*"\(Needle-[0-9][0-9.]*-macos\.dmg\)".*/\1/p' | head -1)
+[ -n "$image" ] || fail "could not find a Mac download on $site."
+version=${image#Needle-}
+version=${version%-macos.dmg}
 
 say "Downloading Needle $version…"
 curl -fL --progress-bar -o "$work/$image" "$site/download/$image" || fail "the download did not work."

@@ -66,10 +66,12 @@ private fun playTop(w: Wrapped, start: Int = 0) {
 @OptIn(ExperimentalMaterial3ExpressiveApi::class)
 @Composable
 fun WrappedScreen(year: Int?, open: (Route) -> Unit) {
-    val years by rememberLoaded { wrappedYears() }
+    val yearsLoad = rememberLoaded { wrappedYears() }
+    val years by yearsLoad
     var chosen by rememberSaveable { mutableStateOf(year) }
     val shown = chosen ?: years?.firstOrNull()
-    val wrapped by rememberLoaded(shown) { shown?.let { wrapped(it) } }
+    val wrappedLoad = rememberLoaded(shown) { shown?.let { wrapped(it) } }
+    val wrapped by wrappedLoad
     val w = wrapped
     if (years != null && years!!.isEmpty()) {
         Column(Modifier.fillMaxSize()) {
@@ -218,7 +220,8 @@ private fun Artists(w: Wrapped, open: (Route) -> Unit) {
         Spacer(Modifier.height(20.dp))
         w.stats.topArtists.take(5).forEachIndexed { i, a ->
             // Their photo, or else a cover of theirs.
-            val photo by rememberLoaded(a.artist) { artistPhoto(a.artist) ?: artistAlbums(a.artist).firstNotNullOfOrNull { it.artwork } }
+            val photoLoad = rememberLoaded(a.artist) { artistPhoto(a.artist) ?: artistAlbums(a.artist).firstNotNullOfOrNull { it.artwork } }
+            val photo by photoLoad
             Row(
                 Modifier.fillMaxWidth().clip(RoundedCornerShape(16.dp)).clickable { open(Route.Artist(a.artist)) }.padding(vertical = 8.dp),
                 verticalAlignment = Alignment.CenterVertically,

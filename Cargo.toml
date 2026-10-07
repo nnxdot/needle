@@ -3,7 +3,7 @@ members = ["crates/needle-core", "crates/needle", "crates/needle-mobile"]
 resolver = "2"
 
 [workspace.package]
-version = "1.6.1"
+version = "1.6.2"
 edition = "2024"
 license = "LicenseRef-Proprietary"
 
@@ -34,6 +34,7 @@ strip = "debuginfo"
 opus-decoder = { path = "third-party/patched/opus-decoder-0.1.1" }
 # Blends soft edges correctly on see-through (glass) windows; see third-party/patched/gpui-0.2.2.
 gpui = { path = "third-party/patched/gpui-0.2.2" }
-# The text input no longer asks for a new frame on every frame; see
+# The text input no longer asks for a new frame on every frame, and Linux resize
+# hit testing uses the current viewport and respects tiled edges; see
 # third-party/patched/gpui-component-0.5.1.
 gpui-component = { path = "third-party/patched/gpui-component-0.5.1" }

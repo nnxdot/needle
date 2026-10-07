@@ -85,11 +85,14 @@ fn filtered(expression: &str) -> Result<(String, Vec<Value>)> {
     let q = query::compile(expression, chrono::Utc::now().timestamp())?;
     let source = if q.limit < 500_000 {
         format!(
-            "(SELECT t.rowid AS rowid, t.* FROM tracks t WHERE ({}) ORDER BY {} LIMIT {}) t",
-            q.sql, q.order, q.limit
+            "(SELECT t.* FROM {} WHERE ({}) ORDER BY {} LIMIT {}) t",
+            q.from(),
+            q.filter(),
+            q.order,
+            q.limit
         )
     } else {
-        format!("tracks t WHERE ({})", q.sql)
+        format!("{} WHERE ({})", q.from(), q.filter())
     };
     Ok((source, q.parameters))
 }
@@ -138,12 +141,21 @@ impl Library {
         source: &str,
         parameters: &[Value],
     ) -> Result<Vec<AlbumSummary>> {
+        self.album_rows_bounded(db, source, parameters, "")
+    }
+    fn album_rows_bounded(
+        &self,
+        db: &Connection,
+        source: &str,
+        parameters: &[Value],
+        tail: &str,
+    ) -> Result<Vec<AlbumSummary>> {
         let mut stmt = db.prepare_cached(&format!(
             "SELECT min(t.album_artist), min(t.album), max(t.year), count(*), sum(t.duration), group_concat(DISTINCT t.format),
                 max(t.added_at), sum(t.play_count), count(DISTINCT t.artist COLLATE NOCASE), max(t.artist),
                 (SELECT a FROM (SELECT json_extract(x.data,'$.artwork') a FROM tracks x WHERE x.album_artist=t.album_artist COLLATE NOCASE
                     AND x.album=t.album COLLATE NOCASE ORDER BY x.disc, x.track_number LIMIT 20) WHERE a IS NOT NULL LIMIT 1)
-             FROM {source} GROUP BY t.album_artist COLLATE NOCASE, t.album COLLATE NOCASE"
+             FROM {source} GROUP BY t.album_artist COLLATE NOCASE, t.album COLLATE NOCASE {tail}"
         ))?;
         let rows = stmt.query_map(rusqlite::params_from_iter(parameters), |r| {
             let album_artist: String = r.get(0)?;
@@ -202,6 +214,25 @@ impl Library {
         let mut albums = self.album_rows(&db, &source, &parameters)?;
         Self::sort_albums(&mut albums);
         Ok(albums)
+    }
+    /// Aggregate and sort in SQLite, returning only the requested album summaries.
+    pub fn albums_page(&self, offset: usize, size: usize) -> Result<Vec<AlbumSummary>> {
+        let db = self.connection()?;
+        let flags = rusqlite::functions::FunctionFlags::SQLITE_UTF8
+            | rusqlite::functions::FunctionFlags::SQLITE_DETERMINISTIC;
+        db.create_scalar_function("needle_sort_name", 1, flags, |c| {
+            Ok(sort_name(&c.get::<String>(0)?))
+        })?;
+        db.create_scalar_function("needle_lower", 1, flags, |c| {
+            Ok(c.get::<String>(0)?.to_lowercase())
+        })?;
+        db.create_scalar_function("needle_album_key", 2, flags, |c| {
+            Ok(serde_json::to_string(&[c.get::<String>(0)?, c.get::<String>(1)?]).unwrap())
+        })?;
+        self.album_rows_bounded(&db, "tracks t", &[], &format!(
+            "ORDER BY needle_sort_name(CASE WHEN min(t.album_artist) <> '' THEN min(t.album_artist) WHEN count(DISTINCT t.artist COLLATE NOCASE)>1 THEN 'Various artists' ELSE max(t.artist) END), max(t.year), needle_lower(min(t.album)), needle_album_key(min(t.album_artist),min(t.album)) LIMIT {} OFFSET {}",
+            size.min(500_000), offset.min(i64::MAX as usize),
+        ))
     }
     /// Tracks of an album identified by [`AlbumSummary::key`], in disc and track order.
     pub fn album_tracks(&self, key: &str) -> Result<Vec<Track>> {

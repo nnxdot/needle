@@ -30,6 +30,8 @@ pub struct Track {
     pub replay_peak: Option<f64>,
     pub album_replay_gain: Option<f64>,
     pub album_peak: Option<f64>,
+    /// Decoded recording identity behind library loudness measurements.
+    pub analysis_audio_hash: Option<String>,
     pub musicbrainz_id: Option<String>,
     pub play_count: i64,
     pub last_played: Option<i64>,

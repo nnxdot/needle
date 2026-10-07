@@ -64,6 +64,7 @@ pub fn scan_loudness(library: &Library, id: &str) -> Result<Loudness> {
     let result = summarize(meter.loudness_global()?, peak(&meter, meter.channels())?)?;
     track.replay_gain = Some(result.replay_gain_db);
     track.replay_peak = Some(result.true_peak);
+    track.analysis_audio_hash = Some(crate::scan::audio_identity(Path::new(track.audio_path()))?);
     library.upsert(&track)?;
     Ok(result)
 }
@@ -163,6 +164,8 @@ pub fn scan_album_loudness(library: &Library, track_id: &str) -> Result<AlbumLou
         tracks: vec![],
     };
     for (track, loudness) in tracks.iter_mut().zip(measured) {
+        track.analysis_audio_hash =
+            Some(crate::scan::audio_identity(Path::new(track.audio_path()))?);
         track.album_replay_gain = Some(album.replay_gain_db);
         track.album_peak = Some(album.true_peak);
         if let Some(loudness) = &loudness {
@@ -229,6 +232,7 @@ pub struct Duplicate {
     pub exact_file: bool,
 }
 pub fn duplicates(library: &Library, expression: &str) -> Result<Vec<Duplicate>> {
+    crate::cue::refresh_identities(library)?;
     let mut tracks = library.search(expression)?;
     tracks.retain(|t| !t.is_streamed());
     if tracks.len() > 5000 {
@@ -245,6 +249,9 @@ pub fn duplicates(library: &Library, expression: &str) -> Result<Vec<Duplicate>>
             // A quick hash reads only part of each file; the whole files must match too.
             let identical = first.content_hash == second.content_hash
                 && !first.content_hash.is_empty()
+                && (first.cue.is_none() && second.cue.is_none()
+                    || first.content_hash.starts_with("cue2:")
+                        && second.content_hash.starts_with("cue2:"))
                 && (!first.content_hash.starts_with("q1:") || {
                     let mut whole = |t: &Track| {
                         whole_files

@@ -11,8 +11,9 @@ android {
         applicationId = "fyi.nnx.needle"
         minSdk = 26
         targetSdk = 36
-        versionCode = 1
-        versionName = "1.6.1"
+        versionCode = 2
+        versionName = "1.6.2"
+        testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         ndk {
             // The Rust core is built for these by scripts/android-build.sh.
             abiFilters += listOf("arm64-v8a", "x86_64")
@@ -47,6 +48,9 @@ android {
 }
 
 dependencies {
+    testImplementation("junit:junit:4.13.2")
+    androidTestImplementation("androidx.test:runner:1.7.0")
+    androidTestImplementation("androidx.test.ext:junit:1.3.0")
     val composeBom = platform("androidx.compose:compose-bom:2026.09.00")
     implementation(composeBom)
     // Material 3 Expressive is still marked experimental, so the newest Material 3.
@@ -54,6 +58,8 @@ dependencies {
     implementation("androidx.compose.material:material-icons-extended:1.7.8")
     implementation("androidx.compose.ui:ui")
     implementation("androidx.activity:activity-compose:1.13.0")
+    // The QR scanner requests Fragment 1.0.0; result launchers require 1.3 or newer.
+    implementation("androidx.fragment:fragment:1.9.1")
     implementation("androidx.core:core-ktx:1.19.1")
     // The splash screen, the same on every Android version.
     implementation("androidx.core:core-splashscreen:1.2.0")

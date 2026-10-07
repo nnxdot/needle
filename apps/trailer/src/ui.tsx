@@ -25,6 +25,10 @@ export const EASE = Easing.bezier(0.16, 1, 0.3, 1);
 /** 0 → 1 over [start, start + length] frames, eased. */
 export const useRise = (start: number, length = 24) => {
   const frame = useCurrentFrame();
+  return rise(frame, start, length);
+};
+
+export const rise = (frame: number, start: number, length = 24) => {
   return interpolate(frame, [start, start + length], [0, 1], {
     extrapolateLeft: "clamp",
     extrapolateRight: "clamp",

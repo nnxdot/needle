@@ -33,6 +33,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -62,23 +63,26 @@ fun hoursMinutes(seconds: Double): String {
 
 @Composable
 fun FavoritesScreen(open: (Route) -> Unit) {
-    val songs by rememberLoaded { favorites() }
-    TitledSongs("Favorites", songs, open, empty = "Songs you mark with the heart, or rate four or five stars, show here.")
+    val songsLoad = rememberLoaded { favorites() }
+    val songs by songsLoad
+    TitledSongs("Favorites", songs, open, empty = "Songs you mark with the heart, or rate four or five stars, show here.", loading = songsLoad.loading)
 }
 
 @Composable
 fun RecentlyAddedScreen(open: (Route) -> Unit) {
-    val songs by rememberLoaded { recentlyAdded() }
-    TitledSongs("Recently added", songs, open, empty = "Nothing added in the last 30 days.")
+    val songsLoad = rememberLoaded { recentlyAdded() }
+    val songs by songsLoad
+    TitledSongs("Recently added", songs, open, empty = "Nothing added in the last 30 days.", loading = songsLoad.loading)
 }
 
 @Composable
-fun TitledSongs(title: String, songs: List<Song>?, open: (Route) -> Unit, empty: String = "") {
-    val playing = fyi.nnx.needle.NeedleApp.instance.playback.value?.current?.id
+fun TitledSongs(title: String, songs: List<Song>?, open: (Route) -> Unit, empty: String = "", loading: Boolean = false) {
+    val playback by fyi.nnx.needle.NeedleApp.instance.playback.collectAsStateWithLifecycle()
+    val playing = playback?.current?.id
     val list = songs.orEmpty()
     LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = 24.dp)) {
         item { LargeTitle(title) }
-        if (songs == null) items(8) { SongPlaceholder() }
+        if (loading) items(8) { SongPlaceholder() }
         if (songs != null && list.isEmpty() && empty.isNotEmpty()) {
             item {
                 Text(empty, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(horizontal = Edge, vertical = 8.dp))
@@ -95,10 +99,14 @@ fun TitledSongs(title: String, songs: List<Song>?, open: (Route) -> Unit, empty:
 @Composable
 fun FoldersScreen(path: String?, open: (Route) -> Unit) {
     // The music folders themselves, or the folders and songs inside one.
-    val roots by rememberLoaded { folders() }
-    val subfolders by rememberLoaded(path) { if (path == null) emptyList() else subfolders(path) }
-    val songs by rememberLoaded(path) { if (path == null) emptyList() else folderSongs(path) }
-    val playing = fyi.nnx.needle.NeedleApp.instance.playback.value?.current?.id
+    val rootsLoad = rememberLoaded { folders() }
+    val roots by rootsLoad
+    val subfoldersLoad = rememberLoaded(path) { if (path == null) emptyList() else subfolders(path) }
+    val subfolders by subfoldersLoad
+    val songsLoad = rememberLoaded(path) { if (path == null) emptyList() else folderSongs(path) }
+    val songs by songsLoad
+    val playback by fyi.nnx.needle.NeedleApp.instance.playback.collectAsStateWithLifecycle()
+    val playing = playback?.current?.id
     val title = path?.substringAfterLast('/')?.ifBlank { path } ?: "Folders"
     // Every song in this folder and the folders in it, so a whole folder can be played.
     val here = songs.orEmpty()
@@ -162,11 +170,12 @@ fun HistoryScreen(open: (Route) -> Unit) {
 
 @Composable
 private fun Listens(open: (Route) -> Unit) {
-    val history by rememberLoaded { history(0u, 300u) }
+    val historyLoad = rememberLoaded { history(0u, 300u) }
+    val history by historyLoad
     val format = DateFormat.getDateTimeInstance(DateFormat.MEDIUM, DateFormat.SHORT)
     val list = history.orEmpty()
     LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = 24.dp)) {
-        if (history == null) items(8) { SongPlaceholder() }
+        if (historyLoad.loading) items(8) { SongPlaceholder() }
         if (history != null && list.isEmpty()) {
             item { Text("What you play shows here.", color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(Edge)) }
         }
@@ -199,7 +208,8 @@ private fun Listens(open: (Route) -> Unit) {
 @Composable
 private fun Numbers(open: (Route) -> Unit) {
     var span by rememberSaveable { mutableStateOf(30) }
-    val stats by rememberLoaded(span) { stats(if (span == 0) null else span.toUInt()) }
+    val statsLoad = rememberLoaded(span) { stats(if (span == 0) null else span.toUInt()) }
+    val stats by statsLoad
     LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = 24.dp)) {
         item {
             Row(Modifier.padding(horizontal = Edge, vertical = 8.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -300,4 +310,3 @@ private fun RankedRow(r: Ranked, onClick: (() -> Unit)? = null) {
         Text(count(r.plays.toInt(), "play"), style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
     }
 }
-

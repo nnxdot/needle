@@ -1,9 +1,10 @@
 // From:
 // https://github.com/zed-industries/zed/blob/a8afc63a91f6b75528540dcffe73dc8ce0c92ad8/crates/gpui/examples/window_shadow.rs
 use gpui::{
-    canvas, div, point, prelude::FluentBuilder as _, px, AnyElement, App, Bounds, CursorStyle,
-    Decorations, Edges, HitboxBehavior, Hsla, InteractiveElement as _, IntoElement, MouseButton,
-    ParentElement, Pixels, Point, RenderOnce, ResizeEdge, Size, Styled as _, Window,
+    AnyElement, App, Bounds, CursorStyle, Decorations, Edges, HitboxBehavior, Hsla,
+    InteractiveElement as _, IntoElement, MouseButton, ParentElement, Pixels, Point, RenderOnce,
+    ResizeEdge, Size, Styled as _, Tiling, Window, canvas, div, point, prelude::FluentBuilder as _,
+    px,
 };
 
 use crate::ActiveTheme;
@@ -79,17 +80,17 @@ impl RenderOnce for WindowBorder {
                         canvas(
                             |_bounds, window, _| {
                                 window.insert_hitbox(
-                                    Bounds::new(
-                                        point(px(0.0), px(0.0)),
-                                        window.window_bounds().get_bounds().size,
-                                    ),
+                                    Bounds::new(point(px(0.0), px(0.0)), window.viewport_size()),
                                     HitboxBehavior::Normal,
                                 )
                             },
                             move |_bounds, hitbox, window, _| {
                                 let mouse = window.mouse_position();
-                                let size = window.window_bounds().get_bounds().size;
-                                let Some(edge) = resize_edge(mouse, SHADOW_SIZE, size) else {
+                                // Wayland's window_bounds keeps the restore size while maximized.
+                                // Hit testing must use the current drawable size instead.
+                                let size = window.viewport_size();
+                                let Some(edge) = resize_edge(mouse, SHADOW_SIZE, size, tiling)
+                                else {
                                     return;
                                 };
                                 window.set_cursor_style(
@@ -125,13 +126,12 @@ impl RenderOnce for WindowBorder {
                     .when(!tiling.left, |div| div.pl(SHADOW_SIZE))
                     .when(!tiling.right, |div| div.pr(SHADOW_SIZE))
                     .on_mouse_down(MouseButton::Left, move |_, window, _| {
-                        let size = window.window_bounds().get_bounds().size;
+                        let size = window.viewport_size();
                         let pos = window.mouse_position();
 
-                        match resize_edge(pos, SHADOW_SIZE, size) {
-                            Some(edge) => window.start_window_resize(edge),
-                            None => {}
-                        };
+                        if let Some(edge) = resize_edge(pos, SHADOW_SIZE, size, tiling) {
+                            window.start_window_resize(edge);
+                        }
                     }),
             })
             .size_full()
@@ -175,25 +175,130 @@ impl RenderOnce for WindowBorder {
     }
 }
 
-fn resize_edge(pos: Point<Pixels>, shadow_size: Pixels, size: Size<Pixels>) -> Option<ResizeEdge> {
-    let edge = if pos.y < shadow_size && pos.x < shadow_size {
+fn resize_edge(
+    pos: Point<Pixels>,
+    shadow_size: Pixels,
+    size: Size<Pixels>,
+    tiling: Tiling,
+) -> Option<ResizeEdge> {
+    if pos.x < px(0.) || pos.y < px(0.) || pos.x >= size.width || pos.y >= size.height {
+        return None;
+    }
+
+    let top = !tiling.top && pos.y < shadow_size;
+    let bottom = !tiling.bottom && pos.y > size.height - shadow_size;
+    let left = !tiling.left && pos.x < shadow_size;
+    let right = !tiling.right && pos.x > size.width - shadow_size;
+
+    let edge = if top && left {
         ResizeEdge::TopLeft
-    } else if pos.y < shadow_size && pos.x > size.width - shadow_size {
+    } else if top && right {
         ResizeEdge::TopRight
-    } else if pos.y < shadow_size {
+    } else if top {
         ResizeEdge::Top
-    } else if pos.y > size.height - shadow_size && pos.x < shadow_size {
+    } else if bottom && left {
         ResizeEdge::BottomLeft
-    } else if pos.y > size.height - shadow_size && pos.x > size.width - shadow_size {
+    } else if bottom && right {
         ResizeEdge::BottomRight
-    } else if pos.y > size.height - shadow_size {
+    } else if bottom {
         ResizeEdge::Bottom
-    } else if pos.x < shadow_size {
+    } else if left {
         ResizeEdge::Left
-    } else if pos.x > size.width - shadow_size {
+    } else if right {
         ResizeEdge::Right
     } else {
         return None;
     };
     Some(edge)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use gpui::size;
+
+    #[test]
+    fn content_beyond_the_restore_size_is_not_a_resize_target() {
+        // Needle opens at 1380 x 880. Covers to its right/below after maximizing
+        // to 1920 x 1080 must remain clickable, even when no edges are tiled.
+        let viewport = size(px(1920.), px(1080.));
+        for (x, y) in [(1400., 400.), (600., 900.), (1600., 950.)] {
+            assert_eq!(
+                resize_edge(point(px(x), px(y)), px(12.), viewport, Tiling::default()),
+                None,
+            );
+        }
+    }
+
+    #[test]
+    fn floating_window_edges_and_corners_remain_resizable() {
+        let viewport = size(px(1920.), px(1080.));
+        for (x, y, edge) in [
+            (6., 6., ResizeEdge::TopLeft),
+            (960., 6., ResizeEdge::Top),
+            (1914., 6., ResizeEdge::TopRight),
+            (1914., 540., ResizeEdge::Right),
+            (1914., 1074., ResizeEdge::BottomRight),
+            (960., 1074., ResizeEdge::Bottom),
+            (6., 1074., ResizeEdge::BottomLeft),
+            (6., 540., ResizeEdge::Left),
+        ] {
+            assert_eq!(
+                resize_edge(point(px(x), px(y)), px(12.), viewport, Tiling::default()),
+                Some(edge),
+            );
+            assert_eq!(
+                resize_edge(point(px(x), px(y)), px(12.), viewport, Tiling::tiled()),
+                None,
+            );
+        }
+    }
+
+    #[test]
+    fn partially_tiled_windows_only_resize_on_exposed_edges() {
+        let viewport = size(px(1920.), px(1080.));
+        let tiling = Tiling {
+            top: true,
+            right: true,
+            bottom: true,
+            left: false,
+        };
+        for y in [6., 540., 1074.] {
+            assert_eq!(
+                resize_edge(point(px(6.), px(y)), px(12.), viewport, tiling),
+                Some(ResizeEdge::Left),
+            );
+            assert_eq!(
+                resize_edge(point(px(1914.), px(y)), px(12.), viewport, tiling),
+                None,
+            );
+        }
+    }
+
+    #[test]
+    fn content_and_positions_outside_the_viewport_are_not_resize_targets() {
+        let viewport = size(px(1920.), px(1080.));
+        for (x, y) in [
+            (12., 12.),
+            (1908., 1068.),
+            (-1., 540.),
+            (960., -1.),
+            (1920., 540.),
+            (960., 1080.),
+        ] {
+            assert_eq!(
+                resize_edge(point(px(x), px(y)), px(12.), viewport, Tiling::default()),
+                None,
+            );
+        }
+        assert_eq!(
+            resize_edge(
+                point(px(1919.), px(1079.)),
+                px(0.),
+                viewport,
+                Tiling::default()
+            ),
+            None,
+        );
+    }
 }

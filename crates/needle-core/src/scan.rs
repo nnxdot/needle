@@ -458,7 +458,21 @@ fn read_track(library: &Library, db: &rusqlite::Connection, path: &Path) -> Resu
     if track.artwork.is_none() {
         track.artwork = folder_cover(path.parent().unwrap_or(&path));
     }
+    if let Some(previous) = &previous
+        && let Some(identity) = &previous.analysis_audio_hash
+        && audio_identity(&path).ok().as_ref() == Some(identity)
+    {
+        preserve_loudness(previous, &mut track);
+    }
     Ok(Some(track))
+}
+
+pub(crate) fn preserve_loudness(previous: &Track, track: &mut Track) {
+    track.replay_gain = previous.replay_gain;
+    track.replay_peak = previous.replay_peak;
+    track.album_replay_gain = previous.album_replay_gain;
+    track.album_peak = previous.album_peak;
+    track.analysis_audio_hash = previous.analysis_audio_hash.clone();
 }
 
 fn parse_gain(value: &str) -> Option<f64> {
@@ -531,7 +545,8 @@ fn replace_verified(
     let temporary = original.with_file_name(format!(".needle-{}.tmp", uuid::Uuid::new_v4()));
     let operation = (|| -> Result<()> {
         prepare(&temporary)?;
-        if audio_digest(original)? != audio_digest(&temporary)? {
+        let identity = audio_identity(original)?;
+        if identity != audio_identity(&temporary)? {
             bail!("{mismatch}");
         }
         std::fs::OpenOptions::new()
@@ -569,6 +584,14 @@ fn replace_verified(
         fs::rename(&temporary, original)
             .context("Unable to replace audio file; original and backup are intact")?;
         import_one(library, original)?;
+        // The verification also protects measurements made before provenance was stored.
+        if let Some(mut refreshed) = library.track(&track.id)? {
+            preserve_loudness(track, &mut refreshed);
+            if track.replay_gain.is_some() || track.album_replay_gain.is_some() {
+                refreshed.analysis_audio_hash = Some(identity);
+            }
+            library.upsert(&refreshed)?;
+        }
         Ok(())
     })();
     if temporary.exists() {
@@ -861,6 +884,11 @@ fn audio_digest(path: &Path) -> Result<(u32, u16, u64, blake3::Hash)> {
         bail!("Cannot verify an empty audio stream");
     }
     Ok((rate, channels, count, hasher.finalize()))
+}
+
+pub(crate) fn audio_identity(path: &Path) -> Result<String> {
+    let (rate, channels, count, hash) = audio_digest(path)?;
+    Ok(format!("pcm1:{rate}:{channels}:{count}:{hash}"))
 }
 
 pub fn watch(

@@ -15,7 +15,7 @@ use needle_core::{
 use std::{
     collections::HashMap,
     path::{Path, PathBuf},
-    sync::{atomic::AtomicBool, Arc, Mutex},
+    sync::{Arc, Mutex, atomic::AtomicBool},
 };
 
 fn failed(text: impl Into<String>) -> NeedleError {
@@ -110,6 +110,18 @@ pub struct TidyPlan {
 }
 
 #[derive(Clone, uniffi::Record)]
+pub struct FileFailure {
+    pub path: String,
+    pub reason: String,
+}
+
+#[derive(Clone, uniffi::Record)]
+pub struct TidyResult {
+    pub moved: u32,
+    pub failures: Vec<FileFailure>,
+}
+
+#[derive(Clone, uniffi::Record)]
 pub struct Suggestion {
     /// The part of the text to replace, in UTF-16 units (Kotlin's string positions).
     pub start: u32,
@@ -167,6 +179,23 @@ impl Needle {
 
 #[uniffi::export]
 impl Needle {
+    /// App-owned copies need no shared-storage grant.
+    pub fn songs_are_private(&self, ids: Vec<String>) -> Result<bool> {
+        let Some(folder) = self.library.directory.parent() else {
+            return Ok(false);
+        };
+        // Android exposes aliases such as /data/user/0 and /data/data. Imported
+        // track paths are canonical, so resolve the app folder the same way.
+        let folder = folder
+            .canonicalize()
+            .unwrap_or_else(|_| folder.to_path_buf());
+        let tracks = self.library.tracks_by_ids(&ids)?;
+        Ok(!ids.is_empty()
+            && tracks.len() == ids.len()
+            && tracks
+                .iter()
+                .all(|t| Path::new(t.audio_path()).starts_with(&folder)))
+    }
     // ---------- Tags
 
     pub fn song_tags(&self, id: String) -> Result<SongTags> {
@@ -195,7 +224,13 @@ impl Needle {
             album_artist: change.album_artist,
             track_number: change.track_number,
         };
-        let report = scan::write_tags_batch(&self.library, &ids, &edit, Arc::new(AtomicBool::new(false)), |_| {})?;
+        let report = scan::write_tags_batch(
+            &self.library,
+            &ids,
+            &edit,
+            Arc::new(AtomicBool::new(false)),
+            |_| {},
+        )?;
         Ok(TagReport {
             saved: report.saved.len() as u32,
             failed: report
@@ -286,7 +321,8 @@ impl Needle {
     pub fn find_releases(&self, ids: Vec<String>) -> Result<Vec<ReleaseChoice>> {
         let tracks = self.tracks(&ids)?;
         let first = tracks.first().ok_or_else(|| failed("No songs"))?;
-        let releases = doctor::find_releases(&first.album, first.display_album_artist(), tracks.len())?;
+        let releases =
+            doctor::find_releases(&first.album, first.display_album_artist(), tracks.len())?;
         let choices = releases
             .iter()
             .map(|r| ReleaseChoice {
@@ -297,7 +333,10 @@ impl Needle {
                 country: r.country.clone(),
                 format: r.format.clone(),
                 tracks: r.tracks.len() as u32,
-                matched: doctor::match_tracks(&tracks, r).iter().filter(|m| m.is_some()).count() as u32,
+                matched: doctor::match_tracks(&tracks, r)
+                    .iter()
+                    .filter(|m| m.is_some())
+                    .count() as u32,
             })
             .collect();
         *RELEASES.lock().unwrap() = releases.into_iter().map(|r| (r, tracks.clone())).collect();
@@ -313,7 +352,10 @@ impl Needle {
             .find(|(r, _)| r.id == release_id)
             .cloned()
             .ok_or_else(|| failed("Look the album up again"))?;
-        let mut report = TagReport { saved: 0, failed: vec![] };
+        let mut report = TagReport {
+            saved: 0,
+            failed: vec![],
+        };
         for (id, edit) in doctor::release_edits(&tracks, &release) {
             match scan::write_tags(&self.library, &id, &edit) {
                 Ok(()) => report.saved += 1,
@@ -338,8 +380,14 @@ impl Needle {
     /// What a song is, found from its sound (AcoustID, then MusicBrainz).
     pub fn identify(&self, id: String) -> Result<Vec<SoundMatch>> {
         let track = self.song_track(&id)?;
-        let key = needle_core::integrations::acoustid_key().ok_or_else(|| failed("Add an AcoustID key first"))?;
-        Ok(needle_core::integrations::acoustid_lookup(&self.library, Path::new(&track.path), &key)?
+        let key = needle_core::integrations::acoustid_key()
+            .ok_or_else(|| failed("Add an AcoustID key first"))?;
+        Ok(
+            needle_core::integrations::acoustid_lookup(
+                &self.library,
+                Path::new(&track.path),
+                &key,
+            )?
             .into_iter()
             .map(|m| SoundMatch {
                 title: m.title,
@@ -348,7 +396,8 @@ impl Needle {
                 score: m.score.clamp(0, 100) as u32,
                 recording_id: m.id,
             })
-            .collect())
+            .collect(),
+        )
     }
 
     /// Writes an identified match's names into the song.
@@ -357,7 +406,9 @@ impl Needle {
             title: Some(found.title),
             artist: Some(found.artist),
             album: (!found.album.is_empty()).then_some(found.album),
-            musicbrainz_id: uuid::Uuid::parse_str(&found.recording_id).ok().map(|_| found.recording_id),
+            musicbrainz_id: uuid::Uuid::parse_str(&found.recording_id)
+                .ok()
+                .map(|_| found.recording_id),
             ..Default::default()
         };
         Ok(scan::write_tags(&self.library, &id, &edit)?)
@@ -373,7 +424,10 @@ impl Needle {
         let roots = self.library.roots().unwrap_or_default();
         let plan = doctor::plan_organize(&self.all_tracks(), &roots, &pattern);
         let name = |p: &str| {
-            let root = roots.iter().find(|r| p.starts_with(r.as_str())).map_or(0, |r| r.len());
+            let root = roots
+                .iter()
+                .find(|r| p.starts_with(r.as_str()))
+                .map_or(0, |r| r.len());
             p[root..].trim_start_matches('/').to_string()
         };
         let shown = TidyPlan {
@@ -392,14 +446,21 @@ impl Needle {
     }
 
     /// Moves the files as the last plan showed. Returns how many moved.
-    pub fn tidy(&self) -> Result<u32> {
-        let plan = PLAN.lock().unwrap().take().ok_or_else(|| failed("Plan it again"))?;
+    pub fn tidy(&self) -> Result<TidyResult> {
+        let plan = PLAN
+            .lock()
+            .unwrap()
+            .take()
+            .ok_or_else(|| failed("Plan it again"))?;
         let roots = self.library.roots()?;
         let (done, failures) = self.library.organize(&plan.moves, &roots)?;
-        if done.is_empty() && !failures.is_empty() {
-            return Err(failed(format!("{}: {}", failures[0].0, failures[0].1)));
-        }
-        Ok(done.len() as u32)
+        Ok(TidyResult {
+            moved: done.len() as u32,
+            failures: failures
+                .into_iter()
+                .map(|(path, reason)| FileFailure { path, reason })
+                .collect(),
+        })
     }
 
     pub fn can_undo_tidy(&self) -> bool {
@@ -423,7 +484,11 @@ impl Needle {
             "spotify" => import::import_spotify(&self.library, path, &mut quiet)?,
             "playlist" => {
                 let playlist = self.library.import_playlist(path)?;
-                return Ok(format!("Added {} ({} songs)", playlist.name, playlist.track_ids.len()));
+                return Ok(format!(
+                    "Added {} ({} songs)",
+                    playlist.name,
+                    playlist.track_ids.len()
+                ));
             }
             _ => return Err(failed("Unknown kind of file")),
         };
@@ -444,7 +509,11 @@ impl Needle {
     // ---------- Music server songs kept on the phone
 
     pub fn is_kept(&self, id: String) -> bool {
-        self.library.track(&id).ok().flatten().is_some_and(|t| sources::is_kept(&t))
+        self.library
+            .track(&id)
+            .ok()
+            .flatten()
+            .is_some_and(|t| sources::is_kept(&t))
     }
 
     /// Downloads songs from a music server to play without a connection, or lets them go.
@@ -456,7 +525,11 @@ impl Needle {
             if sources::parse_path(&track.path).is_none() {
                 continue;
             }
-            let result = if keep { sources::keep(&track) } else { sources::unkeep(&track) };
+            let result = if keep {
+                sources::keep(&track)
+            } else {
+                sources::unkeep(&track)
+            };
             match result {
                 Ok(()) => changed += 1,
                 Err(e) => last = Some(format!("{e:#}")),
@@ -494,8 +567,17 @@ impl Needle {
 
     /// The speakers on the network and which play now, with their delays.
     pub fn speakers(&self) -> Speakers {
-        let all = self.outputs().into_iter().filter(|o| !o.id.is_empty()).collect();
-        let current = self.library.settings().ok().and_then(|s| s.output_device).unwrap_or_default();
+        let all = self
+            .outputs()
+            .into_iter()
+            .filter(|o| !o.id.is_empty())
+            .collect();
+        let current = self
+            .library
+            .settings()
+            .ok()
+            .and_then(|s| s.output_device)
+            .unwrap_or_default();
         let (chosen, this_phone, delays) = if let Some(group) = Group::from_device_name(&current) {
             let delays = group
                 .delays
@@ -509,7 +591,11 @@ impl Needle {
                     (id, *ms)
                 })
                 .collect();
-            (group.speakers.iter().map(|s| s.device_name()).collect(), group.this_computer, delays)
+            (
+                group.speakers.iter().map(|s| s.device_name()).collect(),
+                group.this_computer,
+                delays,
+            )
         } else if Speaker::from_device_name(&current).is_some() {
             (vec![current], false, HashMap::new())
         } else {
@@ -525,8 +611,16 @@ impl Needle {
 
     /// Plays on several speakers at once (their ids), and on this phone too with
     /// `this_phone`, each held back by its delay in ms ("" is this phone).
-    pub fn set_speakers(&self, ids: Vec<String>, this_phone: bool, delays: HashMap<String, i32>) -> Result<()> {
-        let speakers: Vec<Speaker> = ids.iter().filter_map(|id| Speaker::from_device_name(id)).collect();
+    pub fn set_speakers(
+        &self,
+        ids: Vec<String>,
+        this_phone: bool,
+        delays: HashMap<String, i32>,
+    ) -> Result<()> {
+        let speakers: Vec<Speaker> = ids
+            .iter()
+            .filter_map(|id| Speaker::from_device_name(id))
+            .collect();
         let device = match (speakers.len(), this_phone) {
             (0, _) => None,
             (1, false) if delays.is_empty() => Some(speakers[0].device_name()),
@@ -534,7 +628,8 @@ impl Needle {
                 let delays = delays
                     .into_iter()
                     .map(|(id, ms)| {
-                        let address = Speaker::from_device_name(&id).map_or(String::new(), |s| s.address);
+                        let address =
+                            Speaker::from_device_name(&id).map_or(String::new(), |s| s.address);
                         (address, ms.clamp(0, 2000))
                     })
                     .collect();
@@ -623,8 +718,10 @@ impl Needle {
     pub fn add_netease(&self, song: String) -> Result<()> {
         needle_core::plugins::install_example(&self.library, "netease-lyrics")?;
         self.plugins.send(needle_core::plugins::PluginEvent::Reload);
-        self.plugins
-            .send(needle_core::plugins::PluginEvent::Enable("netease-lyrics".into(), true));
+        self.plugins.send(needle_core::plugins::PluginEvent::Enable(
+            "netease-lyrics".into(),
+            true,
+        ));
         if let Ok(track) = self.song_track(&song) {
             let key = format!(
                 "lrclib:{}:{}:{}:{:.0}",
@@ -648,17 +745,17 @@ impl Needle {
 
     /// Saves a theme made in the app (as desktop's theme editor does): `base` is "dark",
     /// "midnight", or "light", `colors` by slot as `#rrggbb`. Returns its id.
-    pub fn save_theme(&self, id: Option<String>, name: String, base: String, colors: HashMap<String, String>) -> Result<String> {
+    pub fn save_theme(
+        &self,
+        id: Option<String>,
+        name: String,
+        base: String,
+        colors: HashMap<String, String>,
+    ) -> Result<String> {
         let name = name.trim();
         if name.is_empty() {
             return Err(failed("Give the theme a name"));
         }
-        let slug = id.unwrap_or_else(|| {
-            name.to_lowercase()
-                .chars()
-                .map(|c| if c.is_alphanumeric() { c } else { '-' })
-                .collect()
-        });
         let mut table = toml::map::Map::new();
         table.insert("name".into(), toml::Value::String(name.into()));
         table.insert("base".into(), toml::Value::String(base));
@@ -670,17 +767,20 @@ impl Needle {
             }
         }
         table.insert("colors".into(), toml::Value::Table(slots));
-        let folder = self.library.directory.join("themes");
-        std::fs::create_dir_all(&folder).map_err(anyhow::Error::from)?;
         let text = toml::to_string(&toml::Value::Table(table)).map_err(anyhow::Error::from)?;
-        std::fs::write(folder.join(format!("{slug}.toml")), text).map_err(anyhow::Error::from)?;
-        Ok(slug)
+        crate::media::save_theme_file(&self.library, id.as_deref(), name, &text)
     }
 
     /// Removes a theme made in the app or added from a file.
     pub fn delete_theme(&self, id: String) -> Result<()> {
-        let file = self.library.directory.join("themes").join(format!("{id}.toml"));
-        if file.parent() == Some(self.library.directory.join("themes").as_path()) && file.is_file() {
+        let slug = crate::media::owned_theme_slug(&id)?;
+        let file = self
+            .library
+            .directory
+            .join("themes")
+            .join(format!("{slug}.toml"));
+        if file.parent() == Some(self.library.directory.join("themes").as_path()) && file.is_file()
+        {
             std::fs::remove_file(file).map_err(anyhow::Error::from)?;
         }
         Ok(())

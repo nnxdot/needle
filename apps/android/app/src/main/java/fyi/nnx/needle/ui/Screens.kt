@@ -97,14 +97,14 @@ internal fun LazyGridScope.full(content: @Composable () -> Unit) =
     item(span = { GridItemSpan(maxLineSpan) }) { content() }
 
 /** Albums two to a row, with the page's side margins; soft placeholders while they load. */
-private fun LazyGridScope.albumGrid(albums: List<Album>?, open: (Route) -> Unit) {
-    if (albums == null) {
+private fun LazyGridScope.albumGrid(albums: List<Album>?, open: (Route) -> Unit, loading: Boolean) {
+    if (loading) {
         items(6) { i ->
             AlbumPlaceholder(Modifier.padding(start = if (i % 2 == 0) Edge else 0.dp, end = if (i % 2 == 1) Edge else 0.dp))
         }
         return
     }
-    gridItemsIndexed(albums, key = { _, a -> a.key }) { i, album ->
+    gridItemsIndexed(albums.orEmpty(), key = { _, a -> a.key }) { i, album ->
         AlbumTile(
             album,
             Modifier.padding(start = if (i % 2 == 0) Edge else 0.dp, end = if (i % 2 == 1) Edge else 0.dp),
@@ -115,7 +115,8 @@ private fun LazyGridScope.albumGrid(albums: List<Album>?, open: (Route) -> Unit)
 
 @Composable
 fun AlbumsScreen(open: (Route) -> Unit) {
-    val albums by rememberLoaded { albums() }
+    val albumsLoad = rememberLoaded { albums() }
+    val albums by albumsLoad
     Page("Albums", albums?.let { count(it.size, "album") }) { padding, scroll ->
         LazyVerticalGrid(
             columns = GridCells.Fixed(2),
@@ -123,13 +124,14 @@ fun AlbumsScreen(open: (Route) -> Unit) {
             horizontalArrangement = Arrangement.spacedBy(16.dp),
             verticalArrangement = Arrangement.spacedBy(LocalRows.current.grid),
             modifier = Modifier.fillMaxSize().padding(padding).then(scroll),
-        ) { albumGrid(albums, open) }
+        ) { albumGrid(albums, open, albumsLoad.loading) }
     }
 }
 
 @Composable
 fun ArtistsScreen(open: (Route) -> Unit) {
-    val artists by rememberLoaded { artists() }
+    val artistsLoad = rememberLoaded { artists() }
+    val artists by artistsLoad
     Page("Artists") { padding, scroll ->
         LazyColumn(Modifier.fillMaxSize().padding(padding).then(scroll), contentPadding = PaddingValues(bottom = 24.dp)) {
             items(artists.orEmpty(), key = { it.name }) { artist ->
@@ -147,12 +149,12 @@ fun ArtistsScreen(open: (Route) -> Unit) {
 }
 
 @Composable
-private fun SongListPage(title: String, songs: List<Song>?, open: (Route) -> Unit) {
+private fun SongListPage(title: String, songs: List<Song>?, open: (Route) -> Unit, loading: Boolean) {
     val playing = currentId()
     val list = songs.orEmpty()
     Page(title, songs?.let { songsAndLength(it) }) { padding, scroll ->
         LazyColumn(Modifier.fillMaxSize().padding(padding).then(scroll), contentPadding = PaddingValues(bottom = 24.dp)) {
-            if (songs == null) items(8) { SongPlaceholder() }
+            if (loading) items(8) { SongPlaceholder() }
             if (list.isNotEmpty()) item { PlayRow(list) }
             itemsIndexed(list, key = { _, s -> s.id }) { i, song ->
                 SongRow(song, playing == song.id, open) { play(list, i) }
@@ -163,19 +165,22 @@ private fun SongListPage(title: String, songs: List<Song>?, open: (Route) -> Uni
 
 @Composable
 fun SongsScreen(open: (Route) -> Unit) {
-    val songs by rememberLoaded { songs() }
-    SongListPage("Songs", songs, open)
+    val songsLoad = rememberLoaded { songs() }
+    val songs by songsLoad
+    SongListPage("Songs", songs, open, songsLoad.loading)
 }
 
 @Composable
 fun GenreScreen(name: String, open: (Route) -> Unit) {
-    val songs by rememberLoaded(name) { genreSongs(name) }
-    SongListPage(name, songs, open)
+    val songsLoad = rememberLoaded(name) { genreSongs(name) }
+    val songs by songsLoad
+    SongListPage(name, songs, open, songsLoad.loading)
 }
 
 @Composable
 fun PlaylistsScreen(open: (Route) -> Unit) {
-    val playlists by rememberLoaded { playlists() }
+    val playlistsLoad = rememberLoaded { playlists() }
+    val playlists by playlistsLoad
     val list = playlists.orEmpty()
     Page("Playlists", actions = {
         IconButton(onClick = { Ui.sheet.value = Sheet.NewPlaylist(emptyList()) }) { Icon(Icons.Rounded.LibraryAdd, contentDescription = "New playlist") }
@@ -214,7 +219,8 @@ fun PlaylistsScreen(open: (Route) -> Unit) {
 /** Genres as tiles in their own colours, as on Search. */
 @Composable
 fun GenresScreen(open: (Route) -> Unit) {
-    val genres by rememberLoaded { genres() }
+    val genresLoad = rememberLoaded { genres() }
+    val genres by genresLoad
     val list = genres.orEmpty()
     Page("Genres") { padding, scroll ->
         LazyVerticalGrid(

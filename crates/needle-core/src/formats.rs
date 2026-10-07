@@ -363,14 +363,19 @@ impl Dsf {
         ensure!(&fmt[..4] == b"fmt ", "DSF: missing format chunk");
         let le32 = |o: usize| u32::from_le_bytes(fmt[o..o + 4].try_into().unwrap());
         let le64 = |o: usize| u64::from_le_bytes(fmt[o..o + 8].try_into().unwrap());
-        let channels = le32(24) as u16;
+        let channels = le32(24);
         let dsd_rate = le32(28);
         let bits = le32(32);
         let sample_count = le64(36);
         let block = le32(44) as usize;
         let fmt_size = le64(4);
         ensure!(
-            (1..=8).contains(&channels) && dsd_rate > 0 && block > 0,
+            (1..=8).contains(&channels)
+                && dsd_rate >= 32
+                && dsd_rate.is_multiple_of(32)
+                && (DECIMATION_BYTES..=1_048_576).contains(&block)
+                && block.is_multiple_of(DECIMATION_BYTES)
+                && (52..=file.get_ref().metadata()?.len().saturating_sub(40)).contains(&fmt_size),
             "DSF: unsupported layout"
         );
         file.seek(SeekFrom::Start(28 + fmt_size))?;
@@ -384,7 +389,7 @@ impl Dsf {
         let mut this = Self {
             file,
             data_start,
-            channels,
+            channels: channels as u16,
             dsd_rate,
             block,
             bytes_per_channel: sample_count.div_ceil(8),

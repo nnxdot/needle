@@ -193,6 +193,8 @@ pub fn import_sheet(library: &Library, cue: &Path) -> Result<usize> {
         .unwrap_or_default()
         .as_nanos() as i64;
     let mut changed = 0;
+    let mut seen = std::collections::HashSet::new();
+    let mut recordings = std::collections::HashMap::new();
     let now = chrono::Utc::now().timestamp();
     for (i, entry) in sheet.tracks.iter().enumerate() {
         let Some(audio) = locate(folder, &entry.file).and_then(|p| p.canonicalize().ok()) else {
@@ -207,11 +209,11 @@ pub fn import_sheet(library: &Library, cue: &Path) -> Result<usize> {
                 .as_nanos() as i64,
         );
         let path = format!("{}#{}", cue.to_string_lossy(), entry.number);
+        seen.insert(path.clone());
         let previous = library.track_by_path(&path)?;
-        if previous
-            .as_ref()
-            .is_some_and(|t| t.modified_at == modified && !t.missing)
-        {
+        if previous.as_ref().is_some_and(|t| {
+            t.modified_at == modified && !t.missing && t.content_hash.starts_with("cue2:")
+        }) {
             continue;
         }
         // Whole-file facts come from the audio file itself.
@@ -275,7 +277,25 @@ pub fn import_sheet(library: &Library, cue: &Path) -> Result<usize> {
         } else {
             entry.performer.clone()
         };
-        let track = Track {
+        let recording = match recordings.entry(audio.clone()) {
+            std::collections::hash_map::Entry::Occupied(e) => e.into_mut(),
+            std::collections::hash_map::Entry::Vacant(e) => {
+                e.insert(crate::scan::full_hash(&audio)?)
+            }
+        };
+        let identity = format!(
+            "cue2:{}",
+            blake3::hash(
+                format!(
+                    "{recording}:{}:{:?}",
+                    entry.start.to_bits(),
+                    end.map(f64::to_bits)
+                )
+                .as_bytes()
+            )
+            .to_hex()
+        );
+        let mut track = Track {
             id: previous
                 .as_ref()
                 .map(|t| t.id.clone())
@@ -316,12 +336,8 @@ pub fn import_sheet(library: &Library, cue: &Path) -> Result<usize> {
             added_at: previous.as_ref().map(|t| t.added_at).unwrap_or(now),
             modified_at: modified,
             file_size: audio_meta.len() as i64,
-            // Identity without hashing the whole album file for every track.
-            content_hash: blake3::hash(
-                format!("{}#{}#{}", audio_meta.len(), entry.number, entry.start).as_bytes(),
-            )
-            .to_hex()
-            .to_string(),
+            // Hash each recording once per sheet, and bind the identity to the played span.
+            content_hash: identity,
             rating: previous.as_ref().map(|t| t.rating).unwrap_or(0),
             play_count: previous.as_ref().map(|t| t.play_count).unwrap_or(0),
             last_played: previous.as_ref().and_then(|t| t.last_played),
@@ -331,11 +347,39 @@ pub fn import_sheet(library: &Library, cue: &Path) -> Result<usize> {
                 start: entry.start,
                 end,
             }),
-            metadata_version: 1,
+            metadata_version: 2,
             ..Default::default()
         };
+        if let Some(previous) = &previous
+            && previous.cue == track.cue
+            && previous
+                .analysis_audio_hash
+                .as_ref()
+                .is_some_and(|identity| {
+                    crate::scan::audio_identity(&audio).ok().as_ref() == Some(identity)
+                })
+        {
+            crate::scan::preserve_loudness(previous, &mut track);
+        }
         library.upsert(&track)?;
         changed += 1;
+    }
+    // Keep retired entries (and their history) but make them unavailable.
+    let db = library.connection()?;
+    let mut statement =
+        db.prepare("SELECT id,path FROM tracks WHERE json_extract(data,'$.cue') IS NOT NULL")?;
+    let old = statement
+        .query_map([], |r| Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?)))?
+        .collect::<rusqlite::Result<Vec<_>>>()?;
+    let prefix = format!("{}#", cue.to_string_lossy());
+    for (id, path) in old {
+        if path
+            .strip_prefix(&prefix)
+            .is_some_and(|n| n.parse::<u32>().is_ok())
+            && !seen.contains(&path)
+        {
+            changed += db.execute("UPDATE tracks SET missing=1 WHERE id=? AND missing=0", [id])?;
+        }
     }
     // A song imported earlier as the whole album file is now its tracks.
     for entry in &sheet.tracks {
@@ -348,6 +392,26 @@ pub fn import_sheet(library: &Library, cue: &Path) -> Result<usize> {
         }
     }
     Ok(changed)
+}
+
+/// Upgrade legacy size-based identities before a caller trusts them for association.
+pub(crate) fn refresh_identities(library: &Library) -> Result<()> {
+    let db = library.connection()?;
+    let mut statement = db.prepare("SELECT path FROM tracks WHERE json_extract(data,'$.cue') IS NOT NULL AND content_hash NOT LIKE 'cue2:%'")?;
+    let paths = statement
+        .query_map([], |r| r.get::<_, String>(0))?
+        .collect::<rusqlite::Result<Vec<_>>>()?;
+    let sheets: std::collections::HashSet<_> = paths
+        .iter()
+        .filter_map(|p| p.rsplit_once('#').map(|(p, _)| p.to_owned()))
+        .collect();
+    for sheet in sheets {
+        // Unavailable sheets remain in history, with identities excluded by callers.
+        if Path::new(&sheet).is_file() {
+            import_sheet(library, Path::new(&sheet))?;
+        }
+    }
+    Ok(())
 }
 
 #[cfg(test)]

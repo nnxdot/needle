@@ -35,9 +35,11 @@ fn key(passphrase: &str, salt: &[u8]) -> Result<[u8; 32]> {
     Ok(result)
 }
 pub fn export(library: &Library, path: &Path, passphrase: &str) -> Result<()> {
+    crate::cue::refresh_identities(library)?;
     let tracks = library
         .search("")?
         .into_iter()
+        .filter(|t| t.cue.is_none() || t.content_hash.starts_with("cue2:"))
         .map(|t| Identity {
             id: t.id,
             hash: t.content_hash,
@@ -108,10 +110,13 @@ pub fn import(library: &Library, path: &Path, passphrase: &str) -> Result<Import
             bail!("Invalid listening history");
         }
     }
+    crate::cue::refresh_identities(library)?;
     let local: HashMap<_, _> = library
         .search("")?
         .into_iter()
-        .filter(|t| !t.content_hash.is_empty())
+        .filter(|t| {
+            !t.content_hash.is_empty() && (t.cue.is_none() || t.content_hash.starts_with("cue2:"))
+        })
         .map(|t| (t.content_hash.clone(), t))
         .collect();
     let existing: HashMap<_, _> = library

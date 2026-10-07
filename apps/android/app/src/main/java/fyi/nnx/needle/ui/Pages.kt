@@ -289,8 +289,10 @@ private fun length(songs: List<Song>): String {
 
 @Composable
 fun AlbumScreen(album: Album, open: (Route) -> Unit) {
-    val songs by rememberLoaded(album.key) { albumSongs(album.key) }
-    val others by rememberLoaded(album.artist) { artistAlbums(album.artist) }
+    val songsLoad = rememberLoaded(album.key) { albumSongs(album.key) }
+    val songs by songsLoad
+    val othersLoad = rememberLoaded(album.artist) { artistAlbums(album.artist) }
+    val others by othersLoad
     val list = songs.orEmpty()
     val playing = playingId()
     val state = rememberLazyListState()
@@ -322,7 +324,7 @@ fun AlbumScreen(album: Album, open: (Route) -> Unit) {
             if (list.isNotEmpty()) {
                 item { PlayRow(list) { RoundAction(Icons.AutoMirrored.Rounded.PlaylistAdd, "Add to a playlist") { Ui.sheet.value = Sheet.AddToPlaylist(list.map { it.id }) } } }
             }
-            if (songs == null) items(6) { SongPlaceholder() }
+            if (songsLoad.loading) items(6) { SongPlaceholder() }
             songList(list, playing, open, numbered = true)
             if (list.isNotEmpty()) {
                 item {
@@ -350,16 +352,22 @@ fun AlbumScreen(album: Album, open: (Route) -> Unit) {
 
 @Composable
 fun AlbumOfScreen(route: Route.AlbumOf, open: (Route) -> Unit) {
-    val album by rememberLoaded(route.songId) { albumOf(route.songId) }
+    val albumLoad = rememberLoaded(route.songId) { albumOf(route.songId) }
+    val album by albumLoad
     album?.let { AlbumScreen(it, open) }
+    if (!albumLoad.loading && !albumLoad.failed && album == null) {
+        Text("This song has no album in the library.", modifier = Modifier.padding(Edge))
+    }
 }
 
 // ---------- Playlist
 
 @Composable
 fun PlaylistScreen(route: Route.Playlist, open: (Route) -> Unit) {
-    val detail by rememberLoaded(route.id) { playlistDetail(route.id) }
-    val summary by rememberLoaded(route.id) { playlists().firstOrNull { it.id == route.id } }
+    val detailLoad = rememberLoaded(route.id) { playlistDetail(route.id) }
+    val detail by detailLoad
+    val summaryLoad = rememberLoaded(route.id) { playlists().firstOrNull { it.id == route.id } }
+    val summary by summaryLoad
     val playing = playingId()
     val state = rememberLazyListState()
     var deleting by remember { mutableStateOf(false) }
@@ -368,10 +376,9 @@ fun PlaylistScreen(route: Route.Playlist, open: (Route) -> Unit) {
     val list = d?.songs.orEmpty()
     val context = androidx.compose.ui.platform.LocalContext.current
     val picture = androidx.activity.compose.rememberLauncherForActivityResult(androidx.activity.result.contract.ActivityResultContracts.OpenDocument()) { uri ->
-        val path = uri?.let { copyToCache(context, it) } ?: return@rememberLauncherForActivityResult
-        runCatching { core.setPlaylistPicture(route.id, path) }.onFailure { showMessage(it.message ?: "Could not use that picture") }
-        java.io.File(path).delete()
-        NeedleApp.instance.libraryVersion.value++
+        pickedFile(context, uri, { core.setPlaylistPicture(route.id, it) }) {
+            NeedleApp.instance.libraryVersion.value++
+        }
     }
     val export = androidx.activity.compose.rememberLauncherForActivityResult(androidx.activity.result.contract.ActivityResultContracts.CreateDocument("audio/x-mpegurl")) { uri ->
         uri ?: return@rememberLauncherForActivityResult
@@ -387,7 +394,11 @@ fun PlaylistScreen(route: Route.Playlist, open: (Route) -> Unit) {
     // Put in order: each row gets a handle to drag it by.
     var arranging by remember { mutableStateOf(false) }
     val reorder = rememberReorder(list.size) { from, to ->
-        runCatching { core.moveInPlaylist(route.id, from.toUInt(), to.toUInt()) }
+        val positions = d?.positions.orEmpty()
+        if (from in positions.indices && to in positions.indices) {
+            runCatching { core.moveInPlaylist(route.id, positions[from], positions[to]) }
+                .onFailure { showMessage(it.message ?: "Could not reorder it") }
+        }
         NeedleApp.instance.libraryVersion.value++
     }
     val art = summary?.artwork ?: list.firstNotNullOfOrNull { it.artwork }
@@ -411,7 +422,7 @@ fun PlaylistScreen(route: Route.Playlist, open: (Route) -> Unit) {
                     }
                 }
             }
-            if (detail == null) items(6) { SongPlaceholder() }
+            if (detailLoad.loading) items(6) { SongPlaceholder() }
             if (d != null && list.isEmpty()) {
                 item {
                     Column(Modifier.fillMaxWidth().padding(32.dp), horizontalAlignment = Alignment.CenterHorizontally) {
@@ -426,7 +437,10 @@ fun PlaylistScreen(route: Route.Playlist, open: (Route) -> Unit) {
                 }
             }
             songList(list, playing, open, numbered = false, remove = if (d?.rule == null) { i ->
-                runCatching { core.removeFromPlaylist(route.id, i.toUInt()) }
+                d?.positions?.getOrNull(i)?.let { position ->
+                    runCatching { core.removeFromPlaylist(route.id, position) }
+                        .onFailure { showMessage(it.message ?: "Could not remove it") }
+                }
                 NeedleApp.instance.libraryVersion.value++
             } else null, reorder = if (d?.rule == null && arranging) reorder else null)
         }
@@ -468,9 +482,12 @@ fun PlaylistScreen(route: Route.Playlist, open: (Route) -> Unit) {
  */
 @Composable
 fun ArtistScreen(name: String, open: (Route) -> Unit) {
-    val albums by rememberLoaded(name) { artistAlbums(name) }
-    val top by rememberLoaded(name) { artistSongs(name) }
-    val photo by rememberLoaded(name) { artistPhoto(name) }
+    val albumsLoad = rememberLoaded(name) { artistAlbums(name) }
+    val albums by albumsLoad
+    val topLoad = rememberLoaded(name) { artistSongs(name) }
+    val top by topLoad
+    val photoLoad = rememberLoaded(name) { artistPhoto(name) }
+    val photo by photoLoad
     val playing = playingId()
     val songs = top.orEmpty()
     val state = rememberLazyGridState()
@@ -554,8 +571,10 @@ private fun ArtistHero(art: String?, name: String, albums: Int?, songs: Int, scr
 
 @Composable
 fun HomeScreen(open: (Route) -> Unit) {
-    val home by rememberLoaded { home() }
-    val count by rememberLoaded { songCount() }
+    val homeLoad = rememberLoaded { home() }
+    val home by homeLoad
+    val countLoad = rememberLoaded { songCount() }
+    val count by countLoad
     val scan by NeedleApp.instance.scan.collectAsState()
     Page(greeting(), actions = {
         IconButton(onClick = { open(Route.Settings) }) { Icon(Icons.Rounded.Settings, contentDescription = "Settings") }
@@ -684,7 +703,8 @@ fun SearchScreen(open: (Route) -> Unit) {
     var query by rememberSaveable { mutableStateOf("") }
     var songs by remember { mutableStateOf<List<Song>>(emptyList()) }
     var server by remember { mutableStateOf<Pair<ULong, List<Song>>?>(null) }
-    val genres by rememberLoaded { genres() }
+    val genresLoad = rememberLoaded { genres() }
+    val genres by genresLoad
     val playing = playingId()
     LaunchedEffect(query) {
         delay(200)

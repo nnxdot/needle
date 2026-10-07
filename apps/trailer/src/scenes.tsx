@@ -1,6 +1,6 @@
 import React from "react";
 import { AbsoluteFill, Easing, Img, interpolate, spring, staticFile, useCurrentFrame, useVideoConfig } from "remotion";
-import { AMBER, EASE, Headline, INK, MUTED, Phone, Scene, useRise } from "./ui";
+import { AMBER, EASE, Headline, INK, MUTED, Phone, Scene, rise, useRise } from "./ui";
 
 // ---------- 1. Opening: the record, then the line.
 
@@ -51,7 +51,7 @@ export const Colour: React.FC = () => {
         </div>
         <div style={{ position: "relative", flex: 1, height: 860 }}>
           {phones.map((p, i) => {
-            const t = useRise(8 + i * 8, 30);
+            const t = rise(frame, 8 + i * 8, 30);
             return (
               <Phone
                 key={p}
@@ -98,7 +98,7 @@ export const Player: React.FC = () => {
         />
         <div style={{ display: "flex", gap: 70, marginTop: 56 }}>
           {looks.map((l, i) => {
-            const t = useRise(14 + i * 7, 30);
+            const t = rise(frame, 14 + i * 7, 30);
             return (
               <div key={l.src} style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 26, opacity: t, translate: `0px ${(1 - t) * 100}px` }}>
                 <Phone src={l.src} h={690} style={{ translate: `0px ${Math.sin((frame + i * 20) / 30) * 6}px` }} />
@@ -156,7 +156,7 @@ export const Tour: React.FC = () => {
       </AbsoluteFill>
       <div style={{ position: "absolute", top: 260, left: 0, display: "flex", gap: 56, translate: `${x}px 0px` }}>
         {shots.map((s, i) => {
-          const t = useRise(6 + i * 4, 28);
+          const t = rise(frame, 6 + i * 4, 28);
           return <Phone key={s} src={s} h={720} style={{ opacity: t, translate: `0px ${(1 - t) * 80}px` }} />;
         })}
       </div>

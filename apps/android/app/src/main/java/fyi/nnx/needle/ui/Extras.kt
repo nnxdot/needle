@@ -80,9 +80,7 @@ fun SyncScreen() {
     val read = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
         uri ?: return@rememberLauncherForActivityResult
         run {
-            val path = copyToCache(context, uri) ?: error("Could not read that file")
-            val report = core.importSync(path, passphrase)
-            File(path).delete()
+            val report = withPickedFile(context, uri) { core.importSync(it, passphrase) }
             NeedleApp.instance.libraryVersion.value++
             "Matched ${count(report.songsMatched.toInt(), "song")}, added ${count(report.listensAdded.toInt(), "listen")} and ${count(report.playlistsAdded.toInt(), "playlist")}" +
                 if (report.songsNotFound > 0u) ". ${count(report.songsNotFound.toInt(), "song")} not on this phone." else "."
@@ -121,7 +119,8 @@ fun SyncScreen() {
 @Composable
 fun TimingScreen(songId: String) {
     val playback by NeedleApp.instance.playback.collectAsState()
-    val lyrics by rememberLoaded(songId) { lyrics(songId) }
+    val lyricsLoad = rememberLoaded(songId) { lyrics(songId) }
+    val lyrics by lyricsLoad
     val lines = remember { mutableStateListOf<LyricLine>() }
     var next by remember { mutableStateOf(0) }
     var text by remember { mutableStateOf("") }

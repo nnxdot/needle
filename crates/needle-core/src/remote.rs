@@ -279,7 +279,7 @@ fn serve(
                 .take(50)
                 .map(|t| {
                     json!({ "id": t.id, "title": t.title, "artist": t.display_artist(),
-                            "album": t.album, "duration": t.duration })
+                            "album": t.album, "duration": t.duration, "format": t.format, "cover": t.artwork.is_some() })
                 })
                 .collect();
             respond(
@@ -374,7 +374,7 @@ pub fn state(player: &Player) -> Value {
     let current = state.current.as_ref().map(|item| {
         let t = &item.track;
         json!({ "id": t.id, "title": t.title, "artist": t.display_artist(), "album": t.album,
-                "duration": t.duration, "cover": t.artwork.is_some() })
+                "duration": t.duration, "cover": t.artwork.is_some(), "format": t.format })
     });
     let queue: Vec<Value> = state
         .queue
@@ -383,7 +383,8 @@ pub fn state(player: &Player) -> Value {
         .enumerate()
         .map(|(i, item)| {
             json!({ "index": i, "id": item.track.id, "title": item.track.title,
-                    "artist": item.track.display_artist() })
+                    "artist": item.track.display_artist(), "album": item.track.album,
+                    "duration": item.track.duration, "format": item.track.format, "cover": item.track.artwork.is_some() })
         })
         .collect();
     json!({

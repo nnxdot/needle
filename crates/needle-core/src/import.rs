@@ -115,7 +115,7 @@ pub fn normalize(text: &str) -> String {
             .find(&format!(" {marker}. "))
             .or_else(|| lower.find(&format!(" {marker} ")))
         {
-            return normalize(&text[..i.min(text.len())]);
+            return normalize(&lower[..i]);
         }
     }
     out

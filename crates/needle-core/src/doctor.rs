@@ -770,6 +770,28 @@ pub fn pattern_path(pattern: &str, track: &Track) -> String {
 
 /// Where each song would go under `pattern`, inside the music folder it is already in. Songs
 /// that would end up with the same name as another stay where they are.
+fn within(path: &Path, root: &Path) -> bool {
+    let mut parts = path.components();
+    root.components().all(|r| {
+        parts.next().is_some_and(|p| {
+            if cfg!(windows) {
+                p.as_os_str().to_string_lossy().to_lowercase()
+                    == r.as_os_str().to_string_lossy().to_lowercase()
+            } else {
+                p == r
+            }
+        })
+    })
+}
+
+fn path_key(path: &str) -> String {
+    if cfg!(windows) {
+        path.to_lowercase()
+    } else {
+        path.to_owned()
+    }
+}
+
 pub fn plan_organize(tracks: &[Track], roots: &[String], pattern: &str) -> Plan {
     let mut plan = Plan::default();
     let mut wanted: Vec<(&Track, String)> = vec![];
@@ -785,10 +807,9 @@ pub fn plan_organize(tracks: &[Track], roots: &[String], pattern: &str) -> Plan 
             skip(&mut plan, "file is missing");
             continue;
         }
-        let lower = track.path.to_lowercase();
         let Some(root) = roots
             .iter()
-            .filter(|r| lower.starts_with(&r.trim_end_matches(['\\', '/']).to_lowercase()))
+            .filter(|r| within(Path::new(&track.path), Path::new(r)))
             .max_by_key(|r| r.len())
         else {
             skip(&mut plan, "not inside a music folder");
@@ -814,15 +835,15 @@ pub fn plan_organize(tracks: &[Track], roots: &[String], pattern: &str) -> Plan 
     }
     let mut count: HashMap<String, usize> = HashMap::new();
     for (_, to) in &wanted {
-        *count.entry(to.to_lowercase()).or_default() += 1;
+        *count.entry(path_key(to)).or_default() += 1;
     }
     for (track, to) in wanted {
-        if count[&to.to_lowercase()] > 1 {
+        if count[&path_key(&to)] > 1 {
             plan.skipped.push((
                 track.path.clone(),
                 "another song would get the same name".into(),
             ));
-        } else if to.eq_ignore_ascii_case(&track.path) {
+        } else if path_key(&to) == path_key(&track.path) {
             plan.in_place += 1;
         } else if Path::new(&to).exists() {
             plan.skipped.push((
@@ -861,6 +882,43 @@ fn prune(folder: &Path, stop: &Path) {
 /// Files that could not be handled, each with the reason.
 pub type Failures = Vec<(String, String)>;
 
+/// Publish without replacement, even if a destination appears after preflight.
+fn move_file(from: &Path, to: &Path) -> Result<()> {
+    if let Some(parent) = to.parent() {
+        std::fs::create_dir_all(parent)?;
+    }
+    if let Err(link_error) = std::fs::hard_link(from, to) {
+        if to.try_exists()? {
+            bail!("{} already exists", to.display());
+        }
+        let mut input = std::fs::File::open(from)?;
+        let mut output = std::fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(to)
+            .with_context(|| format!("Could not move {} ({link_error})", from.display()))?;
+        let copy = (|| -> Result<()> {
+            std::io::copy(&mut input, &mut output)?;
+            let metadata = input.metadata()?;
+            output.set_modified(metadata.modified()?)?;
+            output.sync_all()?;
+            std::fs::set_permissions(to, metadata.permissions())?;
+            Ok(())
+        })();
+        drop(output);
+        if let Err(error) = copy {
+            let _ = std::fs::remove_file(to);
+            return Err(error);
+        }
+    }
+    if let Err(error) = std::fs::remove_file(from) {
+        let _ = std::fs::remove_file(to);
+        return Err(error)
+            .with_context(|| format!("Could not remove {} after copying", from.display()));
+    }
+    Ok(())
+}
+
 /// Pictures in a folder: album covers and the like.
 fn pictures(folder: &Path) -> Vec<PathBuf> {
     std::fs::read_dir(folder)
@@ -895,9 +953,36 @@ impl Library {
     pub fn organize(&self, moves: &[Move], roots: &[String]) -> Result<(Vec<Move>, Failures)> {
         let mut done = vec![];
         let mut failed = vec![];
+        let mut journal = self.organize_journal()?;
         for m in moves {
-            match self.move_track(m, roots) {
-                Ok(()) => done.push(m.clone()),
+            let lyrics: Vec<Move> = companions(Path::new(&m.from))
+                .into_iter()
+                .map(|from| Move {
+                    id: String::new(),
+                    to: Path::new(&m.to)
+                        .with_extension(from.extension().unwrap())
+                        .to_string_lossy()
+                        .into(),
+                    from: from.to_string_lossy().into(),
+                })
+                .collect();
+            if let Some(collision) = lyrics.iter().find(|l| Path::new(&l.to).exists()) {
+                failed.push((
+                    collision.from.clone(),
+                    format!("{} already exists", collision.to),
+                ));
+                continue;
+            }
+            match self.recorded_move(m, roots, &mut journal) {
+                Ok(()) => {
+                    done.push(m.clone());
+                    for lyric in lyrics {
+                        match self.recorded_move(&lyric, roots, &mut journal) {
+                            Ok(()) => {}
+                            Err(e) => failed.push((lyric.from, format!("{e:#}"))),
+                        }
+                    }
+                }
                 Err(e) => failed.push((m.from.clone(), format!("{e:#}"))),
             }
         }
@@ -912,7 +997,6 @@ impl Library {
                     .insert(new.to_path_buf());
             }
         }
-        let mut carried = vec![];
         for (old, new) in destinations {
             let new: Vec<PathBuf> = new.into_iter().collect();
             let [new] = &new[..] else { continue };
@@ -928,18 +1012,55 @@ impl Library {
                     from: picture.to_string_lossy().into(),
                     to: new.join(name).to_string_lossy().into(),
                 };
-                if self.move_track(&m, roots).is_ok() {
-                    carried.push(m);
+                match self.recorded_move(&m, roots, &mut journal) {
+                    Ok(()) => {}
+                    Err(e) => failed.push((m.from, format!("{e:#}"))),
                 }
             }
         }
-        let count = done.len();
-        done.extend(carried);
-        if !done.is_empty() {
-            self.set_json("organize_undo", &done)?;
-        }
-        done.truncate(count);
+        self.set_json("organize_undo_version", &2u32)?;
         Ok((done, failed))
+    }
+
+    fn recorded_move(&self, m: &Move, roots: &[String], journal: &mut Vec<Move>) -> Result<()> {
+        // Write the intent before touching files, so interrupted operations remain recoverable.
+        journal.push(m.clone());
+        if let Err(e) = self.set_json("organize_undo", journal) {
+            journal.pop();
+            return Err(e);
+        }
+        if let Err(e) = self.move_track(m, roots) {
+            if Path::new(&m.from).exists() {
+                journal.pop();
+                self.set_json("organize_undo", journal)?;
+            }
+            return Err(e);
+        }
+        Ok(())
+    }
+
+    fn organize_journal(&self) -> Result<Vec<Move>> {
+        let mut moves: Vec<Move> = self.get_json("organize_undo")?.unwrap_or_default();
+        if self.get_json::<u32>("organize_undo_version")?.unwrap_or(1) < 2 {
+            let lyrics: Vec<Move> = moves
+                .iter()
+                .filter(|m| !m.id.is_empty())
+                .flat_map(|m| {
+                    companions(Path::new(&m.to)).into_iter().map(|p| Move {
+                        id: String::new(),
+                        from: Path::new(&m.from)
+                            .with_extension(p.extension().unwrap())
+                            .to_string_lossy()
+                            .into(),
+                        to: p.to_string_lossy().into(),
+                    })
+                })
+                .collect();
+            moves.extend(lyrics);
+            self.set_json("organize_undo", &moves)?;
+            self.set_json("organize_undo_version", &2u32)?;
+        }
+        Ok(moves)
     }
 
     /// Songs whose cover is the picture at `from` now find it at `to`.
@@ -962,7 +1083,7 @@ impl Library {
         let root = roots
             .iter()
             .map(Path::new)
-            .filter(|r| from.starts_with(r))
+            .filter(|r| within(from, r))
             .max_by_key(|r| r.as_os_str().len());
         if m.id.is_empty() {
             if to.exists() {
@@ -971,9 +1092,11 @@ impl Library {
             if let Some(parent) = to.parent() {
                 std::fs::create_dir_all(parent)?;
             }
-            std::fs::rename(from, to)
-                .with_context(|| format!("Could not move {}", from.display()))?;
-            self.retarget_artwork(&m.from, &m.to)?;
+            move_file(from, to).with_context(|| format!("Could not move {}", from.display()))?;
+            if let Err(e) = self.retarget_artwork(&m.from, &m.to) {
+                move_file(to, from).context("Could not roll back moved companion")?;
+                return Err(e);
+            }
             if let (Some(folder), Some(root)) = (from.parent(), root) {
                 prune(folder, root);
             }
@@ -982,7 +1105,7 @@ impl Library {
         let mut track = self
             .track(&m.id)?
             .context("The song is no longer in the library")?;
-        if track.path != m.from {
+        if track.path != m.from && track.path != m.to {
             bail!("The song moved since the plan was made");
         }
         if to.exists() {
@@ -991,14 +1114,12 @@ impl Library {
         if let Some(parent) = to.parent() {
             std::fs::create_dir_all(parent)?;
         }
-        std::fs::rename(from, to).with_context(|| format!("Could not move {}", from.display()))?;
-        for companion in companions(from) {
-            if let Some(extension) = companion.extension() {
-                let _ = std::fs::rename(&companion, to.with_extension(extension));
-            }
-        }
+        move_file(from, to).with_context(|| format!("Could not move {}", from.display()))?;
         track.path = m.to.clone();
-        self.upsert(&track)?;
+        if let Err(e) = self.upsert(&track) {
+            move_file(to, from).context("Could not roll back moved song")?;
+            return Err(e);
+        }
         if let (Some(folder), Some(root)) = (from.parent(), root) {
             prune(folder, root);
         }
@@ -1015,20 +1136,45 @@ impl Library {
 
     /// Put the files of the last organize back where they were. Returns how many moved back.
     pub fn undo_organize(&self) -> Result<usize> {
-        let moves: Vec<Move> = self.get_json("organize_undo")?.unwrap_or_default();
+        let mut moves = self.organize_journal()?;
+        // Older journals recorded lyrics implicitly. Upgrade once, without replacing
+        // any file that has since appeared at its original location.
         let roots = self.roots()?;
         let mut back = 0;
-        for m in moves.iter().rev() {
+        let mut failures = vec![];
+        for index in (0..moves.len()).rev() {
+            let m = &moves[index];
             let reverse = Move {
                 id: m.id.clone(),
                 from: m.to.clone(),
                 to: m.from.clone(),
             };
-            if self.move_track(&reverse, &roots).is_ok() && !m.id.is_empty() {
-                back += 1;
+            if !Path::new(&reverse.from).exists()
+                && Path::new(&reverse.to).is_file()
+                && (m.id.is_empty() || self.track(&m.id)?.is_some_and(|t| t.path == reverse.to))
+            {
+                moves.remove(index);
+                self.set_json("organize_undo", &moves)?;
+                continue;
+            }
+            match self.move_track(&reverse, &roots) {
+                Ok(()) => {
+                    if !m.id.is_empty() {
+                        back += 1;
+                    }
+                    moves.remove(index);
+                    self.set_json("organize_undo", &moves)?;
+                }
+                Err(e) => failures.push(format!("{}: {e:#}", reverse.from)),
             }
         }
-        self.set_json("organize_undo", &Vec::<Move>::new())?;
+        if !failures.is_empty() {
+            bail!(
+                "Restored {back} songs. {} files could not be restored; Undo can be retried:\n{}",
+                failures.len(),
+                failures.join("\n")
+            );
+        }
         Ok(back)
     }
 }

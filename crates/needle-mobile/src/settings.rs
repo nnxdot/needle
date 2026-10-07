@@ -192,15 +192,16 @@ impl Needle {
 
     /// Changes the player's settings; the song playing goes on from where it was.
     pub fn set_playback_settings(&self, value: PlaybackSettings) -> Result<()> {
-        let mut s = self.library.settings()?;
-        s.crossfade = value.crossfade.clamp(0., 12.);
-        s.replay_gain = value.replay_gain;
-        s.album_gain = value.album_gain;
-        s.online_media = value.online_media;
-        s.autoplay_query = value.autoplay_query.trim().to_string();
-        s.sound_analysis = value.sound_analysis;
-        s.scrobble_corrections = value.scrobble_corrections;
-        s.check_updates = value.check_updates;
+        let s = self.library.update_settings(|s| {
+            s.crossfade = value.crossfade.clamp(0., 12.);
+            s.replay_gain = value.replay_gain;
+            s.album_gain = value.album_gain;
+            s.online_media = value.online_media;
+            s.autoplay_query = value.autoplay_query.trim().to_string();
+            s.sound_analysis = value.sound_analysis;
+            s.scrobble_corrections = value.scrobble_corrections;
+            s.check_updates = value.check_updates;
+        })?;
         self.player.send(Command::Configure(Box::new(s)));
         if value.sound_analysis {
             self.measure_in_background();
@@ -234,7 +235,11 @@ impl Needle {
             balance: d.balance,
             mono: d.mono,
             crossfeed: d.crossfeed,
-            mode: if d.parametric_mode() { "parametric".into() } else { "graphic".into() },
+            mode: if d.parametric_mode() {
+                "parametric".into()
+            } else {
+                "graphic".into()
+            },
             parametric: d.parametric.iter().map(band).collect(),
         })
     }
@@ -251,7 +256,11 @@ impl Needle {
         d.balance = value.balance.clamp(-1., 1.);
         d.mono = value.mono;
         d.crossfeed = value.crossfeed;
-        d.mode = if value.mode == "parametric" { "parametric".into() } else { "graphic".into() };
+        d.mode = if value.mode == "parametric" {
+            "parametric".into()
+        } else {
+            "graphic".into()
+        };
         d.parametric = value
             .parametric
             .into_iter()
@@ -271,7 +280,10 @@ impl Needle {
 
     /// The listener's own saved equalizer settings, by name.
     pub fn my_presets(&self) -> Vec<String> {
-        self.library.settings().map(|s| s.eq_presets.into_iter().map(|p| p.name).collect()).unwrap_or_default()
+        self.library
+            .settings()
+            .map(|s| s.eq_presets.into_iter().map(|p| p.name).collect())
+            .unwrap_or_default()
     }
 
     /// Saves the equalizer as it is now under `name` (replacing one of the same name).
@@ -280,12 +292,12 @@ impl Needle {
         if name.is_empty() {
             return Err(NeedleError::Failed("Give the preset a name".into()));
         }
-        let mut s = self.library.settings()?;
-        let preset = dsp::UserPreset::from_dsp(&name, &s.dsp);
-        s.eq_presets.retain(|p| p.name != name);
-        s.eq_presets.push(preset);
-        s.dsp.preset = name;
-        self.library.save_settings(&s)?;
+        let s = self.library.update_settings(|s| {
+            let preset = dsp::UserPreset::from_dsp(&name, &s.dsp);
+            s.eq_presets.retain(|p| p.name != name);
+            s.eq_presets.push(preset);
+            s.dsp.preset = name;
+        })?;
         self.player.send(Command::Dsp(s.dsp));
         Ok(())
     }
@@ -303,9 +315,9 @@ impl Needle {
     }
 
     pub fn delete_preset(&self, name: String) -> Result<()> {
-        let mut s = self.library.settings()?;
-        s.eq_presets.retain(|p| p.name != name);
-        Ok(self.library.save_settings(&s)?)
+        self.library
+            .update_settings(|s| s.eq_presets.retain(|p| p.name != name))?;
+        Ok(())
     }
 
     /// Reads a headphone correction (an AutoEq or Equalizer APO "ParametricEQ.txt") into the
@@ -321,18 +333,41 @@ impl Needle {
         d.parametric = bands;
         d.preset = std::path::Path::new(&path)
             .file_stem()
-            .map(|s| s.to_string_lossy().trim_start_matches("picked-").to_string())
+            .map(|s| {
+                s.to_string_lossy()
+                    .trim_start_matches("picked-")
+                    .to_string()
+            })
             .unwrap_or_else(|| "Correction".into());
         self.player.send(Command::Dsp(d));
         Ok(count)
     }
 
     pub fn app_settings(&self) -> AppSettings {
-        self.library
+        let mut settings = self
+            .library
             .get_json::<AppSettings>(APP_KEY)
             .ok()
             .flatten()
-            .unwrap_or_default()
+            .unwrap_or_default();
+        if !matches!(settings.theme.as_str(), "night" | "midnight" | "day")
+            && !settings.theme.starts_with("custom:")
+        {
+            let themes = self.themes();
+            if let Some(theme) = themes
+                .iter()
+                .find(|t| t.id == format!("custom:{}", settings.theme))
+                .or_else(|| {
+                    themes
+                        .iter()
+                        .find(|t| t.id.rsplit('/').next() == Some(settings.theme.as_str()))
+                })
+            {
+                settings.theme = theme.id.clone();
+                let _ = self.library.set_json(APP_KEY, &settings);
+            }
+        }
+        settings
     }
 
     pub fn set_app_settings(&self, value: AppSettings) -> Result<()> {
@@ -438,13 +473,14 @@ impl Needle {
 
     /// Turns sending to a service on or off (`None` leaves it as it is).
     pub fn set_scrobbling(&self, lastfm: Option<bool>, listenbrainz: Option<bool>) -> Result<()> {
-        let mut s = self.library.settings()?;
-        if let Some(on) = lastfm {
-            s.lastfm_enabled = on;
-        }
-        if let Some(on) = listenbrainz {
-            s.listenbrainz_enabled = on;
-        }
+        let s = self.library.update_settings(|s| {
+            if let Some(on) = lastfm {
+                s.lastfm_enabled = on;
+            }
+            if let Some(on) = listenbrainz {
+                s.listenbrainz_enabled = on;
+            }
+        })?;
         self.player.send(Command::Configure(Box::new(s)));
         Ok(())
     }

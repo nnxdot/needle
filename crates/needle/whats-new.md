@@ -1,3 +1,17 @@
+# 1.6.2
+Fixes for your files, saved settings, and everyday listening.
+- [lyrics] **Safer file tidying.** Existing lyrics are left intact, and Needle tells you which files could not move. If Undo cannot put a file back, it stays available so you can clear the obstruction and try again.
+- [eq] **Settings that stay saved.** Equalizer changes no longer erase new presets, bring back deleted ones, or revert other preferences. Tag edits also keep your measured loudness; replacing the audio clears measurements that no longer apply.
+- [playlist] **More reliable CUE albums.** Different recordings no longer share an identity just because their file sizes and track timings match. Rescanning marks removed tracks as missing, and exported M3U playlists can be brought back with their CUE tracks and repeated entries in order.
+- [cast] **Moving music between phone and computer.** Song matching uses the title and artist separately, and streamed songs keep their format. If the computer does not have the current song, Needle tells you before moving playback.
+- On Linux, clicking the player artwork opens the big player instead of showing a window-resize cursor.
+- Covers refresh when their picture changes at the same file path, without restarting Needle.
+- Searches return small result sets faster in large libraries. Album and artist summaries now respect limits such as one song per artist or album.
+- File tidying stays inside your selected music folders, leaving similarly named sibling folders alone.
+- Unicode credit lines no longer panic during import, and unsupported DSF headers return an error before seeking.
+- Incomplete speaker-discovery replies no longer crash the parser or discard other valid speakers.
+- Queued listens for a disabled or signed-out service no longer hold up another listening service.
+
 # 1.6.1
 Needle gets faster and calmer, and you can lay it out your way.
 - [globe] **Needle for Mac.** Needle now runs on Macs with Apple silicon (M1 or newer), with the menu bar icon, media keys, Now Playing, and your passwords in the Keychain. Get it from needle.nnx.fyi.

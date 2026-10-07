@@ -82,13 +82,33 @@ val SmallCoverShape = RoundedCornerShape(6.dp)
 /** Space from the screen edge to content. */
 val Edge = 20.dp
 
-/** Loads `load` off the main thread, again whenever the library changes; `null` meanwhile. */
+class LoadedState<T> internal constructor(private val result: fyi.nnx.needle.LoadResult<T>) : State<T?> {
+    override val value: T? get() = (result as? fyi.nnx.needle.LoadResult.Ready)?.data
+    val loading: Boolean get() = result is fyi.nnx.needle.LoadResult.Loading
+    val failed: Boolean get() = result is fyi.nnx.needle.LoadResult.Failed
+}
+
+/** Loading, a completed value (including empty/null), and failure remain distinct. */
 @Composable
-fun <T> rememberLoaded(vararg keys: Any?, load: Needle.() -> T): State<T?> {
+fun <T> rememberLoaded(vararg keys: Any?, load: Needle.() -> T): LoadedState<T> {
     val version by NeedleApp.instance.libraryVersion.collectAsState()
-    return produceState<T?>(null, version, *keys) {
-        value = withContext(Dispatchers.IO) { runCatching { core.load() }.getOrNull() }
+    var attempt by remember(*keys) { mutableStateOf(0) }
+    val result by produceState<fyi.nnx.needle.LoadResult<T>>(fyi.nnx.needle.LoadResult.Loading, version, attempt, *keys) {
+        value = fyi.nnx.needle.LoadResult.Loading
+        value = withContext(Dispatchers.IO) { fyi.nnx.needle.loadAttempt { core.load() } }
     }
+    val failure = result as? fyi.nnx.needle.LoadResult.Failed
+    if (failure != null) {
+        androidx.compose.ui.window.Popup(alignment = Alignment.BottomCenter) {
+            androidx.compose.material3.Surface(shape = CoverShape, tonalElevation = 6.dp, modifier = Modifier.padding(Edge)) {
+                Column(Modifier.padding(16.dp)) {
+                    Text(failure.error.message ?: "Could not load this page", color = MaterialTheme.colorScheme.error)
+                    androidx.compose.material3.TextButton(onClick = { attempt++ }) { Text("Retry") }
+                }
+            }
+        }
+    }
+    return remember(result) { LoadedState(result) }
 }
 
 /** A cover's place: a file on the phone, or a link (covers from Needle on a computer). */

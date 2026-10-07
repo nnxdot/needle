@@ -176,7 +176,7 @@ private fun LazyGridScope.span(content: @Composable () -> Unit) =
 
 /** Two covers across, with the page's margins. */
 @Composable
-private fun AlbumGrid(albums: List<Album>?, open: (Route) -> Unit, scroll: Modifier, header: LazyGridScope.() -> Unit = {}) {
+private fun AlbumGrid(albums: List<Album>?, open: (Route) -> Unit, scroll: Modifier, loading: Boolean, header: LazyGridScope.() -> Unit = {}) {
     LazyVerticalGrid(
         columns = GridCells.Adaptive(160.dp),
         contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 8.dp, bottom = 32.dp),
@@ -185,16 +185,18 @@ private fun AlbumGrid(albums: List<Album>?, open: (Route) -> Unit, scroll: Modif
         modifier = Modifier.fillMaxSize().then(scroll),
     ) {
         header()
-        if (albums == null) items(6) { AlbumPlaceholder() }
+        if (loading) items(6) { AlbumPlaceholder() }
         items(albums.orEmpty(), key = { it.key }) { album -> AlbumTile(album, open = open) { open(Route.AlbumPage(album)) } }
     }
 }
 
 @Composable
 private fun Overview(open: (Route) -> Unit, scroll: Modifier) {
-    val albums by rememberLoaded { albums() }
-    val favorites by rememberLoaded { favorites().size }
-    AlbumGrid(albums?.let { sorted(it, Sort.Recent).take(24) }, open, scroll) {
+    val albumsLoad = rememberLoaded { albums() }
+    val albums by albumsLoad
+    val favoritesLoad = rememberLoaded { favorites().size }
+    val favorites by favoritesLoad
+    AlbumGrid(albums?.let { sorted(it, Sort.Recent).take(24) }, open, scroll, albumsLoad.loading) {
         span {
             Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                 Pinned(Icons.Rounded.Favorite, "Favorites", favorites?.let { count(it, "song") }, Modifier.weight(1f)) { open(Route.Favorites) }
@@ -229,13 +231,15 @@ internal fun Pinned(icon: ImageVector, title: String, detail: String?, modifier:
 
 @Composable
 private fun Albums(sort: Sort, open: (Route) -> Unit, scroll: Modifier) {
-    val albums by rememberLoaded { albums() }
-    AlbumGrid(albums?.let { sorted(it, sort) }, open, scroll)
+    val albumsLoad = rememberLoaded { albums() }
+    val albums by albumsLoad
+    AlbumGrid(albums?.let { sorted(it, sort) }, open, scroll, albumsLoad.loading)
 }
 
 @Composable
 private fun Artists(open: (Route) -> Unit, scroll: Modifier) {
-    val artists by rememberLoaded { artists() }
+    val artistsLoad = rememberLoaded { artists() }
+    val artists by artistsLoad
     LazyVerticalGrid(
         columns = GridCells.Adaptive(104.dp),
         contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 8.dp, bottom = 32.dp),
@@ -244,7 +248,8 @@ private fun Artists(open: (Route) -> Unit, scroll: Modifier) {
         modifier = Modifier.fillMaxSize().then(scroll),
     ) {
         items(artists.orEmpty(), key = { it.name }) { artist ->
-            val photo by rememberLoaded(artist.name) { artistPhoto(artist.name) }
+            val photoLoad = rememberLoaded(artist.name) { artistPhoto(artist.name) }
+            val photo by photoLoad
             Column(Modifier.clip(RoundedCornerShape(16.dp)).clickable { open(Route.Artist(artist.name)) }, horizontalAlignment = Alignment.CenterHorizontally) {
                 Cover(photo ?: artist.artwork, Modifier.fillMaxWidth().aspectRatio(1f), CircleShape)
                 Text(
@@ -262,11 +267,12 @@ private fun Artists(open: (Route) -> Unit, scroll: Modifier) {
 
 @Composable
 private fun Songs(sort: Sort, open: (Route) -> Unit, scroll: Modifier) {
-    val songs by rememberLoaded { songs() }
+    val songsLoad = rememberLoaded { songs() }
+    val songs by songsLoad
     val playing = NeedleApp.instance.playback.collectAsState().value?.current?.id
     val list = songs?.let { sortedSongs(it, sort) }.orEmpty()
     androidx.compose.foundation.lazy.LazyColumn(Modifier.fillMaxSize().then(scroll), contentPadding = PaddingValues(bottom = 32.dp)) {
-        if (songs == null) items(8) { SongPlaceholder() }
+        if (songsLoad.loading) items(8) { SongPlaceholder() }
         items(list.size, key = { list[it].id }) { i ->
             val song = list[i]
             SongRow(song, playing == song.id, open) {
@@ -279,7 +285,8 @@ private fun Songs(sort: Sort, open: (Route) -> Unit, scroll: Modifier) {
 
 @Composable
 private fun Playlists(open: (Route) -> Unit, scroll: Modifier) {
-    val playlists by rememberLoaded { playlists() }
+    val playlistsLoad = rememberLoaded { playlists() }
+    val playlists by playlistsLoad
     androidx.compose.foundation.lazy.LazyColumn(Modifier.fillMaxSize().then(scroll), contentPadding = PaddingValues(bottom = 32.dp)) {
         item {
             Row(
