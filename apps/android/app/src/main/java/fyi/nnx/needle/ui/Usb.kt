@@ -35,16 +35,38 @@ private val MUSIC: AudioAttributes = AudioAttributes.Builder()
     .build()
 
 @RequiresApi(34)
-private fun usbOutput(audio: AudioManager): AudioDeviceInfo? =
+private fun usbOutput(audio: AudioManager): AudioDeviceInfo? = runCatching {
     audio.getDevices(AudioManager.GET_DEVICES_OUTPUTS).firstOrNull {
         it.type == AudioDeviceInfo.TYPE_USB_DEVICE || it.type == AudioDeviceInfo.TYPE_USB_HEADSET
     }
+}.getOrNull()
 
+/**
+ * The DAC's bit-perfect mixer in a format Needle's output can send exactly: stereo, 32-bit
+ * float (which carries 16- and 24-bit music as it is) or else 16-bit, at 44.1 kHz or else
+ * 48 kHz. A mixer in another format would take nothing from Needle.
+ */
 @RequiresApi(34)
-private fun bitPerfect(audio: AudioManager, device: AudioDeviceInfo): AudioMixerAttributes? =
+private fun bitPerfect(audio: AudioManager, device: AudioDeviceInfo): AudioMixerAttributes? = runCatching {
     audio.getSupportedMixerAttributes(device)
-        .filter { it.mixerBehavior == AudioMixerAttributes.MIXER_BEHAVIOR_BIT_PERFECT }
-        .maxByOrNull { it.format.sampleRate }
+        .filter {
+            it.mixerBehavior == AudioMixerAttributes.MIXER_BEHAVIOR_BIT_PERFECT &&
+                it.format.channelMask == android.media.AudioFormat.CHANNEL_OUT_STEREO &&
+                it.format.encoding in listOf(android.media.AudioFormat.ENCODING_PCM_FLOAT, android.media.AudioFormat.ENCODING_PCM_16BIT) &&
+                it.format.sampleRate in listOf(44100, 48000)
+        }
+        .minByOrNull {
+            (if (it.format.encoding == android.media.AudioFormat.ENCODING_PCM_FLOAT) 0 else 2) +
+                (if (it.format.sampleRate == 44100) 0 else 1)
+        }
+}.getOrNull()
+
+/** Needle's output opens in the mixer's format, or as Android likes when `mixer` is null. */
+@RequiresApi(34)
+private fun matchOutput(mixer: AudioMixerAttributes?) {
+    val float = mixer?.format?.encoding == android.media.AudioFormat.ENCODING_PCM_FLOAT
+    runCatching { core.setUsbFormat((mixer?.format?.sampleRate ?: 0).toUInt(), float) }
+}
 
 /**
  * Bit-perfect playback to a USB DAC (Android 14 and newer): Android stops mixing and hands
@@ -59,7 +81,10 @@ fun UsbBitPerfect() {
     DisposableEffect(audio) {
         val callback = object : android.media.AudioDeviceCallback() {
             override fun onAudioDevicesAdded(devices: Array<out AudioDeviceInfo>) { device = usbOutput(audio) }
-            override fun onAudioDevicesRemoved(devices: Array<out AudioDeviceInfo>) { device = usbOutput(audio) }
+            override fun onAudioDevicesRemoved(devices: Array<out AudioDeviceInfo>) {
+                device = usbOutput(audio)
+                if (device == null) matchOutput(null)
+            }
         }
         audio.registerAudioDeviceCallback(callback, android.os.Handler(android.os.Looper.getMainLooper()))
         onDispose { audio.unregisterAudioDeviceCallback(callback) }
@@ -67,12 +92,23 @@ fun UsbBitPerfect() {
     val connected = device
     val offer = remember(connected) { connected?.let { bitPerfect(audio, it) } }
     var on by remember(connected) {
-        mutableStateOf(connected != null && audio.getPreferredMixerAttributes(MUSIC, connected)?.mixerBehavior == AudioMixerAttributes.MIXER_BEHAVIOR_BIT_PERFECT)
+        mutableStateOf(
+            connected != null && runCatching {
+                audio.getPreferredMixerAttributes(MUSIC, connected)?.mixerBehavior == AudioMixerAttributes.MIXER_BEHAVIOR_BIT_PERFECT
+            }.getOrDefault(false),
+        )
     }
     val usable = connected != null && offer != null
     fun setMixer(wanted: Boolean) {
         runCatching { toggle(audio, connected, offer, wanted) }
-            .onSuccess { success -> if (success) on = wanted else showMessage("Android could not change the USB mixer. Try reconnecting the DAC.") }
+            .onSuccess { success ->
+                if (success) {
+                    on = wanted
+                    matchOutput(if (wanted) offer else null)
+                } else {
+                    showMessage("Android could not change the USB mixer. Try reconnecting the DAC.")
+                }
+            }
             .onFailure { showMessage(it.message ?: "Android could not change the USB mixer") }
     }
     Row(
@@ -90,7 +126,7 @@ fun UsbBitPerfect() {
                 when {
                     connected == null -> "Plug in a USB DAC to send it the music exactly as it is"
                     offer == null -> "${connected.productName} cannot play bit-perfect on this phone"
-                    else -> "${connected.productName} gets the music exactly as it is; other sounds wait"
+                    else -> "${connected.productName} gets the music exactly as it is, at ${offer.format.sampleRate.let { if (it % 1000 == 0) "${it / 1000}" else "${it / 1000.0}" }} kHz; other sounds wait"
                 },
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
