@@ -46,6 +46,9 @@ class NeedleApp : Application() {
     private val _scan = MutableStateFlow(ScanStatus(false, 0u, 0u, "", null))
     val scan: StateFlow<ScanStatus> = _scan
 
+    /** How many of Needle's screens are on view (0 when it is in the background). */
+    @Volatile private var visible = 0
+
     /** Changes whenever the library may have changed (a scan finished), so lists load again. */
     val libraryVersion = MutableStateFlow(0)
     val themeVersion = MutableStateFlow(0)
@@ -79,6 +82,17 @@ class NeedleApp : Application() {
         core = Needle(File(filesDir, "needle").absolutePath)
         _app.value = core.appSettings()
         core.setDecoder(File(applicationInfo.nativeLibraryDir, "libneedle_ffmpeg.so").absolutePath)
+        // A reading notice left from a run that was closed mid-read.
+        ScanNotice.hide(this)
+        registerActivityLifecycleCallbacks(object : ActivityLifecycleCallbacks {
+            override fun onActivityStarted(activity: android.app.Activity) { visible++ }
+            override fun onActivityStopped(activity: android.app.Activity) { visible-- }
+            override fun onActivityCreated(activity: android.app.Activity, state: android.os.Bundle?) {}
+            override fun onActivityResumed(activity: android.app.Activity) {}
+            override fun onActivityPaused(activity: android.app.Activity) {}
+            override fun onActivitySaveInstanceState(activity: android.app.Activity, state: android.os.Bundle) {}
+            override fun onActivityDestroyed(activity: android.app.Activity) {}
+        })
         scope.launch {
             var wasScanning = false
             var shown: Pair<String?, Boolean>? = null
@@ -107,7 +121,9 @@ class NeedleApp : Application() {
                     launch { updateWidgets(this@NeedleApp) }
                 }
                 wasScanning = scan.running
-                delay(if (scan.running) 300 else 200)
+                // Nothing to follow closely while Needle is out of sight and nothing plays.
+                val busy = visible > 0 || playback.playing || scan.running
+                delay(if (busy) 200 else 2000)
             }
         }
         // Needle on the computer, once a second while connected to it.

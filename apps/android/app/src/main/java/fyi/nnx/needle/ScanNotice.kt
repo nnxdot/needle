@@ -29,18 +29,34 @@ object ScanNotice {
         return manager
     }
 
+    private var lastText: String? = null
+    private var lastAt = 0L
+
     fun show(context: Context, scan: ScanStatus) {
+        val text = if (scan.scanned == 0u && scan.current.isNotEmpty()) {
+            "Looking in ${scan.current.trimEnd('/').substringAfterLast('/')}"
+        } else {
+            "${scan.scanned} files · ${scan.imported} new"
+        }
+        // Posting a notice costs the phone some work: about once a second at most, and when
+        // nothing changed only often enough to keep it from timing out.
+        val now = android.os.SystemClock.uptimeMillis()
+        if (now - lastAt < 1000 || (text == lastText && now - lastAt < 20_000)) return
+        lastText = text
+        lastAt = now
         val open = PendingIntent.getActivity(
             context, 0, Intent(context, MainActivity::class.java), PendingIntent.FLAG_IMMUTABLE,
         )
         val builder = Notification.Builder(context, CHANNEL)
             .setSmallIcon(android.R.drawable.stat_notify_sync)
             .setContentTitle("Reading your music")
-            .setContentText("${scan.scanned} files · ${scan.imported} new")
+            .setContentText(text)
             .setOnlyAlertOnce(true)
             .setOngoing(true)
             .setContentIntent(open)
             .setProgress(0, 0, true)
+            // If Needle is closed mid-read, the notice goes by itself instead of staying.
+            .setTimeoutAfter(60_000)
         if (Build.VERSION.SDK_INT >= 36) {
             builder.setShortCriticalText("${scan.scanned}")
             builder.setFlag(Notification.FLAG_PROMOTED_ONGOING, true)
@@ -49,6 +65,8 @@ object ScanNotice {
     }
 
     fun hide(context: Context) {
+        lastText = null
+        lastAt = 0L
         runCatching { manager(context).cancel(ID) }
     }
 }
