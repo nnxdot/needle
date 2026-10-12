@@ -170,6 +170,20 @@ impl AppView {
             .filter(|c| info(&c.key).is_some() && !(album_view && c.key == "album"))
             .cloned()
             .collect();
+        // Songs in order of their rating show their stars, to rate them at a glance.
+        if self.by_rating() && !columns.iter().any(|c| c.key == "rating") {
+            let at = columns
+                .iter()
+                .position(|c| c.key == "time")
+                .unwrap_or(columns.len());
+            columns.insert(
+                at,
+                ColumnSetting {
+                    key: "rating".into(),
+                    width: width_of("rating"),
+                },
+            );
+        }
         let room = |cols: &[ColumnSetting]| {
             width - FIXED - cols.iter().map(|c| c.width + 12.).sum::<f32>()
         };
@@ -360,10 +374,12 @@ impl AppView {
         &self,
         column: &ColumnSetting,
         track: &Track,
-        cx: &App,
+        cx: &mut Context<Self>,
     ) -> AnyElement {
+        if column.key == "rating" {
+            return self.rating_cell(column.width, track, cx);
+        }
         let p = pal(cx);
-        let rating = column.key == "rating";
         div()
             .w(px(column.width))
             .flex_shrink_0()
@@ -371,9 +387,7 @@ impl AppView {
             .overflow_hidden()
             .when(right_aligned(&column.key), |el| el.text_right())
             .text_size(px(if column.key == "album" { 12.5 } else { 12. }))
-            .text_color(if rating {
-                p.accent
-            } else if column.key == "album" || column.key == "time" {
+            .text_color(if column.key == "album" || column.key == "time" {
                 p.ink_2
             } else {
                 p.ink_3
@@ -384,6 +398,57 @@ impl AppView {
                     .truncate()
                     .child(cell_text(&column.key, track)),
             )
+            .into_any_element()
+    }
+
+    /// The list is in order of rating: sorted by it, or the Rated collection in its own order.
+    fn by_rating(&self) -> bool {
+        match self.sort {
+            Sort::Asc(field) | Sort::Desc(field) => field == "rating",
+            Sort::Default => self.page == super::Page::Collection("rated".into()),
+        }
+    }
+
+    /// Five stars to rate the song with one click. The empty ones show while the pointer is
+    /// on the row, and always while the list is sorted by rating.
+    fn rating_cell(&self, width: f32, track: &Track, cx: &mut Context<Self>) -> AnyElement {
+        let p = pal(cx);
+        let sorted = self.by_rating();
+        let rating = track.rating.clamp(0, 5);
+        div()
+            .w(px(width))
+            .flex_shrink_0()
+            .min_w_0()
+            .overflow_hidden()
+            .flex()
+            .items_center()
+            .children((1..=5).map(|star| {
+                let lit = rating >= star;
+                let id = track.id.clone();
+                div()
+                    .id(ElementId::NamedInteger(
+                        format!("rate-{}", track.id).into(),
+                        star as u64,
+                    ))
+                    .px(px(1.5))
+                    .cursor_pointer()
+                    .when(!lit && !sorted, |el| {
+                        el.opacity(0.).group_hover("row", |s| s.opacity(1.))
+                    })
+                    .child(
+                        glyph(if lit { "star-fill" } else { "star" })
+                            .size(px(13.))
+                            .text_color(if lit { p.accent } else { p.ink_3 }),
+                    )
+                    .on_click(cx.listener(move |this, _, _, cx| {
+                        cx.stop_propagation();
+                        this.set_rating(
+                            std::slice::from_ref(&id),
+                            if rating == star { 0 } else { star },
+                        );
+                        cx.notify();
+                    }))
+            }))
             .into_any_element()
     }
 

@@ -465,6 +465,8 @@ impl AppView {
                 if !keep {
                     self.menu = None;
                     self.playlist_menu = None;
+                    self.group_menu = None;
+                    self.collections_menu = None;
                     self.header_menu = None;
                 }
                 action(self, window, cx);
@@ -858,6 +860,267 @@ impl AppView {
             deferred(
                 anchored()
                     .position(menu.position)
+                    .snap_to_window_with_margin(px(8.))
+                    .child(body),
+            )
+            .with_priority(2),
+        )
+    }
+}
+
+/// The right-click menu of an album or an artist, wherever its cover or name shows.
+pub struct GroupMenu {
+    pub position: Point<Pixels>,
+    pub page: Page,
+    pub serial: usize,
+    /// The list of playlists to add to shows instead.
+    pub playlists: bool,
+}
+
+impl AppView {
+    /// Opens the menu of an album's or an artist's music; other pages have none.
+    pub(super) fn open_group_menu(
+        &mut self,
+        page: Page,
+        position: Point<Pixels>,
+        cx: &mut Context<Self>,
+    ) {
+        if !matches!(page, Page::Album { .. } | Page::Artist(_)) {
+            return;
+        }
+        self.menu = None;
+        self.playlist_menu = None;
+        self.menu_serial += 1;
+        self.group_menu = Some(GroupMenu {
+            position,
+            page,
+            serial: self.menu_serial,
+            playlists: false,
+        });
+        cx.notify();
+    }
+
+    /// The songs of an album or artist, in the order its page shows them.
+    fn group_tracks(&self, page: &Page) -> Vec<needle_core::model::Track> {
+        self.library
+            .search_page(&page.base(), 0, super::PLAY_LIMIT)
+            .map(|p| p.tracks)
+            .unwrap_or_default()
+    }
+
+    fn group_menu_entries(&self) -> Vec<Entry> {
+        let Some(menu) = &self.group_menu else {
+            return vec![];
+        };
+        let page = menu.page.clone();
+        if menu.playlists {
+            return self
+                .playlists
+                .iter()
+                .filter(|p| p.query.is_none())
+                .cloned()
+                .map(|playlist| {
+                    let (id, page) = (playlist.id.clone(), page.clone());
+                    Entry::item("playlist", playlist.name, None, move |this, _, _| {
+                        let tracks = this.group_tracks(&page);
+                        this.add_to_playlist(&id, tracks);
+                    })
+                })
+                .collect();
+        }
+        let reason = match &page {
+            Page::Album { album, .. } => format!("From the album {album}"),
+            Page::Artist(name) => format!("From {name}"),
+            _ => "From your library".into(),
+        };
+        let (play, shuffle, next, queue) = (page.clone(), page.clone(), page.clone(), page.clone());
+        let shuffled = reason.clone();
+        let mut entries = vec![
+            Entry::item("play", "Play", None, move |this, _, _| {
+                let tracks = this.group_tracks(&play);
+                this.play_tracks(tracks, &reason);
+            }),
+            Entry::item("shuffle", "Shuffle", None, move |this, _, _| {
+                use rand::seq::SliceRandom;
+                let mut tracks = this.group_tracks(&shuffle);
+                tracks.shuffle(&mut rand::thread_rng());
+                this.play_tracks(tracks, &shuffled);
+            }),
+            Entry::item("next", "Play next", None, move |this, _, _| {
+                let tracks = this.group_tracks(&next);
+                this.play_next(tracks);
+            }),
+            Entry::item("queue", "Add to queue", None, move |this, _, _| {
+                let tracks = this.group_tracks(&queue);
+                this.enqueue(tracks);
+            }),
+        ];
+        if self.playlists.iter().any(|p| p.query.is_none()) {
+            entries.push(Entry::item_keep(
+                "playlist",
+                "Add to playlist…",
+                None,
+                |this, _, _| {
+                    this.menu_serial += 1;
+                    let serial = this.menu_serial;
+                    if let Some(menu) = this.group_menu.as_mut() {
+                        menu.playlists = true;
+                        menu.serial = serial;
+                    }
+                },
+            ));
+        }
+        entries.push(Entry::Separator);
+        let open = page.clone();
+        match &page {
+            Page::Album { artist, .. } => {
+                let artist = Page::Artist(artist.clone());
+                entries.extend([
+                    Entry::item("albums", "Open album", None, move |this, window, cx| {
+                        this.navigate(open.clone(), window, cx)
+                    }),
+                    Entry::item("artists", "Go to artist", None, move |this, window, cx| {
+                        this.navigate(artist.clone(), window, cx)
+                    }),
+                ]);
+            }
+            _ => entries.push(Entry::item(
+                "artists",
+                "Open artist",
+                None,
+                move |this, window, cx| this.navigate(open.clone(), window, cx),
+            )),
+        }
+        entries
+    }
+
+    pub(super) fn group_menu_view(&self, cx: &mut Context<Self>) -> Option<impl IntoElement> {
+        let menu = self.group_menu.as_ref()?;
+        let p = pal(cx);
+        let entries = self.group_menu_entries();
+        let rows = Self::menu_rows(&entries, None, cx);
+        let body = div()
+            .id("group-menu")
+            .occlude()
+            .w(px(220.))
+            .p_1()
+            .rounded(px(9.))
+            .bg(cx.theme().popover)
+            .border_1()
+            .border_color(p.line)
+            .shadow_lg()
+            .flex()
+            .flex_col()
+            .on_mouse_down_out(cx.listener(|this, _, _, cx| {
+                this.group_menu = None;
+                cx.notify();
+            }))
+            .when(menu.playlists, |el| {
+                el.child(
+                    div()
+                        .id("group-menu-back")
+                        .h(px(30.))
+                        .px_2()
+                        .rounded(px(5.))
+                        .flex()
+                        .items_center()
+                        .gap_2()
+                        .cursor_pointer()
+                        .text_size(px(12.5))
+                        .font_weight(FontWeight::MEDIUM)
+                        .hover(|s| s.bg(p.raised_hover))
+                        .child(glyph("chevron-left").size(px(14.)).text_color(p.ink_2))
+                        .child("Add to playlist")
+                        .on_click(cx.listener(|this, _, _, cx| {
+                            if let Some(menu) = this.group_menu.as_mut() {
+                                menu.playlists = false;
+                            }
+                            cx.notify();
+                        })),
+                )
+                .child(div().my_1().mx_1().h(px(1.)).bg(p.line))
+            })
+            .children(rows);
+        let body = motion::animate(body, ("group-menu-in", menu.serial), 140, cx, |el, t| {
+            el.opacity(t).mt(px(6. * (1. - t)))
+        });
+        Some(
+            deferred(
+                anchored()
+                    .position(menu.position)
+                    .snap_to_window_with_margin(px(8.))
+                    .child(body),
+            )
+            .with_priority(2),
+        )
+    }
+}
+
+impl AppView {
+    /// The + beside Collections: a list of collections to add to the sidebar or take away.
+    pub(super) fn open_collections_menu(
+        &mut self,
+        position: Point<Pixels>,
+        cx: &mut Context<Self>,
+    ) {
+        self.menu = None;
+        self.menu_serial += 1;
+        self.collections_menu = Some((position, self.menu_serial));
+        cx.notify();
+    }
+
+    fn collections_menu_entries(&self) -> Vec<Entry> {
+        let shown = &self.settings.layout.collections;
+        let mut entries = vec![Entry::Label("Show in the sidebar".into())];
+        entries.extend(super::MORE_COLLECTIONS.iter().map(|&(key, name, icon, _)| {
+            let on = shown.iter().any(|k| k == key);
+            Entry::item_keep(
+                if on { "check" } else { icon },
+                name,
+                None,
+                move |this, _, _| {
+                    let list = &mut this.settings.layout.collections;
+                    if on {
+                        list.retain(|k| k != key);
+                    } else {
+                        list.push(key.to_string());
+                    }
+                    this.persist_settings();
+                },
+            )
+        }));
+        entries
+    }
+
+    pub(super) fn collections_menu_view(&self, cx: &mut Context<Self>) -> Option<impl IntoElement> {
+        let (position, serial) = self.collections_menu?;
+        let p = pal(cx);
+        let entries = self.collections_menu_entries();
+        let rows = Self::menu_rows(&entries, None, cx);
+        let body = div()
+            .id("collections-menu")
+            .occlude()
+            .w(px(220.))
+            .p_1()
+            .rounded(px(9.))
+            .bg(cx.theme().popover)
+            .border_1()
+            .border_color(p.line)
+            .shadow_lg()
+            .flex()
+            .flex_col()
+            .on_mouse_down_out(cx.listener(|this, _, _, cx| {
+                this.collections_menu = None;
+                cx.notify();
+            }))
+            .children(rows);
+        let body = motion::animate(body, ("collections-menu-in", serial), 140, cx, |el, t| {
+            el.opacity(t).mt(px(6. * (1. - t)))
+        });
+        Some(
+            deferred(
+                anchored()
+                    .position(position)
                     .snap_to_window_with_margin(px(8.))
                     .child(body),
             )
