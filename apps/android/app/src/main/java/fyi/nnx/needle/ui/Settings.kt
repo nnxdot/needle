@@ -319,10 +319,6 @@ private fun LibrarySettings(open: (Route) -> Unit) {
                 }
             }
         }
-        val context = LocalContext.current
-        TextButton(onClick = { background { core.addDemoLibrary(File(context.filesDir, "demo").absolutePath) } }, modifier = Modifier.padding(start = 8.dp, bottom = 8.dp)) {
-            Text("Add a few demo songs")
-        }
     }
     Group("Reading") {
         Column(Modifier.fillMaxWidth().padding(16.dp).animateContentSize(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
