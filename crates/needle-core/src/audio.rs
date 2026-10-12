@@ -1374,7 +1374,23 @@ impl Worker {
                 if let Some(ending) = self.active_ending.take() {
                     ending.skip();
                 }
-                if let Some(next) = self.queue.next_held() {
+                let finished = self.sink.as_ref().is_some_and(|sink| sink.empty());
+                if !self.playing && !finished {
+                    // Paused, the output would only move on once it plays, so the old song
+                    // would still show. The next one waits for Play instead, and shows now.
+                    let next = match self.queue.next_held() {
+                        Some(item) => vec![item],
+                        None if self.queue.tail().is_empty() => self.queue.after_end(),
+                        None => self.queue.tail(),
+                    };
+                    if !next.is_empty() {
+                        self.finish_listen();
+                        if let Some(active) = self.queue.active.take() {
+                            self.queue.previous.push(active);
+                        }
+                        self.suspend(next, 0.);
+                    }
+                } else if let Some(next) = self.queue.next_held() {
                     self.play(vec![next])?;
                 } else if let Some(sink) = &self.sink {
                     sink.skip_one();
@@ -1384,7 +1400,19 @@ impl Worker {
                 // After the queue has finished, the sink is empty and seeking cannot restart
                 // anything, so start the last track again instead.
                 let finished = self.sink.as_ref().is_some_and(|sink| sink.empty());
-                if finished && self.position() > RESTART_AFTER {
+                if !self.playing && !finished {
+                    // Paused (or waiting for Play): it stays paused, as Next does.
+                    if self.position() > RESTART_AFTER {
+                        if self.sink.is_some() {
+                            self.seek(0.0)?;
+                        } else {
+                            self.resume_position = 0.;
+                        }
+                    } else if let Some(items) = self.queue.back() {
+                        self.finish_listen();
+                        self.suspend(items, 0.);
+                    }
+                } else if finished && self.position() > RESTART_AFTER {
                     if let Some(active) = self.queue.active.clone() {
                         self.play(vec![active])?;
                     }
@@ -2390,6 +2418,33 @@ mod tests {
                 .as_ref()
                 .map(|i| i.track.id.clone())
         }
+    }
+
+    #[test]
+    fn next_and_previous_while_paused_show_the_new_song_and_stay_paused() {
+        let opener = FakeOpener::with(&["Speakers"], Some("Speakers"));
+        let mut rig = rig(opener, Settings::default());
+        let list = rig.items(&["a", "b", "c"]);
+        rig.run(Command::PlayAt(list, 0));
+        rig.until_active("a");
+        rig.run(Command::Toggle);
+        assert!(!rig.state().playing);
+        rig.run(Command::Next);
+        let current = |rig: &Rig| rig.state().current.map(|c| c.track.id);
+        assert_eq!(current(&rig).as_deref(), Some("b"));
+        assert!(!rig.state().playing);
+        assert_eq!(ids(rig.state().queue.iter()), ["c"]);
+        rig.run(Command::Next);
+        assert_eq!(current(&rig).as_deref(), Some("c"));
+        rig.run(Command::Previous);
+        assert_eq!(current(&rig).as_deref(), Some("b"));
+        assert!(!rig.state().playing);
+        assert_eq!(ids(rig.state().queue.iter()), ["c"]);
+        rig.run(Command::Toggle);
+        rig.until_active("b");
+        rig.until("playing", |w| w.playing);
+        rig.run(Command::Next);
+        rig.until_active("c");
     }
 
     #[test]
