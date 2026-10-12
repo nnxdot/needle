@@ -846,6 +846,10 @@ private fun AppearanceSettings(open: (Route) -> Unit) {
         SwitchRow("Volume in the player", "A slider under the buttons for the phone's music volume; while playing on your computer, it is always there, for the computer's", app.volumeSlider) { on ->
             update { it.copy(volumeSlider = on) }
         }
+        Divider()
+        SwitchRow("Swipe the cover to skip", "Left for the next song, right for the one before", app.swipeCover) { on ->
+            update { it.copy(swipeCover = on) }
+        }
     }
     Group("Motion", footer = "Android's own \"Remove animations\" turns motion off too.") {
         SwitchRow("Reduce motion", "Cross-fades instead of sliding and moving covers", app.reduceMotion) { on -> update { it.copy(reduceMotion = on) } }

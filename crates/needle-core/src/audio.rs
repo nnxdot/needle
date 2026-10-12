@@ -231,6 +231,22 @@ impl Player {
     }
 }
 
+/// A sample rate and format the system output must open at, for a phone's bit-perfect USB
+/// mixer: it takes only music in exactly its own format. `None` lets the system choose.
+static STREAM_FORMAT: Mutex<Option<StreamFormat>> = Mutex::new(None);
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct StreamFormat {
+    pub rate: u32,
+    /// 32-bit float samples; otherwise 16-bit whole numbers.
+    pub float: bool,
+}
+
+/// Sets the format the system output opens at (it applies when the output next opens).
+pub fn set_stream_format(format: Option<StreamFormat>) {
+    *STREAM_FORMAT.lock().unwrap_or_else(|e| e.into_inner()) = format;
+}
+
 /// Names of the connected output devices, enumerated afresh on each call.
 pub fn devices() -> Result<Vec<String>> {
     let mut names: Vec<String> = vec![];
@@ -674,7 +690,18 @@ impl OutputOpener for SystemOutput {
         let name = device.name().unwrap_or_else(|_| "System output".into());
         let failure = Arc::new(Mutex::new(None));
         let slot = failure.clone();
-        let mut stream = OutputStreamBuilder::from_device(device)?
+        let mut builder = OutputStreamBuilder::from_device(device)?;
+        if let Some(format) = *STREAM_FORMAT.lock().unwrap_or_else(|e| e.into_inner()) {
+            builder = builder
+                .with_channels(2)
+                .with_sample_rate(format.rate)
+                .with_sample_format(if format.float {
+                    rodio::cpal::SampleFormat::F32
+                } else {
+                    rodio::cpal::SampleFormat::I16
+                });
+        }
+        let mut stream = builder
             .with_error_callback(move |error| {
                 if let Ok(mut slot) = slot.lock() {
                     slot.get_or_insert_with(|| format!("Audio device error: {error}"));
