@@ -180,6 +180,14 @@ impl AppView {
                         ),
                     )
                     .hover(|s| s.opacity(0.8))
+                    .on_mouse_down(MouseButton::Right, {
+                        let target = target.clone();
+                        cx.listener(move |this, event: &MouseDownEvent, _, cx| {
+                            if let Some(page) = target.clone() {
+                                this.open_group_menu(page, event.position, cx);
+                            }
+                        })
+                    })
                     .on_click(cx.listener(move |this, _, window, cx| {
                         if let Some(page) = target.clone() {
                             this.navigate(page, window, cx);

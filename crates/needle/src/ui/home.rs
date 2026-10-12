@@ -206,6 +206,12 @@ impl AppView {
                     .gap_5()
                     .cursor_pointer()
                     .hover(|s| s.bg(p.raised.opacity(0.8)))
+                    .on_mouse_down(MouseButton::Right, {
+                        let page = open.clone();
+                        cx.listener(move |this, event: &MouseDownEvent, _, cx| {
+                            this.open_group_menu(page.clone(), event.position, cx)
+                        })
+                    })
                     .on_click(cx.listener(move |this, _, window, cx| {
                         this.navigate(open.clone(), window, cx)
                     }))
@@ -301,6 +307,12 @@ impl AppView {
                     .truncate()
                     .when(round, |el| el.text_center()),
             )
+            .on_mouse_down(MouseButton::Right, {
+                let page = open.clone();
+                cx.listener(move |this, event: &MouseDownEvent, _, cx| {
+                    this.open_group_menu(page.clone(), event.position, cx)
+                })
+            })
             .on_click(
                 cx.listener(move |this, _, window, cx| this.navigate(open.clone(), window, cx)),
             )
