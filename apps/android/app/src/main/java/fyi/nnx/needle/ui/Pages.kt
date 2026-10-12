@@ -697,11 +697,6 @@ private fun HomeEmpty(scanning: Boolean, open: (Route) -> Unit) {
         )
         if (!scanning) {
             Button(onClick = { open(Route.Settings) }) { Text("Choose a music folder") }
-            val context = androidx.compose.ui.platform.LocalContext.current
-            TextButton(onClick = {
-                val folder = java.io.File(context.filesDir, "demo").absolutePath
-                NeedleApp.instance.scope.launch(Dispatchers.IO) { runCatching { core.addDemoLibrary(folder) } }
-            }) { Text("Or try a few demo songs") }
         }
     }
 }
