@@ -98,13 +98,15 @@ pub fn liquid_glass() -> bool {
 }
 
 /// An invisible element that puts the system's glass under its parent (macOS), inset from its
-/// edges by `inset` (left, top, right, bottom), with round corners. With `to_top`, the glass
-/// reaches up to the window's top, past the title bar, as macOS's own sidebars do.
+/// edges by `inset` (left, top, right, bottom), with round corners and, when `shadow`, a soft
+/// shadow so it floats. With `to_top`, the glass reaches up to the window's top, past the
+/// title bar, as macOS's own sidebars do.
 pub fn probe(
     name: &'static str,
     inset: (f32, f32, f32, f32),
     to_top: bool,
     radius: f32,
+    shadow: bool,
 ) -> impl IntoElement {
     canvas(
         move |bounds, window, _| {
@@ -122,6 +124,7 @@ pub fn probe(
                 Some(gpui::GlassRegion {
                     bounds: corners,
                     corner_radius: px(radius),
+                    shadow,
                 }),
             );
         },

@@ -392,6 +392,7 @@ impl Render for MiniView {
                 Some(gpui::GlassRegion {
                     bounds: gpui::Bounds::new(gpui::point(px(0.), px(0.)), size),
                     corner_radius: px(0.),
+                    shadow: false,
                 }),
             );
         } else {

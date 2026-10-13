@@ -236,6 +236,50 @@ impl AppView {
         }
     }
 
+    /// macOS Liquid Glass is on (Settings › Appearance).
+    pub(super) fn liquid(&self) -> bool {
+        self.material() == super::glass::Material::Liquid
+    }
+
+    /// The bars float on glass just now: Liquid Glass is on and no full-window view (the big
+    /// player, Immersive) covers them.
+    pub(super) fn floating(&self) -> bool {
+        self.liquid() && !self.immersive && !(self.big && !self.big_moving)
+    }
+
+    /// macOS: what shows behind the glass and the page, drawn by the system under Needle's own
+    /// layer. The page's or the playing song's cover, blurred, under a wash of the page colour
+    /// (as the Ambient look does), so the glass takes the music's colours; or the page colour.
+    pub(super) fn glass_backdrop(&mut self, cx: &App) -> gpui::GlassBackdrop {
+        let p = theme::pal(cx);
+        let path = self
+            .settings
+            .music_colors
+            .then(|| {
+                self.page_art()
+                    .or_else(|| self.shown_item().and_then(|c| c.track.artwork))
+            })
+            .flatten();
+        let blur = path
+            .and_then(|path| self.look(&path))
+            .and_then(|look| look.blur.clone().map(|b| (b, look.strength(p.dark))));
+        let color = p.canvas.opacity(1.);
+        match blur {
+            Some((image, fit)) => gpui::GlassBackdrop {
+                color,
+                image: Some(image.to_string_lossy().to_string().into()),
+                image_opacity: 0.85 * fit.max(if p.dark { 0.6 } else { 0.35 }),
+                wash: if p.dark { 0.5 } else { 0.7 },
+            },
+            None => gpui::GlassBackdrop {
+                color,
+                image: None,
+                image_opacity: 0.,
+                wash: 0.,
+            },
+        }
+    }
+
     /// Tell Windows which material to draw, when it or dark/light changed.
     pub(super) fn update_glass(&mut self, window: &mut Window, cx: &App) {
         let key = (self.material(), theme::pal(cx).dark);

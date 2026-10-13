@@ -484,9 +484,9 @@ pub(crate) trait PlatformWindow: HasWindowHandle + HasDisplayHandle {
     fn set_title(&mut self, title: &str);
     fn set_background_appearance(&self, background_appearance: WindowBackgroundAppearance);
     /// Shows the system's glass under these parts of the window (Liquid Glass on macOS 26 and
-    /// newer, vibrancy on older macOS), over a backdrop of `backdrop`'s colour, or the blurred
-    /// desktop when `None`. Empty removes it all. Other platforms do nothing. Needle patch.
-    fn set_glass_regions(&self, _regions: &[GlassRegion], _backdrop: Option<crate::Rgba>) {}
+    /// newer, vibrancy on older macOS), over `backdrop`, or the blurred desktop when `None`.
+    /// Empty removes it all. Other platforms do nothing. Needle patch.
+    fn set_glass_regions(&self, _regions: &[GlassRegion], _backdrop: Option<&GlassBackdrop>) {}
     /// Light or dark system materials and controls for this window, whatever the system's own
     /// setting; `None` follows the system. Needle patch.
     fn set_dark_appearance(&self, _dark: Option<bool>) {}
@@ -1318,6 +1318,22 @@ pub struct GlassRegion {
     pub bounds: Bounds<Pixels>,
     /// How round its corners are.
     pub corner_radius: Pixels,
+    /// A soft shadow under it, so it floats above the window.
+    pub shadow: bool,
+}
+
+/// What the window shows behind its glass regions (see `Window::set_glass_backdrop`).
+#[derive(Clone, Debug, PartialEq)]
+pub struct GlassBackdrop {
+    /// The window's colour.
+    pub color: crate::Hsla,
+    /// A picture over it, filling the window (a blurred cover, say).
+    pub image: Option<SharedString>,
+    /// How much of the picture shows, 0 to 1.
+    pub image_opacity: f32,
+    /// The window's colour again over the picture, this see-through (0 to 1), so text on the
+    /// window stays readable.
+    pub wash: f32,
 }
 
 /// The appearance of the background of the window itself, when there is
