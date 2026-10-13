@@ -413,10 +413,12 @@ struct AlbumView: View {
                     .shadow(color: .black.opacity(0.45), radius: 22, y: 14)
                     .padding(.bottom, 12)
                 Text(album.title).font(.title2.bold()).multilineTextAlignment(.center)
-                NavigationLink(value: Route.artist(album.artist)) {
-                    Text(album.artist).font(.title3).foregroundStyle(Color.accentColor)
+                // A button, not a link: a link in a list row is laid out as a row, at the left
+                // with an arrow.
+                Button { store.opening = .artist(album.artist) } label: {
+                    Text(album.artist).font(.title3).foregroundStyle(.tint).multilineTextAlignment(.center)
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(.borderless)
                 Text(details).font(.footnote).foregroundStyle(.secondary)
                 if let songs { PlayButtons(songs: songs).padding(.top, 8) }
             }

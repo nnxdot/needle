@@ -113,6 +113,9 @@ struct NowPlayingView: View {
             UIApplication.shared.isIdleTimerDisabled = now == .lyrics && app.keepScreenOnLyrics
         }
         .onDisappear { UIApplication.shared.isIdleTimerDisabled = false }
+        // The player is always dark: its page is the cover's own dark colours, whatever the
+        // theme (light text and glass on them, and a light status bar).
+        .preferredColorScheme(.dark)
     }
 
     private func top(_ song: Song?) -> some View {
