@@ -67,6 +67,7 @@ struct HomeView: View {
             .padding(.bottom, 24)
         }
         .navigationTitle("Home")
+        .themed()
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {
                 NavigationLink(value: Route.settings) { Image(systemName: "gearshape") }
@@ -184,6 +185,8 @@ struct LibraryView: View {
         ("Genres", "guitars", .genres),
         ("Favourites", "star", .favorites),
         ("Recently Added", "clock", .recent),
+        ("Folders", "folder", .folders),
+        ("History", "clock.arrow.circlepath", .history),
     ]
 
     var body: some View {
@@ -217,6 +220,7 @@ struct LibraryView: View {
             .padding(.bottom, 24)
         }
         .navigationTitle("Library")
+        .themed()
         .refreshable { store.rescan() }
         .task(id: store.libraryVersion) {
             added = await store.load { try $0.home().added } ?? []
@@ -246,6 +250,7 @@ struct AlbumsView: View {
         }
         .overlay { if albums == nil { ProgressView() } else if albums?.isEmpty == true { ContentUnavailableView("No albums", systemImage: "square.stack") } }
         .navigationTitle("Albums")
+        .themed()
         .searchable(text: $filter, placement: .navigationBarDrawer, prompt: "Find in Albums")
         .task(id: store.libraryVersion) { albums = await store.load { try $0.albums() } ?? [] }
     }
@@ -279,6 +284,7 @@ struct ArtistsView: View {
         .listStyle(.plain)
         .overlay { if artists == nil { ProgressView() } }
         .navigationTitle("Artists")
+        .themed()
         .searchable(text: $filter, placement: .navigationBarDrawer, prompt: "Find in Artists")
         .task(id: store.libraryVersion) { artists = await store.load { try $0.artists() } ?? [] }
     }
@@ -292,6 +298,7 @@ struct ArtistsView: View {
 struct PlaylistsView: View {
     @Environment(Store.self) private var store
     @State private var playlists: [Playlist]?
+    @State private var making = false
 
     var body: some View {
         List(playlists ?? []) { playlist in
@@ -310,10 +317,17 @@ struct PlaylistsView: View {
         .overlay {
             if playlists == nil { ProgressView() }
             else if playlists?.isEmpty == true {
-                ContentUnavailableView("No playlists", systemImage: "music.note.list", description: Text("Playlists made in Needle on your computer come over with a sync file or a music server."))
+                ContentUnavailableView("No playlists", systemImage: "music.note.list", description: Text("Make one with +, or bring yours from Needle on your computer with a sync file."))
             }
         }
         .navigationTitle("Playlists")
+        .themed()
+        .toolbar {
+            ToolbarItem(placement: .topBarTrailing) {
+                Button { making = true } label: { Image(systemName: "plus") }
+            }
+        }
+        .sheet(isPresented: $making) { NavigationStack { PlaylistEditor {} } }
         .task(id: store.libraryVersion) { playlists = await store.load { try $0.playlists() } ?? [] }
     }
 }
@@ -328,6 +342,7 @@ struct GenresView: View {
         }
         .overlay { if genres == nil { ProgressView() } }
         .navigationTitle("Genres")
+        .themed()
         .task(id: store.libraryVersion) { genres = await store.load { try $0.genres() } ?? [] }
     }
 }
@@ -359,7 +374,7 @@ struct GenreTiles: View {
 }
 
 struct SongsView: View {
-    var body: some View { SongList(title: "Songs") { try $0.songs() } }
+    var body: some View { PagedSongs(title: "Songs", query: "") }
 }
 
 struct FavoritesView: View {
@@ -384,9 +399,12 @@ struct AlbumView: View {
     @Environment(Store.self) private var store
     let album: Album
     @State private var songs: [Song]?
+    @State private var tint: Color?
+    @State private var selecting = false
+    @State private var selected = Set<String>()
 
     var body: some View {
-        List {
+        List(selection: selecting ? $selected : nil) {
             VStack(spacing: 6) {
                 Artwork(path: album.artwork, seed: album.title + album.artist, size: 900)
                     .aspectRatio(1, contentMode: .fit)
@@ -405,23 +423,36 @@ struct AlbumView: View {
             .frame(maxWidth: .infinity)
             .listRowSeparator(.hidden)
             .listRowBackground(Color.clear)
+            .selectionDisabled()
             ForEach(Array((songs ?? []).enumerated()), id: \.element.id) { i, song in
                 SongRow(song: song, number: Int(song.trackNumber > 0 ? song.trackNumber : Int64(i + 1))) {
                     store.play(songs ?? [], from: i)
                 }
+                .tag(song.id)
             }
         }
         .listStyle(.plain)
         .navigationBarTitleDisplayMode(.inline)
+        .themed()
+        .background {
+            if store.app.coverColors, let tint {
+                LinearGradient(colors: [tint.opacity(0.45), .clear], startPoint: .top, endPoint: .center).ignoresSafeArea()
+            }
+        }
+        .environment(\.editMode, .constant(selecting ? .active : .inactive))
         .toolbar {
-            ToolbarItem(placement: .topBarTrailing) {
-                Menu { AlbumMenu(album: album) } label: { Image(systemName: "ellipsis") }
+            SelectToolbar(selecting: $selecting, selected: $selected, songs: songs ?? [])
+            if !selecting {
+                ToolbarItem(placement: .topBarTrailing) {
+                    Menu { AlbumMenu(album: album) } label: { Image(systemName: "ellipsis") }
+                }
             }
         }
         .task(id: store.libraryVersion) {
             let key = album.key
             songs = await store.load { try $0.albumSongs(key: key) } ?? []
         }
+        .task { tint = await coverTint(album.artwork) }
     }
 
     private var details: String {
@@ -477,6 +508,7 @@ struct ArtistView: View {
             .padding(.bottom, 24)
         }
         .navigationTitle(name)
+        .themed()
         .task(id: store.libraryVersion) {
             let name = name
             top = await store.load { try $0.artistSongs(name: name) } ?? []
@@ -485,10 +517,12 @@ struct ArtistView: View {
     }
 }
 
-struct PlaylistView: View {
-    let playlist: Playlist
-    var body: some View {
-        let id = playlist.id
-        SongList(title: playlist.name) { try $0.playlistSongs(id: id) }
-    }
+/// A cover's main colour, for pages that take it.
+func coverTint(_ path: String?) async -> Color? {
+    guard let path, let image = await Covers.load(path, size: 40), let cg = image.cgImage else { return nil }
+    var pixel = [UInt8](repeating: 0, count: 4)
+    guard let context = CGContext(data: &pixel, width: 1, height: 1, bitsPerComponent: 8, bytesPerRow: 4,
+                                  space: CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else { return nil }
+    context.draw(cg, in: CGRect(x: 0, y: 0, width: 1, height: 1))
+    return Color(red: Double(pixel[0]) / 255, green: Double(pixel[1]) / 255, blue: Double(pixel[2]) / 255)
 }
