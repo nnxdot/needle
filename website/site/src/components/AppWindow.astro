@@ -1,0 +1,62 @@
+---
+// A drawing of Needle on a computer, built from the page itself so it stays sharp at any
+// size. The albums are made up (see lib/albums.js).
+import Logo from "./Logo.astro";
+import Icon from "./Icon.astro";
+import { albums, byId, cover, playing } from "../lib/albums.js";
+interface Props { look?: string; class?: string; label?: string }
+const { look = "night", class: cls = "", label = "Needle on a computer: the album grid, the queue beside it, and a song playing at the bottom." } = Astro.props;
+const now = playing[0];
+const nowAlbum = byId[now.album];
+const grid = albums.slice(0, 10);
+const queue = [
+  { song: "Middle Distance", album: "middle-distance" },
+  { song: "Paper Lanterns", album: "bloom-season" },
+  { song: "Last Crossing", album: "night-ferry" },
+  { song: "Coming Home", album: "afterglow-arcade" },
+  { song: "Overcast", album: "grey-weather" },
+];
+---
+<div class={`app look-${look} ${cls}`} role="img" aria-label={label} data-app>
+  <div class="app-title">
+    <span class="app-name"><Logo />Needle</span>
+    <span class="app-search"><Icon name="magnifying-glass" />Search, or write a rule like <code>rating &gt;= 4</code></span>
+    <span class="app-win"><i></i><i></i><i></i></span>
+  </div>
+  <div class="app-body">
+    <div class="app-side">
+      <b>Home</b><b>Songs</b><b class="sel">Albums</b><b>Artists</b><b>Folders</b>
+      <em>Collections</em><b>Favorites</b><b>Recently added</b><b>Your year</b>
+      <em>Servers</em><b><Icon name="globe-simple" />Navidrome</b>
+      <em>Playlists</em><b>Late drives</b><b>Sunday coffee</b>
+    </div>
+    <div class="app-main">
+      <div class="app-head"><span class="app-h">Albums</span><span class="pill on"><Icon name="play" weight="fill" />Play</span><span class="pill"><Icon name="shuffle" />Shuffle</span></div>
+      <div class="app-grid">
+        {grid.map((a) => (
+          <span class="tile">
+            <img src={cover(a.id)} alt="" loading="lazy" decoding="async" width="360" height="360" />
+            <span class="t1">{a.title}</span><span class="t2">{a.artist}</span>
+          </span>
+        ))}
+      </div>
+    </div>
+    <div class="app-queue">
+      <span class="q-tabs"><span>Details</span><span class="on">Queue</span></span>
+      <span class="q-label">Playing now</span>
+      <span class="q-row now"><img src={cover(nowAlbum.id)} alt="" data-now-cover /><span><span data-now-song>{now.song}</span><small data-now-artist>{nowAlbum.artist}</small></span><span class="eq"><i></i><i></i><i></i></span></span>
+      <span class="q-label">Up next</span>
+      {queue.map((q) => (
+        <span class="q-row"><img src={cover(q.album)} alt="" loading="lazy" /><span>{q.song}<small>{byId[q.album].artist}</small></span></span>
+      ))}
+    </div>
+  </div>
+  <div class="app-player">
+    <span class="p-now"><img src={cover(nowAlbum.id)} alt="" data-now-cover /><span><span data-now-song>{now.song}</span><small data-now-artist>{nowAlbum.artist}</small></span><Icon name="heart" weight="fill" class="p-heart" /></span>
+    <span class="p-mid">
+      <span class="p-controls"><Icon name="shuffle" /><Icon name="skip-back" weight="fill" /><span class="p-play"><Icon name="pause" weight="fill" /></span><Icon name="skip-forward" weight="fill" /><Icon name="repeat" /></span>
+      <span class="p-seek"><small>1:12</small><span class="p-bar"><span></span></span><small data-now-time>{now.time}</small></span>
+    </span>
+    <span class="p-out"><span class="p-signal">FLAC 24-bit · 48 kHz</span><Icon name="speaker-high" /><span class="p-vol"><span></span></span><Icon name="sliders-horizontal" /><Icon name="screencast" /></span>
+  </div>
+</div>

@@ -1,0 +1,24 @@
+---
+// A guide page. Its words come unchanged from src/docs/*.html: the Android app reads the
+// <article> of help.html and privacy.html (h1, h2, h3, p, li, dt, dd), so keep that shape.
+import Base from "./Base.astro";
+import "../styles/docs.css";
+interface Props { title: string; description: string; path: string; body: string; tint: string }
+const { title, description, path, body, tint } = Astro.props;
+---
+<Base title={title} description={description} path={path}>
+  <main id="main" class={`doc tint-${tint}`}>
+    <Fragment set:html={body} />
+  </main>
+</Base>
+<script>
+  // Light up the section being read in "On this page".
+  const links = new Map([...document.querySelectorAll<HTMLAnchorElement>(".doc-toc a")].map((a) => [a.hash.slice(1), a]));
+  const seen = new Set<string>();
+  const spy = new IntersectionObserver((entries) => {
+    for (const e of entries) e.isIntersecting ? seen.add(e.target.id) : seen.delete(e.target.id);
+    const first = [...links.keys()].find((id) => seen.has(id));
+    links.forEach((a, id) => a.classList.toggle("here", id === first));
+  }, { rootMargin: "-80px 0px -60% 0px" });
+  document.querySelectorAll(".doc section[id]").forEach((s) => spy.observe(s));
+</script>
