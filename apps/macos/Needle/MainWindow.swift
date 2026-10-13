@@ -24,6 +24,10 @@ struct MainWindow: View {
                 detail
             }
             .modifier(SearchField(searchFocused: $searchFocused, suggestions: suggestions))
+            .toolbar(store.big || store.immersive ? .hidden : .visible, for: .windowToolbar)
+            // No band behind the toolbar over the page only: the window's one background shows
+            // through the whole top bar, the search field included.
+            .toolbarBackgroundVisibility(.hidden, for: .windowToolbar)
             .onChange(of: store.search) { _, text in findSuggestions(text) }
             .onChange(of: store.focusSearch) { _, _ in
                 if store.settings.layout.searchHidden { store.palette = true } else { searchFocused = true }
@@ -44,7 +48,7 @@ struct MainWindow: View {
             }
         }
         .overlay(alignment: .bottom) { ToastView().padding(.bottom, store.big ? 0 : 110).zIndex(5) }
-        .background { WindowBackground() }
+        .containerBackground(for: .window) { WindowBackground() }
         .animation(store.motion ? .smooth(duration: 0.28) : nil, value: store.big)
         .animation(store.motion ? .smooth(duration: 0.18) : nil, value: store.palette)
         .tint(colors.accent)
@@ -86,10 +90,8 @@ struct MainWindow: View {
 
     @ViewBuilder
     private var detail: some View {
-        let colors = store.colors
         PageView()
             .frame(maxWidth: .infinity, maxHeight: .infinity)
-            .background { if !store.settings.ambient { colors.canvas.ignoresSafeArea() } }
             .safeAreaInset(edge: .bottom, spacing: 0) {
                 if !store.settings.layout.playerOnTop {
                     PlayerBar().padding(.horizontal, 14).padding(.bottom, 12).padding(.top, 4)
@@ -211,13 +213,14 @@ struct WidthKeeper: View {
     }
 }
 
-/// Behind the window: the playing cover, blurred, with Ambient background on.
+/// Behind the whole window, the sidebar and side panel included: the look's page colour, or
+/// with Ambient background on, the playing cover, blurred.
 struct WindowBackground: View {
     private var store: Store { .shared }
 
     var body: some View {
-        if store.settings.ambient {
-            ZStack {
+        ZStack {
+            if store.settings.ambient {
                 store.colors.chrome
                 if let p = store.playback, p.hasSong {
                     CoverBackdrop(path: p.artwork, seed: p.album + p.artist, moving: store.motion)
@@ -225,9 +228,11 @@ struct WindowBackground: View {
                 } else {
                     store.colors.glow.opacity(0.25)
                 }
+            } else {
+                store.colors.canvas
             }
-            .ignoresSafeArea()
         }
+        .ignoresSafeArea()
     }
 }
 
@@ -316,7 +321,7 @@ struct ToastView: View {
             }
             .padding(.vertical, 10)
             .padding(.horizontal, 16)
-            .pane(Capsule(), glass: true)
+            .pane(Capsule())
             .shadow(color: .black.opacity(0.18), radius: 16, y: 6)
             .transition(.move(edge: .bottom).combined(with: .opacity))
             .id(toast.id)

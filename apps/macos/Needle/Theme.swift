@@ -275,17 +275,14 @@ extension Store {
     }
 
     /// Liquid Glass on the sidebar, the player, and the panels (off: solid bars).
-    var glass: Bool { settings.windowMaterial != "solid" && !settings.ambient }
+
 }
 
 extension View {
-    /// A pane of Liquid Glass (macOS 26), or the frosted material before it; a solid fill when
-    /// glass is off.
+    /// A pane of Liquid Glass (macOS 26), or the frosted material before it.
     @ViewBuilder
-    func pane<S: Shape>(_ shape: S, glass: Bool = true, tint: Color? = nil, fill: Color = .clear, interactive: Bool = false) -> some View {
-        if !glass {
-            background(fill, in: shape)
-        } else if #available(macOS 26, *) {
+    func pane<S: Shape>(_ shape: S, tint: Color? = nil, interactive: Bool = false) -> some View {
+        if #available(macOS 26, *) {
             glassEffect(interactive ? Glass.regular.tint(tint).interactive() : Glass.regular.tint(tint), in: shape)
         } else {
             background(.regularMaterial, in: shape)

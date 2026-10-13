@@ -465,6 +465,7 @@ impl Needle {
         if DESK.started.swap(true, Ordering::SeqCst) {
             return;
         }
+        needle_core::set_keychain_folder(self.library.directory.clone());
         let settings = self.library.settings().unwrap_or_default();
         DESK.measuring
             .store(settings.sound_analysis, Ordering::SeqCst);

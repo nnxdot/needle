@@ -162,7 +162,7 @@ struct HistoryPage: View {
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(14)
-        .pane(RoundedRectangle(cornerRadius: 16, style: .continuous), glass: store.glass, fill: store.colors.raised)
+        .pane(RoundedRectangle(cornerRadius: 16, style: .continuous))
     }
 
     @ViewBuilder

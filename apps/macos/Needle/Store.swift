@@ -109,7 +109,7 @@ final class Store {
         } catch {
             let alert = NSAlert()
             alert.messageText = "Needle could not open its library"
-            alert.informativeText = error.localizedDescription
+            alert.informativeText = error.message
             alert.runModal()
             exit(1)
         }
@@ -286,7 +286,7 @@ final class Store {
         let core = core
         Task.detached {
             do { try work(core) } catch {
-                await MainActor.run { self.fail(error.localizedDescription) }
+                await MainActor.run { self.fail(error.message) }
             }
         }
     }
@@ -297,7 +297,7 @@ final class Store {
         let result = await Task.detached { Result { try work(core) } }.value
         switch result {
         case .success(let value): return value
-        case .failure(let error): fail(error.localizedDescription); return nil
+        case .failure(let error): fail(error.message); return nil
         }
     }
 
@@ -323,7 +323,7 @@ final class Store {
         do {
             try core.updateSettings(patch: JSON.text(patch))
         } catch {
-            fail(error.localizedDescription)
+            fail(error.message)
         }
         reloadSettings()
     }

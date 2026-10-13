@@ -24,7 +24,8 @@ struct Inspector: View {
             .frame(maxHeight: .infinity, alignment: .top)
             .transition(.opacity)
         }
-        .background { if !store.glass { store.colors.canvas.ignoresSafeArea() } }
+        // The page's colour, not the panel's own grey, under the title bar too.
+        .background { if !store.settings.ambient { store.colors.canvas.ignoresSafeArea() } }
     }
 }
 

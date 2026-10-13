@@ -20,8 +20,9 @@ struct NeedleApp: App {
             MiniPlayer()
                 .environment(store)
         }
-        .windowStyle(.hiddenTitleBar)
+        .windowStyle(.plain)
         .windowResizability(.contentSize)
+        .windowBackgroundDragBehavior(.enabled)
         .defaultPosition(.topTrailing)
 
         Settings {

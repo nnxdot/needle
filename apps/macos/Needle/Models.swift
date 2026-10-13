@@ -382,3 +382,12 @@ func day(_ seconds: Int?) -> String {
     guard let seconds, seconds > 0 else { return "" }
     return Date(timeIntervalSince1970: TimeInterval(seconds)).formatted(.dateTime.day().month(.abbreviated).year())
 }
+
+extension Error {
+    /// What went wrong, in words: the message of an error from Needle's core (whose own
+    /// description is its Swift name), or the system's description.
+    var message: String {
+        if let needle = self as? NeedleError, case .Failed(let text) = needle { return text }
+        return localizedDescription
+    }
+}
