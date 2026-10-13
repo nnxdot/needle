@@ -139,8 +139,7 @@ impl Render for Ghost {
         div()
             .px_2()
             .py_1()
-            .rounded(px(6.))
-            .bg(cx.theme().popover)
+            .map(|el| super::glass::pane(el, 6., 10., cx.theme().popover, cx))
             .border_1()
             .border_color(p.accent)
             .text_size(px(12.))
@@ -462,9 +461,7 @@ impl AppView {
         cx.notify();
     }
 
-    pub(super) fn header_menu_view(&self, cx: &mut Context<Self>) -> Option<impl IntoElement> {
-        let menu = self.header_menu.as_ref()?;
-        let p = pal(cx);
+    pub(super) fn header_menu_entries(&self) -> Vec<Entry> {
         let mut entries = vec![Entry::Label("Columns".into())];
         entries.extend(COLUMNS.iter().map(|(key, label, _, _)| {
             let shown = self.settings.columns.iter().any(|c| c.key == *key);
@@ -481,14 +478,20 @@ impl AppView {
             this.settings.columns = defaults();
             this.persist_settings();
         }));
+        entries
+    }
+
+    pub(super) fn header_menu_view(&self, cx: &mut Context<Self>) -> Option<impl IntoElement> {
+        let menu = self.header_menu.as_ref()?;
+        let p = pal(cx);
+        let entries = self.header_menu_entries();
         let rows = Self::menu_rows(&entries, None, cx);
         let body = div()
             .id("header-menu")
             .occlude()
             .w(px(220.))
             .p_1()
-            .rounded(px(9.))
-            .bg(cx.theme().popover)
+            .map(|el| super::glass::pane(el, 9., 14., cx.theme().popover, cx))
             .border_1()
             .border_color(p.line)
             .shadow_lg()

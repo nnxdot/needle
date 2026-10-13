@@ -9,6 +9,9 @@ use std::path::{Path, PathBuf};
 
 /// Describes the latest release in the shape of a GitHub release (`tag_name`, `assets`).
 pub const LATEST: &str = "https://needle.nnx.fyi/latest.json";
+/// A release for macOS alone (the other systems stay on `LATEST`'s version); asked first on
+/// macOS.
+pub const LATEST_MACOS: &str = "https://needle.nnx.fyi/latest-macos.json";
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct Release {
@@ -198,9 +201,19 @@ pub(crate) fn from_json(
 }
 
 /// Ask needle.nnx.fyi whether a newer Needle is out. Sends nothing but the request itself.
+/// On macOS a release for macOS alone is asked about first.
 pub fn check(current: &str) -> Result<Option<Release>> {
+    if cfg!(target_os = "macos")
+        && let Ok(Some(release)) = check_at(LATEST_MACOS, current)
+    {
+        return Ok(Some(release));
+    }
+    check_at(LATEST, current)
+}
+
+fn check_at(url: &str, current: &str) -> Result<Option<Release>> {
     let latest: Value = crate::integrations::client()?
-        .get(LATEST)
+        .get(url)
         .send()?
         .error_for_status()?
         .json()?;

@@ -862,6 +862,12 @@ pub struct Window {
     active: Rc<Cell<bool>>,
     hovered: Rc<Cell<bool>>,
     pub(crate) needs_present: Rc<Cell<bool>>,
+    /// Glass regions by name; kept across frames (a cached view does not set its own again),
+    /// sent to the platform window when they change.
+    glass_regions: RefCell<std::collections::BTreeMap<SharedString, crate::GlassRegion>>,
+    glass_dirty: Cell<bool>,
+    glass_backdrop: RefCell<Option<crate::GlassBackdrop>>,
+    glass_sent: RefCell<Option<(Vec<crate::GlassRegion>, Option<crate::GlassBackdrop>)>>,
     pub(crate) last_input_timestamp: Rc<Cell<Instant>>,
     pub(crate) refreshing: bool,
     pub(crate) activation_observers: SubscriberSet<(), AnyObserver>,
@@ -1248,6 +1254,10 @@ impl Window {
             active,
             hovered,
             needs_present,
+            glass_regions: RefCell::default(),
+            glass_dirty: Cell::new(false),
+            glass_backdrop: RefCell::new(None),
+            glass_sent: RefCell::new(None),
             last_input_timestamp,
             refreshing: false,
             activation_observers: SubscriberSet::new(),
@@ -1801,6 +1811,83 @@ impl Window {
             .set_background_appearance(background_appearance);
     }
 
+    /// Shows (or with `None`, takes away) the system's glass under a named part of the window.
+    /// Regions stay until changed, so set them while painting (a `canvas` knows its bounds)
+    /// and clear them when the part goes. On macOS this is Liquid Glass (macOS 26 and newer)
+    /// or vibrancy, over a translucent backdrop; elsewhere nothing. Leave those parts of the
+    /// window see-through. Needle patch.
+    pub fn set_glass_region(&self, name: impl Into<SharedString>, region: Option<crate::GlassRegion>) {
+        let name = name.into();
+        let mut regions = self.glass_regions.borrow_mut();
+        let changed = match region {
+            Some(region) => regions.insert(name, region) != Some(region),
+            None => regions.remove(&name).is_some(),
+        };
+        if changed {
+            self.glass_dirty.set(true);
+            self.needs_present.set(true);
+        }
+    }
+
+    /// Clears what was painted below this, within `bounds` and its round corners, so the
+    /// system's glass under the window (see `set_glass_region`) shows through there: glass
+    /// for things painted over the page, like menus. Paint the thing's own content after it.
+    /// macOS only; elsewhere nothing. Needle patch.
+    pub fn paint_glass_hole(&mut self, bounds: Bounds<Pixels>, corner_radii: Corners<Pixels>) {
+        if !cfg!(target_os = "macos") {
+            return;
+        }
+        self.paint_quad(PaintQuad {
+            bounds,
+            corner_radii,
+            background: crate::black().into(),
+            border_widths: Edges::default(),
+            border_color: crate::transparent_black(),
+            border_style: BorderStyle::GlassHole,
+        });
+    }
+
+    /// Shows the system's own menu (macOS) at `position`; the receiver gets the chosen item's
+    /// path of indices, or `None` when the menu was closed. `None` from this call: there is no
+    /// system menu on this platform, so show your own. The menu opens after this frame.
+    /// Needle patch.
+    pub fn show_context_menu(
+        &self,
+        position: Point<Pixels>,
+        items: Vec<crate::NativeMenuItem>,
+    ) -> Option<futures::channel::oneshot::Receiver<Option<Vec<usize>>>> {
+        self.platform_window.show_context_menu(position, items)
+    }
+
+    /// From here, paint goes under the window's glass (macOS; see `Styled::under_glass`).
+    pub(crate) fn push_under_glass(&mut self) {
+        if cfg!(target_os = "macos") {
+            self.next_frame.scene.push_under();
+        }
+    }
+
+    pub(crate) fn pop_under_glass(&mut self) {
+        if cfg!(target_os = "macos") {
+            self.next_frame.scene.pop_under();
+        }
+    }
+
+    /// What shows behind the glass regions (the window's back); `None` shows the desktop
+    /// behind the window, blurred. Needle patch.
+    pub fn set_glass_backdrop(&self, backdrop: Option<crate::GlassBackdrop>) {
+        if *self.glass_backdrop.borrow() != backdrop {
+            *self.glass_backdrop.borrow_mut() = backdrop;
+            self.glass_dirty.set(true);
+            self.needs_present.set(true);
+        }
+    }
+
+    /// Light or dark system materials for this window (glass, vibrancy, window buttons),
+    /// whatever the system's own setting; `None` follows the system. Needle patch.
+    pub fn set_dark_appearance(&self, dark: Option<bool>) {
+        self.platform_window.set_dark_appearance(dark);
+    }
+
     /// Mark the window as dirty at the platform level.
     pub fn set_window_edited(&mut self, edited: bool) {
         self.platform_window.set_edited(edited);
@@ -2015,6 +2102,42 @@ impl Window {
 
     #[profiling::function]
     fn present(&self) {
+        // Named regions, then one per glass hole painted this frame (cached views included,
+        // as their holes are replayed into the scene).
+        {
+            self.glass_dirty.set(false);
+            let scale = self.scale_factor();
+            let unscale = |v: crate::ScaledPixels| px(v.0 / scale);
+            let mut regions: Vec<crate::GlassRegion> =
+                self.glass_regions.borrow().values().copied().collect();
+            regions.extend(
+                self.rendered_frame
+                    .scene
+                    .quads
+                    .iter()
+                    .filter(|q| q.border_style == BorderStyle::GlassHole)
+                    .map(|q| {
+                        let b = q.bounds.intersect(&q.content_mask.bounds);
+                        crate::GlassRegion {
+                            bounds: Bounds::new(
+                                point(unscale(b.origin.x), unscale(b.origin.y)),
+                                size(unscale(b.size.width), unscale(b.size.height)),
+                            ),
+                            corner_radius: unscale(q.corner_radii.top_left),
+                            shadow: false,
+                        }
+                    }),
+            );
+            let backdrop = self.glass_backdrop.borrow().clone();
+            let now = Some((regions, backdrop));
+            if *self.glass_sent.borrow() != now {
+                if let Some((regions, backdrop)) = &now {
+                    self.platform_window
+                        .set_glass_regions(regions, backdrop.as_ref());
+                }
+                *self.glass_sent.borrow_mut() = now;
+            }
+        }
         self.platform_window.draw(&self.rendered_frame.scene);
         self.needs_present.set(false);
         profiling::finish_frame!();

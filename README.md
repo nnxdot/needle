@@ -11,7 +11,7 @@ Choose a package from the [download page](https://needle.nnx.fyi/#download):
 | Platform | Requirements | Installation |
 | --- | --- | --- |
 | Windows | Windows 10 or 11, 64-bit | Run the installer, or extract the portable ZIP and open `Needle.exe` inside the `Needle` folder. |
-| macOS | Apple silicon (M1 or newer), macOS 11 or newer | The current Mac build is 1.6.3. Open the disk image and drag Needle to Applications. See the [installation help](https://needle.nnx.fyi/help#install) for first-launch instructions. |
+| macOS | Apple silicon (M1 or newer), macOS 11 or newer | The current Mac build is 1.6.4. Open the disk image and drag Needle to Applications. See the [installation help](https://needle.nnx.fyi/help#install) for first-launch instructions. |
 | Linux | Ubuntu 24.04, Mint 22, Debian 13, Fedora 40, or newer; x86-64 | Install the `.deb` or `.rpm` package with your software center. |
 | Android | Android 8.0 or newer; ARM64 or x86_64 | Choose the signed ARM64 APK for most phones, or x86_64 for Intel/AMD devices and emulators. Open the downloaded APK to install it. |
 

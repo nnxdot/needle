@@ -94,6 +94,7 @@ impl Render for Tooltip {
                 .bg(cx.theme().popover)
                 .text_color(cx.theme().popover_foreground)
                 .bg(cx.theme().popover)
+                .when(cx.theme().popover.a < 0.01, |el| el.glass())
                 .border_1()
                 .border_color(cx.theme().border)
                 .shadow_md()

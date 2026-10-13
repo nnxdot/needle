@@ -491,7 +491,7 @@ impl RenderOnce for ColorPicker {
                                     .border_1()
                                     .border_color(cx.theme().border)
                                     .shadow_lg()
-                                    .bg(cx.theme().popover)
+                                    .bg(cx.theme().popover).when(cx.theme().popover.a < 0.01, |el| el.glass())
                                     .text_color(cx.theme().popover_foreground)
                                     .child(self.render_colors(window, cx))
                                     .on_mouse_up_out(

@@ -32,9 +32,29 @@ pub(crate) struct Scene {
     pub(crate) monochrome_sprites: Vec<MonochromeSprite>,
     pub(crate) polychrome_sprites: Vec<PolychromeSprite>,
     pub(crate) surfaces: Vec<PaintSurface>,
+    /// Needle patch: while above zero, primitives go to `under` (drawn on a layer below the
+    /// window's glass, so the glass shows them), still recorded here for replay.
+    under_depth: usize,
+    under: Option<Box<Scene>>,
 }
 
 impl Scene {
+    /// What is drawn under the window's glass this frame, if anything. Needle patch.
+    pub(crate) fn under(&self) -> Option<&Scene> {
+        self.under.as_deref().filter(|under| !under.paint_operations.is_empty())
+    }
+
+    /// Primitives from here go under the window's glass (see `under`). Needle patch.
+    pub fn push_under(&mut self) {
+        self.under_depth += 1;
+        self.paint_operations.push(PaintOperation::StartUnder);
+    }
+
+    pub fn pop_under(&mut self) {
+        self.under_depth = self.under_depth.saturating_sub(1);
+        self.paint_operations.push(PaintOperation::EndUnder);
+    }
+
     pub fn clear(&mut self) {
         self.paint_operations.clear();
         self.primitive_bounds.clear();
@@ -46,6 +66,10 @@ impl Scene {
         self.monochrome_sprites.clear();
         self.polychrome_sprites.clear();
         self.surfaces.clear();
+        self.under_depth = 0;
+        if let Some(under) = &mut self.under {
+            under.clear();
+        }
     }
 
     pub fn len(&self) -> usize {
@@ -53,6 +77,12 @@ impl Scene {
     }
 
     pub fn push_layer(&mut self, bounds: Bounds<ScaledPixels>) {
+        if self.under_depth > 0 {
+            self.paint_operations
+                .push(PaintOperation::StartLayer(bounds));
+            self.under.get_or_insert_with(Default::default).push_layer(bounds);
+            return;
+        }
         let order = self.primitive_bounds.insert(bounds);
         self.layer_stack.push(order);
         self.paint_operations
@@ -60,12 +90,27 @@ impl Scene {
     }
 
     pub fn pop_layer(&mut self) {
+        if self.under_depth > 0 {
+            self.paint_operations.push(PaintOperation::EndLayer);
+            if let Some(under) = &mut self.under {
+                under.pop_layer();
+            }
+            return;
+        }
         self.layer_stack.pop();
         self.paint_operations.push(PaintOperation::EndLayer);
     }
 
     pub fn insert_primitive(&mut self, primitive: impl Into<Primitive>) {
         let mut primitive = primitive.into();
+        if self.under_depth > 0 {
+            self.paint_operations
+                .push(PaintOperation::Primitive(primitive.clone()));
+            self.under
+                .get_or_insert_with(Default::default)
+                .insert_primitive(primitive);
+            return;
+        }
         let clipped_bounds = primitive
             .bounds()
             .intersect(&primitive.content_mask().bounds);
@@ -120,6 +165,8 @@ impl Scene {
                 PaintOperation::Primitive(primitive) => self.insert_primitive(primitive.clone()),
                 PaintOperation::StartLayer(bounds) => self.push_layer(*bounds),
                 PaintOperation::EndLayer => self.pop_layer(),
+                PaintOperation::StartUnder => self.push_under(),
+                PaintOperation::EndUnder => self.pop_under(),
             }
         }
     }
@@ -134,6 +181,9 @@ impl Scene {
         self.polychrome_sprites
             .sort_by_key(|sprite| (sprite.order, sprite.tile.tile_id));
         self.surfaces.sort_by_key(|surface| surface.order);
+        if let Some(under) = &mut self.under {
+            under.finish();
+        }
     }
 
     #[cfg_attr(
@@ -193,6 +243,9 @@ pub(crate) enum PaintOperation {
     Primitive(Primitive),
     StartLayer(Bounds<ScaledPixels>),
     EndLayer,
+    /// Needle patch: see `Scene::push_under`.
+    StartUnder,
+    EndUnder,
 }
 
 #[derive(Clone)]
@@ -511,6 +564,10 @@ pub enum BorderStyle {
     Solid = 0,
     /// A dashed border.
     Dashed = 1,
+    /// Not a border: the quad clears what was painted below it, so the system's glass behind
+    /// the window shows through (macOS; see `Window::paint_glass_hole`). Needle patch.
+    #[doc(hidden)]
+    GlassHole = 2,
 }
 
 /// A data type representing a 2 dimensional transformation that can be applied to an element.

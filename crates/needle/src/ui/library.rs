@@ -1036,7 +1036,7 @@ impl AppView {
                 )
                 .track_scroll(self.list_scroll.clone())
                 .flex_1()
-                .pb_4(),
+                .pb(px(16.) + self.foot_room()),
                 &self.list_scroll,
             ))
     }
@@ -1324,7 +1324,8 @@ impl AppView {
             }),
         )
         .track_scroll(self.grid_scroll.clone())
-        .flex_1();
+        .flex_1()
+        .pb(self.foot_room());
         with_scrollbar(list, &self.grid_scroll)
     }
 
