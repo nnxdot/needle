@@ -87,6 +87,10 @@ dependencies {
     // Home screen widgets.
     implementation("androidx.glance:glance-appwidget:1.2.0")
     implementation("androidx.glance:glance-material3:1.2.0")
+    // A test only: Discord's Social SDK, from the Developer Portal (not in git). See
+    // scripts/android-discord.sh.
+    val discordSdk = file("libs/discord_partner_sdk.aar")
+    if (discordSdk.exists()) implementation(files(discordSdk))
 }
 
 // Copies the website's Privacy and Help pages in, so the app always has the current words.
