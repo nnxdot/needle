@@ -6,7 +6,7 @@ use std::{collections::HashMap, sync::Mutex};
 /// Windows Credential Manager entries appear as `<account>.nnx.Needle`; on Linux the
 /// Secret Service item has the service `nnx.Needle` and the account as its user.
 #[cfg_attr(
-    not(any(windows, target_os = "linux", target_os = "macos")),
+    not(any(windows, target_os = "linux", target_vendor = "apple")),
     allow(dead_code)
 )]
 pub const SERVICE_NAME: &str = "nnx.Needle";
@@ -16,6 +16,8 @@ pub const STORE_NAME: &str = if cfg!(windows) {
     "Windows Credential Manager"
 } else if cfg!(target_os = "macos") {
     "the macOS Keychain"
+} else if cfg!(target_os = "ios") {
+    "the iPhone Keychain"
 } else if cfg!(target_os = "android") {
     "Needle's private app storage"
 } else {
@@ -86,14 +88,14 @@ pub trait SecretStore: Send + Sync {
 /// Windows Credential Manager, or on Linux the Secret Service (GNOME Keyring, KWallet). Other
 /// platforms report that no secure store is available.
 pub struct SystemStore;
-#[cfg(any(windows, target_os = "linux", target_os = "macos"))]
+#[cfg(any(windows, target_os = "linux", target_vendor = "apple"))]
 impl SystemStore {
     fn entry(kind: SecretKind) -> Result<keyring::Entry> {
         keyring::Entry::new(SERVICE_NAME, kind.account())
             .map_err(|e| anyhow::anyhow!("{STORE_NAME}: {e}"))
     }
 }
-#[cfg(any(windows, target_os = "linux", target_os = "macos"))]
+#[cfg(any(windows, target_os = "linux", target_vendor = "apple"))]
 impl SecretStore for SystemStore {
     fn get(&self, kind: SecretKind) -> Result<Option<String>> {
         match Self::entry(kind)?.get_password() {
@@ -190,7 +192,7 @@ pub fn set_android_folder(folder: std::path::PathBuf) {
 #[cfg(not(any(
     windows,
     target_os = "linux",
-    target_os = "macos",
+    target_vendor = "apple",
     target_os = "android"
 )))]
 impl SecretStore for SystemStore {
@@ -240,7 +242,7 @@ pub mod plugin {
         not(test),
         not(windows),
         not(target_os = "linux"),
-        not(target_os = "macos"),
+        not(target_vendor = "apple"),
         not(target_os = "android")
     ))]
     fn memory() -> &'static std::sync::Mutex<std::collections::HashMap<String, String>> {
@@ -266,7 +268,7 @@ pub mod plugin {
     }
 
     pub fn get(plugin: &str, key: &str) -> Result<Option<String>> {
-        #[cfg(all(any(windows, target_os = "linux", target_os = "macos"), not(test)))]
+        #[cfg(all(any(windows, target_os = "linux", target_vendor = "apple"), not(test)))]
         {
             let entry = keyring::Entry::new(super::SERVICE_NAME, &account(plugin, key))
                 .map_err(|e| anyhow::anyhow!("{}: {e}", super::STORE_NAME))?;
@@ -285,7 +287,7 @@ pub mod plugin {
             not(any(
                 windows,
                 target_os = "linux",
-                target_os = "macos",
+                target_vendor = "apple",
                 target_os = "android"
             ))
         ))]
@@ -293,7 +295,7 @@ pub mod plugin {
     }
 
     pub fn set(plugin: &str, key: &str, value: &str) -> Result<()> {
-        #[cfg(all(any(windows, target_os = "linux", target_os = "macos"), not(test)))]
+        #[cfg(all(any(windows, target_os = "linux", target_vendor = "apple"), not(test)))]
         {
             keyring::Entry::new(super::SERVICE_NAME, &account(plugin, key))
                 .and_then(|e| e.set_password(value))
@@ -308,7 +310,7 @@ pub mod plugin {
             not(any(
                 windows,
                 target_os = "linux",
-                target_os = "macos",
+                target_vendor = "apple",
                 target_os = "android"
             ))
         ))]
@@ -322,7 +324,7 @@ pub mod plugin {
     }
 
     pub fn delete(plugin: &str, key: &str) -> Result<()> {
-        #[cfg(all(any(windows, target_os = "linux", target_os = "macos"), not(test)))]
+        #[cfg(all(any(windows, target_os = "linux", target_vendor = "apple"), not(test)))]
         {
             let entry = keyring::Entry::new(super::SERVICE_NAME, &account(plugin, key))
                 .map_err(|e| anyhow::anyhow!("{}: {e}", super::STORE_NAME))?;
@@ -341,7 +343,7 @@ pub mod plugin {
             not(any(
                 windows,
                 target_os = "linux",
-                target_os = "macos",
+                target_vendor = "apple",
                 target_os = "android"
             ))
         ))]

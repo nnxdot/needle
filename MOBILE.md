@@ -1,4 +1,4 @@
-# Needle on phones (plan, not started)
+# Needle on phones
 
 Each app uses its own platform's design: **Material 3 Expressive**
 on Android, **Liquid Glass** (iOS 26) on iPhone.
@@ -91,12 +91,31 @@ on Android, **Liquid Glass** (iOS 26) on iPhone.
 
 ## iPhone
 
-- **UI:** SwiftUI with Liquid Glass: the tab bar, mini player, and buttons get the glass look
-  from the system.
-- **Core:** the same Rust core, called from Swift through UniFFI.
-- Same layout as Android, in Apple's style: tab bar with the mini player on it, lock screen and
-  Dynamic Island controls, CarPlay.
-- Limit: only music imported through the Files app, or streamed.
+Started on branch `ios`: `apps/ios`, built on a Mac with Xcode by `scripts/build-ios.sh`
+(`sim`, `device`, or `core`). It needs the Rust targets `aarch64-apple-ios` and
+`aarch64-apple-ios-sim`, and iOS 26 or newer.
+
+- **UI:** SwiftUI with Liquid Glass: the system tab bar with the mini player on it
+  (`tabViewBottomAccessory`), a tab bar that gets small on scrolling down, search on the tab bar,
+  and glass cards and buttons (`glassEffect`).
+- **Core:** the same Rust core, called from Swift through UniFFI: a static library in
+  `NeedleCore.xcframework`, with bindings in `Needle/Core` (both made by the script, not kept in
+  git).
+- **Screens:** Home (big cards, recently played and added, most played, playlists), Library
+  (playlists, artists, albums, songs, genres, favourites), Sources (this iPhone, music servers
+  through the plugins, Needle on a computer), Search, and the full player with lyrics and the
+  queue.
+- **Playback:** background audio, the lock screen and Control Center (Now Playing and remote
+  commands), pauses for calls and when headphones come out, AirPlay and Bluetooth speakers.
+- **Files:** Needle's folder shows in the Files app (On My iPhone › Needle) and in Finder; music
+  can also be imported from Files, or opened from another app. The app's folder can move when it
+  is updated, so the library's paths are moved at start (`relocate` in
+  `crates/needle-mobile/src/ios.rs`).
+- Secrets (Last.fm, ListenBrainz) are kept in the iPhone Keychain.
+- Not built yet: CarPlay, widgets, the Dynamic Island beyond Now Playing, and most of the
+  Android app's settings and tools.
+- Signing: the project has no team. To put it on a phone, choose a team in Xcode (a free Apple ID
+  works for 7 days); nothing about the account goes into the repository.
 
 ## Live Activities and widgets
 

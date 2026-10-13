@@ -216,8 +216,13 @@ impl Needle {
     /// The phone's output opens at this rate and format (for a bit-perfect USB DAC, whose
     /// mixer takes only its own format), or as Android likes when `rate` is 0. The output
     /// opens again at once if it plays on the phone.
-    pub fn set_usb_format(&self, rate: u32, float: bool) -> Result<()> {
-        let format = (rate > 0).then_some(needle_core::audio::StreamFormat { rate, float });
+    /// (`floating` rather than `float`: the C header of the iPhone's bindings cannot name a
+    /// parameter after a C type.)
+    pub fn set_usb_format(&self, rate: u32, floating: bool) -> Result<()> {
+        let format = (rate > 0).then_some(needle_core::audio::StreamFormat {
+            rate,
+            float: floating,
+        });
         needle_core::audio::set_stream_format(format);
         let settings = self.library.settings()?;
         if !settings
