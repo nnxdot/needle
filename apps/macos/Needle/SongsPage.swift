@@ -16,7 +16,7 @@ final class SongsModel {
     var playlist: PlaylistModel?
     @ObservationIgnored private var generation = 0
 
-    static let pageSize = 1000
+    nonisolated static let pageSize = 1000
 
     func load(_ store: Store, _ route: Route) async {
         generation += 1
