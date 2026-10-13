@@ -80,7 +80,9 @@ struct CommandPalette: View {
             Task {
                 try? await Task.sleep(for: .milliseconds(120))
                 guard t == text else { return }
-                found = await store.load { $0.paletteSearch(text: t) }
+                let results = await store.load { $0.paletteSearch(text: t) }
+                guard t == text else { return }
+                found = results
             }
         }
     }

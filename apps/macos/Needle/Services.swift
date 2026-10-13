@@ -23,9 +23,9 @@ struct ServicesSettings: View {
                     if update.installable {
                         Button("Update to \(update.version)") { store.installUpdate() }.buttonStyle(.borderedProminent)
                     } else {
-                        Button("Get Needle \(update.version)") { NSWorkspace.shared.open(URL(string: update.page)!) }
+                        Button("Get Needle \(update.version)") { openWebPage(update.page) }
                     }
-                    Button("What Needle \(update.version) brings") { NSWorkspace.shared.open(URL(string: update.page)!) }.buttonStyle(.link)
+                    Button("What Needle \(update.version) brings") { openWebPage(update.page) }.buttonStyle(.link)
                 }
             }
         } header: {
@@ -124,7 +124,7 @@ struct ServicesSettings: View {
                         Text("Approve Needle in the Last.fm page that just opened, then press Continue.").font(.callout)
                         HStack {
                             Button(busy ? "Checking…" : "Continue") { lastfmContinue() }.buttonStyle(.borderedProminent).disabled(busy)
-                            Button("Open the page again") { NSWorkspace.shared.open(URL(string: pending)!) }
+                            Button("Open the page again") { openWebPage(pending) }
                             Button("Cancel") { store.core.lastfmCancel(); self.pending = nil }
                         }
                     }
@@ -239,7 +239,7 @@ struct ServicesSettings: View {
         Task {
             if let url = await store.ask({ try $0.lastfmSignIn(key: key, secret: secret) }) {
                 pending = url
-                NSWorkspace.shared.open(URL(string: url)!)
+                openWebPage(url)
             }
             busy = false
         }
@@ -454,4 +454,15 @@ private struct SourceCard: View {
             store.libraryChanged()
         }
     }
+}
+
+/// Opens a web page whose address came from the network (an update's page, a sign-in page):
+/// only https pages, and an address that does not parse is left alone.
+@MainActor
+func openWebPage(_ address: String) {
+    guard let url = URL(string: address), url.scheme?.lowercased() == "https", url.host != nil else {
+        Store.shared.fail("That page's address is not a web page, so Needle did not open it.")
+        return
+    }
+    NSWorkspace.shared.open(url)
 }

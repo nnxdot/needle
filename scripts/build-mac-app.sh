@@ -21,6 +21,16 @@ unset RUSTFLAGS
 export CARGO_ENCODED_RUSTFLAGS="--remap-path-prefix=$HOME=/build"
 target_dir="${CARGO_TARGET_DIR:-$here/target}"
 
+# The updater only installs a Needle signed with the same key as this one (see mac-sign.sh):
+# the key's certificate fingerprint goes into the core. Ad hoc builds have none.
+signing="${NEEDLE_SIGNING_DIR:-$HOME/.needle-signing}"
+if [ -f "$signing/cert.pem" ]; then
+    NEEDLE_MAC_SIGNER=$(openssl x509 -in "$signing/cert.pem" -noout -fingerprint -sha1 | sed 's/.*=//; s/://g' | tr 'A-F' 'a-f')
+    export NEEDLE_MAC_SIGNER
+else
+    unset NEEDLE_MAC_SIGNER
+fi
+
 triple=aarch64-apple-darwin
 rustup target add "$triple" > /dev/null
 cargo rustc --release --locked -p needle-mobile --lib --crate-type staticlib --features desktop --target "$triple"
@@ -59,11 +69,22 @@ cp crates/needle/fonts/Fraunces72ptSoft-SemiBold.ttf crates/needle/fonts/Fraunce
 config=$([ "$kind" = debug ] && echo Debug || echo Release)
 out="$mac/build/$config"
 cd "$mac"
-xcodebuild -project Needle.xcodeproj -scheme Needle -configuration "$config" \
-    -destination 'platform=macOS,arch=arm64' -derivedDataPath build/derived \
-    MARKETING_VERSION="$version" CONFIGURATION_BUILD_DIR="$out" build | grep -E "error|warning:|BUILD" || true
 app="$out/Needle.app"
-[ -d "$app" ] || { echo "The app was not built"; exit 1; }
+# A fresh app each time, and Xcode's own verdict: an app left from an earlier build must not
+# pass for this one.
+rm -rf "$app"
+log="$(mktemp /tmp/needle-xcodebuild.XXXXXX)"
+if ! xcodebuild -project Needle.xcodeproj -scheme Needle -configuration "$config" \
+    -destination 'platform=macOS,arch=arm64' -derivedDataPath build/derived \
+    MARKETING_VERSION="$version" CONFIGURATION_BUILD_DIR="$out" build > "$log" 2>&1; then
+    grep -E "error:|BUILD" "$log" | head -40
+    rm -f "$log"
+    echo "The app was not built"
+    exit 1
+fi
+grep -E "warning:|BUILD" "$log" | grep -vE "appintentsmetadataprocessor|ExplicitPrecompiledModules" || true
+rm -f "$log"
+[ -x "$app/Contents/MacOS/Needle" ] || { echo "The app was not built"; exit 1; }
 
 # Next to Needle, where its core looks for the decoder.
 ffmpeg="$here/third-party/ffmpeg/needle-ffmpeg-macos"

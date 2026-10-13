@@ -160,7 +160,7 @@ final class Store {
             case .libraryChanged: libraryChanged()
             }
         }
-        let job = core.stemsInfo(id: "").job
+        let job = core.stemsJob()
         if job != stemsJob { stemsJob = job }
         if let done = core.takeStemsDone() {
             switch done.error {
@@ -239,15 +239,28 @@ final class Store {
         if let id = playback?.current { lookUpMedia(id) }
     }
 
+    /// Something in the library changed: the pages, the playlists, and the songs shown load
+    /// again, once for changes that come together (an import sends many).
     func libraryChanged() {
-        libraryVersion += 1
-        reloadPlaylists()
-        if let id = playback?.current { current = JSON.decode(Track.self, (try? core.trackJson(id: id)) ?? nil) }
-        if let id = focused?.id { focused = JSON.decode(Track.self, (try? core.trackJson(id: id)) ?? nil) }
+        core.refreshPlaying()
+        libraryTask?.cancel()
+        libraryTask = Task {
+            try? await Task.sleep(for: .milliseconds(200))
+            guard !Task.isCancelled else { return }
+            libraryVersion += 1
+            reloadPlaylists()
+            if let id = playback?.current { current = JSON.decode(Track.self, (try? core.trackJson(id: id)) ?? nil) }
+            if let id = focused?.id { focused = JSON.decode(Track.self, (try? core.trackJson(id: id)) ?? nil) }
+        }
     }
 
+    @ObservationIgnored private var libraryTask: Task<Void, Never>?
+
+    /// Loads the playlists away from the window (a smart playlist's count runs its search).
     func reloadPlaylists() {
-        playlists = (try? core.playlists()) ?? []
+        Task {
+            if let next = await load({ try $0.playlists() }) { playlists = next }
+        }
     }
 
     func reloadPlugins() {
@@ -290,6 +303,25 @@ final class Store {
     }
 
     /// Runs `work` away from the window, then shows its error, if any.
+    /// Sends sound settings to the player one at a time, in order; while one is on its way,
+    /// only the newest waiting goes next (a slider being dragged sends many).
+    func setSound(_ value: SoundSettings) {
+        soundNext.put(value)
+        let (core, next) = (core, soundNext)
+        soundQueue.async {
+            guard let value = next.take() else { return }
+            do {
+                try core.setSoundSettings(value: value)
+            } catch {
+                let text = error.message
+                Task { @MainActor in Store.shared.fail(text) }
+            }
+        }
+    }
+
+    @ObservationIgnored private let soundQueue = DispatchQueue(label: "fyi.nnx.Needle.sound")
+    @ObservationIgnored private let soundNext = Latest<SoundSettings>()
+
     func run(_ work: @escaping @Sendable (Needle) throws -> Void) {
         let core = core
         Task.detached {
@@ -783,4 +815,23 @@ final class Store {
 extension MacPlayback {
     var hasSong: Bool { current != nil }
     var fraction: Double { duration > 0 ? min(1, max(0, position / duration)) : 0 }
+}
+
+/// A value handed from one thread to another, where only the newest counts.
+final class Latest<Value>: @unchecked Sendable {
+    private let lock = NSLock()
+    private var value: Value?
+
+    func put(_ next: Value) {
+        lock.lock()
+        value = next
+        lock.unlock()
+    }
+
+    /// The newest value, once.
+    func take() -> Value? {
+        lock.lock()
+        defer { value = nil; lock.unlock() }
+        return value
+    }
 }

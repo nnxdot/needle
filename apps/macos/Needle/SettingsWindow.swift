@@ -217,7 +217,7 @@ struct PlaybackSettingsView: View {
                                 store.notify("The remote has a new address. Phones with the old one no longer work.")
                             }
                         }
-                        Text("Anyone who has the address and can reach this Mac on a private network (your Wi-Fi, or a VPN) can control Needle. Choose New address to lock them out.")
+                        Text("Anyone who has the address and can reach this Mac on a private network (your Wi-Fi, or a VPN) can control Needle and play its music. The address travels unencrypted, so use the remote only on networks you trust. Choose New address to lock others out.")
                             .font(.caption).foregroundStyle(.secondary)
                     }
                 }
@@ -680,6 +680,11 @@ struct ThemeEditor: View {
         let panel = NSSavePanel()
         panel.nameFieldStringValue = "\(theme.name).toml"
         guard panel.runModal() == .OK, let url = panel.url else { return }
+        // Its own file chosen: it is already there (removing it first would lose it).
+        if url.standardizedFileURL.resolvingSymlinksInPath() == URL(fileURLWithPath: theme.path).standardizedFileURL.resolvingSymlinksInPath() {
+            store.notify("That is the theme's own file. Choose another place to save a copy.")
+            return
+        }
         do {
             if FileManager.default.fileExists(atPath: url.path) { try FileManager.default.removeItem(at: url) }
             try FileManager.default.copyItem(atPath: theme.path, toPath: url.path)

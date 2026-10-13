@@ -19,7 +19,9 @@ enum Keys {
                 default: return event
                 }
             }
+            // The lyric timing editor uses Space and the arrows itself.
             let typing = (event.window?.firstResponder as? NSText) != nil || (event.window?.firstResponder is NSTextView)
+                || store.route == .timing
             let plain = event.modifierFlags.intersection([.command, .control, .option]).isEmpty
             guard plain else { return event }
             switch event.keyCode {

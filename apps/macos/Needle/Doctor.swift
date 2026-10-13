@@ -224,6 +224,9 @@ private struct OrganizeTab: View {
     @State private var plan: TidyPlan?
     @State private var confirm = false
     @State private var working = false
+    /// A plan being worked out: the one shown cannot be moved meanwhile, since the new one
+    /// takes its place in the core.
+    @State private var previewing = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
@@ -232,7 +235,7 @@ private struct OrganizeTab: View {
             HStack {
                 TextField("Pattern", text: $pattern).textFieldStyle(.roundedBorder).font(.body.monospaced())
                 Menu("Patterns") { ForEach(patterns, id: \.self) { p in Button(p) { pattern = p } } }.fixedSize()
-                Button("Preview") { preview() }
+                Button(previewing ? "Working it out…" : "Preview") { preview() }.disabled(previewing || working)
             }
             if let plan {
                 VStack(alignment: .leading, spacing: 6) {
@@ -240,7 +243,7 @@ private struct OrganizeTab: View {
                     ForEach(plan.examples, id: \.self) { Text($0).font(.caption.monospaced()).foregroundStyle(.secondary).lineLimit(1).truncationMode(.middle) }
                     Button(working ? "Working out where each file goes…" : "Move files") { confirm = true }
                         .buttonStyle(.borderedProminent)
-                        .disabled(plan.moves == 0 || working)
+                        .disabled(plan.moves == 0 || working || previewing)
                 }
                 .padding(12)
                 .background(store.colors.raised, in: RoundedRectangle(cornerRadius: 10))
@@ -263,7 +266,12 @@ private struct OrganizeTab: View {
 
     private func preview() {
         let p = pattern
-        Task { plan = await store.load { $0.planTidy(pattern: p) } }
+        previewing = true
+        plan = nil
+        Task {
+            plan = await store.load { $0.planTidy(pattern: p) }
+            previewing = false
+        }
     }
 
     private func move() {
