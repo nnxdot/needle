@@ -319,6 +319,8 @@ pub struct Layout {
     /// The player sits in the title bar, as in Apple Music, and the search field at the bottom.
     /// Off by default.
     pub player_on_top: bool,
+    /// Collections added to the sidebar beside Favorites ("rated", "most-played", …), in order.
+    pub collections: Vec<String>,
 }
 
 impl Default for Layout {
@@ -332,6 +334,7 @@ impl Default for Layout {
             compact_sidebar: false,
             search_hidden: false,
             player_on_top: false,
+            collections: vec![],
         }
     }
 }

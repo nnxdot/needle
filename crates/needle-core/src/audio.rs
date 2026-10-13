@@ -231,6 +231,22 @@ impl Player {
     }
 }
 
+/// A sample rate and format the system output must open at, for a phone's bit-perfect USB
+/// mixer: it takes only music in exactly its own format. `None` lets the system choose.
+static STREAM_FORMAT: Mutex<Option<StreamFormat>> = Mutex::new(None);
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct StreamFormat {
+    pub rate: u32,
+    /// 32-bit float samples; otherwise 16-bit whole numbers.
+    pub float: bool,
+}
+
+/// Sets the format the system output opens at (it applies when the output next opens).
+pub fn set_stream_format(format: Option<StreamFormat>) {
+    *STREAM_FORMAT.lock().unwrap_or_else(|e| e.into_inner()) = format;
+}
+
 /// Names of the connected output devices, enumerated afresh on each call.
 pub fn devices() -> Result<Vec<String>> {
     let mut names: Vec<String> = vec![];
@@ -674,7 +690,18 @@ impl OutputOpener for SystemOutput {
         let name = device.name().unwrap_or_else(|_| "System output".into());
         let failure = Arc::new(Mutex::new(None));
         let slot = failure.clone();
-        let mut stream = OutputStreamBuilder::from_device(device)?
+        let mut builder = OutputStreamBuilder::from_device(device)?;
+        if let Some(format) = *STREAM_FORMAT.lock().unwrap_or_else(|e| e.into_inner()) {
+            builder = builder
+                .with_channels(2)
+                .with_sample_rate(format.rate)
+                .with_sample_format(if format.float {
+                    rodio::cpal::SampleFormat::F32
+                } else {
+                    rodio::cpal::SampleFormat::I16
+                });
+        }
+        let mut stream = builder
             .with_error_callback(move |error| {
                 if let Ok(mut slot) = slot.lock() {
                     slot.get_or_insert_with(|| format!("Audio device error: {error}"));
@@ -1374,7 +1401,23 @@ impl Worker {
                 if let Some(ending) = self.active_ending.take() {
                     ending.skip();
                 }
-                if let Some(next) = self.queue.next_held() {
+                let finished = self.sink.as_ref().is_some_and(|sink| sink.empty());
+                if !self.playing && !finished {
+                    // Paused, the output would only move on once it plays, so the old song
+                    // would still show. The next one waits for Play instead, and shows now.
+                    let next = match self.queue.next_held() {
+                        Some(item) => vec![item],
+                        None if self.queue.tail().is_empty() => self.queue.after_end(),
+                        None => self.queue.tail(),
+                    };
+                    if !next.is_empty() {
+                        self.finish_listen();
+                        if let Some(active) = self.queue.active.take() {
+                            self.queue.previous.push(active);
+                        }
+                        self.suspend(next, 0.);
+                    }
+                } else if let Some(next) = self.queue.next_held() {
                     self.play(vec![next])?;
                 } else if let Some(sink) = &self.sink {
                     sink.skip_one();
@@ -1384,7 +1427,19 @@ impl Worker {
                 // After the queue has finished, the sink is empty and seeking cannot restart
                 // anything, so start the last track again instead.
                 let finished = self.sink.as_ref().is_some_and(|sink| sink.empty());
-                if finished && self.position() > RESTART_AFTER {
+                if !self.playing && !finished {
+                    // Paused (or waiting for Play): it stays paused, as Next does.
+                    if self.position() > RESTART_AFTER {
+                        if self.sink.is_some() {
+                            self.seek(0.0)?;
+                        } else {
+                            self.resume_position = 0.;
+                        }
+                    } else if let Some(items) = self.queue.back() {
+                        self.finish_listen();
+                        self.suspend(items, 0.);
+                    }
+                } else if finished && self.position() > RESTART_AFTER {
                     if let Some(active) = self.queue.active.clone() {
                         self.play(vec![active])?;
                     }
@@ -2390,6 +2445,33 @@ mod tests {
                 .as_ref()
                 .map(|i| i.track.id.clone())
         }
+    }
+
+    #[test]
+    fn next_and_previous_while_paused_show_the_new_song_and_stay_paused() {
+        let opener = FakeOpener::with(&["Speakers"], Some("Speakers"));
+        let mut rig = rig(opener, Settings::default());
+        let list = rig.items(&["a", "b", "c"]);
+        rig.run(Command::PlayAt(list, 0));
+        rig.until_active("a");
+        rig.run(Command::Toggle);
+        assert!(!rig.state().playing);
+        rig.run(Command::Next);
+        let current = |rig: &Rig| rig.state().current.map(|c| c.track.id);
+        assert_eq!(current(&rig).as_deref(), Some("b"));
+        assert!(!rig.state().playing);
+        assert_eq!(ids(rig.state().queue.iter()), ["c"]);
+        rig.run(Command::Next);
+        assert_eq!(current(&rig).as_deref(), Some("c"));
+        rig.run(Command::Previous);
+        assert_eq!(current(&rig).as_deref(), Some("b"));
+        assert!(!rig.state().playing);
+        assert_eq!(ids(rig.state().queue.iter()), ["c"]);
+        rig.run(Command::Toggle);
+        rig.until_active("b");
+        rig.until("playing", |w| w.playing);
+        rig.run(Command::Next);
+        rig.until_active("c");
     }
 
     #[test]

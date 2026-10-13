@@ -1369,6 +1369,12 @@ impl AppView {
                     .truncate()
                     .when(round, |el| el.text_center()),
             )
+            .on_mouse_down(MouseButton::Right, {
+                let page = page.clone();
+                cx.listener(move |this, event: &MouseDownEvent, _, cx| {
+                    this.open_group_menu(page.clone(), event.position, cx)
+                })
+            })
             .on_click(
                 cx.listener(move |this, _, window, cx| this.navigate(page.clone(), window, cx)),
             )

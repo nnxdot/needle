@@ -1,3 +1,11 @@
+# 1.6.3
+Albums and artists get their own menu, and rating takes one click.
+- [albums] **Right-click an album or artist.** On Home, Albums, Artists, an artist's page, and your listening history: play, shuffle, play next, add to the queue or a playlist, or open the album or artist.
+- [star] **Rate with one click.** The Rating column has five stars to click. The empty ones show when you point at a song, and always while the list is sorted by rating.
+- [plus] **More collections.** Press + beside Collections in the sidebar to add Rated, Most played, Recently played, or Never played. Press it again to take one away.
+- Pressing Next or Previous while paused shows the new song at once, and the music stays paused. Next also works on the song waiting from last time.
+- A file that a tag reader cannot handle is skipped, instead of stopping the whole scan.
+
 # 1.6.2
 Fixes for your files, saved settings, and everyday listening.
 - [lyrics] **Safer file tidying.** Existing lyrics are left intact, and Needle tells you which files could not move. If Undo cannot put a file back, it stays available so you can clear the obstruction and try again.

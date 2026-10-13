@@ -17,6 +17,7 @@ import com.google.common.util.concurrent.ListenableFuture
 import fyi.nnx.needle.core.Album
 import fyi.nnx.needle.core.Needle
 import fyi.nnx.needle.core.Song
+import fyi.nnx.needle.ui.asPlayback
 import java.io.File
 
 /**
@@ -196,9 +197,15 @@ fun songItem(song: Song, id: String, queued: Boolean = false, playing: Boolean =
         .setArtist(song.artist)
         .setAlbumTitle(song.album)
         .apply {
-            val data = if (playing) coverData(song.artwork) else null
+            val art = song.artwork
+            // The computer's covers come over the home network; Android fetches those itself.
+            if (art != null && art.startsWith("http")) {
+                if (playing || !queued) setArtworkUri(Uri.parse(art))
+                return@apply
+            }
+            val data = if (playing) coverData(art) else null
             if (data != null) setArtworkData(data, MediaMetadata.PICTURE_TYPE_FRONT_COVER)
-            else if (!queued) setArtworkUri(ArtworkProvider.uri(song.artwork))
+            else if (!queued) setArtworkUri(ArtworkProvider.uri(art))
         }
         .setIsBrowsable(false)
         .setIsPlayable(true)
@@ -206,7 +213,11 @@ fun songItem(song: Song, id: String, queued: Boolean = false, playing: Boolean =
     return MediaItem.Builder().setMediaId(id).setMediaMetadata(metadata).build()
 }
 
-/** Android's view of Needle's player: the song playing and the songs up next. */
+/**
+ * Android's view of Needle's player: the song playing and the songs up next. While the phone
+ * shows the computer's player (see [NeedleApp.remoteShown]), that is what Android shows, and
+ * its buttons work the computer.
+ */
 @UnstableApi
 private class NeedlePlayer(looper: Looper, private val core: Needle) : SimpleBasePlayer(looper) {
     private val handler = Handler(looper)
@@ -228,8 +239,16 @@ private class NeedlePlayer(looper: Looper, private val core: Needle) : SimpleBas
     private var lastSong: State? = null
     private var lastSongAt = 0L
 
+    private fun onComputer() = NeedleApp.instance.remoteShown.value
+
+    private fun playback(): fyi.nnx.needle.core.Playback {
+        val pc = NeedleApp.instance.remote.value
+        return if (onComputer() && pc?.current != null) fyi.nnx.needle.ui.Live.shape(pc).asPlayback()
+        else core.playback()
+    }
+
     override fun getState(): State {
-        val playback = core.playback()
+        val playback = playback()
         // A change of sound settings closes and reopens the sound for a moment, with no song
         // in between. Android would take the notification away in that moment and might then
         // stop Needle in the background, so the song is kept on show through short gaps.
@@ -260,7 +279,7 @@ private class NeedlePlayer(looper: Looper, private val core: Needle) : SimpleBas
         // where a fresh one would make it redraw the notification and its cover every time.
         val key = current.id to playback.queueVersion
         val items = if (key == playlistKey) playlist else {
-            (listOf(current) + core.upNext().take(10)).mapIndexed { i, song ->
+            (listOf(current) + fyi.nnx.needle.ui.Controls.upNext().take(10)).mapIndexed { i, song ->
                 MediaItemData.Builder("$i:${song.id}")
                     .setMediaItem(songItem(song, "$i:${song.id}", queued = true, playing = i == 0))
                     .setDurationUs((song.duration * 1_000_000).toLong())
@@ -277,7 +296,7 @@ private class NeedlePlayer(looper: Looper, private val core: Needle) : SimpleBas
     }
 
     override fun handleSetPlayWhenReady(playWhenReady: Boolean): ListenableFuture<*> {
-        if (playWhenReady != core.playback().playing) core.toggle()
+        if (playWhenReady != playback().playing) fyi.nnx.needle.ui.Controls.toggle()
         return Futures.immediateVoidFuture()
     }
 
@@ -295,9 +314,9 @@ private class NeedlePlayer(looper: Looper, private val core: Needle) : SimpleBas
 
     override fun handleSeek(mediaItemIndex: Int, positionMs: Long, seekCommand: Int): ListenableFuture<*> {
         when (seekCommand) {
-            COMMAND_SEEK_TO_NEXT, COMMAND_SEEK_TO_NEXT_MEDIA_ITEM -> core.next()
-            COMMAND_SEEK_TO_PREVIOUS, COMMAND_SEEK_TO_PREVIOUS_MEDIA_ITEM -> core.previous()
-            else -> core.seek(positionMs / 1000.0)
+            COMMAND_SEEK_TO_NEXT, COMMAND_SEEK_TO_NEXT_MEDIA_ITEM -> fyi.nnx.needle.ui.Controls.next()
+            COMMAND_SEEK_TO_PREVIOUS, COMMAND_SEEK_TO_PREVIOUS_MEDIA_ITEM -> fyi.nnx.needle.ui.Controls.previous()
+            else -> fyi.nnx.needle.ui.Controls.seek(positionMs / 1000.0)
         }
         return Futures.immediateVoidFuture()
     }

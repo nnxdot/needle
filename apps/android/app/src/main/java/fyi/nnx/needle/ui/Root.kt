@@ -53,7 +53,9 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.dp
 import fyi.nnx.needle.NeedleApp
 import fyi.nnx.needle.core.Album
@@ -117,6 +119,9 @@ fun NeedleRoot() {
     val open: (Route) -> Unit = { stacks[tab] = stack + it }
     val hasSong = playback?.current != null
     val snackbar = remember { SnackbarHostState() }
+    // How tall the mini player, the tabs, and the bar of chosen songs are together, so
+    // messages show above them instead of over them.
+    var barHeight by remember { mutableStateOf(0) }
     // Tablets and unfolded phones get a rail of tabs at the side, as Material asks.
     val wide = LocalConfiguration.current.screenWidthDp >= 600
     val chooseTab: (Tab) -> Unit = { t ->
@@ -166,7 +171,7 @@ fun NeedleRoot() {
                         androidx.compose.foundation.layout.WindowInsetsSides.Horizontal + androidx.compose.foundation.layout.WindowInsetsSides.Bottom,
                     ),
                     bottomBar = {
-                        Column {
+                        Column(Modifier.onSizeChanged { barHeight = it.height }) {
                             SelectionBar()
                             AnimatedVisibility(
                                 visible = hasSong && !playerOpen,
@@ -254,13 +259,14 @@ fun NeedleRoot() {
                         FullPlayer(onClose = { playerOpen = false }, open = { playerOpen = false; open(it) })
                     }
                 }
-                // Messages show above everything, the player too, and clear of the mini player.
+                // Messages show above everything, the player too, and clear of the bars below.
+                val bars = with(LocalDensity.current) { barHeight.toDp() }
                 SnackbarHost(
                     snackbar,
                     Modifier
                         .align(androidx.compose.ui.Alignment.BottomCenter)
-                        .navigationBarsPadding()
-                        .padding(bottom = if (playerOpen) 16.dp else if (hasSong) 150.dp else 80.dp),
+                        .then(if (playerOpen || bars == 0.dp) Modifier.navigationBarsPadding() else Modifier)
+                        .padding(bottom = if (playerOpen) 16.dp else bars + 8.dp),
                 )
                 Overlays(snackbar)
                 // The welcome guide, the first time Needle opens with no music yet.

@@ -212,6 +212,42 @@ impl AppView {
             .child(label)
     }
 
+    /// The Collections heading, with a + to add more collections (Rated, Most played, …).
+    fn collections_section(&self, cx: &mut Context<Self>) -> Div {
+        if self.settings.layout.sidebar_hidden {
+            return self.section("Collections", cx);
+        }
+        let p = pal(cx);
+        self.section("Collections", cx)
+            .group("collections-head")
+            .justify_between()
+            .pr(px(14.))
+            .child(
+                div()
+                    .id("add-collection")
+                    .size(px(20.))
+                    .rounded(px(5.))
+                    .flex()
+                    .items_center()
+                    .justify_center()
+                    .cursor_pointer()
+                    .opacity(0.)
+                    .group_hover("collections-head", |s| s.opacity(1.))
+                    .hover(|s| s.bg(p.raised_hover))
+                    .child(glyph("plus").size(px(13.)).text_color(p.ink_2))
+                    .tooltip(|window, cx| {
+                        gpui_component::tooltip::Tooltip::new("Add a collection").build(window, cx)
+                    })
+                    .on_mouse_down(
+                        MouseButton::Left,
+                        cx.listener(|this, event: &MouseDownEvent, _, cx| {
+                            cx.stop_propagation();
+                            this.open_collections_menu(event.position, cx)
+                        }),
+                    ),
+            )
+    }
+
     pub(super) fn sidebar(&self, width: f32, cx: &mut Context<Self>) -> impl IntoElement {
         let p = pal(cx);
         let rail = self.settings.layout.sidebar_hidden;
@@ -254,7 +290,7 @@ impl AppView {
                     .child(self.nav_item("nav-albums", "Albums", "albums", Page::Albums, cx))
                     .child(self.nav_item("nav-artists", "Artists", "artists", Page::Artists, cx))
                     .child(self.nav_item("nav-folders", "Folders", "folder", Page::Folders, cx))
-                    .child(self.section("Collections", cx))
+                    .child(self.collections_section(cx))
                     .child(
                         self.nav_item("nav-favorites", "Favorites", "heart", Page::Favorites, cx)
                             .drag_over::<super::flow::DraggedTracks>(move |s, _, _, _| {
@@ -286,6 +322,24 @@ impl AppView {
                         Page::History,
                         cx,
                     ))
+                    .children(
+                        self.settings
+                            .layout
+                            .collections
+                            .clone()
+                            .into_iter()
+                            .filter_map(|key| {
+                                let &(_, name, icon, _) = super::more_collection(&key)?;
+                                Some(self.nav_item(
+                                    SharedString::from(format!("nav-collection-{key}")),
+                                    name,
+                                    icon,
+                                    Page::Collection(key),
+                                    cx,
+                                ))
+                            })
+                            .collect::<Vec<_>>(),
+                    )
                     .children({
                         let sources = self.signed_in_sources();
                         (!sources.is_empty()).then(|| self.section("Servers", cx))

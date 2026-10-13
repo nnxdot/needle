@@ -213,6 +213,23 @@ impl Needle {
             .unwrap_or_default()
     }
 
+    /// The phone's output opens at this rate and format (for a bit-perfect USB DAC, whose
+    /// mixer takes only its own format), or as Android likes when `rate` is 0. The output
+    /// opens again at once if it plays on the phone.
+    pub fn set_usb_format(&self, rate: u32, float: bool) -> Result<()> {
+        let format = (rate > 0).then_some(needle_core::audio::StreamFormat { rate, float });
+        needle_core::audio::set_stream_format(format);
+        let settings = self.library.settings()?;
+        if !settings
+            .output_device
+            .as_deref()
+            .is_some_and(cast::is_network)
+        {
+            self.player.send(Command::Configure(Box::new(settings)));
+        }
+        Ok(())
+    }
+
     /// Plays on a speaker (its [`Output`] id), or on this phone (empty).
     pub fn set_output(&self, id: String) -> Result<()> {
         let mut settings = self.library.settings()?;

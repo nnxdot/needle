@@ -96,6 +96,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -250,6 +251,13 @@ fun FullPlayer(onClose: () -> Unit, open: (Route) -> Unit) {
     var panel by rememberSaveable { mutableStateOf(Panel.Cover) }
     val haptics = rememberHaptics()
     var favorite by remember(song.id) { mutableStateOf(runCatching { core.isFavorite(song.id) }.getOrDefault(song.rating >= 4)) }
+    val toggleFavorite: () -> Unit = {
+        haptics(false)
+        runCatching { core.toggleFavorite(song.id) }
+            .onSuccess { favorite = it; showMessage(if (it) "Added to favorites" else "Taken out of favorites") }
+            .onFailure { showMessage("Could not change favorites: ${it.message}") }
+        NeedleApp.instance.libraryVersion.value++
+    }
     // The A-B loop: the first tap marks A, the second B, the third lets go.
     var loopStart by remember(song.id) { mutableStateOf<Double?>(null) }
     val looping = remember(p.position, song.id) { core.loopRange() }
@@ -311,19 +319,8 @@ fun FullPlayer(onClose: () -> Unit, open: (Route) -> Unit) {
                         IconButton(onClick = { searching = true }) {
                             Icon(Icons.Rounded.Search, contentDescription = "Add songs", tint = Color.White.copy(alpha = 0.8f))
                         }
-                        if (!song.onComputer()) IconButton(onClick = {
-                            haptics(false)
-                            runCatching { core.toggleFavorite(song.id) }
-                                .onSuccess { favorite = it; showMessage(if (it) "Added to favorites" else "Taken out of favorites") }
-                                .onFailure { showMessage("Could not change favorites: ${it.message}") }
-                            NeedleApp.instance.libraryVersion.value++
-                        }) {
-                            Icon(
-                                if (favorite) Icons.Rounded.Favorite else Icons.Rounded.FavoriteBorder,
-                                contentDescription = if (favorite) "Take out of favorites" else "Add to favorites",
-                                tint = if (favorite) MaterialTheme.colorScheme.primary else Color.White.copy(alpha = 0.8f),
-                            )
-                        }
+                        // With the cover showing, the heart sits beside the song's name instead.
+                        if (!song.onComputer() && panel != Panel.Cover) FavoriteButton(favorite, toggleFavorite)
                         if (!song.onComputer()) SongMenu(song, open)
                     }
                 }
@@ -331,14 +328,16 @@ fun FullPlayer(onClose: () -> Unit, open: (Route) -> Unit) {
                 if (panel != Panel.Cover) SmallNowPlaying(song)
                 Box(Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.Center) {
                     when (panel) {
-                        Panel.Cover -> PlayerCover(song, p.playing)
+                        Panel.Cover -> PlayerCover(song, p.playing, haptics)
                         Panel.Lyrics -> LyricsPanel(song, p.position) { open(Route.Timing(song.id)) }
                         Panel.UpNext -> UpNextPanel(p.queueVersion)
                     }
                 }
                 if (panel == Panel.Cover) {
-                    // A name too long for the width slides slowly along, as in Apple Music.
-                    Column(Modifier.fillMaxWidth()) {
+                    // A name too long for the width slides slowly along, as in Apple Music; the heart
+                    // sits at its end.
+                    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                    Column(Modifier.weight(1f)) {
                         Text(
                             song.title,
                             style = MaterialTheme.typography.headlineMedium,
@@ -354,6 +353,8 @@ fun FullPlayer(onClose: () -> Unit, open: (Route) -> Unit) {
                             modifier = Modifier.clip(RoundedCornerShape(6.dp)).clickable(enabled = !song.onComputer()) { open(Route.Artist(song.artist)) },
                         )
                         if (song.onComputer()) OnComputerChip(Modifier.padding(top = 8.dp))
+                    }
+                    if (!song.onComputer()) FavoriteButton(favorite, toggleFavorite, Modifier.offset(x = 12.dp), large = true)
                     }
                 }
                 SeekBar(position = p.position, duration = song.duration, playing = p.playing)
@@ -381,6 +382,19 @@ fun FullPlayer(onClose: () -> Unit, open: (Route) -> Unit) {
             }
         }
     }
+    }
+}
+
+/** The heart: in favorites or not. */
+@Composable
+private fun FavoriteButton(favorite: Boolean, onClick: () -> Unit, modifier: Modifier = Modifier, large: Boolean = false) {
+    IconButton(onClick = onClick, modifier = modifier) {
+        Icon(
+            if (favorite) Icons.Rounded.Favorite else Icons.Rounded.FavoriteBorder,
+            contentDescription = if (favorite) "Take out of favorites" else "Add to favorites",
+            tint = if (favorite) MaterialTheme.colorScheme.primary else Color.White.copy(alpha = 0.8f),
+            modifier = Modifier.size(if (large) 28.dp else 24.dp),
+        )
     }
 }
 
@@ -651,8 +665,23 @@ private fun RoundToggle(on: Boolean, onClick: () -> Unit, icon: @Composable () -
  */
 @OptIn(androidx.compose.material3.ExperimentalMaterial3ExpressiveApi::class)
 @Composable
-private fun PlayerCover(song: Song, playing: Boolean) {
+private fun PlayerCover(song: Song, playing: Boolean, haptics: (Boolean) -> Unit) {
     val app by NeedleApp.instance.app.collectAsState()
+    // Swiped sideways (when that is on), the cover goes with the finger; far enough, it slides
+    // off and the next song's (or the last one's) slides in from the other side.
+    val slide = remember { androidx.compose.animation.core.Animatable(0f) }
+    var width by remember { mutableFloatStateOf(1f) }
+    // Which way the last swipe went, until the song it asked for shows: 1 next, -1 back.
+    var swiped by remember { androidx.compose.runtime.mutableIntStateOf(0) }
+    val swipes = androidx.compose.runtime.rememberCoroutineScope()
+    LaunchedEffect(song.id) {
+        val from = swiped
+        swiped = 0
+        if (from == 0) slide.snapTo(0f) else {
+            slide.snapTo(from * width)
+            slide.animateTo(0f, spring(dampingRatio = 0.85f, stiffness = 400f))
+        }
+    }
     val scale by animateFloatAsState(if (playing) 1f else 0.82f, tween(350), label = "cover size")
     val reduce = reduceMotion()
     val spin = androidx.compose.animation.core.rememberInfiniteTransition(label = "spin")
@@ -672,7 +701,46 @@ private fun PlayerCover(song: Song, playing: Boolean) {
         else -> RoundedCornerShape(12.dp)
     }
     val depth by animateFloatAsState(if (playing) 1f else 0.4f, tween(350), label = "shadow")
-    Box(contentAlignment = Alignment.Center) {
+    Box(
+        Modifier
+            .onSizeChanged { width = it.width.toFloat().coerceAtLeast(1f) }
+            .graphicsLayer {
+                translationX = slide.value
+                alpha = 1f - (kotlin.math.abs(slide.value) / width * 0.7f).coerceIn(0f, 0.7f)
+            }
+            .then(
+                if (!app.swipeCover) Modifier else Modifier.pointerInput(song.id) {
+                    detectHorizontalDragGestures(
+                        onDragEnd = {
+                            val moved = slide.value
+                            swipes.launch {
+                                if (kotlin.math.abs(moved) < width * 0.22f) {
+                                    slide.animateTo(0f, spring(dampingRatio = 0.7f, stiffness = 500f))
+                                    return@launch
+                                }
+                                val way = if (moved < 0) 1 else -1
+                                haptics(false)
+                                slide.animateTo(-way * width * 1.1f, tween(160))
+                                swiped = way
+                                if (way > 0) Controls.next() else Controls.previous()
+                                // No other song came (the end of the list, or the song began
+                                // again): the cover comes back.
+                                kotlinx.coroutines.delay(1500)
+                                if (swiped == way) {
+                                    swiped = 0
+                                    slide.animateTo(0f, spring(dampingRatio = 0.85f, stiffness = 400f))
+                                }
+                            }
+                        },
+                        onDragCancel = { swipes.launch { slide.animateTo(0f) } },
+                    ) { change, dx ->
+                        change.consume()
+                        swipes.launch { slide.snapTo(slide.value + dx) }
+                    }
+                },
+            ),
+        contentAlignment = Alignment.Center,
+    ) {
         // The shadow: a soft dark glow behind the cover, drawn once. A true shadow of a turning
         // or many-sided shape is worked out again every frame, and freezes slower phones.
         Box(

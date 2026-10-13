@@ -44,9 +44,10 @@ pub fn import(
     }
     fs::read_dir(&root).context("Cannot read this music folder")?;
     let mut state = ScanProgress::default();
-    // Album files split by a CUE sheet are imported as the sheet's tracks, not as one song.
-    let covered = crate::cue::covered_files(&root);
     let (mut files, mut sheets) = (vec![], vec![]);
+    // Finding the files can take long on a big phone or network folder; the folder being
+    // looked through is shown meanwhile.
+    let mut shown = std::time::Instant::now();
     for entry in walkdir::WalkDir::new(&root).follow_links(false) {
         if cancel.load(Ordering::Relaxed) {
             break;
@@ -60,6 +61,14 @@ pub fn import(
                 continue;
             }
         };
+        if entry.file_type().is_dir() {
+            if shown.elapsed() > std::time::Duration::from_millis(250) {
+                shown = std::time::Instant::now();
+                state.current = entry.path().to_string_lossy().into();
+                progress(state.clone());
+            }
+            continue;
+        }
         if !entry.file_type().is_file() {
             continue;
         }
@@ -72,11 +81,16 @@ pub fn import(
         } else if path
             .extension()
             .is_some_and(|e| EXTENSIONS.contains(&e.to_string_lossy().to_lowercase().as_str()))
-            && (covered.is_empty() || !path.canonicalize().is_ok_and(|p| covered.contains(&p)))
         {
             files.push(path.to_path_buf());
         }
     }
+    // Album files split by a CUE sheet are imported as the sheet's tracks, not as one song.
+    let covered = crate::cue::covered_by(&sheets);
+    if !covered.is_empty() {
+        files.retain(|f| !f.canonicalize().is_ok_and(|p| covered.contains(&p)));
+    }
+    state.current.clear();
     import_files(library, files, &cancel, &mut state, &mut progress)?;
     for sheet in sheets {
         if cancel.load(Ordering::Relaxed) {
@@ -170,8 +184,12 @@ fn import_files(
                     if cancel.load(Ordering::Relaxed) {
                         break;
                     }
+                    // A file that trips up a tag reader is skipped, not the whole scan.
                     let result = match &db {
-                        Ok(db) => read_track(library, db, &path),
+                        Ok(db) => std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                            read_track(library, db, &path)
+                        }))
+                        .unwrap_or_else(|_| Err(anyhow::anyhow!("Could not read this file"))),
                         Err(e) => Err(anyhow::anyhow!("{e:#}")),
                     };
                     if done.send((path, result)).is_err() {

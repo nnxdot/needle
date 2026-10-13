@@ -115,6 +115,8 @@ pub struct AppSettings {
     pub side_buttons: String,
     /// A volume slider in the player (always there while playing on the computer).
     pub volume_slider: bool,
+    /// The player's cover can be swiped sideways to skip to the next or the last song.
+    pub swipe_cover: bool,
     /// The welcome guide was seen (or skipped).
     pub welcomed: bool,
 }
@@ -145,6 +147,7 @@ impl Default for AppSettings {
             control_style: "expressive".into(),
             side_buttons: "skip".into(),
             volume_slider: false,
+            swipe_cover: true,
             welcomed: false,
         }
     }
