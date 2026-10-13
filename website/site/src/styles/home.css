@@ -231,7 +231,7 @@
 
 /* ---------- highlights, moving across */
 .pan { position: relative; overflow: clip; min-height: 100dvh; display: flex; align-items: center; padding: 88px 0 40px; }
-/* Without the script (or with reduced motion) the row scrolls sideways by hand; the script pins
+/* On a computer without the script (or with reduced motion) the row scrolls sideways by hand; the script pins
    the section and moves the row as the page scrolls. */
 .pan-track {
   display: flex; gap: 24px; width: 100%; overflow-x: auto; scroll-snap-type: x mandatory; scrollbar-width: thin;
@@ -576,8 +576,11 @@
   .lp-art p { margin: 0; }
   .lp-lines { height: 260px; }
   .pan { padding: 6vh 0; min-height: 0; display: block; }
-  .pan-track { scrollbar-width: none; }
-  .pan-intro { width: 84vw; }
+  /* On a phone the cards stack, one under the other. */
+  .pan-track { flex-direction: column; overflow: visible; scroll-snap-type: none; gap: 20px; padding-inline: 16px; }
+  .pan-intro { width: auto; padding: 0 8px 12px; }
+  .card { width: 100%; }
+  .lyrics-in { min-height: 0; padding: 96px 0 72px; }
   .bento { grid-template-columns: 1fr; grid-template-areas: "eq" "stems" "fmt" "play" "smart" "tidy" "home"; }
   .look-names { grid-template-columns: repeat(2, 1fr); }
   .dl-tab .icon { display: none; }
