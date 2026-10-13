@@ -28,8 +28,9 @@ android {
 
     buildTypes {
         debug {
-            // A test only: the Discord test installs beside the real Needle (another signature).
-            if (file("libs/discord_partner_sdk.aar").exists()) applicationIdSuffix = ".discordtest"
+            // -PneedleIdSuffix=.dev: a build that installs beside Needle from the website, which
+            // has another signature.
+            providers.gradleProperty("needleIdSuffix").orNull?.let { applicationIdSuffix = it }
         }
         release {
             isMinifyEnabled = false
@@ -91,8 +92,8 @@ dependencies {
     // Home screen widgets.
     implementation("androidx.glance:glance-appwidget:1.2.0")
     implementation("androidx.glance:glance-material3:1.2.0")
-    // A test only: Discord's Social SDK, from the Developer Portal (not in git). See
-    // scripts/android-discord.sh.
+    // Discord's library, for the Discord status: closed source, so not in git (see MOBILE.md).
+    // Without it the app builds the same, with no Discord status.
     val discordSdk = file("libs/discord_partner_sdk.aar")
     if (discordSdk.exists()) implementation(files(discordSdk))
 }

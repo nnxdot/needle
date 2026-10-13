@@ -50,7 +50,6 @@ class MainActivity : ComponentActivity() {
         }
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
-        DiscordTest.start(this)
         askPermissions()
         setContent {
             NeedleTheme {
