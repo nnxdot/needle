@@ -60,7 +60,8 @@ private struct NowCard: View {
                     Text(p.title).font(.title2.weight(.semibold)).lineLimit(1)
                     Text("\(p.artist) · \(p.album)").foregroundStyle(colors.ink2).lineLimit(1)
                 }
-                Spacer()
+                .frame(minWidth: 0)
+                Spacer(minLength: 8)
                 Button { store.toggle() } label: { Label(p.playing ? "Pause" : "Resume", systemImage: p.playing ? "pause.fill" : "play.fill") }
                     .glassButton(prominent: true)
                     .controlSize(.large)
@@ -381,3 +382,4 @@ struct FoldersPage: View {
         }
     }
 }
+

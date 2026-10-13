@@ -21,7 +21,7 @@ struct LyricsView: View {
         let colors = store.colors
         let ink: Color = light ? .white : colors.ink
         Group {
-            if store.playback?.hasSong != true {
+            if store.current == nil {
                 note("Play something to see its lyrics.")
             } else if store.lyricsLooking && store.lyrics == nil {
                 ProgressView().controlSize(.small).frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -81,18 +81,27 @@ struct LyricsView: View {
     }
 
     private func timed(_ lyrics: Lyrics, ink: Color) -> some View {
-        let position = (store.playback?.position ?? 0) + 0.15
-        let line = lyrics.lines.lastIndex { $0.time <= position }
+        // Only the line being sung follows the clock (see `SungLine`); the others redraw
+        // when the line changes, not ten times a second.
+        let line = store.lyricLine
         let center = kind == .big || kind == .immersive
         return ScrollViewReader { reader in
             ScrollView {
-                VStack(alignment: center ? .center : .leading, spacing: kind == .side || kind == .mini ? 12 : 18) {
+                LazyVStack(alignment: center ? .center : .leading, spacing: kind == .side || kind == .mini ? 12 : 18) {
                     Color.clear.frame(height: kind == .mini ? 20 : 60)
                     ForEach(Array(lyrics.lines.enumerated()), id: \.offset) { index, l in
-                        lineView(l, index: index, current: line, next: index + 1 < lyrics.lines.count ? lyrics.lines[index + 1].time : nil,
-                                 position: position, ink: ink, center: center)
-                            .id(index)
-                            .onTapGesture { store.seek(l.time) }
+                        let state: LyricLineView.State = index == line ? .sung : (line.map { index < $0 } ?? false) ? .past : .ahead
+                        Group {
+                            if state == .sung, !l.words.isEmpty {
+                                SungLine(line: l, next: index + 1 < lyrics.lines.count ? lyrics.lines[index + 1].time : nil,
+                                         size: size, ink: ink, center: center)
+                            } else {
+                                LyricLineView(text: l.text, state: state, size: size, ink: ink, center: center, motion: store.motion)
+                                    .equatable()
+                            }
+                        }
+                        .id(index)
+                        .onTapGesture { store.seek(l.time) }
                     }
                     footer(lyrics)
                     Color.clear.frame(height: kind == .mini ? 40 : 160)
@@ -106,41 +115,6 @@ struct LyricsView: View {
             }
             .onAppear { if let line { reader.scrollTo(line, anchor: UnitPoint(x: 0.5, y: 0.38)) } }
         }
-    }
-
-    @ViewBuilder
-    private func lineView(_ l: LyricLine, index: Int, current: Int?, next: Double?, position: Double, ink: Color, center: Bool) -> some View {
-        let sung = index == current
-        let past = current.map { index < $0 } ?? false
-        let font = Font.system(size: size, weight: .bold)
-        Group {
-            if sung, !l.words.isEmpty {
-                // Karaoke: the words sung so far lit, the one being sung filling.
-                Text(karaoke(l, next: next, position: position, ink: ink))
-            } else {
-                Text(l.text.isEmpty ? "♪" : l.text)
-                    .foregroundStyle(ink.opacity(sung ? 1 : past ? 0.42 : 0.3))
-            }
-        }
-        .font(font)
-        .multilineTextAlignment(center ? .center : .leading)
-        .scaleEffect(sung && store.motion ? 1.02 : 1, anchor: center ? .center : .leading)
-        .blur(radius: kind == .immersive && !sung && store.motion ? 0.6 : 0)
-        .animation(store.motion ? .smooth(duration: 0.3) : nil, value: sung)
-        .contentShape(Rectangle())
-    }
-
-    /// The line with the words sung so far lit, and the one being sung filling.
-    private func karaoke(_ l: LyricLine, next: Double?, position: Double, ink: Color) -> AttributedString {
-        var text = AttributedString()
-        for (i, w) in l.words.enumerated() {
-            let end = i + 1 < l.words.count ? l.words[i + 1].time : (next ?? w.time + 0.6)
-            let lit = position >= end ? 1 : position <= w.time ? 0 : (position - w.time) / max(0.05, end - w.time)
-            var word = AttributedString(w.text)
-            word.foregroundColor = ink.opacity(0.35 + 0.65 * lit)
-            text += word
-        }
-        return text
     }
 
     @ViewBuilder
@@ -162,6 +136,55 @@ struct LyricsView: View {
         case "plugin": "From a lyrics plugin"
         default: "Timed in Needle"
         }
+    }
+}
+
+/// A lyric line not being sung, or being sung without word timings: lit, faded, or dim.
+struct LyricLineView: View, Equatable {
+    enum State { case past, sung, ahead }
+    let text: String
+    let state: State
+    let size: CGFloat
+    let ink: Color
+    let center: Bool
+    let motion: Bool
+
+    var body: some View {
+        Text(text.isEmpty ? "♪" : text)
+            .font(.system(size: size, weight: .bold))
+            .foregroundStyle(ink.opacity(state == .sung ? 1 : state == .past ? 0.42 : 0.3))
+            .multilineTextAlignment(center ? .center : .leading)
+            .scaleEffect(state == .sung && motion ? 1.02 : 1, anchor: center ? .center : .leading)
+            .animation(motion ? .smooth(duration: 0.3) : nil, value: state)
+            .contentShape(Rectangle())
+    }
+}
+
+/// The line being sung, karaoke style: the words sung so far lit, the one being sung filling.
+/// It alone reads the clock.
+struct SungLine: View {
+    private var store: Store { .shared }
+    let line: LyricLine
+    let next: Double?
+    let size: CGFloat
+    let ink: Color
+    let center: Bool
+
+    var body: some View {
+        let position = (store.playback?.position ?? 0) + 0.15
+        var text = AttributedString()
+        for (i, w) in line.words.enumerated() {
+            let end = i + 1 < line.words.count ? line.words[i + 1].time : (next ?? w.time + 0.6)
+            let lit = position >= end ? 1 : position <= w.time ? 0 : (position - w.time) / max(0.05, end - w.time)
+            var word = AttributedString(w.text)
+            word.foregroundColor = ink.opacity(0.35 + 0.65 * lit)
+            text += word
+        }
+        return Text(text)
+            .font(.system(size: size, weight: .bold))
+            .multilineTextAlignment(center ? .center : .leading)
+            .scaleEffect(store.motion ? 1.02 : 1, anchor: center ? .center : .leading)
+            .contentShape(Rectangle())
     }
 }
 

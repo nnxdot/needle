@@ -289,13 +289,15 @@ extension View {
         }
     }
 
-    /// A glass button style on macOS 26, a bordered one before.
+    /// A glass button style on macOS 26, a bordered one before. The button keeps its own size:
+    /// squeezed, the glass control's width kept changing, the layout never settled, and AppKit
+    /// stopped the app.
     @ViewBuilder
     func glassButton(prominent: Bool = false) -> some View {
         if #available(macOS 26, *) {
-            if prominent { buttonStyle(.glassProminent) } else { buttonStyle(.glass) }
+            if prominent { buttonStyle(.glassProminent).fixedSize() } else { buttonStyle(.glass).fixedSize() }
         } else {
-            if prominent { buttonStyle(.borderedProminent) } else { buttonStyle(.bordered) }
+            if prominent { buttonStyle(.borderedProminent).fixedSize() } else { buttonStyle(.bordered).fixedSize() }
         }
     }
 }

@@ -105,9 +105,9 @@ struct BigPlayer: View {
         }
         .buttonStyle(.plain)
         .foregroundStyle(.white.opacity(0.85))
-        .padding(.horizontal, 24)
-        .padding(.leading, store.immersive ? 0 : 60)
-        .padding(.top, store.immersive ? 24 : 16)
+        .font(.system(size: 17, weight: .medium))
+        .padding(.horizontal, 28)
+        .padding(.top, 44)
     }
 
     private var side: some View {
@@ -190,6 +190,9 @@ struct MiniPlayer: View {
         }
         .frame(width: side, height: side)
         .clipped()
+        .contentShape(Rectangle())
+        .gesture(WindowDragGesture())
+        .allowsWindowActivationEvents(true)
     }
 
     /// Over the cover: close, pin, and the menu at the top; the song, the seek bar, and the
