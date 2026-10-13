@@ -234,6 +234,7 @@ impl AppView {
             .id("sound-scroll")
             .size_full()
             .overflow_y_scroll()
+            .pb(self.foot_room())
             .child(
                 div()
                     // A width in pixels, so wrapped text is sized at it (see settings_view).

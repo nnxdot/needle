@@ -523,6 +523,7 @@ impl AppView {
             .min_w_0()
             .h_full()
             .overflow_y_scroll()
+            .pb(self.foot_room())
             .child(
                 div()
                     // A width in pixels (720 at most, less beside a narrow window), so every

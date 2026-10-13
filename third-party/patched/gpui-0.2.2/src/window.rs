@@ -1847,6 +1847,19 @@ impl Window {
         });
     }
 
+    /// From here, paint goes under the window's glass (macOS; see `Styled::under_glass`).
+    pub(crate) fn push_under_glass(&mut self) {
+        if cfg!(target_os = "macos") {
+            self.next_frame.scene.push_under();
+        }
+    }
+
+    pub(crate) fn pop_under_glass(&mut self) {
+        if cfg!(target_os = "macos") {
+            self.next_frame.scene.pop_under();
+        }
+    }
+
     /// What shows behind the glass regions (the window's back); `None` shows the desktop
     /// behind the window, blurred. Needle patch.
     pub fn set_glass_backdrop(&self, backdrop: Option<crate::GlassBackdrop>) {

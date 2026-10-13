@@ -84,54 +84,59 @@ impl AppView {
     pub(super) fn folders_view(&self, cx: &mut Context<Self>) -> impl IntoElement {
         let p = pal(cx);
         let roots = self.library.roots().unwrap_or_default();
-        div().id("folders").size_full().overflow_y_scroll().child(
-            div()
-                .px_6()
-                .pt_6()
-                .pb_10()
-                .flex()
-                .flex_col()
-                .gap_2()
-                .child(display("Folders", 34.))
-                .child(meta("Your music folders, as they are on disk.", cx).mb_4())
-                .when(roots.is_empty(), |el| {
-                    el.child(faint("Add a music folder to browse it here.", cx))
-                })
-                .children(roots.into_iter().enumerate().map(|(i, root)| {
-                    let page = Page::Folder(root.trim_end_matches(['\\', '/']).to_string());
-                    div()
-                        .id(("root", i))
-                        .h(px(64.))
-                        .px_4()
-                        .rounded(px(10.))
-                        .bg(p.raised.opacity(0.55))
-                        .border_1()
-                        .border_color(p.line_soft)
-                        .flex()
-                        .items_center()
-                        .gap_4()
-                        .cursor_pointer()
-                        .hover(|s| s.bg(p.raised))
-                        .child(glyph("folder").size(px(22.)).text_color(p.accent))
-                        .child(
-                            div()
-                                .flex_1()
-                                .min_w_0()
-                                .child(
-                                    div()
-                                        .text_size(px(14.))
-                                        .font_weight(FontWeight::MEDIUM)
-                                        .truncate()
-                                        .child(name_of(&root)),
-                                )
-                                .child(meta(shown(&root).to_string(), cx).truncate()),
-                        )
-                        .child(glyph("chevron-right").size(px(16.)).text_color(p.ink_3))
-                        .on_click(cx.listener(move |this, _, window, cx| {
-                            this.navigate(page.clone(), window, cx)
-                        }))
-                })),
-        )
+        div()
+            .id("folders")
+            .size_full()
+            .overflow_y_scroll()
+            .pb(self.foot_room())
+            .child(
+                div()
+                    .px_6()
+                    .pt_6()
+                    .pb_10()
+                    .flex()
+                    .flex_col()
+                    .gap_2()
+                    .child(display("Folders", 34.))
+                    .child(meta("Your music folders, as they are on disk.", cx).mb_4())
+                    .when(roots.is_empty(), |el| {
+                        el.child(faint("Add a music folder to browse it here.", cx))
+                    })
+                    .children(roots.into_iter().enumerate().map(|(i, root)| {
+                        let page = Page::Folder(root.trim_end_matches(['\\', '/']).to_string());
+                        div()
+                            .id(("root", i))
+                            .h(px(64.))
+                            .px_4()
+                            .rounded(px(10.))
+                            .bg(p.raised.opacity(0.55))
+                            .border_1()
+                            .border_color(p.line_soft)
+                            .flex()
+                            .items_center()
+                            .gap_4()
+                            .cursor_pointer()
+                            .hover(|s| s.bg(p.raised))
+                            .child(glyph("folder").size(px(22.)).text_color(p.accent))
+                            .child(
+                                div()
+                                    .flex_1()
+                                    .min_w_0()
+                                    .child(
+                                        div()
+                                            .text_size(px(14.))
+                                            .font_weight(FontWeight::MEDIUM)
+                                            .truncate()
+                                            .child(name_of(&root)),
+                                    )
+                                    .child(meta(shown(&root).to_string(), cx).truncate()),
+                            )
+                            .child(glyph("chevron-right").size(px(16.)).text_color(p.ink_3))
+                            .on_click(cx.listener(move |this, _, window, cx| {
+                                this.navigate(page.clone(), window, cx)
+                            }))
+                    })),
+            )
     }
 
     /// Above a folder's songs: its subfolders as a scrolling row of small covers.

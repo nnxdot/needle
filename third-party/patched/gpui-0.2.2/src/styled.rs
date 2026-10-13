@@ -30,6 +30,14 @@ pub trait Styled: Sized {
         self
     }
 
+    /// Draw this element, and everything in it, under the window's glass: on macOS it goes on
+    /// a layer below the glass, so glass over it (the sidebar, a toolbar) shows it, blurred
+    /// and bent, as content scrolls under. Elsewhere it draws as usual. Needle patch.
+    fn under_glass(mut self) -> Self {
+        self.style().under_glass = Some(true);
+        self
+    }
+
     gpui_macros::style_helpers!();
     gpui_macros::visibility_style_methods!();
     gpui_macros::margin_style_methods!();

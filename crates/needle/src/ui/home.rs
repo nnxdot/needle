@@ -81,7 +81,7 @@ impl AppView {
             .id("home")
             .size_full()
             .overflow_y_scroll()
-            .pb_10()
+            .pb(px(40.) + self.foot_room())
             .child(
                 div()
                     .px_8()

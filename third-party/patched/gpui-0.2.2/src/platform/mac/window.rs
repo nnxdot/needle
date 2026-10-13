@@ -779,6 +779,25 @@ impl MacWindow {
             content_view.addSubview_(native_view.autorelease());
             native_window.makeFirstResponder_(native_view);
 
+            // Needle patch: what is drawn under the window's glass, on a layer below the glass
+            // views (they go between it and the view above).
+            {
+                let under_layer = window.0.lock().renderer.under_layer_ptr() as id;
+                let under_view: id = msg_send![class!(NSView), alloc];
+                let under_view: id =
+                    msg_send![under_view, initWithFrame: NSView::bounds(content_view)];
+                let _: () = msg_send![under_view, setLayer: under_layer];
+                let _: () = msg_send![under_view, setWantsLayer: YES];
+                under_view.setAutoresizingMask_(NSViewWidthSizable | NSViewHeightSizable);
+                let _: () = msg_send![
+                    content_view,
+                    addSubview: under_view
+                    positioned: NSWindowOrderingMode::NSWindowBelow
+                    relativeTo: native_view
+                ];
+                let _: () = msg_send![under_view, release];
+            }
+
             match kind {
                 WindowKind::Normal | WindowKind::Floating => {
                     native_window.setLevel_(NSNormalWindowLevel);
@@ -2132,12 +2151,7 @@ extern "C" fn view_did_change_backing_properties(this: &Object, _: Sel) {
     let scale_factor = lock.scale_factor();
     let size = lock.content_size();
     let drawable_size = size.to_device_pixels(scale_factor);
-    unsafe {
-        let _: () = msg_send![
-            lock.renderer.layer(),
-            setContentsScale: scale_factor as f64
-        ];
-    }
+    lock.renderer.set_contents_scale(scale_factor as f64);
 
     lock.renderer.update_drawable_size(drawable_size);
 
@@ -2844,8 +2858,18 @@ unsafe fn update_glass(
                         let _: () = msg_send![picture, setContents: image];
                         glass.picture_path = backdrop.image.clone();
                     }
-                    let _: () = msg_send![picture, setOpacity: backdrop.image_opacity.clamp(0., 1.)];
-                    let _: () = msg_send![wash, setBackgroundColor: cg_color(color, backdrop.wash.clamp(0., 1.))];
+                    // System Settings › Accessibility › Display › Reduce transparency: a solid
+                    // window, no picture (the glass views go solid by themselves).
+                    let workspace: id = msg_send![class!(NSWorkspace), sharedWorkspace];
+                    let reduce: BOOL =
+                        msg_send![workspace, accessibilityDisplayShouldReduceTransparency];
+                    let (opacity, wash_alpha) = if reduce == YES {
+                        (0., 1.)
+                    } else {
+                        (backdrop.image_opacity.clamp(0., 1.), backdrop.wash.clamp(0., 1.))
+                    };
+                    let _: () = msg_send![picture, setOpacity: opacity];
+                    let _: () = msg_send![wash, setBackgroundColor: cg_color(color, wash_alpha)];
                 }
             }
             // The desktop behind, blurred and tinted as macOS's window backgrounds are

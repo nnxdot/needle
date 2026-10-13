@@ -647,9 +647,11 @@ impl AppView {
             .h(px(if floating { 76. } else { 80. }))
             .flex_shrink_0()
             .relative()
-            // macOS: the player floats on its own pane of glass, clear of the window's edges.
+            // macOS: the player floats on its own pane of glass, clear of the window's edges, over
+            // the page's foot (and takes the pointer there).
             .when(floating, |el| {
-                el.mx(px(12.))
+                el.occlude()
+                    .mx(px(12.))
                     .mb(px(12.))
                     .mt(px(4.))
                     .rounded(px(28.))

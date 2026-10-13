@@ -99,6 +99,10 @@ impl InstanceBufferPool {
 pub(crate) struct MetalRenderer {
     device: metal::Device,
     layer: metal::MetalLayer,
+    /// Needle patch: what is drawn under the window's glass (`Scene::under`), on a layer of
+    /// its own below the glass views; and whether it held anything last frame.
+    under_layer: metal::MetalLayer,
+    under_used: bool,
     presents_with_transaction: bool,
     command_queue: CommandQueue,
     paths_rasterization_pipeline_state: metal::RenderPipelineState,
@@ -141,6 +145,11 @@ impl MetalRenderer {
             std::process::exit(1);
         };
 
+        let under_layer = metal::MetalLayer::new();
+        under_layer.set_device(&device);
+        under_layer.set_pixel_format(MTLPixelFormat::BGRA8Unorm);
+        under_layer.set_opaque(false);
+        under_layer.set_maximum_drawable_count(3);
         let layer = metal::MetalLayer::new();
         layer.set_device(&device);
         layer.set_pixel_format(MTLPixelFormat::BGRA8Unorm);
@@ -260,6 +269,8 @@ impl MetalRenderer {
         Self {
             device,
             layer,
+            under_layer,
+            under_used: false,
             presents_with_transaction: false,
             command_queue,
             paths_rasterization_pipeline_state,
@@ -289,6 +300,18 @@ impl MetalRenderer {
         self.layer.as_ptr()
     }
 
+    /// The layer drawn under the window's glass. Needle patch.
+    pub fn under_layer_ptr(&self) -> *mut CAMetalLayer {
+        self.under_layer.as_ptr()
+    }
+
+    pub fn set_contents_scale(&self, scale: f64) {
+        unsafe {
+            let _: () = msg_send![&*self.layer, setContentsScale: scale];
+            let _: () = msg_send![&*self.under_layer, setContentsScale: scale];
+        }
+    }
+
     pub fn sprite_atlas(&self) -> &Arc<MetalAtlas> {
         &self.sprite_atlas
     }
@@ -309,6 +332,7 @@ impl MetalRenderer {
                 self.layer(),
                 setDrawableSize: size
             ];
+            let _: () = msg_send![&*self.under_layer, setDrawableSize: size];
         }
         let device_pixels_size = Size {
             width: DevicePixels(size.width as i32),
@@ -355,7 +379,31 @@ impl MetalRenderer {
     }
 
     pub fn draw(&mut self, scene: &Scene) {
+        // Needle patch: what goes under the window's glass is drawn on its own layer, and both
+        // layers show together (each presented with the frame's transaction).
+        let under = scene.under();
+        if under.is_some() || self.under_used {
+            self.under_used = under.is_some();
+            let empty = Scene::default();
+            let under_layer = self.under_layer.clone();
+            under_layer.set_presents_with_transaction(true);
+            self.layer.set_presents_with_transaction(true);
+            let layer = self.layer.clone();
+            self.draw_on(&under_layer, under.unwrap_or(&empty), true);
+            self.draw_on(&layer, scene, true);
+            if !self.under_used {
+                self.layer
+                    .set_presents_with_transaction(self.presents_with_transaction);
+            }
+            return;
+        }
         let layer = self.layer.clone();
+        let presents_with_transaction = self.presents_with_transaction;
+        self.draw_on(&layer, scene, presents_with_transaction);
+    }
+
+    fn draw_on(&mut self, layer: &metal::MetalLayer, scene: &Scene, with_transaction: bool) {
+        let layer = layer.clone();
         let viewport_size = layer.drawable_size();
         let viewport_size: Size<DevicePixels> = size(
             (viewport_size.width.ceil() as i32).into(),
@@ -374,8 +422,13 @@ impl MetalRenderer {
         loop {
             let mut instance_buffer = self.instance_buffer_pool.lock().acquire(&self.device);
 
-            let command_buffer =
-                self.draw_primitives(scene, &mut instance_buffer, drawable, viewport_size);
+            let command_buffer = self.draw_primitives(
+                scene,
+                &mut instance_buffer,
+                drawable,
+                viewport_size,
+                layer.is_opaque(),
+            );
 
             match command_buffer {
                 Ok(command_buffer) => {
@@ -389,7 +442,7 @@ impl MetalRenderer {
                     let block = block.copy();
                     command_buffer.add_completed_handler(&block);
 
-                    if self.presents_with_transaction {
+                    if with_transaction {
                         command_buffer.commit();
                         command_buffer.wait_until_scheduled();
                         drawable.present();
@@ -426,10 +479,11 @@ impl MetalRenderer {
         instance_buffer: &mut InstanceBuffer,
         drawable: &metal::MetalDrawableRef,
         viewport_size: Size<DevicePixels>,
+        opaque: bool,
     ) -> Result<metal::CommandBuffer> {
         let command_queue = self.command_queue.clone();
         let command_buffer = command_queue.new_command_buffer();
-        let alpha = if self.layer.is_opaque() { 1. } else { 0. };
+        let alpha = if opaque { 1. } else { 0. };
         let mut instance_offset = 0;
 
         let mut command_encoder = new_command_encoder(
