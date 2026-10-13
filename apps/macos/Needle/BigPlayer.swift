@@ -174,6 +174,8 @@ struct MiniPlayer: View {
                 Group {
                     if view == "lyrics" {
                         LyricsView(kind: .mini).padding(.horizontal, 14)
+                    } else if view == "history" {
+                        MiniHistory()
                     } else {
                         QueuePanel()
                     }
@@ -188,6 +190,7 @@ struct MiniPlayer: View {
                         Text("Cover").tag("cover")
                         Text("Lyrics").tag("lyrics")
                         Text("Playing next").tag("queue")
+                        Text("History").tag("history")
                     }
                     Toggle("Keep on top", isOn: $onTop)
                     Divider()
@@ -207,6 +210,34 @@ struct MiniPlayer: View {
         .background(WindowLevel(floating: onTop))
         .environment(\.colorScheme, .dark)
         .tint(store.colors.accent)
+    }
+}
+
+/// The songs played last, in the mini player; double-click one to play it again.
+struct MiniHistory: View {
+    @Environment(Store.self) private var store
+    @State private var items: [HistoryItem] = []
+
+    var body: some View {
+        List(Array(items.enumerated()), id: \.offset) { _, item in
+            HStack(spacing: 10) {
+                Cover(path: item.song?.artwork, seed: item.album + item.artist, side: 30, corner: 4)
+                VStack(alignment: .leading, spacing: 1) {
+                    Text(item.title).lineLimit(1)
+                    Text(item.artist).font(.caption).foregroundStyle(.secondary).lineLimit(1)
+                }
+                Spacer()
+                Text(Date(timeIntervalSince1970: TimeInterval(item.startedAt)), format: .relative(presentation: .named))
+                    .font(.caption2).foregroundStyle(.secondary)
+            }
+            .contentShape(Rectangle())
+            .onTapGesture(count: 2) { if let song = item.song { store.play([song.asTrack], reason: "Played again from your history") } }
+        }
+        .listStyle(.plain)
+        .scrollContentBackground(.hidden)
+        .task(id: store.playback?.current) {
+            items = await store.load { try $0.history(offset: 0, limit: 40) } ?? []
+        }
     }
 }
 

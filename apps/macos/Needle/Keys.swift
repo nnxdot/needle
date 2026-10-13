@@ -6,8 +6,11 @@ import AppKit
 @MainActor
 enum Keys {
     static func install(_ store: @escaping () -> Store?) -> Any? {
-        NSEvent.addLocalMonitorForEvents(matching: [.keyDown, .otherMouseDown]) { event in
+        NSEvent.addLocalMonitorForEvents(matching: [.keyDown, .otherMouseDown, .scrollWheel]) { event in
             guard let store = store() else { return event }
+            if event.type == .scrollWheel {
+                return VolumeWheel.handle(event, store: store) ? nil : event
+            }
             if event.type == .otherMouseDown {
                 // Buttons 4 and 5: back and forward.
                 switch event.buttonNumber {

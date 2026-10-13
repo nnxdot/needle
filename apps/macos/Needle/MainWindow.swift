@@ -17,7 +17,8 @@ struct MainWindow: View {
                 get: { store.settings.layout.sidebarHidden && !store.settings.layout.compactSidebar ? .detailOnly : .all },
                 set: { store.setLayout(["sidebar_hidden": $0 == .detailOnly]) })) {
                 Sidebar()
-                    .navigationSplitViewColumnWidth(min: rail ? 64 : 200, ideal: rail ? 64 : 224, max: rail ? 64 : 290)
+                    .navigationSplitViewColumnWidth(min: rail ? 64 : 175, ideal: rail ? 64 : CGFloat(store.settings.layout.sidebarWidth), max: rail ? 64 : 260)
+                    .background { if !rail { WidthKeeper(key: "sidebar_width", range: 175...260, saved: store.settings.layout.sidebarWidth) } }
             } detail: {
                 detail
             }
@@ -77,7 +78,8 @@ struct MainWindow: View {
             }
             .inspector(isPresented: Binding(get: { store.settings.showInspector }, set: { store.set(["show_inspector": $0]) })) {
                 Inspector()
-                    .inspectorColumnWidth(min: 280, ideal: 310, max: 380)
+                    .inspectorColumnWidth(min: 240, ideal: CGFloat(store.settings.layout.inspectorWidth), max: 340)
+                    .background { WidthKeeper(key: "inspector_width", range: 240...340, saved: store.settings.layout.inspectorWidth) }
             }
             .toolbar { toolbar }
             .navigationTitle(title)
@@ -163,6 +165,30 @@ private struct SearchField: ViewModifier {
         let text = store.search as NSString
         let start = min(Int(s.start), text.length), end = min(max(Int(s.end), start), text.length)
         return text.replacingCharacters(in: NSRange(location: start, length: end - start), with: s.insert)
+    }
+}
+
+/// Remembers a column's width in the layout (shared with the layout file) a moment after it
+/// is dragged.
+struct WidthKeeper: View {
+    @Environment(Store.self) private var store
+    let key: String
+    let range: ClosedRange<Float>
+    let saved: Float
+    @State private var width: Float = 0
+
+    var body: some View {
+        GeometryReader { geo in
+            Color.clear
+                .onAppear { width = Float(geo.size.width) }
+                .onChange(of: geo.size.width) { _, w in width = Float(w) }
+        }
+        .task(id: width) {
+            try? await Task.sleep(for: .milliseconds(700))
+            guard !Task.isCancelled, width > 0 else { return }
+            let next = min(range.upperBound, max(range.lowerBound, width.rounded()))
+            if abs(next - saved) >= 2 { store.setLayout([key: next]) }
+        }
     }
 }
 
