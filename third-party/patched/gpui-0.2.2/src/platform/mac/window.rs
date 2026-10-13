@@ -4,7 +4,8 @@ use crate::{
     ForegroundExecutor, KeyDownEvent, Keystroke, Modifiers, ModifiersChangedEvent, MouseButton,
     MouseDownEvent, MouseMoveEvent, MouseUpEvent, Pixels, PlatformAtlas, PlatformDisplay,
     PlatformInput, PlatformWindow, Point, PromptButton, PromptLevel, RequestFrameOptions,
-    SharedString, Size, SystemWindowTab, Timer, WindowAppearance, WindowBackgroundAppearance,
+    GlassRegion, SharedString, Size, SystemWindowTab, Timer, WindowAppearance,
+    WindowBackgroundAppearance,
     WindowBounds, WindowControlArea, WindowKind, WindowParams, dispatch_get_main_queue,
     dispatch_sys::dispatch_async_f, platform::PlatformInputHandler, point, px, size,
 };
@@ -391,6 +392,10 @@ struct MacWindowState {
     native_window: id,
     native_view: NonNull<Object>,
     blurred_view: Option<id>,
+    /// The translucent backdrop behind glass regions, and one glass view per region, all
+    /// under the Metal view (see `set_glass_regions`).
+    glass_backdrop: Option<id>,
+    glass_views: Vec<id>,
     display_link: Option<DisplayLink>,
     renderer: renderer::Renderer,
     request_frame_callback: Option<Box<dyn FnMut(RequestFrameOptions)>>,
@@ -688,6 +693,8 @@ impl MacWindow {
                 native_window,
                 native_view: NonNull::new_unchecked(native_view),
                 blurred_view: None,
+                glass_backdrop: None,
+                glass_views: Vec::new(),
                 display_link: None,
                 renderer: renderer::new_renderer(
                     renderer_context,
@@ -1307,6 +1314,124 @@ impl PlatformWindow for MacWindow {
                     this.blurred_view = Some(blur_view.autorelease());
                 }
             }
+        }
+    }
+
+    fn set_glass_regions(&self, regions: &[GlassRegion]) {
+        let mut this = self.0.lock();
+        unsafe {
+            let content_view = this.native_window.contentView();
+            let native_view = this.native_view.as_ptr() as id;
+            let height = NSView::bounds(content_view).size.height;
+            // Liquid Glass (macOS 26); looked up by name, so older systems never need it.
+            let glass_class = Class::get("NSGlassEffectView");
+
+            if regions.is_empty() {
+                for view in this.glass_views.drain(..) {
+                    NSView::removeFromSuperview(view);
+                    let _: () = msg_send![view, release];
+                }
+                if let Some(backdrop) = this.glass_backdrop.take() {
+                    NSView::removeFromSuperview(backdrop);
+                    let _: () = msg_send![backdrop, release];
+                }
+                return;
+            }
+
+            // The window's own backdrop: the desktop behind, blurred and tinted as macOS's
+            // window backgrounds are (under-window background material, behind the window).
+            if this.glass_backdrop.is_none() {
+                let frame = NSView::bounds(content_view);
+                let backdrop: id = msg_send![class!(NSVisualEffectView), alloc];
+                let backdrop: id = msg_send![backdrop, initWithFrame: frame];
+                let _: () = msg_send![backdrop, setMaterial: 21 as NSInteger];
+                let _: () = msg_send![backdrop, setBlendingMode: 0 as NSInteger];
+                let _: () = msg_send![backdrop, setState: 0 as NSInteger];
+                backdrop.setAutoresizingMask_(NSViewWidthSizable | NSViewHeightSizable);
+                let _: () = msg_send![
+                    content_view,
+                    addSubview: backdrop
+                    positioned: NSWindowOrderingMode::NSWindowBelow
+                    relativeTo: native_view
+                ];
+                this.glass_backdrop = Some(backdrop);
+            }
+
+            while this.glass_views.len() > regions.len() {
+                if let Some(view) = this.glass_views.pop() {
+                    NSView::removeFromSuperview(view);
+                    let _: () = msg_send![view, release];
+                }
+            }
+            for (i, region) in regions.iter().enumerate() {
+                let bounds = region.bounds;
+                // AppKit counts from the bottom left.
+                let frame = NSRect::new(
+                    NSPoint::new(
+                        bounds.origin.x.0 as f64,
+                        height - (bounds.origin.y.0 + bounds.size.height.0) as f64,
+                    ),
+                    NSSize::new(bounds.size.width.0 as f64, bounds.size.height.0 as f64),
+                );
+                let view = match this.glass_views.get(i) {
+                    Some(view) => *view,
+                    None => {
+                        let view: id = match glass_class {
+                            Some(class) => {
+                                let view: id = msg_send![class, alloc];
+                                msg_send![view, initWithFrame: frame]
+                            }
+                            // Before macOS 26: the sidebar's vibrancy, rounded by its layer.
+                            None => {
+                                let view: id = msg_send![class!(NSVisualEffectView), alloc];
+                                let view: id = msg_send![view, initWithFrame: frame];
+                                let _: () = msg_send![view, setMaterial: 7 as NSInteger];
+                                let _: () = msg_send![view, setBlendingMode: 0 as NSInteger];
+                                let _: () = msg_send![view, setState: 0 as NSInteger];
+                                let _: () = msg_send![view, setWantsLayer: YES];
+                                view
+                            }
+                        };
+                        let _: () = msg_send![
+                            content_view,
+                            addSubview: view
+                            positioned: NSWindowOrderingMode::NSWindowBelow
+                            relativeTo: native_view
+                        ];
+                        this.glass_views.push(view);
+                        view
+                    }
+                };
+                let _: () = msg_send![view, setFrame: frame];
+                let radius = region.corner_radius.0 as f64;
+                if glass_class.is_some() {
+                    let _: () = msg_send![view, setCornerRadius: radius];
+                } else {
+                    let layer: id = msg_send![view, layer];
+                    if !layer.is_null() {
+                        let _: () = msg_send![layer, setCornerRadius: radius];
+                        let _: () = msg_send![layer, setMasksToBounds: YES];
+                    }
+                }
+            }
+        }
+    }
+
+    fn set_dark_appearance(&self, dark: Option<bool>) {
+        let this = self.0.lock();
+        unsafe {
+            let appearance: id = match dark {
+                Some(dark) => {
+                    let name = ns_string(if dark {
+                        "NSAppearanceNameDarkAqua"
+                    } else {
+                        "NSAppearanceNameAqua"
+                    });
+                    msg_send![class!(NSAppearance), appearanceNamed: name]
+                }
+                None => nil,
+            };
+            let _: () = msg_send![this.native_window, setAppearance: appearance];
         }
     }
 

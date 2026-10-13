@@ -1,9 +1,15 @@
-//! Window materials: Mica, Acrylic, or clear glass behind Needle's back layer.
+//! Window materials: Mica, Acrylic, or clear glass behind Needle's back layer on Windows;
+//! Liquid Glass on macOS.
 //!
 //! GPUI draws with premultiplied alpha into a DirectComposition surface, so any pixel Needle
 //! leaves see-through shows whatever Windows draws behind the window: the Mica or Acrylic
 //! system backdrop, or the desktop itself.
-use gpui::Window;
+//!
+//! On macOS the window's back is a translucent system backdrop, and the sidebar and the
+//! player float on the system's glass (`probe`): Liquid Glass on macOS 26 and newer, the
+//! sidebar's vibrancy before. AppKit draws these under GPUI's layer, so Needle leaves them
+//! see-through.
+use gpui::{IntoElement, Styled, Window, canvas, point, px};
 
 #[derive(Clone, Copy, PartialEq, Debug)]
 pub enum Material {
@@ -11,6 +17,8 @@ pub enum Material {
     Mica,
     Acrylic,
     Clear,
+    /// macOS: the system backdrop, with the sidebar and the player on glass.
+    Liquid,
 }
 
 impl Material {
@@ -30,6 +38,14 @@ impl Material {
         ("solid", "Solid", "No glass."),
     ];
     pub fn from_name(name: &str) -> Self {
+        // macOS has one kind of glass: on unless turned off.
+        if cfg!(target_os = "macos") {
+            return if name == "solid" {
+                Self::Solid
+            } else {
+                Self::Liquid
+            };
+        }
         match name {
             "solid" => Self::Solid,
             "acrylic" => Self::Acrylic,
@@ -50,8 +66,71 @@ pub fn system_allows_transparency() -> bool {
         )
         .is_none_or(|v| v != 0)
     }
+    // macOS makes its glass opaque by itself under Reduce transparency.
     #[cfg(not(windows))]
+    cfg!(target_os = "macos")
+}
+
+/// Whether this Mac has Liquid Glass (macOS 26 and newer); older Macs get the sidebar's
+/// frosted vibrancy instead.
+pub fn liquid_glass() -> bool {
+    #[cfg(target_os = "macos")]
+    {
+        static FOUND: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+        *FOUND.get_or_init(|| {
+            std::process::Command::new("sw_vers")
+                .arg("-productVersion")
+                .output()
+                .ok()
+                .and_then(|o| {
+                    String::from_utf8_lossy(&o.stdout)
+                        .trim()
+                        .split('.')
+                        .next()?
+                        .parse::<u32>()
+                        .ok()
+                })
+                .is_some_and(|major| major >= 26)
+        })
+    }
+    #[cfg(not(target_os = "macos"))]
     false
+}
+
+/// An invisible element that puts the system's glass under its parent (macOS), inset from its
+/// edges by `inset` (left, top, right, bottom), with round corners. With `to_top`, the glass
+/// reaches up to the window's top, past the title bar, as macOS's own sidebars do.
+pub fn probe(
+    name: &'static str,
+    inset: (f32, f32, f32, f32),
+    to_top: bool,
+    radius: f32,
+) -> impl IntoElement {
+    canvas(
+        move |bounds, window, _| {
+            let top = if to_top {
+                px(inset.1)
+            } else {
+                bounds.top() + px(inset.1)
+            };
+            let corners = gpui::Bounds::from_corners(
+                point(bounds.left() + px(inset.0), top),
+                point(bounds.right() - px(inset.2), bounds.bottom() - px(inset.3)),
+            );
+            window.set_glass_region(
+                name,
+                Some(gpui::GlassRegion {
+                    bounds: corners,
+                    corner_radius: px(radius),
+                }),
+            );
+        },
+        |_, _, _, _| {},
+    )
+    .absolute()
+    .top_0()
+    .left_0()
+    .size_full()
 }
 
 /// Windows 11 is build 22000 and later.
@@ -136,8 +215,11 @@ pub fn apply(
     use gpui::WindowBackgroundAppearance as A;
     // Acrylic and clear glass go through GPUI; Mica (and Acrylic on Windows 11) through DWM.
     let win11 = windows_11();
+    // macOS: the system's own controls and glass follow Needle's dark or light theme.
+    #[cfg(target_os = "macos")]
+    window.set_dark_appearance(Some(dark));
     window.set_background_appearance(match material {
-        Material::Clear => A::Transparent,
+        Material::Clear | Material::Liquid => A::Transparent,
         Material::Acrylic if !win11 => A::Blurred,
         _ => A::Opaque,
     });

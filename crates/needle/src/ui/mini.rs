@@ -384,6 +384,19 @@ impl Render for MiniView {
             super::glass::apply(window, material, p.dark);
             self.glass_applied = Some((material, p.dark));
         }
+        // macOS: the whole mini player is one pane of glass.
+        if material == super::glass::Material::Liquid {
+            let size = window.viewport_size();
+            window.set_glass_region(
+                "mini",
+                Some(gpui::GlassRegion {
+                    bounds: gpui::Bounds::new(gpui::point(px(0.), px(0.)), size),
+                    corner_radius: px(0.),
+                }),
+            );
+        } else {
+            window.set_glass_region("mini", None);
+        }
         let control = |id: &'static str, name: &'static str, tip: &'static str| {
             icon_button(id, name, tip).xsmall()
         };
