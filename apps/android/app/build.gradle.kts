@@ -27,6 +27,10 @@ android {
     }
 
     buildTypes {
+        debug {
+            // A test only: the Discord test installs beside the real Needle (another signature).
+            if (file("libs/discord_partner_sdk.aar").exists()) applicationIdSuffix = ".discordtest"
+        }
         release {
             isMinifyEnabled = false
         }
