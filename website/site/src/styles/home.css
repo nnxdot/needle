@@ -96,7 +96,7 @@
 
 /* ---------- hero: the record turns, the tonearm comes down */
 .hero {
-  position: relative; min-height: 100dvh; padding-top: clamp(112px, 16vh, 150px);
+  position: relative; min-height: 100svh; padding-top: clamp(112px, 16vh, 150px);
   overflow: clip; isolation: isolate;
   display: flex; flex-direction: column; align-items: center;
 }
@@ -215,7 +215,7 @@
   background: linear-gradient(180deg, var(--bg), color-mix(in oklab, var(--bg) 40%, transparent) 25%, color-mix(in oklab, var(--bg) 40%, transparent) 75%, var(--bg));
 }
 .lyrics-in {
-  min-height: 100dvh; padding: 120px 0; display: grid; grid-template-columns: minmax(0, 5fr) minmax(0, 7fr);
+  min-height: 100svh; padding: 120px 0; display: grid; grid-template-columns: minmax(0, 5fr) minmax(0, 7fr);
   gap: clamp(32px, 6vw, 88px); align-items: center;
 }
 .lyrics-copy h2 { font-size: clamp(2.6rem, 5.4vw, 4.6rem); letter-spacing: -.05em; padding-bottom: .08em; margin-bottom: 24px; }
@@ -230,7 +230,7 @@
 .lp-line span { display: inline; }
 
 /* ---------- highlights, moving across */
-.pan { position: relative; overflow: clip; min-height: 100dvh; display: flex; align-items: center; padding: 88px 0 40px; }
+.pan { position: relative; overflow: clip; min-height: 100svh; display: flex; align-items: center; padding: 88px 0 40px; }
 /* On a computer without the script (or with reduced motion) the row scrolls sideways by hand; the script pins
    the section and moves the row as the page scrolls. */
 .pan-track {
@@ -317,7 +317,7 @@
 
 /* ---------- themes */
 .themes { position: relative; overflow: clip; }
-.themes-in { min-height: 100dvh; padding: 96px 0 32px; display: flex; flex-direction: column; justify-content: center; }
+.themes-in { min-height: 100svh; padding: 96px 0 32px; display: flex; flex-direction: column; justify-content: center; }
 .themes::before {
   content: ""; position: absolute; inset: 20% 0 0; z-index: -1; pointer-events: none;
   background: radial-gradient(50% 50% at 50% 60%, color-mix(in oklab, var(--look-glow, #e2b46c) 22%, transparent), transparent 70%);
@@ -327,7 +327,7 @@
 .themes-copy h2 { font-size: clamp(2.4rem, 5vw, 4.4rem); letter-spacing: -.055em; padding-bottom: .08em; }
 .themes-copy > p { color: var(--ink-2); font-size: 1.15rem; max-width: 52ch; margin: 18px 0 0; }
 .themes-links { margin: 16px 0 0; display: flex; gap: 28px; flex-wrap: wrap; justify-content: center; }
-.themes-stage { width: min(1060px, 92vw, calc((100dvh - 430px) * 1.74)); min-width: min(560px, 92vw); margin: 36px auto 0; }
+.themes-stage { width: min(1060px, 92vw, calc((100svh - 430px) * 1.74)); min-width: min(560px, 92vw); margin: 36px auto 0; }
 .look-names { margin: 18px 0 0; display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; }
 .look-names button { text-align: center; padding: 12px; border: 0; background: none; cursor: pointer; border-radius: var(--r-small); color: var(--ink-3); transition: color .5s var(--ease), background .5s var(--ease); }
 .look-names button:hover { color: var(--ink-2); }
@@ -584,12 +584,12 @@
   .lp-art { display: grid; grid-template-columns: 96px 1fr; gap: 16px; align-items: center; }
   .lp-art p { margin: 0; }
   .lp-lines { height: 260px; }
-  .pan { padding: 6vh 0; min-height: 0; display: block; }
+  .pan { padding: 16px 0 6vh; min-height: 0; display: block; }
   /* On a phone the cards stack, one under the other. */
   .pan-track { flex-direction: column; overflow: visible; scroll-snap-type: none; gap: 20px; padding-inline: 16px; }
   .pan-intro { width: auto; padding: 0 8px 12px; }
   .card { width: 100%; }
-  .lyrics-in { min-height: 0; padding: 96px 0 72px; }
+  .lyrics-in { min-height: 0; padding: 96px 0 8px; }
   .bento { grid-template-columns: 1fr; grid-template-areas: "eq" "stems" "fmt" "play" "smart" "tidy" "home"; }
   .look-names { grid-template-columns: repeat(2, 1fr); }
   .dl-tab .icon { display: none; }
