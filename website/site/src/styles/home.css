@@ -536,6 +536,15 @@
 .android-points .icon { width: 20px; height: 20px; color: var(--amber-text); }
 .android-more { text-align: center; margin: 32px 0 0; }
 
+/* ---------- phones: each moment stays on the screen (sticky) while the scroll plays it */
+@media (max-width: 767px) and (prefers-reduced-motion: no-preference) {
+  .statement { height: 240svh; padding: 0; }
+  .statement-text { position: sticky; top: 0; height: 100svh; display: flex; flex-wrap: wrap; align-content: center; column-gap: .26em; }
+  .lp-track::after, .ts-track::after { content: ""; display: block; height: 150svh; }
+  .lyrics-player { position: sticky; top: max(88px, calc(50svh - 190px)); }
+  .themes-stage { position: sticky; top: max(88px, calc(50svh - 270px)); }
+}
+
 /* ---------- smaller screens */
 @media (max-width: 1100px) {
   .chip-lyric { left: 1%; }
