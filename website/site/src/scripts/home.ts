@@ -218,8 +218,12 @@ mm.add(
       el.style.top = `${at}px`;
       return at;
     };
-    const seen = (trigger: gsap.DOMTarget, start = "top 80%"): ScrollTrigger.Vars =>
-      ({ trigger, start, end: "bottom top", toggleActions: "play reset play reverse" });
+    // On a phone, things appear as soon as they come up from the bottom of the screen, and stay. The
+    // address bar grows and shrinks while scrolling, so later points could fire too late or too soon.
+    const early = (start: string) => (wide ? start : "top 96%");
+    const seen = (trigger: gsap.DOMTarget, start = "top 80%"): ScrollTrigger.Vars => wide
+      ? { trigger, start, end: "bottom top", toggleActions: "play reset play reverse" }
+      : { trigger, start: early(start) };
 
     if (!motion) {
       // Still: the themes page cycles by tapping its names; nothing moves by itself.
@@ -297,7 +301,7 @@ mm.add(
       });
     }
     gsap.fromTo(".lyrics-bg", { scale: 1.2, rotate: 0 }, { scale: 1.45, rotate: 8, ease: "none", scrollTrigger: { trigger: "[data-lyrics]", start: "top bottom", end: "bottom top", scrub: true } });
-    gsap.from(".lyrics-copy > *", { opacity: 0, y: 40, filter: "blur(6px)", stagger: .1, duration: 1, ease: "expo.out", scrollTrigger: { trigger: "[data-lyrics]", start: "top 60%" } });
+    gsap.from(".lyrics-copy > *", { opacity: 0, y: 40, filter: "blur(6px)", stagger: .1, duration: 1, ease: "expo.out", scrollTrigger: { trigger: "[data-lyrics]", start: early("top 60%") } });
 
     /* The highlights move across while the page scrolls down. */
     const track = $("[data-pan-track]")!;
@@ -314,7 +318,7 @@ mm.add(
     }
     const inPan = (target: Element | null): ScrollTrigger.Vars => panTween
       ? { trigger: target, containerAnimation: panTween, start: "left 85%" }
-      : { trigger: target, start: "top 80%", horizontal: false };
+      : { trigger: target, start: early("top 80%"), horizontal: false };
     for (const card of $$(".card")) {
       gsap.from($$(".card-art > *", card), { opacity: 0, y: 40, scale: .94, duration: 1.1, ease: "expo.out", scrollTrigger: inPan(card) });
     }
@@ -323,7 +327,7 @@ mm.add(
     gsap.from(".radio-chips span", { opacity: 0, scale: .6, stagger: .08, duration: .7, ease: "back.out(2)", scrollTrigger: inPan($(".card-radio")) });
     gsap.from(".srow", { opacity: 0, y: 30, stagger: .1, duration: .9, ease: "expo.out", scrollTrigger: inPan($(".card-server")) });
     gsap.from(".year-bars span", { scaleY: 0, stagger: .05, duration: 1, ease: "expo.out", scrollTrigger: inPan($(".card-year")) });
-    gsap.from(".pan-intro > *", { opacity: 0, y: 40, stagger: .1, duration: 1, ease: "expo.out", scrollTrigger: { trigger: pan, start: "top 70%" } });
+    gsap.from(".pan-intro > *", { opacity: 0, y: 40, stagger: .1, duration: 1, ease: "expo.out", scrollTrigger: { trigger: pan, start: early("top 70%") } });
 
     /* Themes: the window changes its look as you scroll past. */
     const looks = ["night", "midnight", "day", "sakura"];
@@ -350,7 +354,7 @@ mm.add(
         onUpdate: (st) => setLook(looks[Math.min(3, Math.floor(st.progress * 4.2))]),
       });
     }
-    gsap.from(".themes-copy > *", { opacity: 0, y: 40, stagger: .1, duration: 1, ease: "expo.out", scrollTrigger: { trigger: "[data-themes]", start: "top 70%" } });
+    gsap.from(".themes-copy > *", { opacity: 0, y: 40, stagger: .1, duration: 1, ease: "expo.out", scrollTrigger: { trigger: "[data-themes]", start: early("top 70%") } });
 
     /* Android: the phones rise and fan out. */
     gsap.timeline({ scrollTrigger: seen(".phones", "top 85%"), defaults: { duration: 1.3, ease: "expo.out" } })
@@ -366,9 +370,9 @@ mm.add(
     }
 
     /* Sound: the cells rise in; the EQ curve draws itself; the two songs join. */
-    gsap.from(".sound-title", { opacity: 0, y: 60, duration: 1.2, ease: "expo.out", scrollTrigger: { trigger: ".sound", start: "top 75%" } });
+    gsap.from(".sound-title", { opacity: 0, y: 60, duration: 1.2, ease: "expo.out", scrollTrigger: { trigger: ".sound", start: early("top 75%") } });
     ScrollTrigger.batch(".cell", {
-      start: "top 88%",
+      start: early("top 88%"),
       onEnter: (cells) => gsap.from(cells, { opacity: 0, y: 70, scale: .97, stagger: .08, duration: 1.1, ease: "expo.out" }),
       once: true,
     });
@@ -383,30 +387,30 @@ mm.add(
           .fromTo(line, { strokeDasharray: length, strokeDashoffset: length }, { strokeDashoffset: 0, duration: 1.4, ease: "power2.inOut" })
           .from(".eq-area", { opacity: 0, duration: .8 }, .5);
       }
-      gsap.from(".eq-dot", { scale: 0, transformOrigin: "center", stagger: .12, duration: .6, ease: "back.out(3)", scrollTrigger: { trigger: ".c-eq", start: "center 60%" } });
+      gsap.from(".eq-dot", { scale: 0, transformOrigin: "center", stagger: .12, duration: .6, ease: "back.out(3)", scrollTrigger: { trigger: ".c-eq", start: early("center 60%") } });
       // The bands keep moving a little, as if someone were tuning them.
       $$<SVGCircleElement>(".eq-dot").forEach((dot, i) => gsap.to(dot, { y: i % 2 ? 14 : -14, duration: 2.4 + i * .3, ease: "sine.inOut", repeat: -1, yoyo: true, delay: 1.2 }));
     }
     gsap.fromTo(".j-b", { x: 28 }, wide
       ? { x: 0, ease: "power2.out", scrollTrigger: { trigger: ".c-play", start: "top 85%", end: "center 55%", scrub: true } }
       : { x: 0, duration: 1.2, delay: .3, ease: "power3.inOut", scrollTrigger: seen(".c-play") });
-    gsap.timeline({ scrollTrigger: { trigger: ".c-tidy", start: "center 70%" } })
+    gsap.timeline({ scrollTrigger: { trigger: ".c-tidy", start: early("center 70%") } })
       .to(".dupe.gone", { y: -28, opacity: 0, scale: .9, duration: .8, ease: "power3.in", delay: .6 })
       .to(".dupe.keep", { scale: 1.04, duration: .25, ease: "power2.out" })
       .to(".dupe.keep", { scale: 1, duration: .6, ease: "elastic.out(1, .4)" })
       .to(".merged", { opacity: 1, duration: .5 }, "-=.4");
     $$(".stem-wave").forEach((wave, i) => gsap.to(wave, { backgroundPositionX: 60, duration: 1.4 + i * .2, ease: "none", repeat: -1 }));
-    gsap.from(".home-list li", { opacity: 0, y: 24, stagger: .06, duration: .8, ease: "expo.out", scrollTrigger: { trigger: ".c-home", start: "top 85%" } });
+    gsap.from(".home-list li", { opacity: 0, y: 24, stagger: .06, duration: .8, ease: "expo.out", scrollTrigger: { trigger: ".c-home", start: early("top 85%") } });
 
     /* Privacy */
     const privacyTitle = SplitText.create(".private-title", { type: "words", mask: "words" });
-    gsap.from(privacyTitle.words, { yPercent: 110, stagger: .08, duration: 1.2, ease: "expo.out", scrollTrigger: { trigger: ".private", start: "top 70%" } });
-    gsap.from(".facts li", { opacity: 0, y: 50, stagger: .12, duration: 1.1, ease: "expo.out", scrollTrigger: { trigger: ".facts", start: "top 80%" } });
+    gsap.from(privacyTitle.words, { yPercent: 110, stagger: .08, duration: 1.2, ease: "expo.out", scrollTrigger: { trigger: ".private", start: early("top 70%") } });
+    gsap.from(".facts li", { opacity: 0, y: 50, stagger: .12, duration: 1.1, ease: "expo.out", scrollTrigger: { trigger: ".facts", start: early("top 80%") } });
 
     /* Download */
-    gsap.from(".dl-head > *", { opacity: 0, y: 40, stagger: .1, duration: 1.1, ease: "expo.out", scrollTrigger: { trigger: "[data-download]", start: "top 70%" } });
+    gsap.from(".dl-head > *", { opacity: 0, y: 40, stagger: .1, duration: 1.1, ease: "expo.out", scrollTrigger: { trigger: "[data-download]", start: early("top 70%") } });
     gsap.to(".dl-icon", { y: -10, duration: 3, ease: "sine.inOut", repeat: -1, yoyo: true });
-    gsap.from(".dl-tabs, .dl-panels", { opacity: 0, y: 50, stagger: .12, duration: 1.1, ease: "expo.out", scrollTrigger: { trigger: ".dl-tabs", start: "top 85%" } });
+    gsap.from(".dl-tabs, .dl-panels", { opacity: 0, y: 50, stagger: .12, duration: 1.1, ease: "expo.out", scrollTrigger: { trigger: ".dl-tabs", start: early("top 85%") } });
 
     if (fine) {
       /* Devices lean toward the pointer. */
