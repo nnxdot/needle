@@ -26,12 +26,14 @@ struct MainWindow: View {
                 get: { store.settings.layout.sidebarHidden ? .detailOnly : .all },
                 set: { store.setLayout(["sidebar_hidden": $0 == .detailOnly]) })) {
                 Sidebar()
+                    .toolbar(removing: .sidebarToggle)
                     .navigationSplitViewColumnWidth(min: 175, ideal: sidebarStart, max: 260)
                     .background { WidthKeeper(key: "sidebar_width", range: 175...260, saved: store.settings.layout.sidebarWidth) }
             } detail: {
                 detail
             }
             .modifier(SearchField(searchFocused: $searchFocused, suggestions: suggestions, rail: rail))
+            .toolbar(removing: .sidebarToggle)
             .toolbar(store.big && !store.immersive ? .hidden : .visible, for: .windowToolbar)
             // No band behind the toolbar over the page only: the window's one background shows
             // through the whole top bar, the search field included.
@@ -64,9 +66,8 @@ struct MainWindow: View {
         .animation(store.motion ? .smooth(duration: 0.18) : nil, value: store.palette)
         .tint(colors.accent)
         .preferredColorScheme(colors.dark ? .dark : .light)
-        .frame(minWidth: leastWidth, minHeight: 620)
-        .onChange(of: leastWidth) { _, width in makeRoom(width) }
-        .onAppear { makeRoom(leastWidth) }
+        .frame(minWidth: Store.leastWidth(store.settings), minHeight: 620)
+        .onAppear { Store.makeRoom(Store.leastWidth(store.settings)) }
         .onDrop(of: [.fileURL], isTargeted: nil) { providers in
             drop(providers)
             return true
@@ -85,7 +86,7 @@ struct MainWindow: View {
     }
 
     #if DEBUG
-    /// Test builds: `--show settings|mini|big|palette|panel-later` opens that at the start (the
+    /// Test builds: `--show settings|mini|big|palette|panel-later|sidebar-flips` opens that at the start (the
     /// side panel two seconds later), to look at it.
     private func showForTest() {
         let arguments = CommandLine.arguments
@@ -101,6 +102,13 @@ struct MainWindow: View {
         case "mini": openWindow(id: "mini")
         case "big": store.big = true
         case "palette": store.palette = true
+        case "sidebar-flips":
+            Task {
+                for _ in 0..<6 {
+                    try? await Task.sleep(for: .seconds(1.5))
+                    store.setLayout(["sidebar_hidden": !store.settings.layout.sidebarHidden])
+                }
+            }
         case "panel-later":
             Task { try? await Task.sleep(for: .seconds(2)); store.set(["show_inspector": true]) }
         default: break
@@ -109,28 +117,6 @@ struct MainWindow: View {
     #endif
 
     private var rail: Bool { store.settings.layout.sidebarHidden && store.settings.layout.compactSidebar }
-
-    /// The narrowest the window may be with the columns that are open: the page needs about
-    /// 560 points beside the sidebar and the side panel. (Narrower, SwiftUI's split view kept
-    /// moving the columns and never settled, and AppKit stopped the app.)
-    private var leastWidth: CGFloat {
-        let layout = store.settings.layout
-        let sidebar: CGFloat = layout.sidebarHidden ? (layout.compactSidebar ? Rail.width : 0) : 220
-        return max(760, 560 + sidebar + (store.settings.showInspector ? 310 : 0))
-    }
-
-    /// Widens the window when a column opens and there is no room for it.
-    private func makeRoom(_ width: CGFloat) {
-        guard let window = NSApp.windows.first(where: { $0.identifier?.rawValue.hasPrefix("main") == true }),
-              !window.styleMask.contains(.fullScreen), window.frame.width < width else { return }
-        var frame = window.frame
-        frame.size.width = width
-        if let screen = window.screen?.visibleFrame {
-            frame.size.width = min(width, screen.width)
-            frame.origin.x = max(screen.minX, min(frame.origin.x, screen.maxX - frame.width))
-        }
-        window.setFrame(frame, display: true, animate: store.motion)
-    }
 
     #if DEBUG
     /// Test builds: `--drop page,player,panel` leaves those parts out, to find which one a
@@ -182,7 +168,10 @@ struct MainWindow: View {
 
     @ToolbarContentBuilder
     private var toolbar: some ToolbarContent {
+        // The sidebar's button leads Back and Forward, in one place whether the sidebar is open,
+        // folded, or a strip of icons.
         ToolbarItemGroup(placement: .navigation) {
+            SidebarButton()
             Button { store.goBack() } label: { Image(systemName: "chevron.left") }
                 .help("Back · ⌘[")
                 .disabled(store.back.isEmpty)
@@ -261,6 +250,19 @@ private struct SearchField: ViewModifier {
         let text = store.search as NSString
         let start = min(Int(s.start), text.length), end = min(max(Int(s.end), start), text.length)
         return text.replacingCharacters(in: NSRange(location: start, length: end - start), with: s.insert)
+    }
+}
+
+/// Folds the sidebar (to its strip of icons, with the compact sidebar) or opens it. Needle's
+/// own, with Back and Forward: the system's jumped between the sidebar's far edge and the
+/// toolbar.
+struct SidebarButton: View {
+    private var store: Store { .shared }
+
+    var body: some View {
+        let hidden = store.settings.layout.sidebarHidden
+        Button { store.setLayout(["sidebar_hidden": !hidden]) } label: { Image(systemName: "sidebar.left") }
+            .help(hidden ? "Show the sidebar · ⌃⌘S" : "Hide the sidebar · ⌃⌘S")
     }
 }
 
