@@ -19,22 +19,15 @@ struct MainWindow: View {
         @Bindable var store = store
         let colors = store.colors
         ZStack {
+            // Folded, the sidebar's column is closed; with the compact sidebar a strip of icons
+            // (`Rail`) sits beside the page instead. (As a split view column of a fixed width,
+            // the strip crashed the app when its edge was dragged.)
             NavigationSplitView(columnVisibility: Binding(
-                get: { store.settings.layout.sidebarHidden && !store.settings.layout.compactSidebar ? .detailOnly : .all },
-                set: { asked in
-                    // The strip of icons counts as an open sidebar to SwiftUI, so its button
-                    // always asks to close it: with the compact sidebar, it switches between
-                    // the strip and the whole sidebar.
-                    if store.settings.layout.compactSidebar {
-                        if asked == .detailOnly { store.setLayout(["sidebar_hidden": !store.settings.layout.sidebarHidden]) }
-                    } else {
-                        store.setLayout(["sidebar_hidden": asked == .detailOnly])
-                    }
-                })) {
+                get: { store.settings.layout.sidebarHidden ? .detailOnly : .all },
+                set: { store.setLayout(["sidebar_hidden": $0 == .detailOnly]) })) {
                 Sidebar()
-                    .toolbar(removing: rail ? .sidebarToggle : nil)
-                    .navigationSplitViewColumnWidth(min: rail ? 84 : 175, ideal: rail ? 84 : sidebarStart, max: rail ? 84 : 260)
-                    .background { if !rail { WidthKeeper(key: "sidebar_width", range: 175...260, saved: store.settings.layout.sidebarWidth) } }
+                    .navigationSplitViewColumnWidth(min: 175, ideal: sidebarStart, max: 260)
+                    .background { WidthKeeper(key: "sidebar_width", range: 175...260, saved: store.settings.layout.sidebarWidth) }
             } detail: {
                 detail
             }
@@ -122,7 +115,7 @@ struct MainWindow: View {
     /// moving the columns and never settled, and AppKit stopped the app.)
     private var leastWidth: CGFloat {
         let layout = store.settings.layout
-        let sidebar: CGFloat = layout.sidebarHidden ? (layout.compactSidebar ? 84 : 0) : 220
+        let sidebar: CGFloat = layout.sidebarHidden ? (layout.compactSidebar ? Rail.width : 0) : 220
         return max(760, 560 + sidebar + (store.settings.showInspector ? 310 : 0))
     }
 
@@ -153,6 +146,22 @@ struct MainWindow: View {
 
     @ViewBuilder
     private var detail: some View {
+        HStack(spacing: 0) {
+            if rail { Rail() }
+            page
+        }
+        .inspector(isPresented: Binding(get: { store.settings.showInspector }, set: { store.set(["show_inspector": $0]) })) {
+            Group { if Self.drop.contains("panel") { Color.clear } else { Inspector() } }
+                .inspectorColumnWidth(min: 240, ideal: inspectorStart, max: 340)
+                .background { WidthKeeper(key: "inspector_width", range: 240...340, saved: store.settings.layout.inspectorWidth) }
+        }
+        .toolbar { toolbar }
+        .navigationTitle(title)
+    }
+
+    /// The page and the player at its foot.
+    @ViewBuilder
+    private var page: some View {
         Group { if Self.drop.contains("page") { Color.clear } else { PageView() } }
             // The page column's least size is its own, not its page's: a page that asked for
             // more room than the window had set the split view fighting over the columns until
@@ -164,13 +173,6 @@ struct MainWindow: View {
                     PlayerBar().padding(.horizontal, 14).padding(.bottom, 12).padding(.top, 4)
                 }
             }
-            .inspector(isPresented: Binding(get: { store.settings.showInspector }, set: { store.set(["show_inspector": $0]) })) {
-                Group { if Self.drop.contains("panel") { Color.clear } else { Inspector() } }
-                    .inspectorColumnWidth(min: 240, ideal: inspectorStart, max: 340)
-                    .background { WidthKeeper(key: "inspector_width", range: 240...340, saved: store.settings.layout.inspectorWidth) }
-            }
-            .toolbar { toolbar }
-            .navigationTitle(title)
     }
 
     private var title: String {
@@ -181,10 +183,6 @@ struct MainWindow: View {
     @ToolbarContentBuilder
     private var toolbar: some ToolbarContent {
         ToolbarItemGroup(placement: .navigation) {
-            if rail {
-                Button { store.setLayout(["sidebar_hidden": false]) } label: { Image(systemName: "sidebar.left") }
-                    .help("Show the whole sidebar")
-            }
             Button { store.goBack() } label: { Image(systemName: "chevron.left") }
                 .help("Back · ⌘[")
                 .disabled(store.back.isEmpty)
