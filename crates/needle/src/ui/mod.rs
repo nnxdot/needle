@@ -2843,16 +2843,26 @@ impl Render for AppView {
             }))
             // macOS glass goes when its part does (the parts set it while they paint).
             .map(|el| {
-                let liquid = self.material() == glass::Material::Liquid;
-                let covered = self.immersive || (self.big && !self.big_moving);
-                // Behind the glass: the bars' own colour, as macOS's windows are behind their
-                // floating sidebar, not the desktop.
-                window.set_glass_backdrop(liquid.then_some(p.chrome));
-                if !liquid || covered || sidebar <= 0. {
+                let floating = self.floating();
+                // Behind the glass and the page: the music's colours, or the page's colour.
+                window.set_glass_backdrop(self.liquid().then(|| self.glass_backdrop(cx)));
+                if !floating || sidebar <= 0. {
                     window.set_glass_region("sidebar", None);
                 }
-                if !liquid || covered || self.settings.layout.player_on_top {
+                if !floating || self.settings.layout.player_on_top {
                     window.set_glass_region("player", None);
+                }
+                if !floating || !show_panel {
+                    window.set_glass_region("panel", None);
+                }
+                if !floating
+                    || self.settings.layout.search_hidden
+                    || self.settings.layout.player_on_top
+                {
+                    window.set_glass_region("search", None);
+                }
+                if !floating || self.settings.layout.player_on_top {
+                    window.set_glass_region("back", None);
                 }
                 el
             })
@@ -2876,48 +2886,70 @@ impl Render for AppView {
                         el.child(self.immersive_view(window, cx))
                     })
                     .when(!self.immersive && (!self.big || self.big_moving), |el| {
-                        el.child(
-                            div()
-                                .flex_1()
-                                .min_h_0()
-                                .flex()
-                                .bg(p.back)
-                                .when(sidebar > 0., |el| el.child(self.sidebar(sidebar, cx)))
-                                .child(
-                                    // The content surface: flush with the window's right edge
-                                    // and the player, one hairline and a rounded corner where it
-                                    // meets the sidebar and title bar, like Windows 11's own apps.
-                                    div()
-                                        .id("sheet")
-                                        .flex_1()
-                                        .min_w_0()
-                                        .relative()
-                                        .flex()
-                                        .rounded_tl(px(10.))
-                                        .overflow_hidden()
-                                        .bg(p.canvas)
-                                        .border_t_1()
-                                        .border_l_1()
-                                        .border_color(if p.dark { p.line_soft } else { p.line })
-                                        .child(backdrop)
-                                        .child(self.main(content_width, window, cx))
-                                        .when(show_panel, |el| {
-                                            el.child(self.panel(panel_width, window, cx))
-                                        }),
-                                ),
-                        )
+                        // macOS Liquid Glass: one surface (the system draws it, under Needle's
+                        // layer), with the sidebar, the player, and the side panel floating on it;
+                        // the player sits beside the sidebar, which runs the window's height.
+                        let floating = self.floating();
+                        let sheet = div()
+                            .id("sheet")
+                            .flex_1()
+                            .min_w_0()
+                            .min_h_0()
+                            .relative()
+                            .flex()
+                            .overflow_hidden()
+                            // Elsewhere, the content surface: flush with the window's right edge
+                            // and the player, one hairline and a rounded corner where it meets
+                            // the sidebar and title bar, like Windows 11's own apps.
+                            .when(!floating, |el| {
+                                el.rounded_tl(px(10.))
+                                    .bg(p.canvas)
+                                    .border_t_1()
+                                    .border_l_1()
+                                    .border_color(if p.dark { p.line_soft } else { p.line })
+                            })
+                            .child(backdrop)
+                            .child(self.main(content_width, window, cx))
+                            .when(show_panel, |el| {
+                                el.child(self.panel(panel_width, window, cx))
+                            });
                         // The player at the bottom; or, with it in the title bar, the search
                         // field there (unless hidden too).
-                        .map(|el| {
-                            if !self.settings.layout.player_on_top {
-                                el.child(self.player_bar(width, cx))
-                            } else if !self.settings.layout.search_hidden && !self.big {
-                                // (Over the big player, the title bar has the search field.)
-                                el.child(self.search_strip(window, cx))
-                            } else {
-                                el
-                            }
-                        })
+                        let foot = if !self.settings.layout.player_on_top {
+                            Some(
+                                self.player_bar(
+                                    if floating { width - px(sidebar) } else { width },
+                                    cx,
+                                )
+                                .into_any_element(),
+                            )
+                        } else if !self.settings.layout.search_hidden && !self.big {
+                            // (Over the big player, the title bar has the search field.)
+                            Some(self.search_strip(window, cx).into_any_element())
+                        } else {
+                            None
+                        };
+                        let row = div()
+                            .flex_1()
+                            .min_h_0()
+                            .flex()
+                            .bg(p.back)
+                            .when(sidebar > 0., |el| el.child(self.sidebar(sidebar, cx)));
+                        if floating {
+                            el.child(
+                                row.child(
+                                    div()
+                                        .flex_1()
+                                        .min_w_0()
+                                        .flex()
+                                        .flex_col()
+                                        .child(sheet)
+                                        .children(foot),
+                                ),
+                            )
+                        } else {
+                            el.child(row.child(sheet)).children(foot)
+                        }
                     })
                     .when(!self.immersive, |el| el.children(big_layer)),
             )

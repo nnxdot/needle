@@ -33,14 +33,27 @@ impl AppView {
             Panel::Lyrics => 2,
         };
         let weak = cx.entity().downgrade();
+        let floating = self.floating();
         div()
             .w(px(width))
             .flex_shrink_0()
             .h_full()
+            .relative()
             .flex()
             .flex_col()
-            .border_l_1()
-            .border_color(pal(cx).line_soft)
+            // macOS: a pane of glass beside the page, like macOS's inspectors.
+            .when(floating, |el| {
+                el.p(px(8.)).child(super::glass::probe(
+                    "panel",
+                    (8., 8., 10., 8.),
+                    false,
+                    20.,
+                    true,
+                ))
+            })
+            .when(!floating, |el| {
+                el.border_l_1().border_color(pal(cx).line_soft)
+            })
             .child(
                 div()
                     .h(px(52.))

@@ -68,11 +68,30 @@ impl AppView {
                         .items_center()
                         .gap_2()
                         .child(
-                            icon_button("back", "chevron-left", "Back · Alt+Left")
-                                .small()
-                                .disabled(self.back.is_empty())
-                                .on_click(
-                                    cx.listener(|this, _, window, cx| this.go_back(window, cx)),
+                            div()
+                                .relative()
+                                .flex_shrink_0()
+                                .size(px(32.))
+                                .flex()
+                                .items_center()
+                                .justify_center()
+                                // macOS: a round pane of glass, as in macOS's own toolbars.
+                                .when(self.floating(), |el| {
+                                    el.child(super::glass::probe(
+                                        "back",
+                                        (0., 0., 0., 0.),
+                                        false,
+                                        16.,
+                                        false,
+                                    ))
+                                })
+                                .child(
+                                    icon_button("back", "chevron-left", "Back · Alt+Left")
+                                        .small()
+                                        .disabled(self.back.is_empty())
+                                        .on_click(cx.listener(|this, _, window, cx| {
+                                            this.go_back(window, cx)
+                                        })),
                                 ),
                         )
                         .child(self.search_group(search_width, narrow, false, window, cx))
@@ -251,7 +270,7 @@ impl AppView {
     pub(super) fn sidebar(&self, width: f32, cx: &mut Context<Self>) -> impl IntoElement {
         let p = pal(cx);
         let rail = self.settings.layout.sidebar_hidden;
-        let liquid = self.material() == super::glass::Material::Liquid;
+        let floating = self.floating();
         div()
             .w(px(width))
             .flex_shrink_0()
@@ -259,9 +278,16 @@ impl AppView {
             .relative()
             .flex()
             .flex_col()
-            // macOS: the sidebar floats on glass from the window's top, the window buttons in it.
-            .when(liquid, |el| {
-                el.child(super::glass::probe("sidebar", (8., 8., 6., 8.), true, 18.))
+            // macOS: the sidebar floats on glass from the window's top to its foot, the window
+            // buttons in it.
+            .when(floating, |el| {
+                el.pb(px(10.)).child(super::glass::probe(
+                    "sidebar",
+                    (8., 8., 6., 8.),
+                    true,
+                    20.,
+                    true,
+                ))
             })
             // Everything above the bottom buttons scrolls together, so a short window never
             // pushes Settings and the others out of reach.
@@ -620,14 +646,24 @@ impl AppView {
         let current = self.playback.current.as_ref().map(|i| i.track.clone());
         let wide = width > px(1180.);
         let (path, path_detail, exclusive) = self.signal_path(cx);
-        let liquid = self.material() == super::glass::Material::Liquid;
+        let floating = self.floating();
         div()
-            .h(px(80.))
+            .h(px(if floating { 68. } else { 80. }))
             .flex_shrink_0()
             .relative()
-            // macOS: the player floats on glass.
-            .when(liquid, |el| {
-                el.child(super::glass::probe("player", (8., 2., 8., 8.), false, 18.))
+            // macOS: the player floats on its own pane of glass, clear of the window's edges.
+            .when(floating, |el| {
+                el.mx(px(12.))
+                    .mb(px(10.))
+                    .mt(px(2.))
+                    .rounded(px(24.))
+                    .child(super::glass::probe(
+                        "player",
+                        (0., 0., 0., 0.),
+                        false,
+                        24.,
+                        true,
+                    ))
             })
             // The playing cover's colour glows in from the left.
             .bg(linear_gradient(
@@ -1180,6 +1216,7 @@ impl AppView {
             .is_some_and(|e| e.starts_with("Matches rule"))
             && !self.search_text(cx).is_empty();
         let field = !self.settings.layout.search_hidden;
+        let glass_field = self.floating() && !above;
         div()
             .flex()
             .items_center()
@@ -1191,15 +1228,29 @@ impl AppView {
                         // One clean field: our own fill, edge, and height; the input inside
                         // draws no box of its own.
                         .h(px(32.))
-                        .rounded(px(8.))
-                        .bg(if p.back.a < 1. {
-                            p.raised.opacity(0.75)
-                        } else {
-                            p.raised
+                        .rounded(px(if glass_field { 16. } else { 8. }))
+                        // macOS: a capsule of glass, as in macOS's own toolbars.
+                        .when(glass_field, |el| {
+                            el.child(super::glass::probe(
+                                "search",
+                                (0., 0., 0., 0.),
+                                false,
+                                16.,
+                                false,
+                            ))
+                        })
+                        .when(!glass_field, |el| {
+                            el.bg(if p.back.a < 1. {
+                                p.raised.opacity(0.75)
+                            } else {
+                                p.raised
+                            })
                         })
                         .border_1()
                         .border_color(if search_focused {
                             p.accent.opacity(0.6)
+                        } else if glass_field {
+                            gpui::transparent_black()
                         } else {
                             p.line_soft
                         })
