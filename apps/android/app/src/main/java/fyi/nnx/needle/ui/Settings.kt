@@ -51,6 +51,7 @@ import androidx.compose.material.icons.rounded.Folder
 import androidx.compose.material.icons.rounded.GraphicEq
 import androidx.compose.material.icons.rounded.Info
 import androidx.compose.material.icons.rounded.Extension
+import androidx.compose.material.icons.rounded.Forum
 import androidx.compose.material.icons.rounded.Computer
 import androidx.compose.material.icons.rounded.Sync
 import androidx.compose.material.icons.rounded.NewReleases
@@ -99,7 +100,9 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import fyi.nnx.needle.NeedleApp
+import fyi.nnx.needle.Discord
 import fyi.nnx.needle.core.Accounts
+import fyi.nnx.needle.core.DiscordSettings
 import fyi.nnx.needle.core.PlaybackSettings
 import fyi.nnx.needle.core.SoundSettings
 import kotlinx.coroutines.Dispatchers
@@ -113,6 +116,7 @@ enum class SettingsSection(val title: String, val summary: String, val icon: Ima
     Sound("Sound", "Equalizer, balance, and headphones", Icons.Rounded.Equalizer, Color(0xFFB39DDB)),
     Appearance("Appearance", "Colours, motion, and lyrics", Icons.Rounded.Palette, Color(0xFFE8A07F)),
     Scrobbling("Scrobbling", "Last.fm and ListenBrainz", Icons.Rounded.GraphicEq, Color(0xFFD1706B)),
+    Discord("Discord", "Show what you play on your profile", Icons.Rounded.Forum, Color(0xFF8C9EFF)),
     Plugins("Plugins", "Music servers, NetEase lyrics, effects", Icons.Rounded.Extension, Color(0xFF7FC8B8)),
     Computer("Your computer", "Control Needle there, play its music here", Icons.Rounded.Computer, Color(0xFF9FB4E8)),
     Sync("Sync", "Move history, ratings, and playlists", Icons.Rounded.Sync, Color(0xFFE8C77F)),
@@ -134,8 +138,10 @@ fun SettingsScreen(open: (Route) -> Unit) {
     LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = 24.dp)) {
         item { LargeTitle("Settings") }
         item {
+            // Discord only in builds that have Discord's library.
+            val sections = SettingsSection.entries.filter { it != SettingsSection.Discord || Discord.available }
             Group {
-                SettingsSection.entries.forEachIndexed { i, section ->
+                sections.forEachIndexed { i, section ->
                     Row(
                         Modifier
                             .fillMaxWidth()
@@ -154,7 +160,7 @@ fun SettingsScreen(open: (Route) -> Unit) {
                         }
                         Icon(Icons.AutoMirrored.Rounded.KeyboardArrowRight, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
-                    if (i < SettingsSection.entries.size - 1) Divider()
+                    if (i < sections.size - 1) Divider()
                 }
             }
         }
@@ -172,6 +178,7 @@ fun SettingsSectionScreen(section: SettingsSection, open: (Route) -> Unit) {
                 SettingsSection.Sound -> SoundSettingsPage()
                 SettingsSection.Appearance -> AppearanceSettings(open)
                 SettingsSection.Scrobbling -> ScrobblingSettings()
+                SettingsSection.Discord -> DiscordSettingsPage()
                 SettingsSection.About -> AboutPage(open)
                 else -> {}
             }
@@ -981,6 +988,74 @@ private fun ScrobblingSettings() {
     }
     (message ?: a.problem)?.let {
         Text(it, style = MaterialTheme.typography.bodyMedium, modifier = Modifier.padding(horizontal = 24.dp, vertical = 8.dp))
+    }
+}
+
+// ---------- Discord
+
+@Composable
+private fun DiscordSettingsPage() {
+    val context = LocalContext.current
+    var settings by remember { mutableStateOf<DiscordSettings?>(null) }
+    LaunchedEffect(Unit) { settings = withContext(Dispatchers.IO) { runCatching { core.discordSettings() }.getOrNull() } }
+    val s = settings ?: return
+    val installed = remember { Discord.installed(context) }
+    fun save(next: DiscordSettings) {
+        settings = next
+        background {
+            core.setDiscordSettings(next)
+            // Discord may have come onto the phone since Needle started.
+            if (next.on && Discord.installed(context)) core.startDiscord()
+        }
+    }
+    Group(footer = "Your profile shows what plays and a time bar, through the Discord app on this phone. Needle talks only to the Discord app, and there is nothing to sign in to.") {
+        SwitchRow(
+            "Show what you're playing on Discord",
+            if (installed) null else "Discord is not on this phone",
+            s.on,
+        ) { save(s.copy(on = it)) }
+    }
+    if (!s.on) return
+    Group("The card") {
+        ChoiceRow("Listening to …", listOf("song" to "Song", "artist" to "Artist", "needle" to "Needle"), s.title) { save(s.copy(title = it)) }
+        Divider()
+        ChoiceRow("First line", listOf("artist" to "Artist", "song" to "Song", "album" to "Album"), s.top) { save(s.copy(top = it)) }
+        Divider()
+        ChoiceRow("Second line", listOf("song" to "Song", "artist" to "Artist", "album" to "Album", "none" to "None"), s.middle) { save(s.copy(middle = it)) }
+        Divider()
+        ChoiceRow("Third line", listOf("album" to "Album", "song" to "Song", "artist" to "Artist", "none" to "None"), s.bottom) { save(s.copy(bottom = it)) }
+    }
+    Group("Picture", footer = "Discord can only show pictures from the web, so Needle finds the cover in Apple's iTunes catalog by artist and song name. Your files never leave this phone. Without a picture, Discord hides the third line.") {
+        SwitchRow("Look up covers", null, s.covers) { save(s.copy(covers = it)) }
+        Divider()
+        SwitchRow("Show the Needle logo", "A badge on the cover, and the picture when there is no cover", s.logo) { save(s.copy(logo = it)) }
+    }
+    Group("When nothing plays", footer = "After this long paused or stopped, the status goes away. It comes back when you play again.") {
+        SwitchRow("Show while paused", "The song stays, marked Paused", s.paused) { save(s.copy(paused = it)) }
+        Divider()
+        ChoiceRow(
+            "Clear after",
+            listOf(5u to "5 min", 10u to "10 min", 30u to "30 min", 60u to "1 h", 0u to "Never"),
+            s.idleMinutes,
+        ) { save(s.copy(idleMinutes = it)) }
+    }
+}
+
+/** A title, and segmented buttons to choose one of a few values. */
+@Composable
+private fun <T> ChoiceRow(title: String, options: List<Pair<T, String>>, current: T, onChange: (T) -> Unit) {
+    Column(Modifier.padding(16.dp)) {
+        Text(title, style = MaterialTheme.typography.bodyLarge, modifier = Modifier.padding(bottom = 12.dp))
+        SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth()) {
+            options.forEachIndexed { i, (value, label) ->
+                SegmentedButton(
+                    selected = value == current,
+                    onClick = { onChange(value) },
+                    shape = SegmentedButtonDefaults.itemShape(i, options.size),
+                    icon = {},
+                ) { Text(label, maxLines = 1) }
+            }
+        }
     }
 }
 

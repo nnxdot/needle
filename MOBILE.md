@@ -76,13 +76,18 @@ on Android, **Liquid Glass** (iOS 26) on iPhone.
 - Drag and drop becomes long-press menus.
 - Updates: the Play Store; or, for a directly installed APK, Needle's own updater (Android asks
   to allow it).
+- Discord status goes through the Discord app on the phone, with Discord's own library (its
+  Social SDK, 1.10 or newer). The library is closed source, so it is not in git: download the
+  C++ SDK zip from discord.com/developers (Needle's application, Social SDK, Downloads) and copy
+  `discord_social_sdk/lib/release/discord_partner_sdk.aar` to
+  `apps/android/app/libs/discord_partner_sdk.aar`. Without it the app builds the same, with no
+  Discord settings.
 
 ### Hard on a phone
 
 - Stems (too heavy).
 - Tag editing and Fix my library (desktop jobs).
 - Importing from other players.
-- Discord status (Discord's phone app does not allow it).
 - Plugins that need a desktop.
 
 ### Desktop only
