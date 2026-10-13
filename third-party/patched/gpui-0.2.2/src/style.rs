@@ -251,6 +251,13 @@ pub struct Style {
     /// Box shadow of the element
     pub box_shadow: Vec<BoxShadow>,
 
+    /// The system's glass shows behind this element (see `Styled::glass`). Needle patch.
+    pub glass: bool,
+
+    /// This element and everything in it is drawn under the window's glass (see
+    /// `Styled::under_glass`). Needle patch.
+    pub under_glass: bool,
+
     /// The text style of this element
     pub text: TextStyleRefinement,
 
@@ -618,6 +625,11 @@ impl Style {
             window.paint_quad(crate::outline(bounds, crate::red(), BorderStyle::default()));
         }
 
+        // Needle patch: this element is drawn under the window's glass.
+        if self.under_glass {
+            window.push_under_glass();
+        }
+
         let rem_size = window.rem_size();
         let corner_radii = self
             .corner_radii
@@ -625,6 +637,11 @@ impl Style {
             .clamp_radii_for_quad_size(bounds.size);
 
         window.paint_shadows(bounds, corner_radii, &self.box_shadow);
+
+        // Needle patch: clear what is below, so the window's glass shows through.
+        if self.glass {
+            window.paint_glass_hole(bounds, corner_radii);
+        }
 
         let background_color = self.background.as_ref().and_then(Fill::color);
         if background_color.is_some_and(|color| !color.is_transparent()) {
@@ -719,6 +736,10 @@ impl Style {
         if self.debug_below {
             cx.remove_global::<DebugBelow>();
         }
+
+        if self.under_glass {
+            window.pop_under_glass();
+        }
     }
 
     fn is_border_visible(&self) -> bool {
@@ -766,6 +787,8 @@ impl Default for Style {
             border_style: BorderStyle::default(),
             corner_radii: Corners::default(),
             box_shadow: Default::default(),
+            glass: false,
+            under_glass: false,
             text: TextStyleRefinement::default(),
             mouse_cursor: None,
             opacity: None,

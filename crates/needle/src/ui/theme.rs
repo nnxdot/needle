@@ -474,7 +474,10 @@ pub fn apply(p: Palette, cx: &mut App) {
     t.secondary_active = p.line;
     t.accent = p.accent_soft;
     t.accent_foreground = p.ink;
-    t.popover = if dark {
+    // macOS Liquid Glass: tooltips and the toolkit's own popups are panes of glass.
+    t.popover = if cfg!(target_os = "macos") && p.back.a < 0.01 {
+        gpui::transparent_black()
+    } else if dark {
         super::motion::mix(p.raised, p.raised_hover, 0.5)
     } else {
         c(0xffffff)

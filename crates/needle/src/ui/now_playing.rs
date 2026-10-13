@@ -47,6 +47,7 @@ impl AppView {
     }
 
     pub(super) fn big_player(&mut self, window: &mut Window, cx: &mut Context<Self>) -> AnyElement {
+        let liquid = super::glass::liquid_on(cx);
         let p = pal(cx);
         let look = self.now_look();
         let tint = look.as_ref().map(|l| l.vivid);
@@ -149,11 +150,16 @@ impl AppView {
                     .items_center()
                     .gap_2()
                     .child(
-                        icon_button("close-big", "chevron-down", "Close the player · Esc")
-                            .on_click(cx.listener(|this, _, _, cx| {
-                                this.big = false;
-                                cx.notify();
-                            })),
+                        div()
+                            // macOS Liquid Glass: a round pane of glass.
+                            .when(liquid, |el| el.p(px(3.)).rounded_full().glass())
+                            .child(
+                                icon_button("close-big", "chevron-down", "Close the player · Esc")
+                                    .on_click(cx.listener(|this, _, _, cx| {
+                                        this.big = false;
+                                        cx.notify();
+                                    })),
+                            ),
                     )
                     .child(
                         div()
@@ -170,33 +176,40 @@ impl AppView {
                                     .unwrap_or_default(),
                             ),
                     )
-                    .child(side_button(
-                        "big-lyrics",
-                        "lyrics",
-                        "Lyrics",
-                        Side::Lyrics,
-                        cx,
-                    ))
-                    .child(side_button(
-                        "big-queue",
-                        "queue",
-                        "Up next",
-                        Side::Queue,
-                        cx,
-                    ))
-                    .child(side_button("big-stems", "stems", "Stems", Side::Stems, cx))
                     .child(
-                        icon_button("big-full", "fullscreen", "Full screen · F11").on_click(
-                            cx.listener(|this, _, window, cx| this.set_immersive(true, window, cx)),
-                        ),
-                    )
-                    .child(
-                        icon_button("big-mini", "mini", "Mini player").on_click(cx.listener(
-                            |this, _, window, cx| {
-                                this.big = false;
-                                this.open_mini(window, cx);
-                            },
-                        )),
+                        div()
+                            .flex()
+                            .items_center()
+                            .gap_1()
+                            // macOS Liquid Glass: the buttons on one capsule of glass.
+                            .when(liquid, |el| el.px(px(6.)).py(px(3.)).rounded_full().glass())
+                            .child(side_button(
+                                "big-lyrics",
+                                "lyrics",
+                                "Lyrics",
+                                Side::Lyrics,
+                                cx,
+                            ))
+                            .child(side_button(
+                                "big-queue",
+                                "queue",
+                                "Up next",
+                                Side::Queue,
+                                cx,
+                            ))
+                            .child(side_button("big-stems", "stems", "Stems", Side::Stems, cx))
+                            .child(
+                                icon_button("big-full", "fullscreen", "Full screen · F11")
+                                    .on_click(cx.listener(|this, _, window, cx| {
+                                        this.set_immersive(true, window, cx)
+                                    })),
+                            )
+                            .child(icon_button("big-mini", "mini", "Mini player").on_click(
+                                cx.listener(|this, _, window, cx| {
+                                    this.big = false;
+                                    this.open_mini(window, cx);
+                                }),
+                            )),
                     ),
             )
             .child(
@@ -335,6 +348,18 @@ impl AppView {
                                     .flex()
                                     .items_center()
                                     .gap_4()
+                                    // macOS Liquid Glass: the controls on a capsule of glass.
+                                    .when(liquid, |el| {
+                                        el.px(px(20.)).py(px(8.)).map(|el| {
+                                            super::glass::pane(
+                                                el,
+                                                0.,
+                                                30.,
+                                                gpui::transparent_black(),
+                                                cx,
+                                            )
+                                        })
+                                    })
                                     .child(
                                         icon_button("big-shuffle", "shuffle", "Shuffle this view")
                                             .on_click(cx.listener(|this, _, _, cx| {
@@ -420,10 +445,21 @@ impl AppView {
                                 .w(px(420.))
                                 .flex_shrink_0()
                                 .h_full()
-                                .pr_6()
-                                .pb_6()
                                 .flex()
                                 .flex_col()
+                                .when(!liquid, |el| el.pr_6().pb_6())
+                                // macOS Liquid Glass: lyrics, up next, and stems on a pane.
+                                .when(liquid, |el| {
+                                    el.mr_6().mb_6().p_4().map(|el| {
+                                        super::glass::pane(
+                                            el,
+                                            0.,
+                                            24.,
+                                            gpui::transparent_black(),
+                                            cx,
+                                        )
+                                    })
+                                })
                                 .child(match side {
                                     Side::Lyrics => self
                                         .lyrics_view(super::lyrics::LyricsKind::Big, cx)

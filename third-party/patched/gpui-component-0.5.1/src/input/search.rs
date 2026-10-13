@@ -424,7 +424,7 @@ impl Render for SearchPanel {
             .px_3()
             .w_full()
             .gap_1()
-            .bg(cx.theme().popover)
+            .bg(cx.theme().popover).when(cx.theme().popover.a < 0.01, |el| el.glass())
             .border_b_1()
             .rounded(cx.theme().radius.half())
             .border_color(cx.theme().border)

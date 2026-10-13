@@ -1,3 +1,11 @@
+# 1.6.4
+Needle on the Mac, in Liquid Glass.
+! **Liquid Glass.** On macOS 26 and newer, the sidebar, the player, and the side panel float on Liquid Glass over your music's colours, and your songs scroll beneath the player's glass. Turn it off in Settings › Appearance.
+- [menu] **The Mac's own menus.** Right-click a song, an album, an artist, or a playlist for the Mac's own menu, with its icons and submenus.
+- [palette] **Glass everywhere.** The command palette (⌘K), menus, search suggestions, tooltips, messages, dialogs, and the big player's controls sit on glass too.
+- Reduce transparency (System Settings › Accessibility) makes the window solid.
+- On macOS before 26, the same panes use the system's frosted glass.
+
 # 1.6.3
 Albums and artists get their own menu, and rating takes one click.
 - [albums] **Right-click an album or artist.** On Home, Albums, Artists, an artist's page, and your listening history: play, shuffle, play next, add to the queue or a playlist, or open the album or artist.

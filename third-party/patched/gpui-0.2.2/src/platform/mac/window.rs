@@ -4,7 +4,8 @@ use crate::{
     ForegroundExecutor, KeyDownEvent, Keystroke, Modifiers, ModifiersChangedEvent, MouseButton,
     MouseDownEvent, MouseMoveEvent, MouseUpEvent, Pixels, PlatformAtlas, PlatformDisplay,
     PlatformInput, PlatformWindow, Point, PromptButton, PromptLevel, RequestFrameOptions,
-    SharedString, Size, SystemWindowTab, Timer, WindowAppearance, WindowBackgroundAppearance,
+    GlassBackdrop, GlassRegion, NativeMenuItem, Rgba, SharedString, Size, SystemWindowTab, Timer, WindowAppearance,
+    WindowBackgroundAppearance,
     WindowBounds, WindowControlArea, WindowKind, WindowParams, dispatch_get_main_queue,
     dispatch_sys::dispatch_async_f, platform::PlatformInputHandler, point, px, size,
 };
@@ -391,6 +392,8 @@ struct MacWindowState {
     native_window: id,
     native_view: NonNull<Object>,
     blurred_view: Option<id>,
+    /// The views behind and under the glass regions (see `set_glass_regions`).
+    glass: GlassViews,
     display_link: Option<DisplayLink>,
     renderer: renderer::Renderer,
     request_frame_callback: Option<Box<dyn FnMut(RequestFrameOptions)>>,
@@ -688,6 +691,7 @@ impl MacWindow {
                 native_window,
                 native_view: NonNull::new_unchecked(native_view),
                 blurred_view: None,
+                glass: GlassViews::default(),
                 display_link: None,
                 renderer: renderer::new_renderer(
                     renderer_context,
@@ -774,6 +778,25 @@ impl MacWindow {
 
             content_view.addSubview_(native_view.autorelease());
             native_window.makeFirstResponder_(native_view);
+
+            // Needle patch: what is drawn under the window's glass, on a layer below the glass
+            // views (they go between it and the view above).
+            {
+                let under_layer = window.0.lock().renderer.under_layer_ptr() as id;
+                let under_view: id = msg_send![class!(NSView), alloc];
+                let under_view: id =
+                    msg_send![under_view, initWithFrame: NSView::bounds(content_view)];
+                let _: () = msg_send![under_view, setLayer: under_layer];
+                let _: () = msg_send![under_view, setWantsLayer: YES];
+                under_view.setAutoresizingMask_(NSViewWidthSizable | NSViewHeightSizable);
+                let _: () = msg_send![
+                    content_view,
+                    addSubview: under_view
+                    positioned: NSWindowOrderingMode::NSWindowBelow
+                    relativeTo: native_view
+                ];
+                let _: () = msg_send![under_view, release];
+            }
 
             match kind {
                 WindowKind::Normal | WindowKind::Floating => {
@@ -1308,6 +1331,88 @@ impl PlatformWindow for MacWindow {
                 }
             }
         }
+    }
+
+    fn set_glass_regions(&self, regions: &[GlassRegion], backdrop: Option<&GlassBackdrop>) {
+        // AppKit may call back into GPUI (which takes this lock) while views are added or
+        // moved, so the views are taken out and the lock let go meanwhile.
+        let (native_window, native_view, mut glass) = {
+            let mut state = self.0.lock();
+            (
+                state.native_window,
+                state.native_view.as_ptr() as id,
+                mem::take(&mut state.glass),
+            )
+        };
+        unsafe {
+            update_glass(&mut glass, native_window, native_view, regions, backdrop);
+        }
+        self.0.lock().glass = glass;
+    }
+
+    fn show_context_menu(
+        &self,
+        position: Point<Pixels>,
+        items: Vec<NativeMenuItem>,
+    ) -> Option<oneshot::Receiver<Option<Vec<usize>>>> {
+        let (tx, rx) = oneshot::channel();
+        let (native_view, executor) = {
+            let this = self.0.lock();
+            (this.native_view.as_ptr() as id, this.executor.clone())
+        };
+        // After this frame: the menu runs its own loop until it closes.
+        executor
+            .spawn(async move {
+                unsafe {
+                    let target: id = msg_send![context_menu_target_class(), new];
+                    (*target).set_ivar::<isize>("choice", -1);
+                    let mut paths = Vec::new();
+                    let menu = build_context_menu(&items, &mut Vec::new(), &mut paths, target);
+                    let height = NSView::bounds(native_view).size.height;
+                    let point = NSPoint::new(position.x.0 as f64, height - position.y.0 as f64);
+                    let _: BOOL = msg_send![
+                        menu,
+                        popUpMenuPositioningItem: nil
+                        atLocation: point
+                        inView: native_view
+                    ];
+                    let choice = *(*target).get_ivar::<isize>("choice");
+                    let _: () = msg_send![target, release];
+                    let chosen = usize::try_from(choice)
+                        .ok()
+                        .and_then(|i| paths.get(i).cloned());
+                    let _ = tx.send(chosen);
+                }
+            })
+            .detach();
+        Some(rx)
+    }
+
+    fn set_dark_appearance(&self, dark: Option<bool>) {
+        // AppKit tells GPUI's view of the change at once, which takes this lock and updates
+        // the window: so it happens after this frame, with the lock let go.
+        let (native_window, executor) = {
+            let this = self.0.lock();
+            (this.native_window, this.executor.clone())
+        };
+        executor
+            .spawn(async move {
+                unsafe {
+                    let appearance: id = match dark {
+                        Some(dark) => {
+                            let name = ns_string(if dark {
+                                "NSAppearanceNameDarkAqua"
+                            } else {
+                                "NSAppearanceNameAqua"
+                            });
+                            msg_send![class!(NSAppearance), appearanceNamed: name]
+                        }
+                        None => nil,
+                    };
+                    let _: () = msg_send![native_window, setAppearance: appearance];
+                }
+            })
+            .detach();
     }
 
     fn set_edited(&mut self, edited: bool) {
@@ -2084,12 +2189,7 @@ extern "C" fn view_did_change_backing_properties(this: &Object, _: Sel) {
     let scale_factor = lock.scale_factor();
     let size = lock.content_size();
     let drawable_size = size.to_device_pixels(scale_factor);
-    unsafe {
-        let _: () = msg_send![
-            lock.renderer.layer(),
-            setContentsScale: scale_factor as f64
-        ];
-    }
+    lock.renderer.set_contents_scale(scale_factor as f64);
 
     lock.renderer.update_drawable_size(drawable_size);
 
@@ -2643,5 +2743,377 @@ extern "C" fn toggle_tab_bar(this: &Object, _sel: Sel, _id: id) {
             callback();
             window_state.lock().toggle_tab_bar_callback = Some(callback);
         }
+    }
+}
+
+/// Needle patch: AppKit views under GPUI's Metal view for `set_glass_regions`. From the
+/// bottom: the backdrop (a fill in the window's colour, with a picture and a wash over it, or
+/// the blurred desktop), then a shadow and a glass view per region.
+#[derive(Default)]
+struct GlassViews {
+    /// The blurred desktop, when there is no backdrop of our own.
+    vibrancy: Option<id>,
+    /// The window's colour; the picture and the wash are views in it, each hosting a layer.
+    fill: Option<id>,
+    /// The layers of the picture and the wash views.
+    picture: Option<id>,
+    wash: Option<id>,
+    picture_path: Option<SharedString>,
+    /// (shadow, glass) per region.
+    regions: Vec<(id, id)>,
+}
+
+#[link(name = "CoreGraphics", kind = "framework")]
+unsafe extern "C" {
+    fn CGPathCreateWithRoundedRect(
+        rect: CGRect,
+        corner_width: f64,
+        corner_height: f64,
+        transform: *const c_void,
+    ) -> *mut c_void;
+    fn CGPathRelease(path: *mut c_void);
+}
+
+unsafe fn remove_view(view: id) {
+    unsafe {
+        NSView::removeFromSuperview(view);
+        let _: () = msg_send![view, release];
+    }
+}
+
+/// A view at the very bottom of the window's content, filling it.
+unsafe fn bottom_view(content_view: id, view: id) {
+    unsafe {
+        view.setAutoresizingMask_(NSViewWidthSizable | NSViewHeightSizable);
+        let _: () = msg_send![
+            content_view,
+            addSubview: view
+            positioned: NSWindowOrderingMode::NSWindowBelow
+            relativeTo: nil
+        ];
+    }
+}
+
+unsafe fn cg_color(color: Rgba, alpha: f32) -> id {
+    unsafe {
+        let ns_color = NSColor::colorWithSRGBRed_green_blue_alpha_(
+            nil,
+            color.r as f64,
+            color.g as f64,
+            color.b as f64,
+            alpha as f64,
+        );
+        msg_send![ns_color, CGColor]
+    }
+}
+
+/// A view filling `parent` (and following its size) that hosts a layer of our own, which
+/// AppKit leaves alone; returns the layer.
+unsafe fn filling_layer(parent: id) -> id {
+    unsafe {
+        let frame = NSView::bounds(parent);
+        let view: id = msg_send![class!(NSView), alloc];
+        let view: id = msg_send![view, initWithFrame: frame];
+        let layer: id = msg_send![class!(CALayer), layer];
+        let _: () = msg_send![view, setLayer: layer];
+        let _: () = msg_send![view, setWantsLayer: YES];
+        view.setAutoresizingMask_(NSViewWidthSizable | NSViewHeightSizable);
+        let _: () = msg_send![parent, addSubview: view];
+        let _: () = msg_send![view, release];
+        layer
+    }
+}
+
+unsafe fn update_glass(
+    glass: &mut GlassViews,
+    native_window: id,
+    native_view: id,
+    regions: &[GlassRegion],
+    backdrop: Option<&GlassBackdrop>,
+) {
+    unsafe {
+        let content_view = native_window.contentView();
+        let height = NSView::bounds(content_view).size.height;
+        // Liquid Glass (macOS 26); looked up by name, so older systems never need it.
+        let glass_class = Class::get("NSGlassEffectView");
+
+        // Nothing at all: everything goes. A backdrop of our own stays without regions (under
+        // the big player, say).
+        if regions.is_empty() && backdrop.is_none() {
+            for (shadow, view) in glass.regions.drain(..) {
+                remove_view(shadow);
+                remove_view(view);
+            }
+            for view in [glass.vibrancy.take(), glass.fill.take()].into_iter().flatten() {
+                remove_view(view);
+            }
+            glass.picture = None;
+            glass.wash = None;
+            glass.picture_path = None;
+            return;
+        }
+
+        match backdrop {
+            // The window's colour, a picture over it, and the colour again, see-through.
+            Some(backdrop) => {
+                if let Some(view) = glass.vibrancy.take() {
+                    remove_view(view);
+                }
+                let fill = match glass.fill {
+                    Some(view) => view,
+                    None => {
+                        let frame = NSView::bounds(content_view);
+                        let view: id = msg_send![class!(NSView), alloc];
+                        let view: id = msg_send![view, initWithFrame: frame];
+                        let _: () = msg_send![view, setWantsLayer: YES];
+                        bottom_view(content_view, view);
+                        glass.fill = Some(view);
+                        view
+                    }
+                };
+                let layer: id = msg_send![fill, layer];
+                if !layer.is_null() {
+                    let color = Rgba::from(backdrop.color);
+                    let _: () = msg_send![layer, setBackgroundColor: cg_color(color, 1.)];
+                    let picture = *glass.picture.get_or_insert_with(|| {
+                        let picture = filling_layer(fill);
+                        let gravity = ns_string("resizeAspectFill");
+                        let _: () = msg_send![picture, setContentsGravity: gravity];
+                        picture
+                    });
+                    let wash = *glass.wash.get_or_insert_with(|| filling_layer(fill));
+                    if glass.picture_path != backdrop.image {
+                        // Changing the picture fades between the two (the layer's own animation).
+                        let image: id = match &backdrop.image {
+                            Some(path) => {
+                                let image: id = msg_send![class!(NSImage), alloc];
+                                let image: id =
+                                    msg_send![image, initWithContentsOfFile: ns_string(path)];
+                                if image.is_null() { nil } else { image.autorelease() }
+                            }
+                            None => nil,
+                        };
+                        let _: () = msg_send![picture, setContents: image];
+                        glass.picture_path = backdrop.image.clone();
+                    }
+                    // System Settings › Accessibility › Display › Reduce transparency: a solid
+                    // window, no picture (the glass views go solid by themselves).
+                    let workspace: id = msg_send![class!(NSWorkspace), sharedWorkspace];
+                    let reduce: BOOL =
+                        msg_send![workspace, accessibilityDisplayShouldReduceTransparency];
+                    let (opacity, wash_alpha) = if reduce == YES {
+                        (0., 1.)
+                    } else {
+                        (backdrop.image_opacity.clamp(0., 1.), backdrop.wash.clamp(0., 1.))
+                    };
+                    let _: () = msg_send![picture, setOpacity: opacity];
+                    let _: () = msg_send![wash, setBackgroundColor: cg_color(color, wash_alpha)];
+                }
+            }
+            // The desktop behind, blurred and tinted as macOS's window backgrounds are
+            // (under-window background material, behind the window).
+            None => {
+                if let Some(view) = glass.fill.take() {
+                    remove_view(view);
+                    glass.picture = None;
+                    glass.wash = None;
+                    glass.picture_path = None;
+                }
+                if glass.vibrancy.is_none() {
+                    let frame = NSView::bounds(content_view);
+                    let view: id = msg_send![class!(NSVisualEffectView), alloc];
+                    let view: id = msg_send![view, initWithFrame: frame];
+                    let _: () = msg_send![view, setMaterial: 21 as NSInteger];
+                    let _: () = msg_send![view, setBlendingMode: 0 as NSInteger];
+                    let _: () = msg_send![view, setState: 0 as NSInteger];
+                    bottom_view(content_view, view);
+                    glass.vibrancy = Some(view);
+                }
+            }
+        }
+
+        while glass.regions.len() > regions.len() {
+            if let Some((shadow, view)) = glass.regions.pop() {
+                remove_view(shadow);
+                remove_view(view);
+            }
+        }
+        for (i, region) in regions.iter().enumerate() {
+            let bounds = region.bounds;
+            // AppKit counts from the bottom left.
+            let frame = NSRect::new(
+                NSPoint::new(
+                    bounds.origin.x.0 as f64,
+                    height - (bounds.origin.y.0 + bounds.size.height.0) as f64,
+                ),
+                NSSize::new(bounds.size.width.0 as f64, bounds.size.height.0 as f64),
+            );
+            let radius = region.corner_radius.0 as f64;
+            let (shadow, view) = match glass.regions.get(i) {
+                Some(pair) => *pair,
+                None => {
+                    // The shadow: a layer drawing only the shadow of a rounded shape.
+                    let shadow: id = msg_send![class!(NSView), alloc];
+                    let shadow: id = msg_send![shadow, initWithFrame: frame];
+                    let _: () = msg_send![shadow, setWantsLayer: YES];
+                    let view: id = match glass_class {
+                        Some(class) => {
+                            let view: id = msg_send![class, alloc];
+                            msg_send![view, initWithFrame: frame]
+                        }
+                        // Before macOS 26: the sidebar's vibrancy, rounded by its layer.
+                        None => {
+                            let view: id = msg_send![class!(NSVisualEffectView), alloc];
+                            let view: id = msg_send![view, initWithFrame: frame];
+                            let _: () = msg_send![view, setMaterial: 7 as NSInteger];
+                            let _: () = msg_send![view, setBlendingMode: 1 as NSInteger];
+                            let _: () = msg_send![view, setState: 1 as NSInteger];
+                            let _: () = msg_send![view, setWantsLayer: YES];
+                            view
+                        }
+                    };
+                    for v in [shadow, view] {
+                        let _: () = msg_send![
+                            content_view,
+                            addSubview: v
+                            positioned: NSWindowOrderingMode::NSWindowBelow
+                            relativeTo: native_view
+                        ];
+                    }
+                    glass.regions.push((shadow, view));
+                    (shadow, view)
+                }
+            };
+            let _: () = msg_send![view, setFrame: frame];
+            let _: () = msg_send![shadow, setFrame: frame];
+            if glass_class.is_some() {
+                let _: () = msg_send![view, setCornerRadius: radius];
+            } else {
+                let layer: id = msg_send![view, layer];
+                if !layer.is_null() {
+                    let _: () = msg_send![layer, setCornerRadius: radius];
+                    let _: () = msg_send![layer, setMasksToBounds: YES];
+                }
+            }
+            let _: () = msg_send![shadow, setHidden: (!region.shadow) as BOOL];
+            let layer: id = msg_send![shadow, layer];
+            if region.shadow && !layer.is_null() {
+                let rect = CGRect::new(
+                    &CGPoint::new(0., 0.),
+                    &core_graphics::geometry::CGSize::new(frame.size.width, frame.size.height),
+                );
+                let path = CGPathCreateWithRoundedRect(rect, radius, radius, ptr::null());
+                let _: () = msg_send![layer, setShadowPath: path];
+                CGPathRelease(path);
+                let black = cg_color(
+                    Rgba {
+                        r: 0.,
+                        g: 0.,
+                        b: 0.,
+                        a: 1.,
+                    },
+                    1.,
+                );
+                let _: () = msg_send![layer, setShadowColor: black];
+                let _: () = msg_send![layer, setShadowOpacity: 0.3f32];
+                let _: () = msg_send![layer, setShadowRadius: 18f64];
+                let _: () = msg_send![layer, setShadowOffset: NSSize::new(0., -6.)];
+                let _: () = msg_send![layer, setMasksToBounds: NO];
+            }
+        }
+    }
+}
+
+/// Needle patch: the target of system context menus' items; remembers the chosen item's tag.
+fn context_menu_target_class() -> *const Class {
+    static CLASS: std::sync::OnceLock<usize> = std::sync::OnceLock::new();
+    *CLASS.get_or_init(|| unsafe {
+        let mut decl = ClassDecl::new("NeedleContextMenuTarget", class!(NSObject)).unwrap();
+        decl.add_ivar::<isize>("choice");
+        decl.add_method(
+            sel!(choose:),
+            context_menu_choose as extern "C" fn(&mut Object, Sel, id),
+        );
+        decl.register() as *const Class as usize
+    }) as *const Class
+}
+
+extern "C" fn context_menu_choose(this: &mut Object, _: Sel, sender: id) {
+    unsafe {
+        let tag: NSInteger = msg_send![sender, tag];
+        this.set_ivar::<isize>("choice", tag as isize);
+    }
+}
+
+/// An `NSMenu` of `items`; each choosable item's tag indexes `paths`, its path of indices.
+unsafe fn build_context_menu(
+    items: &[NativeMenuItem],
+    path: &mut Vec<usize>,
+    paths: &mut Vec<Vec<usize>>,
+    target: id,
+) -> id {
+    unsafe {
+        let menu: id = msg_send![class!(NSMenu), alloc];
+        let menu: id = msg_send![menu, initWithTitle: ns_string("")];
+        let _: () = msg_send![menu, setAutoenablesItems: NO];
+        for (i, item) in items.iter().enumerate() {
+            path.push(i);
+            let ns_item: id = if item.separator {
+                msg_send![class!(NSMenuItem), separatorItem]
+            } else if item.header {
+                let header: BOOL = msg_send![
+                    class!(NSMenuItem),
+                    respondsToSelector: sel!(sectionHeaderWithTitle:)
+                ];
+                if header == YES {
+                    msg_send![class!(NSMenuItem), sectionHeaderWithTitle: ns_string(&item.label)]
+                } else {
+                    let ns: id = msg_send![class!(NSMenuItem), alloc];
+                    let ns: id = msg_send![
+                        ns,
+                        initWithTitle: ns_string(&item.label)
+                        action: sel!(choose:)
+                        keyEquivalent: ns_string("")
+                    ];
+                    let _: () = msg_send![ns, setEnabled: NO];
+                    ns.autorelease()
+                }
+            } else {
+                let ns: id = msg_send![class!(NSMenuItem), alloc];
+                let ns: id = msg_send![
+                    ns,
+                    initWithTitle: ns_string(&item.label)
+                    action: sel!(choose:)
+                    keyEquivalent: ns_string("")
+                ];
+                let ns = ns.autorelease();
+                if item.submenu.is_empty() {
+                    let _: () = msg_send![ns, setTarget: target];
+                    let _: () = msg_send![ns, setTag: paths.len() as NSInteger];
+                    paths.push(path.clone());
+                } else {
+                    let submenu = build_context_menu(&item.submenu, path, paths, target);
+                    let _: () = msg_send![ns, setSubmenu: submenu];
+                }
+                let _: () = msg_send![ns, setEnabled: item.enabled as BOOL];
+                if item.checked {
+                    let _: () = msg_send![ns, setState: 1 as NSInteger];
+                }
+                if let Some(symbol) = &item.symbol {
+                    let image: id = msg_send![
+                        class!(NSImage),
+                        imageWithSystemSymbolName: ns_string(symbol)
+                        accessibilityDescription: nil
+                    ];
+                    if !image.is_null() {
+                        let _: () = msg_send![ns, setImage: image];
+                    }
+                }
+                ns
+            };
+            let _: () = msg_send![menu, addItem: ns_item];
+            path.pop();
+        }
+        menu.autorelease()
     }
 }

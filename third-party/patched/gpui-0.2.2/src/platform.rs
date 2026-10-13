@@ -483,6 +483,23 @@ pub(crate) trait PlatformWindow: HasWindowHandle + HasDisplayHandle {
     fn is_hovered(&self) -> bool;
     fn set_title(&mut self, title: &str);
     fn set_background_appearance(&self, background_appearance: WindowBackgroundAppearance);
+    /// Shows the system's glass under these parts of the window (Liquid Glass on macOS 26 and
+    /// newer, vibrancy on older macOS), over `backdrop`, or the blurred desktop when `None`.
+    /// Empty removes it all. Other platforms do nothing. Needle patch.
+    fn set_glass_regions(&self, _regions: &[GlassRegion], _backdrop: Option<&GlassBackdrop>) {}
+    /// Shows the system's own menu at `position` (in the window) and tells which item was
+    /// chosen, as its path of indices, or `None` when the menu was closed. `None` from this
+    /// call: there is no system menu here (macOS only). Needle patch.
+    fn show_context_menu(
+        &self,
+        _position: Point<Pixels>,
+        _items: Vec<NativeMenuItem>,
+    ) -> Option<futures::channel::oneshot::Receiver<Option<Vec<usize>>>> {
+        None
+    }
+    /// Light or dark system materials and controls for this window, whatever the system's own
+    /// setting; `None` follows the system. Needle patch.
+    fn set_dark_appearance(&self, _dark: Option<bool>) {}
     fn minimize(&self);
     fn zoom(&self);
     fn toggle_fullscreen(&self);
@@ -1302,6 +1319,50 @@ impl Default for WindowAppearance {
     fn default() -> Self {
         Self::Light
     }
+}
+
+/// A part of the window shown as the system's glass (see `Window::set_glass_region`).
+#[derive(Copy, Clone, Debug, PartialEq)]
+pub struct GlassRegion {
+    /// Where, in window coordinates.
+    pub bounds: Bounds<Pixels>,
+    /// How round its corners are.
+    pub corner_radius: Pixels,
+    /// A soft shadow under it, so it floats above the window.
+    pub shadow: bool,
+}
+
+/// An item of a system menu (see `Window::show_context_menu`). Needle patch.
+#[derive(Clone, Debug, Default)]
+pub struct NativeMenuItem {
+    /// The item's words.
+    pub label: SharedString,
+    /// An SF Symbol name, shown beside the label.
+    pub symbol: Option<SharedString>,
+    /// It can be chosen.
+    pub enabled: bool,
+    /// A check mark beside the label.
+    pub checked: bool,
+    /// A line between groups of items (nothing else is used).
+    pub separator: bool,
+    /// A heading over a group of items (only the label is used).
+    pub header: bool,
+    /// Items in a submenu, opened from this one.
+    pub submenu: Vec<NativeMenuItem>,
+}
+
+/// What the window shows behind its glass regions (see `Window::set_glass_backdrop`).
+#[derive(Clone, Debug, PartialEq)]
+pub struct GlassBackdrop {
+    /// The window's colour.
+    pub color: crate::Hsla,
+    /// A picture over it, filling the window (a blurred cover, say).
+    pub image: Option<SharedString>,
+    /// How much of the picture shows, 0 to 1.
+    pub image_opacity: f32,
+    /// The window's colour again over the picture, this see-through (0 to 1), so text on the
+    /// window stays readable.
+    pub wash: f32,
 }
 
 /// The appearance of the background of the window itself, when there is

@@ -174,8 +174,9 @@ impl AppView {
                                     .when(!above, |el| el.mt_1())
                                     .w(width)
                                     .p_1()
-                                    .rounded(px(8.))
-                                    .bg(cx.theme().popover)
+                                    .map(|el| {
+                                        super::glass::pane(el, 8., 14., cx.theme().popover, cx)
+                                    })
                                     .border_1()
                                     .border_color(p.line)
                                     .shadow_lg()

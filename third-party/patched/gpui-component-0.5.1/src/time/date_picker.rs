@@ -443,7 +443,7 @@ impl RenderOnce for DatePicker {
                                 .border_color(cx.theme().border)
                                 .shadow_lg()
                                 .rounded((cx.theme().radius * 2.).min(px(8.)))
-                                .bg(cx.theme().popover)
+                                .bg(cx.theme().popover).when(cx.theme().popover.a < 0.01, |el| el.glass())
                                 .text_color(cx.theme().popover_foreground)
                                 .on_mouse_up_out(
                                     MouseButton::Left,

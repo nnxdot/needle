@@ -2565,6 +2565,8 @@ impl Render for AppView {
         if self.column_resize.is_some() && !cx.has_active_drag() {
             self.finish_column_resize();
         }
+        // macOS: menus opened since the last frame show as the system's own.
+        self.show_native_menus(window, cx);
         let p = pal(cx);
         let width = widgets::content_size(window).width;
         // Folded, the sidebar is a strip of page icons (see `chrome::RAIL`).
@@ -2595,7 +2597,12 @@ impl Render for AppView {
         // The page and the side panel share one content surface to the right of the sidebar.
         let content_width =
             f32::from(width) - sidebar - if show_panel { panel_width } else { 0. } - 1.;
-        let backdrop = self.page_backdrop(cx);
+        // With Liquid Glass the system draws the cover behind the whole window instead.
+        let backdrop = if self.liquid() {
+            div().into_any_element()
+        } else {
+            self.page_backdrop(cx)
+        };
         let grain = self.grain(window, cx);
         let ambient_layer = self.ambient_layer(cx);
         self.glide_lyrics(window, cx);
@@ -2841,6 +2848,22 @@ impl Render for AppView {
                 window.focus(&this.focus);
                 cx.notify();
             }))
+            // macOS glass goes when its part does (the parts set it while they paint).
+            .map(|el| {
+                let floating = self.floating();
+                // Behind the glass and the page: the music's colours, or the page's colour.
+                window.set_glass_backdrop(self.liquid().then(|| self.glass_backdrop(cx)));
+                if !floating || sidebar <= 0. {
+                    window.set_glass_region("sidebar", None);
+                }
+                if !floating || self.settings.layout.player_on_top {
+                    window.set_glass_region("player", None);
+                }
+                if !floating || !show_panel {
+                    window.set_glass_region("panel", None);
+                }
+                el
+            })
             // The title bar must stay outside the focusable body: a focusable element under the
             // pointer consumes the mouse-down, and Windows then never starts a drag, resize, or
             // maximize from the title bar.
@@ -2861,48 +2884,105 @@ impl Render for AppView {
                         el.child(self.immersive_view(window, cx))
                     })
                     .when(!self.immersive && (!self.big || self.big_moving), |el| {
-                        el.child(
-                            div()
-                                .flex_1()
-                                .min_h_0()
-                                .flex()
-                                .bg(p.back)
-                                .when(sidebar > 0., |el| el.child(self.sidebar(sidebar, cx)))
-                                .child(
-                                    // The content surface: flush with the window's right edge
-                                    // and the player, one hairline and a rounded corner where it
-                                    // meets the sidebar and title bar, like Windows 11's own apps.
-                                    div()
-                                        .id("sheet")
-                                        .flex_1()
-                                        .min_w_0()
-                                        .relative()
-                                        .flex()
-                                        .rounded_tl(px(10.))
-                                        .overflow_hidden()
-                                        .bg(p.canvas)
-                                        .border_t_1()
-                                        .border_l_1()
-                                        .border_color(if p.dark { p.line_soft } else { p.line })
-                                        .child(backdrop)
-                                        .child(self.main(content_width, window, cx))
-                                        .when(show_panel, |el| {
-                                            el.child(self.panel(panel_width, window, cx))
-                                        }),
-                                ),
-                        )
+                        // macOS Liquid Glass: one surface (the system draws it, under Needle's
+                        // layer), with the sidebar, the player, and the side panel floating on it;
+                        // the player sits beside the sidebar, which runs the window's height.
+                        let floating = self.floating();
+                        let sheet = div()
+                            .id("sheet")
+                            .flex_1()
+                            .min_w_0()
+                            .min_h_0()
+                            .relative()
+                            .flex()
+                            .overflow_hidden()
+                            // Elsewhere, the content surface: flush with the window's right edge
+                            // and the player, one hairline and a rounded corner where it meets
+                            // the sidebar and title bar, like Windows 11's own apps.
+                            .when(!floating, |el| {
+                                el.rounded_tl(px(10.))
+                                    .bg(p.canvas)
+                                    .border_t_1()
+                                    .border_l_1()
+                                    .border_color(if p.dark { p.line_soft } else { p.line })
+                            })
+                            // macOS Liquid Glass: the page is drawn under the glass, so the
+                            // floating player shows the songs passing beneath it.
+                            .when(floating, |el| el.size_full().under_glass())
+                            .child(backdrop)
+                            .child(self.main(content_width, window, cx))
+                            .when(show_panel && !floating, |el| {
+                                el.child(self.panel(panel_width, window, cx))
+                            });
                         // The player at the bottom; or, with it in the title bar, the search
                         // field there (unless hidden too).
-                        .map(|el| {
-                            if !self.settings.layout.player_on_top {
-                                el.child(self.player_bar(width, cx))
-                            } else if !self.settings.layout.search_hidden && !self.big {
-                                // (Over the big player, the title bar has the search field.)
-                                el.child(self.search_strip(window, cx))
+                        let player_foot = !self.settings.layout.player_on_top;
+                        let foot = if player_foot {
+                            Some(
+                                self.player_bar(
+                                    if floating { width - px(sidebar) } else { width },
+                                    cx,
+                                )
+                                .into_any_element(),
+                            )
+                        } else if !self.settings.layout.search_hidden && !self.big {
+                            // (Over the big player, the title bar has the search field.)
+                            Some(self.search_strip(window, cx).into_any_element())
+                        } else {
+                            None
+                        };
+                        let row = div()
+                            .flex_1()
+                            .min_h_0()
+                            .flex()
+                            .bg(p.back)
+                            .when(sidebar > 0., |el| el.child(self.sidebar(sidebar, cx)));
+                        if floating {
+                            // The page fills the column; the player floats over its foot (the
+                            // page leaves room to scroll its end out from under it), and the side
+                            // panel floats beside it.
+                            let (over, below) = if player_foot {
+                                (foot, None)
                             } else {
-                                el
-                            }
-                        })
+                                (None, foot)
+                            };
+                            el.child(
+                                row.child(
+                                    div()
+                                        .flex_1()
+                                        .min_w_0()
+                                        .flex()
+                                        .flex_col()
+                                        .child(
+                                            div()
+                                                .flex_1()
+                                                .min_h_0()
+                                                .flex()
+                                                .child(
+                                                    div()
+                                                        .flex_1()
+                                                        .min_w_0()
+                                                        .relative()
+                                                        .child(sheet)
+                                                        .children(over.map(|player| {
+                                                            div()
+                                                                .absolute()
+                                                                .left_0()
+                                                                .right_0()
+                                                                .bottom_0()
+                                                                .child(player)
+                                                        })),
+                                                )
+                                                .when(show_panel, |el| {
+                                                    el.child(self.panel(panel_width, window, cx))
+                                                }),
+                                        )
+                                        .children(below),
+                                ),
+                            )
+                        } else {
+                            el.child(row.child(sheet)).children(foot)
+                        }
                     })
                     .when(!self.immersive, |el| el.children(big_layer)),
             )

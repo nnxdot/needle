@@ -618,8 +618,7 @@ impl AppView {
             .occlude()
             .w(px(252.))
             .p_1()
-            .rounded(px(9.))
-            .bg(cx.theme().popover)
+            .map(|el| super::glass::pane(el, 9., 14., cx.theme().popover, cx))
             .border_1()
             .border_color(p.line)
             .shadow_lg()
@@ -841,8 +840,7 @@ impl AppView {
             .occlude()
             .w(px(220.))
             .p_1()
-            .rounded(px(9.))
-            .bg(cx.theme().popover)
+            .map(|el| super::glass::pane(el, 9., 14., cx.theme().popover, cx))
             .border_1()
             .border_color(p.line)
             .shadow_lg()
@@ -1004,8 +1002,7 @@ impl AppView {
             .occlude()
             .w(px(220.))
             .p_1()
-            .rounded(px(9.))
-            .bg(cx.theme().popover)
+            .map(|el| super::glass::pane(el, 9., 14., cx.theme().popover, cx))
             .border_1()
             .border_color(p.line)
             .shadow_lg()
@@ -1102,8 +1099,7 @@ impl AppView {
             .occlude()
             .w(px(220.))
             .p_1()
-            .rounded(px(9.))
-            .bg(cx.theme().popover)
+            .map(|el| super::glass::pane(el, 9., 14., cx.theme().popover, cx))
             .border_1()
             .border_color(p.line)
             .shadow_lg()
@@ -1126,5 +1122,181 @@ impl AppView {
             )
             .with_priority(2),
         )
+    }
+}
+
+/// The SF Symbol for one of Needle's icons in a system menu.
+fn symbol(icon: &str) -> Option<&'static str> {
+    Some(match icon {
+        "play" => "play.fill",
+        "next" => "text.line.first.and.arrowtriangle.forward",
+        "queue" => "text.append",
+        "heart" => "heart",
+        "heart-fill" => "heart.fill",
+        "playlist" => "music.note.list",
+        "plus" => "plus",
+        "plugin" => "puzzlepiece.extension",
+        "close" => "xmark",
+        "pin" => "pin",
+        "pin-fill" => "pin.fill",
+        "import" => "square.and.arrow.down",
+        "albums" => "square.stack",
+        "artists" => "music.mic",
+        "radio" => "dot.radiowaves.left.and.right",
+        "edit" => "pencil",
+        "stems" => "waveform",
+        "folder" => "folder",
+        "copy" => "doc.on.doc",
+        "shuffle" => "shuffle",
+        "external" => "square.and.arrow.up",
+        "trash" => "trash",
+        "star" => "star",
+        "history" => "clock.arrow.circlepath",
+        "recent" => "clock",
+        "songs" => "music.note",
+        _ => return None,
+    })
+}
+
+/// Needle's menu entries as system menu items; each item's action is kept by its path.
+fn native_items(
+    entries: &[Entry],
+    subs: &[(&'static str, Vec<Entry>)],
+    path: &mut Vec<usize>,
+    actions: &mut Vec<(Vec<usize>, Action)>,
+) -> Vec<gpui::NativeMenuItem> {
+    let mut items = vec![];
+    for (i, entry) in entries.iter().enumerate() {
+        path.push(i);
+        items.push(match entry {
+            Entry::Separator => gpui::NativeMenuItem {
+                separator: true,
+                ..Default::default()
+            },
+            Entry::Label(text) => gpui::NativeMenuItem {
+                label: text.clone(),
+                header: true,
+                ..Default::default()
+            },
+            Entry::Item {
+                icon,
+                label,
+                action,
+                ..
+            } => {
+                actions.push((path.clone(), action.clone()));
+                gpui::NativeMenuItem {
+                    label: label.clone(),
+                    symbol: symbol(icon).map(Into::into),
+                    enabled: true,
+                    checked: *icon == "check",
+                    ..Default::default()
+                }
+            }
+            Entry::Sub { icon, label, key } => {
+                let inner = subs
+                    .iter()
+                    .find(|(k, _)| k == key)
+                    .map(|(_, e)| native_items(e, subs, path, actions))
+                    .unwrap_or_default();
+                gpui::NativeMenuItem {
+                    label: label.clone(),
+                    symbol: symbol(icon).map(Into::into),
+                    enabled: !inner.is_empty(),
+                    submenu: inner,
+                    ..Default::default()
+                }
+            }
+        });
+        path.pop();
+    }
+    items
+}
+
+impl AppView {
+    /// macOS: a menu opened since the last frame shows as the system's own menu instead of
+    /// Needle's (its choice runs the same action). The blend and speaker menus, which fill in
+    /// while open, stay Needle's own.
+    pub(super) fn show_native_menus(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if !cfg!(target_os = "macos") {
+            return;
+        }
+        if let Some(menu) = self.menu.as_ref() {
+            let position = menu.position;
+            let root = self.menu_entries(cx);
+            let mut subs = vec![];
+            for key in ["playlists", "plugins"] {
+                if let Some(menu) = self.menu.as_mut() {
+                    menu.sub = Some(key);
+                }
+                subs.push((key, self.menu_entries(cx)));
+            }
+            self.menu = None;
+            self.native_menu(position, root, subs, window, cx);
+        } else if let Some(menu) = self.playlist_menu.as_ref() {
+            let position = menu.position;
+            let root = self.playlist_menu_entries();
+            self.playlist_menu = None;
+            self.native_menu(position, root, vec![], window, cx);
+        } else if let Some(menu) = self.group_menu.as_ref() {
+            let position = menu.position;
+            // "Add to playlist…" opens a submenu of the playlists.
+            let root: Vec<Entry> = self
+                .group_menu_entries()
+                .into_iter()
+                .map(|entry| match entry {
+                    Entry::Item { label, .. } if label.as_ref() == "Add to playlist…" => {
+                        Entry::Sub {
+                            icon: "playlist",
+                            label: "Add to playlist".into(),
+                            key: "playlists",
+                        }
+                    }
+                    entry => entry,
+                })
+                .collect();
+            if let Some(menu) = self.group_menu.as_mut() {
+                menu.playlists = true;
+            }
+            let playlists = self.group_menu_entries();
+            self.group_menu = None;
+            self.native_menu(position, root, vec![("playlists", playlists)], window, cx);
+        } else if let Some((position, _)) = self.collections_menu {
+            let root = self.collections_menu_entries();
+            self.collections_menu = None;
+            self.native_menu(position, root, vec![], window, cx);
+        } else if let Some(menu) = self.header_menu.as_ref() {
+            let position = menu.position;
+            let root = self.header_menu_entries();
+            self.header_menu = None;
+            self.native_menu(position, root, vec![], window, cx);
+        }
+    }
+
+    fn native_menu(
+        &mut self,
+        position: Point<Pixels>,
+        root: Vec<Entry>,
+        subs: Vec<(&'static str, Vec<Entry>)>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let mut actions = vec![];
+        let items = native_items(&root, &subs, &mut vec![], &mut actions);
+        let Some(chosen) = window.show_context_menu(position, items) else {
+            return;
+        };
+        cx.spawn_in(window, async move |this, cx| {
+            let Ok(Some(path)) = chosen.await else {
+                return;
+            };
+            if let Some((_, action)) = actions.into_iter().find(|(p, _)| *p == path) {
+                let _ = this.update_in(cx, |this, window, cx| {
+                    action(this, window, cx);
+                    cx.notify();
+                });
+            }
+        })
+        .detach();
     }
 }

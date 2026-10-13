@@ -68,11 +68,22 @@ impl AppView {
                         .items_center()
                         .gap_2()
                         .child(
-                            icon_button("back", "chevron-left", "Back · Alt+Left")
-                                .small()
-                                .disabled(self.back.is_empty())
-                                .on_click(
-                                    cx.listener(|this, _, window, cx| this.go_back(window, cx)),
+                            div()
+                                .relative()
+                                .flex_shrink_0()
+                                .size(px(32.))
+                                .flex()
+                                .items_center()
+                                .justify_center()
+                                // macOS: a round pane of glass, as in macOS's own toolbars.
+                                .when(self.floating(), |el| el.rounded(px(16.)).glass())
+                                .child(
+                                    icon_button("back", "chevron-left", "Back · Alt+Left")
+                                        .small()
+                                        .disabled(self.back.is_empty())
+                                        .on_click(cx.listener(|this, _, window, cx| {
+                                            this.go_back(window, cx)
+                                        })),
                                 ),
                         )
                         .child(self.search_group(search_width, narrow, false, window, cx))
@@ -251,12 +262,29 @@ impl AppView {
     pub(super) fn sidebar(&self, width: f32, cx: &mut Context<Self>) -> impl IntoElement {
         let p = pal(cx);
         let rail = self.settings.layout.sidebar_hidden;
+        let floating = self.floating();
         div()
             .w(px(width))
             .flex_shrink_0()
             .h_full()
+            .relative()
             .flex()
             .flex_col()
+            // macOS: the sidebar floats on glass from the window's top to its foot, the window
+            // buttons in it.
+            // Its rows keep clear of the glass's edges.
+            .when(floating, |el| {
+                el.pl(px(8.))
+                    .pr(px(6.))
+                    .pb(px(18.))
+                    .child(super::glass::probe(
+                        "sidebar",
+                        (8., 8., 6., 8.),
+                        true,
+                        20.,
+                        true,
+                    ))
+            })
             // Everything above the bottom buttons scrolls together, so a short window never
             // pushes Settings and the others out of reach.
             .child(
@@ -614,9 +642,27 @@ impl AppView {
         let current = self.playback.current.as_ref().map(|i| i.track.clone());
         let wide = width > px(1180.);
         let (path, path_detail, exclusive) = self.signal_path(cx);
+        let floating = self.floating();
         div()
-            .h(px(80.))
+            .h(px(if floating { 76. } else { 80. }))
             .flex_shrink_0()
+            .relative()
+            // macOS: the player floats on its own pane of glass, clear of the window's edges, over
+            // the page's foot (and takes the pointer there).
+            .when(floating, |el| {
+                el.occlude()
+                    .mx(px(12.))
+                    .mb(px(12.))
+                    .mt(px(4.))
+                    .rounded(px(28.))
+                    .child(super::glass::probe(
+                        "player",
+                        (0., 0., 0., 0.),
+                        false,
+                        28.,
+                        true,
+                    ))
+            })
             // The playing cover's colour glows in from the left.
             .bg(linear_gradient(
                 90.,
@@ -630,7 +676,8 @@ impl AppView {
                 ),
                 linear_color_stop(p.back, 0.55),
             ))
-            .px_4()
+            // On glass the buttons keep well clear of its round ends.
+            .px(px(if floating { 26. } else { 16. }))
             .flex()
             .items_center()
             .gap_4()
@@ -1168,6 +1215,7 @@ impl AppView {
             .is_some_and(|e| e.starts_with("Matches rule"))
             && !self.search_text(cx).is_empty();
         let field = !self.settings.layout.search_hidden;
+        let glass_field = self.floating();
         div()
             .flex()
             .items_center()
@@ -1179,15 +1227,21 @@ impl AppView {
                         // One clean field: our own fill, edge, and height; the input inside
                         // draws no box of its own.
                         .h(px(32.))
-                        .rounded(px(8.))
-                        .bg(if p.back.a < 1. {
-                            p.raised.opacity(0.75)
-                        } else {
-                            p.raised
+                        .rounded(px(if glass_field { 16. } else { 8. }))
+                        // macOS: a capsule of glass, as in macOS's own toolbars.
+                        .when(glass_field, |el| el.glass())
+                        .when(!glass_field, |el| {
+                            el.bg(if p.back.a < 1. {
+                                p.raised.opacity(0.75)
+                            } else {
+                                p.raised
+                            })
                         })
                         .border_1()
                         .border_color(if search_focused {
                             p.accent.opacity(0.6)
+                        } else if glass_field {
+                            gpui::transparent_black()
                         } else {
                             p.line_soft
                         })
@@ -1322,6 +1376,10 @@ impl AppView {
                     .items_center()
                     .gap_2()
                     .pl_2()
+                    // macOS Liquid Glass: the buttons on a capsule of glass.
+                    .when(self.floating(), |el| {
+                        el.ml_2().pr_2().py(px(4.)).rounded(px(22.)).glass()
+                    })
                     // Each group claims the mouse, or Windows takes presses there (on the
                     // sliders too) as the title bar's, and never reports letting go.
                     .occlude()
@@ -1348,8 +1406,18 @@ impl AppView {
                             .max_w(px(600.))
                             .occlude()
                             .h(px(48.))
-                            .rounded(px(8.))
-                            .bg(p.raised.opacity(if p.back.a < 1. { 0.75 } else { 1. }))
+                            // macOS Liquid Glass: the song on a pane of glass.
+                            .map(|el| {
+                                if self.floating() {
+                                    el.rounded(px(16.)).glass()
+                                } else {
+                                    el.rounded(px(8.)).bg(p.raised.opacity(if p.back.a < 1. {
+                                        0.75
+                                    } else {
+                                        1.
+                                    }))
+                                }
+                            })
                             .flex()
                             .items_center()
                             .gap_2()
@@ -1538,8 +1606,7 @@ impl AppView {
                         .pl_4()
                         .pr_2()
                         .py_2()
-                        .rounded(px(10.))
-                        .bg(cx.theme().popover)
+                        .map(|el| super::glass::pane(el, 10., 18., cx.theme().popover, cx))
                         .border_1()
                         .border_color(if toast.error {
                             p.danger.opacity(0.5)
