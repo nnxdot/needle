@@ -12,6 +12,8 @@ pub const LATEST: &str = "https://needle.nnx.fyi/latest.json";
 /// A release for macOS alone (the other systems stay on `LATEST`'s version); asked first on
 /// macOS.
 pub const LATEST_MACOS: &str = "https://needle.nnx.fyi/latest-macos.json";
+/// A release for Android alone, in the same way; asked first on Android.
+pub const LATEST_ANDROID: &str = "https://needle.nnx.fyi/latest-android.json";
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct Release {
@@ -201,10 +203,17 @@ pub(crate) fn from_json(
 }
 
 /// Ask needle.nnx.fyi whether a newer Needle is out. Sends nothing but the request itself.
-/// On macOS a release for macOS alone is asked about first.
+/// On macOS and Android a release for that system alone is asked about first.
 pub fn check(current: &str) -> Result<Option<Release>> {
-    if cfg!(target_os = "macos")
-        && let Ok(Some(release)) = check_at(LATEST_MACOS, current)
+    let own = if cfg!(target_os = "macos") {
+        Some(LATEST_MACOS)
+    } else if cfg!(target_os = "android") {
+        Some(LATEST_ANDROID)
+    } else {
+        None
+    };
+    if let Some(url) = own
+        && let Ok(Some(release)) = check_at(url, current)
     {
         return Ok(Some(release));
     }

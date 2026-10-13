@@ -1,5 +1,5 @@
-// Read when the site is built: the versions and file names from public/latest.json and
-// public/latest-macos.json, and each file's size from the release folder when it is there.
+// Read when the site is built: the versions and file names from public/latest.json,
+// public/latest-macos.json, and public/latest-android.json, and each file's size from the release folder when it is there.
 import { readFileSync, readdirSync, statSync, existsSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { pick } from "./assets.js";
@@ -19,6 +19,8 @@ const known = {
   "Needle-1.6.3-android-x86_64-release.apk": 32e6,
 };
 
+const readIfThere = (name) => (existsSync(join(root, "public", name)) ? read(name) : null);
+
 function findSize(name) {
   const dist = join(root, "..", "dist");
   const look = (dir, depth) => {
@@ -37,11 +39,11 @@ function findSize(name) {
 }
 
 export function release() {
-  const { files, version, macVersion } = pick(read("latest.json"), read("latest-macos.json"));
+  const { files, version, macVersion, androidVersion } = pick(read("latest.json"), read("latest-macos.json"), readIfThere("latest-android.json"));
   const sizes = {};
   for (const [kind, name] of Object.entries(files)) {
     const bytes = findSize(name);
     if (bytes) sizes[kind] = `${Math.round(bytes / 1e6)} MB`;
   }
-  return { files, sizes, version, macVersion };
+  return { files, sizes, version, macVersion, androidVersion };
 }
