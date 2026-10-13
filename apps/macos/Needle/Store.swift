@@ -339,7 +339,34 @@ final class Store {
     func setLayout(_ patch: [String: Any]) { set(["layout": patch]) }
 
     func reloadSettings() {
-        if let next = JSON.decode(NeedleSettings.self, try? core.settingsJson()), next != settings { settings = next }
+        guard let next = JSON.decode(NeedleSettings.self, try? core.settingsJson()), next != settings else { return }
+        Self.makeRoom(Self.leastWidth(next))
+        settings = next
+    }
+
+    /// The narrowest the main window may be with the columns these settings open: the page
+    /// needs about 560 points beside the sidebar (or its strip of icons) and the side panel.
+    /// (Narrower, SwiftUI's split view kept moving the columns and never settled, and AppKit
+    /// stopped the app.)
+    static func leastWidth(_ settings: NeedleSettings) -> CGFloat {
+        let layout = settings.layout
+        let sidebar: CGFloat = layout.sidebarHidden ? (layout.compactSidebar ? Rail.width : 0) : 220
+        return max(760, 560 + sidebar + (settings.showInspector ? 310 : 0))
+    }
+
+    /// Widens the main window, at once, when a column is about to open and there is no room
+    /// for it. It runs before the column opens: widened while the column slid open, the split
+    /// view never settled, and AppKit stopped the app.
+    static func makeRoom(_ width: CGFloat) {
+        guard let window = NSApp?.windows.first(where: { $0.identifier?.rawValue.hasPrefix("main") == true }),
+              !window.styleMask.contains(.fullScreen), window.frame.width < width else { return }
+        var frame = window.frame
+        frame.size.width = width
+        if let screen = window.screen?.visibleFrame {
+            frame.size.width = min(width, screen.width)
+            frame.origin.x = max(screen.minX, min(frame.origin.x, screen.maxX - frame.width))
+        }
+        window.setFrame(frame, display: true, animate: false)
     }
 
     // MARK: - Pages
