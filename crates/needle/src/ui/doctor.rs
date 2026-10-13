@@ -370,6 +370,7 @@ impl AppView {
             .id("doctor")
             .size_full()
             .overflow_y_scroll()
+            .pb(self.foot_room())
             .child(
                 div()
                     .px_6()

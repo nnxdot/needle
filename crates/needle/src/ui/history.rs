@@ -410,7 +410,7 @@ impl AppView {
             }),
         )
         .flex_1()
-        .pb_4();
+        .pb(px(16.) + self.foot_room());
         div()
             .flex_1()
             .min_h_0()
@@ -580,6 +580,7 @@ impl AppView {
             .flex_1()
             .min_h_0()
             .overflow_y_scroll()
+            .pb(self.foot_room())
             .flex()
             .flex_col()
             .when(self.recent.is_empty(), |el| {

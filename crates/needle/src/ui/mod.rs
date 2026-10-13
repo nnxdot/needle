@@ -2904,14 +2904,18 @@ impl Render for AppView {
                                     .border_l_1()
                                     .border_color(if p.dark { p.line_soft } else { p.line })
                             })
+                            // macOS Liquid Glass: the page is drawn under the glass, so the
+                            // floating player shows the songs passing beneath it.
+                            .when(floating, |el| el.size_full().under_glass())
                             .child(backdrop)
                             .child(self.main(content_width, window, cx))
-                            .when(show_panel, |el| {
+                            .when(show_panel && !floating, |el| {
                                 el.child(self.panel(panel_width, window, cx))
                             });
                         // The player at the bottom; or, with it in the title bar, the search
                         // field there (unless hidden too).
-                        let foot = if !self.settings.layout.player_on_top {
+                        let player_foot = !self.settings.layout.player_on_top;
+                        let foot = if player_foot {
                             Some(
                                 self.player_bar(
                                     if floating { width - px(sidebar) } else { width },
@@ -2932,6 +2936,14 @@ impl Render for AppView {
                             .bg(p.back)
                             .when(sidebar > 0., |el| el.child(self.sidebar(sidebar, cx)));
                         if floating {
+                            // The page fills the column; the player floats over its foot (the
+                            // page leaves room to scroll its end out from under it), and the side
+                            // panel floats beside it.
+                            let (over, below) = if player_foot {
+                                (foot, None)
+                            } else {
+                                (None, foot)
+                            };
                             el.child(
                                 row.child(
                                     div()
@@ -2939,8 +2951,31 @@ impl Render for AppView {
                                         .min_w_0()
                                         .flex()
                                         .flex_col()
-                                        .child(sheet)
-                                        .children(foot),
+                                        .child(
+                                            div()
+                                                .flex_1()
+                                                .min_h_0()
+                                                .flex()
+                                                .child(
+                                                    div()
+                                                        .flex_1()
+                                                        .min_w_0()
+                                                        .relative()
+                                                        .child(sheet)
+                                                        .children(over.map(|player| {
+                                                            div()
+                                                                .absolute()
+                                                                .left_0()
+                                                                .right_0()
+                                                                .bottom_0()
+                                                                .child(player)
+                                                        })),
+                                                )
+                                                .when(show_panel, |el| {
+                                                    el.child(self.panel(panel_width, window, cx))
+                                                }),
+                                        )
+                                        .children(below),
                                 ),
                             )
                         } else {

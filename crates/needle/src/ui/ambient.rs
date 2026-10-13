@@ -247,6 +247,15 @@ impl AppView {
         self.liquid() && !self.immersive && !(self.big && !self.big_moving)
     }
 
+    /// Room a page leaves at its foot, so its end scrolls out from under the floating player.
+    pub(super) fn foot_room(&self) -> Pixels {
+        if self.floating() && !self.settings.layout.player_on_top {
+            px(96.)
+        } else {
+            px(0.)
+        }
+    }
+
     /// macOS: what shows behind the glass and the page, drawn by the system under Needle's own
     /// layer. The page's or the playing song's cover, blurred, under a wash of the page colour
     /// (as the Ambient look does), so the glass takes the music's colours; or the page colour.
