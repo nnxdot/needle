@@ -116,7 +116,6 @@ const platforms = [
         <p>Timed lyrics light up as they are sung, over the colors of the cover. Needle finds them next to your files or on LRCLIB.</p>
         <p>No timing for a song? Tap along once. Needle saves it next to the file.</p>
       </div>
-      <div class="lp-track" data-lp-track>
       <div class="lyrics-player" role="img" aria-label="The big player: a large album cover, and the lyrics beside it, with the line being sung lit word by word.">
         <div class="lp-art">
           <img src={cover("harbor-lights")} alt="" width="720" height="720" loading="lazy" />
@@ -127,7 +126,6 @@ const platforms = [
             <p class="lp-line">{line.map((w) => <span>{w} </span>)}</p>
           ))}
         </div>
-      </div>
       </div>
     </div>
   </section>
@@ -207,13 +205,11 @@ const platforms = [
         <p>Three looks come with Needle. Copy one and change any color, or add a theme someone sent you. Needle keeps text readable whatever you pick.</p>
         <p class="themes-links"><a class="link" href="/themes">Make a theme <Icon name="arrow-right" weight="bold" /></a><a class="link" href="/plugins">Write a plugin <Icon name="arrow-right" weight="bold" /></a></p>
       </div>
-      <div class="ts-track" data-ts-track>
       <div class="themes-stage">
         <AppWindow class="themes-app" look="night" label="The same Needle window in four looks: Night, Midnight, Day, and a pink theme called Sakura." />
         <div class="look-names" role="group" aria-label="Looks">
           {looks.map((l, i) => <button type="button" aria-pressed={i === 0 ? "true" : "false"} data-look={l.id}><b>{l.name}</b><small>{l.note}</small></button>)}
         </div>
-      </div>
       </div>
     </div>
   </section>
