@@ -487,6 +487,16 @@ pub(crate) trait PlatformWindow: HasWindowHandle + HasDisplayHandle {
     /// newer, vibrancy on older macOS), over `backdrop`, or the blurred desktop when `None`.
     /// Empty removes it all. Other platforms do nothing. Needle patch.
     fn set_glass_regions(&self, _regions: &[GlassRegion], _backdrop: Option<&GlassBackdrop>) {}
+    /// Shows the system's own menu at `position` (in the window) and tells which item was
+    /// chosen, as its path of indices, or `None` when the menu was closed. `None` from this
+    /// call: there is no system menu here (macOS only). Needle patch.
+    fn show_context_menu(
+        &self,
+        _position: Point<Pixels>,
+        _items: Vec<NativeMenuItem>,
+    ) -> Option<futures::channel::oneshot::Receiver<Option<Vec<usize>>>> {
+        None
+    }
     /// Light or dark system materials and controls for this window, whatever the system's own
     /// setting; `None` follows the system. Needle patch.
     fn set_dark_appearance(&self, _dark: Option<bool>) {}
@@ -1320,6 +1330,25 @@ pub struct GlassRegion {
     pub corner_radius: Pixels,
     /// A soft shadow under it, so it floats above the window.
     pub shadow: bool,
+}
+
+/// An item of a system menu (see `Window::show_context_menu`). Needle patch.
+#[derive(Clone, Debug, Default)]
+pub struct NativeMenuItem {
+    /// The item's words.
+    pub label: SharedString,
+    /// An SF Symbol name, shown beside the label.
+    pub symbol: Option<SharedString>,
+    /// It can be chosen.
+    pub enabled: bool,
+    /// A check mark beside the label.
+    pub checked: bool,
+    /// A line between groups of items (nothing else is used).
+    pub separator: bool,
+    /// A heading over a group of items (only the label is used).
+    pub header: bool,
+    /// Items in a submenu, opened from this one.
+    pub submenu: Vec<NativeMenuItem>,
 }
 
 /// What the window shows behind its glass regions (see `Window::set_glass_backdrop`).
