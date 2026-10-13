@@ -22,20 +22,15 @@ struct PlayerBar: View {
     /// panels on the right. Narrower, the song gives up its words and the extras go in a menu.
     private func bar(_ width: Width) -> some View {
         HStack(spacing: width == .narrow ? 10 : 18) {
-            if width == .narrow {
-                NowPlayingCover(side: 44)
-            } else {
-                NowPlayingInfo(coverSide: 48)
-                    .frame(maxWidth: width == .wide ? 300 : 210, alignment: .leading)
-                    .layoutPriority(1)
-            }
+            // A set width: given only what was left, the song's words shrank to nothing.
+            NowPlayingInfo(coverSide: width == .narrow ? 40 : 48, heart: width != .narrow)
+                .frame(width: width == .wide ? 280 : width == .medium ? 210 : 150, alignment: .leading)
             VStack(spacing: 3) {
                 Transport(play: 34, compact: width == .narrow)
                 SeekBar(small: width == .narrow)
             }
             .frame(maxWidth: 560)
             .frame(maxWidth: .infinity)
-            .layoutPriority(2)
             VStack(alignment: .trailing, spacing: 3) {
                 if width == .wide { SignalPath() }
                 HStack(spacing: width == .narrow ? 8 : 12) {
@@ -51,22 +46,6 @@ struct PlayerBar: View {
                 .font(.system(size: 14))
             }
             .layoutPriority(1)
-        }
-    }
-}
-
-/// The playing song's cover alone, for a narrow player bar: it opens the big player.
-struct NowPlayingCover: View {
-    private var store: Store { .shared }
-    let side: CGFloat
-
-    var body: some View {
-        if let p = store.playback, p.hasSong {
-            Button { store.big = true } label: { Cover(path: p.artwork, seed: p.album + p.artist, side: side, corner: 6) }
-                .buttonStyle(.plain)
-                .help("\(p.title) · \(p.artist) · open the big player")
-        } else {
-            RoundedRectangle(cornerRadius: 6).fill(store.colors.raised).frame(width: side, height: side)
         }
     }
 }
@@ -146,6 +125,7 @@ struct TopPlayer: View {
 struct NowPlayingInfo: View {
     private var store: Store { .shared }
     let coverSide: CGFloat
+    var heart = true
 
     var body: some View {
         let colors = store.colors
@@ -168,7 +148,7 @@ struct NowPlayingInfo: View {
                         .foregroundStyle(colors.ink2)
                         .lineLimit(1)
                 }
-                if let c = store.current {
+                if heart, let c = store.current {
                     Heart(on: c.favorite, size: 14) { store.toggleFavorite([c]) }
                 }
             } else {

@@ -21,7 +21,16 @@ struct MainWindow: View {
         ZStack {
             NavigationSplitView(columnVisibility: Binding(
                 get: { store.settings.layout.sidebarHidden && !store.settings.layout.compactSidebar ? .detailOnly : .all },
-                set: { store.setLayout(["sidebar_hidden": $0 == .detailOnly]) })) {
+                set: { asked in
+                    // The strip of icons counts as an open sidebar to SwiftUI, so its button
+                    // always asks to close it: with the compact sidebar, it switches between
+                    // the strip and the whole sidebar.
+                    if store.settings.layout.compactSidebar {
+                        if asked == .detailOnly { store.setLayout(["sidebar_hidden": !store.settings.layout.sidebarHidden]) }
+                    } else {
+                        store.setLayout(["sidebar_hidden": asked == .detailOnly])
+                    }
+                })) {
                 Sidebar()
                     .navigationSplitViewColumnWidth(min: rail ? 64 : 175, ideal: rail ? 64 : sidebarStart, max: rail ? 64 : 260)
                     .background { if !rail { WidthKeeper(key: "sidebar_width", range: 175...260, saved: store.settings.layout.sidebarWidth) } }
@@ -37,7 +46,8 @@ struct MainWindow: View {
             .windowToolbarFullScreenVisibility(.onHover)
             .onChange(of: store.search) { _, text in findSuggestions(text) }
             .onChange(of: store.focusSearch) { _, _ in
-                if store.settings.layout.searchHidden { store.palette = true } else { searchFocused = true }
+                // With the sidebar folded away, its search field is too: the palette searches.
+                if store.settings.layout.searchHidden || store.settings.layout.sidebarHidden { store.palette = true } else { searchFocused = true }
             }
 
             if store.big || store.immersive {
@@ -211,7 +221,8 @@ struct MainWindow: View {
     }
 }
 
-/// The search field in the toolbar (unless hidden in Settings), with completions for rules.
+/// The search field at the top of the sidebar (unless hidden in Settings), with completions
+/// for rules.
 private struct SearchField: ViewModifier {
     private var store: Store { .shared }
     var searchFocused: FocusState<Bool>.Binding
@@ -223,7 +234,9 @@ private struct SearchField: ViewModifier {
             content
         } else {
             content
-                .searchable(text: $store.search, placement: .toolbar, prompt: "Search")
+                // At the top of the sidebar, as in Apple Music: in the toolbar it sat across the
+                // page and the side panel, half on each background.
+                .searchable(text: $store.search, placement: .sidebar, prompt: "Search")
                 .searchFocused(searchFocused)
                 .searchSuggestions {
                     ForEach(suggestions, id: \.label) { s in
@@ -279,8 +292,10 @@ struct WindowBackground: View {
             if store.settings.ambient {
                 store.colors.chrome
                 if let p = store.playback, p.hasSong {
-                    CoverBackdrop(path: p.artwork, seed: p.album + p.artist, moving: store.motion)
-                        .opacity(store.colors.dark ? 0.85 : 0.55)
+                    // Full strength, dimmed only a little: mixed into the grey beneath and
+                    // darkened twice, the colours looked washed out.
+                    CoverBackdrop(path: p.artwork, seed: p.album + p.artist, moving: store.motion, dim: store.colors.dark ? 0.35 : 0)
+                        .opacity(store.colors.dark ? 1 : 0.7)
                 } else {
                     store.colors.glow.opacity(0.25)
                 }
