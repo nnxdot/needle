@@ -2845,6 +2845,9 @@ impl Render for AppView {
             .map(|el| {
                 let liquid = self.material() == glass::Material::Liquid;
                 let covered = self.immersive || (self.big && !self.big_moving);
+                // Behind the glass: the bars' own colour, as macOS's windows are behind their
+                // floating sidebar, not the desktop.
+                window.set_glass_backdrop(liquid.then_some(p.chrome));
                 if !liquid || covered || sidebar <= 0. {
                     window.set_glass_region("sidebar", None);
                 }

@@ -484,9 +484,9 @@ pub(crate) trait PlatformWindow: HasWindowHandle + HasDisplayHandle {
     fn set_title(&mut self, title: &str);
     fn set_background_appearance(&self, background_appearance: WindowBackgroundAppearance);
     /// Shows the system's glass under these parts of the window (Liquid Glass on macOS 26 and
-    /// newer, vibrancy on older macOS), over a translucent window backdrop. Empty removes it
-    /// all. Other platforms do nothing. Needle patch.
-    fn set_glass_regions(&self, _regions: &[GlassRegion]) {}
+    /// newer, vibrancy on older macOS), over a backdrop of `backdrop`'s colour, or the blurred
+    /// desktop when `None`. Empty removes it all. Other platforms do nothing. Needle patch.
+    fn set_glass_regions(&self, _regions: &[GlassRegion], _backdrop: Option<crate::Rgba>) {}
     /// Light or dark system materials and controls for this window, whatever the system's own
     /// setting; `None` follows the system. Needle patch.
     fn set_dark_appearance(&self, _dark: Option<bool>) {}
