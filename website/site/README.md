@@ -8,7 +8,7 @@ npm run build   # builds, then copies the pages into ../public
 npm run serve   # looks at ../public on http://localhost:4321
 ```
 
-- `../public/latest.json`, `latest-macos.json`, `install-mac.sh`, and the icons are not made by the build.
+- `../public/latest.json`, `latest-macos.json`, `latest-android.json`, `install-mac.sh`, and the icons are not made by the build.
   Needle's updaters and the Mac installer read them; edit them there, as before.
 - The download buttons take their file names and versions from those two JSON files when the
   site is built, and again in the browser, so a release that only changes `latest.json` still
