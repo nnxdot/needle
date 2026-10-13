@@ -211,6 +211,13 @@ mm.add(
     const { motion, wide, fine } = ctx.conditions as { motion: boolean; wide: boolean; fine: boolean };
     // A moment that plays by itself once it is in view, so a fast flick can't skip it. It plays
     // again when you come back to it after it left the screen.
+    // Where a sticky element stops, in pixels, centered on the screen. The script sets it, so
+    // the scroll timing and the stop agree in every browser (Safari can report the CSS formula).
+    const stickAt = (el: HTMLElement, min: number) => () => {
+      const at = Math.max(min, Math.round((document.documentElement.clientHeight - el.offsetHeight) / 2));
+      el.style.top = `${at}px`;
+      return at;
+    };
     const seen = (trigger: gsap.DOMTarget, start = "top 80%"): ScrollTrigger.Vars =>
       ({ trigger, start, end: "bottom top", toggleActions: "play reset play reverse" });
 
@@ -282,7 +289,7 @@ mm.add(
       });
     } else {
       const player = $(".lyrics-player")!;
-      const top = () => parseFloat(getComputedStyle(player).top) || 0;
+      const top = stickAt(player, 88);
       sing.to({}, { duration: .8 });
       ScrollTrigger.create({
         animation: sing, trigger: "[data-lp-track]", scrub: true, invalidateOnRefresh: true,
@@ -336,7 +343,7 @@ mm.add(
     } else {
       // On a phone the window is sticky (in the stylesheet) and changes its look as you scroll.
       const stage = $(".themes-stage")!;
-      const top = () => parseFloat(getComputedStyle(stage).top) || 0;
+      const top = stickAt(stage, 88);
       ScrollTrigger.create({
         trigger: "[data-ts-track]", invalidateOnRefresh: true,
         start: () => `top ${top()}px`, end: () => `bottom ${top() + stage.offsetHeight}px`,
@@ -432,6 +439,7 @@ mm.add(
       split.revert();
       privacyTitle.revert();
       sing.kill();
+      gsap.set(".lyrics-player, .themes-stage", { clearProps: "top" });
       gsap.set(box, { clearProps: "opacity" });
     };
   },
