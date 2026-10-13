@@ -195,6 +195,20 @@ for (const num of $$("[data-count]")) {
   });
 }
 
+// A link on the page (Download, Features) scrolls past sections on purpose; nothing holds it.
+let jumping = false;
+let jumpTimer: ReturnType<typeof setTimeout> | undefined;
+document.addEventListener("click", (e) => {
+  if (!(e.target as Element).closest('a[href^="#"]')) return;
+  jumping = true;
+  clearTimeout(jumpTimer);
+  jumpTimer = setTimeout(() => (jumping = false), 3000);
+});
+addEventListener("scrollend", () => {
+  clearTimeout(jumpTimer);
+  jumpTimer = setTimeout(() => (jumping = false), 100);
+});
+
 function reduced() {
   return matchMedia("(prefers-reduced-motion: reduce)").matches;
 }
@@ -213,6 +227,62 @@ mm.add(
     // again when you come back to it after it left the screen.
     const seen = (trigger: gsap.DOMTarget, start = "top 80%"): ScrollTrigger.Vars =>
       ({ trigger, start, end: "bottom top", toggleActions: "play reset play reverse" });
+
+    // On a phone the page stops while a section plays, so a fast flick can't carry you past it.
+    // Swiping on jumps to the next step (a label in the timeline); swiping back lets go at once.
+    // Each section holds the page only the first time you reach it.
+    const html = document.documentElement;
+    const holds: ReturnType<typeof ScrollTrigger.observe>[] = [];
+    const hold = (trigger: string, start: string, tl: gsap.core.Timeline) => {
+      let held = false;
+      let done = false;
+      let wait = false;
+      let at = 0;
+      // A scroll that was already moving (a flick, a wheel) is brought back to the stop.
+      const stay = () => { if (Math.abs(scrollY - at) > 1) scrollTo({ top: at, behavior: "instant" }); };
+      const release = () => {
+        if (!held) return;
+        held = false;
+        html.style.overflow = "";
+        removeEventListener("scroll", stay);
+        intent.disable();
+      };
+      const next = () => {
+        if (wait) return;
+        wait = true;
+        setTimeout(() => (wait = false), 450);
+        const label = tl.nextLabel();
+        if (label === undefined || label === null) {
+          tl.progress(1);
+          return release();
+        }
+        tl.tweenTo(label, { duration: .45, ease: "power2.out", onComplete: () => { tl.play(); } });
+      };
+      const intent = ScrollTrigger.observe({ type: "wheel,touch", wheelSpeed: -1, tolerance: 10, preventDefault: true, onUp: next, onDown: release });
+      intent.disable();
+      holds.push(intent);
+      tl.eventCallback("onComplete", release);
+      ScrollTrigger.create({
+        trigger, start,
+        onEnter: (st) => {
+          if (done) return;
+          done = true;
+          // Reached by a link, or the page opened further down: show it finished, don't stop.
+          if (jumping || scrollY - st.start > innerHeight * .6) {
+            tl.progress(1);
+            return;
+          }
+          held = true;
+          // Stop the flick where the section sits best, then keep the page still.
+          html.style.overflow = "hidden";
+          at = st.start;
+          stay();
+          addEventListener("scroll", stay);
+          intent.enable();
+          tl.play();
+        },
+      });
+    };
 
     if (!motion) {
       // Still: the themes page cycles by tapping its names; nothing moves by itself.
@@ -253,14 +323,17 @@ mm.add(
       gsap.timeline({ scrollTrigger: { trigger: "[data-statement]", start: "center center", end: "+=110%", pin: true, scrub: true } })
         .fromTo(words, { opacity: .14 }, { opacity: 1, stagger: .1, ease: "none" });
     } else {
-      gsap.fromTo(words, { opacity: .14 }, { opacity: 1, duration: .5, stagger: .07, ease: "power1.out", scrollTrigger: seen("[data-statement]", "top 70%") });
+      const light = gsap.timeline({ paused: true }).fromTo(words, { opacity: .14 }, { opacity: 1, duration: .5, stagger: .07, ease: "power1.out" });
+      words.forEach((w, i) => w.textContent!.trim().endsWith(".") && light.addLabel(`sentence${i}`, i * .07 + .5));
+      gsap.set(words, { opacity: .14 });
+      hold(".statement-text", "center 50%", light);
     }
 
     /* Lyrics: each line is sung as you scroll; the lines move up as karaoke does. */
     const lines = $$(".lp-line");
     const box = $("[data-lines]")!;
     // On a computer the section holds still and each line is sung as you scroll, stopping on a line
-    // when you stop. On a phone the song plays by itself, in time, while it is on the screen.
+    // when you stop. On a phone the page stops and the song plays by itself, in time.
     const step = 1.2;
     const sing = gsap.timeline({ defaults: { ease: "none" }, paused: !wide });
     gsap.set($$("span", box), { opacity: .22 });
@@ -278,10 +351,8 @@ mm.add(
         snap: { snapTo: "labelsDirectional", inertia: false, duration: { min: .2, max: .6 }, delay: .1, ease: "power2.inOut" },
       });
     } else {
-      // Fade out at the end, then start the song again.
-      sing.to(box, { opacity: 0, duration: .5 }, `+=${step}`).set(box, { opacity: 1 });
-      sing.repeat(-1).timeScale(.8);
-      ScrollTrigger.create({ trigger: "[data-lyrics]", start: "top 70%", end: "bottom 20%", onToggle: (st) => (st.isActive ? sing.play() : sing.pause()) });
+      sing.timeScale(1.25);
+      hold(".lyrics-player", "center 50%", sing);
     }
     gsap.fromTo(".lyrics-bg", { scale: 1.2, rotate: 0 }, { scale: 1.45, rotate: 8, ease: "none", scrollTrigger: { trigger: "[data-lyrics]", start: "top bottom", end: "bottom top", scrub: true } });
     gsap.from(".lyrics-copy > *", { opacity: 0, y: 40, filter: "blur(6px)", stagger: .1, duration: 1, ease: "expo.out", scrollTrigger: { trigger: "[data-lyrics]", start: "top 60%" } });
@@ -329,8 +400,15 @@ mm.add(
         .to(".themes-app", { rotateY: 0, scale: 1, ease: "power1.inOut", duration: 1 });
       gsap.set(".themes-stage", { perspective: 1600 });
     } else {
-      let i = 0;
-      cycle = setInterval(() => setLook(looks[++i % 4]), 2200);
+      // The page stops while the window shows each look once; then the looks keep turning slowly.
+      const show = gsap.timeline({ paused: true });
+      looks.forEach((look, i) => show.call(() => setLook(look), undefined, i * 1.1).addLabel(`look${i}`, i * 1.1 + .01));
+      show.to({}, { duration: 1.1 }).call(() => {
+        let i = 3;
+        clearInterval(cycle);
+        cycle = setInterval(() => setLook(looks[++i % 4]), 2200);
+      });
+      hold(".themes-stage", "center 50%", show);
     }
     gsap.from(".themes-copy > *", { opacity: 0, y: 40, stagger: .1, duration: 1, ease: "expo.out", scrollTrigger: { trigger: "[data-themes]", start: "top 70%" } });
 
@@ -421,6 +499,8 @@ mm.add(
       split.revert();
       privacyTitle.revert();
       clearInterval(cycle);
+      holds.forEach((o) => o.kill());
+      html.style.overflow = "";
       sing.kill();
       gsap.set(box, { clearProps: "opacity" });
     };
