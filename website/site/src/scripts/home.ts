@@ -7,6 +7,8 @@ import { pick } from "../lib/assets.js";
 import { byId, cover, playing } from "../lib/albums.js";
 
 gsap.registerPlugin(ScrollTrigger, SplitText);
+// Phones hide and show the address bar while scrolling; that must not restart the animations.
+ScrollTrigger.config({ ignoreMobileResize: true });
 
 const $ = <T extends Element = HTMLElement>(sel: string, root: ParentNode = document) => root.querySelector<T>(sel);
 const $$ = <T extends Element = HTMLElement>(sel: string, root: ParentNode = document) => [...root.querySelectorAll<T>(sel)];
@@ -70,8 +72,9 @@ document.fonts?.ready.then(() => {
   const on = tabs.find((t) => t.getAttribute("aria-selected") === "true");
   if (on) placePill(on);
 });
-// The hero button opens the right tab, too.
+// The hero button opens the right tab, too, and other links open the tab they name.
 $("[data-os-cta]")?.addEventListener("click", () => choose(platform, false));
+$$("[data-choose]").forEach((link) => link.addEventListener("click", () => choose(link.dataset.choose!, false)));
 
 /* ---------- copy the Mac command */
 const copyButton = $<HTMLButtonElement>("[data-copy]");
@@ -206,6 +209,10 @@ mm.add(
   },
   (ctx) => {
     const { motion, wide, fine } = ctx.conditions as { motion: boolean; wide: boolean; fine: boolean };
+    // A moment that plays by itself once it is in view, so a fast flick can't skip it. It plays
+    // again when you come back to it after it left the screen.
+    const seen = (trigger: gsap.DOMTarget, start = "top 80%"): ScrollTrigger.Vars =>
+      ({ trigger, start, end: "bottom top", toggleActions: "play reset play reverse" });
 
     if (!motion) {
       // Still: the themes page cycles by tapping its names; nothing moves by itself.
@@ -227,7 +234,10 @@ mm.add(
       .to("[data-turntable]", { y: 120, scale: 1.12, ease: "none" }, 0);
 
     /* The app stands up out of the record. */
-    gsap.timeline({ scrollTrigger: { trigger: "[data-stage]", start: "top 98%", end: "top 12%", scrub: 1 } })
+    // On a computer it follows the scroll; on a phone it plays in time, once the window is in view.
+    gsap.timeline(wide
+      ? { scrollTrigger: { trigger: "[data-stage]", start: "top 98%", end: "top 12%", scrub: 1 } }
+      : { scrollTrigger: seen("[data-stage]", "top 85%"), defaults: { duration: 1.1 } })
       .fromTo(".stage-app", { rotateX: 34, y: 120, scale: .84, opacity: .4 }, { rotateX: 0, y: 0, scale: 1, opacity: 1, ease: "power2.out" }, 0)
       .from(".stage-app .tile", { opacity: 0, scale: .7, y: 30, stagger: { each: .04, from: "center" }, ease: "power2.out" }, .15)
       .from('[data-chip="left"]', { x: -120, opacity: 0, ease: "power2.out" }, .35)
@@ -239,28 +249,40 @@ mm.add(
 
     /* The statement lights up word by word. */
     const words = $$(".statement .w");
-    gsap.timeline({
-      scrollTrigger: wide
-        ? { trigger: "[data-statement]", start: "center center", end: "+=110%", pin: true, scrub: true }
-        : { trigger: "[data-statement]", start: "top 75%", end: "bottom 45%", scrub: true },
-    }).fromTo(words, { opacity: .14 }, { opacity: 1, stagger: .1, ease: "none" });
+    if (wide) {
+      gsap.timeline({ scrollTrigger: { trigger: "[data-statement]", start: "center center", end: "+=110%", pin: true, scrub: true } })
+        .fromTo(words, { opacity: .14 }, { opacity: 1, stagger: .1, ease: "none" });
+    } else {
+      gsap.fromTo(words, { opacity: .14 }, { opacity: 1, duration: .5, stagger: .07, ease: "power1.out", scrollTrigger: seen("[data-statement]", "top 70%") });
+    }
 
     /* Lyrics: each line is sung as you scroll; the lines move up as karaoke does. */
     const lines = $$(".lp-line");
     const box = $("[data-lines]")!;
-    const sing = gsap.timeline({
-      defaults: { ease: "none" },
-      scrollTrigger: wide
-        ? { trigger: "[data-lyrics]", start: "top top", end: "+=240%", pin: true, scrub: .6, invalidateOnRefresh: true }
-        : { trigger: "[data-lyrics]", start: "top 40%", end: "bottom 70%", scrub: .6, invalidateOnRefresh: true },
-    });
+    // On a computer the section holds still and each line is sung as you scroll, stopping on a line
+    // when you stop. On a phone the song plays by itself, in time, while it is on the screen.
+    const step = 1.2;
+    const sing = gsap.timeline({ defaults: { ease: "none" }, paused: !wide });
     gsap.set($$("span", box), { opacity: .22 });
     lines.forEach((line, i) => {
-      const at = i * 1.2;
+      const at = i * step;
+      // Snap points: each line once it is fully sung.
+      sing.addLabel(`line${i}`, at + .4 + .14 * (line.children.length - 1));
       sing.to(lines, { y: () => -(line.offsetTop - box.clientHeight * .3), duration: .5, ease: "power2.inOut" }, at);
       sing.to($$("span", line), { opacity: 1, stagger: .14, duration: .2 }, at + .2);
       if (i > 0) sing.to($$("span", lines[i - 1]), { opacity: .38, duration: .3 }, at);
     });
+    if (wide) {
+      ScrollTrigger.create({
+        animation: sing, trigger: "[data-lyrics]", start: "top top", end: "+=240%", pin: true, scrub: .6, invalidateOnRefresh: true,
+        snap: { snapTo: "labelsDirectional", inertia: false, duration: { min: .2, max: .6 }, delay: .1, ease: "power2.inOut" },
+      });
+    } else {
+      // Fade out at the end, then start the song again.
+      sing.to(box, { opacity: 0, duration: .5 }, `+=${step}`).set(box, { opacity: 1 });
+      sing.repeat(-1).timeScale(.8);
+      ScrollTrigger.create({ trigger: "[data-lyrics]", start: "top 70%", end: "bottom 20%", onToggle: (st) => (st.isActive ? sing.play() : sing.pause()) });
+    }
     gsap.fromTo(".lyrics-bg", { scale: 1.2, rotate: 0 }, { scale: 1.45, rotate: 8, ease: "none", scrollTrigger: { trigger: "[data-lyrics]", start: "top bottom", end: "bottom top", scrub: true } });
     gsap.from(".lyrics-copy > *", { opacity: 0, y: 40, filter: "blur(6px)", stagger: .1, duration: 1, ease: "expo.out", scrollTrigger: { trigger: "[data-lyrics]", start: "top 60%" } });
 
@@ -298,6 +320,8 @@ mm.add(
         scrollTrigger: {
           trigger: "[data-themes]", start: "top top", end: "+=260%", pin: true, scrub: .5,
           onUpdate: (st) => setLook(looks[Math.min(3, Math.floor(st.progress * 4.2))]),
+          // Stop on one look when the scrolling stops.
+          snap: { snapTo: [0, .36, .6, .84, 1], inertia: false, duration: { min: .2, max: .6 }, delay: .1, ease: "power2.inOut", directional: true },
         },
       })
         .fromTo(".themes-app", { rotateY: -10, rotateX: 6, scale: .92 }, { rotateY: 0, rotateX: 0, scale: 1, ease: "power1.inOut", duration: 1 })
@@ -310,6 +334,19 @@ mm.add(
     }
     gsap.from(".themes-copy > *", { opacity: 0, y: 40, stagger: .1, duration: 1, ease: "expo.out", scrollTrigger: { trigger: "[data-themes]", start: "top 70%" } });
 
+    /* Android: the phones rise and fan out. */
+    gsap.timeline({ scrollTrigger: seen(".phones", "top 85%"), defaults: { duration: 1.3, ease: "expo.out" } })
+      .from(".ps-mid", { y: 160, opacity: 0, scale: .9 }, 0)
+      .from(".ps-left", { xPercent: 60, y: 120, rotate: 7, opacity: 0 }, .12)
+      .from(".ps-right", { xPercent: -60, y: 120, rotate: -7, opacity: 0 }, .12)
+      .from(".phone-shot figcaption", { opacity: 0, y: 12, duration: .8, stagger: .06 }, .6);
+    gsap.from(".android-copy > *", { opacity: 0, y: 40, filter: "blur(6px)", stagger: .1, duration: 1, ease: "expo.out", scrollTrigger: seen("[data-android]", "top 70%") });
+    gsap.from(".android-points li", { opacity: 0, y: 24, scale: .96, stagger: .07, duration: .8, ease: "expo.out", scrollTrigger: seen(".android-points", "top 90%") });
+    if (wide) {
+      // The side phones drift a little slower than the page.
+      gsap.to(".ps-left .phone, .ps-right .phone", { yPercent: -8, ease: "none", scrollTrigger: { trigger: ".phones", start: "top bottom", end: "bottom top", scrub: true } });
+    }
+
     /* Sound: the cells rise in; the EQ curve draws itself; the two songs join. */
     gsap.from(".sound-title", { opacity: 0, y: 60, duration: 1.2, ease: "expo.out", scrollTrigger: { trigger: ".sound", start: "top 75%" } });
     ScrollTrigger.batch(".cell", {
@@ -320,13 +357,21 @@ mm.add(
     const line = $<SVGPathElement>(".eq-line");
     if (line) {
       const length = line.getTotalLength();
-      gsap.fromTo(line, { strokeDasharray: length, strokeDashoffset: length }, { strokeDashoffset: 0, ease: "none", scrollTrigger: { trigger: ".c-eq", start: "top 85%", end: "center 45%", scrub: true } });
-      gsap.from(".eq-area", { opacity: 0, ease: "none", scrollTrigger: { trigger: ".c-eq", start: "top 70%", end: "center 45%", scrub: true } });
+      if (wide) {
+        gsap.fromTo(line, { strokeDasharray: length, strokeDashoffset: length }, { strokeDashoffset: 0, ease: "none", scrollTrigger: { trigger: ".c-eq", start: "top 85%", end: "center 45%", scrub: true } });
+        gsap.from(".eq-area", { opacity: 0, ease: "none", scrollTrigger: { trigger: ".c-eq", start: "top 70%", end: "center 45%", scrub: true } });
+      } else {
+        gsap.timeline({ scrollTrigger: seen(".c-eq", "top 75%") })
+          .fromTo(line, { strokeDasharray: length, strokeDashoffset: length }, { strokeDashoffset: 0, duration: 1.4, ease: "power2.inOut" })
+          .from(".eq-area", { opacity: 0, duration: .8 }, .5);
+      }
       gsap.from(".eq-dot", { scale: 0, transformOrigin: "center", stagger: .12, duration: .6, ease: "back.out(3)", scrollTrigger: { trigger: ".c-eq", start: "center 60%" } });
       // The bands keep moving a little, as if someone were tuning them.
       $$<SVGCircleElement>(".eq-dot").forEach((dot, i) => gsap.to(dot, { y: i % 2 ? 14 : -14, duration: 2.4 + i * .3, ease: "sine.inOut", repeat: -1, yoyo: true, delay: 1.2 }));
     }
-    gsap.fromTo(".j-b", { x: 28 }, { x: 0, ease: "power2.out", scrollTrigger: { trigger: ".c-play", start: "top 85%", end: "center 55%", scrub: true } });
+    gsap.fromTo(".j-b", { x: 28 }, wide
+      ? { x: 0, ease: "power2.out", scrollTrigger: { trigger: ".c-play", start: "top 85%", end: "center 55%", scrub: true } }
+      : { x: 0, duration: 1.2, delay: .3, ease: "power3.inOut", scrollTrigger: seen(".c-play") });
     gsap.timeline({ scrollTrigger: { trigger: ".c-tidy", start: "center 70%" } })
       .to(".dupe.gone", { y: -28, opacity: 0, scale: .9, duration: .8, ease: "power3.in", delay: .6 })
       .to(".dupe.keep", { scale: 1.04, duration: .25, ease: "power2.out" })
@@ -348,7 +393,7 @@ mm.add(
     if (fine) {
       /* Devices lean toward the pointer. */
       for (const device of $$(".device")) {
-        const target = $(".screen, .phone-screen", device)!;
+        const target = $(".screen", device)!;
         const rx = gsap.quickTo(target, "rotateX", { duration: .8, ease: "power3.out" });
         const ry = gsap.quickTo(target, "rotateY", { duration: .8, ease: "power3.out" });
         device.addEventListener("pointermove", (e) => {
@@ -376,6 +421,8 @@ mm.add(
       split.revert();
       privacyTitle.revert();
       clearInterval(cycle);
+      sing.kill();
+      gsap.set(box, { clearProps: "opacity" });
     };
   },
 );

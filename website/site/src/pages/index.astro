@@ -3,6 +3,11 @@ import Base from "../layouts/Base.astro";
 import AppWindow from "../components/AppWindow.astro";
 import Logo from "../components/Logo.astro";
 import Icon from "../components/Icon.astro";
+import { Image } from "astro:assets";
+import shotHome from "../assets/shots/home-night.webp";
+import shotPlayer from "../assets/shots/player.webp";
+import shotRecord from "../assets/shots/player-record.webp";
+import shotLyrics from "../assets/shots/lyrics.webp";
 import { release } from "../lib/release.js";
 import { albums, byId, cover } from "../lib/albums.js";
 import "../styles/home.css";
@@ -209,6 +214,35 @@ const platforms = [
     </div>
   </section>
 
+  <!-- Android: real screens from the app. -->
+  <section id="android" class="android" aria-labelledby="android-title" data-android>
+    <div class="wrap android-copy">
+      <h2 id="android-title">Needle on <em>your phone.</em></h2>
+      <p>Needle for Android plays the music on your phone. Each album page, and the player, takes the colors of its cover.</p>
+    </div>
+    <div class="phones">
+      <figure class="phone-shot ps-left">
+        <div class="phone"><Image src={shotHome} widths={[320, 640]} sizes="(max-width: 767px) 40vw, 300px" loading="lazy" alt="Needle's Home page on Android, in the Night look: an album to jump back in to, Your year, and Recently added." /></div>
+        <figcaption>Home</figcaption>
+      </figure>
+      <figure class="phone-shot ps-mid">
+        <div class="phone"><Image src={shotRecord} widths={[360, 720]} sizes="(max-width: 767px) 52vw, 340px" loading="lazy" alt="Needle's player on Android: the cover turns like a record, over a blur of its colors." /></div>
+        <figcaption>The player</figcaption>
+      </figure>
+      <figure class="phone-shot ps-right">
+        <div class="phone"><Image src={shotLyrics} widths={[320, 640]} sizes="(max-width: 767px) 40vw, 300px" loading="lazy" alt="Lyrics on Android: the line being sung is lit, over the colors of the cover." /></div>
+        <figcaption>Lyrics</figcaption>
+      </figure>
+    </div>
+    <ul class="wrap android-points">
+      <li><Icon name="palette" />Colors from each cover</li>
+      <li><Icon name="vinyl-record" />The cover as a turning record</li>
+      <li><Icon name="microphone-stage" />Lyrics as they are sung</li>
+      <li><Icon name="android-logo" />Android 8.0 and newer</li>
+    </ul>
+    <p class="android-more"><a class="link" href="#download" data-choose="android">Get Needle for Android <Icon name="arrow-right" weight="bold" /></a></p>
+  </section>
+
   <!-- Sound and the rest, in one grid. -->
   <section id="sound" class="sound" aria-labelledby="sound-title">
     <div class="wrap">
@@ -381,15 +415,8 @@ const platforms = [
 
         <!-- Android -->
         <div class="dl-panel" role="tabpanel" id="panel-android" aria-labelledby="tab-android" data-panel="android" hidden>
-          <div class="device device-phone" aria-hidden="true">
-            <div class="phone-screen" style={`--cover:url(${cover("bloom-season")})`}>
-              <span class="ph-island"></span>
-              <img src={cover("bloom-season")} alt="" loading="lazy" />
-              <b>Paper Lanterns</b>
-              <small>Hana Mori</small>
-              <span class="ph-seek"><span></span></span>
-              <span class="ph-controls"><Icon name="skip-back" weight="fill" /><span><Icon name="pause" weight="fill" /></span><Icon name="skip-forward" weight="fill" /></span>
-            </div>
+          <div class="device device-phone">
+            <div class="phone screen"><Image src={shotPlayer} widths={[300, 600]} sizes="270px" loading="lazy" alt="Needle's player on an Android phone: a large album cover, the song, and the play buttons." /></div>
           </div>
           <div class="dl-info">
             <h3>Needle for Android</h3>
