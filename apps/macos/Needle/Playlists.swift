@@ -4,7 +4,7 @@ import UniformTypeIdentifiers
 /// Makes or changes a playlist: songs you pick, or a smart one whose songs match rules (built
 /// with menus, or typed in the search's rule language).
 struct PlaylistEditor: View {
-    @Environment(Store.self) private var store
+    private var store: Store { .shared }
     @Environment(\.dismiss) private var dismiss
     let playlist: PlaylistModel
     @State private var name = ""
@@ -234,7 +234,7 @@ private struct RuleRow: View {
 
 /// Adds songs to a playlist of picked songs: search, and add what matches.
 struct AddSongs: View {
-    @Environment(Store.self) private var store
+    private var store: Store { .shared }
     @Environment(\.dismiss) private var dismiss
     let playlist: PlaylistModel
     @State private var text = ""

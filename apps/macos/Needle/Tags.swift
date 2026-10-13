@@ -3,7 +3,7 @@ import SwiftUI
 /// Edits the tags of one song or many: only the fields changed are written. Each file is
 /// backed up first and checked so its audio stays identical; earlier versions can be put back.
 struct TagSheet: View {
-    @Environment(Store.self) private var store
+    private var store: Store { .shared }
     @Environment(\.dismiss) private var dismiss
     let ids: [String]
 

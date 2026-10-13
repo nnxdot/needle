@@ -3,7 +3,7 @@ import SwiftUI
 /// The playing song's lyrics. Timed ones follow the song, the line sung lit, word by word when
 /// the words are timed; click a line to go to it.
 struct LyricsView: View {
-    @Environment(Store.self) private var store
+    private var store: Store { .shared }
     enum Kind { case side, big, mini, immersive }
     let kind: Kind
     var light = false
@@ -168,7 +168,7 @@ struct LyricsView: View {
 /// The lyric timing editor: write or paste the words, then tap Space as each line (or word)
 /// starts while the song plays. Saved as a .lrc file beside the song.
 struct TimingPage: View {
-    @Environment(Store.self) private var store
+    private var store: Store { .shared }
     @State private var text = ""
     @State private var words = false
     @State private var timing = false

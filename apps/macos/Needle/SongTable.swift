@@ -28,7 +28,7 @@ struct SongRow: Identifiable, Hashable {
 /// resize, click one to sort. Double-click or Return plays; songs drag to playlists, the queue,
 /// and Favorites; a playlist's own songs drag into a new order.
 struct SongTable: View {
-    @Environment(Store.self) private var store
+    private var store: Store { .shared }
     let model: SongsModel
     let route: Route
     @State private var selection: Set<Int> = []
@@ -243,7 +243,7 @@ struct SongTable: View {
 
 /// The title cell: the cover, the title (marked when the file is missing), and the artist.
 struct TitleCell: View {
-    @Environment(Store.self) private var store
+    private var store: Store { .shared }
     let track: Track
     let playing: Bool
     let cover: Bool
@@ -284,7 +284,7 @@ struct TitleCell: View {
 /// The "#" cell: the song's place (or track number on an album page), or bars for the one
 /// playing.
 struct NumberCell: View {
-    @Environment(Store.self) private var store
+    private var store: Store { .shared }
     let row: SongRow
     let playing: Bool
     let trackNumbers: Bool
@@ -304,7 +304,7 @@ struct NumberCell: View {
 
 /// The heart: a favorite or not.
 struct Heart: View {
-    @Environment(Store.self) private var store
+    private var store: Store { .shared }
     let on: Bool
     var size: CGFloat = 12
     let action: () -> Void
@@ -330,7 +330,7 @@ struct Heart: View {
 
 /// Five stars to rate with; clicking the stars a song has takes them away.
 struct Stars: View {
-    @Environment(Store.self) private var store
+    private var store: Store { .shared }
     let rating: Int
     var size: CGFloat = 14
     let set: (Int) -> Void

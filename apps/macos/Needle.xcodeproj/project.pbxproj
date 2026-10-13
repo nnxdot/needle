@@ -213,6 +213,7 @@
 					"-file-prefix-map",
 					"$(HOME)=/build",
 				);
+				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				PRODUCT_BUNDLE_IDENTIFIER = fyi.nnx.Needle;
 				PRODUCT_NAME = Needle;
 				SWIFT_EMIT_LOC_STRINGS = NO;
@@ -264,6 +265,7 @@
 					"-file-prefix-map",
 					"$(HOME)=/build",
 				);
+				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				PRODUCT_BUNDLE_IDENTIFIER = fyi.nnx.Needle;
 				PRODUCT_NAME = Needle;
 				SWIFT_EMIT_LOC_STRINGS = NO;

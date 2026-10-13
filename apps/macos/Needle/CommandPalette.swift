@@ -2,7 +2,7 @@ import SwiftUI
 
 /// The command palette (⌘K): go anywhere, do anything, and find songs, albums, and artists.
 struct CommandPalette: View {
-    @Environment(Store.self) private var store
+    private var store: Store { .shared }
     @Environment(\.openWindow) private var openWindow
     @Environment(\.openSettings) private var openSettings
     @State private var text = ""

@@ -3,7 +3,7 @@ import UniformTypeIdentifiers
 
 /// Import: bring ratings, play counts, history, and playlists from other apps.
 struct ImportPage: View {
-    @Environment(Store.self) private var store
+    private var store: Store { .shared }
     @State private var found: [Detected] = []
     @State private var lastfmUser = ""
     @State private var listenbrainzUser = ""
@@ -124,7 +124,7 @@ struct ImportPage: View {
 
 /// The short guide Needle shows the first time it opens.
 struct Welcome: View {
-    @Environment(Store.self) private var store
+    private var store: Store { .shared }
     @Environment(\.dismiss) private var dismiss
     @State private var step = 0
 
@@ -213,7 +213,7 @@ struct Welcome: View {
 
 /// What a new version of Needle brings.
 struct WhatsNew: View {
-    @Environment(Store.self) private var store
+    private var store: Store { .shared }
     @Environment(\.dismiss) private var dismiss
     let notes: Notes
 
@@ -238,7 +238,7 @@ struct WhatsNew: View {
 
 /// A plugin's question: some text to type.
 struct PluginQuestion: View {
-    @Environment(Store.self) private var store
+    private var store: Store { .shared }
     @Environment(\.dismiss) private var dismiss
     let question: Store.Question
     @State private var answer = ""

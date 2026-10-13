@@ -3,7 +3,7 @@ import SwiftUI
 
 /// Listening history: the numbers of a stretch of time, and every listen, newest first.
 struct HistoryPage: View {
-    @Environment(Store.self) private var store
+    private var store: Store { .shared }
     @State private var days: UInt32? = 30
     @State private var stats: Stats?
     @State private var items: [HistoryItem] = []
@@ -196,7 +196,7 @@ struct HistoryPage: View {
 
 /// A year of listening, told back.
 struct WrappedPage: View {
-    @Environment(Store.self) private var store
+    private var store: Store { .shared }
     let year: Int
     @State private var years: [Int32] = []
     @State private var wrapped: Wrapped?

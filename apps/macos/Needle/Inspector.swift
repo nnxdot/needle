@@ -2,7 +2,7 @@ import SwiftUI
 
 /// The side panel: the chosen song's details, the queue, or the lyrics.
 struct Inspector: View {
-    @Environment(Store.self) private var store
+    private var store: Store { .shared }
 
     var body: some View {
         @Bindable var store = store
@@ -30,7 +30,7 @@ struct Inspector: View {
 
 /// The chosen song (or the song playing): its cover, stars, facts, tags, stems, and lookups.
 struct Details: View {
-    @Environment(Store.self) private var store
+    private var store: Store { .shared }
     @State private var matches: [RecordingMatch] = []
     @State private var looking = false
     @State private var sound: String?
@@ -230,7 +230,7 @@ struct Details: View {
 
 /// Now playing, and the songs up next: double-click one to play it, drag to reorder.
 struct QueuePanel: View {
-    @Environment(Store.self) private var store
+    private var store: Store { .shared }
 
     var body: some View {
         let colors = store.colors
@@ -292,7 +292,7 @@ struct QueuePanel: View {
 }
 
 private struct QueueRow: View {
-    @Environment(Store.self) private var store
+    private var store: Store { .shared }
     let entry: QueueEntry
     let index: Int
     @State private var hover = false

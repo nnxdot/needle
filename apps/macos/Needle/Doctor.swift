@@ -3,7 +3,7 @@ import SwiftUI
 /// Fix my library: songs you have more than once, albums without covers, albums missing tags,
 /// and files to tidy into folders by a pattern.
 struct DoctorPage: View {
-    @Environment(Store.self) private var store
+    private var store: Store { .shared }
     @State private var tab = "Duplicates"
 
     var body: some View {
@@ -31,7 +31,7 @@ struct DoctorPage: View {
 }
 
 private struct DuplicatesTab: View {
-    @Environment(Store.self) private var store
+    private var store: Store { .shared }
     @State private var sets: [DuplicateSet]?
     @State private var confirmAll = false
 
@@ -90,7 +90,7 @@ private struct DuplicatesTab: View {
 }
 
 private struct CoversTab: View {
-    @Environment(Store.self) private var store
+    private var store: Store { .shared }
     @State private var albums: [Song]?
     @State private var looking = false
 
@@ -142,7 +142,7 @@ private struct CoversTab: View {
 }
 
 private struct TagsTab: View {
-    @Environment(Store.self) private var store
+    private var store: Store { .shared }
     @State private var problems: [AlbumProblem]?
     @State private var open: AlbumProblem?
     @State private var releases: [ReleaseChoice]?
@@ -218,7 +218,7 @@ private struct TagsTab: View {
 }
 
 private struct OrganizeTab: View {
-    @Environment(Store.self) private var store
+    private var store: Store { .shared }
     @State private var pattern = ""
     @State private var patterns: [String] = []
     @State private var plan: TidyPlan?
