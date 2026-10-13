@@ -1318,10 +1318,25 @@ impl PlatformWindow for MacWindow {
     }
 
     fn set_glass_regions(&self, regions: &[GlassRegion]) {
-        let mut this = self.0.lock();
+        // AppKit may call back into GPUI (which takes this lock) while views are added or
+        // moved, so the views are taken out and the lock let go meanwhile.
+        struct Glass {
+            glass_views: Vec<id>,
+            glass_backdrop: Option<id>,
+        }
+        let (native_window, native_view, mut this) = {
+            let mut state = self.0.lock();
+            (
+                state.native_window,
+                state.native_view.as_ptr() as id,
+                Glass {
+                    glass_views: mem::take(&mut state.glass_views),
+                    glass_backdrop: state.glass_backdrop.take(),
+                },
+            )
+        };
         unsafe {
-            let content_view = this.native_window.contentView();
-            let native_view = this.native_view.as_ptr() as id;
+            let content_view = native_window.contentView();
             let height = NSView::bounds(content_view).size.height;
             // Liquid Glass (macOS 26); looked up by name, so older systems never need it.
             let glass_class = Class::get("NSGlassEffectView");
@@ -1415,24 +1430,36 @@ impl PlatformWindow for MacWindow {
                 }
             }
         }
+        let mut state = self.0.lock();
+        state.glass_views = this.glass_views;
+        state.glass_backdrop = this.glass_backdrop;
     }
 
     fn set_dark_appearance(&self, dark: Option<bool>) {
-        let this = self.0.lock();
-        unsafe {
-            let appearance: id = match dark {
-                Some(dark) => {
-                    let name = ns_string(if dark {
-                        "NSAppearanceNameDarkAqua"
-                    } else {
-                        "NSAppearanceNameAqua"
-                    });
-                    msg_send![class!(NSAppearance), appearanceNamed: name]
+        // AppKit tells GPUI's view of the change at once, which takes this lock and updates
+        // the window: so it happens after this frame, with the lock let go.
+        let (native_window, executor) = {
+            let this = self.0.lock();
+            (this.native_window, this.executor.clone())
+        };
+        executor
+            .spawn(async move {
+                unsafe {
+                    let appearance: id = match dark {
+                        Some(dark) => {
+                            let name = ns_string(if dark {
+                                "NSAppearanceNameDarkAqua"
+                            } else {
+                                "NSAppearanceNameAqua"
+                            });
+                            msg_send![class!(NSAppearance), appearanceNamed: name]
+                        }
+                        None => nil,
+                    };
+                    let _: () = msg_send![native_window, setAppearance: appearance];
                 }
-                None => nil,
-            };
-            let _: () = msg_send![this.native_window, setAppearance: appearance];
-        }
+            })
+            .detach();
     }
 
     fn set_edited(&mut self, edited: bool) {
