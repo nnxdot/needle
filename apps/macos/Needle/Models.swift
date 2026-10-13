@@ -235,6 +235,8 @@ struct NeedleSettings: Decodable, Equatable {
     var tray = false
 
     struct Layout: Decodable, Equatable {
+        var sidebarWidth: Float = 212
+        var inspectorWidth: Float = 284
         var rowHeight: Float = 52
         var sidebarHidden = false
         var compactSidebar = false

@@ -149,6 +149,9 @@ struct CommandPalette: View {
             ("Check folders for changes", "", "arrow.clockwise", { store.rescan() }),
             ("Switch the look: Night, Midnight, Day, and your themes", "", "paintpalette", { nextLook() }),
         ]
+        if store.settings.tray {
+            actions.append(("Hide to the menu bar", "The music plays on", "menubar.arrow.up.rectangle", { hideToMenuBar() }))
+        }
         if let current = store.current {
             actions += [
                 ("Go to the album playing", "", "square.stack", { store.navigate(current.albumRoute) }),
@@ -190,6 +193,11 @@ struct CommandPalette: View {
             }
         }
         return list
+    }
+
+    /// Closes the window; Needle stays in the menu bar and the music plays on.
+    private func hideToMenuBar() {
+        NSApp.windows.filter { $0.identifier?.rawValue.hasPrefix("main") == true || $0.title == "Needle" }.forEach { $0.close() }
     }
 
     private func nextLook() {

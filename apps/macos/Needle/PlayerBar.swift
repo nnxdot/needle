@@ -302,6 +302,46 @@ struct VolumeControl: View {
                 .frame(width: width)
         }
         .foregroundStyle(light ? .white : store.colors.ink2)
+        // The wheel over the volume changes it.
+        .background {
+            GeometryReader { geo in
+                Color.clear
+                    .onAppear { VolumeWheel.areas[id] = geo.frame(in: .global) }
+                    .onChange(of: geo.frame(in: .global)) { _, frame in VolumeWheel.areas[id] = frame }
+                    .onDisappear { VolumeWheel.areas[id] = nil }
+            }
+        }
+    }
+
+    @State private var id = UUID()
+}
+
+/// Where the volume controls are, so the scroll wheel over them changes the volume
+/// (see `Keys`).
+@MainActor
+enum VolumeWheel {
+    static var areas: [UUID: CGRect] = [:]
+    /// Part of a step from a touchpad, kept until it makes a whole one.
+    static var partial: CGFloat = 0
+
+    /// Whether `event` is over a volume control; it then changes the volume.
+    static func handle(_ event: NSEvent, store: Store) -> Bool {
+        guard let window = event.window, let content = window.contentView else { return false }
+        let p = event.locationInWindow
+        // SwiftUI's global frames start at the top left of the window's content.
+        let point = CGPoint(x: p.x, y: content.bounds.height - p.y)
+        guard areas.values.contains(where: { $0.insetBy(dx: -4, dy: -6).contains(point) }) else { return false }
+        var steps: CGFloat
+        if event.hasPreciseScrollingDeltas {
+            partial += event.scrollingDeltaY / 40
+            steps = partial.rounded(.towardZero)
+            partial -= steps
+        } else {
+            steps = event.scrollingDeltaY > 0 ? 1 : event.scrollingDeltaY < 0 ? -1 : 0
+        }
+        if event.isDirectionInvertedFromDevice { steps = -steps }
+        if steps != 0 { store.nudgeVolume(Float(steps) * 0.05) }
+        return true
     }
 }
 
