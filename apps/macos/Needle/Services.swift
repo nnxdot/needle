@@ -2,7 +2,7 @@ import SwiftUI
 
 /// Settings › Online services: updates, Last.fm, ListenBrainz, and AcoustID.
 struct ServicesSettings: View {
-    @Environment(Store.self) private var store
+    private var store: Store { .shared }
     @State private var info: ServiceInfo?
     @State private var busy = false
     @State private var lastfmKey = ""
@@ -13,8 +13,7 @@ struct ServicesSettings: View {
 
     var body: some View {
         let s = store.settings
-        VStack(alignment: .leading, spacing: 0) {
-            SectionTitle(title: "Needle")
+        Section {
             SettingRow(title: "Check for updates automatically", detail: "Once a day, when Needle starts. You have Needle \(store.version). Needle asks needle.nnx.fyi for a newer version; nothing else is sent.") {
                 SettingSwitch(key: "check_updates", on: s.checkUpdates)
             }
@@ -29,8 +28,10 @@ struct ServicesSettings: View {
                     Button("What Needle \(update.version) brings") { NSWorkspace.shared.open(URL(string: update.page)!) }.buttonStyle(.link)
                 }
             }
-            .padding(.vertical, 10)
-            SectionTitle(title: "Listening services", detail: "Optional. Nothing is sent until you connect a service and turn it on.")
+        } header: {
+            GroupHeader(title: "Updates")
+        }
+        Section {
             if let error = info?.status.storeError {
                 Text("The Keychain could not be read: \(error)").foregroundStyle(store.colors.danger).padding(.vertical, 6)
             }
@@ -39,11 +40,18 @@ struct ServicesSettings: View {
                 SettingSwitch(key: "scrobble_corrections", on: s.scrobbleCorrections)
             }
             listenbrainz(s)
-            acoustidSection
-            Text("Keys and sessions are stored in the Keychain, never in your library or its exports. Environment variables override them.")
-                .font(.caption).foregroundStyle(.secondary).padding(.top, 8)
+        } header: {
+            GroupHeader(title: "Listening services", detail: "Optional. Nothing is sent until you connect a service and turn it on.")
         }
         .task { refresh() }
+        Section {
+            acoustidSection
+        } header: {
+            GroupHeader(title: "Identifying songs")
+        } footer: {
+            Text("Keys and sessions are stored in the Keychain, never in your library or its exports. Environment variables override them.")
+                .font(.caption).foregroundStyle(.secondary)
+        }
     }
 
     private func refresh() {
@@ -127,8 +135,8 @@ struct ServicesSettings: View {
                         Text("Needle needs a Last.fm API account to sign in. Create one at last.fm/api/account/create, then paste its key and shared secret.")
                             .font(.callout).foregroundStyle(.secondary)
                         HStack {
-                            TextField("Last.fm API key", text: $lastfmKey)
-                            SecureField("Shared secret", text: $lastfmSecret)
+                            TextField("API key", text: $lastfmKey, prompt: Text("Last.fm API key")).labelsHidden()
+                            SecureField("Shared secret", text: $lastfmSecret, prompt: Text("Shared secret")).labelsHidden()
                         }
                         .textFieldStyle(.roundedBorder)
                     }
@@ -138,8 +146,7 @@ struct ServicesSettings: View {
             }
             queue(info?.summary?.lastfm, service: "lastfm")
         }
-        .padding(.vertical, 14)
-        .overlay(alignment: .bottom) { Divider() }
+        .padding(.vertical, 4)
     }
 
     private func listenbrainz(_ s: NeedleSettings) -> some View {
@@ -162,7 +169,7 @@ struct ServicesSettings: View {
             if !configured {
                 Text("Paste the user token from listenbrainz.org/settings.").font(.callout).foregroundStyle(.secondary)
                 HStack {
-                    SecureField("ListenBrainz user token", text: $token).textFieldStyle(.roundedBorder)
+                    SecureField("Token", text: $token, prompt: Text("ListenBrainz user token")).labelsHidden().textFieldStyle(.roundedBorder)
                     Button(busy ? "Checking…" : "Connect") {
                         let token = token.trimmingCharacters(in: .whitespaces)
                         guard !token.isEmpty else { store.fail("Paste your ListenBrainz user token first."); return }
@@ -181,8 +188,7 @@ struct ServicesSettings: View {
             }
             queue(info?.summary?.listenbrainz, service: "listenbrainz")
         }
-        .padding(.vertical, 14)
-        .overlay(alignment: .bottom) { Divider() }
+        .padding(.vertical, 4)
     }
 
     private var acoustidSection: some View {
@@ -204,7 +210,7 @@ struct ServicesSettings: View {
             }
             if state?.configured != true {
                 HStack {
-                    SecureField("AcoustID application key", text: $acoustid).textFieldStyle(.roundedBorder)
+                    SecureField("Key", text: $acoustid, prompt: Text("AcoustID application key")).labelsHidden().textFieldStyle(.roundedBorder)
                     Button("Save key") {
                         let key = acoustid.trimmingCharacters(in: .whitespaces)
                         guard !key.isEmpty else { store.fail("Paste your AcoustID application key first."); return }
@@ -214,7 +220,7 @@ struct ServicesSettings: View {
                 }
             }
         }
-        .padding(.vertical, 14)
+        .padding(.vertical, 4)
     }
 
     private func signOut(_ service: String) {
@@ -255,20 +261,28 @@ struct ServicesSettings: View {
 
 /// Settings › Plugins: music servers to sign in to, and every plugin with what it may do.
 struct PluginsSettings: View {
-    @Environment(Store.self) private var store
+    private var store: Store { .shared }
     @State private var updates: [PluginUpdate] = []
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            Text("Add features with small scripts. Each plugin lists what it may do.").foregroundStyle(.secondary)
-            let sources = store.plugins.filter { $0.source != nil && $0.enabled }
-            if !sources.isEmpty {
-                SectionTitle(title: "Music servers", detail: "Navidrome, Airsonic, Gonic, and other Subsonic servers. Your server's songs show with your own and play straight away.")
+        let sources = store.plugins.filter { $0.source != nil && $0.enabled }
+        if !sources.isEmpty {
+            Section {
                 ForEach(sources, id: \.id) { plugin in SourceCard(plugin: plugin) }
-            } else {
-                SectionTitle(title: "Play music from your server", detail: "Turn on the Subsonic plugin below (add the example plugins first), then sign in to your Navidrome, Airsonic, or Gonic server.")
+            } header: {
+                GroupHeader(title: "Music servers", detail: "Navidrome, Airsonic, Gonic, and other Subsonic servers. Your server's songs show with your own and play straight away.")
             }
-            SectionTitle(title: "Plugins")
+        }
+        Section {
+            if store.plugins.isEmpty {
+                Text("No plugins yet. Add the examples, or put a plugin folder in the plugins folder and press Reload.")
+                    .foregroundStyle(.secondary)
+            }
+            ForEach(store.plugins, id: \.id) { plugin in
+                PluginCard(plugin: plugin, update: updates.first { $0.id == plugin.id }?.update) {
+                    updates = JSON.decode([PluginUpdate].self, store.core.pluginUpdatesJson(), plain: true) ?? []
+                }
+            }
             HStack {
                 Button("Add example plugins") {
                     Task {
@@ -290,18 +304,13 @@ struct PluginsSettings: View {
                     NSWorkspace.shared.open(URL(fileURLWithPath: folder))
                 }
             }
-            .padding(.vertical, 8)
-            if store.plugins.isEmpty {
-                Text("No plugins yet. Add the examples, or put a plugin folder in the plugins folder and press Reload.")
-                    .font(.callout).foregroundStyle(.secondary)
-            }
-            ForEach(store.plugins, id: \.id) { plugin in
-                PluginCard(plugin: plugin, update: updates.first { $0.id == plugin.id }?.update) {
-                    updates = JSON.decode([PluginUpdate].self, store.core.pluginUpdatesJson(), plain: true) ?? []
-                }
-            }
-            Text("Plugins are Rhai scripts in their own folders. Each one lists what it may do, and nothing runs until you turn it on. Learn to write one at needle.nnx.fyi/plugins.")
-                .font(.caption).foregroundStyle(.secondary).padding(.top, 10)
+        } header: {
+            GroupHeader(title: "Plugins", detail: sources.isEmpty
+                ? "Add features with small scripts. To play music from your Navidrome, Airsonic, or Gonic server, add the example plugins and turn on Subsonic."
+                : "Add features with small scripts. Each plugin lists what it may do.")
+        } footer: {
+            Text("Plugins are Rhai scripts in their own folders. Nothing runs until you turn it on. Learn to write one at needle.nnx.fyi/plugins.")
+                .font(.caption).foregroundStyle(.secondary)
         }
         .task {
             store.reloadPlugins()
@@ -311,7 +320,7 @@ struct PluginsSettings: View {
 }
 
 private struct PluginCard: View {
-    @Environment(Store.self) private var store
+    private var store: Store { .shared }
     let plugin: PluginItem
     let update: String?
     let changed: () -> Void
@@ -359,8 +368,6 @@ private struct PluginCard: View {
                 .controlSize(.small)
             }
         }
-        .padding(12)
-        .background(store.colors.raised.opacity(0.6), in: RoundedRectangle(cornerRadius: 10))
         .padding(.vertical, 4)
     }
 
@@ -371,7 +378,7 @@ private struct PluginCard: View {
 
 /// A music server: sign in, its switches, its songs, and the songs kept on this Mac.
 private struct SourceCard: View {
-    @Environment(Store.self) private var store
+    private var store: Store { .shared }
     let plugin: PluginItem
     @State private var fields: [String: String] = [:]
     @State private var usage: [UInt64] = [0, 0]
@@ -434,8 +441,6 @@ private struct SourceCard: View {
                 Text(error).font(.caption).foregroundStyle(store.colors.danger)
             }
         }
-        .padding(12)
-        .background(store.colors.raised.opacity(0.6), in: RoundedRectangle(cornerRadius: 10))
         .padding(.vertical, 4)
         .task { usage = store.core.keptUsage(plugin: plugin.id) }
     }

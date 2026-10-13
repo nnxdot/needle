@@ -3,56 +3,93 @@ import SwiftUI
 /// The player at the foot of the window, floating on glass: the song, the controls and seek
 /// bar, and the output, volume, and panels.
 struct PlayerBar: View {
-    @Environment(Store.self) private var store
+    private var store: Store { .shared }
 
     var body: some View {
         let colors = store.colors
         GeometryReader { geo in
-            let wide = geo.size.width > 1100
-            HStack(spacing: 16) {
-                NowPlayingInfo(coverSide: 52)
-                    .frame(width: wide ? 330 : 240, alignment: .leading)
-                VStack(spacing: 4) {
-                    Transport(play: 36)
-                    SeekBar()
-                        .frame(maxWidth: 620)
-                }
-                .frame(maxWidth: .infinity)
-                VStack(alignment: .trailing, spacing: 4) {
-                    SignalPath()
-                    HStack(spacing: 2) {
-                        LoopButton()
-                        VolumeControl(width: wide ? 130 : 90)
-                        SoundButton()
-                        SpeakersButton()
-                        PanelButton(panel: .lyrics, icon: "quote.bubble", help: "Lyrics · ⌘L")
-                        MiniButton()
-                        QueueButton()
-                    }
-                }
-                .frame(width: wide ? 360 : 290, alignment: .trailing)
-            }
-            .padding(.horizontal, 22)
-            .frame(height: geo.size.height)
+            bar(wide: geo.size.width > 900)
+                .padding(.horizontal, 18)
+                .frame(width: geo.size.width, height: geo.size.height)
         }
-        .frame(height: 74)
+        .frame(height: 72)
         .background {
-            // The playing cover's colour glows in from the left.
-            LinearGradient(colors: [colors.glow.opacity(colors.dark ? 0.22 : 0.16), .clear], startPoint: .leading, endPoint: .center)
-                .clipShape(Capsule())
+            // Without glass, the playing cover's colour glows in from the left. (On glass it
+            // would sit on top of the glass and muddy it.)
+            if !store.glass {
+                LinearGradient(colors: [colors.glow.opacity(colors.dark ? 0.22 : 0.16), .clear], startPoint: .leading, endPoint: .center)
+                    .clipShape(Capsule())
+            }
         }
         .pane(Capsule(), glass: store.glass, fill: colors.chrome)
-        .shadow(color: .black.opacity(store.glass ? 0.12 : 0.2), radius: 14, y: 4)
+        .shadow(color: .black.opacity(store.glass ? 0 : 0.2), radius: 14, y: 4)
+    }
+
+    /// The bar: the song on the left, the controls and seek bar in the middle, the output and
+    /// panels on the right. Narrow, the song gives up room and the extras go in a menu.
+    private func bar(wide: Bool) -> some View {
+        HStack(spacing: 18) {
+            NowPlayingInfo(coverSide: 48)
+                .frame(minWidth: 150, idealWidth: wide ? 280 : 190, maxWidth: wide ? 300 : 210, alignment: .leading)
+            VStack(spacing: 3) {
+                Transport(play: 34)
+                SeekBar()
+            }
+            .frame(minWidth: wide ? 360 : 260, maxWidth: 560)
+            .frame(maxWidth: .infinity)
+            VStack(alignment: .trailing, spacing: 3) {
+                if wide { SignalPath() }
+                HStack(spacing: 12) {
+                    VolumeControl(width: wide ? 96 : 72)
+                    if wide {
+                        SoundButton()
+                        SpeakersButton()
+                    }
+                    PanelButton(panel: .lyrics, icon: "quote.bubble", help: "Lyrics · ⌘L")
+                    QueueButton()
+                    MoreButton(all: !wide)
+                }
+                .font(.system(size: 14))
+            }
+            .fixedSize()
+        }
+    }
+}
+
+/// The player's other buttons, in a menu: the A–B loop and the mini player, and (narrow) the
+/// sound tools.
+struct MoreButton: View {
+    private var store: Store { .shared }
+    @Environment(\.openWindow) private var openWindow
+    let all: Bool
+
+    var body: some View {
+        let looping = store.playback?.loopStart != nil || store.loopStart != nil
+        Menu {
+            Button(looping ? "Clear the A–B Loop" : store.loopStart != nil ? "Set Point B" : "A–B Loop: Set Point A") { store.loopButton() }
+                .disabled(store.playback?.hasSong != true)
+            Button("Mini Player") { openWindow(id: "mini") }
+            if all {
+                Divider()
+                Button("Equalizer and Sound Tools") { store.navigate(.sound) }
+            }
+        } label: {
+            Image(systemName: "ellipsis.circle").foregroundStyle(looping ? store.colors.accent : store.colors.ink2)
+        }
+        .menuStyle(.borderlessButton)
+        .menuIndicator(.hidden)
+        .fixedSize()
+        .help("More")
     }
 }
 
 /// The player in the title bar, as in Apple Music: the controls, the song and its time, and
 /// the volume and panels.
 struct TopPlayer: View {
-    @Environment(Store.self) private var store
+    private var store: Store { .shared }
 
     var body: some View {
-        HStack(spacing: 10) {
+        HStack(spacing: 14) {
             Transport(play: 26, compact: true)
             HStack(spacing: 8) {
                 if let p = store.playback, p.hasSong {
@@ -73,15 +110,14 @@ struct TopPlayer: View {
                     }
                     SeekBar(small: true)
                 }
-                .frame(width: 340)
+                .frame(minWidth: 220, idealWidth: 320, maxWidth: 360)
                 if let c = store.current {
                     Heart(on: c.favorite) { store.toggleFavorite([c]) }
                 }
             }
-            .padding(.horizontal, 10)
-            .padding(.vertical, 3)
-            .pane(RoundedRectangle(cornerRadius: 10, style: .continuous), glass: store.glass, fill: store.colors.raised)
-            HStack(spacing: 2) {
+            .padding(.horizontal, 8)
+            .background { if !store.glass { RoundedRectangle(cornerRadius: 10, style: .continuous).fill(store.colors.raised) } }
+            HStack(spacing: 10) {
                 VolumeControl(width: 80)
                 PanelButton(panel: .lyrics, icon: "quote.bubble", help: "Lyrics · ⌘L")
                 QueueButton()
@@ -94,7 +130,7 @@ struct TopPlayer: View {
 /// The cover, title, and artist of the song playing, and its heart. The cover opens the big
 /// player; right-click for the song's menu.
 struct NowPlayingInfo: View {
-    @Environment(Store.self) private var store
+    private var store: Store { .shared }
     let coverSide: CGFloat
 
     var body: some View {
@@ -136,7 +172,7 @@ struct NowPlayingInfo: View {
 
 /// Shuffle, previous, play or pause, next, and repeat.
 struct Transport: View {
-    @Environment(Store.self) private var store
+    private var store: Store { .shared }
     let play: CGFloat
     var compact = false
     var light = false
@@ -180,7 +216,7 @@ struct Transport: View {
 /// The seek bar. While it is held the music is silent and the bar only moves; letting go
 /// jumps once to where it was left and plays on.
 struct SeekBar: View {
-    @Environment(Store.self) private var store
+    private var store: Store { .shared }
     var small = false
     var light = false
     @State private var held: Double?
@@ -216,7 +252,7 @@ struct SeekBar: View {
 
 /// The A–B loop's stretch, over the seek bar.
 private struct LoopMarks: View {
-    @Environment(Store.self) private var store
+    private var store: Store { .shared }
     let duration: Double
 
     var body: some View {
@@ -236,7 +272,7 @@ private struct LoopMarks: View {
 
 /// What plays and how: "FLAC 24/96 → 48 kHz"; it opens Settings › Playback.
 struct SignalPath: View {
-    @Environment(Store.self) private var store
+    private var store: Store { .shared }
     @Environment(\.openSettings) private var openSettings
 
     var body: some View {
@@ -268,7 +304,7 @@ struct SignalPath: View {
 }
 
 struct LoopButton: View {
-    @Environment(Store.self) private var store
+    private var store: Store { .shared }
 
     var body: some View {
         let looping = store.playback?.loopStart != nil
@@ -284,7 +320,7 @@ struct LoopButton: View {
 
 /// Mute and the volume slider.
 struct VolumeControl: View {
-    @Environment(Store.self) private var store
+    private var store: Store { .shared }
     let width: CGFloat
     var light = false
 
@@ -347,7 +383,7 @@ enum VolumeWheel {
 
 /// Opens the equalizer and sound tools (lit while any is on).
 struct SoundButton: View {
-    @Environment(Store.self) private var store
+    private var store: Store { .shared }
     @State private var on = false
 
     var body: some View {
@@ -366,7 +402,7 @@ struct SoundButton: View {
 
 /// Opens and closes a tab of the side panel.
 struct PanelButton: View {
-    @Environment(Store.self) private var store
+    private var store: Store { .shared }
     let panel: Store.Panel
     let icon: String
     let help: String
@@ -385,7 +421,7 @@ struct PanelButton: View {
 
 /// The queue's button; songs dropped on it join the queue.
 struct QueueButton: View {
-    @Environment(Store.self) private var store
+    private var store: Store { .shared }
 
     var body: some View {
         PanelButton(panel: .queue, icon: "list.bullet", help: "Queue · ⌘J")
@@ -397,7 +433,7 @@ struct QueueButton: View {
 }
 
 struct MiniButton: View {
-    @Environment(Store.self) private var store
+    private var store: Store { .shared }
     @Environment(\.openWindow) private var openWindow
 
     var body: some View {
@@ -409,7 +445,7 @@ struct MiniButton: View {
 
 /// Play on this Mac or on speakers on the network (Chromecast, AirPlay, DLNA), one or several.
 struct SpeakersButton: View {
-    @Environment(Store.self) private var store
+    private var store: Store { .shared }
     @State private var open = false
 
     var body: some View {
@@ -424,7 +460,7 @@ struct SpeakersButton: View {
 }
 
 struct SpeakersPicker: View {
-    @Environment(Store.self) private var store
+    private var store: Store { .shared }
     @Environment(\.dismiss) private var dismiss
     @State private var found: [Speaker]?
     @State private var picking = false

@@ -59,7 +59,7 @@ final class SongsModel {
 
 /// A page of songs: Songs, Favorites, an album, a playlist, a folder, a music server.
 struct SongsPage: View {
-    @Environment(Store.self) private var store
+    private var store: Store { .shared }
     let route: Route
     @State private var model = SongsModel()
 
@@ -144,7 +144,7 @@ struct SongsPage: View {
 
 /// The top of a song list: its cover and name, what it holds, and what to do with it.
 struct SongsHeader: View {
-    @Environment(Store.self) private var store
+    private var store: Store { .shared }
     let route: Route
     let model: SongsModel
     @State private var confirmDelete = false
@@ -305,7 +305,7 @@ struct SongsHeader: View {
 
 /// Folders › Music › Albums: each part opens that folder.
 struct Breadcrumbs: View {
-    @Environment(Store.self) private var store
+    private var store: Store { .shared }
     let path: String
     @State private var roots: [String] = []
 
@@ -338,7 +338,7 @@ struct Breadcrumbs: View {
 
 /// A folder's own folders, above its songs.
 struct FolderStrip: View {
-    @Environment(Store.self) private var store
+    private var store: Store { .shared }
     let path: String
     @State private var folders: [Folder] = []
 
@@ -376,7 +376,7 @@ struct FolderStrip: View {
 
 /// Songs a music server found for the search that are not in the library.
 struct ServerSongs: View {
-    @Environment(Store.self) private var store
+    private var store: Store { .shared }
     @State private var found: [Song] = []
     @State private var generation: UInt64 = 0
 
@@ -445,7 +445,7 @@ enum Step {
 }
 
 struct Problem: View {
-    @Environment(Store.self) private var store
+    private var store: Store { .shared }
     let title: String
     let detail: String
     let steps: [Step]
@@ -481,7 +481,7 @@ struct Problem: View {
 
 /// Rows that breathe while a long list loads.
 struct Skeleton: View {
-    @Environment(Store.self) private var store
+    private var store: Store { .shared }
     @State private var on = false
 
     var body: some View {

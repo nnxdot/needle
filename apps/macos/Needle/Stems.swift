@@ -3,7 +3,7 @@ import SwiftUI
 /// A song's stems: split it into drums, bass, other, and vocals on this Mac, then play from
 /// them with a live mix.
 struct StemsPanel: View {
-    @Environment(Store.self) private var store
+    private var store: Store { .shared }
     let track: Track
     let big: Bool
     @State private var info: StemsInfo?

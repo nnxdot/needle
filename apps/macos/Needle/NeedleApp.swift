@@ -4,7 +4,7 @@ import SwiftUI
 @main
 struct NeedleApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) private var delegate
-    @State private var store = Store()
+    @State private var store = Store.shared
 
     var body: some Scene {
         Window("Needle", id: "main") {
@@ -67,7 +67,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
 /// The menu bar icon's menu: play, pause, skip, show Needle, or quit.
 struct TrayMenu: View {
-    @Environment(Store.self) private var store
+    private var store: Store { .shared }
     @Environment(\.openWindow) private var openWindow
 
     var body: some View {

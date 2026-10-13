@@ -3,7 +3,7 @@ import SwiftUI
 /// What can be done with chosen songs: the song table's right-click menu, and the song
 /// playing's.
 struct SongMenu: View {
-    @Environment(Store.self) private var store
+    private var store: Store { .shared }
     let tracks: [Track]
     var route: Route? = nil
     var arrangeable = false
@@ -116,7 +116,7 @@ struct SongMenu: View {
 
 /// What can be done with an album or an artist: their tiles' right-click menu.
 struct GroupMenu: View {
-    @Environment(Store.self) private var store
+    private var store: Store { .shared }
     let route: Route
     let title: String
 

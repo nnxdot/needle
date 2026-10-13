@@ -3,7 +3,7 @@ import SwiftUI
 /// The big player over the whole window (⌘P), and full screen (⌃⌘F): the cover large on its
 /// blurred colours, with the lyrics, the songs up next, or the stems beside it.
 struct BigPlayer: View {
-    @Environment(Store.self) private var store
+    private var store: Store { .shared }
     @Environment(\.openWindow) private var openWindow
     @State private var resting = false
     @State private var moved = Date()
@@ -139,7 +139,7 @@ struct BigPlayer: View {
 /// A small window that stays out of the way: the cover, the song, and the controls; its lyrics
 /// or what plays next beneath when it is taller.
 struct MiniPlayer: View {
-    @Environment(Store.self) private var store
+    private var store: Store { .shared }
     @Environment(\.openWindow) private var openWindow
     @Environment(\.dismissWindow) private var dismissWindow
     @AppStorage("mini-on-top") private var onTop = true
@@ -215,7 +215,7 @@ struct MiniPlayer: View {
 
 /// The songs played last, in the mini player; double-click one to play it again.
 struct MiniHistory: View {
-    @Environment(Store.self) private var store
+    private var store: Store { .shared }
     @State private var items: [HistoryItem] = []
 
     var body: some View {

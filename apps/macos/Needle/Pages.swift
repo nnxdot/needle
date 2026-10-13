@@ -2,7 +2,7 @@ import SwiftUI
 
 /// Home: what played lately, what is new, and what is loved most.
 struct HomePage: View {
-    @Environment(Store.self) private var store
+    private var store: Store { .shared }
     @State private var home: HomeData?
 
     var body: some View {
@@ -47,7 +47,7 @@ struct HomePage: View {
 
 /// The song playing, large, at the top of Home.
 private struct NowCard: View {
-    @Environment(Store.self) private var store
+    private var store: Store { .shared }
 
     var body: some View {
         if let p = store.playback, p.hasSong {
@@ -75,7 +75,7 @@ private struct NowCard: View {
 }
 
 struct ShelfTitle: View {
-    @Environment(Store.self) private var store
+    private var store: Store { .shared }
     let title: String
     let detail: String?
     let all: Route?
@@ -116,7 +116,7 @@ struct Shelf: View {
 
 /// An album: its cover (with a play button on hover), name, and artist.
 struct AlbumTile: View {
-    @Environment(Store.self) private var store
+    private var store: Store { .shared }
     let album: AlbumSummary
     let side: CGFloat
     @State private var hover = false
@@ -156,7 +156,7 @@ struct AlbumTile: View {
 
 /// An artist: a round photo and their name.
 struct ArtistTile: View {
-    @Environment(Store.self) private var store
+    private var store: Store { .shared }
     let artist: ArtistSummary
     let side: CGFloat
 
@@ -177,7 +177,7 @@ struct ArtistTile: View {
 
 /// Every album, as covers; the search narrows them.
 struct AlbumsPage: View {
-    @Environment(Store.self) private var store
+    private var store: Store { .shared }
     @State private var albums: [AlbumSummary]?
 
     var body: some View {
@@ -194,7 +194,7 @@ struct AlbumsPage: View {
 
 /// Every artist, as photos; the search narrows them.
 struct ArtistsPage: View {
-    @Environment(Store.self) private var store
+    private var store: Store { .shared }
     @State private var artists: [ArtistSummary]?
 
     var body: some View {
@@ -211,7 +211,7 @@ struct ArtistsPage: View {
 
 /// A page of tiles, under its title.
 struct TileGrid<Content: View>: View {
-    @Environment(Store.self) private var store
+    private var store: Store { .shared }
     let title: String
     let summary: String?
     @ViewBuilder let content: Content
@@ -234,7 +234,7 @@ struct TileGrid<Content: View>: View {
 
 /// An artist: their photo, their albums, and their radio.
 struct ArtistPage: View {
-    @Environment(Store.self) private var store
+    private var store: Store { .shared }
     let name: String
     @State private var albums: [AlbumSummary]?
     @State private var top: [Song] = []
@@ -327,7 +327,7 @@ struct ArtistPage: View {
 
 /// The music folders, as they are on disk.
 struct FoldersPage: View {
-    @Environment(Store.self) private var store
+    private var store: Store { .shared }
     @State private var roots: [String] = []
     @State private var inside: [String: [Folder]] = [:]
 

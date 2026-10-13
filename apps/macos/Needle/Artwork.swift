@@ -169,7 +169,7 @@ struct Placeholder: View {
 /// A round artist photo, or the artist's initials when no photo is known. Photos are found in
 /// the library's folder, or online on the artist's own page when lookups are on.
 struct ArtistPhoto: View {
-    @Environment(Store.self) private var store
+    private var store: Store { .shared }
     let name: String
     var side: CGFloat
     /// May look online (only the artist's page does, so scrolling a grid floods nothing).

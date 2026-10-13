@@ -4,8 +4,9 @@ import UniformTypeIdentifiers
 /// The main window: the sidebar, the page, the side panel (details, queue, lyrics), and the
 /// player floating on glass at the foot; the big player over it all.
 struct MainWindow: View {
-    @Environment(Store.self) private var store
+    private var store: Store { .shared }
     @Environment(\.openWindow) private var openWindow
+    @Environment(\.openSettings) private var openSettings
     @FocusState private var searchFocused: Bool
     @State private var suggestions: [Suggestion] = []
 
@@ -61,7 +62,25 @@ struct MainWindow: View {
         .sheet(item: $store.question) { question in PluginQuestion(question: question).environment(store) }
         .sheet(isPresented: $store.welcome) { Welcome().environment(store) }
         .sheet(item: $store.whatsNew) { notes in WhatsNew(notes: notes).environment(store) }
+        #if DEBUG
+        .task { showForTest() }
+        #endif
     }
+
+    #if DEBUG
+    /// Test builds: `--show settings|mini|big|palette` opens that at the start, to look at it.
+    private func showForTest() {
+        let arguments = CommandLine.arguments
+        guard let i = arguments.firstIndex(of: "--show"), arguments.indices.contains(i + 1) else { return }
+        switch arguments[i + 1] {
+        case "settings": openSettings()
+        case "mini": openWindow(id: "mini")
+        case "big": store.big = true
+        case "palette": store.palette = true
+        default: break
+        }
+    }
+    #endif
 
     private var rail: Bool { store.settings.layout.sidebarHidden && store.settings.layout.compactSidebar }
 
@@ -136,7 +155,7 @@ struct MainWindow: View {
 
 /// The search field in the toolbar (unless hidden in Settings), with completions for rules.
 private struct SearchField: ViewModifier {
-    @Environment(Store.self) private var store
+    private var store: Store { .shared }
     var searchFocused: FocusState<Bool>.Binding
     let suggestions: [Suggestion]
 
@@ -171,7 +190,7 @@ private struct SearchField: ViewModifier {
 /// Remembers a column's width in the layout (shared with the layout file) a moment after it
 /// is dragged.
 struct WidthKeeper: View {
-    @Environment(Store.self) private var store
+    private var store: Store { .shared }
     let key: String
     let range: ClosedRange<Float>
     let saved: Float
@@ -194,7 +213,7 @@ struct WidthKeeper: View {
 
 /// Behind the window: the playing cover, blurred, with Ambient background on.
 struct WindowBackground: View {
-    @Environment(Store.self) private var store
+    private var store: Store { .shared }
 
     var body: some View {
         if store.settings.ambient {
@@ -214,7 +233,7 @@ struct WindowBackground: View {
 
 /// The page the window shows.
 struct PageView: View {
-    @Environment(Store.self) private var store
+    private var store: Store { .shared }
     @State private var total: UInt32?
 
     var body: some View {
@@ -227,7 +246,12 @@ struct PageView: View {
             case .folders: FoldersPage()
             case .history: HistoryPage()
             case .wrapped(let year): WrappedPage(year: year)
-            case .sound: ScrollView { SoundPane().padding(28).frame(maxWidth: 760) }.frame(maxWidth: .infinity)
+            case .sound:
+                Form { SoundPane() }
+                    .formStyle(.grouped)
+                    .scrollContentBackground(.hidden)
+                    .frame(maxWidth: 820)
+                    .frame(maxWidth: .infinity)
             case .importing: ImportPage()
             case .timing: TimingPage()
             case .doctor: DoctorPage()
@@ -252,7 +276,7 @@ struct PageView: View {
 
 /// An empty library: where music lives, and how to bring it in.
 struct Onboarding: View {
-    @Environment(Store.self) private var store
+    private var store: Store { .shared }
 
     var body: some View {
         VStack(spacing: 16) {
@@ -279,7 +303,7 @@ struct Onboarding: View {
 
 /// The short message at the foot of the window.
 struct ToastView: View {
-    @Environment(Store.self) private var store
+    private var store: Store { .shared }
 
     var body: some View {
         if let toast = store.toast {

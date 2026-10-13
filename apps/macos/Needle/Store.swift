@@ -7,6 +7,10 @@ import UniformTypeIdentifiers
 /// share it. What plays is read from the core several times a second.
 @MainActor @Observable
 final class Store {
+    /// The one store. Views read it here, not from the environment: SwiftUI draws some views
+    /// (drag images, menus) without the environment, and a missing store there stops the app.
+    static let shared = Store()
+
     let core: Needle
     let version: String
 

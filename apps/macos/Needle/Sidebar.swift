@@ -5,7 +5,7 @@ import UniformTypeIdentifiers
 /// playlist join it, and on Favorites become favorites. Folded to a strip of icons with the
 /// compact sidebar.
 struct Sidebar: View {
-    @Environment(Store.self) private var store
+    private var store: Store { .shared }
 
     var body: some View {
         let rail = store.settings.layout.sidebarHidden && store.settings.layout.compactSidebar
@@ -87,6 +87,8 @@ struct Sidebar: View {
             }
         }
         .listStyle(.sidebar)
+        .tint(store.colors.accent)
+        .listItemTint(.fixed(store.colors.accent))
         .scrollContentBackground(store.glass ? .automatic : .hidden)
         .background { if !store.glass { store.colors.chrome.ignoresSafeArea() } }
         .safeAreaInset(edge: .bottom, spacing: 0) { footer(rail: rail) }
@@ -128,9 +130,7 @@ struct Sidebar: View {
             footerButton("Fix my library", "wrench.and.screwdriver", rail) { store.navigate(.doctor) }
             footerButton("Import", "square.and.arrow.down", rail) { store.navigate(.importing) }
             SettingsLink {
-                Label("Settings", systemImage: "gearshape").labelStyle(SidebarLabel(rail: rail))
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .contentShape(Rectangle())
+                footerLabel("Settings", "gearshape", rail)
             }
             .buttonStyle(.plain)
             .padding(.vertical, 4)
@@ -143,15 +143,27 @@ struct Sidebar: View {
 
     private func footerButton(_ name: String, _ icon: String, _ rail: Bool, action: @escaping () -> Void) -> some View {
         Button(action: action) {
-            Label(name, systemImage: icon).labelStyle(SidebarLabel(rail: rail))
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .contentShape(Rectangle())
+            footerLabel(name, icon, rail)
         }
         .buttonStyle(.plain)
         .padding(.vertical, 4)
         .padding(.horizontal, 8)
         .help(name)
     }
+}
+
+/// A footer button's icon and name. The icons sit in one column, so the names line up with each
+/// other and with the rows above.
+private func footerLabel(_ name: String, _ icon: String, _ rail: Bool) -> some View {
+    HStack(spacing: 7) {
+        Image(systemName: icon)
+            .font(rail ? .title3 : .body)
+            .foregroundStyle(.secondary)
+            .frame(width: 20)
+        if !rail { Text(name) }
+    }
+    .frame(maxWidth: .infinity, alignment: rail ? .center : .leading)
+    .contentShape(Rectangle())
 }
 
 /// A sidebar label, or its icon alone on the folded strip.
@@ -168,7 +180,7 @@ struct SidebarLabel: LabelStyle {
 
 /// A playlist in the sidebar: its covers, its name, a menu, and a place to drop songs.
 struct PlaylistRow: View {
-    @Environment(Store.self) private var store
+    private var store: Store { .shared }
     let playlist: Playlist
     let rail: Bool
     @State private var confirmDelete = false

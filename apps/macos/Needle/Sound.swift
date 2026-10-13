@@ -4,7 +4,7 @@ import UniformTypeIdentifiers
 /// The equalizer (ten bands, or parametric bands of any kind), balance, mono, headphone
 /// crossfeed, saved presets, and plugins' sound effects. Changes apply while you listen.
 struct SoundPane: View {
-    @Environment(Store.self) private var store
+    private var store: Store { .shared }
     @State private var sound: SoundSettings?
     @State private var bands: [Float] = []
     @State private var presets: [EqPreset] = []
@@ -14,31 +14,14 @@ struct SoundPane: View {
     @State private var name = ""
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            Text("Shape the sound. Changes apply while you listen.").foregroundStyle(.secondary)
+        Section {
             if let sound {
                 equalizer(sound)
-                SectionTitle(title: "Listening tools")
-                SettingRow(title: "Balance", detail: abs(sound.balance) < 0.01 ? "Centred." : sound.balance < 0 ? "Leaning left." : "Leaning right.") {
-                    HStack {
-                        Text("L").foregroundStyle(.secondary)
-                        Slider(value: Binding(get: { Double(sound.balance) }, set: { v in change { $0.balance = abs(v) < 0.03 ? 0 : Float(v) } }), in: -1...1)
-                            .frame(width: 200)
-                        Text("R").foregroundStyle(.secondary)
-                    }
-                }
-                SettingRow(title: "Mono", detail: "Plays both channels in both ears. Useful with one earbud, or for hearing loss in one ear.") {
-                    Toggle("", isOn: Binding(get: { sound.mono }, set: { v in change { $0.mono = v } })).toggleStyle(.switch).labelsHidden()
-                }
-                SettingRow(title: "Headphone crossfeed", detail: "Blends a little of each side into the other, the way speakers reach both ears. Makes hard-panned older recordings less tiring on headphones.") {
-                    Toggle("", isOn: Binding(get: { sound.crossfeed }, set: { v in change { $0.crossfeed = v } })).toggleStyle(.switch).labelsHidden()
-                }
-                Text("ReplayGain, album gain, and loudness measurement are in Settings › Playback.")
-                    .font(.caption).foregroundStyle(.secondary).padding(.top, 8)
-                effectsSection
             } else {
-                ProgressView().padding()
+                ProgressView().frame(maxWidth: .infinity)
             }
+        } header: {
+            GroupHeader(title: "Equalizer", detail: "Shape the sound. Changes apply while you listen.")
         }
         .task(id: store.libraryVersion) { load() }
         .alert("Name for this sound", isPresented: $naming) {
@@ -53,6 +36,30 @@ struct SoundPane: View {
                 }
             }
             Button("Cancel", role: .cancel) {}
+        }
+        if let sound {
+            Section {
+                SettingRow(title: "Balance", detail: abs(sound.balance) < 0.01 ? "Centred." : sound.balance < 0 ? "Leaning left." : "Leaning right.") {
+                    HStack {
+                        Text("L").foregroundStyle(.secondary)
+                        Slider(value: Binding(get: { Double(sound.balance) }, set: { v in change { $0.balance = abs(v) < 0.03 ? 0 : Float(v) } }), in: -1...1)
+                            .frame(width: 200)
+                        Text("R").foregroundStyle(.secondary)
+                    }
+                }
+                SettingRow(title: "Mono", detail: "Plays both channels in both ears. Useful with one earbud, or for hearing loss in one ear.") {
+                    Toggle("", isOn: Binding(get: { sound.mono }, set: { v in change { $0.mono = v } })).toggleStyle(.switch).labelsHidden()
+                }
+                SettingRow(title: "Headphone crossfeed", detail: "Blends a little of each side into the other, the way speakers reach both ears. Makes hard-panned older recordings less tiring on headphones.") {
+                    Toggle("", isOn: Binding(get: { sound.crossfeed }, set: { v in change { $0.crossfeed = v } })).toggleStyle(.switch).labelsHidden()
+                }
+            } header: {
+                GroupHeader(title: "Listening tools")
+            } footer: {
+                Text("ReplayGain, album gain, and loudness measurement are in Settings › Playback.")
+                    .font(.caption).foregroundStyle(.secondary)
+            }
+            effectsSection
         }
     }
 
@@ -76,7 +83,6 @@ struct SoundPane: View {
     @ViewBuilder
     private func equalizer(_ s: SoundSettings) -> some View {
         let colors = store.colors
-        SectionTitle(title: "Equalizer")
         SettingRow(title: "Equalizer", detail: s.preset.isEmpty ? "" : "Preset: \(s.preset)") {
             Toggle("", isOn: Binding(get: { s.eq }, set: { v in change { $0.eq = v } })).toggleStyle(.switch).labelsHidden()
         }
@@ -133,8 +139,7 @@ struct SoundPane: View {
                     }
                 }
             }
-            .padding(14)
-            .background(colors.raised.opacity(0.7), in: RoundedRectangle(cornerRadius: 12))
+            .padding(.vertical, 8)
             .opacity(s.eq ? 1 : 0.55)
             let loudest = (s.mode == "parametric" ? s.parametric.filter(\.on).map(\.gain) : s.bands).max() ?? 0
             if loudest + s.preamp > 0.05 {
@@ -147,7 +152,7 @@ struct SoundPane: View {
                 Button("Save EQ file…") { saveFile() }
             }
         }
-        .padding(.vertical, 12)
+        .padding(.vertical, 6)
     }
 
     @ViewBuilder
@@ -185,8 +190,7 @@ struct SoundPane: View {
     }
 
     private var effectsSection: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            SectionTitle(title: "Effects", detail: "Effects come from plugins. They play in this order, after the equalizer.")
+        Section {
             if effects.isEmpty {
                 Text("No effects yet. Turn on a plugin that adds effects in Settings › Plugins. Add the example plugins there to try Studio effects and Bitcrusher.")
                     .font(.callout).foregroundStyle(.secondary)
@@ -223,9 +227,9 @@ struct SoundPane: View {
                         }
                     }
                 }
-                .padding(10)
-                .background(store.colors.raised.opacity(0.6), in: RoundedRectangle(cornerRadius: 10))
             }
+        } header: {
+            GroupHeader(title: "Effects", detail: "Effects come from plugins. They play in this order, after the equalizer.")
         }
     }
 
@@ -249,18 +253,33 @@ struct SoundPane: View {
     }
 }
 
-/// An upright slider, for the equalizer's bands.
+/// An upright slider, for the equalizer's bands: a track, the part from 0 dB lit, and a knob.
+/// (A turned system slider does not fill its height.)
 struct VerticalSlider: View {
+    private var store: Store { .shared }
     @Binding var value: Float
     let range: ClosedRange<Float>
+    private let knob: CGFloat = 14
 
     var body: some View {
         GeometryReader { geo in
-            Slider(value: $value, in: range)
-                .controlSize(.small)
-                .frame(width: geo.size.height)
-                .rotationEffect(.degrees(-90))
-                .frame(width: geo.size.width, height: geo.size.height)
+            let height = geo.size.height
+            let span = range.upperBound - range.lowerBound
+            let place = { (v: Float) -> CGFloat in (height - knob) * (1 - CGFloat((v - range.lowerBound) / span)) + knob / 2 }
+            let at = place(min(max(value, range.lowerBound), range.upperBound))
+            let zero = place(min(max(0, range.lowerBound), range.upperBound))
+            ZStack(alignment: .top) {
+                Capsule().fill(.quaternary).frame(width: 4, height: height)
+                Rectangle().fill(store.colors.accent).frame(width: 4, height: abs(zero - at)).offset(y: min(zero, at))
+                Circle().fill(.white).shadow(color: .black.opacity(0.3), radius: 1.5, y: 1)
+                    .frame(width: knob, height: knob).offset(y: at - knob / 2)
+            }
+            .frame(width: geo.size.width, height: height, alignment: .top)
+            .contentShape(Rectangle())
+            .gesture(DragGesture(minimumDistance: 0).onChanged { drag in
+                let f = 1 - min(max((drag.location.y - knob / 2) / (height - knob), 0), 1)
+                value = range.lowerBound + Float(f) * span
+            })
         }
         .frame(width: 22)
     }

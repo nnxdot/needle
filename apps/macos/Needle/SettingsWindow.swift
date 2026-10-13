@@ -4,7 +4,7 @@ import UniformTypeIdentifiers
 
 /// Settings (⌘,), in sections as on the desktop.
 struct SettingsWindow: View {
-    @Environment(Store.self) private var store
+    private var store: Store { .shared }
     @AppStorage("settings-tab") private var tab = "Playback"
 
     static let tabs: [(String, String)] = [
@@ -21,43 +21,47 @@ struct SettingsWindow: View {
                     Label(name, systemImage: icon).tag(name)
                 }
             }
-            .navigationSplitViewColumnWidth(190)
+            .listItemTint(.fixed(store.colors.accent))
+            .navigationSplitViewColumnWidth(200)
+            .toolbar(removing: .sidebarToggle)
         } detail: {
-            ScrollView {
-                VStack(alignment: .leading, spacing: 0) {
-                    Text(tab).font(store.display(26)).padding(.bottom, 12)
-                    switch tab {
-                    case "Sound": SoundPane()
-                    case "Library": LibrarySettings()
-                    case "Appearance": AppearanceSettings()
-                    case "Online services": ServicesSettings()
-                    case "Discord": DiscordSettings()
-                    case "Stems": StemsSettings()
-                    case "Plugins": PluginsSettings()
-                    case "Your data": DataSettings()
-                    case "Keyboard": KeyboardSettings()
-                    default: PlaybackSettingsView()
-                    }
+            // Grouped boxes, as in System Settings; the title bar names the page.
+            Form {
+                switch tab {
+                case "Sound": SoundPane()
+                case "Library": LibrarySettings()
+                case "Appearance": AppearanceSettings()
+                case "Online services": ServicesSettings()
+                case "Discord": DiscordSettings()
+                case "Stems": StemsSettings()
+                case "Plugins": PluginsSettings()
+                case "Your data": DataSettings()
+                case "Keyboard": KeyboardSettings()
+                default: PlaybackSettingsView()
+                }
+                Section {
+                } footer: {
                     VStack(alignment: .leading, spacing: 2) {
                         Text("Needle \(store.version) · nnx")
                         Text("Library data: \(store.core.dataDirectory())").textSelection(.enabled)
                     }
                     .font(.caption)
                     .foregroundStyle(.secondary)
-                    .padding(.top, 30)
+                    .frame(maxWidth: .infinity, alignment: .leading)
                 }
-                .padding(28)
-                .frame(maxWidth: 760, alignment: .leading)
             }
+            .formStyle(.grouped)
+            .id(tab)
             .navigationTitle(tab)
         }
-        .frame(minWidth: 860, minHeight: 600)
+        .frame(minWidth: 820, idealWidth: 900, minHeight: 600, idealHeight: 720)
         .tint(store.colors.accent)
         .preferredColorScheme(store.colors.dark ? .dark : .light)
     }
 }
 
-/// One setting: its name and what it does, and its control on the right.
+/// One setting, as a row of a grouped form: its name and what it does, and its control on the
+/// right.
 struct SettingRow<Control: View>: View {
     let title: String
     var detail: String = ""
@@ -65,8 +69,8 @@ struct SettingRow<Control: View>: View {
 
     var body: some View {
         HStack(alignment: .center, spacing: 24) {
-            VStack(alignment: .leading, spacing: 3) {
-                Text(title).font(.body.weight(.medium))
+            VStack(alignment: .leading, spacing: 2) {
+                Text(title)
                 if !detail.isEmpty {
                     Text(detail).font(.callout).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
                 }
@@ -74,29 +78,28 @@ struct SettingRow<Control: View>: View {
             Spacer(minLength: 0)
             control
         }
-        .padding(.vertical, 12)
-        .overlay(alignment: .bottom) { Divider() }
+        .padding(.vertical, 2)
     }
 }
 
-/// A heading between groups of settings.
-struct SectionTitle: View {
+/// The header of a group of settings, with an optional line under it.
+struct GroupHeader: View {
     let title: String
     var detail = ""
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 3) {
-            Text(title).font(.title3.weight(.semibold))
-            if !detail.isEmpty { Text(detail).font(.callout).foregroundStyle(.secondary) }
+        VStack(alignment: .leading, spacing: 2) {
+            Text(title)
+            if !detail.isEmpty {
+                Text(detail).font(.callout).fontWeight(.regular).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+            }
         }
-        .padding(.top, 26)
-        .padding(.bottom, 4)
     }
 }
 
 /// A switch bound to one of the core's settings, by its name.
 struct SettingSwitch: View {
-    @Environment(Store.self) private var store
+    private var store: Store { .shared }
     let key: String
     let on: Bool
 
@@ -110,7 +113,7 @@ struct SettingSwitch: View {
 // MARK: - Playback
 
 struct PlaybackSettingsView: View {
-    @Environment(Store.self) private var store
+    private var store: Store { .shared }
     @State private var devices: [String] = []
     @State private var autoplay = ""
     @State private var members: [GroupMember] = []
@@ -118,7 +121,7 @@ struct PlaybackSettingsView: View {
 
     var body: some View {
         let s = store.settings
-        VStack(alignment: .leading, spacing: 0) {
+        Section {
             SettingRow(title: "ReplayGain", detail: "Evens out loudness using measured or tagged gain, with peak protection.") {
                 SettingSwitch(key: "replay_gain", on: s.replayGain)
             }
@@ -134,29 +137,30 @@ struct PlaybackSettingsView: View {
                 }
                 .pickerStyle(.segmented)
                 .labelsHidden()
-                .frame(width: 300)
+                .frame(width: 280)
             }
+        } header: {
+            GroupHeader(title: "Playback")
+        }
+        Section {
+            device("System default", selected: s.outputDevice == nil, value: nil)
+            if let current = s.outputDevice, current.hasPrefix("speaker") {
+                device("A speaker on the network", selected: true, value: current)
+            }
+            ForEach(devices, id: \.self) { name in
+                device(name, selected: s.outputDevice == name, value: name)
+            }
+        } header: {
+            HStack(alignment: .firstTextBaseline) {
+                GroupHeader(title: "Output device")
+                Spacer()
+                Button("Refresh") { loadDevices() }.buttonStyle(.link).font(.callout)
+            }
+        }
+        Section {
             VStack(alignment: .leading, spacing: 6) {
                 HStack {
-                    Text("Output device").font(.body.weight(.medium))
-                    Spacer()
-                    Button("Refresh") { loadDevices() }.buttonStyle(.borderless)
-                }
-                device("System default", selected: s.outputDevice == nil, value: nil)
-                if let current = s.outputDevice, current.hasPrefix("speaker") {
-                    device("A speaker on the network", selected: true, value: current)
-                }
-                ForEach(devices, id: \.self) { name in
-                    device(name, selected: s.outputDevice == name, value: name)
-                }
-            }
-            .padding(.vertical, 12)
-            .overlay(alignment: .bottom) { Divider() }
-            VStack(alignment: .leading, spacing: 6) {
-                Text("When the queue runs out").font(.body.weight(.medium))
-                Text("Needle keeps playing tracks that match this rule. Leave it empty to stop.").font(.callout).foregroundStyle(.secondary)
-                HStack {
-                    TextField("rating >= 4 and not played(7d) shuffle limit 20", text: $autoplay)
+                    TextField("Rule", text: $autoplay, prompt: Text("rating >= 4 and not played(7d) shuffle limit 20")).labelsHidden()
                         .textFieldStyle(.roundedBorder)
                     Button("Save") {
                         let rule = autoplay.trimmingCharacters(in: .whitespaces)
@@ -169,24 +173,23 @@ struct PlaybackSettingsView: View {
                     }
                 }
             }
-            .padding(.vertical, 12)
-            .overlay(alignment: .bottom) { Divider() }
-            if !members.isEmpty {
-                VStack(alignment: .leading, spacing: 8) {
-                    Text("Speaker timing").font(.body.weight(.medium))
-                    Text("Needle lines the speakers up for you. If one still sounds early or late, move its slider: to the right plays it later.")
-                        .font(.callout).foregroundStyle(.secondary)
-                    ForEach(members, id: \.key) { member in
-                        HStack {
-                            Text(member.name).frame(width: 160, alignment: .leading).lineLimit(1)
-                            Slider(value: Binding(get: { Double(member.delay) }, set: { setDelay(member.key, Int32($0)) }), in: -1000...1000, step: 10)
-                            Text("\(member.delay > 0 ? "+" : "")\(member.delay) ms").monospacedDigit().frame(width: 72, alignment: .trailing)
-                        }
+        } header: {
+            GroupHeader(title: "When the queue runs out", detail: "Needle keeps playing tracks that match this rule. Leave it empty to stop.")
+        }
+        if !members.isEmpty {
+            Section {
+                ForEach(members, id: \.key) { member in
+                    HStack {
+                        Text(member.name).frame(width: 160, alignment: .leading).lineLimit(1)
+                        Slider(value: Binding(get: { Double(member.delay) }, set: { setDelay(member.key, Int32($0)) }), in: -1000...1000, step: 10)
+                        Text("\(member.delay > 0 ? "+" : "")\(member.delay) ms").monospacedDigit().frame(width: 72, alignment: .trailing)
                     }
                 }
-                .padding(.vertical, 12)
-                .overlay(alignment: .bottom) { Divider() }
+            } header: {
+                GroupHeader(title: "Speaker timing", detail: "Needle lines the speakers up for you. If one still sounds early or late, move its slider: to the right plays it later.")
             }
+        }
+        Section {
             SettingRow(title: "Keep in the menu bar", detail: "Puts Needle in the menu bar. Closing the window hides it there and the music plays on; click the icon to play, pause, skip, show Needle, or quit.") {
                 SettingSwitch(key: "tray", on: s.tray)
             }
@@ -218,8 +221,10 @@ struct PlaybackSettingsView: View {
                             .font(.caption).foregroundStyle(.secondary)
                     }
                 }
-                .padding(.vertical, 12)
+                .padding(.vertical, 6)
             }
+        } header: {
+            GroupHeader(title: "Menu bar and remote")
         }
         .task {
             autoplay = store.settings.autoplayQuery
@@ -244,8 +249,6 @@ struct PlaybackSettingsView: View {
                 Spacer()
                 if selected { Image(systemName: "checkmark").foregroundStyle(store.colors.accent) }
             }
-            .padding(.vertical, 6).padding(.horizontal, 10)
-            .background(selected ? store.colors.raised : .clear, in: RoundedRectangle(cornerRadius: 6))
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
@@ -282,38 +285,36 @@ struct QRCode: View {
 // MARK: - Library
 
 struct LibrarySettings: View {
-    @Environment(Store.self) private var store
+    private var store: Store { .shared }
     @State private var roots: [String] = []
     @State private var measured: [UInt64] = [0, 0]
 
     var body: some View {
         let s = store.settings
-        VStack(alignment: .leading, spacing: 0) {
-            SectionTitle(title: "Music folders", detail: "Needle watches these folders. It moves or removes files only when you ask, in Fix my library.")
-            VStack(alignment: .leading, spacing: 4) {
-                if roots.isEmpty { Text("No folders yet.").foregroundStyle(.secondary) }
-                ForEach(roots, id: \.self) { root in
-                    HStack {
-                        Image(systemName: "folder").foregroundStyle(.secondary)
-                        Text(root).lineLimit(1).truncationMode(.middle)
-                        Spacer()
-                        Button { store.reveal(root) } label: { Image(systemName: "magnifyingglass") }.buttonStyle(.borderless).help("Show in Finder")
-                        Button { remove(root) } label: { Image(systemName: "minus.circle") }.buttonStyle(.borderless).help("Stop reading this folder")
-                    }
-                    .padding(.vertical, 6).padding(.horizontal, 10)
-                    .background(store.colors.raised, in: RoundedRectangle(cornerRadius: 6))
-                }
+        Section {
+            if roots.isEmpty { Text("No folders yet.").foregroundStyle(.secondary) }
+            ForEach(roots, id: \.self) { root in
                 HStack {
-                    Button { store.addFolder() } label: { Label("Add folder", systemImage: "plus") }
-                    Button("Check for changes") { store.rescan() }.disabled(store.scan.running)
+                    Image(systemName: "folder").foregroundStyle(.secondary)
+                    Text(root).lineLimit(1).truncationMode(.middle)
+                    Spacer()
+                    Button { store.reveal(root) } label: { Image(systemName: "magnifyingglass") }.buttonStyle(.borderless).help("Show in Finder")
+                    Button { remove(root) } label: { Image(systemName: "minus.circle") }.buttonStyle(.borderless).help("Stop reading this folder")
                 }
-                .padding(.top, 6)
             }
-            .padding(.bottom, 12)
+            HStack {
+                Button { store.addFolder() } label: { Label("Add folder", systemImage: "plus") }
+                Button("Check for changes") { store.rescan() }.disabled(store.scan.running)
+            }
+        } header: {
+            GroupHeader(title: "Music folders", detail: "Needle watches these folders. It moves or removes files only when you ask, in Fix my library.")
+        }
+        Section {
             SettingRow(title: "Measure songs for radio", detail: measuredText) {
                 SettingSwitch(key: "sound_analysis", on: s.soundAnalysis)
             }
-            SectionTitle(title: "Artwork and lyrics", detail: "Needle always uses covers, .lrc files, and lyrics tags found with your music.")
+        }
+        Section {
             SettingRow(title: "Look things up online", detail: "Finds missing album covers (MusicBrainz and the Cover Art Archive), artist photos (Wikimedia Commons), and lyrics (LRCLIB). Only artist, album, title, and length are sent.") {
                 SettingSwitch(key: "online_media", on: s.onlineMedia)
             }
@@ -325,6 +326,8 @@ struct LibrarySettings: View {
                     }
                 }
             }
+        } header: {
+            GroupHeader(title: "Artwork and lyrics", detail: "Needle always uses covers, .lrc files, and lyrics tags found with your music.")
         }
         .task(id: store.libraryVersion) {
             roots = (try? store.core.folders()) ?? []
@@ -353,15 +356,14 @@ struct LibrarySettings: View {
 // MARK: - Appearance
 
 struct AppearanceSettings: View {
-    @Environment(Store.self) private var store
+    private var store: Store { .shared }
     @State private var editing: ThemeFile?
     @State private var newTheme = false
 
     var body: some View {
         let s = store.settings
-        VStack(alignment: .leading, spacing: 0) {
+        Section {
             VStack(alignment: .leading, spacing: 10) {
-                Text("Look").font(.body.weight(.medium))
                 LazyVGrid(columns: [GridItem(.adaptive(minimum: 150), spacing: 14)], alignment: .leading, spacing: 14) {
                     ForEach(Palette.bases, id: \.0) { mode, name, about in
                         ThemeCard(mode: mode, name: name, about: about, theme: nil)
@@ -391,8 +393,11 @@ struct AppearanceSettings: View {
                 }
                 .padding(.top, 4)
             }
-            .padding(.vertical, 12)
-            .overlay(alignment: .bottom) { Divider() }
+            .padding(.vertical, 6)
+        } header: {
+            GroupHeader(title: "Look")
+        }
+        Section {
             SettingRow(title: "Ambient background", detail: "The cover that is playing (or your chosen color) fills the whole background, blurred. Works with every look.") {
                 SettingSwitch(key: "ambient", on: s.ambient)
             }
@@ -405,21 +410,6 @@ struct AppearanceSettings: View {
                     Slider(value: Binding(get: { Double(s.grain) }, set: { store.set(["grain": $0]) }), in: 0...1).frame(width: 180)
                     Text(s.grain <= 0.001 ? "Off" : "\(Int(s.grain * 100))%").monospacedDigit().frame(width: 40, alignment: .trailing).foregroundStyle(.secondary)
                 }
-            }
-            SettingRow(title: "Compact sidebar", detail: "Folding the sidebar leaves a strip of page icons, as in Apple Music, instead of hiding it altogether.") {
-                Toggle("", isOn: Binding(get: { s.layout.compactSidebar }, set: { store.setLayout(["compact_sidebar": $0]) })).toggleStyle(.switch).labelsHidden()
-            }
-            SettingRow(title: "Fold the sidebar now", detail: "The same as the sidebar button in the toolbar.") {
-                Toggle("", isOn: Binding(get: { s.layout.sidebarHidden }, set: { store.setLayout(["sidebar_hidden": $0]) })).toggleStyle(.switch).labelsHidden()
-            }
-            SettingRow(title: "Player in the top bar", detail: "The play controls, the song playing, and the volume sit in the toolbar, as in Apple Music.") {
-                Toggle("", isOn: Binding(get: { s.layout.playerOnTop }, set: { store.setLayout(["player_on_top": $0]) })).toggleStyle(.switch).labelsHidden()
-            }
-            SettingRow(title: "Hide the search field", detail: "Search from the command palette instead (⌘K, or ⌘F).") {
-                Toggle("", isOn: Binding(get: { s.layout.searchHidden }, set: { store.setLayout(["search_hidden": $0]) })).toggleStyle(.switch).labelsHidden()
-            }
-            SettingRow(title: "Colors from the music", detail: "Tint Needle with the colors of the cover that is playing.") {
-                SettingSwitch(key: "music_colors", on: s.musicColors)
             }
             if !s.musicColors {
                 SettingRow(title: "Color", detail: "Tints the buttons, highlights, and surfaces.") {
@@ -437,10 +427,32 @@ struct AppearanceSettings: View {
                     }
                 }
             }
+            SettingRow(title: "Colors from the music", detail: "Tint Needle with the colors of the cover that is playing.") {
+                SettingSwitch(key: "music_colors", on: s.musicColors)
+            }
             SettingRow(title: "Reduce motion", detail: NSWorkspace.shared.accessibilityDisplayShouldReduceMotion ? "Your Mac has animations turned down, so Needle keeps still too." : "Turns off fades, slides, and other animations.") {
                 SettingSwitch(key: "reduce_motion", on: s.reduceMotion)
             }
-            SectionTitle(title: "Fonts")
+        } header: {
+            GroupHeader(title: "Window")
+        }
+        Section {
+            SettingRow(title: "Compact sidebar", detail: "Folding the sidebar leaves a strip of page icons, as in Apple Music, instead of hiding it altogether.") {
+                Toggle("", isOn: Binding(get: { s.layout.compactSidebar }, set: { store.setLayout(["compact_sidebar": $0]) })).toggleStyle(.switch).labelsHidden()
+            }
+            SettingRow(title: "Fold the sidebar now", detail: "The same as the sidebar button in the toolbar.") {
+                Toggle("", isOn: Binding(get: { s.layout.sidebarHidden }, set: { store.setLayout(["sidebar_hidden": $0]) })).toggleStyle(.switch).labelsHidden()
+            }
+            SettingRow(title: "Player in the top bar", detail: "The play controls, the song playing, and the volume sit in the toolbar, as in Apple Music.") {
+                Toggle("", isOn: Binding(get: { s.layout.playerOnTop }, set: { store.setLayout(["player_on_top": $0]) })).toggleStyle(.switch).labelsHidden()
+            }
+            SettingRow(title: "Hide the search field", detail: "Search from the command palette instead (⌘K, or ⌘F).") {
+                Toggle("", isOn: Binding(get: { s.layout.searchHidden }, set: { store.setLayout(["search_hidden": $0]) })).toggleStyle(.switch).labelsHidden()
+            }
+        } header: {
+            GroupHeader(title: "Layout")
+        }
+        Section {
             SettingRow(title: "Titles", detail: "The font for page titles, album and artist names, and the big player.") {
                 Picker("", selection: Binding(get: { s.displayFont }, set: { store.set(["display_font": $0]) })) {
                     Text("System").tag("system")
@@ -462,6 +474,8 @@ struct AppearanceSettings: View {
                     Button("Export…") { exportLayout() }
                 }
             }
+        } header: {
+            GroupHeader(title: "Fonts and density")
         }
         .sheet(item: $editing) { theme in ThemeEditor(theme: theme).environment(store) }
         .sheet(isPresented: $newTheme) { ThemeEditor(theme: nil).environment(store) }
@@ -516,7 +530,7 @@ struct AppearanceSettings: View {
 
 /// A small picture of a look, in today's colours, that switches to it when clicked.
 struct ThemeCard: View {
-    @Environment(Store.self) private var store
+    private var store: Store { .shared }
     let mode: String
     let name: String
     let about: String
@@ -575,7 +589,7 @@ struct ThemeCard: View {
 
 /// A theme of the listener's own: its base, name, and the colours it changes.
 struct ThemeEditor: View {
-    @Environment(Store.self) private var store
+    private var store: Store { .shared }
     @Environment(\.dismiss) private var dismiss
     let theme: ThemeFile?
     @State private var name = ""
@@ -683,21 +697,26 @@ struct ThemeEditor: View {
 // MARK: - Discord
 
 struct DiscordSettings: View {
-    @Environment(Store.self) private var store
+    private var store: Store { .shared }
 
     var body: some View {
         let s = store.settings
-        VStack(alignment: .leading, spacing: 0) {
-            Text("Show what you're playing on your Discord profile.").foregroundStyle(.secondary)
+        Section {
             SettingRow(title: "Show what you're playing on Discord", detail: "When Discord is open on this Mac, your profile shows what is playing and a time bar. Needle finds Discord by itself and only talks to the real Discord app on this Mac.") {
                 SettingSwitch(key: "discord_presence", on: s.discordPresence)
             }
-            if s.discordPresence {
-                preview.padding(.vertical, 14)
+        }
+        if s.discordPresence {
+            Section {
+                preview.padding(.vertical, 6).frame(maxWidth: .infinity)
                 choice("Listening to …", "discord_title", s.discordTitle, [("song", "Song"), ("artist", "Artist"), ("needle", "Needle")])
                 choice("First line", "discord_top", s.discordTop, [("artist", "Artist"), ("song", "Song"), ("album", "Album")])
                 choice("Second line", "discord_middle", s.discordMiddle, [("song", "Song"), ("artist", "Artist"), ("album", "Album"), ("none", "Nothing")])
                 choice("Third line", "discord_bottom", s.discordBottom, [("album", "Album"), ("song", "Song"), ("artist", "Artist"), ("none", "Nothing")])
+            } header: {
+                GroupHeader(title: "What your profile shows")
+            }
+            Section {
                 SettingRow(title: "Look up covers", detail: "Discord can only show pictures from the web, so Needle finds the cover in Apple's iTunes catalog by artist and song name. Your files never leave this Mac. Turn this off to send no lookups at all.") {
                     SettingSwitch(key: "discord_covers", on: s.discordCovers)
                 }
@@ -769,22 +788,22 @@ struct DiscordSettings: View {
 // MARK: - Stems
 
 struct StemsSettings: View {
-    @Environment(Store.self) private var store
+    private var store: Store { .shared }
     @State private var info: StemsInfo?
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            Text("Split songs into drums, bass, vocals, and other, on this Mac.").foregroundStyle(.secondary)
+        Section {
             if let info {
-                Text("Model: \(info.modelReady ? "downloaded (166 MB)" : "not downloaded") · Split songs use \(Int(Double(info.used) / 1_048_576)) MB")
-                HStack {
-                    Button("Delete all split songs") {
+                SettingRow(title: "Split songs", detail: "\(Int(Double(info.used) / 1_048_576)) MB on this Mac.") {
+                    Button("Delete all") {
                         store.core.deleteAllStems()
                         store.notify("All stems deleted.")
                         refresh()
                     }
                     .disabled(info.used == 0)
-                    Button("Delete the model") {
+                }
+                SettingRow(title: "Separation model", detail: info.modelReady ? "Downloaded (166 MB)." : "Not downloaded. It downloads the first time you split a song.") {
+                    Button("Delete") {
                         store.core.deleteStemModel()
                         store.notify("Stem model deleted. It downloads again the next time you split a song.")
                         refresh()
@@ -792,8 +811,11 @@ struct StemsSettings: View {
                     .disabled(!info.modelReady)
                 }
             }
+        } header: {
+            GroupHeader(title: "Stems", detail: "Split songs into drums, bass, vocals, and other, on this Mac.")
+        } footer: {
             Text("Split a song from its menu (Split into Stems), or from the details panel. Stems use HT-Demucs, running locally. Nothing is uploaded.")
-                .font(.callout).foregroundStyle(.secondary).padding(.top, 8)
+                .font(.callout).foregroundStyle(.secondary)
         }
         .task { refresh() }
     }
@@ -804,13 +826,12 @@ struct StemsSettings: View {
 // MARK: - Your data
 
 struct DataSettings: View {
-    @Environment(Store.self) private var store
+    private var store: Store { .shared }
     @State private var phrase = ""
 
     var body: some View {
         let s = store.settings
-        VStack(alignment: .leading, spacing: 0) {
-            Text("History, ratings, and playlists live in one local database.").foregroundStyle(.secondary)
+        Section {
             SettingRow(title: "Send crash reports", detail: "If Needle crashes, it sends a report the next time it starts: the Needle version, the system, and where in Needle it went wrong. File paths and your name are taken out first, and nothing is sent about your music or listening.") {
                 SettingSwitch(key: "crash_reports", on: s.crashReports)
             }
@@ -826,6 +847,10 @@ struct DataSettings: View {
             SettingRow(title: "Welcome guide", detail: "The short guide Needle shows the first time it opens.") {
                 Button("Show it again") { store.welcome = true }
             }
+        } header: {
+            GroupHeader(title: "Privacy and help")
+        }
+        Section {
             SettingRow(title: "Back up the library", detail: "Saves a consistent copy of the database, including recent changes.") {
                 Button("Back up…") {
                     let panel = NSSavePanel()
@@ -842,17 +867,17 @@ struct DataSettings: View {
                     store.job { try $0.importPlaylistFile(path: path) }
                 }
             }
-            VStack(alignment: .leading, spacing: 8) {
-                Text("Move to another computer").font(.body.weight(.medium))
-                Text("Exports an encrypted bundle of history, ratings, and playlists. Import it where the same music files exist, using the same passphrase.")
-                    .font(.callout).foregroundStyle(.secondary)
-                HStack {
-                    SecureField("Passphrase, at least 12 characters", text: $phrase).textFieldStyle(.roundedBorder)
-                    Button("Export…") { transfer(export: true) }
-                    Button("Import…") { transfer(export: false) }
-                }
+        } header: {
+            GroupHeader(title: "Your library", detail: "History, ratings, and playlists live in one local database.")
+        }
+        Section {
+            HStack {
+                SecureField("Passphrase", text: $phrase, prompt: Text("Passphrase, at least 12 characters")).labelsHidden().textFieldStyle(.roundedBorder)
+                Button("Export…") { transfer(export: true) }
+                Button("Import…") { transfer(export: false) }
             }
-            .padding(.vertical, 12)
+        } header: {
+            GroupHeader(title: "Move to another computer", detail: "Exports an encrypted bundle of history, ratings, and playlists. Import it where the same music files exist, using the same passphrase.")
         }
     }
 
@@ -890,14 +915,12 @@ struct KeyboardSettings: View {
     ]
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 6) {
+        Section {
             ForEach(keys, id: \.1) { key, what in
-                HStack {
+                LabeledContent(what) {
                     Text(key).font(.callout.monospaced())
                         .padding(.horizontal, 7).padding(.vertical, 2)
                         .background(.quaternary, in: RoundedRectangle(cornerRadius: 4))
-                        .frame(width: 140, alignment: .leading)
-                    Text(what).foregroundStyle(.secondary)
                 }
             }
         }
