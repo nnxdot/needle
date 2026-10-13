@@ -9,7 +9,7 @@
 //! player float on the system's glass (`probe`): Liquid Glass on macOS 26 and newer, the
 //! sidebar's vibrancy before. AppKit draws these under GPUI's layer, so Needle leaves them
 //! see-through.
-use gpui::{IntoElement, Styled, Window, canvas, point, px};
+use gpui::{App, Hsla, IntoElement, ParentElement, Styled, Window, canvas, point, px};
 
 #[derive(Clone, Copy, PartialEq, Debug)]
 pub enum Material {
@@ -262,5 +262,71 @@ pub fn apply(
             }
             DwmExtendFrameIntoClientArea(hwnd, &margins);
         }
+    }
+}
+
+/// Things painted over the page that become panes of glass on macOS (`pane`), by name. Their
+/// glass is taken away at the start of each render, and painted again while they show.
+pub const PANES: &[&str] = &[
+    "toast",
+    "header-menu",
+    "track-menu",
+    "playlist-menu",
+    "group-menu",
+    "collections-menu",
+    "palette",
+    "playlist-editor",
+    "add-songs",
+    "plugin-ask",
+    "blend-menu",
+    "speaker-menu",
+    "suggestions",
+    "welcome",
+    "whats-new",
+    "big-controls",
+    "big-side",
+];
+
+/// Liquid Glass is on (macOS): the bars' colour is then fully see-through.
+pub fn liquid_on(cx: &App) -> bool {
+    cfg!(target_os = "macos") && super::theme::pal(cx).back.a < 0.01
+}
+
+/// A menu, the command palette, a dialog, or a message, over the page: with Liquid Glass, a
+/// pane of glass (the page under it is cleared, so the system's glass shows), its corners
+/// rounder, as macOS's own; otherwise `fill`. Call it before the thing's content is added.
+pub fn pane<E: Styled + ParentElement>(
+    el: E,
+    name: &'static str,
+    radius: f32,
+    glass_radius: f32,
+    fill: Hsla,
+    cx: &App,
+) -> E {
+    if liquid_on(cx) {
+        el.rounded(px(glass_radius)).child(
+            canvas(
+                move |bounds, window, _| {
+                    window.set_glass_region(
+                        name,
+                        Some(gpui::GlassRegion {
+                            bounds,
+                            corner_radius: px(glass_radius),
+                            shadow: false,
+                        }),
+                    );
+                    bounds
+                },
+                move |_, bounds, window, _| {
+                    window.paint_glass_hole(bounds, gpui::Corners::all(px(glass_radius)));
+                },
+            )
+            .absolute()
+            .top_0()
+            .left_0()
+            .size_full(),
+        )
+    } else {
+        el.rounded(px(radius)).bg(fill)
     }
 }

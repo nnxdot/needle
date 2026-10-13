@@ -2701,8 +2701,9 @@ extern "C" fn toggle_tab_bar(this: &Object, _sel: Sel, _id: id) {
 struct GlassViews {
     /// The blurred desktop, when there is no backdrop of our own.
     vibrancy: Option<id>,
-    /// The window's colour; its layer holds the picture and the wash as sublayers.
+    /// The window's colour; the picture and the wash are views in it, each hosting a layer.
     fill: Option<id>,
+    /// The layers of the picture and the wash views.
     picture: Option<id>,
     wash: Option<id>,
     picture_path: Option<SharedString>,
@@ -2754,15 +2755,19 @@ unsafe fn cg_color(color: Rgba, alpha: f32) -> id {
     }
 }
 
-/// A sublayer of `parent` that keeps its size.
+/// A view filling `parent` (and following its size) that hosts a layer of our own, which
+/// AppKit leaves alone; returns the layer.
 unsafe fn filling_layer(parent: id) -> id {
     unsafe {
+        let frame = NSView::bounds(parent);
+        let view: id = msg_send![class!(NSView), alloc];
+        let view: id = msg_send![view, initWithFrame: frame];
         let layer: id = msg_send![class!(CALayer), layer];
-        let bounds: CGRect = msg_send![parent, bounds];
-        let _: () = msg_send![layer, setFrame: bounds];
-        // kCALayerWidthSizable | kCALayerHeightSizable
-        let _: () = msg_send![layer, setAutoresizingMask: 18 as NSUInteger];
-        let _: () = msg_send![parent, addSublayer: layer];
+        let _: () = msg_send![view, setLayer: layer];
+        let _: () = msg_send![view, setWantsLayer: YES];
+        view.setAutoresizingMask_(NSViewWidthSizable | NSViewHeightSizable);
+        let _: () = msg_send![parent, addSubview: view];
+        let _: () = msg_send![view, release];
         layer
     }
 }
@@ -2780,7 +2785,9 @@ unsafe fn update_glass(
         // Liquid Glass (macOS 26); looked up by name, so older systems never need it.
         let glass_class = Class::get("NSGlassEffectView");
 
-        if regions.is_empty() {
+        // Nothing at all: everything goes. A backdrop of our own stays without regions (under
+        // the big player, say).
+        if regions.is_empty() && backdrop.is_none() {
             for (shadow, view) in glass.regions.drain(..) {
                 remove_view(shadow);
                 remove_view(view);
@@ -2817,12 +2824,12 @@ unsafe fn update_glass(
                     let color = Rgba::from(backdrop.color);
                     let _: () = msg_send![layer, setBackgroundColor: cg_color(color, 1.)];
                     let picture = *glass.picture.get_or_insert_with(|| {
-                        let picture = filling_layer(layer);
+                        let picture = filling_layer(fill);
                         let gravity = ns_string("resizeAspectFill");
                         let _: () = msg_send![picture, setContentsGravity: gravity];
                         picture
                     });
-                    let wash = *glass.wash.get_or_insert_with(|| filling_layer(layer));
+                    let wash = *glass.wash.get_or_insert_with(|| filling_layer(fill));
                     if glass.picture_path != backdrop.image {
                         // Changing the picture fades between the two (the layer's own animation).
                         let image: id = match &backdrop.image {

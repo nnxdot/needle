@@ -47,6 +47,7 @@ impl AppView {
     }
 
     pub(super) fn big_player(&mut self, window: &mut Window, cx: &mut Context<Self>) -> AnyElement {
+        let liquid = super::glass::liquid_on(cx);
         let p = pal(cx);
         let look = self.now_look();
         let tint = look.as_ref().map(|l| l.vivid);
@@ -335,6 +336,19 @@ impl AppView {
                                     .flex()
                                     .items_center()
                                     .gap_4()
+                                    // macOS Liquid Glass: the controls on a capsule of glass.
+                                    .when(liquid, |el| {
+                                        el.px(px(20.)).py(px(8.)).map(|el| {
+                                            super::glass::pane(
+                                                el,
+                                                "big-controls",
+                                                0.,
+                                                30.,
+                                                gpui::transparent_black(),
+                                                cx,
+                                            )
+                                        })
+                                    })
                                     .child(
                                         icon_button("big-shuffle", "shuffle", "Shuffle this view")
                                             .on_click(cx.listener(|this, _, _, cx| {
@@ -420,10 +434,22 @@ impl AppView {
                                 .w(px(420.))
                                 .flex_shrink_0()
                                 .h_full()
-                                .pr_6()
-                                .pb_6()
                                 .flex()
                                 .flex_col()
+                                .when(!liquid, |el| el.pr_6().pb_6())
+                                // macOS Liquid Glass: lyrics, up next, and stems on a pane.
+                                .when(liquid, |el| {
+                                    el.mr_6().mb_6().p_4().map(|el| {
+                                        super::glass::pane(
+                                            el,
+                                            "big-side",
+                                            0.,
+                                            24.,
+                                            gpui::transparent_black(),
+                                            cx,
+                                        )
+                                    })
+                                })
                                 .child(match side {
                                     Side::Lyrics => self
                                         .lyrics_view(super::lyrics::LyricsKind::Big, cx)

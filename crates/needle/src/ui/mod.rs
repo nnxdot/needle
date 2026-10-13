@@ -2567,6 +2567,10 @@ impl Render for AppView {
         }
         let p = pal(cx);
         let width = widgets::content_size(window).width;
+        // The panes painted over the page set their glass again while they show.
+        for name in glass::PANES {
+            window.set_glass_region(*name, None);
+        }
         // Folded, the sidebar is a strip of page icons (see `chrome::RAIL`).
         let sidebar = if self.settings.layout.sidebar_hidden {
             // Or gone altogether, with the compact sidebar turned off in Settings.
@@ -2595,7 +2599,12 @@ impl Render for AppView {
         // The page and the side panel share one content surface to the right of the sidebar.
         let content_width =
             f32::from(width) - sidebar - if show_panel { panel_width } else { 0. } - 1.;
-        let backdrop = self.page_backdrop(cx);
+        // With Liquid Glass the system draws the cover behind the whole window instead.
+        let backdrop = if self.liquid() {
+            div().into_any_element()
+        } else {
+            self.page_backdrop(cx)
+        };
         let grain = self.grain(window, cx);
         let ambient_layer = self.ambient_layer(cx);
         self.glide_lyrics(window, cx);

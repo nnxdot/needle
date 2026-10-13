@@ -867,6 +867,7 @@ pub struct Window {
     glass_regions: RefCell<std::collections::BTreeMap<SharedString, crate::GlassRegion>>,
     glass_dirty: Cell<bool>,
     glass_backdrop: RefCell<Option<crate::GlassBackdrop>>,
+    glass_sent: RefCell<Option<(Vec<crate::GlassRegion>, Option<crate::GlassBackdrop>)>>,
     pub(crate) last_input_timestamp: Rc<Cell<Instant>>,
     pub(crate) refreshing: bool,
     pub(crate) activation_observers: SubscriberSet<(), AnyObserver>,
@@ -1256,6 +1257,7 @@ impl Window {
             glass_regions: RefCell::default(),
             glass_dirty: Cell::new(false),
             glass_backdrop: RefCell::new(None),
+            glass_sent: RefCell::new(None),
             last_input_timestamp,
             refreshing: false,
             activation_observers: SubscriberSet::new(),
@@ -1827,6 +1829,24 @@ impl Window {
         }
     }
 
+    /// Clears what was painted below this, within `bounds` and its round corners, so the
+    /// system's glass under the window (see `set_glass_region`) shows through there: glass
+    /// for things painted over the page, like menus. Paint the thing's own content after it.
+    /// macOS only; elsewhere nothing. Needle patch.
+    pub fn paint_glass_hole(&mut self, bounds: Bounds<Pixels>, corner_radii: Corners<Pixels>) {
+        if !cfg!(target_os = "macos") {
+            return;
+        }
+        self.paint_quad(PaintQuad {
+            bounds,
+            corner_radii,
+            background: crate::black().into(),
+            border_widths: Edges::default(),
+            border_color: crate::transparent_black(),
+            border_style: BorderStyle::GlassHole,
+        });
+    }
+
     /// What shows behind the glass regions (the window's back); `None` shows the desktop
     /// behind the window, blurred. Needle patch.
     pub fn set_glass_backdrop(&self, backdrop: Option<crate::GlassBackdrop>) {
@@ -2058,9 +2078,17 @@ impl Window {
     #[profiling::function]
     fn present(&self) {
         if self.glass_dirty.replace(false) {
-            let regions: Vec<crate::GlassRegion> = self.glass_regions.borrow().values().copied().collect();
-            self.platform_window
-                .set_glass_regions(&regions, self.glass_backdrop.borrow().as_ref());
+            let regions: Vec<crate::GlassRegion> =
+                self.glass_regions.borrow().values().copied().collect();
+            let backdrop = self.glass_backdrop.borrow().clone();
+            let now = Some((regions, backdrop));
+            if *self.glass_sent.borrow() != now {
+                if let Some((regions, backdrop)) = &now {
+                    self.platform_window
+                        .set_glass_regions(regions, backdrop.as_ref());
+                }
+                *self.glass_sent.borrow_mut() = now;
+            }
         }
         self.platform_window.draw(&self.rendered_frame.scene);
         self.needs_present.set(false);
