@@ -33,6 +33,8 @@ struct Inspector: View {
 struct Details: View {
     private var store: Store { .shared }
     @State private var matches: [RecordingMatch] = []
+    /// The song `matches` were found for: they show, and write tags, for that song only.
+    @State private var matchesFor: String?
     @State private var looking = false
     @State private var sound: String?
 
@@ -155,7 +157,7 @@ struct Details: View {
                     }
                 }
                 .controlSize(.small)
-                ForEach(matches) { m in
+                ForEach(matchesFor == track.id ? matches : []) { m in
                     VStack(alignment: .leading, spacing: 3) {
                         Text(m.title).font(.callout.weight(.semibold))
                         Text("\(m.artist) · \(m.album)").font(.caption).foregroundStyle(.secondary)
@@ -208,7 +210,10 @@ struct Details: View {
         Task {
             let json = await store.ask { sound ? try $0.acoustidLookupJson(id: id) : try $0.musicbrainzLookup(id: id) }
             looking = false
+            // Another song chosen meanwhile: these results are not for it.
+            guard (store.focused ?? store.current)?.id == id else { return }
             matches = JSON.decode([RecordingMatch].self, json) ?? []
+            matchesFor = id
             if json != nil && matches.isEmpty {
                 store.notify("No matching recordings found. Try correcting the artist or title first.")
             }
@@ -216,6 +221,7 @@ struct Details: View {
     }
 
     private func useTags(_ track: Track, _ m: RecordingMatch) {
+        guard matchesFor == track.id else { return }
         let edit: [String: Any] = ["title": m.title, "artist": m.artist, "album": m.album, "musicbrainz_id": m.id]
         let text = JSON.text(edit)
         let id = track.id

@@ -272,9 +272,11 @@ struct AddSongs: View {
         .frame(width: 620, height: 560)
         .task(id: text) {
             try? await Task.sleep(for: .milliseconds(200))
+            guard !Task.isCancelled else { return }
             let q = text.trimmingCharacters(in: .whitespaces)
             guard !q.isEmpty else { found = []; return }
             let json = await store.load { try $0.viewPage(query: q, playlist: nil, filter: "", offset: 0, size: 300) }
+            guard !Task.isCancelled else { return }
             found = JSON.decode(TracksPage.self, json)?.tracks ?? []
         }
     }

@@ -79,6 +79,13 @@ struct Desk {
     tags_progress: Mutex<Option<TagProgress>>,
     /// The Last.fm sign-in waiting for the browser.
     lastfm: Mutex<Option<integrations::LastfmPending>>,
+    /// Held while a playlist of picked songs changes: each change reads the playlist and saves
+    /// it whole, so two at once would lose one.
+    playlist_edit: Mutex<()>,
+    /// The song playing as the library has it now (its tags and cover may have changed since
+    /// it was queued), and whether to read it again.
+    playing: Mutex<Option<(String, Option<Track>)>>,
+    refresh_playing: AtomicBool,
 }
 
 static DESK: LazyLock<Desk> = LazyLock::new(Desk::default);
@@ -249,6 +256,7 @@ impl Needle {
                     .collect();
                 tracks.retain(|t| ids.contains(&t.id));
             }
+            sort_by_query(&mut tracks, query);
             let total = tracks.len();
             return Ok((tracks.into_iter().skip(offset).take(size).collect(), total));
         }
@@ -465,6 +473,7 @@ impl Needle {
         if DESK.started.swap(true, Ordering::SeqCst) {
             return;
         }
+        #[cfg(target_os = "macos")]
         needle_core::set_keychain_folder(self.library.directory.clone());
         let settings = self.library.settings().unwrap_or_default();
         DESK.measuring
@@ -715,6 +724,12 @@ impl Needle {
         Ok(count)
     }
 
+    /// Reads the song playing from the library again on the next `mac_playback` (after its
+    /// tags, cover, or rating changed).
+    pub fn refresh_playing(&self) {
+        DESK.refresh_playing.store(true, Ordering::Relaxed);
+    }
+
     pub fn play_next_songs(&self, ids: Vec<String>, reason: String) -> Result<u32> {
         let items = self.queue_items(&ids, &reason)?;
         let count = items.len() as u32;
@@ -724,7 +739,20 @@ impl Needle {
 
     pub fn mac_playback(&self) -> MacPlayback {
         let s = self.player.state();
-        let track = s.current.as_ref().map(|c| &c.track);
+        // The library's copy of the song playing, read again when the song changes or after
+        // a change to the library (see `refresh_playing`); the queue's copy as it was queued.
+        let fresh = {
+            let mut playing = DESK.playing.lock().unwrap_or_else(|p| p.into_inner());
+            let id = s.current.as_ref().map(|c| c.track.id.clone());
+            let refresh = DESK.refresh_playing.swap(false, Ordering::Relaxed);
+            match (&id, playing.as_ref()) {
+                (Some(id), Some((known, _))) if known == id && !refresh => {}
+                (Some(id), _) => *playing = Some((id.clone(), self.library.track(id).ok().flatten())),
+                (None, _) => *playing = None,
+            }
+            playing.as_ref().and_then(|(_, track)| track.clone())
+        };
+        let track = fresh.as_ref().or(s.current.as_ref().map(|c| &c.track));
         let text = |f: fn(&Track) -> String| track.map(f).unwrap_or_default();
         MacPlayback {
             current: track.map(|t| t.id.clone()),
@@ -1018,6 +1046,7 @@ impl Needle {
 
     /// Adds songs to a playlist of picked songs, each once. Returns how many were added.
     pub fn add_songs_to_playlist(&self, id: String, ids: Vec<String>) -> Result<u32> {
+        let _edit = DESK.playlist_edit.lock().unwrap_or_else(|p| p.into_inner());
         let mut playlist = self.playlist(&id)?;
         if playlist.query.is_some() {
             return Err(failed("A smart playlist picks its own songs"));
@@ -1045,6 +1074,7 @@ impl Needle {
         ids: Vec<String>,
         before: Option<String>,
     ) -> Result<()> {
+        let _edit = DESK.playlist_edit.lock().unwrap_or_else(|p| p.into_inner());
         let mut playlist = self.playlist(&id)?;
         if before.as_ref().is_some_and(|b| ids.contains(b)) {
             return Ok(());
@@ -1068,6 +1098,7 @@ impl Needle {
 
     /// Takes songs out of a playlist of picked songs. Returns how many went.
     pub fn remove_songs_from_playlist(&self, id: String, ids: Vec<String>) -> Result<u32> {
+        let _edit = DESK.playlist_edit.lock().unwrap_or_else(|p| p.into_inner());
         let mut playlist = self.playlist(&id)?;
         let before = playlist.track_ids.len();
         playlist.track_ids.retain(|t| !ids.contains(t));
@@ -1164,6 +1195,12 @@ impl Needle {
     }
 
     // ---------- Stems
+
+    /// The song being split, if any: cheap, for the window to follow often (`stems_info` also
+    /// adds up every split song's files).
+    pub fn stems_job(&self) -> Option<StemJob> {
+        DESK.stems_job.lock().unwrap_or_else(|p| p.into_inner()).clone()
+    }
 
     pub fn stems_info(&self, id: String) -> StemsInfo {
         StemsInfo {
@@ -1964,6 +2001,39 @@ impl Needle {
 
 /// Where Needle keeps its library on this Mac: the same folder the desktop app used, so the
 /// library, playlists, and history carry over.
+/// Puts a playlist's own songs in the order a page's column sort asks for (`… order by year
+/// desc`): its query picks no songs, so the library's search cannot sort them.
+fn sort_by_query(tracks: &mut [Track], query: &str) {
+    let Some((_, order)) = query.rsplit_once("order by ") else { return };
+    let mut words = order.split_whitespace();
+    let Some(field) = words.next() else { return };
+    let descending = words.next().is_some_and(|w| w.eq_ignore_ascii_case("desc"));
+    let text = |a: &str, b: &str| a.to_lowercase().cmp(&b.to_lowercase());
+    let number = |a: f64, b: f64| a.partial_cmp(&b).unwrap_or(std::cmp::Ordering::Equal);
+    tracks.sort_by(|a, b| {
+        let order = match field {
+            "title" => text(&a.title, &b.title),
+            "artist" => text(a.display_artist(), b.display_artist()),
+            "album" => text(&a.album, &b.album),
+            "album_artist" => text(&a.album_artist, &b.album_artist),
+            "genre" => text(&a.genre, &b.genre),
+            "format" => text(&a.format, &b.format),
+            "year" => a.year.cmp(&b.year),
+            "track_number" => (a.disc, a.track_number).cmp(&(b.disc, b.track_number)),
+            "bitrate" => a.bitrate.cmp(&b.bitrate),
+            "sample_rate" => a.sample_rate.cmp(&b.sample_rate),
+            "play_count" => a.play_count.cmp(&b.play_count),
+            "added_at" => a.added_at.cmp(&b.added_at),
+            "rating" => a.rating.cmp(&b.rating),
+            "last_played" => a.last_played.cmp(&b.last_played),
+            "bpm" => number(a.bpm.unwrap_or(0.), b.bpm.unwrap_or(0.)),
+            "duration" => number(a.duration, b.duration),
+            _ => std::cmp::Ordering::Equal,
+        };
+        if descending { order.reverse() } else { order }
+    });
+}
+
 #[uniffi::export]
 pub fn default_data_directory() -> String {
     Library::default_directory().to_string_lossy().to_string()

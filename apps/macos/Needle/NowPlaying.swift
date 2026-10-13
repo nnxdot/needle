@@ -41,8 +41,9 @@ final class NowPlaying {
             }
             return
         }
-        if id != shownSong {
-            shownSong = id
+        let shown = id + "\u{1}" + (now.artwork ?? "")
+        if shown != shownSong {
+            shownSong = shown
             artwork = nil
             if let path = now.artwork, let image = NSImage(contentsOfFile: path) {
                 artwork = MPMediaItemArtwork(boundsSize: image.size) { _ in image }

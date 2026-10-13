@@ -15,6 +15,8 @@ final class SongsModel {
     var playlistID: String?
     var playlist: PlaylistModel?
     @ObservationIgnored private var generation = 0
+    /// Counts each new set of tracks, so the table can find its chosen songs again.
+    var version = 0
 
     nonisolated static let pageSize = 1000
 
@@ -48,6 +50,7 @@ final class SongsModel {
         case .success(let json):
             if let page = JSON.decode(TracksPage.self, json) {
                 tracks = page.tracks
+                version += 1
                 total = page.total
                 error = nil
             }

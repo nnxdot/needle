@@ -76,8 +76,7 @@ struct SoundPane: View {
         guard var next = sound else { return }
         edit(&next)
         sound = next
-        let value = next
-        store.run { try $0.setSoundSettings(value: value) }
+        store.setSound(next)
     }
 
     @ViewBuilder

@@ -150,6 +150,9 @@ mod keychain {
 
     type Cache = HashMap<String, Result<Option<String>, String>>;
     static CACHE: LazyLock<Mutex<Cache>> = LazyLock::new(Default::default);
+    /// Items deleted to be saved again whose new copy could not be saved: their value is only
+    /// in memory, so saving is tried again on each read.
+    static UNSAVED: LazyLock<Mutex<HashSet<String>>> = LazyLock::new(Default::default);
     static FOLDER: OnceLock<PathBuf> = OnceLock::new();
 
     pub fn set_folder(folder: PathBuf) {
@@ -188,12 +191,35 @@ mod keychain {
             Ok(()) | Err(keyring::Error::NoEntry) => {}
             Err(e) => return Err(e),
         }
-        entry.set_password(value).or_else(|_| entry.set_password(value))
+        let mut result = entry.set_password(value);
+        for _ in 0..3 {
+            if result.is_ok() {
+                break;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(100));
+            result = entry.set_password(value);
+        }
+        result
+    }
+
+    /// Saves again an item whose earlier save failed, while its value is still known.
+    fn retry_unsaved(account: &str, known: &Result<Option<String>, String>) {
+        let mut unsaved = UNSAVED.lock().unwrap_or_else(|p| p.into_inner());
+        if !unsaved.contains(account) {
+            return;
+        }
+        if let (Ok(Some(value)), Ok(entry)) = (known, entry(account))
+            && save_own(&entry, value).is_ok()
+        {
+            unsaved.remove(account);
+            mark_own(account);
+        }
     }
 
     pub fn get(account: &str) -> Result<Option<String>> {
         let mut cache = CACHE.lock().unwrap_or_else(|p| p.into_inner());
         if let Some(known) = cache.get(account) {
+            retry_unsaved(account, known);
             return known.clone().map_err(|e| anyhow!(e));
         }
         let entry = entry(account)?;
@@ -205,9 +231,15 @@ mod keychain {
         if let Ok(Some(value)) = &found
             && FOLDER.get().is_some()
             && !own().contains(account)
-            && save_own(&entry, value).is_ok()
         {
-            mark_own(account);
+            match save_own(&entry, value) {
+                Ok(()) => mark_own(account),
+                Err(error) => {
+                    // The value is kept in memory and saved again on the next read.
+                    UNSAVED.lock().unwrap_or_else(|p| p.into_inner()).insert(account.to_string());
+                    eprintln!("{STORE_NAME} could not save {account} again: {error}");
+                }
+            }
         }
         cache.insert(account.to_string(), found.clone());
         found.map_err(|e| anyhow!(e))

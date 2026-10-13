@@ -187,8 +187,11 @@ struct AlbumsPage: View {
         }
         .task(id: "\(store.search)\(store.libraryVersion)") {
             try? await Task.sleep(for: .milliseconds(store.search.isEmpty ? 0 : 150))
+            guard !Task.isCancelled else { return }
             let q = store.search.trimmingCharacters(in: .whitespaces)
-            albums = JSON.decode([AlbumSummary].self, await store.load { try $0.albumsJson(query: q) }) ?? []
+            let found = JSON.decode([AlbumSummary].self, await store.load { try $0.albumsJson(query: q) }) ?? []
+            guard !Task.isCancelled else { return }
+            albums = found
         }
     }
 }
@@ -204,8 +207,11 @@ struct ArtistsPage: View {
         }
         .task(id: "\(store.search)\(store.libraryVersion)") {
             try? await Task.sleep(for: .milliseconds(store.search.isEmpty ? 0 : 150))
+            guard !Task.isCancelled else { return }
             let q = store.search.trimmingCharacters(in: .whitespaces)
-            artists = JSON.decode([ArtistSummary].self, await store.load { try $0.artistsJson(query: q) }) ?? []
+            let found = JSON.decode([ArtistSummary].self, await store.load { try $0.artistsJson(query: q) }) ?? []
+            guard !Task.isCancelled else { return }
+            artists = found
         }
     }
 }

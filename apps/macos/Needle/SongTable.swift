@@ -97,6 +97,13 @@ struct SongTable: View {
             store.selectedTracks = chosen
             if chosen.count == 1 { store.focused = chosen[0] }
         }
+        // A new list (sorted, filtered, changed): the same songs stay chosen, wherever they
+        // are now, so the menus act on them and not on whatever took their places.
+        .onChange(of: model.version) { _, _ in
+            let chosen = Set(store.selectedTracks.map(\.id))
+            let next = Set(rows.filter { chosen.contains($0.track.id) }.map(\.id))
+            if next != selection { selection = next } else { store.selectedTracks = tracks(next) }
+        }
         .onChange(of: sortOrder) { _, order in
             guard let first = order.first, let field = Self.fields[first.keyPath] else { store.sort = nil; return }
             store.sort = (field, first.order == .forward)
@@ -221,7 +228,12 @@ struct SongTable: View {
         if chosen.count > 1 {
             store.play(chosen)
         } else if let index = ids.first {
-            store.playPage(rule: model.rule, playlist: model.playlistID, start: index)
+            if model.rule.range(of: #"\b(shuffle|random)\b"#, options: .regularExpression) != nil {
+                // Its rule shuffles: run again, it would put another song at this place.
+                store.play(model.tracks, from: max(0, index - model.offset))
+            } else {
+                store.playPage(rule: model.rule, playlist: model.playlistID, start: index)
+            }
         }
     }
 
