@@ -251,12 +251,18 @@ impl AppView {
     pub(super) fn sidebar(&self, width: f32, cx: &mut Context<Self>) -> impl IntoElement {
         let p = pal(cx);
         let rail = self.settings.layout.sidebar_hidden;
+        let liquid = self.material() == super::glass::Material::Liquid;
         div()
             .w(px(width))
             .flex_shrink_0()
             .h_full()
+            .relative()
             .flex()
             .flex_col()
+            // macOS: the sidebar floats on glass from the window's top, the window buttons in it.
+            .when(liquid, |el| {
+                el.child(super::glass::probe("sidebar", (8., 8., 6., 8.), true, 18.))
+            })
             // Everything above the bottom buttons scrolls together, so a short window never
             // pushes Settings and the others out of reach.
             .child(
@@ -614,9 +620,15 @@ impl AppView {
         let current = self.playback.current.as_ref().map(|i| i.track.clone());
         let wide = width > px(1180.);
         let (path, path_detail, exclusive) = self.signal_path(cx);
+        let liquid = self.material() == super::glass::Material::Liquid;
         div()
             .h(px(80.))
             .flex_shrink_0()
+            .relative()
+            // macOS: the player floats on glass.
+            .when(liquid, |el| {
+                el.child(super::glass::probe("player", (8., 2., 8., 8.), false, 18.))
+            })
             // The playing cover's colour glows in from the left.
             .bg(linear_gradient(
                 90.,

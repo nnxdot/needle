@@ -266,6 +266,8 @@ impl AppView {
         let mut target = theme::look(&self.settings.theme, tint, self.ambient_look(), cx);
         match self.material() {
             super::glass::Material::Solid => {}
+            // macOS: the bars are the system's glass and backdrop, so nothing is painted there.
+            super::glass::Material::Liquid => target = target.glass(1., false, 1.),
             // Clear glass shows the desktop unblurred, so it keeps more of the surface.
             super::glass::Material::Clear => {
                 target = target.glass(self.settings.glass_amount, self.settings.glass_page, 0.55)

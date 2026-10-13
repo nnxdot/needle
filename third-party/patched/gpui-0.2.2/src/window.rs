@@ -862,6 +862,10 @@ pub struct Window {
     active: Rc<Cell<bool>>,
     hovered: Rc<Cell<bool>>,
     pub(crate) needs_present: Rc<Cell<bool>>,
+    /// Glass regions by name; kept across frames (a cached view does not set its own again),
+    /// sent to the platform window when they change.
+    glass_regions: RefCell<std::collections::BTreeMap<SharedString, crate::GlassRegion>>,
+    glass_dirty: Cell<bool>,
     pub(crate) last_input_timestamp: Rc<Cell<Instant>>,
     pub(crate) refreshing: bool,
     pub(crate) activation_observers: SubscriberSet<(), AnyObserver>,
@@ -1248,6 +1252,8 @@ impl Window {
             active,
             hovered,
             needs_present,
+            glass_regions: RefCell::default(),
+            glass_dirty: Cell::new(false),
             last_input_timestamp,
             refreshing: false,
             activation_observers: SubscriberSet::new(),
@@ -1801,6 +1807,30 @@ impl Window {
             .set_background_appearance(background_appearance);
     }
 
+    /// Shows (or with `None`, takes away) the system's glass under a named part of the window.
+    /// Regions stay until changed, so set them while painting (a `canvas` knows its bounds)
+    /// and clear them when the part goes. On macOS this is Liquid Glass (macOS 26 and newer)
+    /// or vibrancy, over a translucent backdrop; elsewhere nothing. Leave those parts of the
+    /// window see-through. Needle patch.
+    pub fn set_glass_region(&self, name: impl Into<SharedString>, region: Option<crate::GlassRegion>) {
+        let name = name.into();
+        let mut regions = self.glass_regions.borrow_mut();
+        let changed = match region {
+            Some(region) => regions.insert(name, region) != Some(region),
+            None => regions.remove(&name).is_some(),
+        };
+        if changed {
+            self.glass_dirty.set(true);
+            self.needs_present.set(true);
+        }
+    }
+
+    /// Light or dark system materials for this window (glass, vibrancy, window buttons),
+    /// whatever the system's own setting; `None` follows the system. Needle patch.
+    pub fn set_dark_appearance(&self, dark: Option<bool>) {
+        self.platform_window.set_dark_appearance(dark);
+    }
+
     /// Mark the window as dirty at the platform level.
     pub fn set_window_edited(&mut self, edited: bool) {
         self.platform_window.set_edited(edited);
@@ -2015,6 +2045,10 @@ impl Window {
 
     #[profiling::function]
     fn present(&self) {
+        if self.glass_dirty.replace(false) {
+            let regions: Vec<crate::GlassRegion> = self.glass_regions.borrow().values().copied().collect();
+            self.platform_window.set_glass_regions(&regions);
+        }
         self.platform_window.draw(&self.rendered_frame.scene);
         self.needs_present.set(false);
         profiling::finish_frame!();

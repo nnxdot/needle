@@ -483,6 +483,13 @@ pub(crate) trait PlatformWindow: HasWindowHandle + HasDisplayHandle {
     fn is_hovered(&self) -> bool;
     fn set_title(&mut self, title: &str);
     fn set_background_appearance(&self, background_appearance: WindowBackgroundAppearance);
+    /// Shows the system's glass under these parts of the window (Liquid Glass on macOS 26 and
+    /// newer, vibrancy on older macOS), over a translucent window backdrop. Empty removes it
+    /// all. Other platforms do nothing. Needle patch.
+    fn set_glass_regions(&self, _regions: &[GlassRegion]) {}
+    /// Light or dark system materials and controls for this window, whatever the system's own
+    /// setting; `None` follows the system. Needle patch.
+    fn set_dark_appearance(&self, _dark: Option<bool>) {}
     fn minimize(&self);
     fn zoom(&self);
     fn toggle_fullscreen(&self);
@@ -1302,6 +1309,15 @@ impl Default for WindowAppearance {
     fn default() -> Self {
         Self::Light
     }
+}
+
+/// A part of the window shown as the system's glass (see `Window::set_glass_region`).
+#[derive(Copy, Clone, Debug, PartialEq)]
+pub struct GlassRegion {
+    /// Where, in window coordinates.
+    pub bounds: Bounds<Pixels>,
+    /// How round its corners are.
+    pub corner_radius: Pixels,
 }
 
 /// The appearance of the background of the window itself, when there is

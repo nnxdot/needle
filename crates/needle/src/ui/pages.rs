@@ -1314,7 +1314,40 @@ impl AppView {
     /// The rows go straight into the Appearance column (a wrapper box would not stretch).
     fn glass_settings(&self, cx: &mut Context<Self>) -> Vec<AnyElement> {
         use super::glass::Material;
-        // Glass is Windows' Mica and Acrylic; other systems have no setting for it.
+        // macOS: Liquid Glass, on or off.
+        if cfg!(target_os = "macos") {
+            let ambient = self.ambient_look();
+            let on = Material::from_name(&self.settings.window_material) == Material::Liquid;
+            let detail = if ambient {
+                "Ambient background fills the window, so glass is off while it is on."
+            } else if super::glass::liquid_glass() {
+                "The sidebar and the player float on glass, as in macOS's own apps."
+            } else {
+                "The sidebar and the player float on frosted glass. Liquid Glass itself needs macOS 26 or newer."
+            };
+            return vec![
+                setting_row(
+                    "Liquid Glass",
+                    detail,
+                    div().when(ambient, |el| el.opacity(0.4)).child(
+                        Switch::new("liquid-glass")
+                            .checked(on)
+                            .on_click(cx.listener(|this, checked: &bool, _, cx| {
+                                if this.ambient_look() {
+                                    return;
+                                }
+                                this.settings.window_material =
+                                    if *checked { "glass" } else { "solid" }.into();
+                                this.persist_settings();
+                                cx.notify();
+                            })),
+                    ),
+                    cx,
+                )
+                .into_any_element(),
+            ];
+        }
+        // Glass is Windows' Mica and Acrylic; Linux has no setting for it.
         if !cfg!(windows) {
             return Vec::new();
         }

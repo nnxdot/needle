@@ -2841,6 +2841,18 @@ impl Render for AppView {
                 window.focus(&this.focus);
                 cx.notify();
             }))
+            // macOS glass goes when its part does (the parts set it while they paint).
+            .map(|el| {
+                let liquid = self.material() == glass::Material::Liquid;
+                let covered = self.immersive || (self.big && !self.big_moving);
+                if !liquid || covered || sidebar <= 0. {
+                    window.set_glass_region("sidebar", None);
+                }
+                if !liquid || covered || self.settings.layout.player_on_top {
+                    window.set_glass_region("player", None);
+                }
+                el
+            })
             // The title bar must stay outside the focusable body: a focusable element under the
             // pointer consumes the mouse-down, and Windows then never starts a drag, resize, or
             // maximize from the title bar.
