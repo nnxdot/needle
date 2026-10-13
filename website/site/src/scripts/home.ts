@@ -94,11 +94,11 @@ copyButton?.addEventListener("click", async () => {
 /* ---------- the buttons follow latest.json, the same file Needle's updaters read */
 (async () => {
   try {
-    const [latest, latestMac] = await Promise.all(
-      ["/latest.json", "/latest-macos.json"].map((u) => fetch(u, { cache: "no-store" }).then((r) => (r.ok ? r.json() : null))),
+    const [latest, latestMac, latestAndroid] = await Promise.all(
+      ["/latest.json", "/latest-macos.json", "/latest-android.json"].map((u) => fetch(u, { cache: "no-store" }).then((r) => (r.ok ? r.json() : null))),
     );
     if (!latest) return;
-    const { files, version, macVersion } = pick(latest, latestMac);
+    const { files, version, macVersion, androidVersion } = pick(latest, latestMac, latestAndroid);
     for (const link of $$<HTMLAnchorElement>("[data-asset]")) {
       const kind = link.dataset.asset!;
       const name = files[kind as keyof typeof files];
@@ -109,6 +109,7 @@ copyButton?.addEventListener("click", async () => {
     }
     if (version) $$('[data-version="main"]').forEach((v) => (v.textContent = version));
     if (macVersion) $$('[data-version="mac"]').forEach((v) => (v.textContent = macVersion));
+    if (androidVersion) $$('[data-version="android"]').forEach((v) => (v.textContent = androidVersion));
   } catch {
     // Offline or blocked: the links from the build stay.
   }

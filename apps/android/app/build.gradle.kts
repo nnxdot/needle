@@ -17,8 +17,8 @@ android {
         applicationId = "fyi.nnx.needle"
         minSdk = 26
         targetSdk = 36
-        versionCode = 3
-        versionName = "1.6.3"
+        versionCode = 4
+        versionName = "1.6.5"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         ndk {
             // The Rust core is built for these by scripts/android-build.sh.
