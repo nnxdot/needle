@@ -4,7 +4,7 @@ use crate::{
     ForegroundExecutor, KeyDownEvent, Keystroke, Modifiers, ModifiersChangedEvent, MouseButton,
     MouseDownEvent, MouseMoveEvent, MouseUpEvent, Pixels, PlatformAtlas, PlatformDisplay,
     PlatformInput, PlatformWindow, Point, PromptButton, PromptLevel, RequestFrameOptions,
-    GlassBackdrop, GlassRegion, Rgba, SharedString, Size, SystemWindowTab, Timer, WindowAppearance,
+    GlassBackdrop, GlassRegion, NativeMenuItem, Rgba, SharedString, Size, SystemWindowTab, Timer, WindowAppearance,
     WindowBackgroundAppearance,
     WindowBounds, WindowControlArea, WindowKind, WindowParams, dispatch_get_main_queue,
     dispatch_sys::dispatch_async_f, platform::PlatformInputHandler, point, px, size,
@@ -1348,6 +1348,44 @@ impl PlatformWindow for MacWindow {
             update_glass(&mut glass, native_window, native_view, regions, backdrop);
         }
         self.0.lock().glass = glass;
+    }
+
+    fn show_context_menu(
+        &self,
+        position: Point<Pixels>,
+        items: Vec<NativeMenuItem>,
+    ) -> Option<oneshot::Receiver<Option<Vec<usize>>>> {
+        let (tx, rx) = oneshot::channel();
+        let (native_view, executor) = {
+            let this = self.0.lock();
+            (this.native_view.as_ptr() as id, this.executor.clone())
+        };
+        // After this frame: the menu runs its own loop until it closes.
+        executor
+            .spawn(async move {
+                unsafe {
+                    let target: id = msg_send![context_menu_target_class(), new];
+                    (*target).set_ivar::<isize>("choice", -1);
+                    let mut paths = Vec::new();
+                    let menu = build_context_menu(&items, &mut Vec::new(), &mut paths, target);
+                    let height = NSView::bounds(native_view).size.height;
+                    let point = NSPoint::new(position.x.0 as f64, height - position.y.0 as f64);
+                    let _: BOOL = msg_send![
+                        menu,
+                        popUpMenuPositioningItem: nil
+                        atLocation: point
+                        inView: native_view
+                    ];
+                    let choice = *(*target).get_ivar::<isize>("choice");
+                    let _: () = msg_send![target, release];
+                    let chosen = usize::try_from(choice)
+                        .ok()
+                        .and_then(|i| paths.get(i).cloned());
+                    let _ = tx.send(chosen);
+                }
+            })
+            .detach();
+        Some(rx)
     }
 
     fn set_dark_appearance(&self, dark: Option<bool>) {
@@ -2983,5 +3021,99 @@ unsafe fn update_glass(
                 let _: () = msg_send![layer, setMasksToBounds: NO];
             }
         }
+    }
+}
+
+/// Needle patch: the target of system context menus' items; remembers the chosen item's tag.
+fn context_menu_target_class() -> *const Class {
+    static CLASS: std::sync::OnceLock<usize> = std::sync::OnceLock::new();
+    *CLASS.get_or_init(|| unsafe {
+        let mut decl = ClassDecl::new("NeedleContextMenuTarget", class!(NSObject)).unwrap();
+        decl.add_ivar::<isize>("choice");
+        decl.add_method(
+            sel!(choose:),
+            context_menu_choose as extern "C" fn(&mut Object, Sel, id),
+        );
+        decl.register() as *const Class as usize
+    }) as *const Class
+}
+
+extern "C" fn context_menu_choose(this: &mut Object, _: Sel, sender: id) {
+    unsafe {
+        let tag: NSInteger = msg_send![sender, tag];
+        this.set_ivar::<isize>("choice", tag as isize);
+    }
+}
+
+/// An `NSMenu` of `items`; each choosable item's tag indexes `paths`, its path of indices.
+unsafe fn build_context_menu(
+    items: &[NativeMenuItem],
+    path: &mut Vec<usize>,
+    paths: &mut Vec<Vec<usize>>,
+    target: id,
+) -> id {
+    unsafe {
+        let menu: id = msg_send![class!(NSMenu), alloc];
+        let menu: id = msg_send![menu, initWithTitle: ns_string("")];
+        let _: () = msg_send![menu, setAutoenablesItems: NO];
+        for (i, item) in items.iter().enumerate() {
+            path.push(i);
+            let ns_item: id = if item.separator {
+                msg_send![class!(NSMenuItem), separatorItem]
+            } else if item.header {
+                let header: BOOL = msg_send![
+                    class!(NSMenuItem),
+                    respondsToSelector: sel!(sectionHeaderWithTitle:)
+                ];
+                if header == YES {
+                    msg_send![class!(NSMenuItem), sectionHeaderWithTitle: ns_string(&item.label)]
+                } else {
+                    let ns: id = msg_send![class!(NSMenuItem), alloc];
+                    let ns: id = msg_send![
+                        ns,
+                        initWithTitle: ns_string(&item.label)
+                        action: sel!(choose:)
+                        keyEquivalent: ns_string("")
+                    ];
+                    let _: () = msg_send![ns, setEnabled: NO];
+                    ns.autorelease()
+                }
+            } else {
+                let ns: id = msg_send![class!(NSMenuItem), alloc];
+                let ns: id = msg_send![
+                    ns,
+                    initWithTitle: ns_string(&item.label)
+                    action: sel!(choose:)
+                    keyEquivalent: ns_string("")
+                ];
+                let ns = ns.autorelease();
+                if item.submenu.is_empty() {
+                    let _: () = msg_send![ns, setTarget: target];
+                    let _: () = msg_send![ns, setTag: paths.len() as NSInteger];
+                    paths.push(path.clone());
+                } else {
+                    let submenu = build_context_menu(&item.submenu, path, paths, target);
+                    let _: () = msg_send![ns, setSubmenu: submenu];
+                }
+                let _: () = msg_send![ns, setEnabled: item.enabled as BOOL];
+                if item.checked {
+                    let _: () = msg_send![ns, setState: 1 as NSInteger];
+                }
+                if let Some(symbol) = &item.symbol {
+                    let image: id = msg_send![
+                        class!(NSImage),
+                        imageWithSystemSymbolName: ns_string(symbol)
+                        accessibilityDescription: nil
+                    ];
+                    if !image.is_null() {
+                        let _: () = msg_send![ns, setImage: image];
+                    }
+                }
+                ns
+            };
+            let _: () = msg_send![menu, addItem: ns_item];
+            path.pop();
+        }
+        menu.autorelease()
     }
 }

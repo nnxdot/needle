@@ -2565,6 +2565,8 @@ impl Render for AppView {
         if self.column_resize.is_some() && !cx.has_active_drag() {
             self.finish_column_resize();
         }
+        // macOS: menus opened since the last frame show as the system's own.
+        self.show_native_menus(window, cx);
         let p = pal(cx);
         let width = widgets::content_size(window).width;
         // Folded, the sidebar is a strip of page icons (see `chrome::RAIL`).

@@ -1847,6 +1847,18 @@ impl Window {
         });
     }
 
+    /// Shows the system's own menu (macOS) at `position`; the receiver gets the chosen item's
+    /// path of indices, or `None` when the menu was closed. `None` from this call: there is no
+    /// system menu on this platform, so show your own. The menu opens after this frame.
+    /// Needle patch.
+    pub fn show_context_menu(
+        &self,
+        position: Point<Pixels>,
+        items: Vec<crate::NativeMenuItem>,
+    ) -> Option<futures::channel::oneshot::Receiver<Option<Vec<usize>>>> {
+        self.platform_window.show_context_menu(position, items)
+    }
+
     /// From here, paint goes under the window's glass (macOS; see `Styled::under_glass`).
     pub(crate) fn push_under_glass(&mut self) {
         if cfg!(target_os = "macos") {
