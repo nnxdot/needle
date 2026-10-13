@@ -59,7 +59,7 @@ impl AppView {
             .w(px(560.))
             .max_w_full()
             .p_8()
-            .map(|el| super::glass::pane(el, "welcome", 14., 22., cx.theme().popover, cx))
+            .map(|el| super::glass::pane(el, 14., 22., cx.theme().popover, cx))
             .border_1()
             .border_color(p.line)
             .shadow_lg()

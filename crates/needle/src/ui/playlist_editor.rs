@@ -755,62 +755,61 @@ impl AppView {
                 .into_any_element(),
         };
 
-        let card = div()
-            .id("playlist-editor")
-            .occlude()
-            .w(px(card_w))
-            .max_h(px(card_h))
-            .map(|el| super::glass::pane(el, "playlist-editor", 16., 24., cx.theme().popover, cx))
-            .border_1()
-            .border_color(p.line)
-            .shadow_lg()
-            .overflow_hidden()
-            .flex()
-            .flex_col()
-            .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
-            .child(
-                div()
-                    .id("playlist-editor-body")
-                    .flex_1()
-                    .min_h_0()
-                    .overflow_y_scroll()
-                    .p(px(PAD))
-                    .flex()
-                    .flex_col()
-                    .gap(px(26.))
-                    .child(top)
-                    .child(songs),
-            )
-            .child(
-                div()
-                    .flex_shrink_0()
-                    .px(px(PAD))
-                    .py_4()
-                    .border_t_1()
-                    .border_color(p.line_soft)
-                    .flex()
-                    .items_center()
-                    .gap_2()
-                    .child(status)
-                    .child(div().flex_1())
-                    .child(
-                        small_button("editor-cancel", "Cancel")
-                            .ghost()
-                            .on_click(cx.listener(|this, _, _, cx| {
+        let card =
+            div()
+                .id("playlist-editor")
+                .occlude()
+                .w(px(card_w))
+                .max_h(px(card_h))
+                .map(|el| super::glass::pane(el, 16., 24., cx.theme().popover, cx))
+                .border_1()
+                .border_color(p.line)
+                .shadow_lg()
+                .overflow_hidden()
+                .flex()
+                .flex_col()
+                .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
+                .child(
+                    div()
+                        .id("playlist-editor-body")
+                        .flex_1()
+                        .min_h_0()
+                        .overflow_y_scroll()
+                        .p(px(PAD))
+                        .flex()
+                        .flex_col()
+                        .gap(px(26.))
+                        .child(top)
+                        .child(songs),
+                )
+                .child(
+                    div()
+                        .flex_shrink_0()
+                        .px(px(PAD))
+                        .py_4()
+                        .border_t_1()
+                        .border_color(p.line_soft)
+                        .flex()
+                        .items_center()
+                        .gap_2()
+                        .child(status)
+                        .child(div().flex_1())
+                        .child(small_button("editor-cancel", "Cancel").ghost().on_click(
+                            cx.listener(|this, _, _, cx| {
                                 this.editor = None;
                                 cx.notify();
-                            })),
-                    )
-                    .child(
-                        Button::new("editor-save")
-                            .primary()
-                            .label(if new { "Make playlist" } else { "Save" })
-                            .px_5()
-                            .on_click(
-                                cx.listener(|this, _, window, cx| this.save_editor(window, cx)),
-                            ),
-                    ),
-            );
+                            }),
+                        ))
+                        .child(
+                            Button::new("editor-save")
+                                .primary()
+                                .label(if new { "Make playlist" } else { "Save" })
+                                .px_5()
+                                .on_click(
+                                    cx.listener(|this, _, window, cx| this.save_editor(window, cx)),
+                                ),
+                        ),
+                );
         Some(
             deferred(
                 div()
@@ -967,7 +966,7 @@ impl AppView {
             .occlude()
             .w(px(card_w))
             .h(px(card_h))
-            .map(|el| super::glass::pane(el, "add-songs", 16., 24., cx.theme().popover, cx))
+            .map(|el| super::glass::pane(el, 16., 24., cx.theme().popover, cx))
             .border_1()
             .border_color(p.line)
             .shadow_lg()

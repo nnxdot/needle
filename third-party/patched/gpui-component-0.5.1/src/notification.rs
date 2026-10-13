@@ -287,7 +287,7 @@ impl Render for Notification {
             .w_112()
             .border_1()
             .border_color(cx.theme().border)
-            .bg(cx.theme().popover)
+            .bg(cx.theme().popover).when(cx.theme().popover.a < 0.01, |el| el.glass())
             .rounded(cx.theme().radius_lg)
             .shadow_md()
             .py_3p5()

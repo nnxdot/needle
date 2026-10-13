@@ -2077,9 +2077,32 @@ impl Window {
 
     #[profiling::function]
     fn present(&self) {
-        if self.glass_dirty.replace(false) {
-            let regions: Vec<crate::GlassRegion> =
+        // Named regions, then one per glass hole painted this frame (cached views included,
+        // as their holes are replayed into the scene).
+        {
+            self.glass_dirty.set(false);
+            let scale = self.scale_factor();
+            let unscale = |v: crate::ScaledPixels| px(v.0 / scale);
+            let mut regions: Vec<crate::GlassRegion> =
                 self.glass_regions.borrow().values().copied().collect();
+            regions.extend(
+                self.rendered_frame
+                    .scene
+                    .quads
+                    .iter()
+                    .filter(|q| q.border_style == BorderStyle::GlassHole)
+                    .map(|q| {
+                        let b = q.bounds.intersect(&q.content_mask.bounds);
+                        crate::GlassRegion {
+                            bounds: Bounds::new(
+                                point(unscale(b.origin.x), unscale(b.origin.y)),
+                                size(unscale(b.size.width), unscale(b.size.height)),
+                            ),
+                            corner_radius: unscale(q.corner_radii.top_left),
+                            shadow: false,
+                        }
+                    }),
+            );
             let backdrop = self.glass_backdrop.borrow().clone();
             let now = Some((regions, backdrop));
             if *self.glass_sent.borrow() != now {

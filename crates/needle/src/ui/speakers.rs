@@ -268,7 +268,7 @@ impl AppView {
             .occlude()
             .w(px(280.))
             .p_1()
-            .map(|el| super::glass::pane(el, "speaker-menu", 9., 14., cx.theme().popover, cx))
+            .map(|el| super::glass::pane(el, 9., 14., cx.theme().popover, cx))
             .border_1()
             .border_color(p.line)
             .shadow_lg()
