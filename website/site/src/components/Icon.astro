@@ -1,0 +1,18 @@
+---
+// One Phosphor icon, drawn inline so it takes the text color.
+const icons = import.meta.glob("/node_modules/@phosphor-icons/core/assets/{regular,fill,bold}/*.svg", {
+  query: "?raw",
+  import: "default",
+  eager: true,
+});
+interface Props { name: string; weight?: "regular" | "fill" | "bold"; class?: string; label?: string }
+const { name, weight = "regular", class: cls = "", label } = Astro.props;
+const suffix = weight === "regular" ? "" : `-${weight}`;
+const raw = icons[`/node_modules/@phosphor-icons/core/assets/${weight}/${name}${suffix}.svg`] as string | undefined;
+if (!raw) throw new Error(`No icon called ${name} (${weight})`);
+const svg = raw.replace(
+  "<svg ",
+  `<svg class="icon ${cls}" ${label ? `role="img" aria-label="${label}"` : 'aria-hidden="true"'} `,
+);
+---
+<Fragment set:html={svg} />

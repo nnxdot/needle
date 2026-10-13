@@ -1,0 +1,20 @@
+---
+// Needle's mark: an amber record with its grooves, and a cream tonearm.
+interface Props { class?: string; spin?: boolean }
+const { class: cls = "", spin = false } = Astro.props;
+---
+<svg class={`logo ${cls}`} viewBox="0 0 100 100" aria-hidden="true">
+  <g class={spin ? "logo-record spin" : "logo-record"}>
+    <circle cx="45" cy="56" r="31" fill="#e1b36b" />
+    <g fill="none" stroke="#c6944e" stroke-width="1.7">
+      <circle cx="45" cy="56" r="26.5" /><circle cx="45" cy="56" r="22.3" /><circle cx="45" cy="56" r="18.1" />
+    </g>
+    <circle cx="45" cy="56" r="10.2" fill="#1b1816" />
+    <circle cx="45" cy="56" r="2.6" fill="#e1b36b" />
+  </g>
+  <g class="logo-arm">
+    <path d="M61.5 41 81.5 17.5" stroke="#efe6d8" stroke-width="5.6" stroke-linecap="round" />
+    <circle cx="82" cy="17" r="6.8" fill="#efe6d8" />
+    <circle cx="82" cy="17" r="2.6" fill="#1b1816" />
+  </g>
+</svg>
