@@ -499,22 +499,42 @@
 .device-laptop .base { display: block; height: 18px; border-radius: 2px 2px 16px 16px; background: linear-gradient(#cfcfd4, #8d8d93 70%, #6c6c72); box-shadow: var(--shadow); position: relative; }
 .device-laptop .base::before { content: ""; position: absolute; left: 50%; top: 0; translate: -50% 0; width: 14%; height: 7px; border-radius: 0 0 8px 8px; background: #a6a6ac; }
 .device-phone { width: min(270px, 66%); margin-inline: auto; }
-.phone-screen {
-  position: relative; aspect-ratio: 9 / 19.5; border-radius: 48px; overflow: hidden; isolation: isolate;
-  border: 10px solid #0d0d0f; box-shadow: 0 0 0 1px rgb(255 255 255 / .12), var(--shadow);
-  display: flex; flex-direction: column; align-items: center; padding: 64px 22px 28px; color: #fff; text-align: center;
-  background: #1a1416;
+
+/* A phone around a real screenshot from the app. */
+.phone {
+  position: relative; aspect-ratio: 1080 / 2400; border-radius: 13% / 6%; overflow: hidden; isolation: isolate;
+  background: #000; box-shadow: 0 0 0 clamp(5px, .7vw, 9px) #0d0d0f, 0 0 0 calc(clamp(5px, .7vw, 9px) + 1px) rgb(255 255 255 / .14), var(--shadow);
 }
-.phone-screen::before { content: ""; position: absolute; inset: -20%; z-index: -1; background: var(--cover) center / cover; filter: blur(40px) saturate(160%) brightness(.6); }
-.ph-island { position: absolute; top: 12px; left: 50%; translate: -50% 0; width: 32%; height: 26px; border-radius: 99px; background: #000; }
-.phone-screen img { width: 100%; aspect-ratio: 1; object-fit: cover; border-radius: 18px; box-shadow: 0 24px 40px -20px rgb(0 0 0 / .8); }
-.phone-screen b { margin-top: 26px; font-size: 20px; letter-spacing: -.02em; }
-.phone-screen small { color: rgb(255 255 255 / .7); font-size: 15px; }
-.ph-seek { width: 100%; height: 4px; margin-top: 22px; border-radius: 4px; background: rgb(255 255 255 / .2); overflow: hidden; }
-.ph-seek span { display: block; height: 100%; width: 38%; background: #fff; }
-.ph-controls { margin-top: auto; display: flex; align-items: center; justify-content: center; gap: 30px; }
-.ph-controls .icon { width: 28px; height: 28px; }
-.ph-controls > span { width: 64px; height: 64px; border-radius: 50%; background: #fff; color: #1a1416; display: grid; place-items: center; }
+.phone img { display: block; width: 100%; height: 100%; object-fit: cover; }
+/* The front camera. */
+.phone::after { content: ""; position: absolute; top: 1.6%; left: 50%; translate: -50% 0; width: 3.6%; aspect-ratio: 1; border-radius: 50%; background: #000; box-shadow: 0 0 0 1px rgb(255 255 255 / .06); }
+
+/* ---------- Android */
+.android { position: relative; padding: clamp(100px, 16vh, 180px) 0 clamp(80px, 12vh, 140px); overflow: clip; isolation: isolate; }
+.android::before {
+  content: ""; position: absolute; inset: 20% 0 0; z-index: -1; pointer-events: none;
+  background: radial-gradient(50% 45% at 50% 55%, rgb(120 170 120 / .2), transparent 70%), radial-gradient(35% 35% at 30% 60%, rgb(230 180 106 / .16), transparent 70%);
+}
+.android-copy { text-align: center; }
+.android-copy h2 { font-size: clamp(2.8rem, 6vw, 5rem); letter-spacing: -.05em; padding-bottom: .08em; }
+.android-copy p { margin: 20px auto 0; max-width: 46ch; color: var(--ink-2); font-size: clamp(1.1rem, 1.5vw, 1.3rem); }
+.phones { display: flex; justify-content: center; align-items: center; margin: clamp(56px, 9vh, 96px) auto 0; padding-inline: 24px; perspective: 1600px; }
+.phone-shot { margin: 0; flex: none; }
+.phone-shot figcaption { margin-top: 22px; text-align: center; font-size: 14px; font-weight: 600; color: var(--ink-3); }
+.ps-mid { width: clamp(150px, 24vw, 340px); position: relative; z-index: 2; }
+.ps-left, .ps-right { width: clamp(118px, 20vw, 290px); }
+.ps-left { margin-right: -3%; rotate: -7deg; translate: 0 6%; }
+.ps-right { margin-left: -3%; rotate: 7deg; translate: 0 6%; }
+.ps-left .phone, .ps-right .phone { filter: brightness(.88); }
+.android-points {
+  display: flex; flex-wrap: wrap; justify-content: center; gap: 12px; list-style: none; margin-top: clamp(56px, 8vh, 88px);
+}
+.android-points li {
+  display: flex; align-items: center; gap: 10px; padding: 10px 18px; border-radius: 999px;
+  background: var(--surface); border: 1px solid var(--line); font-size: 15px; font-weight: 550;
+}
+.android-points .icon { width: 20px; height: 20px; color: var(--amber-text); }
+.android-more { text-align: center; margin: 32px 0 0; }
 
 /* ---------- smaller screens */
 @media (max-width: 1100px) {
@@ -568,5 +588,13 @@
   .device-monitor .screen { padding: 6px; border-radius: 12px; }
   .device-laptop .screen { padding: 8px; }
   .home-list { grid-template-columns: repeat(2, 1fr); }
+  .phones { padding-inline: 8px; }
+  .ps-mid { width: 46vw; }
+  .ps-left, .ps-right { width: 30vw; }
+  .ps-left { margin-right: -10vw; }
+  .ps-right { margin-left: -10vw; }
+  .phone-shot figcaption { font-size: 12.5px; margin-top: 14px; }
+  .android-points { gap: 8px; }
+  .android-points li { font-size: 14px; padding: 8px 14px; }
 }
 @media (prefers-reduced-motion: reduce) { .merged { opacity: 1; } }
