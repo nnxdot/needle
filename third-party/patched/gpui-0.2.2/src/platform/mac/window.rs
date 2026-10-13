@@ -4,7 +4,7 @@ use crate::{
     ForegroundExecutor, KeyDownEvent, Keystroke, Modifiers, ModifiersChangedEvent, MouseButton,
     MouseDownEvent, MouseMoveEvent, MouseUpEvent, Pixels, PlatformAtlas, PlatformDisplay,
     PlatformInput, PlatformWindow, Point, PromptButton, PromptLevel, RequestFrameOptions,
-    GlassRegion, SharedString, Size, SystemWindowTab, Timer, WindowAppearance,
+    GlassRegion, Rgba, SharedString, Size, SystemWindowTab, Timer, WindowAppearance,
     WindowBackgroundAppearance,
     WindowBounds, WindowControlArea, WindowKind, WindowParams, dispatch_get_main_queue,
     dispatch_sys::dispatch_async_f, platform::PlatformInputHandler, point, px, size,
@@ -395,6 +395,8 @@ struct MacWindowState {
     /// The translucent backdrop behind glass regions, and one glass view per region, all
     /// under the Metal view (see `set_glass_regions`).
     glass_backdrop: Option<id>,
+    /// A plain view in the window's back colour, instead of the blurred desktop.
+    glass_fill: Option<id>,
     glass_views: Vec<id>,
     display_link: Option<DisplayLink>,
     renderer: renderer::Renderer,
@@ -694,6 +696,7 @@ impl MacWindow {
                 native_view: NonNull::new_unchecked(native_view),
                 blurred_view: None,
                 glass_backdrop: None,
+                glass_fill: None,
                 glass_views: Vec::new(),
                 display_link: None,
                 renderer: renderer::new_renderer(
@@ -1317,12 +1320,13 @@ impl PlatformWindow for MacWindow {
         }
     }
 
-    fn set_glass_regions(&self, regions: &[GlassRegion]) {
+    fn set_glass_regions(&self, regions: &[GlassRegion], fill: Option<Rgba>) {
         // AppKit may call back into GPUI (which takes this lock) while views are added or
         // moved, so the views are taken out and the lock let go meanwhile.
         struct Glass {
             glass_views: Vec<id>,
             glass_backdrop: Option<id>,
+            glass_fill: Option<id>,
         }
         let (native_window, native_view, mut this) = {
             let mut state = self.0.lock();
@@ -1332,6 +1336,7 @@ impl PlatformWindow for MacWindow {
                 Glass {
                     glass_views: mem::take(&mut state.glass_views),
                     glass_backdrop: state.glass_backdrop.take(),
+                    glass_fill: state.glass_fill.take(),
                 },
             )
         };
@@ -1346,16 +1351,60 @@ impl PlatformWindow for MacWindow {
                     NSView::removeFromSuperview(view);
                     let _: () = msg_send![view, release];
                 }
-                if let Some(backdrop) = this.glass_backdrop.take() {
-                    NSView::removeFromSuperview(backdrop);
-                    let _: () = msg_send![backdrop, release];
+                for view in [this.glass_backdrop.take(), this.glass_fill.take()]
+                    .into_iter()
+                    .flatten()
+                {
+                    NSView::removeFromSuperview(view);
+                    let _: () = msg_send![view, release];
                 }
                 return;
             }
 
             // The window's own backdrop: the desktop behind, blurred and tinted as macOS's
             // window backgrounds are (under-window background material, behind the window).
-            if this.glass_backdrop.is_none() {
+            // Or a plain fill in the window's back colour, as macOS's own windows are behind
+            // their floating sidebar.
+            if let Some(color) = fill {
+                if let Some(backdrop) = this.glass_backdrop.take() {
+                    NSView::removeFromSuperview(backdrop);
+                    let _: () = msg_send![backdrop, release];
+                }
+                let view = match this.glass_fill {
+                    Some(view) => view,
+                    None => {
+                        let frame = NSView::bounds(content_view);
+                        let view: id = msg_send![class!(NSView), alloc];
+                        let view: id = msg_send![view, initWithFrame: frame];
+                        let _: () = msg_send![view, setWantsLayer: YES];
+                        view.setAutoresizingMask_(NSViewWidthSizable | NSViewHeightSizable);
+                        let _: () = msg_send![
+                            content_view,
+                            addSubview: view
+                            positioned: NSWindowOrderingMode::NSWindowBelow
+                            relativeTo: native_view
+                        ];
+                        this.glass_fill = Some(view);
+                        view
+                    }
+                };
+                let ns_color = NSColor::colorWithSRGBRed_green_blue_alpha_(
+                    nil,
+                    color.r as f64,
+                    color.g as f64,
+                    color.b as f64,
+                    1.,
+                );
+                let cg_color: id = msg_send![ns_color, CGColor];
+                let layer: id = msg_send![view, layer];
+                if !layer.is_null() {
+                    let _: () = msg_send![layer, setBackgroundColor: cg_color];
+                }
+            } else if let Some(view) = this.glass_fill.take() {
+                NSView::removeFromSuperview(view);
+                let _: () = msg_send![view, release];
+            }
+            if fill.is_none() && this.glass_backdrop.is_none() {
                 let frame = NSView::bounds(content_view);
                 let backdrop: id = msg_send![class!(NSVisualEffectView), alloc];
                 let backdrop: id = msg_send![backdrop, initWithFrame: frame];
@@ -1433,6 +1482,7 @@ impl PlatformWindow for MacWindow {
         let mut state = self.0.lock();
         state.glass_views = this.glass_views;
         state.glass_backdrop = this.glass_backdrop;
+        state.glass_fill = this.glass_fill;
     }
 
     fn set_dark_appearance(&self, dark: Option<bool>) {

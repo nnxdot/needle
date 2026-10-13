@@ -866,6 +866,7 @@ pub struct Window {
     /// sent to the platform window when they change.
     glass_regions: RefCell<std::collections::BTreeMap<SharedString, crate::GlassRegion>>,
     glass_dirty: Cell<bool>,
+    glass_backdrop: Cell<Option<crate::Rgba>>,
     pub(crate) last_input_timestamp: Rc<Cell<Instant>>,
     pub(crate) refreshing: bool,
     pub(crate) activation_observers: SubscriberSet<(), AnyObserver>,
@@ -1254,6 +1255,7 @@ impl Window {
             needs_present,
             glass_regions: RefCell::default(),
             glass_dirty: Cell::new(false),
+            glass_backdrop: Cell::new(None),
             last_input_timestamp,
             refreshing: false,
             activation_observers: SubscriberSet::new(),
@@ -1825,6 +1827,16 @@ impl Window {
         }
     }
 
+    /// The colour behind the glass regions (the window's back); `None` shows the desktop
+    /// behind the window, blurred. Needle patch.
+    pub fn set_glass_backdrop(&self, color: Option<crate::Hsla>) {
+        let color = color.map(crate::Rgba::from);
+        if self.glass_backdrop.replace(color) != color {
+            self.glass_dirty.set(true);
+            self.needs_present.set(true);
+        }
+    }
+
     /// Light or dark system materials for this window (glass, vibrancy, window buttons),
     /// whatever the system's own setting; `None` follows the system. Needle patch.
     pub fn set_dark_appearance(&self, dark: Option<bool>) {
@@ -2047,7 +2059,8 @@ impl Window {
     fn present(&self) {
         if self.glass_dirty.replace(false) {
             let regions: Vec<crate::GlassRegion> = self.glass_regions.borrow().values().copied().collect();
-            self.platform_window.set_glass_regions(&regions);
+            self.platform_window
+                .set_glass_regions(&regions, self.glass_backdrop.get());
         }
         self.platform_window.draw(&self.rendered_frame.scene);
         self.needs_present.set(false);
