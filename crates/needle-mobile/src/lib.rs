@@ -25,6 +25,8 @@ mod app;
 mod audit_tests;
 mod connect;
 mod ios;
+#[cfg(feature = "desktop")]
+mod mac;
 mod media;
 mod more;
 mod plugins;
