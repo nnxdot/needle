@@ -77,46 +77,130 @@ struct MoreButton: View {
     }
 }
 
-/// The player in the title bar, as in Apple Music: the controls, the song and its time, and
-/// the volume and panels.
+/// The player in the title bar, as in Apple Music: the controls, a small screen with the song
+/// and a thin line for where it is, and the volume and panels.
 struct TopPlayer: View {
     private var store: Store { .shared }
 
     var body: some View {
         HStack(spacing: 14) {
             Transport(play: 26, compact: true)
-            HStack(spacing: 8) {
-                if let p = store.playback, p.hasSong {
-                    Button { store.big = true } label: {
-                        Cover(path: p.artwork, seed: p.album + p.artist, side: 30, corner: 4)
-                    }
-                    .buttonStyle(.plain)
-                    .help("Open the big player · ⌘P")
-                }
-                VStack(spacing: 1) {
-                    if let p = store.playback, p.hasSong {
-                        Button("\(p.title) · \(p.artist)") { if let c = store.current { store.navigate(c.albumRoute) } }
-                            .buttonStyle(.plain)
-                            .font(.callout)
-                            .lineLimit(1)
-                    } else {
-                        Text("Nothing playing").font(.callout).foregroundStyle(.secondary)
-                    }
-                    SeekBar(small: true)
-                }
-                .frame(minWidth: 220, idealWidth: 320, maxWidth: 360)
+            TopScreen()
+                .frame(minWidth: 240, idealWidth: 380, maxWidth: 420)
+            HStack(spacing: 10) {
                 if let c = store.current {
                     Heart(on: c.favorite) { store.toggleFavorite([c]) }
                 }
-            }
-            .padding(.horizontal, 8)
-            HStack(spacing: 10) {
-                VolumeControl(width: 80)
+                HStack(spacing: 5) {
+                    let volume = Double(store.playback?.volume ?? 0.65)
+                    Button { store.toggleMute() } label: {
+                        Image(systemName: volume <= 0.001 ? "speaker.slash.fill" : volume < 0.5 ? "speaker.wave.1.fill" : "speaker.wave.3.fill")
+                            .frame(width: 18)
+                    }
+                    .buttonStyle(.borderless)
+                    .help("Mute")
+                    ThinBar(value: volume, tint: store.colors.ink2) { store.setVolume(Float($0)) }
+                        .frame(width: 70)
+                }
+                .foregroundStyle(store.colors.ink2)
                 PanelButton(panel: .lyrics, icon: "quote.bubble", help: "Lyrics · ⌘L")
                 QueueButton()
             }
         }
         .contextMenu { if let c = store.current { SongMenu(tracks: [c], playing: true) } }
+    }
+}
+
+/// The top player's screen: the cover (it opens the big player), the title and artist, and
+/// a thin line for where the song is, the times beside it; drag the line to move.
+private struct TopScreen: View {
+    private var store: Store { .shared }
+    @State private var held: Double?
+
+    var body: some View {
+        let p = store.playback
+        let duration = max(p?.duration ?? 0, 0.01)
+        let position = held.map { $0 * duration } ?? p?.position ?? 0
+        HStack(spacing: 9) {
+            if let p, p.hasSong {
+                Button { store.big = true } label: { Cover(path: p.artwork, seed: p.album + p.artist, side: 32, corner: 4) }
+                    .buttonStyle(.plain)
+                    .help("Open the big player · ⌘P")
+            } else {
+                RoundedRectangle(cornerRadius: 4).fill(store.colors.raised).frame(width: 32, height: 32)
+                    .overlay { Image(systemName: "music.note").font(.caption).foregroundStyle(store.colors.ink3) }
+            }
+            VStack(spacing: 1) {
+                if let p, p.hasSong {
+                    Button { if let c = store.current { store.navigate(c.albumRoute) } } label: {
+                        Text(p.title).font(.system(size: 12, weight: .semibold)).lineLimit(1)
+                    }
+                    .buttonStyle(.plain)
+                    Text([p.artist, p.album].filter { !$0.isEmpty }.joined(separator: " — "))
+                        .font(.system(size: 11))
+                        .foregroundStyle(store.colors.ink2)
+                        .lineLimit(1)
+                } else {
+                    Text("Nothing playing").font(.system(size: 12)).foregroundStyle(store.colors.ink2)
+                }
+                HStack(spacing: 6) {
+                    Text(clock(p?.hasSong == true ? position : 0)).frame(width: 30, alignment: .trailing)
+                    ThinBar(value: min(1, position / duration), tint: store.colors.accent) { held = $0 } began: {
+                        store.core.scrub(held: true)
+                    } ended: { fraction in
+                        store.seek(fraction * duration)
+                        store.core.scrub(held: false)
+                        Task { try? await Task.sleep(for: .milliseconds(400)); held = nil }
+                    }
+                    .disabled(p?.hasSong != true)
+                    Text("-" + clock(max(0, (p?.duration ?? 0) - position))).frame(width: 34, alignment: .leading)
+                }
+                .font(.system(size: 9).monospacedDigit())
+                .foregroundStyle(store.colors.ink3)
+            }
+        }
+        .padding(.horizontal, 4)
+    }
+}
+
+/// A thin line for a value from 0 to 1 (where a song is, the volume), thicker under the
+/// pointer; click or drag along it to change it.
+struct ThinBar: View {
+    let value: Double
+    var tint: Color
+    let changed: (Double) -> Void
+    var began: () -> Void = {}
+    var ended: (Double) -> Void = { _ in }
+    @State private var hover = false
+    @State private var dragged: Double?
+    @Environment(\.isEnabled) private var enabled
+
+    var body: some View {
+        GeometryReader { geo in
+            let fraction = min(1, max(0, dragged ?? value))
+            ZStack(alignment: .leading) {
+                Capsule().fill(Color.primary.opacity(0.16))
+                Capsule().fill(tint).frame(width: geo.size.width * fraction)
+            }
+            .frame(height: hover || dragged != nil ? 5 : 3)
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .contentShape(Rectangle())
+            .gesture(DragGesture(minimumDistance: 0)
+                .onChanged { drag in
+                    let next = min(1, max(0, drag.location.x / max(1, geo.size.width)))
+                    if dragged == nil { began() }
+                    dragged = next
+                    changed(next)
+                }
+                .onEnded { _ in
+                    if let last = dragged { ended(last) }
+                    dragged = nil
+                })
+        }
+        .frame(height: 12)
+        .opacity(enabled ? 1 : 0.5)
+        .onHover { hover = $0 }
+        .animation(.easeOut(duration: 0.12), value: hover)
     }
 }
 

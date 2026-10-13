@@ -1,4 +1,5 @@
 import AppKit
+import CoreImage
 import ImageIO
 import SwiftUI
 
@@ -39,6 +40,25 @@ enum Covers {
             guard let cg = cgImage(path, size: size) else { return nil }
             let image = NSImage(cgImage: cg, size: NSSize(width: cg.width, height: cg.height))
             cache.setObject(image, forKey: "\(size)@\(path)" as NSString, cost: cg.bytesPerRow * cg.height)
+            return image
+        }.value
+    }
+
+    /// The cover blurred and made more colourful, small, for backgrounds: drawn large, a small
+    /// blurred picture looks like a large one blurred, and costs nothing to draw again.
+    static func backdrop(_ path: String) async -> NSImage? {
+        let key = "backdrop@\(path)" as NSString
+        if let hit = cache.object(forKey: key) { return hit }
+        return await Task.detached(priority: .utility) {
+            guard let cg = cgImage(path, size: 96) else { return nil }
+            let source = CIImage(cgImage: cg)
+            let soft = source.clampedToExtent()
+                .applyingGaussianBlur(sigma: 7)
+                .applyingFilter("CIColorControls", parameters: [kCIInputSaturationKey: 1.6])
+                .cropped(to: source.extent)
+            guard let out = CIContext().createCGImage(soft, from: source.extent) else { return nil }
+            let image = NSImage(cgImage: out, size: NSSize(width: out.width, height: out.height))
+            cache.setObject(image, forKey: key, cost: out.bytesPerRow * out.height)
             return image
         }.value
     }
@@ -252,28 +272,52 @@ struct CoverBackdrop: View {
     var moving = true
     /// How dark the foot of it gets, for words over it.
     var dim: Double = 0.55
+    /// For a light look: a light wash over the colours, for dark words, in place of darkening.
+    var light = false
+    @State private var image: NSImage?
 
     var body: some View {
         GeometryReader { geo in
             let side = max(geo.size.width, geo.size.height) * 1.5
-            TimelineView(.animation(minimumInterval: 1 / 15, paused: !moving)) { context in
-                let angle = moving ? context.date.timeIntervalSinceReferenceDate.truncatingRemainder(dividingBy: 90) / 90 * 360 : 0
-                Artwork(path: path, seed: seed, size: 160)
-                    .frame(width: side, height: side)
-                    .rotationEffect(.degrees(angle))
+            Group {
+                if let image {
+                    // Blurred once (see `Covers.backdrop`); only turned here.
+                    TimelineView(.animation(minimumInterval: 1 / 15, paused: !moving)) { context in
+                        let angle = moving ? context.date.timeIntervalSinceReferenceDate.truncatingRemainder(dividingBy: 90) / 90 * 360 : 0
+                        Image(nsImage: image)
+                            .resizable()
+                            .interpolation(.medium)
+                            .frame(width: side, height: side)
+                            .rotationEffect(.degrees(angle))
+                    }
+                } else {
+                    // No cover file: the name's colours, blurred, held still.
+                    Placeholder(seed: seed)
+                        .frame(width: side, height: side)
+                        .blur(radius: blur)
+                        .saturation(1.6)
+                }
             }
-            .blur(radius: blur)
-            .saturation(1.6)
-            .brightness(dim > 0.4 ? -0.2 : -0.08)
+            .brightness(light ? 0.04 : dim > 0.4 ? -0.2 : -0.08)
             .position(x: geo.size.width / 2, y: geo.size.height / 2)
         }
-        // Darker at the foot for words over it; with little dimming, a band at the top too, so
-        // the title bar reads over a bright cover.
-        .overlay(LinearGradient(stops: dim > 0.4
-            ? [.init(color: .black.opacity(dim * 0.2), location: 0), .init(color: .black.opacity(dim), location: 1)]
-            : [.init(color: .black.opacity(0.3), location: 0), .init(color: .black.opacity(0.05), location: 0.18),
-               .init(color: .black.opacity(dim * 0.4), location: 0.5), .init(color: .black.opacity(dim), location: 1)],
-            startPoint: .top, endPoint: .bottom))
+        .overlay {
+            if light {
+                LinearGradient(colors: [.white.opacity(0.42), .white.opacity(0.3), .white.opacity(0.45)], startPoint: .top, endPoint: .bottom)
+            } else {
+                // Darker at the foot for words over it; with little dimming, a band at the top
+                // too, so the title bar reads over a bright cover.
+                LinearGradient(stops: dim > 0.4
+                    ? [.init(color: .black.opacity(dim * 0.2), location: 0), .init(color: .black.opacity(dim), location: 1)]
+                    : [.init(color: .black.opacity(0.3), location: 0), .init(color: .black.opacity(0.05), location: 0.18),
+                       .init(color: .black.opacity(dim * 0.4), location: 0.5), .init(color: .black.opacity(dim), location: 1)],
+                    startPoint: .top, endPoint: .bottom)
+            }
+        }
         .clipped()
+        .task(id: path) {
+            guard let path else { image = nil; return }
+            image = await Covers.backdrop(path)
+        }
     }
 }

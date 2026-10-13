@@ -302,8 +302,9 @@ struct WindowBackground: View {
                 if let p = store.playback, p.hasSong {
                     // Full strength, dimmed only a little: mixed into the grey beneath and
                     // darkened twice, the colours looked washed out.
-                    CoverBackdrop(path: p.artwork, seed: p.album + p.artist, moving: store.motion, dim: store.colors.dark ? 0.35 : 0)
-                        .opacity(store.colors.dark ? 1 : 0.7)
+                    CoverBackdrop(path: p.artwork, seed: p.album + p.artist, moving: store.motion,
+                                  dim: store.colors.dark ? 0.35 : 0, light: !store.colors.dark)
+                        .opacity(store.colors.dark ? 1 : 0.85)
                 } else {
                     store.colors.glow.opacity(0.25)
                 }
