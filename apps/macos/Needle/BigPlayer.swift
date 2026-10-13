@@ -59,6 +59,7 @@ struct BigPlayer: View {
             .animation(store.motion ? .easeInOut(duration: 0.4) : nil, value: resting)
             .onContinuousHover { _ in rest(false) }
         }
+        .ignoresSafeArea()
         .environment(\.colorScheme, .dark)
         .task(id: moved) {
             // Full screen: the controls rest a while after the pointer stops.
@@ -105,7 +106,8 @@ struct BigPlayer: View {
         .buttonStyle(.plain)
         .foregroundStyle(.white.opacity(0.85))
         .padding(.horizontal, 24)
-        .padding(.top, store.immersive ? 24 : 14)
+        .padding(.leading, store.immersive ? 0 : 60)
+        .padding(.top, store.immersive ? 24 : 16)
     }
 
     private var side: some View {
@@ -136,80 +138,181 @@ struct BigPlayer: View {
     }
 }
 
-/// A small window that stays out of the way: the cover, the song, and the controls; its lyrics
-/// or what plays next beneath when it is taller.
+/// A small window that stays out of the way, after Apple Music's: the cover fills it, and the
+/// song and its controls show over the cover while the pointer is on it. Pin it to keep it
+/// above other windows; the lyrics, what plays next, or what played last fold out beneath.
 struct MiniPlayer: View {
     private var store: Store { .shared }
     @Environment(\.openWindow) private var openWindow
     @Environment(\.dismissWindow) private var dismissWindow
     @AppStorage("mini-on-top") private var onTop = true
     @AppStorage("mini-view") private var view = "cover"
+    @State private var hovering = false
+    private let side: CGFloat = 300
 
     var body: some View {
         let p = store.playback
         VStack(spacing: 0) {
-            ZStack(alignment: .bottom) {
+            cover(p)
+            if view != "cover" { below }
+        }
+        .frame(width: side)
+        .background {
+            ZStack {
+                Color.black
                 if let p, p.hasSong {
-                    Artwork(path: p.artwork, seed: p.album + p.artist, size: 600)
-                        .frame(width: 300, height: 300)
-                } else {
-                    store.colors.raised.frame(width: 300, height: 300)
-                        .overlay { Text("Nothing playing").foregroundStyle(.secondary) }
+                    CoverBackdrop(path: p.artwork, seed: p.album + p.artist, moving: false).opacity(0.9)
                 }
-                VStack(spacing: 6) {
+                Color.black.opacity(0.3)
+            }
+        }
+        .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+        .onHover { inside in
+            withAnimation(store.motion ? .easeOut(duration: 0.18) : nil) { hovering = inside }
+        }
+        .background(MiniWindow(floating: onTop))
+        .containerBackground(.clear, for: .window)
+        .preferredColorScheme(.dark)
+        .tint(store.colors.accent)
+    }
+
+    private func cover(_ p: MacPlayback?) -> some View {
+        ZStack {
+            if let p, p.hasSong {
+                Artwork(path: p.artwork, seed: p.album + p.artist, size: 600)
+                    .frame(width: side, height: side)
+            } else {
+                Image(systemName: "music.note").font(.system(size: 54)).foregroundStyle(.white.opacity(0.3))
+            }
+            if hovering || p?.hasSong != true {
+                controls(p).transition(.opacity)
+            }
+        }
+        .frame(width: side, height: side)
+        .clipped()
+    }
+
+    /// Over the cover: close, pin, and the menu at the top; the song, the seek bar, and the
+    /// controls at the foot.
+    private func controls(_ p: MacPlayback?) -> some View {
+        VStack(spacing: 0) {
+            HStack(spacing: 14) {
+                Button { dismissWindow(id: "mini") } label: {
+                    Image(systemName: "xmark")
+                        .frame(width: 22, height: 22)
+                        .background(.black.opacity(0.35), in: Circle())
+                }
+                .help("Close the mini player")
+                Spacer()
+                Button { onTop.toggle() } label: {
+                    Image(systemName: onTop ? "pin.fill" : "pin").rotationEffect(.degrees(45))
+                }
+                .help(onTop ? "Unpin: other windows can cover the mini player" : "Pin: keep the mini player above other windows")
+                menu
+            }
+            .font(.system(size: 14, weight: .semibold))
+            .padding(.horizontal, 12)
+            .padding(.top, 10)
+            .padding(.bottom, 30)
+            .background(LinearGradient(colors: [.black.opacity(0.5), .clear], startPoint: .top, endPoint: .bottom))
+            Spacer(minLength: 0)
+            VStack(spacing: 8) {
+                VStack(spacing: 1) {
+                    Text(p?.hasSong == true ? p!.title : "Nothing playing").font(.headline).lineLimit(1)
                     if let p, p.hasSong {
-                        Text(p.title).font(.headline).lineLimit(1)
                         Text(p.artist).font(.callout).foregroundStyle(.white.opacity(0.75)).lineLimit(1)
                     }
-                    SeekBar(small: true, light: true)
-                    Transport(play: 34, compact: true, light: true)
                 }
-                .foregroundStyle(.white)
-                .padding(14)
-                .frame(maxWidth: .infinity)
-                .background(LinearGradient(colors: [.clear, .black.opacity(0.75)], startPoint: .top, endPoint: .bottom))
-            }
-            .frame(width: 300, height: 300)
-            if view != "cover" {
-                Group {
-                    if view == "lyrics" {
-                        LyricsView(kind: .mini).padding(.horizontal, 14)
-                    } else if view == "history" {
-                        MiniHistory()
-                    } else {
-                        QueuePanel()
-                    }
+                SeekBar(small: true, light: true)
+                HStack {
+                    fold("lyrics", icon: "quote.bubble", help: "Lyrics")
+                    Spacer()
+                    Transport(play: 38, compact: true, light: true)
+                    Spacer()
+                    fold("queue", icon: "list.bullet", help: "Playing next")
                 }
-                .frame(width: 300, height: 260)
+                .font(.system(size: 14))
             }
+            .padding(.horizontal, 16)
+            .padding(.top, 44)
+            .padding(.bottom, 14)
+            .background(LinearGradient(colors: [.clear, .black.opacity(0.75)], startPoint: .top, endPoint: .bottom))
         }
-        .overlay(alignment: .topTrailing) {
-            HStack(spacing: 6) {
-                Menu {
-                    Picker("Show", selection: $view) {
-                        Text("Cover").tag("cover")
-                        Text("Lyrics").tag("lyrics")
-                        Text("Playing next").tag("queue")
-                        Text("History").tag("history")
-                    }
-                    Toggle("Keep on top", isOn: $onTop)
-                    Divider()
-                    Button("Back to the full window") {
-                        openWindow(id: "main")
-                        dismissWindow(id: "mini")
-                    }
-                } label: {
-                    Image(systemName: "ellipsis.circle.fill").font(.title3).foregroundStyle(.white.opacity(0.85))
-                }
-                .menuStyle(.borderlessButton)
-                .menuIndicator(.hidden)
-                .fixedSize()
+        .foregroundStyle(.white)
+        .buttonStyle(.plain)
+    }
+
+    /// A button that folds a view out beneath the cover, or folds it away.
+    private func fold(_ name: String, icon: String, help: String) -> some View {
+        Button { view = view == name ? "cover" : name } label: {
+            Image(systemName: icon)
+                .foregroundStyle(view == name ? store.colors.accent : .white.opacity(0.85))
+                .frame(width: 26, height: 26)
+                .contentShape(Rectangle())
+        }
+        .help(view == name ? "Hide the \(help.lowercased())" : "Show the \(help.lowercased())")
+    }
+
+    private var menu: some View {
+        Menu {
+            Picker("Show beneath", selection: $view) {
+                Text("Nothing").tag("cover")
+                Text("Lyrics").tag("lyrics")
+                Text("Playing Next").tag("queue")
+                Text("History").tag("history")
             }
+            Toggle("Keep on Top", isOn: $onTop)
+            Divider()
+            Button("Open Needle") {
+                openWindow(id: "main")
+                dismissWindow(id: "mini")
+            }
+        } label: {
+            Image(systemName: "ellipsis")
+        }
+        .menuStyle(.borderlessButton)
+        .menuIndicator(.hidden)
+        .fixedSize()
+    }
+
+    private var below: some View {
+        VStack(spacing: 0) {
+            Picker("", selection: $view) {
+                Text("Lyrics").tag("lyrics")
+                Text("Up Next").tag("queue")
+                Text("History").tag("history")
+            }
+            .pickerStyle(.segmented)
+            .labelsHidden()
             .padding(10)
+            Group {
+                switch view {
+                case "lyrics": LyricsView(kind: .mini, light: true).padding(.horizontal, 14)
+                case "history": MiniHistory()
+                default: QueuePanel()
+                }
+            }
+            .frame(maxHeight: .infinity)
         }
-        .background(WindowLevel(floating: onTop))
-        .environment(\.colorScheme, .dark)
-        .tint(store.colors.accent)
+        .frame(width: side, height: 280)
+    }
+}
+
+/// The mini player's window (it has no title bar): moved by dragging anywhere, with a
+/// shadow, kept above other windows while pinned, and shown over full-screen apps.
+struct MiniWindow: NSViewRepresentable {
+    let floating: Bool
+
+    func makeNSView(context: Context) -> NSView { NSView() }
+
+    func updateNSView(_ view: NSView, context: Context) {
+        DispatchQueue.main.async {
+            guard let window = view.window else { return }
+            window.level = floating ? .floating : .normal
+            window.isMovableByWindowBackground = true
+            window.hasShadow = true
+            window.collectionBehavior.insert(.fullScreenAuxiliary)
+        }
     }
 }
 
@@ -237,20 +340,6 @@ struct MiniHistory: View {
         .scrollContentBackground(.hidden)
         .task(id: store.playback?.current) {
             items = await store.load { try $0.history(offset: 0, limit: 40) } ?? []
-        }
-    }
-}
-
-/// Keeps its window above the others while `floating`.
-struct WindowLevel: NSViewRepresentable {
-    let floating: Bool
-
-    func makeNSView(context: Context) -> NSView { NSView() }
-
-    func updateNSView(_ view: NSView, context: Context) {
-        DispatchQueue.main.async {
-            view.window?.level = floating ? .floating : .normal
-            view.window?.isMovableByWindowBackground = true
         }
     }
 }

@@ -401,10 +401,6 @@ struct AppearanceSettings: View {
             SettingRow(title: "Ambient background", detail: "The cover that is playing (or your chosen color) fills the whole background, blurred. Works with every look.") {
                 SettingSwitch(key: "ambient", on: s.ambient)
             }
-            SettingRow(title: "Liquid Glass", detail: s.ambient ? "Ambient background fills the window, so glass is off while it is on." : "The sidebar, the player, and the panels float on glass, as in macOS's own apps.") {
-                Toggle("", isOn: Binding(get: { s.windowMaterial != "solid" }, set: { store.set(["window_material": $0 ? "glass" : "solid"]) }))
-                    .toggleStyle(.switch).labelsHidden().disabled(s.ambient)
-            }
             SettingRow(title: "Film grain", detail: "A fine texture over the whole window. Off by default.") {
                 HStack {
                     Slider(value: Binding(get: { Double(s.grain) }, set: { store.set(["grain": $0]) }), in: 0...1).frame(width: 180)
@@ -507,7 +503,7 @@ struct AppearanceSettings: View {
                 store.notify("Layout applied.")
             }
         } catch {
-            store.fail(error.localizedDescription)
+            store.fail(error.message)
         }
     }
 
@@ -523,7 +519,7 @@ struct AppearanceSettings: View {
             try out.write(to: url)
             store.notify("Layout exported.")
         } catch {
-            store.fail(error.localizedDescription)
+            store.fail(error.message)
         }
     }
 }
@@ -689,7 +685,7 @@ struct ThemeEditor: View {
             try FileManager.default.copyItem(atPath: theme.path, toPath: url.path)
             store.notify("Saved \(url.lastPathComponent). Send it to a friend, or drop it on Needle to add it.")
         } catch {
-            store.fail(error.localizedDescription)
+            store.fail(error.message)
         }
     }
 }

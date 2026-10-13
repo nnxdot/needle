@@ -153,7 +153,7 @@ struct PlaylistEditor: View {
             problem = nil
             matching = Int((try? store.core.countMatching(query: q)) ?? 0)
         } catch {
-            problem = error.localizedDescription
+            problem = error.message
             matching = nil
         }
     }

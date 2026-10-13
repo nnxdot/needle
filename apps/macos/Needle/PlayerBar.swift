@@ -6,23 +6,13 @@ struct PlayerBar: View {
     private var store: Store { .shared }
 
     var body: some View {
-        let colors = store.colors
         GeometryReader { geo in
             bar(wide: geo.size.width > 900)
                 .padding(.horizontal, 18)
                 .frame(width: geo.size.width, height: geo.size.height)
         }
         .frame(height: 72)
-        .background {
-            // Without glass, the playing cover's colour glows in from the left. (On glass it
-            // would sit on top of the glass and muddy it.)
-            if !store.glass {
-                LinearGradient(colors: [colors.glow.opacity(colors.dark ? 0.22 : 0.16), .clear], startPoint: .leading, endPoint: .center)
-                    .clipShape(Capsule())
-            }
-        }
-        .pane(Capsule(), glass: store.glass, fill: colors.chrome)
-        .shadow(color: .black.opacity(store.glass ? 0 : 0.2), radius: 14, y: 4)
+        .pane(Capsule())
     }
 
     /// The bar: the song on the left, the controls and seek bar in the middle, the output and
@@ -116,7 +106,6 @@ struct TopPlayer: View {
                 }
             }
             .padding(.horizontal, 8)
-            .background { if !store.glass { RoundedRectangle(cornerRadius: 10, style: .continuous).fill(store.colors.raised) } }
             HStack(spacing: 10) {
                 VolumeControl(width: 80)
                 PanelButton(panel: .lyrics, icon: "quote.bubble", help: "Lyrics · ⌘L")

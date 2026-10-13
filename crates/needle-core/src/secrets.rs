@@ -1,5 +1,5 @@
 //! Account secrets live in the operating system's credential store, never in the library database.
-#[cfg_attr(target_os = "android", allow(unused_imports))]
+#[cfg_attr(any(target_os = "android", target_os = "macos"), allow(unused_imports))]
 use anyhow::{Result, bail};
 use std::{collections::HashMap, sync::Mutex};
 
@@ -90,6 +90,7 @@ pub trait SecretStore: Send + Sync {
 pub struct SystemStore;
 #[cfg(any(windows, target_os = "linux", target_vendor = "apple"))]
 impl SystemStore {
+    #[cfg_attr(target_os = "macos", allow(dead_code))]
     fn entry(kind: SecretKind) -> Result<keyring::Entry> {
         keyring::Entry::new(SERVICE_NAME, kind.account())
             .map_err(|e| anyhow::anyhow!("{STORE_NAME}: {e}"))
@@ -98,6 +99,11 @@ impl SystemStore {
 #[cfg(any(windows, target_os = "linux", target_vendor = "apple"))]
 impl SecretStore for SystemStore {
     fn get(&self, kind: SecretKind) -> Result<Option<String>> {
+        #[cfg(target_os = "macos")]
+        {
+            keychain::get(kind.account())
+        }
+        #[cfg(not(target_os = "macos"))]
         match Self::entry(kind)?.get_password() {
             Ok(value) => Ok(Some(value).filter(|v| !v.is_empty())),
             Err(keyring::Error::NoEntry) => Ok(None),
@@ -105,16 +111,133 @@ impl SecretStore for SystemStore {
         }
     }
     fn set(&self, kind: SecretKind, value: &str) -> Result<()> {
+        #[cfg(target_os = "macos")]
+        {
+            keychain::set(kind.account(), value)
+        }
+        #[cfg(not(target_os = "macos"))]
         Self::entry(kind)?
             .set_password(value)
             .map_err(|e| anyhow::anyhow!("{STORE_NAME} could not save {}: {e}", kind.account()))
     }
     fn delete(&self, kind: SecretKind) -> Result<()> {
+        #[cfg(target_os = "macos")]
+        {
+            keychain::delete(kind.account())
+        }
+        #[cfg(not(target_os = "macos"))]
         match Self::entry(kind)?.delete_credential() {
             Ok(()) | Err(keyring::Error::NoEntry) => Ok(()),
             Err(e) => bail!("{STORE_NAME} could not remove {}: {e}", kind.account()),
         }
     }
+}
+
+/// The Mac Keychain asks the person before an app reads an item another app made, and a
+/// build signed another way counts as another app. So each item is read once per run and
+/// kept in memory, and an item made earlier is saved again by this app (once; the list of
+/// items saved again, names only, is kept in the library folder), which makes it this app's
+/// own: the Keychain does not ask about it again.
+#[cfg(target_os = "macos")]
+mod keychain {
+    use super::{SERVICE_NAME, STORE_NAME};
+    use anyhow::{Result, anyhow};
+    use std::{
+        collections::{HashMap, HashSet},
+        path::PathBuf,
+        sync::{LazyLock, Mutex, OnceLock},
+    };
+
+    type Cache = HashMap<String, Result<Option<String>, String>>;
+    static CACHE: LazyLock<Mutex<Cache>> = LazyLock::new(Default::default);
+    static FOLDER: OnceLock<PathBuf> = OnceLock::new();
+
+    pub fn set_folder(folder: PathBuf) {
+        let _ = FOLDER.set(folder);
+    }
+
+    fn list() -> Option<PathBuf> {
+        FOLDER.get().map(|f| f.join("keychain-own.txt"))
+    }
+
+    fn own() -> HashSet<String> {
+        list()
+            .and_then(|f| std::fs::read_to_string(f).ok())
+            .map(|text| text.lines().map(str::to_string).collect())
+            .unwrap_or_default()
+    }
+
+    fn mark_own(account: &str) {
+        let Some(path) = list() else { return };
+        let mut all = own();
+        if all.insert(account.to_string()) {
+            let mut lines: Vec<_> = all.into_iter().collect();
+            lines.sort();
+            let _ = std::fs::write(path, lines.join("\n") + "\n");
+        }
+    }
+
+    fn entry(account: &str) -> Result<keyring::Entry> {
+        keyring::Entry::new(SERVICE_NAME, account).map_err(|e| anyhow!("{STORE_NAME}: {e}"))
+    }
+
+    /// Saves `value` as a new item of this app's own (an item's owner stays the app that made
+    /// it, whoever changes its value).
+    fn save_own(entry: &keyring::Entry, value: &str) -> keyring::Result<()> {
+        match entry.delete_credential() {
+            Ok(()) | Err(keyring::Error::NoEntry) => {}
+            Err(e) => return Err(e),
+        }
+        entry.set_password(value).or_else(|_| entry.set_password(value))
+    }
+
+    pub fn get(account: &str) -> Result<Option<String>> {
+        let mut cache = CACHE.lock().unwrap_or_else(|p| p.into_inner());
+        if let Some(known) = cache.get(account) {
+            return known.clone().map_err(|e| anyhow!(e));
+        }
+        let entry = entry(account)?;
+        let found = match entry.get_password() {
+            Ok(value) => Ok(Some(value).filter(|v| !v.is_empty())),
+            Err(keyring::Error::NoEntry) => Ok(None),
+            Err(e) => Err(format!("{STORE_NAME} could not read {account}: {e}")),
+        };
+        if let Ok(Some(value)) = &found
+            && FOLDER.get().is_some()
+            && !own().contains(account)
+            && save_own(&entry, value).is_ok()
+        {
+            mark_own(account);
+        }
+        cache.insert(account.to_string(), found.clone());
+        found.map_err(|e| anyhow!(e))
+    }
+
+    pub fn set(account: &str, value: &str) -> Result<()> {
+        let mut cache = CACHE.lock().unwrap_or_else(|p| p.into_inner());
+        save_own(&entry(account)?, value)
+            .map_err(|e| anyhow!("{STORE_NAME} could not save {account}: {e}"))?;
+        mark_own(account);
+        cache.insert(account.to_string(), Ok(Some(value.to_string()).filter(|v| !v.is_empty())));
+        Ok(())
+    }
+
+    pub fn delete(account: &str) -> Result<()> {
+        let mut cache = CACHE.lock().unwrap_or_else(|p| p.into_inner());
+        match entry(account)?.delete_credential() {
+            Ok(()) | Err(keyring::Error::NoEntry) => {}
+            Err(e) => return Err(anyhow!("{STORE_NAME} could not remove {account}: {e}")),
+        }
+        cache.insert(account.to_string(), Ok(None));
+        Ok(())
+    }
+}
+
+/// The Mac: the library folder, where the names of the Keychain items this app has made its
+/// own are listed (see `keychain`).
+#[cfg(target_os = "macos")]
+pub fn set_keychain_folder(folder: std::path::PathBuf) {
+    keychain::set_folder(folder);
 }
 #[cfg(target_os = "android")]
 impl SecretStore for SystemStore {
@@ -268,7 +391,13 @@ pub mod plugin {
     }
 
     pub fn get(plugin: &str, key: &str) -> Result<Option<String>> {
-        #[cfg(all(any(windows, target_os = "linux", target_vendor = "apple"), not(test)))]
+        #[cfg(all(target_os = "macos", not(test)))]
+        return super::keychain::get(&account(plugin, key));
+        #[cfg(all(
+            any(windows, target_os = "linux", target_vendor = "apple"),
+            not(target_os = "macos"),
+            not(test)
+        ))]
         {
             let entry = keyring::Entry::new(super::SERVICE_NAME, &account(plugin, key))
                 .map_err(|e| anyhow::anyhow!("{}: {e}", super::STORE_NAME))?;
@@ -295,7 +424,13 @@ pub mod plugin {
     }
 
     pub fn set(plugin: &str, key: &str, value: &str) -> Result<()> {
-        #[cfg(all(any(windows, target_os = "linux", target_vendor = "apple"), not(test)))]
+        #[cfg(all(target_os = "macos", not(test)))]
+        return super::keychain::set(&account(plugin, key), value);
+        #[cfg(all(
+            any(windows, target_os = "linux", target_vendor = "apple"),
+            not(target_os = "macos"),
+            not(test)
+        ))]
         {
             keyring::Entry::new(super::SERVICE_NAME, &account(plugin, key))
                 .and_then(|e| e.set_password(value))
@@ -324,7 +459,13 @@ pub mod plugin {
     }
 
     pub fn delete(plugin: &str, key: &str) -> Result<()> {
-        #[cfg(all(any(windows, target_os = "linux", target_vendor = "apple"), not(test)))]
+        #[cfg(all(target_os = "macos", not(test)))]
+        return super::keychain::delete(&account(plugin, key));
+        #[cfg(all(
+            any(windows, target_os = "linux", target_vendor = "apple"),
+            not(target_os = "macos"),
+            not(test)
+        ))]
         {
             let entry = keyring::Entry::new(super::SERVICE_NAME, &account(plugin, key))
                 .map_err(|e| anyhow::anyhow!("{}: {e}", super::STORE_NAME))?;

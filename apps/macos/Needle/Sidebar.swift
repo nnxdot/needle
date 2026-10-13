@@ -89,8 +89,6 @@ struct Sidebar: View {
         .listStyle(.sidebar)
         .tint(store.colors.accent)
         .listItemTint(.fixed(store.colors.accent))
-        .scrollContentBackground(store.glass ? .automatic : .hidden)
-        .background { if !store.glass { store.colors.chrome.ignoresSafeArea() } }
         .safeAreaInset(edge: .bottom, spacing: 0) { footer(rail: rail) }
     }
 
@@ -123,7 +121,7 @@ struct Sidebar: View {
                 }
                 .padding(10)
                 .frame(maxWidth: .infinity, alignment: .leading)
-                .pane(RoundedRectangle(cornerRadius: 10), glass: store.glass, fill: store.colors.raised)
+                .pane(RoundedRectangle(cornerRadius: 10))
                 .padding(.bottom, 4)
             }
             footerButton("Add music folder", "folder.badge.plus", rail) { store.addFolder() }

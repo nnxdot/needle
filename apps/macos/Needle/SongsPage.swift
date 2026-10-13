@@ -52,7 +52,7 @@ final class SongsModel {
                 error = nil
             }
         case .failure(let failure):
-            error = failure.localizedDescription
+            error = failure.message
         }
     }
 }

@@ -68,7 +68,7 @@ struct CommandPalette: View {
                 .padding(.vertical, 8)
             }
             .frame(width: 620)
-            .pane(RoundedRectangle(cornerRadius: 20, style: .continuous), glass: true)
+            .pane(RoundedRectangle(cornerRadius: 20, style: .continuous))
             .shadow(color: .black.opacity(0.3), radius: 30, y: 12)
             .padding(.top, 90)
         }
