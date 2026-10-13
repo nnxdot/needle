@@ -1,28 +1,77 @@
+import ActivityKit
 import AVFoundation
 import MediaPlayer
 import Observation
 import SwiftUI
 import UIKit
+import WidgetKit
 
-/// Holds Needle's core for the whole app: the screens, the lock screen, and Control Center
-/// share it. What plays is read from the core a few times a second.
+/// Holds Needle's core for the whole app: the screens, the lock screen, Control Center, the
+/// widgets, and Siri share it. What plays is read from the core a few times a second.
 @MainActor @Observable
 final class Store {
     let core: Needle
     /// Needle's folder in the Files app ("On My iPhone › Needle"): the music Needle reads.
     let musicFolder: URL
+    /// Needle's own files (the library, covers, logs), out of the Files app's sight.
+    let dataFolder: URL
 
+    /// What plays: on this phone, or on the computer while the phone shows that.
     private(set) var playback: Playback?
+    /// What Needle on the computer plays, while connected to it.
+    private(set) var pc: PcState?
+    /// The player shows (and works) the computer's song: the phone plays nothing, and the
+    /// computer does (or the phone has nothing of its own to show).
+    private(set) var onComputer = false
     private(set) var scan = ScanStatus(running: false, scanned: 0, imported: 0, current: "", error: nil)
     /// Changes whenever the library may have changed (a scan finished), so lists load again.
     private(set) var libraryVersion = 0
-    /// A short message to show at the bottom of the screen.
+    /// The app's own look and behaviour (Settings › Appearance).
+    private(set) var app: AppSettings
+    /// Themes made in the app or added from files.
+    private(set) var themes: [ThemeInfo] = []
+    /// The playing cover's main colour.
+    private(set) var coverColor: Color?
+    /// The songs up next, read again whenever the queue changes.
+    private(set) var upNext: [Song] = []
+    /// When the sleep timer pauses the music; `.distantFuture` for "at the end of the song".
+    private(set) var sleepEnds: Date?
+    /// A short message to show at the top of the screen.
     var message: String?
     /// A plugin's question, answered with text.
     var question: Question?
     var showPlayer = false
-    /// The songs up next, read again whenever the queue changes.
-    private(set) var upNext: [Song] = []
+    /// A page to open, from a widget or a link.
+    var opening: Route?
+    /// A sheet over everything: adding to a playlist, tags, identifying, lyrics timing.
+    var sheet: Sheet?
+    /// Plugin commands that act on chosen songs, for the songs' menus.
+    private(set) var songCommands: [SongCommand] = []
+
+    enum Sheet: Identifiable {
+        case addToPlaylist([Song])
+        case tags([String])
+        case identify(String)
+        case timing(Song)
+        case speakers
+
+        var id: String {
+            switch self {
+            case .addToPlaylist(let songs): "add" + songs.map(\.id).joined()
+            case .tags(let ids): "tags" + ids.joined()
+            case .identify(let id): "identify" + id
+            case .timing(let song): "timing" + song.id
+            case .speakers: "speakers"
+            }
+        }
+    }
+
+    struct SongCommand: Identifiable {
+        let plugin: String
+        let pluginName: String
+        let command: PluginCommand
+        var id: String { plugin + "/" + command.id }
+    }
 
     struct Question: Identifiable {
         let id: UInt64
@@ -37,12 +86,20 @@ final class Store {
     @ObservationIgnored private var shownSong: String?
     @ObservationIgnored private var shownArtwork: MPMediaItemArtwork?
     @ObservationIgnored private var ticks = 0
+    @ObservationIgnored private var resumeAfterInterruption = false
+    @ObservationIgnored private var local: Playback?
+    @ObservationIgnored private var colorFor: String?
+    @ObservationIgnored private var sleepSong: String?
+    @ObservationIgnored private var sleepActivity: Activity<NeedleActivity>?
+    @ObservationIgnored private var syncActivity: Activity<NeedleActivity>?
+    @ObservationIgnored private var widgetSong: (String?, Bool) = (nil, false)
 
     init() {
         let files = FileManager.default
         let support = files.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
             .appendingPathComponent("Needle", isDirectory: true)
         try? files.createDirectory(at: support, withIntermediateDirectories: true)
+        dataFolder = support
         musicFolder = files.urls(for: .documentDirectory, in: .userDomainMask)[0]
         // The app's folder can move when it is updated: the library's paths move with it.
         let home = NSHomeDirectory()
@@ -56,8 +113,11 @@ final class Store {
         } catch {
             fatalError("Needle could not open its library: \(error)")
         }
+        app = core.appSettings()
+        themes = core.themes()
         startAudio()
         startRemoteCommands()
+        Actions.handler = { [weak self] action in self?.perform(action) }
         let folder = musicFolder.path
         let core = core
         Task.detached {
@@ -66,6 +126,7 @@ final class Store {
                 try? core.addFolder(path: folder)
             }
             _ = core.sendCrashReports()
+            _ = core.reconnectPc()
             #if DEBUG
             // For testing in the simulator from a shell: plays the whole library at start.
             if CommandLine.arguments.contains("-play-test") {
@@ -79,24 +140,37 @@ final class Store {
         timer = Timer.scheduledTimer(withTimeInterval: 0.25, repeats: true) { [weak self] _ in
             MainActor.assumeIsolated { self?.tick() }
         }
+        followComputer()
+        refreshPlugins()
+        Task { await updateWidgets(library: true) }
     }
 
     // MARK: - Following the core
 
     private func tick() {
         let now = core.playback()
-        if now != playback { playback = now }
-        if now.queueVersion != queueVersion {
-            queueVersion = now.queueVersion
-            upNext = core.upNext()
+        local = now
+        let shown = showComputer(now)
+        if shown != onComputer { onComputer = shown }
+        let next = shown ? pc.map(Self.playback(of:)) ?? now : now
+        if next != playback { playback = next }
+        if next.queueVersion != queueVersion {
+            queueVersion = next.queueVersion
+            upNext = shown ? (pc?.upNext ?? []).map(Self.song(of:)) : core.upNext()
         }
         updateNowPlaying(now)
+        followSleep(now)
+        if next.current?.artwork != colorFor { colorFor = next.current?.artwork; findCoverColor(next.current?.artwork) }
+        if (now.current?.id, now.playing) != widgetSong {
+            widgetSong = (now.current?.id, now.playing)
+            Task { await updateWidgets(library: false) }
+        }
         ticks += 1
-        // The rest changes slowly: four times a second is more than enough for the playing song.
+        // The rest changes slowly: twice a second is enough.
         guard ticks % 2 == 0 else { return }
         let status = core.scanStatus()
         if status != scan { scan = status }
-        if wasScanning && !status.running { libraryVersion += 1 }
+        if wasScanning && !status.running { libraryChanged() }
         wasScanning = status.running
         for notice in core.takeNotices() {
             switch notice {
@@ -105,7 +179,49 @@ final class Store {
                 // Plugins that ask for a file are desktop plugins: a phone has nothing to give.
                 if file { core.answer(id: id, text: nil, file: nil) }
                 else { question = Question(id: id, title: title, prompt: prompt, answer: value) }
-            case .libraryChanged: libraryVersion += 1
+            case .libraryChanged: libraryChanged()
+            }
+        }
+        if ticks % 8 == 0 { followSync() }
+    }
+
+    func libraryChanged() {
+        libraryVersion += 1
+        refreshPlugins()
+        Task { await updateWidgets(library: true) }
+    }
+
+    func refreshPlugins() {
+        Task {
+            let all = await load { $0.plugins() } ?? []
+            songCommands = all.filter(\.enabled).flatMap { p in
+                p.commands.filter(\.forSongs).map { SongCommand(plugin: p.id, pluginName: p.name, command: $0) }
+            }
+        }
+    }
+
+    func runCommand(_ command: SongCommand, on songs: [Song]) {
+        core.runPluginCommand(plugin: command.plugin, command: command.command.id, songs: songs.map(\.id))
+    }
+
+    /// Downloads songs from a music server to play without a connection, or lets them go.
+    func keepOffline(_ songs: [Song], keep: Bool) {
+        let ids = songs.map(\.id)
+        Task {
+            if let changed = await ask({ try $0.keepOffline(ids: ids, keep: keep) }) {
+                message = keep ? "Keeping \(count(Int(changed), "song")) offline" : "Let go of \(count(Int(changed), "song"))"
+            }
+        }
+    }
+
+    /// Saves songs from a music server as files in Needle's folder, as the phone's own.
+    func saveToPhone(_ songs: [Song]) {
+        let (ids, folder) = (songs.map(\.id), musicFolder.path)
+        message = "Saving to this iPhone…"
+        Task {
+            if let saved = await ask({ try $0.saveToMusic(ids: ids, folder: folder) }) {
+                message = "Saved \(count(Int(saved), "song")) to this iPhone"
+                rescan()
             }
         }
     }
@@ -125,10 +241,34 @@ final class Store {
         }
     }
 
+    /// Runs `work` away from the screen and gives back its result, or shows its error.
+    func ask<T: Sendable>(_ work: @escaping @Sendable (Needle) throws -> T) async -> T? {
+        let core = core
+        let result = await Task.detached { Result { try work(core) } }.value
+        switch result {
+        case .success(let value): return value
+        case .failure(let error): message = error.localizedDescription; return nil
+        }
+    }
+
     /// Reads a value away from the screen.
     nonisolated func load<T: Sendable>(_ work: @escaping @Sendable (Needle) throws -> T) async -> T? {
         let core = core
         return await Task.detached { try? work(core) }.value
+    }
+
+    // MARK: - Settings
+
+    func updateApp(_ change: (inout AppSettings) -> Void) {
+        var next = app
+        change(&next)
+        app = next
+        let saved = next
+        run { try $0.setAppSettings(value: saved) }
+    }
+
+    func reloadThemes() {
+        themes = core.themes()
     }
 
     // MARK: - Playback
@@ -136,21 +276,32 @@ final class Store {
     func play(_ songs: [Song], from start: Int = 0) {
         let ids = songs.map(\.id)
         run { try $0.play(ids: ids, start: UInt32(start)) }
+        played()
     }
 
     func shufflePlay(_ songs: [Song]) {
         guard !songs.isEmpty else { return }
         let ids = songs.map(\.id).shuffled()
         run { try $0.play(ids: ids, start: 0) }
+        played()
     }
 
     func playAlbum(_ album: Album, shuffled: Bool = false) {
-        let key = album.key
+        playAlbum(key: album.key, shuffled: shuffled)
+    }
+
+    func playAlbum(key: String, shuffled: Bool = false) {
         run { core in
             var ids = try core.albumSongs(key: key).map(\.id)
             if shuffled { ids.shuffle() }
             try core.play(ids: ids, start: 0)
         }
+        played()
+    }
+
+    /// Opens the player when a song is chosen, if that is on.
+    private func played() {
+        if app.openPlayerOnPlay { showPlayer = true }
     }
 
     func playNext(_ songs: [Song]) {
@@ -165,12 +316,34 @@ final class Store {
         message = "Added to the queue"
     }
 
-    func toggle() { core.toggle() }
-    func next() { core.next() }
-    func previous() { core.previous() }
-    func seek(_ seconds: Double) { core.seek(seconds: seconds) }
-    func jump(_ index: Int) { core.jump(index: UInt32(index)) }
-    func shuffle() { core.shuffle(); message = "Up next shuffled" }
+    func toggle() { onComputer ? computer { try $0.pcDo(action: "toggle") } : core.toggle() }
+    func next() { onComputer ? computer { try $0.pcDo(action: "next") } : core.next() }
+    func previous() { onComputer ? computer { try $0.pcDo(action: "previous") } : core.previous() }
+
+    func seek(_ seconds: Double) {
+        onComputer ? computer { try $0.pcSeek(seconds: seconds) } : core.seek(seconds: seconds)
+    }
+
+    /// Goes back or on by `seconds` in the song.
+    func jumpBy(_ seconds: Double) {
+        guard let p = playback else { return }
+        seek(min(max(0, p.position + seconds), max(0, (p.current?.duration ?? 0) - 1)))
+    }
+
+    func jump(_ index: Int) {
+        if onComputer {
+            guard index < upNext.count else { return }
+            let id = String(upNext[index].id.dropFirst(Self.pcPrefix.count))
+            computer { try $0.pcJump(index: UInt32(index), id: id) }
+        } else {
+            core.jump(index: UInt32(index))
+        }
+    }
+
+    func shuffle() {
+        onComputer ? computer { try $0.pcDo(action: "shuffle") } : core.shuffle()
+        message = "Up next shuffled"
+    }
 
     func cycleRepeat() {
         let next: RepeatMode = switch playback?.repeat ?? .off {
@@ -178,7 +351,177 @@ final class Store {
         case .all: .one
         case .one: .off
         }
-        core.setRepeat(mode: next)
+        if onComputer {
+            let mode = switch next { case .off: "off"; case .all: "all"; case .one: "one" }
+            computer { try $0.pcRepeat(mode: mode) }
+        } else {
+            core.setRepeat(mode: next)
+        }
+    }
+
+    /// The computer's volume, 0 to 1.
+    func setComputerVolume(_ value: Float) {
+        computer { try $0.pcVolume(value: value) }
+    }
+
+    private func perform(_ action: Action) {
+        switch action {
+        case .toggle: toggle()
+        case .next: next()
+        case .previous: previous()
+        case .playAlbum(let key): playAlbum(key: key)
+        case .playPlaylist(let id):
+            run { core in
+                let ids = try core.playlistSongs(id: id).map(\.id)
+                try core.play(ids: ids, start: 0)
+            }
+        case .favourites:
+            run { core in
+                let ids = try core.favorites().map(\.id).shuffled()
+                guard !ids.isEmpty else { throw NeedleError.Failed(message: "No favourites yet") }
+                try core.play(ids: ids, start: 0)
+            }
+        case .radio:
+            run { core in
+                // From the song played most, or any song when nothing has played yet.
+                let top = try core.stats(days: 30).topSongs.compactMap(\.songId).first
+                let any = try core.songs().randomElement()?.id
+                guard let id = top ?? any else {
+                    throw NeedleError.Failed(message: "Add music first")
+                }
+                try core.startRadio(id: id)
+            }
+        }
+    }
+
+    /// Opens a link from a widget, Siri, or another app: `needle://album?id=…` and so on, or a
+    /// music file.
+    func open(_ url: URL) {
+        guard url.scheme == "needle" else { return openFile(url) }
+        let id = URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems?.first { $0.name == "id" }?.value ?? ""
+        switch url.host {
+        case "player": if playback?.current != nil { showPlayer = true }
+        case "stats": opening = .stats
+        case "album":
+            Task {
+                if let album = await load({ try $0.albums().first { $0.key == id } }) ?? nil { opening = .album(album) }
+            }
+        case "playlist":
+            Task {
+                if let playlist = await load({ try $0.playlists().first { $0.id == id } }) ?? nil { opening = .playlist(playlist) }
+            }
+        default: break
+        }
+    }
+
+    // MARK: - Needle on the computer
+
+    nonisolated static let pcPrefix = "pc:"
+
+    static func song(of pc: PcSong) -> Song {
+        Song(id: pcPrefix + pc.id, title: pc.title, artist: pc.artist, album: pc.album, duration: pc.duration,
+             trackNumber: 0, format: pc.format, artwork: pc.cover, rating: 0)
+    }
+
+    static func playback(of pc: PcState) -> Playback {
+        var hasher = Hasher()
+        hasher.combine(pc.current?.id)
+        pc.upNext.forEach { hasher.combine($0.id) }
+        let repeatMode: RepeatMode = switch pc.repeat { case "all": .all; case "one": .one; default: .off }
+        return Playback(current: pc.current.map(song(of:)), playing: pc.playing, position: pc.position, volume: pc.volume,
+                        repeat: repeatMode, upNext: UInt32(pc.upNext.count),
+                        queueVersion: UInt64(bitPattern: Int64(hasher.finalize())), loading: false, error: nil)
+    }
+
+    private func showComputer(_ local: Playback) -> Bool {
+        guard let pc, pc.current != nil, !local.playing else { return false }
+        // Once shown, the computer's player stays while nothing plays here, so pausing the
+        // computer does not swap it for the phone's paused song.
+        return pc.playing || local.current == nil || onComputer
+    }
+
+    private func followComputer() {
+        let core = core
+        Task { [weak self] in
+            while true {
+                let heard = await Task.detached { core.pcConnected() ? try? core.pcState() : nil }.value
+                guard let self else { return }
+                if heard != self.pc { self.pc = heard }
+                try? await Task.sleep(for: .milliseconds(self.onComputer ? 700 : 1500))
+            }
+        }
+    }
+
+    private func computer(_ work: @escaping @Sendable (Needle) throws -> Void) {
+        let core = core
+        Task.detached {
+            do { try work(core) } catch {
+                await MainActor.run { self.message = "Your computer did not answer" }
+            }
+        }
+    }
+
+    // MARK: - Sleep timer
+
+    /// Pauses the music after `minutes`, or at the end of the song with `0`; nil turns it off.
+    func setSleep(minutes: Int?) {
+        if let activity = sleepActivity { Task { await activity.end(nil, dismissalPolicy: .immediate) } }
+        sleepActivity = nil
+        guard let minutes else { sleepEnds = nil; sleepSong = nil; message = "Sleep timer off"; return }
+        if minutes == 0 {
+            sleepEnds = .distantFuture
+            sleepSong = local?.current?.id
+            message = "Music pauses after this song"
+        } else {
+            sleepEnds = Date().addingTimeInterval(TimeInterval(minutes * 60))
+            sleepSong = nil
+            message = "Music pauses in \(minutes) minutes"
+        }
+        if ActivityAuthorizationInfo().areActivitiesEnabled {
+            let state = NeedleActivity.ContentState(
+                title: "Sleep timer",
+                detail: minutes == 0 ? "Pauses after this song" : "The music pauses then",
+                ends: minutes == 0 ? nil : sleepEnds, progress: nil)
+            sleepActivity = try? Activity.request(attributes: NeedleActivity(kind: "sleep"), content: .init(state: state, staleDate: sleepEnds))
+        }
+    }
+
+    private func followSleep(_ now: Playback) {
+        guard let ends = sleepEnds else { return }
+        let songEnded = sleepSong != nil && now.current?.id != sleepSong
+        if Date() >= ends || songEnded {
+            if now.playing { core.toggle() }
+            sleepEnds = nil
+            sleepSong = nil
+            if let activity = sleepActivity { Task { await activity.end(nil, dismissalPolicy: .immediate) } }
+            sleepActivity = nil
+        }
+    }
+
+    // MARK: - A server's songs coming in, as a Live Activity
+
+    private func followSync() {
+        let syncing = core.plugins().compactMap { item -> (String, MusicSource)? in
+            guard let source = item.source, source.syncing else { return nil }
+            return (item.name, source)
+        }.first
+        if let (name, source) = syncing {
+            let state = NeedleActivity.ContentState(
+                title: "Bringing in songs from \(name)",
+                detail: source.received > 0 ? "\(source.received.formatted()) songs so far" : "Asking the server…",
+                ends: nil, progress: nil)
+            if let activity = syncActivity {
+                Task { await activity.update(.init(state: state, staleDate: nil)) }
+            } else if ActivityAuthorizationInfo().areActivitiesEnabled {
+                syncActivity = try? Activity.request(attributes: NeedleActivity(kind: "sync"), content: .init(state: state, staleDate: nil))
+            }
+        } else if let activity = syncActivity {
+            syncActivity = nil
+            Task {
+                await activity.end(.init(state: .init(title: "Songs brought in", detail: "", ends: nil, progress: 1), staleDate: nil),
+                                   dismissalPolicy: .after(.now + 5))
+            }
+        }
     }
 
     // MARK: - Music files
@@ -209,8 +552,17 @@ final class Store {
         }
     }
 
+    /// A copy of a file chosen in the Files app, in a temporary folder, for the core to read.
+    nonisolated func copyIn(_ url: URL) -> String? {
+        let scoped = url.startAccessingSecurityScopedResource()
+        defer { if scoped { url.stopAccessingSecurityScopedResource() } }
+        let target = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString + "-" + url.lastPathComponent)
+        guard (try? FileManager.default.copyItem(at: url, to: target)) != nil else { return nil }
+        return target.path
+    }
+
     /// Plays a music file opened from another app (Files, Mail, a browser).
-    func open(_ url: URL) {
+    private func openFile(_ url: URL) {
         let target = musicFolder.appendingPathComponent("Inbox", isDirectory: true)
         let core = core
         Task.detached {
@@ -227,12 +579,12 @@ final class Store {
             let song = try? core.openFile(path: path)
             await MainActor.run {
                 if song == nil { self.message = "Needle cannot play this file" }
-                self.libraryVersion += 1
+                self.libraryChanged()
             }
         }
     }
 
-    nonisolated private static func freeName(for name: String, in folder: URL) -> URL {
+    nonisolated static func freeName(for name: String, in folder: URL) -> URL {
         var url = folder.appendingPathComponent(name)
         let base = url.deletingPathExtension().lastPathComponent
         let ext = url.pathExtension
@@ -245,6 +597,80 @@ final class Store {
     }
 
     func rescan() { core.rescan() }
+
+    // MARK: - The cover's colour
+
+    private func findCoverColor(_ path: String?) {
+        guard let path else { coverColor = nil; return }
+        Task {
+            let image = await Covers.load(path, size: 40)
+            let color = await Task.detached { image.flatMap(Self.mainColor(of:)) }.value
+            if colorFor == path { withAnimation(.easeInOut(duration: 0.8)) { coverColor = color } }
+        }
+    }
+
+    /// The average colour of a picture, made bright enough to read as a colour on a dark page.
+    nonisolated private static func mainColor(of image: UIImage) -> Color? {
+        guard let cg = image.cgImage else { return nil }
+        var pixel = [UInt8](repeating: 0, count: 4)
+        guard let context = CGContext(data: &pixel, width: 1, height: 1, bitsPerComponent: 8, bytesPerRow: 4,
+                                      space: CGColorSpaceCreateDeviceRGB(),
+                                      bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else { return nil }
+        context.interpolationQuality = .medium
+        context.draw(cg, in: CGRect(x: 0, y: 0, width: 1, height: 1))
+        let ui = UIColor(red: CGFloat(pixel[0]) / 255, green: CGFloat(pixel[1]) / 255, blue: CGFloat(pixel[2]) / 255, alpha: 1)
+        var h: CGFloat = 0, s: CGFloat = 0, b: CGFloat = 0, a: CGFloat = 0
+        ui.getHue(&h, saturation: &s, brightness: &b, alpha: &a)
+        return Color(hue: h, saturation: min(1, s * 1.25), brightness: max(0.55, min(0.9, b * 1.2)))
+    }
+
+    // MARK: - Widgets
+
+    private func updateWidgets(library: Bool) async {
+        guard let folder = Snapshot.folder else { return }
+        var snapshot = Snapshot.load()
+        let now = local
+        snapshot.title = now?.current?.title
+        snapshot.artist = now?.current?.artist
+        snapshot.album = now?.current?.album
+        snapshot.playing = now?.playing ?? false
+        snapshot.cover = await Self.shareCover(now?.current?.artwork, in: folder)
+        if library {
+            let home = await load { try $0.home() }
+            let playlists = await load { try $0.playlists() } ?? []
+            let week = await load { try $0.stats(days: 7) }
+            var recent: [Snapshot.Item] = []
+            for album in (home?.recent ?? home?.added ?? []).prefix(4) {
+                recent.append(.init(id: album.key, title: album.title, detail: album.artist,
+                                    cover: await Self.shareCover(album.artwork, in: folder)))
+            }
+            snapshot.recent = recent
+            var lists: [Snapshot.Item] = []
+            for playlist in playlists.prefix(4) {
+                lists.append(.init(id: playlist.id, title: playlist.name, detail: count(Int(playlist.songs), "song"),
+                                   cover: await Self.shareCover(playlist.artwork, in: folder)))
+            }
+            snapshot.playlists = lists
+            snapshot.weekSeconds = week?.seconds ?? 0
+            snapshot.weekSongs = Int(week?.songs ?? 0)
+            snapshot.topArtist = week?.topArtists.first?.title
+        }
+        snapshot.save()
+        WidgetCenter.shared.reloadAllTimelines()
+    }
+
+    /// A small copy of a cover in the folder the widgets can read; its file name.
+    private static func shareCover(_ path: String?, in folder: URL) async -> String? {
+        guard let path else { return nil }
+        var hasher = Hasher()
+        hasher.combine(path)
+        let name = "cover-\(UInt64(bitPattern: Int64(hasher.finalize()))).jpg"
+        let url = folder.appendingPathComponent(name)
+        if FileManager.default.fileExists(atPath: url.path) { return name }
+        guard let image = await Covers.load(path, size: 300), let data = image.jpegData(compressionQuality: 0.8) else { return nil }
+        try? data.write(to: url)
+        return name
+    }
 
     // MARK: - The phone's audio, lock screen, and Control Center
 
@@ -262,10 +688,10 @@ final class Store {
                 guard let self else { return }
                 switch kind {
                 case .began:
-                    if self.playback?.playing == true { self.resumeAfterInterruption = true; self.core.toggle() }
+                    if self.local?.playing == true { self.resumeAfterInterruption = true; self.core.toggle() }
                 case .ended:
                     try? AVAudioSession.sharedInstance().setActive(true)
-                    if self.resumeAfterInterruption, options?.contains(.shouldResume) == true, self.playback?.playing == false {
+                    if self.resumeAfterInterruption, options?.contains(.shouldResume) == true, self.local?.playing == false {
                         self.core.toggle()
                     }
                     self.resumeAfterInterruption = false
@@ -277,23 +703,21 @@ final class Store {
         center.addObserver(forName: AVAudioSession.routeChangeNotification, object: nil, queue: .main) { [weak self] note in
             let reason = (note.userInfo?[AVAudioSessionRouteChangeReasonKey] as? UInt).flatMap(AVAudioSession.RouteChangeReason.init)
             MainActor.assumeIsolated {
-                guard let self, reason == .oldDeviceUnavailable, self.playback?.playing == true else { return }
+                guard let self, reason == .oldDeviceUnavailable, self.local?.playing == true else { return }
                 self.core.toggle()
             }
         }
     }
 
-    @ObservationIgnored private var resumeAfterInterruption = false
-
     private func startRemoteCommands() {
         let commands = MPRemoteCommandCenter.shared()
         let core = core
         commands.playCommand.addTarget { [weak self] _ in
-            MainActor.assumeIsolated { if self?.playback?.playing != true { core.toggle() } }
+            MainActor.assumeIsolated { if self?.local?.playing != true { core.toggle() } }
             return .success
         }
         commands.pauseCommand.addTarget { [weak self] _ in
-            MainActor.assumeIsolated { if self?.playback?.playing == true { core.toggle() } }
+            MainActor.assumeIsolated { if self?.local?.playing == true { core.toggle() } }
             return .success
         }
         commands.togglePlayPauseCommand.addTarget { _ in core.toggle(); return .success }

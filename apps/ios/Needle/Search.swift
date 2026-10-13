@@ -9,16 +9,37 @@ struct SearchView: View {
     @State private var albums: [Album] = []
     @State private var artists: [Artist] = []
     @State private var genres: [Genre] = []
+    @State private var hints: [Suggestion] = []
+    @State private var server: [Song] = []
+    @State private var generation: UInt64 = 0
 
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 0) {
+                if !hints.isEmpty {
+                    ScrollView(.horizontal) {
+                        HStack {
+                            ForEach(Array(hints.prefix(10).enumerated()), id: \.offset) { _, hint in
+                                Button { query = apply(hint, to: query) } label: {
+                                    VStack(alignment: .leading, spacing: 0) {
+                                        Text(hint.label).font(.subheadline.weight(.medium))
+                                        if !hint.detail.isEmpty { Text(hint.detail).font(.caption2).foregroundStyle(.secondary) }
+                                    }
+                                }
+                                .buttonStyle(.glass)
+                            }
+                        }
+                        .padding(.horizontal)
+                    }
+                    .scrollIndicators(.hidden)
+                    .padding(.top, 8)
+                }
                 if query.trimmingCharacters(in: .whitespaces).isEmpty {
                     if !genres.isEmpty {
                         SectionTitle(title: "Browse").padding(.bottom, 10)
                         GenreTiles(genres: genres)
                     }
-                } else if songs.isEmpty && albums.isEmpty && artists.isEmpty {
+                } else if songs.isEmpty && albums.isEmpty && artists.isEmpty && server.isEmpty {
                     ContentUnavailableView.search(text: query).padding(.top, 60)
                 } else {
                     results
@@ -27,11 +48,14 @@ struct SearchView: View {
             .padding(.bottom, 24)
         }
         .navigationTitle("Search")
+        .themed()
         .searchable(text: $query, prompt: "Songs, albums, artists")
         .task(id: store.libraryVersion) { genres = await store.load { try $0.genres() } ?? [] }
         .task(id: query) {
             let words = query.trimmingCharacters(in: .whitespaces)
-            guard !words.isEmpty else { songs = []; albums = []; artists = []; return }
+            let typed = query
+            hints = await store.load { $0.suggest(input: typed, cursor: UInt32(typed.utf16.count)) } ?? []
+            guard !words.isEmpty else { songs = []; albums = []; artists = []; server = []; return }
             try? await Task.sleep(for: .milliseconds(220))
             guard !Task.isCancelled else { return }
             async let foundSongs = store.load { try $0.search(query: words) }
@@ -46,6 +70,16 @@ struct SearchView: View {
             songs = s ?? []
             albums = Array((a ?? []).prefix(20))
             artists = Array((r ?? []).prefix(10))
+            // Music servers that search as you type (an experimental switch on the server).
+            let asked = await store.load { $0.searchServers(query: words) } ?? 0
+            generation = asked
+            server = []
+            for _ in 0..<12 where asked > 0 {
+                try? await Task.sleep(for: .milliseconds(500))
+                guard !Task.isCancelled else { return }
+                let heard = await store.load { $0.serverResults(generation: asked) } ?? []
+                if !heard.isEmpty { server = heard; break }
+            }
         }
     }
 
@@ -72,6 +106,16 @@ struct SearchView: View {
             Shelf {
                 ForEach(albums) { AlbumTile(album: $0) }
             }
+        }
+        if !server.isEmpty {
+            SectionTitle(title: "On your server")
+            LazyVStack(spacing: 10) {
+                ForEach(Array(server.prefix(30).enumerated()), id: \.element.id) { i, song in
+                    SongRow(song: song) { let g = generation; store.core.playServerSongs(generation: g, start: UInt32(i)) }
+                }
+            }
+            .padding(.horizontal)
+            .padding(.top, 8)
         }
         if !songs.isEmpty {
             SectionTitle(title: "Songs")

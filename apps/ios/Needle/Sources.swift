@@ -54,6 +54,7 @@ struct SourcesView: View {
             .padding(.bottom, 24)
         }
         .navigationTitle("Sources")
+        .themed()
         .fileImporter(isPresented: $importing, allowedContentTypes: [.audio, .folder], allowsMultipleSelection: true) { result in
             if case .success(let urls) = result { store.importFiles(urls) }
         }
@@ -183,6 +184,7 @@ struct ServerView: View {
     let plugin: String
     @State private var item: PluginItem?
     @State private var fields: [String: String] = [:]
+    @State private var kept: [UInt64] = []
 
     var body: some View {
         Form {
@@ -200,6 +202,9 @@ struct ServerView: View {
                             }
                         } else if source.coversLeft > 0 {
                             Text("Bringing in covers… \(count(Int(source.coversLeft), "cover")) to go")
+                        }
+                        if kept.count == 2, kept[0] > 0 {
+                            LabeledContent("Kept offline", value: "\(count(Int(kept[0]), "song")), \(ByteCountFormatter.string(fromByteCount: Int64(kept[1]), countStyle: .file))")
                         }
                         Button("Bring in songs again") { store.core.sourceSync(plugin: plugin) }.disabled(source.syncing)
                         Button("Sign out", role: .destructive) { store.core.sourceSignOut(plugin: plugin) }
@@ -240,135 +245,15 @@ struct ServerView: View {
                 }
             }
         }
-        .scrollContentBackground(.hidden)
         .navigationTitle(item?.name ?? "Server")
+        .themed()
         .task {
             while !Task.isCancelled {
                 let id = plugin
                 item = await store.load { $0.plugins().first { $0.id == id } } ?? nil
+                kept = await store.load { $0.keptUsage(plugin: id) } ?? []
                 try? await Task.sleep(for: .seconds(1))
             }
-        }
-    }
-}
-
-/// Needle on a computer: connect with the phone remote's address, see what it plays, play its
-/// music here, and move what plays from one to the other.
-struct ComputerView: View {
-    @Environment(Store.self) private var store
-    @State private var connected = false
-    @State private var link = ""
-    @State private var busy = false
-    @State private var state: PcState?
-
-    var body: some View {
-        Form {
-            if !connected {
-                Section {
-                    TextField("http://192.168.1.5:47380/r/…", text: $link)
-                        .textInputAutocapitalization(.never)
-                        .autocorrectionDisabled()
-                        .keyboardType(.URL)
-                    Button("Paste") { link = UIPasteboard.general.string ?? link }
-                    Button("Connect") { connect() }.disabled(busy || link.isEmpty)
-                } footer: {
-                    Text("On the computer, turn on the phone remote in Settings › Playback. Copy the address under its QR code, or scan the code with the Camera, then paste it here. Both need to be on the same network.")
-                }
-            } else {
-                if let song = state?.current {
-                    Section(state?.playing == true ? "Playing on the computer" : "Paused on the computer") {
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text(song.title).font(.headline)
-                            Text(song.artist).foregroundStyle(.secondary)
-                        }
-                        HStack(spacing: 24) {
-                            Spacer()
-                            Button { pc("previous") } label: { Image(systemName: "backward.fill") }
-                            Button { pc("toggle") } label: { Image(systemName: state?.playing == true ? "pause.fill" : "play.fill") }
-                            Button { pc("next") } label: { Image(systemName: "forward.fill") }
-                            Spacer()
-                        }
-                        .font(.title2)
-                        .buttonStyle(.borderless)
-                    }
-                }
-                Section {
-                    Button("Play here", systemImage: "iphone") {
-                        store.run { core in
-                            let moved = try core.moveFromPc()
-                            Task { @MainActor in store.message = moved ? "Playing here now" : "Nothing plays on the computer" }
-                        }
-                    }
-                    Button("Move to the computer", systemImage: "laptopcomputer") {
-                        store.run { core in
-                            let missing = try core.moveToPc()
-                            Task { @MainActor in
-                                store.message = missing > 0 ? "\(count(Int(missing), "song")) are not on the computer" : "Playing on the computer now"
-                            }
-                        }
-                    }
-                }
-                Section {
-                    Button("Disconnect", role: .destructive) { store.core.disconnectPc(); connected = false }
-                }
-            }
-        }
-        .scrollContentBackground(.hidden)
-        .navigationTitle("Your computer")
-        .task {
-            connected = await store.load { $0.pcConnected() || $0.reconnectPc() } ?? false
-            while !Task.isCancelled {
-                if connected { state = await store.load { try $0.pcState() } }
-                try? await Task.sleep(for: .seconds(1))
-            }
-        }
-    }
-
-    private func connect() {
-        busy = true
-        let address = link.trimmingCharacters(in: .whitespacesAndNewlines)
-        Task {
-            let core = store.core
-            let result = await Task.detached { Result { try core.connectPc(link: address) } }.value
-            busy = false
-            switch result {
-            case .success: connected = true; store.message = "Connected to Needle on your computer"
-            case .failure(let error): store.message = error.localizedDescription
-            }
-        }
-    }
-
-    private func pc(_ action: String) {
-        store.run { try $0.pcDo(action: action) }
-    }
-}
-
-/// Needle's version and crash reports.
-struct SettingsView: View {
-    @Environment(Store.self) private var store
-    @State private var crashReports = false
-
-    var body: some View {
-        Form {
-            Section {
-                Toggle("Send crash reports", isOn: Binding(get: { crashReports }, set: { on in
-                    crashReports = on
-                    store.run { try $0.setCrashReports(on: on) }
-                }))
-            } footer: {
-                Text("When Needle stops by mistake, it sends what went wrong (no music, names, or files) the next time it opens.")
-            }
-            Section {
-                Button("Read the music folder again") { store.rescan() }
-            }
-            Section {
-                LabeledContent("Version", value: store.core.version())
-            }
-        }
-        .scrollContentBackground(.hidden)
-        .navigationTitle("Settings")
-        .task {
-            crashReports = await store.load { $0.crashReports() } ?? false
         }
     }
 }

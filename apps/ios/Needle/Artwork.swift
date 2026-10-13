@@ -17,9 +17,20 @@ enum Covers {
 
     static func load(_ path: String, size: Int) async -> UIImage? {
         if let hit = cached(path, size: size) { return hit }
-        return await Task.detached(priority: .userInitiated) {
-            let url = URL(fileURLWithPath: path) as CFURL
-            guard let source = CGImageSourceCreateWithURL(url, nil) else { return nil }
+        // Covers of songs on the computer come over the home network.
+        var data: Data?
+        if path.hasPrefix("http://") || path.hasPrefix("https://") {
+            guard let url = URL(string: path) else { return nil }
+            data = try? await URLSession.shared.data(from: url).0
+            if data == nil { return nil }
+        }
+        return await Task.detached(priority: .userInitiated) { [data] in
+            let source: CGImageSource? = if let data {
+                CGImageSourceCreateWithData(data as CFData, nil)
+            } else {
+                CGImageSourceCreateWithURL(URL(fileURLWithPath: path) as CFURL, nil)
+            }
+            guard let source else { return nil }
             let options: [CFString: Any] = [
                 kCGImageSourceCreateThumbnailFromImageAlways: true,
                 kCGImageSourceCreateThumbnailWithTransform: true,
@@ -111,25 +122,24 @@ struct Placeholder: View {
     }
 }
 
-/// The playing cover, blurred and large, behind the full player.
+/// The playing cover, blurred and large, behind the full player; turning slowly when `moving`.
 struct CoverBackdrop: View {
     let path: String?
     let seed: String
-    @State private var turning = false
+    var blur: CGFloat = 70
+    var moving = true
 
     var body: some View {
         GeometryReader { geo in
             let side = max(geo.size.width, geo.size.height) * 1.6
-            Artwork(path: path, seed: seed, size: 200)
-                .frame(width: side, height: side)
-                .rotationEffect(.degrees(turning ? 360 : 0))
-                .blur(radius: 70)
-                .saturation(1.7)
-                .brightness(-0.18)
-                .position(x: geo.size.width / 2, y: geo.size.height / 2)
-                .onAppear {
-                    withAnimation(.linear(duration: 60).repeatForever(autoreverses: false)) { turning = true }
-                }
+            RecordSpin(on: moving, period: 60) {
+                Artwork(path: path, seed: seed, size: 200)
+                    .frame(width: side, height: side)
+            }
+            .blur(radius: blur)
+            .saturation(1.7)
+            .brightness(-0.18)
+            .position(x: geo.size.width / 2, y: geo.size.height / 2)
         }
         .overlay(LinearGradient(colors: [.black.opacity(0.05), .black.opacity(0.5)], startPoint: .top, endPoint: .bottom))
         .ignoresSafeArea()
