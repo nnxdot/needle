@@ -24,6 +24,7 @@ mod app;
 #[cfg(test)]
 mod audit_tests;
 mod connect;
+mod discord;
 mod media;
 mod more;
 mod plugins;

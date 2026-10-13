@@ -26,6 +26,12 @@
     <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
     <!-- Reading the library shows as a live update (Android 16 and newer). -->
     <uses-permission android:name="android.permission.POST_PROMOTED_NOTIFICATIONS" />
+    <!-- Discord's library (for the Discord status) asks for these for voice chat and Discord
+         sign-in, which Needle does not use. -->
+    <uses-permission android:name="android.permission.RECORD_AUDIO" tools:node="remove" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MICROPHONE" tools:node="remove" />
+    <uses-permission android:name="android.permission.BLUETOOTH" tools:node="remove" />
+    <uses-permission android:name="android.permission.BLUETOOTH_CONNECT" tools:node="remove" />
 
     <application
         android:name=".NeedleApp"
@@ -36,6 +42,8 @@
         android:usesCleartextTraffic="true">
         <!-- Plain http is for the home network: a Navidrome server, Needle on a computer,
              and speakers, which have no certificates. -->
+        <activity android:name="com.discord.socialsdk.AuthenticationActivity" tools:node="remove" />
+        <service android:name="com.discord.socialsdk.ForegroundService" tools:node="remove" />
 
         <activity
             android:name=".MainActivity"

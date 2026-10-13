@@ -30,6 +30,7 @@ import androidx.compose.material.icons.rounded.PlayCircle
 import androidx.compose.material.icons.rounded.Sync
 import androidx.compose.material.icons.rounded.Widgets
 import androidx.compose.material.icons.rounded.Extension
+import androidx.compose.material.icons.rounded.Forum
 import androidx.compose.material.icons.rounded.ExpandMore
 import androidx.compose.material.icons.rounded.Fullscreen
 import androidx.compose.material.icons.rounded.Language
@@ -90,6 +91,7 @@ private fun noteIcon(name: String): ImageVector = when (name) {
     "car" -> Icons.Rounded.DirectionsCar
     "sound" -> Icons.Rounded.GraphicEq
     "sync" -> Icons.Rounded.Sync
+    "discord" -> Icons.Rounded.Forum
     else -> Icons.Rounded.AutoAwesome
 }
 

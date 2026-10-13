@@ -12,7 +12,7 @@ import { release } from "../lib/release.js";
 import { albums, byId, cover } from "../lib/albums.js";
 import "../styles/home.css";
 
-const { files, sizes, version, macVersion } = release();
+const { files, sizes, version, macVersion, androidVersion } = release();
 const href = (kind: string) => `/download/${files[kind]}`;
 const size = (kind: string) => sizes[kind] ?? "";
 
@@ -420,7 +420,7 @@ const platforms = [
           </div>
           <div class="dl-info">
             <h3>Needle for Android</h3>
-            <p class="dl-meta">Version <span data-version="main">{version}</span>. Android 8.0 and newer.</p>
+            <p class="dl-meta">Version <span data-version="android">{androidVersion}</span>. Android 8.0 and newer.</p>
             <div class="dl-buttons">
               <a class="btn btn-primary" href={href("apkArm")} data-asset="apkArm"><Icon name="download-simple" weight="bold" />For most phones</a>
               <a class="btn btn-quiet" href={href("apkX86")} data-asset="apkX86">For Intel and AMD devices</a>
