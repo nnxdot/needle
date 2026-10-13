@@ -1,3 +1,15 @@
+# 1.6.3
+Swipe through songs, and fixes from your reports.
+- [player] **Swipe the cover.** In the player, swipe the cover left for the next song or right for the one before. Turn it off in Settings › Appearance.
+- [computer] **Your computer on the lock screen.** While your phone shows Needle on your computer, the lock screen and the notification show its song, and their buttons control it.
+- [sound] **Bit-perfect USB that plays.** Needle now sends the DAC music in the format its bit-perfect mode asks for, and an unusual answer from Android no longer closes the app.
+- Reading your music can no longer get stuck on "Reading your music" for hours. The notice shows the folder being read and goes away if Needle closes.
+- Pressing Next or Previous while paused shows the new song at once, and the music stays paused.
+- The heart sits beside the song's name in the player.
+- Messages show above the bottom bars, not over them.
+- The welcome guide's text is readable on dark themes.
+- Hold a cover at the top of Home to open the album's menu.
+
 # 1.6.2
 Safer imports, saved settings that stick, and fixes across your library.
 - [playlist] **Keep every song.** Opening two files with the same name now keeps separate, complete copies. Playlist edits affect the song you selected, even with missing songs or repeated entries in the list.

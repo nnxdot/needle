@@ -73,6 +73,11 @@ fun WelcomeGuide(open: (Route) -> Unit) {
         step = 2
     }
     androidx.activity.compose.BackHandler { if (step > 0) step-- else finish() }
+    // The guide sits over the app, outside any surface, so it sets its own text colour (the
+    // default is black, unreadable on a dark theme).
+    androidx.compose.runtime.CompositionLocalProvider(
+        androidx.compose.material3.LocalContentColor provides MaterialTheme.colorScheme.onBackground,
+    ) {
     Box(
         Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background).clickable(enabled = false) {}
             .statusBarsPadding().navigationBarsPadding().padding(24.dp),
@@ -138,6 +143,7 @@ fun WelcomeGuide(open: (Route) -> Unit) {
         }
     }
 }
+    }
 
 @Composable
 private fun Choice(icon: ImageVector, title: String, detail: String, onClick: () -> Unit) {

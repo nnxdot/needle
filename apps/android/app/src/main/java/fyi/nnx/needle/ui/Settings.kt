@@ -319,10 +319,6 @@ private fun LibrarySettings(open: (Route) -> Unit) {
                 }
             }
         }
-        val context = LocalContext.current
-        TextButton(onClick = { background { core.addDemoLibrary(File(context.filesDir, "demo").absolutePath) } }, modifier = Modifier.padding(start = 8.dp, bottom = 8.dp)) {
-            Text("Add a few demo songs")
-        }
     }
     Group("Reading") {
         Column(Modifier.fillMaxWidth().padding(16.dp).animateContentSize(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -845,6 +841,10 @@ private fun AppearanceSettings(open: (Route) -> Unit) {
         Divider()
         SwitchRow("Volume in the player", "A slider under the buttons for the phone's music volume; while playing on your computer, it is always there, for the computer's", app.volumeSlider) { on ->
             update { it.copy(volumeSlider = on) }
+        }
+        Divider()
+        SwitchRow("Swipe the cover to skip", "Left for the next song, right for the one before", app.swipeCover) { on ->
+            update { it.copy(swipeCover = on) }
         }
     }
     Group("Motion", footer = "Android's own \"Remove animations\" turns motion off too.") {

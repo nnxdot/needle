@@ -70,6 +70,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
@@ -632,6 +633,7 @@ private fun greeting(): String {
 }
 
 /** The first shelf: large covers in Material's carousel, the name over each. */
+@OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
 @Composable
 private fun Hero(albums: List<Album>, open: (Route) -> Unit) {
     val state = rememberCarouselState { albums.size }
@@ -643,7 +645,16 @@ private fun Hero(albums: List<Album>, open: (Route) -> Unit) {
         modifier = Modifier.fillMaxWidth().height(300.dp),
     ) { i ->
         val album = albums[i]
-        Box(Modifier.fillMaxSize().maskClip(RoundedCornerShape(28.dp)).clickable { open(Route.AlbumPage(album)) }) {
+        // Held, it offers the album's menu, as album tiles do.
+        var menu by remember { mutableStateOf(false) }
+        val haptics = rememberHaptics()
+        if (menu) AlbumSheet(album, open) { menu = false }
+        Box(
+            Modifier.fillMaxSize().maskClip(RoundedCornerShape(28.dp)).combinedClickable(
+                onClick = { open(Route.AlbumPage(album)) },
+                onLongClick = { haptics(true); menu = true },
+            ),
+        ) {
             Cover(album.artwork, Modifier.fillMaxSize(), RoundedCornerShape(0.dp))
             Box(Modifier.fillMaxSize().background(Brush.verticalGradient(0.6f to Color.Transparent, 1f to Color.Black.copy(alpha = 0.7f))))
             // The name shows only on the large card; the narrow ones are just covers.
@@ -686,11 +697,6 @@ private fun HomeEmpty(scanning: Boolean, open: (Route) -> Unit) {
         )
         if (!scanning) {
             Button(onClick = { open(Route.Settings) }) { Text("Choose a music folder") }
-            val context = androidx.compose.ui.platform.LocalContext.current
-            TextButton(onClick = {
-                val folder = java.io.File(context.filesDir, "demo").absolutePath
-                NeedleApp.instance.scope.launch(Dispatchers.IO) { runCatching { core.addDemoLibrary(folder) } }
-            }) { Text("Or try a few demo songs") }
         }
     }
 }

@@ -147,6 +147,41 @@ const PAGE_SIZE: usize = 1000;
 /// How long the big player takes to grow or shrink.
 const BIG_MS: u64 = 260;
 
+/// Collections that can be added to the sidebar (the + beside Collections): key, name, icon,
+/// and the rule for their songs.
+pub const MORE_COLLECTIONS: &[(&str, &str, &str, &str)] = &[
+    (
+        "rated",
+        "Rated",
+        "star",
+        "rating >= 1 order by rating desc, title asc",
+    ),
+    (
+        "most-played",
+        "Most played",
+        "history",
+        "play_count >= 1 order by play_count desc",
+    ),
+    (
+        "recently-played",
+        "Recently played",
+        "recent",
+        "played(30d) order by last_played desc",
+    ),
+    (
+        "never-played",
+        "Never played",
+        "songs",
+        "play_count = 0 order by added_at desc",
+    ),
+];
+
+fn more_collection(
+    key: &str,
+) -> Option<&'static (&'static str, &'static str, &'static str, &'static str)> {
+    MORE_COLLECTIONS.iter().find(|c| c.0 == key)
+}
+
 #[derive(Clone, PartialEq, Debug)]
 pub enum Page {
     Home,
@@ -166,6 +201,8 @@ pub enum Page {
     Favorites,
     Recent,
     History,
+    /// A collection added to the sidebar (see [`MORE_COLLECTIONS`]), by its key.
+    Collection(String),
     Playlist(String),
     Settings,
     Sound,
@@ -200,6 +237,7 @@ impl Page {
             Self::Folder(path) => folders::name_of(path),
             Self::Artist(name) => name.clone(),
             Self::Favorites => "Favorites".into(),
+            Self::Collection(key) => more_collection(key).map_or("Collection", |c| c.1).into(),
             Self::Recent => "Recently added".into(),
             Self::History => "Listening history".into(),
             Self::Playlist(_) => "Playlist".into(),
@@ -216,6 +254,7 @@ impl Page {
     fn base(&self) -> String {
         match self {
             Self::Favorites => "rating >= 4".into(),
+            Self::Collection(key) => more_collection(key).map_or("", |c| c.3).into(),
             Self::Recent => "recent(30d) order by added_at desc".into(),
             Self::Album { query, .. } => query.clone(),
             Self::Artist(name) => format!("artist = {0} or album_artist = {0}", quote(name)),
@@ -405,6 +444,8 @@ pub struct AppView {
     panel_serial: u64,
     menu: Option<menus::TrackMenu>,
     playlist_menu: Option<menus::PlaylistMenu>,
+    group_menu: Option<menus::GroupMenu>,
+    collections_menu: Option<(Point<Pixels>, usize)>,
     header_menu: Option<columns::HeaderMenu>,
     blend_menu: Option<radio::BlendMenu>,
     speaker_menu: Option<speakers::SpeakerMenu>,
@@ -830,6 +871,7 @@ impl AppView {
                             this.page,
                             Page::Songs
                                 | Page::Favorites
+                                | Page::Collection(_)
                                 | Page::Recent
                                 | Page::Playlist(_)
                                 | Page::Album { .. }
@@ -920,6 +962,8 @@ impl AppView {
             panel_serial: 0,
             menu: None,
             playlist_menu: None,
+            group_menu: None,
+            collections_menu: None,
             header_menu: None,
             blend_menu: None,
             speaker_menu: None,
@@ -2866,6 +2910,8 @@ impl Render for AppView {
             .children(self.toast(cx))
             .children(self.track_menu(cx))
             .children(self.playlist_menu_view(cx))
+            .children(self.group_menu_view(cx))
+            .children(self.collections_menu_view(cx))
             .children(self.header_menu_view(cx))
             .children(self.blend_menu_view(cx))
             .children(self.speaker_menu_view(cx))
@@ -2875,5 +2921,18 @@ impl Render for AppView {
             .children(self.playlist_editor_view(window, cx))
             .children(self.add_songs_view(window, cx))
             .children(self.asking_view(cx))
+    }
+}
+
+#[cfg(test)]
+mod collection_tests {
+    #[test]
+    fn added_collections_have_working_rules() {
+        for (key, _, _, rule) in super::MORE_COLLECTIONS {
+            assert!(
+                needle_core::query::compile(rule, 0).is_ok(),
+                "{key}: {rule}"
+            );
+        }
     }
 }

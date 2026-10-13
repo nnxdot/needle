@@ -300,17 +300,22 @@ impl Needle {
             let mut error = None;
             for root in library.roots().unwrap_or_default() {
                 let cancel = Arc::new(AtomicBool::new(false));
-                let result = scan::import(&library, &PathBuf::from(&root), cancel, |p| {
-                    let mut s = status.lock().unwrap();
-                    s.scanned = p.scanned as u32;
-                    s.imported = p.imported as u32;
-                    s.current = p.current.clone();
-                });
-                if let Err(e) = result {
-                    error = Some(format!("{e:#}"));
+                // A panic must not leave the scan "running" (and its notice up) for good.
+                let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                    scan::import(&library, &PathBuf::from(&root), cancel, |p| {
+                        let mut s = status.lock().unwrap_or_else(|e| e.into_inner());
+                        s.scanned = p.scanned as u32;
+                        s.imported = p.imported as u32;
+                        s.current = p.current.clone();
+                    })
+                }));
+                match result {
+                    Ok(Err(e)) => error = Some(format!("{e:#}")),
+                    Err(_) => error = Some(format!("Needle stopped reading {root}")),
+                    Ok(Ok(_)) => {}
                 }
             }
-            let mut s = status.lock().unwrap();
+            let mut s = status.lock().unwrap_or_else(|e| e.into_inner());
             s.running = false;
             s.current.clear();
             s.error = error;
@@ -319,7 +324,7 @@ impl Needle {
     }
 
     pub fn scan_status(&self) -> ScanStatus {
-        self.scan.lock().unwrap().clone()
+        self.scan.lock().unwrap_or_else(|e| e.into_inner()).clone()
     }
 
     pub fn song_count(&self) -> Result<u32> {

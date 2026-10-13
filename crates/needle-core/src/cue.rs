@@ -158,19 +158,20 @@ fn locate(folder: &Path, name: &str) -> Option<PathBuf> {
 /// Audio files the cue sheets under `root` split into tracks; the scanner skips them as
 /// whole songs.
 pub fn covered_files(root: &Path) -> HashSet<PathBuf> {
-    let mut covered = HashSet::new();
-    for entry in walkdir::WalkDir::new(root)
+    let sheets: Vec<PathBuf> = walkdir::WalkDir::new(root)
         .follow_links(false)
         .into_iter()
         .flatten()
-    {
-        let path = entry.path();
-        if !path
-            .extension()
-            .is_some_and(|e| e.eq_ignore_ascii_case("cue"))
-        {
-            continue;
-        }
+        .map(|e| e.into_path())
+        .filter(|p| p.extension().is_some_and(|e| e.eq_ignore_ascii_case("cue")))
+        .collect();
+    covered_by(&sheets)
+}
+
+/// Audio files these cue sheets split into tracks.
+pub fn covered_by(sheets: &[PathBuf]) -> HashSet<PathBuf> {
+    let mut covered = HashSet::new();
+    for path in sheets {
         let Ok(bytes) = fs::read(path) else { continue };
         let folder = path.parent().unwrap_or(Path::new("."));
         for track in parse(&bytes).tracks {
