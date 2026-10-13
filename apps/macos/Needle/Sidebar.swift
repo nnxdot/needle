@@ -8,18 +8,8 @@ struct Sidebar: View {
     private var store: Store { .shared }
 
     var body: some View {
-        let rail = store.settings.layout.sidebarHidden && store.settings.layout.compactSidebar
+        let rail = false
         List(selection: Binding<Route?>(get: { store.route.sidebarRoute }, set: { if let to = $0 { store.navigate(to) } })) {
-            if rail {
-                // No room for the search field: search in the palette.
-                Button { store.palette = true } label: {
-                    Image(systemName: "magnifyingglass").font(.title3).frame(maxWidth: .infinity)
-                }
-                .buttonStyle(.plain)
-                .foregroundStyle(.secondary)
-                .help("Search · ⌘F")
-                .selectionDisabled()
-            }
             Section {
                 item("Home", "house", .home)
                 item("Songs", "music.note", .songs)
@@ -99,9 +89,6 @@ struct Sidebar: View {
         .listStyle(.sidebar)
         .tint(store.colors.accent)
         .listItemTint(.fixed(store.colors.accent))
-        // The strip of icons shows the window's background: its own dark glass made a band
-        // beside the page.
-        .scrollContentBackground(rail ? .hidden : .automatic)
         .safeAreaInset(edge: .bottom, spacing: 0) { footer(rail: rail) }
     }
 
@@ -263,5 +250,95 @@ struct PlaylistRow: View {
         guard panel.runModal() == .OK, let path = panel.url?.path else { return }
         let id = playlist.id
         store.job { try $0.exportPlaylist(id: id, path: path); return "Playlist exported." }
+    }
+}
+
+/// The folded compact sidebar: a strip of icons beside the page, as in Apple Music, on the
+/// window's own background. Search opens the palette; the pages and playlists go there.
+struct Rail: View {
+    private var store: Store { .shared }
+    static let width: CGFloat = 56
+
+    var body: some View {
+        VStack(spacing: 4) {
+            button("Search · ⌘F", "magnifyingglass", selected: false) { store.palette = true }
+                .padding(.bottom, 6)
+            ScrollView(showsIndicators: false) {
+                VStack(spacing: 4) {
+                    page("Home", "house", .home)
+                    page("Songs", "music.note", .songs)
+                    page("Albums", "square.stack", .albums)
+                    page("Artists", "music.mic", .artists)
+                    page("Folders", "folder", .folders)
+                    Divider().padding(.vertical, 4).padding(.horizontal, 12)
+                    page("Favorites", "heart", .favorites)
+                        .dropDestination(for: String.self) { ids, _ in
+                            store.rate(ids, 5)
+                            store.notify(ids.count == 1 ? "Added to favorites." : "Added \(ids.count) songs to favorites.")
+                            return true
+                        }
+                    page("Recently added", "clock", .recent)
+                    page("Listening history", "chart.line.uptrend.xyaxis", .history)
+                    ForEach(store.settings.layout.collections, id: \.self) { key in
+                        if let c = Collections.find(key) { page(c.name, c.icon, .collection(key)) }
+                    }
+                    ForEach(store.servers, id: \.plugin) { server in
+                        page(server.name, "globe", .source(plugin: server.plugin, name: server.name))
+                    }
+                    if !store.playlists.isEmpty {
+                        Divider().padding(.vertical, 4).padding(.horizontal, 12)
+                        ForEach(store.playlists, id: \.id) { playlist in
+                            Button { store.navigate(.playlist(playlist.id)) } label: {
+                                PlaylistArt(playlist: playlist, side: 26)
+                                    .frame(width: 40, height: 36)
+                                    .background(selectedBackground(store.route == .playlist(playlist.id)))
+                                    .contentShape(Rectangle())
+                            }
+                            .buttonStyle(.plain)
+                            .help(playlist.name)
+                            .dropDestination(for: String.self) { ids, _ in
+                                guard !playlist.smart else { return false }
+                                store.addToPlaylist(playlist, ids)
+                                return true
+                            }
+                        }
+                    }
+                }
+            }
+            Spacer(minLength: 8)
+            button("Add music folder", "folder.badge.plus", selected: false) { store.addFolder() }
+            button("Fix my library", "wrench.and.screwdriver", selected: store.route == .doctor) { store.navigate(.doctor) }
+            button("Import", "square.and.arrow.down", selected: store.route == .importing) { store.navigate(.importing) }
+            SettingsLink { icon("gearshape", selected: false) }
+                .buttonStyle(.plain)
+                .help("Settings · ⌘,")
+        }
+        .padding(.vertical, 10)
+        .frame(width: Self.width)
+        .frame(maxHeight: .infinity)
+        .overlay(alignment: .trailing) { Rectangle().fill(store.colors.line.opacity(0.5)).frame(width: 1) }
+    }
+
+    private func page(_ name: String, _ symbol: String, _ route: Route) -> some View {
+        button(name, symbol, selected: store.route.sidebarRoute == route) { store.navigate(route) }
+    }
+
+    private func button(_ name: String, _ symbol: String, selected: Bool, action: @escaping () -> Void) -> some View {
+        Button(action: action) { icon(symbol, selected: selected) }
+            .buttonStyle(.plain)
+            .help(name)
+    }
+
+    private func icon(_ symbol: String, selected: Bool) -> some View {
+        Image(systemName: symbol)
+            .font(.system(size: 16))
+            .foregroundStyle(selected ? store.colors.accent : store.colors.ink2)
+            .frame(width: 40, height: 36)
+            .background(selectedBackground(selected))
+            .contentShape(Rectangle())
+    }
+
+    private func selectedBackground(_ selected: Bool) -> some View {
+        RoundedRectangle(cornerRadius: 8, style: .continuous).fill(selected ? store.colors.accent.opacity(0.18) : .clear)
     }
 }
