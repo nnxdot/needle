@@ -22,6 +22,14 @@ pub trait Styled: Sized {
     /// Returns a reference to the style memory of this element.
     fn style(&mut self) -> &mut StyleRefinement;
 
+    /// The system's glass behind this element: on macOS, what was painted below it is cleared
+    /// within its rounded bounds and Liquid Glass (or vibrancy) shows there; elsewhere nothing.
+    /// Give it no opaque background. Needle patch.
+    fn glass(mut self) -> Self {
+        self.style().glass = Some(true);
+        self
+    }
+
     gpui_macros::style_helpers!();
     gpui_macros::visibility_style_methods!();
     gpui_macros::margin_style_methods!();

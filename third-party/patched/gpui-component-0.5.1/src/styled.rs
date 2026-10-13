@@ -175,7 +175,10 @@ pub trait StyledExt: Styled + Sized {
     /// Set as Popover style
     #[inline]
     fn popover_style(self, cx: &App) -> Self {
-        self.bg(cx.theme().popover)
+        // Needle patch: a see-through popover colour means the window's glass shows behind.
+        let glass = cx.theme().popover.a < 0.01;
+        let this = if glass { self.glass() } else { self };
+        this.bg(cx.theme().popover)
             .text_color(cx.theme().popover_foreground)
             .border_1()
             .border_color(cx.theme().border)

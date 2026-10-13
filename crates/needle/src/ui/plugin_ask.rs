@@ -246,7 +246,7 @@ impl AppView {
             .w(px(440.))
             .max_w_full()
             .p_6()
-            .map(|el| super::glass::pane(el, "plugin-ask", 12., 20., cx.theme().popover, cx))
+            .map(|el| super::glass::pane(el, 12., 20., cx.theme().popover, cx))
             .border_1()
             .border_color(p.line)
             .shadow_lg()

@@ -2567,10 +2567,6 @@ impl Render for AppView {
         }
         let p = pal(cx);
         let width = widgets::content_size(window).width;
-        // The panes painted over the page set their glass again while they show.
-        for name in glass::PANES {
-            window.set_glass_region(*name, None);
-        }
         // Folded, the sidebar is a strip of page icons (see `chrome::RAIL`).
         let sidebar = if self.settings.layout.sidebar_hidden {
             // Or gone altogether, with the compact sidebar turned off in Settings.
@@ -2863,15 +2859,6 @@ impl Render for AppView {
                 }
                 if !floating || !show_panel {
                     window.set_glass_region("panel", None);
-                }
-                if !floating
-                    || self.settings.layout.search_hidden
-                    || self.settings.layout.player_on_top
-                {
-                    window.set_glass_region("search", None);
-                }
-                if !floating || self.settings.layout.player_on_top {
-                    window.set_glass_region("back", None);
                 }
                 el
             })

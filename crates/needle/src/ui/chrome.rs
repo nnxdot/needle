@@ -76,15 +76,7 @@ impl AppView {
                                 .items_center()
                                 .justify_center()
                                 // macOS: a round pane of glass, as in macOS's own toolbars.
-                                .when(self.floating(), |el| {
-                                    el.child(super::glass::probe(
-                                        "back",
-                                        (0., 0., 0., 0.),
-                                        false,
-                                        16.,
-                                        false,
-                                    ))
-                                })
+                                .when(self.floating(), |el| el.rounded(px(16.)).glass())
                                 .child(
                                     icon_button("back", "chevron-left", "Back · Alt+Left")
                                         .small()
@@ -1221,7 +1213,7 @@ impl AppView {
             .is_some_and(|e| e.starts_with("Matches rule"))
             && !self.search_text(cx).is_empty();
         let field = !self.settings.layout.search_hidden;
-        let glass_field = self.floating() && !above;
+        let glass_field = self.floating();
         div()
             .flex()
             .items_center()
@@ -1235,15 +1227,7 @@ impl AppView {
                         .h(px(32.))
                         .rounded(px(if glass_field { 16. } else { 8. }))
                         // macOS: a capsule of glass, as in macOS's own toolbars.
-                        .when(glass_field, |el| {
-                            el.child(super::glass::probe(
-                                "search",
-                                (0., 0., 0., 0.),
-                                false,
-                                16.,
-                                false,
-                            ))
-                        })
+                        .when(glass_field, |el| el.glass())
                         .when(!glass_field, |el| {
                             el.bg(if p.back.a < 1. {
                                 p.raised.opacity(0.75)
@@ -1390,6 +1374,10 @@ impl AppView {
                     .items_center()
                     .gap_2()
                     .pl_2()
+                    // macOS Liquid Glass: the buttons on a capsule of glass.
+                    .when(self.floating(), |el| {
+                        el.ml_2().pr_2().py(px(4.)).rounded(px(22.)).glass()
+                    })
                     // Each group claims the mouse, or Windows takes presses there (on the
                     // sliders too) as the title bar's, and never reports letting go.
                     .occlude()
@@ -1416,8 +1404,18 @@ impl AppView {
                             .max_w(px(600.))
                             .occlude()
                             .h(px(48.))
-                            .rounded(px(8.))
-                            .bg(p.raised.opacity(if p.back.a < 1. { 0.75 } else { 1. }))
+                            // macOS Liquid Glass: the song on a pane of glass.
+                            .map(|el| {
+                                if self.floating() {
+                                    el.rounded(px(16.)).glass()
+                                } else {
+                                    el.rounded(px(8.)).bg(p.raised.opacity(if p.back.a < 1. {
+                                        0.75
+                                    } else {
+                                        1.
+                                    }))
+                                }
+                            })
                             .flex()
                             .items_center()
                             .gap_2()
@@ -1606,7 +1604,7 @@ impl AppView {
                         .pl_4()
                         .pr_2()
                         .py_2()
-                        .map(|el| super::glass::pane(el, "toast", 10., 18., cx.theme().popover, cx))
+                        .map(|el| super::glass::pane(el, 10., 18., cx.theme().popover, cx))
                         .border_1()
                         .border_color(if toast.error {
                             p.danger.opacity(0.5)

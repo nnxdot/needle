@@ -652,7 +652,7 @@ impl AppView {
             .id("palette")
             .occlude()
             .w(px(640.))
-            .map(|el| super::glass::pane(el, "palette", 12., 22., cx.theme().popover, cx))
+            .map(|el| super::glass::pane(el, 12., 22., cx.theme().popover, cx))
             .border_1()
             .border_color(p.line)
             .shadow_lg()

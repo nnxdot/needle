@@ -150,11 +150,16 @@ impl AppView {
                     .items_center()
                     .gap_2()
                     .child(
-                        icon_button("close-big", "chevron-down", "Close the player · Esc")
-                            .on_click(cx.listener(|this, _, _, cx| {
-                                this.big = false;
-                                cx.notify();
-                            })),
+                        div()
+                            // macOS Liquid Glass: a round pane of glass.
+                            .when(liquid, |el| el.p(px(3.)).rounded_full().glass())
+                            .child(
+                                icon_button("close-big", "chevron-down", "Close the player · Esc")
+                                    .on_click(cx.listener(|this, _, _, cx| {
+                                        this.big = false;
+                                        cx.notify();
+                                    })),
+                            ),
                     )
                     .child(
                         div()
@@ -171,33 +176,40 @@ impl AppView {
                                     .unwrap_or_default(),
                             ),
                     )
-                    .child(side_button(
-                        "big-lyrics",
-                        "lyrics",
-                        "Lyrics",
-                        Side::Lyrics,
-                        cx,
-                    ))
-                    .child(side_button(
-                        "big-queue",
-                        "queue",
-                        "Up next",
-                        Side::Queue,
-                        cx,
-                    ))
-                    .child(side_button("big-stems", "stems", "Stems", Side::Stems, cx))
                     .child(
-                        icon_button("big-full", "fullscreen", "Full screen · F11").on_click(
-                            cx.listener(|this, _, window, cx| this.set_immersive(true, window, cx)),
-                        ),
-                    )
-                    .child(
-                        icon_button("big-mini", "mini", "Mini player").on_click(cx.listener(
-                            |this, _, window, cx| {
-                                this.big = false;
-                                this.open_mini(window, cx);
-                            },
-                        )),
+                        div()
+                            .flex()
+                            .items_center()
+                            .gap_1()
+                            // macOS Liquid Glass: the buttons on one capsule of glass.
+                            .when(liquid, |el| el.px(px(6.)).py(px(3.)).rounded_full().glass())
+                            .child(side_button(
+                                "big-lyrics",
+                                "lyrics",
+                                "Lyrics",
+                                Side::Lyrics,
+                                cx,
+                            ))
+                            .child(side_button(
+                                "big-queue",
+                                "queue",
+                                "Up next",
+                                Side::Queue,
+                                cx,
+                            ))
+                            .child(side_button("big-stems", "stems", "Stems", Side::Stems, cx))
+                            .child(
+                                icon_button("big-full", "fullscreen", "Full screen · F11")
+                                    .on_click(cx.listener(|this, _, window, cx| {
+                                        this.set_immersive(true, window, cx)
+                                    })),
+                            )
+                            .child(icon_button("big-mini", "mini", "Mini player").on_click(
+                                cx.listener(|this, _, window, cx| {
+                                    this.big = false;
+                                    this.open_mini(window, cx);
+                                }),
+                            )),
                     ),
             )
             .child(
@@ -341,7 +353,6 @@ impl AppView {
                                         el.px(px(20.)).py(px(8.)).map(|el| {
                                             super::glass::pane(
                                                 el,
-                                                "big-controls",
                                                 0.,
                                                 30.,
                                                 gpui::transparent_black(),
@@ -442,7 +453,6 @@ impl AppView {
                                     el.mr_6().mb_6().p_4().map(|el| {
                                         super::glass::pane(
                                             el,
-                                            "big-side",
                                             0.,
                                             24.,
                                             gpui::transparent_black(),

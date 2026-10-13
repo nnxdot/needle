@@ -175,14 +175,7 @@ impl AppView {
                                     .w(width)
                                     .p_1()
                                     .map(|el| {
-                                        super::glass::pane(
-                                            el,
-                                            "suggestions",
-                                            8.,
-                                            14.,
-                                            cx.theme().popover,
-                                            cx,
-                                        )
+                                        super::glass::pane(el, 8., 14., cx.theme().popover, cx)
                                     })
                                     .border_1()
                                     .border_color(p.line)
