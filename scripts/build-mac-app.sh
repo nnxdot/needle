@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # Builds the Mac app (apps/macos, SwiftUI with Liquid Glass) on a Mac with Xcode: Needle's core
 # (crates/needle-mobile with its "desktop" feature) for Apple silicon, its Swift bindings, the
-# icon and title fonts, then the app with xcodebuild, signed ad hoc (no Apple account, so
-# nothing about one is in it).
+# icon and title fonts, then the app with xcodebuild, signed with Needle's own key (see
+# mac-sign.sh; no Apple account, so nothing about one is in it).
 #   scripts/build-mac-app.sh [release|debug|core]
 # The app lands in apps/macos/build/<Release|Debug>/Needle.app, with its Dolby decoder
 # (needle-ffmpeg, see build-ffmpeg-mac.sh) beside it when that has been built.
@@ -72,5 +72,6 @@ if [ -f "$ffmpeg" ]; then
     chmod 755 "$app/Contents/MacOS/needle-ffmpeg"
 fi
 xattr -cr "$app"
-codesign --force --deep --sign - --identifier fyi.nnx.Needle "$app"
+source "$here/scripts/mac-sign.sh"
+mac_sign "$app"
 echo "Built $app ($version)"

@@ -2,9 +2,9 @@
 # Builds dist/Needle-<version>-macos.dmg on a Mac: the Mac app (apps/macos, SwiftUI with Liquid
 # Glass, see build-mac-app.sh) for Apple silicon (ONNX Runtime, for stems, has no prebuilt
 # library for Intel Macs), with its Dolby decoder (needle-ffmpeg-macos, see build-ffmpeg-mac.sh)
-# and command line (needle-cli). Signed ad hoc (no Apple account, so nothing about one is in
-# it); the install script (website/public/install-mac.sh) copies it without the download
-# quarantine.
+# and command line (needle-cli). Signed with Needle's own key (see mac-sign.sh; no Apple
+# account, so nothing about one is in it); the install script (website/public/install-mac.sh)
+# copies it without the download quarantine.
 #
 # Needs Xcode (for the app) and rustup.
 set -euo pipefail
@@ -39,9 +39,10 @@ mkdir -p "$app/Contents/Resources/licenses"
 cp THIRD-PARTY-NOTICES.md third-party/licenses.txt third-party/ffmpeg/COPYING.LGPLv2.1 \
     "$app/Contents/Resources/licenses/"
 
-# No extended attributes (Finder data, quarantine) from this Mac; then sign ad hoc.
+# No extended attributes (Finder data, quarantine) from this Mac; then sign.
 xattr -cr "$app"
-codesign --force --deep --sign - --identifier fyi.nnx.Needle "$app"
+source scripts/mac-sign.sh
+mac_sign "$app"
 codesign --verify --deep --strict "$app"
 
 # The disk image: the app and a link to Applications, to drag it across.
