@@ -280,14 +280,18 @@ impl AppView {
             .flex_col()
             // macOS: the sidebar floats on glass from the window's top to its foot, the window
             // buttons in it.
+            // Its rows keep clear of the glass's edges.
             .when(floating, |el| {
-                el.pb(px(10.)).child(super::glass::probe(
-                    "sidebar",
-                    (8., 8., 6., 8.),
-                    true,
-                    20.,
-                    true,
-                ))
+                el.pl(px(8.))
+                    .pr(px(6.))
+                    .pb(px(18.))
+                    .child(super::glass::probe(
+                        "sidebar",
+                        (8., 8., 6., 8.),
+                        true,
+                        20.,
+                        true,
+                    ))
             })
             // Everything above the bottom buttons scrolls together, so a short window never
             // pushes Settings and the others out of reach.
@@ -648,20 +652,20 @@ impl AppView {
         let (path, path_detail, exclusive) = self.signal_path(cx);
         let floating = self.floating();
         div()
-            .h(px(if floating { 68. } else { 80. }))
+            .h(px(if floating { 76. } else { 80. }))
             .flex_shrink_0()
             .relative()
             // macOS: the player floats on its own pane of glass, clear of the window's edges.
             .when(floating, |el| {
                 el.mx(px(12.))
-                    .mb(px(10.))
-                    .mt(px(2.))
-                    .rounded(px(24.))
+                    .mb(px(12.))
+                    .mt(px(4.))
+                    .rounded(px(28.))
                     .child(super::glass::probe(
                         "player",
                         (0., 0., 0., 0.),
                         false,
-                        24.,
+                        28.,
                         true,
                     ))
             })
@@ -678,7 +682,8 @@ impl AppView {
                 ),
                 linear_color_stop(p.back, 0.55),
             ))
-            .px_4()
+            // On glass the buttons keep well clear of its round ends.
+            .px(px(if floating { 26. } else { 16. }))
             .flex()
             .items_center()
             .gap_4()
@@ -1601,8 +1606,7 @@ impl AppView {
                         .pl_4()
                         .pr_2()
                         .py_2()
-                        .rounded(px(10.))
-                        .bg(cx.theme().popover)
+                        .map(|el| super::glass::pane(el, "toast", 10., 18., cx.theme().popover, cx))
                         .border_1()
                         .border_color(if toast.error {
                             p.danger.opacity(0.5)

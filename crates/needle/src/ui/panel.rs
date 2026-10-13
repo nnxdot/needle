@@ -43,7 +43,7 @@ impl AppView {
             .flex_col()
             // macOS: a pane of glass beside the page, like macOS's inspectors.
             .when(floating, |el| {
-                el.p(px(8.)).child(super::glass::probe(
+                el.p(px(14.)).child(super::glass::probe(
                     "panel",
                     (8., 8., 10., 8.),
                     false,

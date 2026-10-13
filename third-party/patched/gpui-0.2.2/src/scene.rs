@@ -511,6 +511,10 @@ pub enum BorderStyle {
     Solid = 0,
     /// A dashed border.
     Dashed = 1,
+    /// Not a border: the quad clears what was painted below it, so the system's glass behind
+    /// the window shows through (macOS; see `Window::paint_glass_hole`). Needle patch.
+    #[doc(hidden)]
+    GlassHole = 2,
 }
 
 /// A data type representing a 2 dimensional transformation that can be applied to an element.
