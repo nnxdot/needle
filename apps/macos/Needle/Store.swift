@@ -96,7 +96,10 @@ final class Store {
     @ObservationIgnored let nowPlaying = NowPlaying()
 
     init() {
-        let folder = defaultDataDirectory()
+        // `--data-dir <folder>` opens another library, as on the desktop (for tests).
+        let arguments = CommandLine.arguments
+        let folder = arguments.firstIndex(of: "--data-dir").flatMap { arguments.indices.contains($0 + 1) ? arguments[$0 + 1] : nil }
+            ?? defaultDataDirectory()
         do {
             core = try Needle(dataDir: folder)
         } catch {
@@ -638,7 +641,7 @@ final class Store {
             }
         }
         guard !music.isEmpty else { return }
-        Task {
+        Task { [music] in
             guard let n = await ask({ try $0.openFiles(paths: music) }) else { return }
             if n == 0 { notify("Needle could not open that. It may not be a music file Needle can play.") }
             else if n > 1 { notify("Playing \(n) songs.") }

@@ -326,7 +326,7 @@ struct TimingPage: View {
             result.append(LyricLine(time: stamps[first.offset], text: line, words: wordTimes))
         }
         guard !result.isEmpty else { store.fail("Tap at least one line before saving."); return }
-        Task {
+        Task { [result] in
             if let name = await store.ask({ try $0.saveLyricsFile(id: id, lines: result) }) {
                 store.notify("Saved as \(name), beside the song.")
                 timing = false

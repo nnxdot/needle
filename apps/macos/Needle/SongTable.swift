@@ -53,104 +53,13 @@ struct SongTable: View {
         \SongRow.duration: "duration", \SongRow.number: "track_number",
     ]
 
+    private typealias Columns = TableColumnBuilder<SongRow, KeyPathComparator<SongRow>>
+
     var body: some View {
-        let colors = store.colors
         let rows = rows
-        let playing = store.playback?.current
         Table(of: SongRow.self, selection: $selection, sortOrder: $sortOrder, columnCustomization: $columns) {
-            Group {
-            TableColumn("#", value: \.number) { row in
-                ZStack(alignment: .trailing) {
-                    if row.track.id == playing {
-                        Equalizer(color: colors.accent, playing: store.playback?.playing == true).frame(width: 14, height: 12)
-                    } else {
-                        Text(albumView && store.sort == nil && row.number > 0 ? String(row.number) : (row.index + 1).formatted())
-                            .foregroundStyle(colors.ink3)
-                            .monospacedDigit()
-                    }
-                }
-                .frame(maxWidth: .infinity, alignment: .trailing)
-            }
-            .width(min: 28, ideal: 36, max: 60)
-            .customizationID("number")
-
-            TableColumn("Title", value: \.title) { row in
-                TitleCell(track: row.track, playing: row.track.id == playing, cover: !albumView, compact: compact,
-                          showArtist: !albumView || (row.artist != row.albumArtist && !row.albumArtist.isEmpty))
-            }
-            .width(min: 180, ideal: 320)
-            .customizationID("title")
-            .disabledCustomizationBehavior(.visibility)
-
-            TableColumn("Artist", value: \.artist) { row in Text(row.track.displayArtist).foregroundStyle(colors.ink2) }
-                .width(min: 80, ideal: 160)
-                .customizationID("artist")
-                .defaultVisibility(.hidden)
-            TableColumn("Album", value: \.album) { row in
-                Text(row.track.displayAlbum).foregroundStyle(colors.ink2)
-            }
-            .width(min: 80, ideal: 220)
-            .customizationID("album")
-            .defaultVisibility(albumView ? .hidden : .automatic)
-            TableColumn("Album artist", value: \.albumArtist) { row in Text(row.albumArtist).foregroundStyle(colors.ink2) }
-                .width(min: 80, ideal: 160)
-                .customizationID("album_artist")
-                .defaultVisibility(.hidden)
-            TableColumn("Genre", value: \.genre) { row in Text(row.genre).foregroundStyle(colors.ink2) }
-                .width(min: 60, ideal: 120)
-                .customizationID("genre")
-                .defaultVisibility(.hidden)
-            TableColumn("Year", value: \.year) { row in Text(row.year > 0 ? String(row.year) : "").monospacedDigit().foregroundStyle(colors.ink2) }
-                .width(min: 40, ideal: 56)
-                .customizationID("year")
-                .defaultVisibility(.hidden)
-            TableColumn("Quality", value: \.format) { row in Text(row.track.quality).font(.callout).foregroundStyle(colors.ink3) }
-                .width(min: 60, ideal: 92)
-                .customizationID("quality")
-            }
-            Group {
-            TableColumn("Bitrate", value: \.bitrate) { row in Text(row.bitrate > 0 ? "\(row.bitrate) kbps" : "").monospacedDigit().foregroundStyle(colors.ink3) }
-                .width(min: 50, ideal: 76)
-                .customizationID("bitrate")
-                .defaultVisibility(.hidden)
-            TableColumn("Sample rate", value: \.sampleRate) { row in Text(khz(row.sampleRate)).monospacedDigit().foregroundStyle(colors.ink3) }
-                .width(min: 60, ideal: 88)
-                .customizationID("sample_rate")
-                .defaultVisibility(.hidden)
-            TableColumn("BPM", value: \.bpm) { row in Text(row.bpm > 0 ? String(format: "%.0f", row.bpm) : "").monospacedDigit().foregroundStyle(colors.ink3) }
-                .width(min: 36, ideal: 52)
-                .customizationID("bpm")
-                .defaultVisibility(.hidden)
-            TableColumn("Plays", value: \.plays) { row in Text(row.plays > 0 ? String(row.plays) : "").monospacedDigit().foregroundStyle(colors.ink3) }
-                .width(min: 36, ideal: 52)
-                .customizationID("plays")
-                .defaultVisibility(.hidden)
-            TableColumn("Last played", value: \.lastPlayed) { row in Text(day(row.track.lastPlayed)).foregroundStyle(colors.ink3) }
-                .width(min: 70, ideal: 104)
-                .customizationID("last_played")
-                .defaultVisibility(.hidden)
-            TableColumn("Added", value: \.added) { row in Text(day(row.added)).foregroundStyle(colors.ink3) }
-                .width(min: 70, ideal: 96)
-                .customizationID("added")
-                .defaultVisibility(.hidden)
-            TableColumn("Rating", value: \.rating) { row in
-                Stars(rating: row.rating, size: 10) { store.rate([row.track.id], $0) }
-            }
-            .width(min: 70, ideal: 84)
-            .customizationID("rating")
-            .defaultVisibility(.hidden)
-            TableColumn("") { row in
-                Heart(on: row.track.favorite) { store.rate([row.track.id], row.track.favorite ? 0 : 5) }
-            }
-            .width(24)
-            .customizationID("heart")
-            TableColumn("Time", value: \.duration) { row in
-                Text(clock(row.duration)).monospacedDigit().foregroundStyle(colors.ink3)
-                    .frame(maxWidth: .infinity, alignment: .trailing)
-            }
-            .width(min: 44, ideal: 52, max: 80)
-            .customizationID("time")
-            }
+            mainColumns
+            moreColumns
         } rows: {
             ForEach(rows) { row in
                 TableRow(row)
@@ -199,6 +108,96 @@ struct SongTable: View {
                 sortOrder = Self.comparator(path, ascending).map { [$0] } ?? []
             }
         }
+    }
+
+    private var playing: String? { store.playback?.current }
+
+    private var colors: Palette { store.colors }
+
+    @Columns private var mainColumns: some TableColumnContent<SongRow, KeyPathComparator<SongRow>> {
+        TableColumn("#", value: \.number) { row in
+            NumberCell(row: row, playing: row.track.id == playing, trackNumbers: albumView && store.sort == nil)
+        }
+        .width(min: 28, ideal: 36, max: 60)
+        .customizationID("number")
+
+        TableColumn("Title", value: \.title) { row in
+            TitleCell(track: row.track, playing: row.track.id == playing, cover: !albumView, compact: compact,
+                      showArtist: !albumView || (row.artist != row.albumArtist && !row.albumArtist.isEmpty))
+        }
+        .width(min: 180, ideal: 320)
+        .customizationID("title")
+        .disabledCustomizationBehavior(.visibility)
+
+        TableColumn("Artist", value: \.artist) { row in Text(row.track.displayArtist).foregroundStyle(colors.ink2) }
+            .width(min: 80, ideal: 160)
+            .customizationID("artist")
+            .defaultVisibility(.hidden)
+        TableColumn("Album", value: \.album) { row in
+            Text(row.track.displayAlbum).foregroundStyle(colors.ink2)
+        }
+        .width(min: 80, ideal: 220)
+        .customizationID("album")
+        .defaultVisibility(albumView ? .hidden : .automatic)
+        TableColumn("Album artist", value: \.albumArtist) { row in Text(row.albumArtist).foregroundStyle(colors.ink2) }
+            .width(min: 80, ideal: 160)
+            .customizationID("album_artist")
+            .defaultVisibility(.hidden)
+        TableColumn("Genre", value: \.genre) { row in Text(row.genre).foregroundStyle(colors.ink2) }
+            .width(min: 60, ideal: 120)
+            .customizationID("genre")
+            .defaultVisibility(.hidden)
+        TableColumn("Year", value: \.year) { row in Text(row.year > 0 ? String(row.year) : "").monospacedDigit().foregroundStyle(colors.ink2) }
+            .width(min: 40, ideal: 56)
+            .customizationID("year")
+            .defaultVisibility(.hidden)
+        TableColumn("Quality", value: \.format) { row in Text(row.track.quality).font(.callout).foregroundStyle(colors.ink3) }
+            .width(min: 60, ideal: 92)
+            .customizationID("quality")
+    }
+
+    @Columns private var moreColumns: some TableColumnContent<SongRow, KeyPathComparator<SongRow>> {
+        TableColumn("Bitrate", value: \.bitrate) { row in Text(row.bitrate > 0 ? "\(row.bitrate) kbps" : "").monospacedDigit().foregroundStyle(colors.ink3) }
+            .width(min: 50, ideal: 76)
+            .customizationID("bitrate")
+            .defaultVisibility(.hidden)
+        TableColumn("Sample rate", value: \.sampleRate) { row in Text(khz(row.sampleRate)).monospacedDigit().foregroundStyle(colors.ink3) }
+            .width(min: 60, ideal: 88)
+            .customizationID("sample_rate")
+            .defaultVisibility(.hidden)
+        TableColumn("BPM", value: \.bpm) { row in Text(row.bpm > 0 ? String(format: "%.0f", row.bpm) : "").monospacedDigit().foregroundStyle(colors.ink3) }
+            .width(min: 36, ideal: 52)
+            .customizationID("bpm")
+            .defaultVisibility(.hidden)
+        TableColumn("Plays", value: \.plays) { row in Text(row.plays > 0 ? String(row.plays) : "").monospacedDigit().foregroundStyle(colors.ink3) }
+            .width(min: 36, ideal: 52)
+            .customizationID("plays")
+            .defaultVisibility(.hidden)
+        TableColumn("Last played", value: \.lastPlayed) { row in Text(day(row.track.lastPlayed)).foregroundStyle(colors.ink3) }
+            .width(min: 70, ideal: 104)
+            .customizationID("last_played")
+            .defaultVisibility(.hidden)
+        TableColumn("Added", value: \.added) { row in Text(day(row.added)).foregroundStyle(colors.ink3) }
+            .width(min: 70, ideal: 96)
+            .customizationID("added")
+            .defaultVisibility(.hidden)
+        TableColumn("Rating", value: \.rating) { row in
+            Stars(rating: row.rating, size: 10) { store.rate([row.track.id], $0) }
+        }
+        .width(min: 70, ideal: 84)
+        .customizationID("rating")
+        .defaultVisibility(.hidden)
+        TableColumn("") { row in
+            Heart(on: row.track.favorite) { store.rate([row.track.id], row.track.favorite ? 0 : 5) }
+        }
+        .width(24)
+        .customizationID("heart")
+        TableColumn("Time", value: \.duration) { row in
+            Text(clock(row.duration)).monospacedDigit().foregroundStyle(colors.ink3)
+                .frame(maxWidth: .infinity, alignment: .trailing)
+        }
+        .width(min: 44, ideal: 52, max: 80)
+        .customizationID("time")
     }
 
     private static func comparator(_ path: PartialKeyPath<SongRow>, _ ascending: Bool) -> KeyPathComparator<SongRow>? {
@@ -279,6 +278,27 @@ struct TitleCell: View {
             }
         }
         .padding(.vertical, compact ? 1 : 3)
+    }
+}
+
+/// The "#" cell: the song's place (or track number on an album page), or bars for the one
+/// playing.
+struct NumberCell: View {
+    @Environment(Store.self) private var store
+    let row: SongRow
+    let playing: Bool
+    let trackNumbers: Bool
+
+    var body: some View {
+        let label = trackNumbers && row.number > 0 ? String(row.number) : (row.index + 1).formatted()
+        ZStack(alignment: .trailing) {
+            if playing {
+                Equalizer(color: store.colors.accent, playing: store.playback?.playing == true).frame(width: 14, height: 12)
+            } else {
+                Text(label).foregroundStyle(store.colors.ink3).monospacedDigit()
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .trailing)
     }
 }
 
