@@ -250,6 +250,8 @@ struct CoverBackdrop: View {
     let seed: String
     var blur: CGFloat = 80
     var moving = true
+    /// How dark the foot of it gets, for words over it.
+    var dim: Double = 0.55
 
     var body: some View {
         GeometryReader { geo in
@@ -262,10 +264,16 @@ struct CoverBackdrop: View {
             }
             .blur(radius: blur)
             .saturation(1.6)
-            .brightness(-0.2)
+            .brightness(dim > 0.4 ? -0.2 : -0.08)
             .position(x: geo.size.width / 2, y: geo.size.height / 2)
         }
-        .overlay(LinearGradient(colors: [.black.opacity(0.1), .black.opacity(0.55)], startPoint: .top, endPoint: .bottom))
+        // Darker at the foot for words over it; with little dimming, a band at the top too, so
+        // the title bar reads over a bright cover.
+        .overlay(LinearGradient(stops: dim > 0.4
+            ? [.init(color: .black.opacity(dim * 0.2), location: 0), .init(color: .black.opacity(dim), location: 1)]
+            : [.init(color: .black.opacity(0.3), location: 0), .init(color: .black.opacity(0.05), location: 0.18),
+               .init(color: .black.opacity(dim * 0.4), location: 0.5), .init(color: .black.opacity(dim), location: 1)],
+            startPoint: .top, endPoint: .bottom))
         .clipped()
     }
 }
