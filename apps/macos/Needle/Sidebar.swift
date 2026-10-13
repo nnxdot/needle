@@ -10,6 +10,16 @@ struct Sidebar: View {
     var body: some View {
         let rail = store.settings.layout.sidebarHidden && store.settings.layout.compactSidebar
         List(selection: Binding<Route?>(get: { store.route.sidebarRoute }, set: { if let to = $0 { store.navigate(to) } })) {
+            if rail {
+                // No room for the search field: search in the palette.
+                Button { store.palette = true } label: {
+                    Image(systemName: "magnifyingglass").font(.title3).frame(maxWidth: .infinity)
+                }
+                .buttonStyle(.plain)
+                .foregroundStyle(.secondary)
+                .help("Search · ⌘F")
+                .selectionDisabled()
+            }
             Section {
                 item("Home", "house", .home)
                 item("Songs", "music.note", .songs)
@@ -89,6 +99,9 @@ struct Sidebar: View {
         .listStyle(.sidebar)
         .tint(store.colors.accent)
         .listItemTint(.fixed(store.colors.accent))
+        // The strip of icons shows the window's background: its own dark glass made a band
+        // beside the page.
+        .scrollContentBackground(rail ? .hidden : .automatic)
         .safeAreaInset(edge: .bottom, spacing: 0) { footer(rail: rail) }
     }
 

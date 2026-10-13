@@ -32,12 +32,13 @@ struct MainWindow: View {
                     }
                 })) {
                 Sidebar()
-                    .navigationSplitViewColumnWidth(min: rail ? 64 : 175, ideal: rail ? 64 : sidebarStart, max: rail ? 64 : 260)
+                    .toolbar(removing: rail ? .sidebarToggle : nil)
+                    .navigationSplitViewColumnWidth(min: rail ? 84 : 175, ideal: rail ? 84 : sidebarStart, max: rail ? 84 : 260)
                     .background { if !rail { WidthKeeper(key: "sidebar_width", range: 175...260, saved: store.settings.layout.sidebarWidth) } }
             } detail: {
                 detail
             }
-            .modifier(SearchField(searchFocused: $searchFocused, suggestions: suggestions))
+            .modifier(SearchField(searchFocused: $searchFocused, suggestions: suggestions, rail: rail))
             .toolbar(store.big && !store.immersive ? .hidden : .visible, for: .windowToolbar)
             // No band behind the toolbar over the page only: the window's one background shows
             // through the whole top bar, the search field included.
@@ -121,7 +122,7 @@ struct MainWindow: View {
     /// moving the columns and never settled, and AppKit stopped the app.)
     private var leastWidth: CGFloat {
         let layout = store.settings.layout
-        let sidebar: CGFloat = layout.sidebarHidden ? (layout.compactSidebar ? 64 : 0) : 220
+        let sidebar: CGFloat = layout.sidebarHidden ? (layout.compactSidebar ? 84 : 0) : 220
         return max(760, 560 + sidebar + (store.settings.showInspector ? 310 : 0))
     }
 
@@ -180,6 +181,10 @@ struct MainWindow: View {
     @ToolbarContentBuilder
     private var toolbar: some ToolbarContent {
         ToolbarItemGroup(placement: .navigation) {
+            if rail {
+                Button { store.setLayout(["sidebar_hidden": false]) } label: { Image(systemName: "sidebar.left") }
+                    .help("Show the whole sidebar")
+            }
             Button { store.goBack() } label: { Image(systemName: "chevron.left") }
                 .help("Back · ⌘[")
                 .disabled(store.back.isEmpty)
@@ -187,14 +192,15 @@ struct MainWindow: View {
                 .help("Forward · ⌘]")
                 .disabled(store.forward.isEmpty)
         }
+        // With Back and Forward, not alone at the far right over the side panel.
+        ToolbarItem(placement: .navigation) {
+            Button { store.palette = true } label: { Image(systemName: "command") }
+                .help("Command palette: go anywhere, do anything · ⌘K")
+        }
         if store.settings.layout.playerOnTop {
             ToolbarItem(placement: .principal) {
                 TopPlayer()
             }
-        }
-        ToolbarItem(placement: .primaryAction) {
-            Button { store.palette = true } label: { Image(systemName: "command") }
-                .help("Command palette: go anywhere, do anything · ⌘K")
         }
     }
 
@@ -227,10 +233,12 @@ private struct SearchField: ViewModifier {
     private var store: Store { .shared }
     var searchFocused: FocusState<Bool>.Binding
     let suggestions: [Suggestion]
+    /// The strip of icons has no room for a field: its search button opens the palette.
+    let rail: Bool
 
     func body(content: Content) -> some View {
         @Bindable var store = store
-        if store.settings.layout.searchHidden {
+        if store.settings.layout.searchHidden || rail {
             content
         } else {
             content
