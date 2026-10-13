@@ -9,6 +9,11 @@ struct MainWindow: View {
     @Environment(\.openSettings) private var openSettings
     @FocusState private var searchFocused: Bool
     @State private var suggestions: [Suggestion] = []
+    /// The column widths saved in the layout, read once: they set where the columns start.
+    /// (Following them as they are saved fed each squeeze of a column back into the split view,
+    /// which then never settled, and AppKit stopped the app.)
+    @State private var sidebarStart = CGFloat(Store.shared.settings.layout.sidebarWidth)
+    @State private var inspectorStart = CGFloat(Store.shared.settings.layout.inspectorWidth)
 
     var body: some View {
         @Bindable var store = store
@@ -18,16 +23,18 @@ struct MainWindow: View {
                 get: { store.settings.layout.sidebarHidden && !store.settings.layout.compactSidebar ? .detailOnly : .all },
                 set: { store.setLayout(["sidebar_hidden": $0 == .detailOnly]) })) {
                 Sidebar()
-                    .navigationSplitViewColumnWidth(min: rail ? 64 : 175, ideal: rail ? 64 : CGFloat(store.settings.layout.sidebarWidth), max: rail ? 64 : 260)
+                    .navigationSplitViewColumnWidth(min: rail ? 64 : 175, ideal: rail ? 64 : sidebarStart, max: rail ? 64 : 260)
                     .background { if !rail { WidthKeeper(key: "sidebar_width", range: 175...260, saved: store.settings.layout.sidebarWidth) } }
             } detail: {
                 detail
             }
             .modifier(SearchField(searchFocused: $searchFocused, suggestions: suggestions))
-            .toolbar(store.big || store.immersive ? .hidden : .visible, for: .windowToolbar)
+            .toolbar(store.big && !store.immersive ? .hidden : .visible, for: .windowToolbar)
             // No band behind the toolbar over the page only: the window's one background shows
             // through the whole top bar, the search field included.
             .toolbarBackgroundVisibility(.hidden, for: .windowToolbar)
+            // In full screen the toolbar shows only while the pointer is at the top.
+            .windowToolbarFullScreenVisibility(.onHover)
             .onChange(of: store.search) { _, text in findSuggestions(text) }
             .onChange(of: store.focusSearch) { _, _ in
                 if store.settings.layout.searchHidden { store.palette = true } else { searchFocused = true }
@@ -53,7 +60,9 @@ struct MainWindow: View {
         .animation(store.motion ? .smooth(duration: 0.18) : nil, value: store.palette)
         .tint(colors.accent)
         .preferredColorScheme(colors.dark ? .dark : .light)
-        .frame(minWidth: 900, minHeight: 620)
+        .frame(minWidth: leastWidth, minHeight: 620)
+        .onChange(of: leastWidth) { _, width in makeRoom(width) }
+        .onAppear { makeRoom(leastWidth) }
         .onDrop(of: [.fileURL], isTargeted: nil) { providers in
             drop(providers)
             return true
@@ -72,15 +81,24 @@ struct MainWindow: View {
     }
 
     #if DEBUG
-    /// Test builds: `--show settings|mini|big|palette` opens that at the start, to look at it.
+    /// Test builds: `--show settings|mini|big|palette|panel-later` opens that at the start (the
+    /// side panel two seconds later), to look at it.
     private func showForTest() {
         let arguments = CommandLine.arguments
+        if let i = arguments.firstIndex(of: "--window-size"), arguments.indices.contains(i + 1) {
+            let parts = arguments[i + 1].split(separator: "x").compactMap { Double($0) }
+            if parts.count == 2, let window = NSApp.windows.first(where: { $0.identifier?.rawValue.hasPrefix("main") == true }) {
+                window.setContentSize(NSSize(width: parts[0], height: parts[1]))
+            }
+        }
         guard let i = arguments.firstIndex(of: "--show"), arguments.indices.contains(i + 1) else { return }
         switch arguments[i + 1] {
         case "settings": openSettings()
         case "mini": openWindow(id: "mini")
         case "big": store.big = true
         case "palette": store.palette = true
+        case "panel-later":
+            Task { try? await Task.sleep(for: .seconds(2)); store.set(["show_inspector": true]) }
         default: break
         }
     }
@@ -88,18 +106,56 @@ struct MainWindow: View {
 
     private var rail: Bool { store.settings.layout.sidebarHidden && store.settings.layout.compactSidebar }
 
+    /// The narrowest the window may be with the columns that are open: the page needs about
+    /// 560 points beside the sidebar and the side panel. (Narrower, SwiftUI's split view kept
+    /// moving the columns and never settled, and AppKit stopped the app.)
+    private var leastWidth: CGFloat {
+        let layout = store.settings.layout
+        let sidebar: CGFloat = layout.sidebarHidden ? (layout.compactSidebar ? 64 : 0) : 220
+        return max(760, 560 + sidebar + (store.settings.showInspector ? 310 : 0))
+    }
+
+    /// Widens the window when a column opens and there is no room for it.
+    private func makeRoom(_ width: CGFloat) {
+        guard let window = NSApp.windows.first(where: { $0.identifier?.rawValue.hasPrefix("main") == true }),
+              !window.styleMask.contains(.fullScreen), window.frame.width < width else { return }
+        var frame = window.frame
+        frame.size.width = width
+        if let screen = window.screen?.visibleFrame {
+            frame.size.width = min(width, screen.width)
+            frame.origin.x = max(screen.minX, min(frame.origin.x, screen.maxX - frame.width))
+        }
+        window.setFrame(frame, display: true, animate: store.motion)
+    }
+
+    #if DEBUG
+    /// Test builds: `--drop page,player,panel` leaves those parts out, to find which one a
+    /// layout problem comes from.
+    private static let drop: Set<String> = {
+        let arguments = CommandLine.arguments
+        guard let i = arguments.firstIndex(of: "--drop"), arguments.indices.contains(i + 1) else { return [] }
+        return Set(arguments[i + 1].split(separator: ",").map(String.init))
+    }()
+    #else
+    private static let drop: Set<String> = []
+    #endif
+
     @ViewBuilder
     private var detail: some View {
-        PageView()
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
+        Group { if Self.drop.contains("page") { Color.clear } else { PageView() } }
+            // The page column's least size is its own, not its page's: a page that asked for
+            // more room than the window had set the split view fighting over the columns until
+            // AppKit stopped the app.
+            .frame(minWidth: 360, idealWidth: 360, maxWidth: .infinity, minHeight: 300, idealHeight: 300, maxHeight: .infinity)
+            .clipped()
             .safeAreaInset(edge: .bottom, spacing: 0) {
-                if !store.settings.layout.playerOnTop {
+                if !store.settings.layout.playerOnTop && !Self.drop.contains("player") {
                     PlayerBar().padding(.horizontal, 14).padding(.bottom, 12).padding(.top, 4)
                 }
             }
             .inspector(isPresented: Binding(get: { store.settings.showInspector }, set: { store.set(["show_inspector": $0]) })) {
-                Inspector()
-                    .inspectorColumnWidth(min: 240, ideal: CGFloat(store.settings.layout.inspectorWidth), max: 340)
+                Group { if Self.drop.contains("panel") { Color.clear } else { Inspector() } }
+                    .inspectorColumnWidth(min: 240, ideal: inspectorStart, max: 340)
                     .background { WidthKeeper(key: "inspector_width", range: 240...340, saved: store.settings.layout.inspectorWidth) }
             }
             .toolbar { toolbar }
@@ -167,7 +223,7 @@ private struct SearchField: ViewModifier {
             content
         } else {
             content
-                .searchable(text: $store.search, placement: .toolbar, prompt: "Search, or write a rule like  rating >= 4")
+                .searchable(text: $store.search, placement: .toolbar, prompt: "Search")
                 .searchFocused(searchFocused)
                 .searchSuggestions {
                     ForEach(suggestions, id: \.label) { s in

@@ -5,10 +5,13 @@ import SwiftUI
 struct PlayerBar: View {
     private var store: Store { .shared }
 
+    enum Width { case wide, medium, narrow }
+
     var body: some View {
         GeometryReader { geo in
-            bar(wide: geo.size.width > 900)
-                .padding(.horizontal, 18)
+            let width: Width = geo.size.width > 900 ? .wide : geo.size.width > 620 ? .medium : .narrow
+            bar(width)
+                .padding(.horizontal, width == .narrow ? 12 : 18)
                 .frame(width: geo.size.width, height: geo.size.height)
         }
         .frame(height: 72)
@@ -16,32 +19,54 @@ struct PlayerBar: View {
     }
 
     /// The bar: the song on the left, the controls and seek bar in the middle, the output and
-    /// panels on the right. Narrow, the song gives up room and the extras go in a menu.
-    private func bar(wide: Bool) -> some View {
-        HStack(spacing: 18) {
-            NowPlayingInfo(coverSide: 48)
-                .frame(minWidth: 150, idealWidth: wide ? 280 : 190, maxWidth: wide ? 300 : 210, alignment: .leading)
-            VStack(spacing: 3) {
-                Transport(play: 34)
-                SeekBar()
+    /// panels on the right. Narrower, the song gives up its words and the extras go in a menu.
+    private func bar(_ width: Width) -> some View {
+        HStack(spacing: width == .narrow ? 10 : 18) {
+            if width == .narrow {
+                NowPlayingCover(side: 44)
+            } else {
+                NowPlayingInfo(coverSide: 48)
+                    .frame(maxWidth: width == .wide ? 300 : 210, alignment: .leading)
+                    .layoutPriority(1)
             }
-            .frame(minWidth: wide ? 360 : 260, maxWidth: 560)
+            VStack(spacing: 3) {
+                Transport(play: 34, compact: width == .narrow)
+                SeekBar(small: width == .narrow)
+            }
+            .frame(maxWidth: 560)
             .frame(maxWidth: .infinity)
+            .layoutPriority(2)
             VStack(alignment: .trailing, spacing: 3) {
-                if wide { SignalPath() }
-                HStack(spacing: 12) {
-                    VolumeControl(width: wide ? 96 : 72)
-                    if wide {
+                if width == .wide { SignalPath() }
+                HStack(spacing: width == .narrow ? 8 : 12) {
+                    if width != .narrow { VolumeControl(width: width == .wide ? 96 : 64) }
+                    if width == .wide {
                         SoundButton()
                         SpeakersButton()
                     }
-                    PanelButton(panel: .lyrics, icon: "quote.bubble", help: "Lyrics · ⌘L")
+                    if width != .narrow { PanelButton(panel: .lyrics, icon: "quote.bubble", help: "Lyrics · ⌘L") }
                     QueueButton()
-                    MoreButton(all: !wide)
+                    MoreButton(all: width != .wide)
                 }
                 .font(.system(size: 14))
             }
-            .fixedSize()
+            .layoutPriority(1)
+        }
+    }
+}
+
+/// The playing song's cover alone, for a narrow player bar: it opens the big player.
+struct NowPlayingCover: View {
+    private var store: Store { .shared }
+    let side: CGFloat
+
+    var body: some View {
+        if let p = store.playback, p.hasSong {
+            Button { store.big = true } label: { Cover(path: p.artwork, seed: p.album + p.artist, side: side, corner: 6) }
+                .buttonStyle(.plain)
+                .help("\(p.title) · \(p.artist) · open the big player")
+        } else {
+            RoundedRectangle(cornerRadius: 6).fill(store.colors.raised).frame(width: side, height: side)
         }
     }
 }

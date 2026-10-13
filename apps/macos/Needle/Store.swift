@@ -27,6 +27,8 @@ final class Store {
     private(set) var lyrics: Lyrics?
     private(set) var lyricsFor: String?
     private(set) var lyricsLooking = false
+    /// The timed lyric line being sung; it changes only when the line does.
+    private(set) var lyricLine: Int?
     private(set) var scan = ScanStatus(running: false, scanned: 0, imported: 0, current: "", error: nil)
     /// Changes whenever the library may have changed, so pages load again.
     private(set) var libraryVersion = 0
@@ -194,7 +196,13 @@ final class Store {
             tintFor = now.artwork
             findTint(now.artwork)
         }
+        followLyrics(now.position)
         nowPlaying.update(now)
+    }
+
+    private func followLyrics(_ position: Double) {
+        let line = lyrics.flatMap { lyrics in lyrics.lines.lastIndex { $0.time <= position + 0.15 } }
+        if line != lyricLine { lyricLine = line }
     }
 
     private func reloadCurrent(started: Bool) {
