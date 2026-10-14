@@ -39,7 +39,7 @@ struct SongTable: View {
     private var albumView: Bool { if case .album = route { true } else { false } }
     /// A playlist of picked songs in its own order: songs can be moved about and taken out.
     private var arrangeable: Bool { model.playlistID != nil && store.sort == nil && store.search.isEmpty }
-    private var compact: Bool { store.settings.layout.rowHeight < 50 }
+    private var compact: Bool { store.compactRows }
 
     private var rows: [SongRow] {
         model.tracks.enumerated().map { SongRow(index: model.offset + $0.offset, track: $0.element) }

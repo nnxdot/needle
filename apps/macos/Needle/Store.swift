@@ -16,7 +16,15 @@ final class Store {
 
     // MARK: What the core says
 
-    private(set) var settings: NeedleSettings
+    private(set) var settings: NeedleSettings { didSet { refreshLook() } }
+    /// What the views draw with, kept apart from `settings` and changed only when it changes:
+    /// a view that reads `settings` redraws at every change to any setting (folding the
+    /// sidebar redrew every row of the song table).
+    private(set) var colors = Palette.build(Palette.base("dark"), tint: nil, ambient: false)
+    private(set) var motion = true
+    private(set) var displayFont = "system"
+    /// Song rows in the compact height.
+    private(set) var compactRows = false
     private(set) var playback: MacPlayback?
     /// The song playing, with every field.
     private(set) var current: Track?
@@ -34,9 +42,9 @@ final class Store {
     private(set) var libraryVersion = 0
     private(set) var playlists: [Playlist] = []
     private(set) var plugins: [PluginItem] = []
-    private(set) var themes: [ThemeFile] = []
+    private(set) var themes: [ThemeFile] = [] { didSet { refreshLook() } }
     /// The playing cover's colour, for tinting the app.
-    private(set) var coverTint: NSColor?
+    private(set) var coverTint: NSColor? { didSet { refreshLook() } }
     private(set) var stemsJob: StemJob?
     private(set) var importProgress: String?
     private(set) var update: MacUpdate?
@@ -117,6 +125,7 @@ final class Store {
         }
         version = core.version()
         settings = JSON.decode(NeedleSettings.self, try? core.settingsJson()) ?? NeedleSettings()
+        refreshLook()
         core.startDesktop()
         reloadPlaylists()
         reloadPlugins()
@@ -369,6 +378,17 @@ final class Store {
     }
 
     func setLayout(_ patch: [String: Any]) { set(["layout": patch]) }
+
+    /// Brings `colors` and the others kept beside `settings` up to date.
+    func refreshLook() {
+        let look = lookNow()
+        if look != colors { colors = look }
+        let still = settings.reduceMotion || NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
+        if motion == still { motion = !still }
+        if displayFont != settings.displayFont { displayFont = settings.displayFont }
+        let compact = settings.layout.rowHeight < 50
+        if compactRows != compact { compactRows = compact }
+    }
 
     func reloadSettings() {
         guard let next = JSON.decode(NeedleSettings.self, try? core.settingsJson()), next != settings else { return }

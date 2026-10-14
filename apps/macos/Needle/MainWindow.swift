@@ -32,7 +32,7 @@ struct MainWindow: View {
             } detail: {
                 detail
             }
-            .modifier(SearchField(searchFocused: $searchFocused, suggestions: suggestions, rail: rail))
+            .modifier(SearchField(searchFocused: $searchFocused, suggestions: suggestions))
             .toolbar(removing: .sidebarToggle)
             .toolbar(store.big && !store.immersive ? .hidden : .visible, for: .windowToolbar)
             // No band behind the toolbar over the page only: the window's one background shows
@@ -103,11 +103,26 @@ struct MainWindow: View {
         case "big": store.big = true
         case "palette": store.palette = true
         case "sidebar-flips":
+            // Each switch, then the longest the main thread stalled in the 1.5 s after it.
+            let probe = StallProbe()
             Task {
+                if arguments.contains("songs") { store.navigate(.songs) }
+                try? await Task.sleep(for: .seconds(3))
                 for _ in 0..<6 {
+                    probe.reset()
+                    let start = Date()
+                    if arguments.contains("noanim") {
+                        var instant = Transaction(animation: nil)
+                        instant.disablesAnimations = true
+                        withTransaction(instant) { store.setLayout(["sidebar_hidden": !store.settings.layout.sidebarHidden]) }
+                    } else {
+                        store.setLayout(["sidebar_hidden": !store.settings.layout.sidebarHidden])
+                    }
+                    let call = Date().timeIntervalSince(start)
                     try? await Task.sleep(for: .seconds(1.5))
-                    store.setLayout(["sidebar_hidden": !store.settings.layout.sidebarHidden])
+                    print(String(format: "flip: set %.0f ms, longest stall %.0f ms", call * 1000, probe.longest * 1000))
                 }
+                fflush(stdout)
             }
         case "panel-later":
             Task { try? await Task.sleep(for: .seconds(2)); store.set(["show_inspector": true]) }
@@ -154,9 +169,15 @@ struct MainWindow: View {
             // AppKit stopped the app.
             .frame(minWidth: 360, idealWidth: 360, maxWidth: .infinity, minHeight: 300, idealHeight: 300, maxHeight: .infinity)
             .clipped()
+            // The player floats over the page, which slides under it, at the foot or the top.
             .safeAreaInset(edge: .bottom, spacing: 0) {
                 if !store.settings.layout.playerOnTop && !Self.drop.contains("player") {
-                    PlayerBar().padding(.horizontal, 14).padding(.bottom, 12).padding(.top, 4)
+                    PlayerBar().padding(.horizontal, 20).padding(.bottom, 14).padding(.top, 4)
+                }
+            }
+            .safeAreaInset(edge: .top, spacing: 0) {
+                if store.settings.layout.playerOnTop && !Self.drop.contains("player") {
+                    PlayerBar().padding(.horizontal, 20).padding(.top, 6).padding(.bottom, 4)
                 }
             }
     }
@@ -183,11 +204,6 @@ struct MainWindow: View {
         ToolbarItem(placement: .navigation) {
             Button { store.palette = true } label: { Image(systemName: "command") }
                 .help("Command palette: go anywhere, do anything · ⌘K")
-        }
-        if store.settings.layout.playerOnTop {
-            ToolbarItem(placement: .principal) {
-                TopPlayer()
-            }
         }
     }
 
@@ -220,12 +236,12 @@ private struct SearchField: ViewModifier {
     private var store: Store { .shared }
     var searchFocused: FocusState<Bool>.Binding
     let suggestions: [Suggestion]
-    /// The strip of icons has no room for a field: its search button opens the palette.
-    let rail: Bool
 
+    // The field stays on with the sidebar folded (it folds away with it): turning it off and on
+    // rebuilt the whole window, the song table included, at each switch of the sidebar.
     func body(content: Content) -> some View {
         @Bindable var store = store
-        if store.settings.layout.searchHidden || rail {
+        if store.settings.layout.searchHidden {
             content
         } else {
             content
@@ -252,6 +268,34 @@ private struct SearchField: ViewModifier {
         return text.replacingCharacters(in: NSRange(location: start, length: end - start), with: s.insert)
     }
 }
+
+#if DEBUG
+/// Test builds: the longest gap between ticks of a 5 ms timer on the main thread, which is how
+/// long the window could not draw.
+@MainActor
+final class StallProbe {
+    private(set) var longest: TimeInterval = 0
+    private var last = Date()
+    private var timer: Timer?
+
+    init() {
+        timer = Timer.scheduledTimer(withTimeInterval: 0.005, repeats: true) { [weak self] _ in
+            MainActor.assumeIsolated {
+                guard let self else { return }
+                let now = Date()
+                self.longest = max(self.longest, now.timeIntervalSince(self.last))
+                self.last = now
+            }
+        }
+        RunLoop.main.add(timer!, forMode: .common)
+    }
+
+    func reset() {
+        longest = 0
+        last = Date()
+    }
+}
+#endif
 
 /// Folds the sidebar (to its strip of icons, with the compact sidebar) or opens it. Needle's
 /// own, with Back and Forward: the system's jumped between the sidebar's far edge and the
@@ -283,8 +327,10 @@ struct WidthKeeper: View {
         }
         .task(id: width) {
             try? await Task.sleep(for: .milliseconds(700))
-            guard !Task.isCancelled, width > 0 else { return }
-            let next = min(range.upperBound, max(range.lowerBound, width.rounded()))
+            // Only a width it can be dragged to: folding or closing the column passes through
+            // smaller ones, and saving those shrank the column and redrew the window again.
+            guard !Task.isCancelled, range.contains(width) else { return }
+            let next = width.rounded()
             if abs(next - saved) >= 2 { store.setLayout([key: next]) }
         }
     }

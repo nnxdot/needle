@@ -439,7 +439,7 @@ struct AppearanceSettings: View {
             SettingRow(title: "Fold the sidebar now", detail: "The same as the sidebar button in the toolbar.") {
                 Toggle("", isOn: Binding(get: { s.layout.sidebarHidden }, set: { store.setLayout(["sidebar_hidden": $0]) })).toggleStyle(.switch).labelsHidden()
             }
-            SettingRow(title: "Player in the top bar", detail: "The play controls, the song playing, and the volume sit in the toolbar, as in Apple Music.") {
+            SettingRow(title: "Player at the top", detail: "The player floats at the top of the page, not at its foot.") {
                 Toggle("", isOn: Binding(get: { s.layout.playerOnTop }, set: { store.setLayout(["player_on_top": $0]) })).toggleStyle(.switch).labelsHidden()
             }
             SettingRow(title: "Hide the search field", detail: "Search from the command palette instead (⌘K, or ⌘F).") {
