@@ -21,7 +21,7 @@ enum Route: Hashable {
     case folder(String)
     case albums, artists, songs, playlists, genres, favorites, recent, folders
     case history, stats, wrapped
-    case settings, settingsLibrary, settingsPlayback, settingsSound, settingsAppearance, settingsScrobbling
+    case settings, settingsLibrary, settingsPlayback, settingsSound, settingsAppearance, settingsScrobbling, settingsDiscord
     case plugins, plugin(String), server(String), computer, sync, whatsNew, about
     case fixLibrary, duplicates, missingCovers, albumProblems, tidy, importing
     case themeEditor(String?)
@@ -55,6 +55,7 @@ extension View {
             case .settingsSound: SoundView()
             case .settingsAppearance: AppearanceView()
             case .settingsScrobbling: ScrobblingView()
+            case .settingsDiscord: DiscordView()
             case .plugins: PluginsView()
             case .plugin(let id): PluginView(id: id)
             case .server(let id): ServerView(plugin: id)

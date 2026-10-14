@@ -127,6 +127,8 @@ final class Store {
             }
             _ = core.sendCrashReports()
             _ = core.reconnectPc()
+            // Discord's status, when this build has Discord's library (it waits, unlinked).
+            core.startDiscord()
             #if DEBUG
             // For testing in the simulator from a shell: plays the whole library at start.
             if CommandLine.arguments.contains("-play-test") {
@@ -142,6 +144,22 @@ final class Store {
         }
         followComputer()
         refreshPlugins()
+        #if DEBUG
+        // For testing from a shell: opens Discord's sign-in page.
+        if CommandLine.arguments.contains("-discord-link") {
+            Task {
+                try? await Task.sleep(for: .seconds(3))
+                core.discordLink()
+            }
+        }
+        // For testing from a shell, with -play-test: opens the player on its lyrics.
+        if CommandLine.arguments.contains("-show-lyrics") {
+            Task { [weak self] in
+                try? await Task.sleep(for: .seconds(5))
+                self?.showPlayer = true
+            }
+        }
+        #endif
         Task { await updateWidgets(library: true) }
     }
 
@@ -397,6 +415,7 @@ final class Store {
     /// Opens a link from a widget, Siri, or another app: `needle://album?id=…` and so on, or a
     /// music file.
     func open(_ url: URL) {
+        if url.scheme?.hasPrefix("discord-") == true { return }
         guard url.scheme == "needle" else { return openFile(url) }
         let id = URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems?.first { $0.name == "id" }?.value ?? ""
         switch url.host {

@@ -1,3 +1,10 @@
+# 1.6.5
+Discord status, and lyrics from your music server.
+! **Discord status.** Link your Discord account once in Settings › Discord, and your profile shows what you play, as on Android and the desktop.
+- [lyrics] **Lyrics from your server.** Songs from Navidrome get the lyrics your server has, timed when it has them, even with online lookups off.
+- When a song has no lyrics and online lookups are off, the lyrics page has a button to turn them on.
+- Long lyric lines no longer run past the edge of the screen.
+
 # 1.6.4
 Needle comes to iPhone, made for Liquid Glass.
 ! **Needle for iPhone.** Your library, music servers, and Needle on your computer, in an app made for iOS 26: a glass tab bar with the song playing on it, a full player over the cover's colours, and lyrics that follow the song.
