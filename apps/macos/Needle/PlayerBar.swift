@@ -1,65 +1,126 @@
 import SwiftUI
 
-/// The player at the foot of the window, floating on glass: the song, the controls and seek
-/// bar, and the output, volume, and panels.
+/// The player, after Apple Music's: one capsule of glass floating over the page, with the
+/// controls, a small screen with the song and a thin line for where it is, and the panels and
+/// volume. At the foot of the page, or at its top when Settings puts it there.
 struct PlayerBar: View {
     private var store: Store { .shared }
 
-    enum Width { case wide, medium, narrow }
-
     var body: some View {
         GeometryReader { geo in
-            let width: Width = geo.size.width > 900 ? .wide : geo.size.width > 620 ? .medium : .narrow
-            bar(width)
-                .padding(.horizontal, width == .narrow ? 12 : 18)
-                .frame(width: geo.size.width, height: geo.size.height)
-        }
-        .frame(height: 72)
-        .pane(Capsule())
-    }
-
-    /// The bar: the song on the left, the controls and seek bar in the middle, the output and
-    /// panels on the right. Narrower, the song gives up its words and the extras go in a menu.
-    private func bar(_ width: Width) -> some View {
-        HStack(spacing: width == .narrow ? 10 : 18) {
-            // A set width: given only what was left, the song's words shrank to nothing.
-            NowPlayingInfo(coverSide: width == .narrow ? 40 : 48, heart: width != .narrow)
-                .frame(width: width == .wide ? 280 : width == .medium ? 210 : 150, alignment: .leading)
-            VStack(spacing: 3) {
-                Transport(play: 34, compact: width == .narrow)
-                SeekBar(small: width == .narrow)
-            }
-            .frame(maxWidth: 560)
-            .frame(maxWidth: .infinity)
-            VStack(alignment: .trailing, spacing: 3) {
-                if width == .wide { SignalPath() }
-                HStack(spacing: width == .narrow ? 8 : 12) {
-                    if width != .narrow { VolumeControl(width: width == .wide ? 96 : 64) }
-                    if width == .wide {
-                        SoundButton()
-                        SpeakersButton()
+            let narrow = geo.size.width < 600, wide = geo.size.width > 720
+            HStack(spacing: narrow ? 10 : 18) {
+                Transport(play: 30, compact: narrow, bare: true)
+                    .fixedSize()
+                NowScreen()
+                    .frame(maxWidth: .infinity)
+                HStack(spacing: narrow ? 10 : 14) {
+                    if !narrow, let c = store.current {
+                        Heart(on: c.favorite, size: 14) { store.toggleFavorite([c]) }
                     }
-                    if width != .narrow { PanelButton(panel: .lyrics, icon: "quote.bubble", help: "Lyrics · ⌘L") }
+                    PanelButton(panel: .lyrics, icon: "quote.bubble", help: "Lyrics · ⌘L")
                     QueueButton()
-                    MoreButton(all: width != .wide)
+                    if wide { SpeakersButton() }
+                    MoreButton(all: true)
+                    VolumeControl(width: wide ? 64 : 0)
                 }
                 .font(.system(size: 14))
+                .fixedSize()
             }
-            .layoutPriority(1)
+            .padding(.leading, narrow ? 16 : 22)
+            .padding(.trailing, narrow ? 14 : 20)
+            .frame(width: geo.size.width, height: geo.size.height)
         }
+        .frame(height: 56)
+        .frame(maxWidth: 820)
+        .pane(Capsule())
     }
 }
 
-/// The player's other buttons, in a menu: the A–B loop and the mini player, and (narrow) the
-/// sound tools.
+/// The player's small screen: the cover (it opens the big player), the title (it opens the
+/// album) and artist, and along its foot a thin line for where the song is; click or drag the
+/// line to move. The times show while the pointer is over it.
+struct NowScreen: View {
+    private var store: Store { .shared }
+    @State private var held: Double?
+    @State private var hover = false
+
+    var body: some View {
+        let colors = store.colors
+        let p = store.playback
+        let has = p?.hasSong == true
+        let duration = max(p?.duration ?? 0, 0.01)
+        let position = held.map { $0 * duration } ?? p?.position ?? 0
+        VStack(spacing: 0) {
+            HStack(spacing: 10) {
+                if let p, has {
+                    Button { store.big = true } label: { Cover(path: p.artwork, seed: p.album + p.artist, side: 34, corner: 5) }
+                        .buttonStyle(.plain)
+                        .help("Open the big player · ⌘P")
+                    VStack(alignment: .leading, spacing: 1) {
+                        HStack(spacing: 8) {
+                            Button { if let c = store.current { store.navigate(c.albumRoute) } } label: {
+                                Text(p.title).font(.system(size: 13, weight: .semibold)).foregroundStyle(colors.ink).lineLimit(1)
+                            }
+                            .buttonStyle(.plain)
+                            Spacer(minLength: 0)
+                            if hover {
+                                Text("\(clock(position)) / \(clock(p.duration))")
+                                    .font(.system(size: 10).monospacedDigit())
+                                    .foregroundStyle(colors.ink3)
+                                    .fixedSize()
+                            }
+                        }
+                        Button { store.navigate(.artist(store.current?.artist ?? p.artist)) } label: {
+                            Text([p.artist, p.album].filter { !$0.isEmpty }.joined(separator: " — "))
+                                .font(.system(size: 12))
+                                .foregroundStyle(colors.ink2)
+                                .lineLimit(1)
+                        }
+                        .buttonStyle(.plain)
+                    }
+                } else {
+                    RoundedRectangle(cornerRadius: 5).fill(colors.raised).frame(width: 34, height: 34)
+                        .overlay { Image(systemName: "music.note").foregroundStyle(colors.ink3) }
+                    VStack(alignment: .leading, spacing: 1) {
+                        Text("Nothing playing").font(.system(size: 13, weight: .semibold)).foregroundStyle(colors.ink2)
+                        Text("Double-click a track to start.").font(.system(size: 12)).foregroundStyle(colors.ink3)
+                    }
+                }
+                Spacer(minLength: 0)
+            }
+            .frame(height: 38)
+            ThinBar(value: min(1, position / duration), tint: colors.accent, area: 10) { held = $0 } began: {
+                store.core.scrub(held: true)
+            } ended: { fraction in
+                store.seek(fraction * duration)
+                store.core.scrub(held: false)
+                Task { try? await Task.sleep(for: .milliseconds(400)); held = nil }
+            }
+            .disabled(!has)
+            .overlay { LoopMarks(duration: duration) }
+        }
+        .contentShape(Rectangle())
+        .onHover { hover = $0 }
+        .contextMenu { if let c = store.current { SongMenu(tracks: [c], playing: true) } }
+    }
+}
+
+/// The player's other things, in a menu: what plays and how, the A–B loop, the mini player,
+/// and the sound tools.
 struct MoreButton: View {
     private var store: Store { .shared }
     @Environment(\.openWindow) private var openWindow
+    @Environment(\.openSettings) private var openSettings
     let all: Bool
 
     var body: some View {
         let looping = store.playback?.loopStart != nil || store.loopStart != nil
         Menu {
+            if let p = store.playback, p.hasSong, let c = store.current {
+                Button(SignalPath.describe(p, c).0) { openSettings() }
+                Divider()
+            }
             Button(looping ? "Clear the A–B Loop" : store.loopStart != nil ? "Set Point B" : "A–B Loop: Set Point A") { store.loopButton() }
                 .disabled(store.playback?.hasSong != true)
             Button("Mini Player") { openWindow(id: "mini") }
@@ -68,7 +129,7 @@ struct MoreButton: View {
                 Button("Equalizer and Sound Tools") { store.navigate(.sound) }
             }
         } label: {
-            Image(systemName: "ellipsis.circle").foregroundStyle(looping ? store.colors.accent : store.colors.ink2)
+            Image(systemName: "ellipsis").foregroundStyle(looping ? store.colors.accent : store.colors.ink2)
         }
         .menuStyle(.borderlessButton)
         .menuIndicator(.hidden)
@@ -77,97 +138,14 @@ struct MoreButton: View {
     }
 }
 
-/// The player in the title bar, as in Apple Music: the controls, a small screen with the song
-/// and a thin line for where it is, and the volume and panels.
-struct TopPlayer: View {
-    private var store: Store { .shared }
-
-    var body: some View {
-        HStack(spacing: 14) {
-            Transport(play: 26, compact: true)
-            TopScreen()
-                .frame(minWidth: 240, idealWidth: 380, maxWidth: 420)
-            HStack(spacing: 10) {
-                if let c = store.current {
-                    Heart(on: c.favorite) { store.toggleFavorite([c]) }
-                }
-                HStack(spacing: 5) {
-                    let volume = Double(store.playback?.volume ?? 0.65)
-                    Button { store.toggleMute() } label: {
-                        Image(systemName: volume <= 0.001 ? "speaker.slash.fill" : volume < 0.5 ? "speaker.wave.1.fill" : "speaker.wave.3.fill")
-                            .frame(width: 18)
-                    }
-                    .buttonStyle(.borderless)
-                    .help("Mute")
-                    ThinBar(value: volume, tint: store.colors.ink2) { store.setVolume(Float($0)) }
-                        .frame(width: 70)
-                }
-                .foregroundStyle(store.colors.ink2)
-                PanelButton(panel: .lyrics, icon: "quote.bubble", help: "Lyrics · ⌘L")
-                QueueButton()
-            }
-        }
-        .contextMenu { if let c = store.current { SongMenu(tracks: [c], playing: true) } }
-    }
-}
-
-/// The top player's screen: the cover (it opens the big player), the title and artist, and
-/// a thin line for where the song is, the times beside it; drag the line to move.
-private struct TopScreen: View {
-    private var store: Store { .shared }
-    @State private var held: Double?
-
-    var body: some View {
-        let p = store.playback
-        let duration = max(p?.duration ?? 0, 0.01)
-        let position = held.map { $0 * duration } ?? p?.position ?? 0
-        HStack(spacing: 9) {
-            if let p, p.hasSong {
-                Button { store.big = true } label: { Cover(path: p.artwork, seed: p.album + p.artist, side: 32, corner: 4) }
-                    .buttonStyle(.plain)
-                    .help("Open the big player · ⌘P")
-            } else {
-                RoundedRectangle(cornerRadius: 4).fill(store.colors.raised).frame(width: 32, height: 32)
-                    .overlay { Image(systemName: "music.note").font(.caption).foregroundStyle(store.colors.ink3) }
-            }
-            VStack(spacing: 1) {
-                if let p, p.hasSong {
-                    Button { if let c = store.current { store.navigate(c.albumRoute) } } label: {
-                        Text(p.title).font(.system(size: 12, weight: .semibold)).lineLimit(1)
-                    }
-                    .buttonStyle(.plain)
-                    Text([p.artist, p.album].filter { !$0.isEmpty }.joined(separator: " — "))
-                        .font(.system(size: 11))
-                        .foregroundStyle(store.colors.ink2)
-                        .lineLimit(1)
-                } else {
-                    Text("Nothing playing").font(.system(size: 12)).foregroundStyle(store.colors.ink2)
-                }
-                HStack(spacing: 6) {
-                    Text(clock(p?.hasSong == true ? position : 0)).frame(width: 30, alignment: .trailing)
-                    ThinBar(value: min(1, position / duration), tint: store.colors.accent) { held = $0 } began: {
-                        store.core.scrub(held: true)
-                    } ended: { fraction in
-                        store.seek(fraction * duration)
-                        store.core.scrub(held: false)
-                        Task { try? await Task.sleep(for: .milliseconds(400)); held = nil }
-                    }
-                    .disabled(p?.hasSong != true)
-                    Text("-" + clock(max(0, (p?.duration ?? 0) - position))).frame(width: 34, alignment: .leading)
-                }
-                .font(.system(size: 9).monospacedDigit())
-                .foregroundStyle(store.colors.ink3)
-            }
-        }
-        .padding(.horizontal, 4)
-    }
-}
-
 /// A thin line for a value from 0 to 1 (where a song is, the volume), thicker under the
 /// pointer; click or drag along it to change it.
 struct ThinBar: View {
     let value: Double
     var tint: Color
+    var track: Color = Color.primary.opacity(0.16)
+    /// The height that takes clicks; the line is drawn in its middle.
+    var area: CGFloat = 12
     let changed: (Double) -> Void
     var began: () -> Void = {}
     var ended: (Double) -> Void = { _ in }
@@ -179,7 +157,7 @@ struct ThinBar: View {
         GeometryReader { geo in
             let fraction = min(1, max(0, dragged ?? value))
             ZStack(alignment: .leading) {
-                Capsule().fill(Color.primary.opacity(0.16))
+                Capsule().fill(track)
                 Capsule().fill(tint).frame(width: geo.size.width * fraction)
             }
             .frame(height: hover || dragged != nil ? 5 : 3)
@@ -197,54 +175,10 @@ struct ThinBar: View {
                     dragged = nil
                 })
         }
-        .frame(height: 12)
+        .frame(height: area)
         .opacity(enabled ? 1 : 0.5)
         .onHover { hover = $0 }
         .animation(.easeOut(duration: 0.12), value: hover)
-    }
-}
-
-/// The cover, title, and artist of the song playing, and its heart. The cover opens the big
-/// player; right-click for the song's menu.
-struct NowPlayingInfo: View {
-    private var store: Store { .shared }
-    let coverSide: CGFloat
-    var heart = true
-
-    var body: some View {
-        let colors = store.colors
-        HStack(spacing: 12) {
-            if let p = store.playback, p.hasSong {
-                Button { store.big = true } label: {
-                    Cover(path: p.artwork, seed: p.album + p.artist, side: coverSide, corner: 6)
-                        .shadow(color: .black.opacity(0.2), radius: 4, y: 2)
-                }
-                .buttonStyle(.plain)
-                .help("Open the big player · ⌘P")
-                VStack(alignment: .leading, spacing: 2) {
-                    Button(p.title) { if let c = store.current { store.navigate(c.albumRoute) } }
-                        .buttonStyle(.plain)
-                        .font(.body.weight(.medium))
-                        .lineLimit(1)
-                    Button(p.artist) { store.navigate(.artist(store.current?.artist ?? p.artist)) }
-                        .buttonStyle(.plain)
-                        .font(.callout)
-                        .foregroundStyle(colors.ink2)
-                        .lineLimit(1)
-                }
-                if heart, let c = store.current {
-                    Heart(on: c.favorite, size: 14) { store.toggleFavorite([c]) }
-                }
-            } else {
-                RoundedRectangle(cornerRadius: 6).fill(colors.raised).frame(width: coverSide, height: coverSide)
-                    .overlay { Image(systemName: "music.note").foregroundStyle(colors.ink3) }
-                VStack(alignment: .leading, spacing: 2) {
-                    Text("Nothing playing").foregroundStyle(colors.ink2)
-                    Text("Double-click a track to start.").font(.caption).foregroundStyle(colors.ink3)
-                }
-            }
-        }
-        .contextMenu { if let c = store.current { SongMenu(tracks: [c], playing: true) } }
     }
 }
 
@@ -254,12 +188,14 @@ struct Transport: View {
     let play: CGFloat
     var compact = false
     var light = false
+    /// The play button as a plain sign, with no circle (the player bar's).
+    var bare = false
 
     var body: some View {
         let colors = store.colors
         let playing = store.playback?.playing == true
         let repeatMode = store.playback?.repeat ?? "off"
-        HStack(spacing: compact ? 4 : 10) {
+        HStack(spacing: bare ? 14 : compact ? 4 : 10) {
             if !compact {
                 Button { store.shuffleView() } label: { Image(systemName: "shuffle") }
                     .help(store.route.isSongs ? "Shuffle this view" : "Shuffle up next")
@@ -267,12 +203,20 @@ struct Transport: View {
             Button { store.previous() } label: { Image(systemName: "backward.fill") }
                 .help("Previous · ⌘←")
             Button { store.toggle() } label: {
-                Image(systemName: playing ? "pause.fill" : "play.fill")
-                    .font(.system(size: play * 0.42, weight: .bold))
-                    .frame(width: play, height: play)
-                    .foregroundStyle(light ? .black : colors.canvas)
-                    .background(light ? .white : colors.ink, in: Circle())
-                    .contentTransition(.symbolEffect(.replace))
+                if bare {
+                    Image(systemName: playing ? "pause.fill" : "play.fill")
+                        .font(.system(size: play * 0.7))
+                        .frame(width: play, height: play)
+                        .contentShape(Rectangle())
+                        .contentTransition(.symbolEffect(.replace))
+                } else {
+                    Image(systemName: playing ? "pause.fill" : "play.fill")
+                        .font(.system(size: play * 0.42, weight: .bold))
+                        .frame(width: play, height: play)
+                        .foregroundStyle(light ? .black : colors.canvas)
+                        .background(light ? .white : colors.ink, in: Circle())
+                        .contentTransition(.symbolEffect(.replace))
+                }
             }
             .help(playing ? "Pause · Space" : "Play · Space")
             Button { store.next() } label: { Image(systemName: "forward.fill") }
@@ -286,7 +230,7 @@ struct Transport: View {
             }
         }
         .buttonStyle(.borderless)
-        .font(.system(size: compact ? 13 : 15))
+        .font(.system(size: bare ? 16 : compact ? 13 : 15))
         .foregroundStyle(light ? .white : colors.ink)
     }
 }
@@ -370,7 +314,10 @@ struct SignalPath: View {
         }
     }
 
-    private func path(_ p: MacPlayback, _ c: Track) -> (String, String) {
+    private func path(_ p: MacPlayback, _ c: Track) -> (String, String) { Self.describe(p, c) }
+
+    /// What plays and how, short ("FLAC 24/96 → 48 kHz") and in full.
+    static func describe(_ p: MacPlayback, _ c: Track) -> (String, String) {
         let source = c.quality
         guard p.outputRate > 0 else { return (source, "\(source) · the output opens when playback starts") }
         let k = Double(p.outputRate) / 1000
@@ -411,9 +358,11 @@ struct VolumeControl: View {
             }
             .buttonStyle(.borderless)
             .help("Mute")
-            Slider(value: Binding(get: { Double(volume) }, set: { store.setVolume(Float($0)) }), in: 0...1)
-                .controlSize(.mini)
-                .frame(width: width)
+            if width > 0 {
+                ThinBar(value: Double(volume), tint: light ? .white : store.colors.ink2,
+                        track: light ? .white.opacity(0.25) : Color.primary.opacity(0.16)) { store.setVolume(Float($0)) }
+                    .frame(width: width)
+            }
         }
         .foregroundStyle(light ? .white : store.colors.ink2)
         // The wheel over the volume changes it.

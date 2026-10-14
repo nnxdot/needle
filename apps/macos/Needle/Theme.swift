@@ -254,8 +254,9 @@ extension Store {
     }
 
     /// The colours now: the look chosen, tinted by the playing cover when colours from the
-    /// music are on, or by the colour chosen when they are off.
-    var colors: Palette {
+    /// music are on, or by the colour chosen when they are off. (Kept in `colors`, which
+    /// changes only when they do.)
+    func lookNow() -> Palette {
         let tint: HSL? = settings.musicColors ? coverTint.map(HSL.init) : Color(hex: settings.accentColor).map { HSL(NSColor($0)) }
         if let theme = customTheme { return Palette.custom(theme, tint: tint, ambient: settings.ambient) }
         return Palette.build(Palette.base(settings.theme), tint: tint, ambient: settings.ambient)
@@ -263,16 +264,13 @@ extension Store {
 
     /// The font for page titles and big names.
     func display(_ size: CGFloat, weight: Font.Weight = .bold) -> Font {
-        switch settings.displayFont {
+        switch displayFont {
         case "fraunces": .custom(weight == .bold ? "Fraunces72ptSoft-Bold" : "Fraunces72ptSoft-SemiBold", size: size)
         case "bahnschrift": .system(size: size, weight: weight, design: .default).width(.condensed)
         default: .system(size: size, weight: weight, design: .default)
         }
     }
 
-    var motion: Bool {
-        !settings.reduceMotion && !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
-    }
 
     /// Liquid Glass on the sidebar, the player, and the panels (off: solid bars).
 
