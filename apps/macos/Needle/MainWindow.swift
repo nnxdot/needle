@@ -169,15 +169,11 @@ struct MainWindow: View {
             // AppKit stopped the app.
             .frame(minWidth: 360, idealWidth: 360, maxWidth: .infinity, minHeight: 300, idealHeight: 300, maxHeight: .infinity)
             .clipped()
-            // The player floats over the page, which slides under it, at the foot or the top.
+            // The player floats over the foot of the page, which slides under it (or sits in
+            // the title bar; see `toolbar`).
             .safeAreaInset(edge: .bottom, spacing: 0) {
                 if !store.settings.layout.playerOnTop && !Self.drop.contains("player") {
                     PlayerBar().padding(.horizontal, 20).padding(.bottom, 14).padding(.top, 4)
-                }
-            }
-            .safeAreaInset(edge: .top, spacing: 0) {
-                if store.settings.layout.playerOnTop && !Self.drop.contains("player") {
-                    PlayerBar().padding(.horizontal, 20).padding(.top, 6).padding(.bottom, 4)
                 }
             }
     }
@@ -204,6 +200,9 @@ struct MainWindow: View {
         ToolbarItem(placement: .navigation) {
             Button { store.palette = true } label: { Image(systemName: "command") }
                 .help("Command palette: go anywhere, do anything · ⌘K")
+        }
+        if store.settings.layout.playerOnTop && !Self.drop.contains("player") {
+            ToolbarItem(placement: .principal) { TopPlayer() }
         }
     }
 
