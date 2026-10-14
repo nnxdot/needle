@@ -1,8 +1,9 @@
 //! Discord Rich Presence: "Listening to …" on your Discord profile.
 //!
 //! Talks to the Discord desktop app over its local IPC pipe (`\\.\pipe\discord-ipc-N` on
-//! Windows, a Unix socket elsewhere). Nothing goes over the network from Needle itself. A
-//! background thread keeps the latest activity and reconnects when Discord starts later.
+//! Windows, a Unix socket elsewhere); the phone app brings its own [`Link`] to Discord's app.
+//! Nothing goes over the network from Needle itself. A background thread keeps the latest
+//! activity and reconnects when Discord starts later.
 use serde_json::{Value, json};
 use std::{
     io::{Read, Write},
@@ -43,11 +44,16 @@ pub struct Presence {
 }
 
 impl Presence {
-    /// Start talking to Discord as the application `client_id`.
+    /// Start talking to the Discord desktop app as the application `client_id`.
     pub fn start(client_id: String) -> Self {
+        Self::start_with::<Pipe>(client_id)
+    }
+
+    /// Start talking to Discord through `L`, as the application `client_id`.
+    pub fn start_with<L: Link>(client_id: String) -> Self {
         let (sender, receiver) = mpsc::channel::<Message>();
         std::thread::spawn(move || {
-            let mut pipe: Option<Pipe> = None;
+            let mut pipe: Option<L> = None;
             let mut wanted: Option<Activity> = None;
             let mut covers: std::collections::HashMap<String, Option<String>> = Default::default();
             let mut shown: Option<Option<Activity>> = None;
@@ -69,7 +75,7 @@ impl Presence {
                                 Ok(Message::Set(activity)) => wanted = activity,
                                 Ok(Message::Stop) | Err(RecvTimeoutError::Disconnected) => {
                                     if let Some(p) = pipe.as_mut() {
-                                        let _ = p.set_activity(None);
+                                        let _ = p.show(None);
                                     }
                                     return;
                                 }
@@ -82,7 +88,7 @@ impl Presence {
                     }
                     Ok(Message::Stop) | Err(RecvTimeoutError::Disconnected) => {
                         if let Some(p) = pipe.as_mut() {
-                            let _ = p.set_activity(None);
+                            let _ = p.show(None);
                         }
                         return;
                     }
@@ -93,7 +99,7 @@ impl Presence {
                     continue;
                 }
                 if pipe.is_none() {
-                    pipe = Pipe::connect(&client_id);
+                    pipe = L::connect(&client_id);
                     shown = None;
                 }
                 if pipe.is_none() {
@@ -108,12 +114,9 @@ impl Presence {
                     a.cover = found;
                 }
                 if let Some(p) = pipe.as_mut() {
-                    match p.set_activity_reply(wanted.as_ref()) {
-                        Ok(reply) if reply["evt"] == "ERROR" => crate::logfile::warn(format!(
-                            "Discord did not take the status; trying again: {}",
-                            reply["data"]
-                        )),
-                        Ok(_) => shown = Some(wanted.clone()),
+                    match p.show(wanted.as_ref()) {
+                        Ok(true) => shown = Some(wanted.clone()),
+                        Ok(false) => {}
                         Err(_) => pipe = None,
                     }
                 }
@@ -131,6 +134,15 @@ impl Drop for Presence {
     fn drop(&mut self) {
         let _ = self.sender.send(Message::Stop);
     }
+}
+
+/// A way to reach Discord: the desktop app's pipe, or Discord's own library on a phone. Made
+/// and used on the presence thread only.
+pub trait Link: Sized + 'static {
+    fn connect(client_id: &str) -> Option<Self>;
+    /// Shows the activity, or clears it. `Ok(false)` when Discord refused it (Needle tries
+    /// again soon); an error when the connection broke.
+    fn show(&mut self, activity: Option<&Activity>) -> std::io::Result<bool>;
 }
 
 /// What one part of the Discord card shows.
@@ -177,6 +189,19 @@ pub struct Layout {
     pub logo: bool,
 }
 
+impl Layout {
+    /// The layout chosen in Settings.
+    pub fn from_settings(s: &crate::model::Settings) -> Self {
+        Self {
+            title: Field::from_name(&s.discord_title),
+            top: Field::from_name(&s.discord_top),
+            middle: Field::from_name(&s.discord_middle),
+            bottom: Field::from_name(&s.discord_bottom),
+            logo: s.discord_logo,
+        }
+    }
+}
+
 impl Default for Layout {
     fn default() -> Self {
         Self {
@@ -211,52 +236,89 @@ impl Activity {
     }
 }
 
+/// What the Discord card shows, worked out from an activity and its layout. A picture is a
+/// web link, or "needle": the logo, a picture in Needle's Discord application.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct Card {
+    /// "Listening to <name>".
+    pub name: String,
+    pub details: Option<String>,
+    pub state: Option<String>,
+    pub large_image: Option<String>,
+    /// Shown only with a large picture.
+    pub large_text: Option<String>,
+    pub small_image: Option<String>,
+    pub small_text: Option<String>,
+    /// Unix seconds; none while paused.
+    pub start: Option<i64>,
+    pub end: Option<i64>,
+}
+
+impl Activity {
+    pub fn card(&self) -> Card {
+        let layout = self.layout;
+        // When paused, say so on the second line (or the first, if the second is empty).
+        let mut middle = self.text(layout.middle);
+        let mut first = self.text(layout.top);
+        if self.paused {
+            match (&middle, &first) {
+                (Some(m), _) => middle = Some(clip(&format!("Paused · {m}"))),
+                (None, Some(f)) => first = Some(clip(&format!("Paused · {f}"))),
+                (None, None) => middle = Some("Paused".into()),
+            }
+        }
+        let large_image = self
+            .cover
+            .clone()
+            .or_else(|| layout.logo.then(|| "needle".to_string()));
+        let badge = self.cover.is_some() && layout.logo;
+        Card {
+            name: self.text(layout.title).unwrap_or_else(|| "Needle".into()),
+            details: first,
+            state: middle,
+            large_text: large_image.as_ref().and_then(|_| self.text(layout.bottom)),
+            large_image,
+            small_image: badge.then(|| "needle".into()),
+            small_text: badge.then(|| "Needle".into()),
+            start: (!self.paused).then_some(self.started),
+            end: self.ends.filter(|_| !self.paused),
+        }
+    }
+}
+
 /// The JSON Discord expects for an activity (or `null` to clear it).
 pub fn activity_json(activity: Option<&Activity>) -> Value {
     let Some(a) = activity else {
         return Value::Null;
     };
-    let layout = a.layout;
+    let card = a.card();
     let mut value = json!({
-        "name": a.text(layout.title).unwrap_or_else(|| "Needle".into()),
+        "name": card.name,
         "type": 2,
         "status_display_type": 0,
     });
-    let top = a.text(layout.top);
-    // When paused, say so on the second line (or the first, if the second is empty).
-    let mut middle = a.text(layout.middle);
-    let mut first = top;
-    if a.paused {
-        match (&middle, &first) {
-            (Some(m), _) => middle = Some(clip(&format!("Paused · {m}"))),
-            (None, Some(f)) => first = Some(clip(&format!("Paused · {f}"))),
-            (None, None) => middle = Some("Paused".into()),
-        }
+    if let Some(details) = card.details {
+        value["details"] = json!(details);
     }
-    if let Some(first) = first {
-        value["details"] = json!(first);
+    if let Some(state) = card.state {
+        value["state"] = json!(state);
     }
-    if let Some(middle) = middle {
-        value["state"] = json!(middle);
-    }
-    let picture = a
-        .cover
-        .clone()
-        .or_else(|| layout.logo.then(|| "needle".to_string()));
-    if let Some(picture) = picture {
+    if let Some(picture) = card.large_image {
         let mut assets = json!({ "large_image": picture });
-        if let Some(bottom) = a.text(layout.bottom) {
-            assets["large_text"] = json!(bottom);
+        if let Some(text) = card.large_text {
+            assets["large_text"] = json!(text);
         }
-        if a.cover.is_some() && layout.logo {
-            assets["small_image"] = json!("needle");
-            assets["small_text"] = json!("Needle");
+        if let Some(badge) = card.small_image {
+            assets["small_image"] = json!(badge);
+        }
+        if let Some(text) = card.small_text {
+            assets["small_text"] = json!(text);
         }
         value["assets"] = assets;
     }
-    if !a.paused {
-        let mut timestamps = json!({ "start": a.started * 1000 });
-        if let Some(end) = a.ends {
+    if let Some(start) = card.start {
+        let mut timestamps = json!({ "start": start * 1000 });
+        if let Some(end) = card.end {
             timestamps["end"] = json!(end * 1000);
         }
         value["timestamps"] = timestamps;
@@ -449,6 +511,31 @@ struct Pipe {
     nonce: u64,
 }
 
+impl Link for Pipe {
+    fn connect(client_id: &str) -> Option<Self> {
+        // Only talk to a pipe that Discord itself serves, so no other program on this PC can
+        // pose as Discord to learn what you play.
+        let stream = (0..10).filter_map(Self::open).find(served_by_discord)?;
+        let mut pipe = Self { stream, nonce: 0 };
+        pipe.send(0, &json!({ "v": 1, "client_id": client_id }))
+            .ok()?;
+        let (_, ready) = pipe.receive().ok()?;
+        (ready["evt"] == "READY").then_some(pipe)
+    }
+
+    fn show(&mut self, activity: Option<&Activity>) -> std::io::Result<bool> {
+        let reply = self.set_activity_reply(activity)?;
+        if reply["evt"] == "ERROR" {
+            crate::logfile::warn(format!(
+                "Discord did not take the status; trying again: {}",
+                reply["data"]
+            ));
+            return Ok(false);
+        }
+        Ok(true)
+    }
+}
+
 impl Pipe {
     fn open(n: u32) -> Option<Stream> {
         #[cfg(windows)]
@@ -478,21 +565,6 @@ impl Pipe {
                 std::os::unix::net::UnixStream::connect(format!("{dir}/{sub}discord-ipc-{n}")).ok()
             })
         }
-    }
-
-    fn connect(client_id: &str) -> Option<Self> {
-        // Only talk to a pipe that Discord itself serves, so no other program on this PC can
-        // pose as Discord to learn what you play.
-        let stream = (0..10).filter_map(Self::open).find(served_by_discord)?;
-        let mut pipe = Self { stream, nonce: 0 };
-        pipe.send(0, &json!({ "v": 1, "client_id": client_id }))
-            .ok()?;
-        let (_, ready) = pipe.receive().ok()?;
-        (ready["evt"] == "READY").then_some(pipe)
-    }
-
-    fn set_activity(&mut self, activity: Option<&Activity>) -> std::io::Result<()> {
-        self.set_activity_reply(activity).map(|_| ())
     }
 
     fn set_activity_reply(&mut self, activity: Option<&Activity>) -> std::io::Result<Value> {
@@ -701,7 +773,7 @@ mod tests {
         println!("{reply}");
         assert_ne!(reply["evt"], "ERROR", "{reply}");
         std::thread::sleep(Duration::from_secs(8));
-        pipe.set_activity(None).unwrap();
+        pipe.show(None).unwrap();
     }
 
     /// Run by hand with Discord open: finds its pipe and confirms who serves it.

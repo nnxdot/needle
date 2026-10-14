@@ -1,0 +1,16 @@
+{
+  "name": "needle-site",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "astro dev",
+    "build": "astro build && node scripts/publish.mjs",
+    "preview": "astro preview",
+    "serve": "node scripts/serve.mjs"
+  },
+  "dependencies": {
+    "@phosphor-icons/core": "^2.1.1",
+    "astro": "^7.3.8",
+    "gsap": "^3.15.0"
+  }
+}

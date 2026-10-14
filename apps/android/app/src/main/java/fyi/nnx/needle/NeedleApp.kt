@@ -82,6 +82,9 @@ class NeedleApp : Application() {
         core = Needle(File(filesDir, "needle").absolutePath)
         _app.value = core.appSettings()
         core.setDecoder(File(applicationInfo.nativeLibraryDir, "libneedle_ffmpeg.so").absolutePath)
+        // The Discord status, when this build can show it and Discord is on the phone.
+        Discord.load(this)
+        if (Discord.available && Discord.installed(this)) core.startDiscord()
         // A reading notice left from a run that was closed mid-read.
         ScanNotice.hide(this)
         registerActivityLifecycleCallbacks(object : ActivityLifecycleCallbacks {
