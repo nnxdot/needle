@@ -10,6 +10,11 @@ npm run serve   # looks at ../public on http://localhost:4321
 
 - `../public/latest.json`, `latest-macos.json`, `latest-android.json`, `install-mac.sh`, and the icons are not made by the build.
   Needle's updaters and the Mac installer read them; edit them there, as before.
+- `../public/sidestore.json` is the iPhone app's source for SideStore and AltStore, with its
+  pictures in `../public/ios/`; the `.ipa` it points at is in R2 (`/download/`). For a new
+  version, put the new version first in `versions`, with the `.ipa`'s exact size: SideStore
+  checks it, and refuses an app whose entitlements or "UsageDescription" keys differ from
+  `appPermissions`.
 - The download buttons take their file names and versions from those two JSON files when the
   site is built, and again in the browser, so a release that only changes `latest.json` still
   shows the right files. Run `npm run build` after a release so sizes and versions are right
