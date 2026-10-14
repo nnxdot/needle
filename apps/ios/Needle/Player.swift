@@ -114,7 +114,10 @@ struct NowPlayingView: View {
         }
         .onDisappear { UIApplication.shared.isIdleTimerDisabled = false }
         #if DEBUG
-        .onAppear { if CommandLine.arguments.contains("-show-lyrics") { pane = .lyrics } }
+        .onAppear {
+            if CommandLine.arguments.contains("-show-lyrics") { pane = .lyrics }
+            if CommandLine.arguments.contains("-show-queue") { pane = .queue }
+        }
         #endif
         // The player is always dark: its page is the cover's own dark colours, whatever the
         // theme (light text and glass on them, and a light status bar).

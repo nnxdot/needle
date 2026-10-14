@@ -134,7 +134,11 @@ final class Store {
             if CommandLine.arguments.contains("-play-test") {
                 try? await Task.sleep(for: .seconds(3))
                 if let songs = try? core.songs(), !songs.isEmpty {
-                    try? core.play(ids: songs.map(\.id), start: 0)
+                    // -play-title <title>: from that song.
+                    let args = CommandLine.arguments
+                    let title = args.firstIndex(of: "-play-title").flatMap { args.indices.contains($0 + 1) ? args[$0 + 1] : nil }
+                    let start = title.flatMap { t in songs.firstIndex { $0.title == t } } ?? 0
+                    try? core.play(ids: songs.map(\.id), start: UInt32(start))
                 }
             }
             #endif
@@ -152,8 +156,8 @@ final class Store {
                 core.discordLink()
             }
         }
-        // For testing from a shell, with -play-test: opens the player on its lyrics.
-        if CommandLine.arguments.contains("-show-lyrics") {
+        // For testing from a shell, with -play-test: opens the player (on its lyrics or queue).
+        if ["-show-player", "-show-lyrics", "-show-queue"].contains(where: CommandLine.arguments.contains) {
             Task { [weak self] in
                 try? await Task.sleep(for: .seconds(5))
                 self?.showPlayer = true
