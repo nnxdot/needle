@@ -157,6 +157,8 @@ struct MainWindow: View {
                 .background { WidthKeeper(key: "inspector_width", range: 240...340, saved: store.settings.layout.inspectorWidth) }
         }
         .toolbar { toolbar }
+        // The page's name stays the window's, but leaves the bar to the player, as in Apple Music.
+        .toolbar(removing: store.settings.layout.playerOnTop ? .title : nil)
         .navigationTitle(title)
     }
 
@@ -201,8 +203,16 @@ struct MainWindow: View {
             Button { store.palette = true } label: { Image(systemName: "command") }
                 .help("Command palette: go anywhere, do anything · ⌘K")
         }
+        // Right after Back and Forward: as the bar's middle item macOS pushed it over to the
+        // right, half over the side panel.
         if store.settings.layout.playerOnTop && !Self.drop.contains("player") {
-            ToolbarItem(placement: .principal) { TopPlayer() }
+            // Its own capsule of glass, not one with the buttons before it.
+            if #available(macOS 26, *) {
+                ToolbarItem(placement: .navigation) { TopPlayer().padding(.vertical, 3).pane(Capsule()).padding(.leading, 6) }
+                    .sharedBackgroundVisibility(.hidden)
+            } else {
+                ToolbarItem(placement: .navigation) { TopPlayer() }
+            }
         }
     }
 
