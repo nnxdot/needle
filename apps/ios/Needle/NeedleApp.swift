@@ -46,6 +46,16 @@ struct RootView: View {
             }
         }
         .tabBarMinimizeBehavior(.onScrollDown)
+        #if DEBUG
+        // For testing from a shell: -tab library|sources|search, and -albums opens Albums there.
+        .onAppear {
+            let args = CommandLine.arguments
+            if let i = args.firstIndex(of: "-tab"), args.indices.contains(i + 1) {
+                place = ["library": .library, "sources": .sources, "search": .search][args[i + 1]] ?? .home
+            }
+            if args.contains("-albums") { paths[place] = NavigationPath([Route.albums]) }
+        }
+        #endif
         .tabViewBottomAccessory {
             MiniPlayer()
                 .matchedTransitionSource(id: "player", in: player)
