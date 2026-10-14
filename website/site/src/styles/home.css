@@ -443,7 +443,7 @@
 .dl-head h2 { font-size: clamp(3rem, 8vw, 6.6rem); letter-spacing: -.065em; margin-top: 24px; }
 .dl-head p { margin: 14px 0 0; color: var(--ink-2); font-size: 1.15rem; }
 .dl-tabs {
-  position: relative; display: grid; grid-template-columns: repeat(4, 1fr); width: min(620px, 100%); margin: 48px auto 0;
+  position: relative; display: grid; grid-template-columns: repeat(5, 1fr); width: min(760px, 100%); margin: 48px auto 0;
   padding: 6px; border-radius: 999px; background: var(--surface); border: 1px solid var(--line);
 }
 .dl-tab {
@@ -584,7 +584,7 @@
   .bento { grid-template-columns: 1fr; grid-template-areas: "eq" "stems" "fmt" "play" "smart" "tidy" "home"; }
   .look-names { grid-template-columns: repeat(2, 1fr); }
   .dl-tab .icon { display: none; }
-  .dl-tab { height: 44px; font-size: 14.5px; }
+  .dl-tab { height: 44px; font-size: 14px; }
   .dl-info { order: -1; }
   .device-monitor, .device-laptop { width: 86%; margin-inline: auto; }
   .dl-tab-pill { height: 44px; }
