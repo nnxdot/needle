@@ -17,8 +17,8 @@ android {
         applicationId = "fyi.nnx.needle"
         minSdk = 26
         targetSdk = 36
-        versionCode = 3
-        versionName = "1.6.3"
+        versionCode = 4
+        versionName = "1.6.5"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         ndk {
             // The Rust core is built for these by scripts/android-build.sh.
@@ -27,6 +27,11 @@ android {
     }
 
     buildTypes {
+        debug {
+            // -PneedleIdSuffix=.dev: a build that installs beside Needle from the website, which
+            // has another signature.
+            providers.gradleProperty("needleIdSuffix").orNull?.let { applicationIdSuffix = it }
+        }
         release {
             isMinifyEnabled = false
         }
@@ -87,6 +92,10 @@ dependencies {
     // Home screen widgets.
     implementation("androidx.glance:glance-appwidget:1.2.0")
     implementation("androidx.glance:glance-material3:1.2.0")
+    // Discord's library, for the Discord status: closed source, so not in git (see MOBILE.md).
+    // Without it the app builds the same, with no Discord status.
+    val discordSdk = file("libs/discord_partner_sdk.aar")
+    if (discordSdk.exists()) implementation(files(discordSdk))
 }
 
 // Copies the website's Privacy and Help pages in, so the app always has the current words.

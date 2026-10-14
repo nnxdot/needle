@@ -21,3 +21,6 @@
 /apps/ios/build/
 /apps/ios/Needle.xcodeproj/project.xcworkspace/
 /apps/ios/Needle.xcodeproj/xcuserdata/
+# Discord's Social SDK: closed source, from the Developer Portal
+/apps/android/app/libs/
+/apps/ios/Discord/

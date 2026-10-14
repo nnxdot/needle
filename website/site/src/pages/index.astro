@@ -1,0 +1,445 @@
+---
+import Base from "../layouts/Base.astro";
+import AppWindow from "../components/AppWindow.astro";
+import Logo from "../components/Logo.astro";
+import Icon from "../components/Icon.astro";
+import { Image } from "astro:assets";
+import shotHome from "../assets/shots/home-night.webp";
+import shotPlayer from "../assets/shots/player.webp";
+import shotRecord from "../assets/shots/player-record.webp";
+import shotLyrics from "../assets/shots/lyrics.webp";
+import { release } from "../lib/release.js";
+import { albums, byId, cover } from "../lib/albums.js";
+import "../styles/home.css";
+
+const { files, sizes, version, macVersion, androidVersion } = release();
+const href = (kind: string) => `/download/${files[kind]}`;
+const size = (kind: string) => sizes[kind] ?? "";
+
+const lyrics = [
+  ["Harbor", "lights", "are", "coming", "on"],
+  ["The", "tide", "is", "turning", "slow"],
+  ["Every", "song", "I", "ever", "kept"],
+  ["Is", "right", "where", "I", "left", "it"],
+  ["Put", "the", "needle", "down", "again"],
+  ["And", "let", "the", "night", "go", "on"],
+];
+const statement =
+  "Needle plays the music you own. Every format you have, with no gap between songs. No account. No ads. No tracking. Your library stays on your computer.";
+const formats = ["FLAC", "ALAC", "WAV", "AIFF", "MP3", "AAC", "Ogg Vorbis", "Opus", "WavPack", "Monkey's Audio", "DSD", "CUE sheets", "Dolby Atmos"];
+const station = ["tidewater", "afterglow-arcade", "bloom-season", "night-ferry", "low-desert"];
+const looks = [
+  { id: "night", name: "Night", note: "Comes with Needle" },
+  { id: "midnight", name: "Midnight", note: "Comes with Needle" },
+  { id: "day", name: "Day", note: "Comes with Needle" },
+  { id: "sakura", name: "Sakura", note: "A theme you make" },
+];
+// A song's end running into the next one's start, for "no gaps".
+const bars = Array.from({ length: 60 }, (_, i) => 8 + Math.round(Math.abs(Math.sin(i * 1.7) * Math.cos(i * .43)) * 50));
+const platforms = [
+  { id: "windows", name: "Windows", icon: "windows-logo" },
+  { id: "mac", name: "Mac", icon: "apple-logo" },
+  { id: "linux", name: "Linux", icon: "linux-logo" },
+  { id: "android", name: "Android", icon: "android-logo" },
+];
+---
+<Base
+  title="Needle | A music player for the music you own"
+  description="Needle is a fast, private music player for Windows, macOS, Linux, and Android. Lossless playback, word-by-word lyrics, radio from your own library, and every speaker in your home."
+  path="/"
+  home
+>
+<main id="main">
+
+  <!-- The first view: the record turns, the tonearm comes down. -->
+  <section class="hero" aria-labelledby="hero-title" data-hero>
+    <div class="hero-glow" aria-hidden="true"></div>
+    <div class="wrap hero-copy">
+      <h1 id="hero-title" data-split>Your music, <em>in its place.</em></h1>
+      <p class="hero-sub" data-hero-fade>A fast, private music player for the songs you own. For Windows, Mac, Linux, and Android.</p>
+      <div class="hero-actions" data-hero-fade>
+        <a class="btn btn-primary" href="#download" data-magnet data-os-cta>
+          <Icon name="download-simple" weight="bold" /><span data-os-label>Download Needle</span>
+        </a>
+        <a class="btn btn-quiet" href="#features">See what it does</a>
+      </div>
+    </div>
+    <div class="turntable" aria-hidden="true" data-turntable>
+      <div class="platter">
+        <div class="vinyl" data-vinyl>
+          <div class="vinyl-label"><span>Needle</span></div>
+        </div>
+      </div>
+      <svg class="tonearm" viewBox="0 0 200 420" data-arm>
+        <circle cx="150" cy="40" r="34" fill="#2a2a2e" />
+        <circle cx="150" cy="40" r="20" fill="#efe6d8" />
+        <circle cx="150" cy="40" r="7" fill="#1b1816" />
+        <path d="M150 40 L150 300 Q150 340 120 365" stroke="#efe6d8" stroke-width="11" fill="none" stroke-linecap="round" />
+        <path d="M104 352 L138 362 L128 404 Q126 410 120 408 L98 400 Q92 398 94 392Z" fill="#efe6d8" /><rect x="108" y="398" width="5" height="16" rx="2" transform="rotate(18 110 404)" fill="#c9c2b6" />
+      </svg>
+    </div>
+  </section>
+
+  <!-- The app, rising out of the record. -->
+  <section class="stage" aria-label="Needle on a computer" data-stage>
+    <div class="stage-in" data-stage-in>
+      <div class="stage-glow" aria-hidden="true" data-glow></div>
+      <AppWindow class="stage-app" />
+      <div class="chip chip-lyric" aria-hidden="true" data-chip="left">
+        <img src={cover("harbor-lights")} alt="" />
+        <span><small>Lyrics</small><b>Every song I ever kept</b></span>
+      </div>
+      <div class="chip chip-speaker" aria-hidden="true" data-chip="right">
+        <span class="waves"><i></i><i></i><i></i></span>
+        <span><small>Playing on</small><b>Living Room</b></span>
+      </div>
+      <div class="chip chip-format" aria-hidden="true" data-chip="low">
+        <Icon name="waveform" />
+        <span><small>Lossless</small><b>FLAC 24-bit</b></span>
+      </div>
+    </div>
+  </section>
+
+  <!-- What Needle is, lit word by word as you read. -->
+  <section id="features" class="statement" aria-label="What Needle is" data-statement>
+    <p class="wrap statement-text">
+      {statement.split(" ").map((w) => <span class="w">{w} </span>)}
+    </p>
+  </section>
+
+  <!-- Lyrics: the big player, lit as you scroll. -->
+  <section id="lyrics" class="lyrics" aria-labelledby="lyrics-title" data-lyrics>
+    <div class="lyrics-bg" aria-hidden="true" style={`background-image:url(${cover("harbor-lights")})`}></div>
+    <div class="wrap lyrics-in">
+      <div class="lyrics-copy">
+        <h2 id="lyrics-title">Sing along, <em>word by word.</em></h2>
+        <p>Timed lyrics light up as they are sung, over the colors of the cover. Needle finds them next to your files or on LRCLIB.</p>
+        <p>No timing for a song? Tap along once. Needle saves it next to the file.</p>
+      </div>
+      <div class="lyrics-player" role="img" aria-label="The big player: a large album cover, and the lyrics beside it, with the line being sung lit word by word.">
+        <div class="lp-art">
+          <img src={cover("harbor-lights")} alt="" width="720" height="720" loading="lazy" />
+          <p><b>Opening</b><span>Mara Quinn, Harbor Lights</span></p>
+        </div>
+        <div class="lp-lines" data-lines>
+          {lyrics.map((line) => (
+            <p class="lp-line">{line.map((w) => <span>{w} </span>)}</p>
+          ))}
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Four things Needle does, side by side; scrolling moves them across. -->
+  <section id="highlights" class="pan" aria-labelledby="pan-title" data-pan>
+    <div class="pan-track" data-pan-track>
+      <div class="pan-intro">
+        <h2 id="pan-title">Made for the music <em>you own.</em></h2>
+        <p>Everything here runs on your computer, with your files.</p>
+      </div>
+
+      <article class="card card-speakers" aria-labelledby="sp-title">
+        <div class="card-art" role="img" aria-label="A Play on menu: this computer and the Living Room speaker are both playing; Kitchen and Bedroom TV are available.">
+          <div class="rooms">
+            <p class="rooms-title">Play on</p>
+            <p class="room on"><Icon name="laptop" /><span>This computer</span><Icon name="check" weight="bold" class="tick" /></p>
+            <p class="room on"><Icon name="speaker-hifi" /><span>Living Room<small>Chromecast</small></span><span class="waves"><i></i><i></i><i></i></span></p>
+            <p class="room"><Icon name="speaker-simple-high" /><span>Kitchen<small>AirPlay</small></span></p>
+            <p class="room"><Icon name="television" /><span>Bedroom TV<small>DLNA</small></span></p>
+          </div>
+        </div>
+        <h3 id="sp-title">Play it in every room.</h3>
+        <p>Send music to Chromecast, AirPlay, and DLNA speakers, or to several at once, kept in step. Your queue, crossfade, and equalizer come along.</p>
+      </article>
+
+      <article class="card card-radio" aria-labelledby="ra-title">
+        <div class="card-art" role="img" aria-label="Needle measures a song at 112 BPM, A minor, upbeat, and builds a station of songs like it.">
+          <div class="radio">
+            <div class="radio-seed">
+              <img src={cover("middle-distance")} alt="" loading="lazy" />
+              <span><b>Middle Distance</b><small>Mara Quinn</small></span>
+            </div>
+            <p class="radio-chips"><span>112 BPM</span><span>A minor</span><span>Upbeat</span></p>
+            <div class="radio-row">
+              {station.map((id) => <img src={cover(id)} alt="" loading="lazy" />)}
+            </div>
+          </div>
+        </div>
+        <h3 id="ra-title">A radio station from your own shelves.</h3>
+        <p>Needle measures each song's tempo, key, and energy. Then it builds stations from songs that belong together. Start one from a song or an artist.</p>
+      </article>
+
+      <article class="card card-server" aria-labelledby="se-title">
+        <div class="card-art" role="img" aria-label="Songs from a Navidrome server: one streams now, two are kept on this computer.">
+          <div class="server">
+            <p class="server-head"><Icon name="globe-simple" /><b>Navidrome</b><span>6,728 songs</span></p>
+            <p class="srow playing"><img src={cover("night-ferry")} alt="" loading="lazy" /><span>Last Crossing<small>Oda Lind</small></span><em>Streaming</em></p>
+            <p class="srow"><img src={cover("grey-weather")} alt="" loading="lazy" /><span>Overcast<small>Low Ceiling</small></span><Icon name="push-pin" weight="fill" /></p>
+            <p class="srow"><img src={cover("bloom-season")} alt="" loading="lazy" /><span>Paper Lanterns<small>Hana Mori</small></span><Icon name="push-pin" weight="fill" /></p>
+          </div>
+        </div>
+        <h3 id="se-title">Your server, too.</h3>
+        <p>Sign in to Navidrome or another Subsonic server. Its songs sit with yours, stream as they play, and the ones you keep play without the internet.</p>
+      </article>
+
+      <article class="card card-year" aria-labelledby="ye-title">
+        <div class="card-art" role="img" aria-label="An example of your year in music: 40 hours, 795 plays, mostly around 11 PM.">
+          <div class="year">
+            <p class="year-num">2026</p>
+            <p class="year-stats"><span><b data-count="40">40</b> hours</span><span><b data-count="795">795</b> plays</span><span><b data-count="24">24</b> songs</span></p>
+            <p class="year-bars">{[.3, .12, .06, .18, .32, .26, .5, .78, 1, .62].map((h) => <span style={`--h:${h}`}></span>)}</p>
+            <p class="year-foot">You listen most around 11 PM.</p>
+          </div>
+        </div>
+        <h3 id="ye-title">Your year, told back.</h3>
+        <p>Your artist of the year, the songs you had on repeat, the albums you lived in, and the hour you listen most.</p>
+      </article>
+    </div>
+  </section>
+
+  <!-- Themes: one window, four looks, changing as you scroll. -->
+  <section id="themes" class="themes" aria-labelledby="themes-title" data-themes>
+    <div class="themes-in">
+      <div class="wrap themes-copy">
+        <h2 id="themes-title">Make it look <em>like yours.</em></h2>
+        <p>Three looks come with Needle. Copy one and change any color, or add a theme someone sent you. Needle keeps text readable whatever you pick.</p>
+        <p class="themes-links"><a class="link" href="/themes">Make a theme <Icon name="arrow-right" weight="bold" /></a><a class="link" href="/plugins">Write a plugin <Icon name="arrow-right" weight="bold" /></a></p>
+      </div>
+      <div class="themes-stage">
+        <AppWindow class="themes-app" look="night" label="The same Needle window in four looks: Night, Midnight, Day, and a pink theme called Sakura." />
+        <div class="look-names" role="group" aria-label="Looks">
+          {looks.map((l, i) => <button type="button" aria-pressed={i === 0 ? "true" : "false"} data-look={l.id}><b>{l.name}</b><small>{l.note}</small></button>)}
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Android: real screens from the app. -->
+  <section id="android" class="android" aria-labelledby="android-title" data-android>
+    <div class="wrap android-copy">
+      <h2 id="android-title">Needle on <em>your phone.</em></h2>
+      <p>Needle for Android plays the music on your phone. Each album page, and the player, takes the colors of its cover.</p>
+    </div>
+    <div class="phones">
+      <figure class="phone-shot ps-left">
+        <div class="phone"><Image src={shotHome} widths={[320, 640]} sizes="(max-width: 767px) 40vw, 300px" loading="lazy" alt="Needle's Home page on Android, in the Night look: an album to jump back in to, Your year, and Recently added." /></div>
+        <figcaption>Home</figcaption>
+      </figure>
+      <figure class="phone-shot ps-mid">
+        <div class="phone"><Image src={shotRecord} widths={[360, 720]} sizes="(max-width: 767px) 52vw, 340px" loading="lazy" alt="Needle's player on Android: the cover turns like a record, over a blur of its colors." /></div>
+        <figcaption>The player</figcaption>
+      </figure>
+      <figure class="phone-shot ps-right">
+        <div class="phone"><Image src={shotLyrics} widths={[320, 640]} sizes="(max-width: 767px) 40vw, 300px" loading="lazy" alt="Lyrics on Android: the line being sung is lit, over the colors of the cover." /></div>
+        <figcaption>Lyrics</figcaption>
+      </figure>
+    </div>
+    <ul class="wrap android-points">
+      <li><Icon name="palette" />Colors from each cover</li>
+      <li><Icon name="vinyl-record" />The cover as a turning record</li>
+      <li><Icon name="microphone-stage" />Lyrics as they are sung</li>
+      <li><Icon name="android-logo" />Android 8.0 and newer</li>
+    </ul>
+    <p class="android-more"><a class="link" href="#download" data-choose="android">Get Needle for Android <Icon name="arrow-right" weight="bold" /></a></p>
+  </section>
+
+  <!-- Sound and the rest, in one grid. -->
+  <section id="sound" class="sound" aria-labelledby="sound-title">
+    <div class="wrap">
+      <h2 id="sound-title" class="sound-title">Sound, done <em>properly.</em></h2>
+      <div class="bento">
+        <article class="cell c-eq">
+          <svg class="eq-curve" viewBox="0 0 600 220" aria-hidden="true">
+            <defs>
+              <linearGradient id="eqfill" x1="0" y1="0" x2="0" y2="1">
+                <stop offset="0" stop-color="#e6b46a" stop-opacity=".35" /><stop offset="1" stop-color="#e6b46a" stop-opacity="0" />
+              </linearGradient>
+            </defs>
+            <g class="eq-grid">{[44, 88, 132, 176].map((y) => <line x1="0" x2="600" y1={y} y2={y} />)}</g>
+            <path class="eq-area" d="M0 120 C60 120 80 70 130 72 S220 130 270 128 S350 150 390 140 S470 60 520 66 S580 100 600 100 L600 220 L0 220Z" fill="url(#eqfill)" />
+            <path class="eq-line" d="M0 120 C60 120 80 70 130 72 S220 130 270 128 S350 150 390 140 S470 60 520 66 S580 100 600 100" />
+            {[[130, 72], [270, 128], [390, 140], [520, 66]].map(([x, y]) => <circle class="eq-dot" cx={x} cy={y} r="7" />)}
+          </svg>
+          <h3>Parametric equalizer</h3>
+          <p>Shape the sound band by band. Your settings come along to every speaker.</p>
+        </article>
+
+        <article class="cell c-stems">
+          <div class="stems" aria-hidden="true">
+            {[["Vocals", "microphone-stage"], ["Drums", "waveform"], ["Bass", "guitar"], ["The rest", "piano-keys"]].map(([n, i], k) => (
+              <div class="stem" style={`--k:${k}`}><Icon name={i} /><span>{n}</span><span class="stem-wave"></span></div>
+            ))}
+          </div>
+          <h3>Stems</h3>
+          <p>Split any song into vocals, drums, bass, and the rest, on your computer. Then mix them live.</p>
+        </article>
+
+        <article class="cell c-formats">
+          <h3>Every format you have</h3>
+          <div class="marquee" aria-label={formats.join(", ")}>
+            <div class="marquee-row" aria-hidden="true">
+              {[...formats, ...formats].map((f) => <span>{f}</span>)}
+            </div>
+          </div>
+        </article>
+
+        <article class="cell c-play">
+          <svg class="joined" viewBox="0 0 240 64" preserveAspectRatio="none" aria-hidden="true">
+            <g class="j-a">{bars.slice(0, 30).map((h, i) => <rect x={i * 4} y={32 - h / 2} width="2.4" height={h} rx="1.2" />)}</g>
+            <g class="j-b">{bars.slice(30).map((h, i) => <rect x={120 + i * 4} y={32 - h / 2} width="2.4" height={h} rx="1.2" />)}</g>
+          </svg>
+          <h3>No gaps, no surprises</h3>
+          <p>Gapless playback, crossfade, ReplayGain, and exclusive output for your DAC.</p>
+        </article>
+
+        <article class="cell c-smart">
+          <p class="rule" aria-hidden="true"><code data-type="rating >= 4 and year < 2000">rating &gt;= 4 and year &lt; 2000</code></p>
+          <h3>Playlists that keep up</h3>
+          <p>Write a rule, or build one from menus. The playlist fills itself as your library grows.</p>
+        </article>
+
+        <article class="cell c-tidy">
+          <div class="dupes" aria-hidden="true">
+            <p class="dupe keep"><b>FLAC 24-bit</b><small>Red Light Only/02 Middle Distance.flac</small></p>
+            <p class="dupe gone"><b>MP3 320</b><small>Downloads/middle distance (1).mp3</small></p>
+            <p class="merged"><Icon name="check" weight="bold" />Merged. Plays and ratings moved to the copy you keep.</p>
+          </div>
+          <h3>Tidy, without the dread</h3>
+          <p>Merge duplicates and keep the best copy. Fill in missing covers. You see every change first, and can undo it.</p>
+        </article>
+
+        <article class="cell c-home">
+          <ul class="home-list" aria-label="Needle on your system">
+            <li><Icon name="keyboard" />Media keys</li>
+            <li><Icon name="picture-in-picture" />Mini player</li>
+            <li><Icon name="tray" />Tray icon</li>
+            <li><Icon name="device-mobile" />Phone remote</li>
+            <li><Icon name="discord-logo" />Discord status</li>
+            <li><Icon name="puzzle-piece" />Plugins</li>
+          </ul>
+          <h3>At home on your computer</h3>
+          <p>Your system's media controls work with Needle. Plugins add commands, sound effects, and music sources.</p>
+        </article>
+      </div>
+    </div>
+  </section>
+
+  <!-- Privacy -->
+  <section id="private" class="private" aria-labelledby="private-title">
+    <div class="wrap private-in">
+      <h2 id="private-title" class="private-title">Yours stays <em>yours.</em></h2>
+      <ul class="facts">
+        <li><Icon name="user-circle-minus" /><div><b>No account.</b><p>Needle works without one, and keeps your library on your computer.</p></div></li>
+        <li><Icon name="globe-simple" /><div><b>Online lookups stay off until you turn them on.</b><p>Then Needle sends only the artist, album, and title, to find lyrics and covers.</p></div></li>
+        <li><Icon name="folder-lock" /><div><b>Your files stay as they are.</b><p>Needle moves or changes a file only when you ask. When you do, it keeps a backup.</p></div></li>
+        <li><Icon name="arrows-clockwise" /><div><b>One question a day.</b><p>Needle asks whether a newer version is out. You can turn that off in Settings.</p></div></li>
+      </ul>
+      <p class="private-more"><a class="link" href="/privacy">Read the privacy policy <Icon name="arrow-right" weight="bold" /></a></p>
+    </div>
+  </section>
+
+  <!-- Download: one tab for each kind of device. -->
+  <section id="download" class="download" aria-labelledby="download-title" data-download>
+    <div class="wrap">
+      <div class="dl-head">
+        <img class="dl-icon" src="/icon-512.png" width="96" height="96" alt="The Needle app icon: an amber record with a cream tonearm." />
+        <h2 id="download-title">Get Needle.</h2>
+        <p>Free, with no account. The computer apps update themselves.</p>
+      </div>
+
+      <div class="dl-tabs" role="tablist" aria-label="Choose your device">
+        {platforms.map((p, i) => (
+          <button class="dl-tab" role="tab" id={`tab-${p.id}`} aria-controls={`panel-${p.id}`} aria-selected={i === 0 ? "true" : "false"} tabindex={i === 0 ? 0 : -1} data-tab={p.id}>
+            <Icon name={p.icon} weight="fill" /><span>{p.name}</span>
+          </button>
+        ))}
+        <span class="dl-tab-pill" aria-hidden="true" data-tab-pill></span>
+      </div>
+
+      <div class="dl-panels">
+        <!-- Windows -->
+        <div class="dl-panel" role="tabpanel" id="panel-windows" aria-labelledby="tab-windows" data-panel="windows">
+          <div class="device device-monitor" aria-hidden="true">
+            <div class="screen"><AppWindow class="device-app" /></div>
+            <span class="stand"></span>
+          </div>
+          <div class="dl-info">
+            <h3>Needle for Windows</h3>
+            <p class="dl-meta">Version <span data-version="main">{version}</span>. Windows 10 and 11, 64-bit.</p>
+            <div class="dl-buttons">
+              <a class="btn btn-primary" href={href("setup")} data-asset="setup"><Icon name="download-simple" weight="bold" />Download the installer</a>
+              <a class="btn btn-quiet" href={href("zip")} data-asset="zip">Portable zip</a>
+            </div>
+            <p class="dl-note">The installer needs no administrator. The zip runs from any folder, with nothing to install. <span class="dl-size"><span data-size="setup">{size("setup")}</span> and <span data-size="zip">{size("zip")}</span>.</span></p>
+          </div>
+        </div>
+
+        <!-- Mac -->
+        <div class="dl-panel" role="tabpanel" id="panel-mac" aria-labelledby="tab-mac" data-panel="mac" hidden>
+          <div class="device device-laptop" aria-hidden="true">
+            <div class="screen"><AppWindow class="device-app" /></div>
+            <span class="base"></span>
+          </div>
+          <div class="dl-info">
+            <h3>Needle for Mac</h3>
+            <p class="dl-meta">Version <span data-version="mac">{macVersion}</span>. Macs with Apple silicon (M1 or newer), macOS 11 or newer.</p>
+            <p class="dl-step">Paste this into Terminal, then press Return:</p>
+            <div class="command">
+              <code data-command>curl -fsSL https://needle.nnx.fyi/install-mac.sh | bash</code>
+              <button class="copy" type="button" data-copy aria-label="Copy the command"><Icon name="copy" /><span data-copy-label>Copy</span></button>
+            </div>
+            <p class="dl-note">It downloads Needle, checks it against the published checksum, and puts it in Applications.</p>
+            <div class="dl-buttons">
+              <a class="btn btn-quiet" href={href("dmg")} data-asset="dmg"><Icon name="download-simple" weight="bold" />Or the disk image (.dmg)</a>
+            </div>
+            <p class="dl-note">Needle is not signed by Apple, so macOS holds back a downloaded disk image the first time. <a href="/help#install">Help explains how to open it.</a> <span class="dl-size" data-size="dmg">{size("dmg")}</span></p>
+          </div>
+        </div>
+
+        <!-- Linux -->
+        <div class="dl-panel" role="tabpanel" id="panel-linux" aria-labelledby="tab-linux" data-panel="linux" hidden>
+          <div class="device device-monitor" aria-hidden="true">
+            <div class="screen"><AppWindow class="device-app" look="midnight" /></div>
+            <span class="stand"></span>
+          </div>
+          <div class="dl-info">
+            <h3>Needle for Linux</h3>
+            <p class="dl-meta">Version <span data-version="main">{version}</span>. Ubuntu 24.04, Mint 22, Debian 13, Fedora 40, and newer. 64-bit.</p>
+            <div class="dl-buttons">
+              <a class="btn btn-primary" href={href("deb")} data-asset="deb"><Icon name="download-simple" weight="bold" />Ubuntu, Mint, Debian</a>
+              <a class="btn btn-primary" href={href("rpm")} data-asset="rpm"><Icon name="download-simple" weight="bold" />Fedora, openSUSE</a>
+            </div>
+            <p class="dl-note">The first is a .deb package, the second an .rpm package. Open it with your software installer. <span class="dl-size"><span data-size="deb">{size("deb")}</span> and <span data-size="rpm">{size("rpm")}</span>.</span></p>
+          </div>
+        </div>
+
+        <!-- Android -->
+        <div class="dl-panel" role="tabpanel" id="panel-android" aria-labelledby="tab-android" data-panel="android" hidden>
+          <div class="device device-phone">
+            <div class="phone screen"><Image src={shotPlayer} widths={[300, 600]} sizes="270px" loading="lazy" alt="Needle's player on an Android phone: a large album cover, the song, and the play buttons." /></div>
+          </div>
+          <div class="dl-info">
+            <h3>Needle for Android</h3>
+            <p class="dl-meta">Version <span data-version="android">{androidVersion}</span>. Android 8.0 and newer.</p>
+            <div class="dl-buttons">
+              <a class="btn btn-primary" href={href("apkArm")} data-asset="apkArm"><Icon name="download-simple" weight="bold" />For most phones</a>
+              <a class="btn btn-quiet" href={href("apkX86")} data-asset="apkX86">For Intel and AMD devices</a>
+            </div>
+            <p class="dl-note">Most phones and tablets need the first one (ARM64). The second (x86_64) is for devices with Intel or AMD chips, and for emulators. Open the downloaded file to install it. <span class="dl-size"><span data-size="apkArm">{size("apkArm")}</span> each.</span></p>
+          </div>
+        </div>
+      </div>
+
+      <p class="dl-foot">
+        <a href="/download/SHA256SUMS.txt">SHA-256 checksums</a>
+        <a href="/help#install">How to install</a>
+        <a href="/help">Help</a>
+      </p>
+    </div>
+  </section>
+</main>
+</Base>
+
+<script>
+  import "../scripts/home.ts";
+</script>

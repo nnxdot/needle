@@ -1,0 +1,87 @@
+  <div class="wrap doc-grid">
+    <nav class="doc-toc" aria-label="On this page">
+      <p>On this page</p>
+      <a href="#short">The short version</a>
+      <a href="#ours">What reaches us</a>
+      <a href="#services">Services you can turn on</a>
+      <a href="#local">On your own network</a>
+      <a href="#data">Your data</a>
+      <a href="#changes">Changes and contact</a>
+    </nav>
+
+    <article class="doc-body">
+      <header class="doc-head">
+        <h1>Your music stays <em>yours.</em></h1>
+        <p class="lede">Needle is a music player that runs on your computer. It has no account, no ads, and no tracking. This page lists everything Needle can send over the internet, and when.</p>
+        <p class="fine">Last changed 23 September 2026. Applies to Needle 1.2.0 and later.</p>
+      </header>
+
+      <section id="short">
+        <h2>The short version</h2>
+        <ul class="points">
+          <li>Your library, playlists, ratings, listening history, and settings are stored only on your computer, in Needle's data folder.</li>
+          <li>Needle does not collect statistics about how you use it, and it has no ads.</li>
+          <li>Needle goes online only for the things listed below. Most are off until you turn them on.</li>
+          <li>We (NNX, who make Needle) receive only two things: the update check and, if Needle crashes, a crash report. You can turn both off.</li>
+        </ul>
+      </section>
+
+      <section id="ours">
+        <h2>What reaches us</h2>
+        <h3>Update checks</h3>
+        <p>Once a day, Needle downloads <code>needle.nnx.fyi/latest.json</code> to see if a newer version is out. Like any web request, this shows our server your IP address. We do not keep a list of who asked. Turn it off in <b>Settings › Online services</b>.</p>
+        <h3>Crash reports</h3>
+        <p>If Needle crashes, it saves a report on your computer. The next time Needle starts, it sends the report to <code>needle.nnx.fyi</code>. A report holds:</p>
+        <ul class="points">
+          <li>the Needle version, and "windows x86_64" (or your system and chip type)</li>
+          <li>the error message, and where in Needle's code the crash happened</li>
+        </ul>
+        <p>Before sending, Needle takes out every file path, your user name, and your computer's name. A report says nothing about your music or what you listen to. We use reports only to find and fix bugs, and we delete them after 12 months.</p>
+        <p>Turn crash reports off in <b>Settings › Your data</b>, or in the welcome guide. When they are off, reports stay on your computer and are deleted after 30 days. <b>Copy error report</b> in the same place copies a report you can read before you share it.</p>
+        <h3>Email</h3>
+        <p>If you write to <a href="mailto:dot@nnx.fyi">dot@nnx.fyi</a>, we use your email only to answer you.</p>
+      </section>
+
+      <section id="services">
+        <h2>Services you can turn on</h2>
+        <p>These go to other companies' services, never through us. Each is off until you turn it on in <b>Settings</b>.</p>
+        <div class="table">
+          <table>
+            <thead><tr><th>Feature</th><th>Service</th><th>What is sent</th></tr></thead>
+            <tbody>
+              <tr><td>Lyrics, covers, and artist photos</td><td>LRCLIB, Apple (iTunes Search), MusicBrainz, Cover Art Archive, Wikidata, Wikimedia Commons</td><td>The artist, album, and song title, and the song's length for lyrics.</td></tr>
+              <tr><td>Discord status</td><td>Discord, on your computer or phone. For covers, Apple (iTunes Search).</td><td>What you are playing, to the Discord app on your computer or phone. For covers: the artist and song title.</td></tr>
+              <tr><td>Scrobbling</td><td>Last.fm, ListenBrainz. For fixing artist names, Apple (iTunes Search).</td><td>The songs you listen to, and when, and the song playing now, to the account you connect. To fix artist names: the artist, song, and album.</td></tr>
+              <tr><td>Fix my library</td><td>MusicBrainz, Cover Art Archive</td><td>The album and artist names you look up.</td></tr>
+              <tr><td>Identify a song</td><td>AcoustID</td><td>A fingerprint of the sound (not the sound itself) and its length, with your own AcoustID key.</td></tr>
+              <tr><td>Stems</td><td>Hugging Face</td><td>A download of the stem model, once. Nothing about your music.</td></tr>
+              <tr><td>Music servers</td><td>Your own server (Navidrome or another Subsonic server)</td><td>Your user name and a salted token (never the password itself), what you play and when, and your ratings of its songs. Songs stream from your server; the last 2 GB played are kept on this computer.</td></tr>
+              <tr><td>Lyrics plugins</td><td>What the plugin uses; NetEase Cloud Music for the NetEase lyrics plugin that comes with Needle</td><td>For songs with no lyrics of their own and no timed ones on LRCLIB: the song's title, artist, album, and length.</td></tr>
+              <tr><td>Plugins</td><td>What the plugin uses</td><td>Only plugins you turn on that ask for the "network" permission can go online. Check a plugin before you turn it on.</td></tr>
+            </tbody>
+          </table>
+        </div>
+        <p>These services have their own privacy policies.</p>
+      </section>
+
+      <section id="local">
+        <h2>On your own network</h2>
+        <ul class="points">
+          <li><b>Speakers.</b> To find Chromecast, AirPlay, and DLNA speakers, Needle asks the devices on your network. When you play on a speaker, Needle sends it the sound, and the song's name and cover.</li>
+          <li><b>Phone remote.</b> When you turn it on, Needle answers devices on private networks (your own Wi-Fi, or a VPN you use) that have its address. The address holds a long secret, and <b>New address</b> locks out every phone that had the old one. It is off until you turn it on.</li>
+        </ul>
+      </section>
+
+      <section id="data">
+        <h2>Your data</h2>
+        <p>Needle's data folder is <code>%LOCALAPPDATA%\nnx\Needle\data</code>. It holds the library database, covers, backups of tags Needle changed, plugins, and logs. The log file is <code>logs\needle.log</code>. It stays on your computer unless you share it. Uninstalling Needle leaves this folder, so you do not lose your history; delete it to remove everything.</p>
+        <p>Passwords and keys for Last.fm, ListenBrainz, AcoustID, and music servers are kept in Windows Credential Manager (on Linux, in GNOME Keyring or KWallet), not in Needle's files.</p>
+      </section>
+
+      <section id="changes">
+        <h2>Changes and contact</h2>
+        <p>If this policy changes, we update this page and the date at the top. Questions: <a href="mailto:dot@nnx.fyi">dot@nnx.fyi</a>.</p>
+      </section>
+
+    </article>
+  </div>

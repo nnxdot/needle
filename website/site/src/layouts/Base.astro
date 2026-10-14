@@ -1,0 +1,115 @@
+---
+import "../styles/global.css";
+import Logo from "../components/Logo.astro";
+import Icon from "../components/Icon.astro";
+
+interface Props { title: string; description: string; path: string; home?: boolean }
+const { title, description, path, home = false } = Astro.props;
+const url = `https://needle.nnx.fyi${path}`;
+const download = home ? "#download" : "/#download";
+const links = [
+  { href: home ? "#features" : "/#features", label: "Features" },
+  { href: home ? "#private" : "/#private", label: "Privacy" },
+  { href: "/plugins", label: "Plugins" },
+  { href: "/themes", label: "Themes" },
+  { href: "/help", label: "Help" },
+];
+---
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>{title}</title>
+<meta name="description" content={description}>
+<meta property="og:title" content={title}>
+<meta property="og:description" content={description}>
+<meta property="og:url" content={url}>
+<meta property="og:image" content="https://needle.nnx.fyi/icon-512.png">
+<meta name="theme-color" content="#0b0b0c" media="(prefers-color-scheme: dark)">
+<meta name="theme-color" content="#fbfbfd" media="(prefers-color-scheme: light)">
+<meta name="color-scheme" content="dark light">
+<link rel="canonical" href={url}>
+<link rel="icon" href="/favicon-64.png" type="image/png">
+<link rel="apple-touch-icon" href="/apple-touch-icon.png">
+<link rel="preload" href="/fonts/Geist.woff2" as="font" type="font/woff2" crossorigin>
+<slot name="head" />
+</head>
+<body class={home ? "is-home" : "is-doc"}>
+<a class="skip" href="#main">Skip to content</a>
+
+<header class="bar" data-bar>
+  <div class="bar-in">
+    <a class="brand" href="/" aria-label="Needle home">
+      <Logo class="brand-mark" />
+      <span>Needle</span>
+    </a>
+    <nav class="bar-links" aria-label="Main">
+      {links.map((l) => <a href={l.href} aria-current={path === l.href ? "page" : undefined}>{l.label}</a>)}
+    </nav>
+    <a class="bar-cta" href={download}>Download</a>
+    <button class="bar-menu" type="button" aria-expanded="false" aria-controls="menu" aria-label="Menu" data-menu-button>
+      <span></span><span></span>
+    </button>
+  </div>
+  <nav class="menu" id="menu" aria-label="Main" data-menu hidden>
+    {links.map((l) => <a href={l.href}>{l.label}</a>)}
+    <a href={download}>Download</a>
+  </nav>
+</header>
+
+<slot />
+
+<footer class="foot">
+  <div class="wrap foot-in">
+    <div class="foot-brand">
+      <Logo class="foot-mark" />
+      <p>Needle is a music player for the music you own. Made at NNX.</p>
+    </div>
+    <nav class="foot-links" aria-label="Footer">
+      <div>
+        <p>Needle</p>
+        <a href={download}>Download</a>
+        <a href={home ? "#features" : "/#features"}>Features</a>
+        <a href="/download/SHA256SUMS.txt">Checksums</a>
+      </div>
+      <div>
+        <p>Guides</p>
+        <a href="/help">Help</a>
+        <a href="/plugins">Plugins</a>
+        <a href="/themes">Themes</a>
+      </div>
+      <div>
+        <p>About</p>
+        <a href="/privacy">Privacy policy</a>
+        <a href="mailto:dot@nnx.fyi">dot@nnx.fyi</a>
+      </div>
+    </nav>
+  </div>
+  <div class="wrap">
+    <p class="foot-word" aria-hidden="true">Needle</p>
+    <p class="foot-line">© 2026 NNX</p>
+  </div>
+</footer>
+
+<script>
+  // The bar gets a glass back once the page moves under it, and opens its menu on phones.
+  const bar = document.querySelector<HTMLElement>("[data-bar]")!;
+  const sentinel = document.createElement("div");
+  sentinel.style.cssText = "position:absolute;top:0;height:8px;width:1px";
+  document.body.prepend(sentinel);
+  new IntersectionObserver(([e]) => bar.classList.toggle("is-stuck", !e.isIntersecting)).observe(sentinel);
+
+  const button = document.querySelector<HTMLButtonElement>("[data-menu-button]")!;
+  const menu = document.querySelector<HTMLElement>("[data-menu]")!;
+  const setOpen = (open: boolean) => {
+    button.setAttribute("aria-expanded", String(open));
+    bar.classList.toggle("is-open", open);
+    menu.hidden = !open;
+  };
+  button.addEventListener("click", () => setOpen(button.getAttribute("aria-expanded") !== "true"));
+  menu.addEventListener("click", (e) => { if ((e.target as Element).closest("a")) setOpen(false); });
+  addEventListener("keydown", (e) => { if (e.key === "Escape") setOpen(false); });
+</script>
+</body>
+</html>

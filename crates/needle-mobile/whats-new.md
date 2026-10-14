@@ -1,3 +1,8 @@
+# 1.6.5
+Your music on your Discord profile.
+- [discord] **Discord status.** With the Discord app on your phone, your Discord profile shows what you're playing: the song, the artist, the album, the cover, and a time bar, as on the computer. There is nothing to sign in to. Turn it off, or choose what the card shows, in Settings › Discord.
+- Later updates for the phone reach it by themselves, even when the computer versions stay the same.
+
 # 1.6.3
 Swipe through songs, and fixes from your reports.
 - [player] **Swipe the cover.** In the player, swipe the cover left for the next song or right for the one before. Turn it off in Settings › Appearance.

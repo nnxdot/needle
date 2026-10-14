@@ -1,0 +1,117 @@
+  <div class="wrap doc-grid">
+    <nav class="doc-toc" aria-label="On this page">
+      <p>On this page</p>
+      <a href="#install">Installing</a>
+      <a href="#music">Your music</a>
+      <a href="#sound">Sound</a>
+      <a href="#speakers">Speakers</a>
+      <a href="#remote">Phone remote</a>
+      <a href="#problems">When something goes wrong</a>
+    </nav>
+
+    <article class="doc-body">
+      <header class="doc-head">
+        <h1>Questions, <em>answered.</em></h1>
+        <p class="lede">How to install Needle, add your music, and fix the most common problems. If your answer is not here, write to <a href="mailto:dot@nnx.fyi">dot@nnx.fyi</a>.</p>
+      </header>
+
+      <section id="install">
+        <h2>Installing</h2>
+        <dl class="api">
+          <dt>Which download do I need?</dt>
+          <dd>On Windows, the installer is best for most people. It adds Needle to the Start menu and to "Open with" for music files, and it needs no administrator rights. The portable zip runs from any folder, with nothing installed. On Linux, take the <code>.deb</code> for Ubuntu, Linux Mint, and Debian, or the <code>.rpm</code> for Fedora and openSUSE. On a Mac, use the Terminal command below.</dd>
+          <dt>How do I install it on a Mac?</dt>
+          <dd>Needle runs on Macs with Apple silicon (M1 or newer) and macOS 11 or newer. The current Mac build is 1.6.4. Open <b>Terminal</b> and paste <code>curl -fsSL https://needle.nnx.fyi/install-mac.sh | bash</code>. It downloads Needle, checks it against the published checksums, puts it in Applications, and opens it. You can also download the <a href="/download/Needle-1.6.1-macos.dmg">disk image</a> and drag Needle to Applications. Needle is signed without an Apple developer account, so the first time you open a copy from the disk image macOS stops it: open <b>System Settings › Privacy &amp; Security</b> and choose <b>Open Anyway</b>. The first time Needle saves a password, macOS asks to let it use your keychain: choose <b>Always Allow</b>.</dd>
+          <dt>How do I install it on Linux?</dt>
+          <dd>Open the downloaded file, and your software center installs it; or in a terminal, <code>sudo apt install ./needle_1.6.3_amd64.deb</code> on Ubuntu and Mint, or <code>sudo dnf install ./needle-1.6.3-1.x86_64.rpm</code> on Fedora. Needle then appears with your other apps. It needs Ubuntu 24.04, Linux Mint 22, Debian 13, Fedora 40, or newer. For the tray icon on GNOME, add the AppIndicator extension. Dolby Atmos music plays with FFmpeg, which the package asks for.</dd>
+          <dt>Windows says "Windows protected your PC"</dt>
+          <dd>Windows shows this for apps it does not know yet. Choose <b>More info</b>, then <b>Run anyway</b>. The <a href="/download/SHA256SUMS.txt">SHA-256 checksums</a> let you check that your download is the one we published.</dd>
+          <dt>Can I install it with winget?</dt>
+          <dd>Yes, once Needle is in the winget catalogue: <code>winget install nnxdot.Needle</code>.</dd>
+          <dt>How do I update?</dt>
+          <dd>Needle checks for a new version once a day and tells you when one is out. Install it from <b>Settings › Online services</b>. On Linux, your system asks for your password once, as for any other update. On a Mac, Needle replaces itself in Applications; macOS may ask again to let it use your keychain. After an update, Needle shows what is new. Needle 1.0.0 cannot find updates by itself; install a newer version from this site once.</dd>
+          <dt>How do I uninstall?</dt>
+          <dd>In Windows Settings, open <b>Apps › Installed apps</b>, find Needle, and choose <b>Uninstall</b>. Your library and history stay in <code>%LOCALAPPDATA%\nnx\Needle\data</code>, in case you come back. Delete that folder to remove them. On Linux, remove the <code>needle</code> package with your software center, <code>apt</code>, or <code>dnf</code>; your library stays in <code>~/.local/share/needle</code>. On a Mac, drag Needle from Applications to the Trash; your library stays in <code>~/Library/Application Support/studio.nnx.Needle</code>.</dd>
+        </dl>
+      </section>
+
+      <section id="music">
+        <h2>Your music</h2>
+        <dl class="api">
+          <dt>How do I add music?</dt>
+          <dd>Choose a folder in the welcome guide, or in <b>Settings › Library</b>. Needle reads the songs in it and watches it, so new music appears by itself.</dd>
+          <dt>Which formats can Needle play?</dt>
+          <dd>FLAC, ALAC, WAV, AIFF, MP3, AAC, Ogg Vorbis, Opus, WavPack, Monkey's Audio, DSD (DSF), and CUE sheets. Dolby Digital and Dolby Atmos music in M4A or MP4 files (such as Atmos downloads from Apple Music) plays as stereo; Atmos height sound is not played.</dd>
+          <dt>Will Needle change or move my files?</dt>
+          <dd>Only when you ask, for example when you edit tags or use <b>Fix my library</b>. Before it changes a file's tags, Needle keeps a backup copy, and moves in Fix my library can be undone.</dd>
+          <dt>Where are lyrics and covers?</dt>
+          <dd>Needle always uses covers, <code>.lrc</code> files, and lyrics tags that are with your music. To look up missing ones online, turn on <b>Look things up online</b> in <b>Settings › Library</b>. For more timed lyrics, especially for K-pop, J-pop, and C-pop, press <b>Also look on NetEase</b> where a song has none, or turn on <b>NetEase lyrics</b> in <b>Settings › Plugins</b>. The lyrics button in the player bar (or Ctrl+L) shows them beside your library, and F11 shows them across the whole screen. See the <a href="/privacy">privacy policy</a> for what is sent.</dd>
+          <dt>How do I make a playlist?</dt>
+          <dd>Press the plus beside <b>Playlists</b> in the sidebar. Give it a name, a description if you like, and a cover: a picture of your own, or its songs' covers. Choose <b>Songs I pick</b> and add songs with <b>Add songs</b>, from any song's menu, or by dragging them onto the playlist; or choose <b>Smart playlist</b> and pick its rules from menus, such as <i>Rating is at least 4</i>. Needle counts the songs that match as you go. Drag songs to put a playlist in your own order.</dd>
+          <dt>How do I back up my library?</dt>
+          <dd>Use <b>Settings › Your data › Back up</b>. It saves your history, ratings, and playlists. It does not copy your music files.</dd>
+          <dt>Can Needle play music from my Navidrome server?</dt>
+          <dd>Yes, and from other Subsonic servers such as Airsonic and Gonic. In <b>Settings › Plugins</b>, press <b>Set up</b>, then type your server's address, user name, and password. Needle uses https unless you type <code>http://</code> in front; use plain http (Navidrome on port 4533 often needs it) only at home or through a VPN, because it is not encrypted. Its songs show with your own, under <b>Servers</b> in the sidebar, and stream as they play. Plays and ratings are saved on the server too. With <a href="https://github.com/V1ck3s/octo-fiesta">octo-fiesta</a> in front of your server, turn on <b>Search the server as you type (experimental)</b> under your server in <b>Settings › Plugins</b>: songs it can fetch show above your search results. To play songs without the network, right-click them and choose <b>Keep on this computer</b>, or press the pin on an album's page. To keep a song as a file in your music folder, choose <b>Save to my music</b>.</dd>
+          <dt>Can I lay Needle out like Apple Music?</dt>
+          <dd>Yes. In <b>Settings › Appearance</b>, turn on <b>Player in the top bar</b>: the controls, the song playing, and the volume move into the title bar, and the search field to the bottom. <b>Compact sidebar</b> folds the sidebar (Ctrl+B) to a strip of page icons instead of hiding it, and <b>Hide the search field</b> leaves search to the command palette (Ctrl+K or Ctrl+F). Your mouse's side buttons go back and forward between pages.</dd>
+          <dt>Can I change Needle's colors?</dt>
+          <dd>Yes. In <b>Settings › Appearance</b>, choose a look and press <b>Make a copy</b>, then change any color. To add a theme someone sent you, drop its file on the Needle window. See <a href="/themes">Themes</a> to write one by hand.</dd>
+        </dl>
+      </section>
+
+      <section id="sound">
+        <h2>Sound</h2>
+        <dl class="api">
+          <dt>Where is the equalizer?</dt>
+          <dd>Choose the equalizer button next to the volume, or open <b>Settings › Sound</b>. Choose <b>Graphic</b> for ten sliders, or <b>Parametric</b> to set each band's kind, frequency, gain, and width. <b>Save as preset</b> keeps your own settings.</dd>
+          <dt>Can I use a correction for my headphones?</dt>
+          <dd>Yes. Download your headphones' <code>ParametricEQ.txt</code> from AutoEq, and choose <b>Load EQ file…</b>. Files from Equalizer APO work too.</dd>
+          <dt>What are effects?</dt>
+          <dd>Effects, such as a room sound or an echo, come from plugins. Add the example plugins in <b>Settings › Plugins</b>, turn them on, and add effects in <b>Sound › Effects</b>. See <a href="/plugins">Plugins</a> to write your own.</dd>
+          <dt>Why do the equalizer and effects do nothing?</dt>
+          <dd>Exclusive output is probably on. It sends each file to your sound device unchanged, so the equalizer and effects are skipped. Turn it off in <b>Settings › Playback</b>.</dd>
+        </dl>
+      </section>
+
+      <section id="speakers">
+        <h2>Speakers</h2>
+        <dl class="api">
+          <dt>How do I play on a speaker?</dt>
+          <dd>Choose the speaker button in the player bar. Needle finds Chromecast, AirPlay, and DLNA speakers on your network. The first sound can take a few seconds.</dd>
+          <dt>Can I play on several speakers at once?</dt>
+          <dd>Yes. In the same menu, choose <b>Play on several at once…</b>, pick the speakers (and this computer, if you like), and choose <b>Play on these</b>. Needle lines them up. If one sounds early or late, move its slider in <b>Settings › Playback › Speaker timing</b>.</dd>
+          <dt>Needle does not find my speaker</dt>
+          <dd>Check that the computer and the speaker are on the same network, that no VPN is on, and that Windows lets Needle use private networks. Guest Wi-Fi networks often keep devices apart. AirPlay 2-only speakers are not supported yet.</dd>
+        </dl>
+      </section>
+
+      <section id="remote">
+        <h2>Phone remote</h2>
+        <dl class="api">
+          <dt>How do I control Needle from my phone?</dt>
+          <dd>Turn on <b>Phone remote</b> in <b>Settings › Playback</b>, then point your phone's camera at the code. The page shows what is playing, lets you play, pause, skip, change the volume, pick from Up next, and find music. Add it to your home screen to open it like an app.</dd>
+          <dt>The page does not open on my phone</dt>
+          <dd>The phone must be on the same Wi-Fi as the computer, and not on a guest network. If Windows asked about Needle and the network, allow private networks. Needle must stay open on the computer.</dd>
+          <dt>Is it safe?</dt>
+          <dd>The address holds a long secret, and Needle answers only devices on private networks, such as your Wi-Fi or a VPN you use. Anyone with the address who can reach your computer that way can control the music, so share it only with people you trust. <b>New address</b> locks out every phone that had the old one.</dd>
+        </dl>
+      </section>
+
+      <section id="problems">
+        <h2>When something goes wrong</h2>
+        <dl class="api">
+          <dt>There is no sound</dt>
+          <dd>Check the volume in Needle and in Windows, and which output is chosen in the speaker menu and in <b>Settings › Playback</b>. If a speaker stops answering, Needle goes back to this computer.</dd>
+          <dt>Needle crashed</dt>
+          <dd>Open Needle again. If crash reports are on, the report is sent then, without file paths or your name. See the <a href="/privacy">privacy policy</a>.</dd>
+          <dt>How do I report a problem?</dt>
+          <dd>In <b>Settings › Your data</b>, choose <b>Copy error report</b>. It copies the recent log without file paths or your name. Paste it in an email to <a href="mailto:dot@nnx.fyi">dot@nnx.fyi</a>, and say what you did just before. <b>Open log folder</b> shows the full log.</dd>
+          <dt>Can Needle keep playing with its window closed?</dt>
+          <dd>Yes. Turn on <b>Hide to tray</b> in <b>Settings › Playback</b>. Closing the window then hides Needle by the clock while the music plays on. Click its icon to bring it back, or right-click it to play, pause, skip, or quit.</dd>
+          <dt>How do I see the welcome guide again?</dt>
+          <dd><b>Settings › Your data › Welcome guide</b>.</dd>
+        </dl>
+      </section>
+
+    </article>
+  </div>
