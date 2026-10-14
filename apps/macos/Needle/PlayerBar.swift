@@ -47,7 +47,7 @@ struct TopPlayer: View {
             Transport(play: 22, compact: true, bare: true, icons: 13)
                 .fixedSize()
             NowScreen(small: true)
-                .frame(minWidth: 200, idealWidth: 330, maxWidth: 380)
+                .frame(minWidth: 160, idealWidth: 280, maxWidth: 340)
             HStack(spacing: 12) {
                 if let c = store.current {
                     Heart(on: c.favorite, size: 13) { store.toggleFavorite([c]) }
