@@ -1,5 +1,6 @@
 // Read when the site is built: the versions and file names from public/latest.json,
-// public/latest-macos.json, and public/latest-android.json, and each file's size from the release folder when it is there.
+// public/latest-macos.json, and public/latest-android.json (the iPhone app's from
+// public/sidestore.json), and each file's size from the release folder when it is there.
 import { readFileSync, readdirSync, statSync, existsSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { pick } from "./assets.js";
@@ -45,5 +46,11 @@ export function release() {
     const bytes = findSize(name);
     if (bytes) sizes[kind] = `${Math.round(bytes / 1e6)} MB`;
   }
-  return { files, sizes, version, macVersion, androidVersion };
+  // The iPhone app, for SideStore and AltStore: its newest version is first.
+  const iphone = readIfThere("sidestore.json")?.apps?.[0]?.versions?.[0];
+  if (iphone) {
+    files.ipa = iphone.downloadURL.split("/").pop();
+    sizes.ipa = `${Math.round(iphone.size / 1e6)} MB`;
+  }
+  return { files, sizes, version, macVersion, androidVersion, iphoneVersion: iphone?.version ?? "" };
 }

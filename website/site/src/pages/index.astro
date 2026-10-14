@@ -8,11 +8,13 @@ import shotHome from "../assets/shots/home-night.webp";
 import shotPlayer from "../assets/shots/player.webp";
 import shotRecord from "../assets/shots/player-record.webp";
 import shotLyrics from "../assets/shots/lyrics.webp";
+import shotIphone from "../assets/shots/iphone-player.webp";
 import { release } from "../lib/release.js";
 import { albums, byId, cover } from "../lib/albums.js";
 import "../styles/home.css";
 
-const { files, sizes, version, macVersion, androidVersion } = release();
+const { files, sizes, version, macVersion, androidVersion, iphoneVersion } = release();
+const source = "https://needle.nnx.fyi/sidestore.json";
 const href = (kind: string) => `/download/${files[kind]}`;
 const size = (kind: string) => sizes[kind] ?? "";
 
@@ -41,11 +43,12 @@ const platforms = [
   { id: "mac", name: "Mac", icon: "apple-logo" },
   { id: "linux", name: "Linux", icon: "linux-logo" },
   { id: "android", name: "Android", icon: "android-logo" },
+  { id: "iphone", name: "iPhone", icon: "device-mobile" },
 ];
 ---
 <Base
   title="Needle | A music player for the music you own"
-  description="Needle is a fast, private music player for Windows, macOS, Linux, and Android. Lossless playback, word-by-word lyrics, radio from your own library, and every speaker in your home."
+  description="Needle is a fast, private music player for Windows, macOS, Linux, Android, and iPhone. Lossless playback, word-by-word lyrics, radio from your own library, and every speaker in your home."
   path="/"
   home
 >
@@ -56,7 +59,7 @@ const platforms = [
     <div class="hero-glow" aria-hidden="true"></div>
     <div class="wrap hero-copy">
       <h1 id="hero-title" data-split>Your music, <em>in its place.</em></h1>
-      <p class="hero-sub" data-hero-fade>A fast, private music player for the songs you own. For Windows, Mac, Linux, and Android.</p>
+      <p class="hero-sub" data-hero-fade>A fast, private music player for the songs you own. For Windows, Mac, Linux, Android, and iPhone.</p>
       <div class="hero-actions" data-hero-fade>
         <a class="btn btn-primary" href="#download" data-magnet data-os-cta>
           <Icon name="download-simple" weight="bold" /><span data-os-label>Download Needle</span>
@@ -426,6 +429,23 @@ const platforms = [
               <a class="btn btn-quiet" href={href("apkX86")} data-asset="apkX86">For Intel and AMD devices</a>
             </div>
             <p class="dl-note">Most phones and tablets need the first one (ARM64). The second (x86_64) is for devices with Intel or AMD chips, and for emulators. Open the downloaded file to install it. <span class="dl-size"><span data-size="apkArm">{size("apkArm")}</span> each.</span></p>
+          </div>
+        </div>
+
+        <!-- iPhone: through SideStore or AltStore, which sign it with the person's own Apple ID. -->
+        <div class="dl-panel" role="tabpanel" id="panel-iphone" aria-labelledby="tab-iphone" data-panel="iphone" hidden>
+          <div class="device device-phone">
+            <div class="phone screen"><Image src={shotIphone} widths={[300, 600]} sizes="270px" loading="lazy" alt="Needle's player on an iPhone: a large album cover over its colours, the song, and the play buttons." /></div>
+          </div>
+          <div class="dl-info">
+            <h3>Needle for iPhone</h3>
+            <p class="dl-meta">Version {iphoneVersion}. iOS 26 and newer.</p>
+            <p class="dl-step">Needle for iPhone is not in the App Store. Install <a href="https://sidestore.io">SideStore</a> or <a href="https://altstore.io">AltStore</a> first, then open this page on your iPhone:</p>
+            <div class="dl-buttons">
+              <a class="btn btn-primary" href={`sidestore://source?url=${source}`}><Icon name="plus" weight="bold" />Add to SideStore</a>
+              <a class="btn btn-quiet" href={`altstore://source?url=${source}`}>Add to AltStore</a>
+            </div>
+            <p class="dl-note">Or add the source by hand: <code>{source}</code>. SideStore and AltStore sign Needle with your own Apple ID, so a free one works; Needle then needs a refresh every 7 days, which they do for you. <a href={href("ipa")}>The .ipa file</a> <span class="dl-size">{size("ipa")}</span></p>
           </div>
         </div>
       </div>
