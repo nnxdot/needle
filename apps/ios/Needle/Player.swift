@@ -113,6 +113,9 @@ struct NowPlayingView: View {
             UIApplication.shared.isIdleTimerDisabled = now == .lyrics && app.keepScreenOnLyrics
         }
         .onDisappear { UIApplication.shared.isIdleTimerDisabled = false }
+        #if DEBUG
+        .onAppear { if CommandLine.arguments.contains("-show-lyrics") { pane = .lyrics } }
+        #endif
         // The player is always dark: its page is the cover's own dark colours, whatever the
         // theme (light text and glass on them, and a light status bar).
         .preferredColorScheme(.dark)
@@ -427,6 +430,8 @@ struct LyricsPane: View {
     let song: Song?
     @State private var lyrics: Lyrics?
     @State private var loaded = false
+    /// Online lookups are on (LRCLIB and the lyrics plugins).
+    @State private var online = true
 
     var body: some View {
         Group {
@@ -437,6 +442,21 @@ struct LyricsPane: View {
             } else if loaded {
                 VStack(spacing: 14) {
                     ContentUnavailableView(lyrics?.instrumental == true ? "Instrumental" : "No lyrics for this song", systemImage: "quote.bubble")
+                    if !online, lyrics?.instrumental != true {
+                        Text("Online lookups are off, so Needle only looks in the song's own files and your music server.")
+                            .font(.footnote).foregroundStyle(.secondary).multilineTextAlignment(.center)
+                        Button("Look Up Lyrics Online") {
+                            Task {
+                                _ = await store.ask { core in
+                                    var settings = try core.playbackSettings()
+                                    settings.onlineMedia = true
+                                    try core.setPlaybackSettings(value: settings)
+                                }
+                                await load()
+                            }
+                        }
+                        .buttonStyle(.glassProminent)
+                    }
                     if let song, !song.onComputer, lyrics?.instrumental != true {
                         Button("Ask NetEase") {
                             let id = song.id
@@ -455,7 +475,6 @@ struct LyricsPane: View {
             }
         }
         .frame(maxHeight: .infinity)
-        .mask(LinearGradient(stops: [.init(color: .clear, location: 0), .init(color: .black, location: 0.08), .init(color: .black, location: 0.8), .init(color: .clear, location: 1)], startPoint: .top, endPoint: .bottom))
         .task(id: song?.id) { await load() }
     }
 
@@ -463,6 +482,7 @@ struct LyricsPane: View {
         loaded = false
         lyrics = nil
         guard let song else { return }
+        online = await store.load { try $0.playbackSettings().onlineMedia } ?? true
         if song.onComputer, let pc = store.pc?.current {
             lyrics = await store.load { $0.pcLyrics(song: pc) } ?? nil
         } else {
@@ -477,6 +497,12 @@ struct LyricsPane: View {
             Text(text).font(.title3.weight(.semibold)).frame(maxWidth: .infinity, alignment: .leading)
                 .padding(.vertical, 20)
         }
+        .mask(fade)
+    }
+
+    /// The lyrics fade out at the top and the foot as they scroll.
+    private var fade: LinearGradient {
+        LinearGradient(stops: [.init(color: .clear, location: 0), .init(color: .black, location: 0.08), .init(color: .black, location: 0.8), .init(color: .clear, location: 1)], startPoint: .top, endPoint: .bottom)
     }
 
     private func timed(_ lines: [LyricLine]) -> some View {
@@ -497,6 +523,8 @@ struct LyricsPane: View {
                         .font(.system(size: 28, weight: .heavy))
                         .opacity(i == current ? 1 : 0.32)
                         .blur(radius: i == current ? 0 : 1)
+                        // Room for the playing line to grow without going past the edge.
+                        .padding(.trailing, 16)
                         .scaleEffect(i == current ? 1.03 : 1, anchor: .leading)
                         .frame(maxWidth: .infinity, alignment: .leading)
                         .id(i)
@@ -511,6 +539,7 @@ struct LyricsPane: View {
                 withAnimation(.spring(response: 0.6, dampingFraction: 0.9)) { reader.scrollTo(now, anchor: UnitPoint(x: 0, y: 0.25)) }
             }
         }
+        .mask(fade)
     }
 
     /// The line playing, its words lit one by one as they are sung.

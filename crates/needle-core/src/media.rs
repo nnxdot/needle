@@ -350,6 +350,19 @@ pub fn lyrics(
     if let Some(local) = local_lyrics(track) {
         return Ok(Some(local));
     }
+    // A music server's song: the server's own lyrics. It is the person's own server, so it
+    // is asked even with online lookups off.
+    if let (Some(host), Some((owner, id))) = (plugins, track.source()) {
+        match host.source_lyrics(owner, &id) {
+            Ok(Some(found)) => {
+                if let Some(found) = from_plugin(found) {
+                    return Ok(Some(found));
+                }
+            }
+            Ok(None) => {}
+            Err(problem) => crate::logfile::warn(format!("Lyrics from {owner}: {problem:#}")),
+        }
+    }
     if !online || track.title.is_empty() || track.artist.is_empty() {
         return Ok(None);
     }
@@ -412,21 +425,7 @@ fn plugin_lyrics(
             return Ok(None);
         }
     };
-    let found = found.and_then(|found| {
-        if found.instrumental {
-            return Some(Lyrics {
-                lines: vec![],
-                plain: String::new(),
-                instrumental: true,
-                source: LyricsSource::Plugin,
-                provider: found.provider,
-            });
-        }
-        Lyrics::from_text(&found.text, LyricsSource::Plugin).map(|mut l| {
-            l.provider = found.provider;
-            l
-        })
-    });
+    let found = found.and_then(from_plugin);
     remember(
         library,
         &key,
@@ -434,6 +433,23 @@ fn plugin_lyrics(
         if found.is_some() { 30 * 86400 } else { 86400 },
     )?;
     Ok(found)
+}
+
+/// A plugin's lyrics, as Needle shows them.
+fn from_plugin(found: crate::plugins::PluginLyrics) -> Option<Lyrics> {
+    if found.instrumental {
+        return Some(Lyrics {
+            lines: vec![],
+            plain: String::new(),
+            instrumental: true,
+            source: LyricsSource::Plugin,
+            provider: found.provider,
+        });
+    }
+    Lyrics::from_text(&found.text, LyricsSource::Plugin).map(|mut l| {
+        l.provider = found.provider;
+        l
+    })
 }
 
 /// LRCLIB's lyrics for `track`, kept a month (a week when it has none).

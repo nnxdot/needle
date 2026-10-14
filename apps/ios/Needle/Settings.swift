@@ -3,6 +3,10 @@ import UniformTypeIdentifiers
 
 /// Settings, by section, as on the desktop and Android.
 struct SettingsView: View {
+    @Environment(Store.self) private var store
+    /// This build has Discord's library.
+    @State private var discord = false
+
     var body: some View {
         List {
             Section {
@@ -11,6 +15,9 @@ struct SettingsView: View {
                 row("Sound", "Equalizer, balance, and headphones", "slider.vertical.3", .purple, .settingsSound)
                 row("Appearance", "Themes, colours, and the player", "paintpalette", .pink, .settingsAppearance)
                 row("Scrobbling", "Last.fm and ListenBrainz", "waveform", .red, .settingsScrobbling)
+                if discord {
+                    row("Discord", "Show what you play on your profile", "bubble.left.and.text.bubble.right", .indigo, .settingsDiscord)
+                }
             }
             Section {
                 row("Plugins", "Music servers, NetEase lyrics, effects", "puzzlepiece.extension", .teal, .plugins)
@@ -26,6 +33,7 @@ struct SettingsView: View {
         }
         .navigationTitle("Settings")
         .themed()
+        .task { discord = store.core.discordAccount().available }
     }
 
     private func row(_ title: String, _ detail: String, _ symbol: String, _ tint: Color, _ route: Route) -> some View {
@@ -615,6 +623,111 @@ struct ScrobblingView: View {
 
     private func reload() async {
         accounts = await store.load { $0.accounts() }
+    }
+}
+
+// MARK: - Discord
+
+/// Discord's "Listening to" status, as on Android, once the Discord account is linked.
+struct DiscordView: View {
+    @Environment(Store.self) private var store
+    @State private var settings: DiscordSettings?
+    @State private var account: DiscordAccount?
+
+    var body: some View {
+        Form {
+            if let account {
+                Section {
+                    if account.linked {
+                        LabeledContent("Discord account", value: "Linked")
+                        Button("Unlink", role: .destructive) {
+                            store.core.discordUnlink()
+                            Task { await reload() }
+                        }
+                    } else if account.linking {
+                        HStack(spacing: 10) {
+                            ProgressView()
+                            Text("Allow Needle on Discord's page.")
+                        }
+                    } else {
+                        Button("Link Your Discord Account") {
+                            store.core.discordLink()
+                            Task { await follow() }
+                        }
+                    }
+                    if let problem = account.problem { Text(problem).foregroundStyle(.red) }
+                } footer: {
+                    Text("Discord asks you to allow Needle once. Needle then sets your status itself, and keeps Discord's key in the iPhone Keychain. It sends Discord only what the card shows.")
+                }
+            }
+            if let s = settings {
+                let save = saved($settings, store) { try $0.setDiscordSettings(value: $1) }
+                Section {
+                    Toggle("Show what you're playing on Discord", isOn: Binding(get: { s.on }, set: { var n = s; n.on = $0; save(n) }))
+                }
+                if s.on {
+                    Section("The card") {
+                        choice("Listening to …", [("song", "Song"), ("artist", "Artist"), ("needle", "Needle")], s.title) { var n = s; n.title = $0; save(n) }
+                        choice("First line", [("artist", "Artist"), ("song", "Song"), ("album", "Album")], s.top) { var n = s; n.top = $0; save(n) }
+                        choice("Second line", [("song", "Song"), ("artist", "Artist"), ("album", "Album"), ("none", "None")], s.middle) { var n = s; n.middle = $0; save(n) }
+                        choice("Third line", [("album", "Album"), ("song", "Song"), ("artist", "Artist"), ("none", "None")], s.bottom) { var n = s; n.bottom = $0; save(n) }
+                    }
+                    Section {
+                        Toggle("Look up covers", isOn: Binding(get: { s.covers }, set: { var n = s; n.covers = $0; save(n) }))
+                        Toggle(isOn: Binding(get: { s.logo }, set: { var n = s; n.logo = $0; save(n) })) {
+                            Text("Show the Needle logo")
+                            Text("A badge on the cover, and the picture when there is no cover")
+                        }
+                    } header: {
+                        Text("Picture")
+                    } footer: {
+                        Text("Discord can only show pictures from the web, so Needle finds the cover in Apple's iTunes catalog by artist and song name. Your files never leave this iPhone. Without a picture, Discord hides the third line.")
+                    }
+                    Section {
+                        Toggle(isOn: Binding(get: { s.paused }, set: { var n = s; n.paused = $0; save(n) })) {
+                            Text("Show while paused")
+                            Text("The song stays, marked Paused")
+                        }
+                        Picker("Clear after", selection: Binding(get: { s.idleMinutes }, set: { var n = s; n.idleMinutes = $0; save(n) })) {
+                            Text("5 min").tag(UInt32(5))
+                            Text("10 min").tag(UInt32(10))
+                            Text("30 min").tag(UInt32(30))
+                            Text("1 h").tag(UInt32(60))
+                            Text("Never").tag(UInt32(0))
+                        }
+                    } header: {
+                        Text("When nothing plays")
+                    } footer: {
+                        Text("After this long paused or stopped, the status goes away. It comes back when you play again.")
+                    }
+                }
+            }
+        }
+        .navigationTitle("Discord")
+        .themed()
+        .task {
+            settings = await store.load { try $0.discordSettings() }
+            await follow()
+        }
+    }
+
+    private func choice(_ title: String, _ options: [(String, String)], _ current: String, _ change: @escaping (String) -> Void) -> some View {
+        Picker(title, selection: Binding(get: { current }, set: change)) {
+            ForEach(options, id: \.0) { Text($0.1).tag($0.0) }
+        }
+    }
+
+    private func reload() async {
+        account = await store.load { $0.discordAccount() }
+    }
+
+    /// Reads the link again while Discord's sign-in page is open.
+    private func follow() async {
+        await reload()
+        while account?.linking == true, !Task.isCancelled {
+            try? await Task.sleep(for: .milliseconds(500))
+            await reload()
+        }
     }
 }
 

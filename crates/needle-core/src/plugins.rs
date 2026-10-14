@@ -324,6 +324,12 @@ pub enum PluginEvent {
         id: String,
         reply: Sender<Result<String, String>>,
     },
+    /// A source's own lyrics for one of its songs (its `song_lyrics(id)`).
+    SourceLyrics {
+        plugin: String,
+        id: String,
+        reply: Sender<Result<Option<PluginLyrics>, String>>,
+    },
     /// Replace a changed bundled plugin with this build's version (the changes are kept as
     /// `.mine` files).
     TakeUpdate(String),
@@ -495,6 +501,23 @@ impl PluginHost {
             .filter(|p| p.enabled && p.lyrics)
             .map(|p| p.manifest.id)
             .collect()
+    }
+    /// Ask a source plugin for its own lyrics for one of its songs: a music server reads them
+    /// from its files. `None` when it has none, or the plugin cannot give lyrics.
+    pub fn source_lyrics(&self, plugin: &str, id: &str) -> Result<Option<PluginLyrics>> {
+        let (reply, answer) = crossbeam_channel::bounded(1);
+        self.tx
+            .send(PluginEvent::SourceLyrics {
+                plugin: plugin.into(),
+                id: id.into(),
+                reply,
+            })
+            .map_err(|_| anyhow::anyhow!("Plugins are not running"))?;
+        match answer.recv_timeout(Duration::from_secs(30)) {
+            Ok(Ok(found)) => Ok(found),
+            Ok(Err(error)) => bail!("{error}"),
+            Err(_) => bail!("The music source did not answer in time"),
+        }
     }
     /// Ask a source plugin for a link to stream one of its songs.
     pub fn stream_link(&self, plugin: &str, id: &str) -> Result<String> {
@@ -728,6 +751,17 @@ fn run(
                             .map_err(|_| "The plugin gave no stream link".to_string()),
                         Err(error) => Err(error),
                     },
+                };
+                let _ = reply.send(answer);
+            }
+            PluginEvent::SourceLyrics { plugin, id, reply } => {
+                let answer = match source_plugin(&mut loaded, &plugin) {
+                    None => Ok(None),
+                    Some(target) => {
+                        let name = target.info.manifest.name.clone();
+                        call_source(target, "song_lyrics", vec![id.into()])
+                            .map(|value| read_lyrics(&value, &name))
+                    }
                 };
                 let _ = reply.send(answer);
             }
@@ -2018,7 +2052,7 @@ fn lyrics(song) {
         "subsonic",
         r#"id = "subsonic"
 name = "Navidrome / Subsonic"
-version = "1.3.0"
+version = "1.4.0"
 author = "nnx"
 description = "Plays the music on your Navidrome or other Subsonic server. Songs are listed with your own and streamed; plays and ratings are saved on the server. Experimental: with its switch on, it also searches the server as you type, which brings songs from octo-fiesta (a Subsonic proxy that fetches songs from streaming services)."
 permissions = ["network"]
@@ -2232,6 +2266,60 @@ fn played(id, started_at) {
 fn rate(id, stars) {
     ask("setRating", #{ id: id, rating: stars });
 }
+
+// "7" becomes "07".
+fn two(n) {
+    let text = n.to_string();
+    if text.len() < 2 { "0" + text } else { text }
+}
+
+// The server's lyrics for one of its songs (Navidrome reads them from the files and from
+// .lrc files beside them): timed ones when it has them. Only servers that speak OpenSubsonic
+// have lyrics by song; from others, none.
+fn song_lyrics(id) {
+    let reply = ();
+    try {
+        reply = ask("getLyricsBySongId", #{ id: id });
+    } catch {
+        return ();
+    }
+    let list = if reply.lyricsList != () { reply.lyricsList.structuredLyrics } else { () };
+    if list == () {
+        return ();
+    }
+    let plain = "";
+    for lyrics in list {
+        if lyrics.line == () {
+            continue;
+        }
+        if lyrics.synced == true {
+            let offset = if lyrics.offset != () { lyrics.offset } else { 0 };
+            let text = "";
+            for line in lyrics.line {
+                let ms = if line.start != () { line.start } else { 0 };
+                if type_of(ms) != "i64" {
+                    ms = ms.to_int();
+                }
+                ms += offset;
+                if ms < 0 {
+                    ms = 0;
+                }
+                let value = if line.value != () { line.value } else { "" };
+                text += `[${two(ms / 60000)}:${two((ms % 60000) / 1000)}.${two((ms % 1000) / 10)}]${value}` + "\n";
+            }
+            if text != "" {
+                return #{ synced: text };
+            }
+        } else if plain == "" {
+            for line in lyrics.line {
+                if line.value != () {
+                    plain += line.value + "\n";
+                }
+            }
+        }
+    }
+    if plain != "" { #{ plain: plain } } else { () }
+}
 "#,
     ),
 ];
@@ -2303,6 +2391,10 @@ pub const EXAMPLE_FILES: &[(&str, &str, &str)] = &[(
 /// Scripts of the Navidrome / Subsonic plugin from before bundled plugins kept a record
 /// (SHA-256). A copy that still matches one exactly was never edited, so it is updated.
 const EARLIER_EXAMPLES: &[(&str, &str)] = &[
+    (
+        "subsonic",
+        "6d850964abfedd0a27cf8cf365b1e88524c54b0d301e3d8644849172ee7e7e70",
+    ),
     (
         "subsonic",
         "62f1f6b31fb90aa09fd19f8aee0ee31b40437b696474135b3f121de2c812bebd",
@@ -2774,6 +2866,20 @@ mod tests {
                     ("audio/wav", wav.clone())
                 } else if path.ends_with("/getCoverArt.view") {
                     ("image/png", vec![7u8; 500])
+                } else if path.ends_with("/getLyricsBySongId.view") {
+                    // OpenSubsonic: timed lyrics (with an offset) for one song, plain ones
+                    // for the other, and none for any else.
+                    let body = match param("id").as_str() {
+                        "s1" => ok(r#","lyricsList":{"structuredLyrics":[
+                            {"lang":"xxx","synced":false,"line":[{"value":"Hey"},{"value":"Hi"}]},
+                            {"lang":"xxx","synced":true,"offset":-500,"line":[{"start":1500,"value":"Hey"},{"start":62250,"value":"Hi"}]}
+                        ]}"#),
+                        "s2" => ok(r#","lyricsList":{"structuredLyrics":[
+                            {"lang":"xxx","synced":false,"line":[{"value":"Sweet"},{"value":"Sour"}]}
+                        ]}"#),
+                        _ => ok(r#","lyricsList":{}"#),
+                    };
+                    ("application/json", body.into_bytes())
                 } else if path.ends_with("/getAlbumList2.view") {
                     let list = if param("offset") == "0" && param("size") == "5" {
                         r#"[{"id":"al-1","name":"WhyKiiiKiii - EP"}]"#
@@ -3091,6 +3197,52 @@ mod tests {
         host.send(PluginEvent::SourceSignOut("subsonic".into()));
         wait(|| source().filter(|s| !s.signed_in && s.songs == 0));
         assert!(library.track(&hey.id).unwrap().unwrap().missing);
+    }
+
+    /// A server's songs get the server's own lyrics, timed when it has them, even with online
+    /// lookups off.
+    #[test]
+    fn server_songs_have_the_servers_lyrics() {
+        let (server, _) = fake_subsonic_with("pw", 0, false);
+        let dir = tempfile::tempdir().unwrap();
+        let library = Library::open(dir.path()).unwrap();
+        install_examples(&library).unwrap();
+        let host = PluginHost::start(library.clone(), Arc::default(), |_| {});
+        wait(|| Some(host.plugins()).filter(|p| p.len() == EXAMPLES.len()));
+        host.send(PluginEvent::Enable("subsonic".into(), true));
+        let source = || {
+            host.plugins()
+                .into_iter()
+                .find(|p| p.manifest.id == "subsonic")
+                .and_then(|p| p.source)
+        };
+        wait(source);
+        host.send(PluginEvent::SourceSignIn {
+            plugin: "subsonic".into(),
+            fields: [
+                ("server".to_string(), server),
+                ("username".to_string(), "mei".to_string()),
+                ("password".to_string(), "pw".to_string()),
+            ]
+            .into(),
+        });
+        wait(|| source().filter(|s| s.songs == 2 && !s.syncing));
+
+        let timed = host.source_lyrics("subsonic", "s1").unwrap().unwrap();
+        assert!(timed.timed);
+        assert_eq!(timed.text, "[00:01.00]Hey\n[01:01.75]Hi\n");
+        let plain = host.source_lyrics("subsonic", "s2").unwrap().unwrap();
+        assert_eq!((plain.timed, plain.text.as_str()), (false, "Sweet\nSour\n"));
+        assert_eq!(host.source_lyrics("subsonic", "s9").unwrap(), None);
+        assert_eq!(host.source_lyrics("netease-lyrics", "s1").unwrap(), None);
+
+        let tracks = library.search(&crate::sources::rule("subsonic")).unwrap();
+        let hey = tracks.iter().find(|t| t.title == "Hey Hi").unwrap();
+        let found = crate::media::lyrics(&library, hey, false, Some(&host))
+            .unwrap()
+            .unwrap();
+        assert_eq!(found.lines.len(), 2);
+        assert_eq!((found.lines[1].time, found.lines[1].text.as_str()), (61.75, "Hi"));
     }
 
     /// A server that finds nothing for an empty search (Ampache) is listed album by album.
