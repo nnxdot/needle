@@ -96,6 +96,18 @@ struct MainWindow: View {
                 window.setContentSize(NSSize(width: parts[0], height: parts[1]))
             }
         }
+        // `--artist <name>`, `--album <title>`: open that page.
+        let value = { (flag: String) in arguments.firstIndex(of: flag).flatMap { arguments.indices.contains($0 + 1) ? arguments[$0 + 1] : nil } }
+        // `--rescan`: read the music folders again.
+        if arguments.contains("--rescan") { store.rescan() }
+        if let name = value("--artist") { store.navigate(.artist(name)) }
+        if let title = value("--album") {
+            Task {
+                try? await Task.sleep(for: .seconds(1))
+                let albums = JSON.decode([AlbumSummary].self, await store.load { try $0.albumsJson(query: "") }) ?? []
+                if let album = albums.first(where: { $0.album == title }) { store.navigate(album.route) }
+            }
+        }
         guard let i = arguments.firstIndex(of: "--show"), arguments.indices.contains(i + 1) else { return }
         switch arguments[i + 1] {
         case "settings": openSettings()
@@ -170,7 +182,9 @@ struct MainWindow: View {
             // more room than the window had set the split view fighting over the columns until
             // AppKit stopped the app.
             .frame(minWidth: 360, idealWidth: 360, maxWidth: .infinity, minHeight: 300, idealHeight: 300, maxHeight: .infinity)
-            .clipped()
+            // Clipped at the sides and foot, not at the top: an album's or artist's picture goes
+            // on under the bar's glass.
+            .clipShape(OpenAtTop())
             // The player floats over the foot of the page, which slides under it (or sits in
             // the title bar; see `toolbar`).
             .safeAreaInset(edge: .bottom, spacing: 0) {
@@ -178,6 +192,13 @@ struct MainWindow: View {
                     PlayerBar().padding(.horizontal, 20).padding(.bottom, 14).padding(.top, 4)
                 }
             }
+    }
+
+    /// The page's box, and the bar above it.
+    private struct OpenAtTop: Shape {
+        func path(in rect: CGRect) -> Path {
+            Path(CGRect(x: rect.minX, y: rect.minY - 160, width: rect.width, height: rect.height + 160))
+        }
     }
 
     private var title: String {

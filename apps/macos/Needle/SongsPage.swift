@@ -154,6 +154,41 @@ struct SongsHeader: View {
     @State private var blendWith: [String]?
 
     var body: some View {
+        if case .album = route, let album = albumTrack { albumHeader(album) } else { plainHeader }
+    }
+
+    /// An album, after Apple Music's: its cover large beside its name, over the cover blurred
+    /// across the page, and the page (the whole window) in the colour of the cover's foot.
+    private func albumHeader(_ album: Track) -> some View {
+        let colors = store.colors
+        let seed = album.album + album.displayAlbumArtist
+        return HStack(alignment: .bottom, spacing: 28) {
+            Cover(path: album.artwork, seed: seed, side: 232, corner: 12)
+                .shadow(color: .black.opacity(colors.dark ? 0.45 : 0.25), radius: 30, y: 16)
+            VStack(alignment: .leading, spacing: 5) {
+                Text("Album").font(.callout.weight(.semibold)).foregroundStyle(colors.ink2)
+                Text(title).font(store.display(44)).lineLimit(2).foregroundStyle(colors.ink)
+                Button(album.displayAlbumArtist) { store.navigate(.artist(album.displayAlbumArtist)) }
+                    .buttonStyle(.plain)
+                    .font(.title2.weight(.medium))
+                    .foregroundStyle(colors.ink2)
+                Text(summary(album)).font(.callout).foregroundStyle(colors.ink3)
+                buttons.padding(.top, 12)
+            }
+            Spacer(minLength: 0)
+        }
+        .padding(.horizontal, 28)
+        .padding(.top, 30)
+        .padding(.bottom, 22)
+        .background(alignment: .top) { HeaderBackdrop(path: album.artwork, seed: seed) }
+        .task(id: album.artwork ?? seed) {
+            let color = await Covers.pageColor(album.artwork, seed: seed)
+            store.setPageTint(color, for: route)
+        }
+    }
+
+    @ViewBuilder
+    private var plainHeader: some View {
         let colors = store.colors
         let album = albumTrack
         let playlist = store.pagePlaylist
