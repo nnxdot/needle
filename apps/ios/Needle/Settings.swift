@@ -504,6 +504,8 @@ struct AppearanceView: View {
                 Text("Colours")
             }
             Section("Player") {
+                toggle("Immersive cover", "The cover fills the top of the player, edge to edge, as in Apple Music.", \.immersiveCover)
+                toggle("Moving covers", "A video beside the songs, such as cover.mp4, plays as the cover.", \.animatedCovers)
                 toggle("Cover behind the player", "The player's background is the playing cover, blurred.", \.coverBackdrop)
                 if app.coverBackdrop {
                     toggle("Moving cover", nil, \.movingBackdrop)

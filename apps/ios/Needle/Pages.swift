@@ -14,6 +14,8 @@ struct Shelf<Content: View>: View {
         .scrollTargetBehavior(.viewAligned)
         .scrollIndicators(.hidden)
         .contentMargins(.horizontal, 16, for: .scrollContent)
+        // The cards' shadows go past the row; cut off there, they made a band across the page.
+        .scrollClipDisabled()
     }
 }
 
@@ -572,7 +574,7 @@ struct ArtistView: View {
         }
         .ignoresSafeArea(edges: .top)
         .scrollEdgeEffectStyle(.soft, for: .top)
-        .onScrollGeometryChange(for: Bool.self) { $0.contentOffset.y > 330 } action: { _, past in
+        .onScrollGeometryChange(for: Bool.self) { $0.contentOffset.y > 450 } action: { _, past in
             withAnimation(.easeOut(duration: 0.2)) { pastHeader = past }
         }
         .paged(look)
@@ -602,77 +604,84 @@ struct ArtistView: View {
         albums?.max { ($0.year, $0.title) < ($1.year, $1.title) }
     }
 
+    /// As Apple Music's: the picture tall across the top, the logo (or name) in the middle
+    /// near its foot, and under it a large Play between Shuffle and Radio.
     private func header(_ look: PageColors) -> some View {
         // The page's width, whatever the picture's shape: a picture laid out at its own width
         // made the whole page wider than the screen.
         Color.clear
             .frame(maxWidth: .infinity)
-            .frame(height: 470)
-            .overlay { Artwork(path: picture, seed: name, size: 1200) }
+            .frame(height: 590)
+            .overlay { Artwork(path: picture, seed: name, size: 1400) }
             .clipped()
-            .overlay(alignment: .bottom) { Fade(color: look.page).frame(height: 300) }
+            .overlay(alignment: .bottom) { Fade(color: look.page).frame(height: 330) }
             .modifier(Stretchy())
-            .overlay(alignment: .bottomLeading) {
-                VStack(alignment: .leading, spacing: 14) {
+            .overlay(alignment: .bottom) {
+                VStack(spacing: 18) {
                     // Their logo when fanart.tv has one, as Apple Music shows artists' own.
                     if let logo {
                         Logo(path: logo)
-                            .frame(maxWidth: 300, maxHeight: 120, alignment: .bottomLeading)
+                            .frame(maxWidth: 300, maxHeight: 130)
                             .shadow(color: look.page.opacity(0.5), radius: 14)
                             .accessibilityLabel(name)
                     } else {
                         Text(name)
                             .font(.system(size: 46, weight: .heavy))
                             .tracking(-1)
+                            .multilineTextAlignment(.center)
                             .lineLimit(2)
                             .minimumScaleFactor(0.5)
                             .shadow(color: look.page.opacity(0.4), radius: 12)
                     }
-                    GlassEffectContainer(spacing: 10) {
-                        HStack(spacing: 10) {
-                            Button { store.play(top) } label: {
-                                Label("Play", systemImage: "play.fill").padding(.horizontal, 10).padding(.vertical, 5)
-                                    .foregroundStyle(look.page)
-                            }
-                            .buttonStyle(.glassProminent)
-                            .tint(look.ink)
-                            Button { store.shufflePlay(top) } label: {
-                                Label("Shuffle", systemImage: "shuffle").padding(.horizontal, 10).padding(.vertical, 5)
-                            }
-                            .buttonStyle(.glass)
-                            Spacer(minLength: 0)
-                            Button {
-                                let name = name
-                                store.run { $0.startArtistRadio(name: name) }
-                                store.message = "Starting radio from \(name)"
-                            } label: {
-                                Image(systemName: "dot.radiowaves.left.and.right").frame(width: 30, height: 30)
-                            }
-                            .buttonStyle(.glass)
-                            .buttonBorderShape(.circle)
-                            .accessibilityLabel("Radio")
+                    HStack(spacing: 26) {
+                        Button { store.shufflePlay(top) } label: {
+                            Image(systemName: "shuffle").font(.title3.weight(.semibold)).frame(width: 34, height: 34)
                         }
+                        .buttonStyle(.glass)
+                        .buttonBorderShape(.circle)
+                        .accessibilityLabel("Shuffle")
+                        Button { store.play(top) } label: {
+                            Image(systemName: "play.fill")
+                                .font(.system(size: 30, weight: .bold))
+                                .foregroundStyle(look.page)
+                                .offset(x: 2)
+                                .frame(width: 74, height: 74)
+                                .background(look.ink, in: .circle)
+                                .shadow(color: .black.opacity(0.2), radius: 10, y: 4)
+                        }
+                        .buttonStyle(Pressable())
+                        .accessibilityLabel("Play")
+                        Button {
+                            let name = name
+                            store.run { $0.startArtistRadio(name: name) }
+                            store.message = "Starting radio from \(name)"
+                        } label: {
+                            Image(systemName: "dot.radiowaves.left.and.right").font(.title3.weight(.semibold)).frame(width: 34, height: 34)
+                        }
+                        .buttonStyle(.glass)
+                        .buttonBorderShape(.circle)
+                        .accessibilityLabel("Radio")
                     }
-                    .font(.headline)
                     .disabled(top.isEmpty)
                 }
-                .padding(.horizontal, 20)
-                .padding(.bottom, 6)
+                .padding(.horizontal, 24)
+                .padding(.bottom, 4)
             }
     }
 
     private func featured(_ album: Album, _ look: PageColors) -> some View {
         NavigationLink(value: Route.album(album)) {
-            HStack(spacing: 14) {
+            HStack(spacing: 16) {
                 Artwork(path: album.artwork, seed: album.title + album.artist, size: 300)
-                    .frame(width: 92, height: 92)
-                    .clipShape(.rect(cornerRadius: 12))
+                    .frame(width: 100, height: 100)
+                    .clipShape(.rect(cornerRadius: 10))
                     .shadow(color: .black.opacity(0.3), radius: 8, y: 4)
                 VStack(alignment: .leading, spacing: 3) {
-                    Text(album.year > 0 ? "Latest Release · \(String(album.year))" : "Latest Release")
-                        .font(.caption.weight(.semibold)).foregroundStyle(look.muted)
+                    if album.year > 0 {
+                        Text(String(album.year)).font(.subheadline).foregroundStyle(look.muted)
+                    }
                     Text(album.title).font(.headline).lineLimit(2)
-                    Text(count(Int(album.songs), "song")).font(.subheadline).foregroundStyle(look.muted)
+                    Text(count(Int(album.songs), "Song")).font(.subheadline).foregroundStyle(look.muted)
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
                 Button { store.playAlbum(album) } label: {
@@ -680,14 +689,15 @@ struct ArtistView: View {
                 }
                 .buttonStyle(.glass)
                 .buttonBorderShape(.circle)
+                .accessibilityLabel("Play \(album.title)")
             }
-            .padding(12)
-            .glassEffect(.regular.tint(look.ink.opacity(0.05)).interactive(), in: .rect(cornerRadius: 26))
+            .padding(14)
+            .glassEffect(.regular.tint(look.ink.opacity(0.05)).interactive(), in: .rect(cornerRadius: 28))
             .contentShape(.rect)
         }
         .buttonStyle(Pressable())
         .contextMenu { AlbumMenu(album: album) }
         .padding(.horizontal)
-        .padding(.top, 18)
+        .padding(.top, 22)
     }
 }
