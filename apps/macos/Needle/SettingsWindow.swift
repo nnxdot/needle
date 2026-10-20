@@ -392,6 +392,13 @@ struct LibrarySettings: View {
     }
 
     private func remove(_ root: String) {
+        let alert = NSAlert()
+        alert.messageText = "Stop reading “\((root as NSString).lastPathComponent)”?"
+        alert.informativeText = "Its songs leave the library, with their plays, stars, and places in playlists. The files stay."
+        alert.addButton(withTitle: "Stop Reading It")
+        alert.addButton(withTitle: "Cancel")
+        alert.buttons.first?.hasDestructiveAction = true
+        guard alert.runModal() == .alertFirstButtonReturn else { return }
         Task {
             if await store.ask({ try $0.removeFolder(path: root) }) != nil {
                 store.core.rewatch()

@@ -17,28 +17,40 @@ pub fn relocate(data_dir: String, old: String, new: String) -> Result<u32> {
     let mut db = library.connection()?;
     let tx = db.transaction().map_err(anyhow::Error::from)?;
     let mut changed = 0;
-    // Paths begin with the folder; text (song data, playlists, settings) holds it anywhere.
-    for table in ["tracks", "roots"] {
-        changed += tx
-            .execute(
-                &format!(
-                    "UPDATE {table} SET path = ?2 || substr(path, length(?1) + 1)
-                     WHERE substr(path, 1, length(?1) + 1) = ?1 || '/'"
-                ),
-                [old, new],
-            )
-            .map_err(anyhow::Error::from)?;
+    let real = (format!("/private{old}"), format!("/private{new}"));
+    let mut pairs = vec![(old.to_string(), new.to_string())];
+    if old.starts_with("/var/") && new.starts_with("/var/") {
+        pairs.push(real);
     }
-    for (table, column) in [("tracks", "data"), ("playlists", "data"), ("settings", "value")] {
-        changed += tx
-            .execute(
-                &format!(
-                    "UPDATE {table} SET {column} = replace({column}, ?1 || '/', ?2 || '/')
+    for (old, new) in &pairs {
+        let (old, new) = (old.as_str(), new.as_str());
+        // Paths begin with the folder; text (song data, playlists, settings) holds it anywhere.
+        for table in ["tracks", "roots"] {
+            changed += tx
+                .execute(
+                    &format!(
+                        "UPDATE {table} SET path = ?2 || substr(path, length(?1) + 1)
+                     WHERE substr(path, 1, length(?1) + 1) = ?1 || '/'"
+                    ),
+                    [old, new],
+                )
+                .map_err(anyhow::Error::from)?;
+        }
+        for (table, column) in [
+            ("tracks", "data"),
+            ("playlists", "data"),
+            ("settings", "value"),
+        ] {
+            changed += tx
+                .execute(
+                    &format!(
+                        "UPDATE {table} SET {column} = replace({column}, ?1 || '/', ?2 || '/')
                      WHERE instr({column}, ?1 || '/') > 0"
-                ),
-                [old, new],
-            )
-            .map_err(anyhow::Error::from)?;
+                    ),
+                    [old, new],
+                )
+                .map_err(anyhow::Error::from)?;
+        }
     }
     tx.commit().map_err(anyhow::Error::from)?;
     Ok(changed as u32)

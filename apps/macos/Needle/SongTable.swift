@@ -337,6 +337,7 @@ struct Heart: View {
         }
         .buttonStyle(.borderless)
         .help(on ? "Remove from favorites" : "Add to favorites")
+        .accessibilityLabel(on ? "Remove from favorites" : "Add to favorites")
     }
 }
 

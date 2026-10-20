@@ -149,8 +149,7 @@ final class Store {
         reloadPlugins()
         reloadThemes()
         nowPlaying.start(self)
-        let core = core
-        Task.detached { _ = core.sendCrashReports() }
+        if settings.welcomed { sendCrashReports() }
         timer = Timer.scheduledTimer(withTimeInterval: 0.1, repeats: true) { [weak self] _ in
             MainActor.assumeIsolated { self?.tick() }
         }
@@ -898,12 +897,19 @@ final class Store {
         }
     }
 
+    /// Sends crash reports kept from earlier runs, when that is on.
+    func sendCrashReports() {
+        let core = core
+        Task.detached { _ = core.sendCrashReports() }
+    }
+
     /// Once a day at most (or now, when asked), asks needle.nnx.fyi whether a newer Needle is out.
     func checkForUpdate(force: Bool) {
         let day = Int(Date().timeIntervalSince1970) - 86_400
         guard force || (settings.checkUpdates && settings.lastUpdateCheck < day) else { return }
         Task {
-            let found = await ask { try $0.checkMacUpdate() }
+            // Asked by the person: its error shows. By itself (offline at login, say): quiet.
+            let found = force ? await ask { try $0.checkMacUpdate() } : await load { try $0.checkMacUpdate() }
             reloadSettings()
             update = found ?? nil
             if let found = found ?? nil {

@@ -215,6 +215,7 @@ struct Welcome: View {
         store.set(["welcomed": true])
         // The first check for a new version waited for this guide's privacy step.
         store.checkForUpdate(force: false)
+        store.sendCrashReports()
         dismiss()
     }
 }

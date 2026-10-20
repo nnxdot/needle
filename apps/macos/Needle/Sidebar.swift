@@ -157,6 +157,7 @@ struct Sidebar: View {
         .padding(.vertical, 4)
         .padding(.horizontal, 8)
         .help(name)
+        .accessibilityLabel(name)
     }
 }
 
@@ -337,6 +338,8 @@ struct Rail: View {
         Button(action: action) { icon(symbol, selected: selected) }
             .buttonStyle(.plain)
             .help(name)
+            .accessibilityLabel(name)
+            .accessibilityAddTraits(selected ? .isSelected : [])
     }
 
     private func icon(_ symbol: String, selected: Bool) -> some View {

@@ -243,9 +243,11 @@ struct MainWindow: View {
             SidebarButton()
             Button { store.goBack() } label: { Image(systemName: "chevron.left") }
                 .help("Back · ⌘[")
+                .accessibilityLabel("Back")
                 .disabled(store.back.isEmpty)
             Button { store.goForward() } label: { Image(systemName: "chevron.right") }
                 .help("Forward · ⌘]")
+                .accessibilityLabel("Forward")
                 .disabled(store.forward.isEmpty)
         }
         // With Back and Forward, not alone at the far right over the side panel.
@@ -365,6 +367,7 @@ struct SidebarButton: View {
     var body: some View {
         let hidden = store.settings.layout.sidebarHidden
         Button { store.setLayout(["sidebar_hidden": !hidden]) } label: { Image(systemName: "sidebar.left") }
+            .accessibilityLabel(hidden ? "Show the sidebar" : "Hide the sidebar")
             .help(hidden ? "Show the sidebar · ⌃⌘S" : "Hide the sidebar · ⌃⌘S")
     }
 }
@@ -409,7 +412,7 @@ struct WindowBackground: View {
                 if let p = store.playback, p.hasSong {
                     // Full strength, dimmed only a little: mixed into the grey beneath and
                     // darkened twice, the colours looked washed out.
-                    CoverBackdrop(path: p.artwork, seed: p.album + p.artist, moving: store.motion,
+                    CoverBackdrop(path: p.artwork, seed: p.album + p.artist, moving: store.motion && store.isPlaying,
                                   dim: store.colors.dark ? 0.35 : 0, light: !store.colors.dark)
                         .opacity(store.colors.dark ? 1 : 0.85)
                 } else {
