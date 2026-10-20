@@ -395,103 +395,162 @@ struct GenreView: View {
 
 // MARK: - An album, an artist, a playlist
 
+/// An album, after Apple Music's: the cover across the top fades into a page of its colour,
+/// with the album's name, Play and Shuffle over the fade, the songs on the colour, and more
+/// by the artist at the foot.
 struct AlbumView: View {
     @Environment(Store.self) private var store
     let album: Album
     @State private var songs: [Song]?
-    @State private var tint: Color?
+    @State private var more: [Album] = []
+    @State private var colors: PageColors?
     @State private var selecting = false
     @State private var selected = Set<String>()
+    @State private var pastHeader = false
 
     var body: some View {
+        let look = store.app.coverColors ? colors ?? .plain(store.colors) : .plain(store.colors)
         List(selection: selecting ? $selected : nil) {
-            VStack(spacing: 6) {
-                Artwork(path: album.artwork, seed: album.title + album.artist, size: 900)
-                    .aspectRatio(1, contentMode: .fit)
-                    .frame(maxWidth: 270)
-                    .clipShape(.rect(cornerRadius: 18))
-                    .shadow(color: .black.opacity(0.45), radius: 22, y: 14)
-                    .padding(.bottom, 12)
-                Text(album.title).font(.title2.bold()).multilineTextAlignment(.center)
-                // A button, not a link: a link in a list row is laid out as a row, at the left
-                // with an arrow.
-                Button { store.opening = .artist(album.artist) } label: {
-                    Text(album.artist).font(.title3).foregroundStyle(.tint).multilineTextAlignment(.center)
-                }
-                .buttonStyle(.borderless)
-                Text(details).font(.footnote).foregroundStyle(.secondary)
-                if let songs { PlayButtons(songs: songs).padding(.top, 8) }
-            }
-            .frame(maxWidth: .infinity)
-            .listRowSeparator(.hidden)
-            .listRowBackground(Color.clear)
-            .selectionDisabled()
+            header(look)
+                .listRowInsets(EdgeInsets())
+                .listRowSeparator(.hidden)
+                .listRowBackground(Color.clear)
+                .selectionDisabled()
             ForEach(Array((songs ?? []).enumerated()), id: \.element.id) { i, song in
                 SongRow(song: song, number: Int(song.trackNumber > 0 ? song.trackNumber : Int64(i + 1))) {
                     store.play(songs ?? [], from: i)
                 }
                 .tag(song.id)
+                .listRowBackground(Color.clear)
+                .listRowSeparatorTint(look.line)
             }
+            footer(look)
+                .listRowInsets(EdgeInsets())
+                .listRowSeparator(.hidden)
+                .listRowBackground(Color.clear)
+                .selectionDisabled()
         }
         .listStyle(.plain)
-        .navigationBarTitleDisplayMode(.inline)
-        .themed()
-        .background {
-            if store.app.coverColors, let tint {
-                LinearGradient(colors: [tint.opacity(0.45), .clear], startPoint: .top, endPoint: .center).ignoresSafeArea()
-            }
+        .ignoresSafeArea(edges: .top)
+        .scrollEdgeEffectStyle(.soft, for: .top)
+        .onScrollGeometryChange(for: Bool.self) { $0.contentOffset.y > $0.containerSize.width * 0.8 } action: { _, past in
+            withAnimation(.easeOut(duration: 0.2)) { pastHeader = past }
         }
+        .paged(look)
+        // The name moves into the bar once the cover has scrolled away.
+        .navigationTitle(pastHeader ? album.title : "")
+        .navigationBarTitleDisplayMode(.inline)
         .environment(\.editMode, .constant(selecting ? .active : .inactive))
         .toolbar {
-            SelectToolbar(selecting: $selecting, selected: $selected, songs: songs ?? [])
+            SelectToolbar(selecting: $selecting, selected: $selected, songs: songs ?? [], tint: look.ink)
             if !selecting {
                 ToolbarItem(placement: .topBarTrailing) {
                     Menu { AlbumMenu(album: album) } label: { Image(systemName: "ellipsis") }
+                        .tint(look.ink)
                 }
             }
         }
         .task(id: store.libraryVersion) {
-            let key = album.key
+            let (key, artist) = (album.key, album.artist)
             songs = await store.load { try $0.albumSongs(key: key) } ?? []
+            more = (await store.load { try $0.artistAlbums(name: artist) } ?? []).filter { $0.key != key }
         }
-        .task { tint = await coverTint(album.artwork) }
+        .task { colors = await PageColors.of(album.artwork, seed: album.title + album.artist) }
+    }
+
+    private func header(_ look: PageColors) -> some View {
+        VStack(spacing: 0) {
+            Artwork(path: album.artwork, seed: album.title + album.artist, size: 1200)
+                .aspectRatio(1, contentMode: .fit)
+                .frame(maxWidth: .infinity)
+                .overlay(alignment: .bottom) { Fade(color: look.page).frame(height: 230) }
+                .modifier(Stretchy())
+            VStack(spacing: 5) {
+                Text(album.title).font(.title.bold()).multilineTextAlignment(.center)
+                // A button, not a link: a link in a list row is laid out as a row, at the left
+                // with an arrow.
+                Button { store.opening = .artist(album.artist) } label: {
+                    Text(album.artist).font(.title3.weight(.medium)).foregroundStyle(look.ink.opacity(0.82)).multilineTextAlignment(.center)
+                }
+                .buttonStyle(.borderless)
+                Text(details).font(.footnote.weight(.medium)).foregroundStyle(look.muted)
+                if let songs { PlayButtons(songs: songs, look: look).padding(.top, 10) }
+            }
+            .padding(.horizontal, 22)
+            // Over the foot of the fading cover.
+            .padding(.top, -86)
+            .padding(.bottom, 10)
+        }
+    }
+
+    @ViewBuilder
+    private func footer(_ look: PageColors) -> some View {
+        VStack(alignment: .leading, spacing: 0) {
+            Text(summary).font(.footnote).foregroundStyle(look.muted)
+                .padding(.horizontal).padding(.top, 14)
+            if !more.isEmpty {
+                SectionTitle(title: "More by \(album.artist)", route: .artist(album.artist))
+                ScrollView(.horizontal, showsIndicators: false) {
+                    LazyHStack(alignment: .top, spacing: 14) {
+                        ForEach(more) { AlbumTile(album: $0, width: 150) }
+                    }
+                    .padding(.horizontal)
+                    .padding(.vertical, 10)
+                }
+            }
+        }
+        .padding(.bottom, 30)
     }
 
     private var details: String {
         var parts: [String] = []
         if album.year > 0 { parts.append(String(album.year)) }
-        parts.append(count(Int(album.songs), "song"))
-        parts.append(clock(album.duration))
+        // The format, when every song has the same one.
+        if let songs, let format = songs.first?.format, !format.isEmpty, songs.allSatisfy({ $0.format == format }) {
+            parts.append(format.uppercased())
+        }
         return parts.joined(separator: " · ")
+    }
+
+    private var summary: String {
+        "\(count(Int(album.songs), "song")), \(clock(album.duration))"
     }
 }
 
+/// A picture's foot fading into the page's colour.
+struct Fade: View {
+    let color: Color
+
+    var body: some View {
+        LinearGradient(stops: [
+            .init(color: color.opacity(0), location: 0),
+            .init(color: color.opacity(0.55), location: 0.45),
+            .init(color: color.opacity(0.9), location: 0.78),
+            .init(color: color, location: 1),
+        ], startPoint: .top, endPoint: .bottom)
+        .allowsHitTesting(false)
+    }
+}
+
+/// An artist, after Apple Music's: their picture across the top fades into a page of its
+/// colour, with the name large over it and Play, Shuffle, and Radio under it; then the newest
+/// album in its own box, the top songs, and the albums.
 struct ArtistView: View {
     @Environment(Store.self) private var store
     let name: String
     @State private var top: [Song] = []
     @State private var albums: [Album]?
+    @State private var photo: String?
+    @State private var logo: String?
+    @State private var colors: PageColors?
+    @State private var pastHeader = false
 
     var body: some View {
+        let look = store.app.coverColors ? colors ?? .plain(store.colors) : .plain(store.colors)
         ScrollView {
             VStack(alignment: .leading, spacing: 0) {
-                HStack(spacing: 12) {
-                    Button { store.play(top) } label: {
-                        Label("Play", systemImage: "play.fill").frame(maxWidth: .infinity).padding(.vertical, 6)
-                    }
-                    .buttonStyle(.glassProminent)
-                    Button {
-                        let name = name
-                        store.run { $0.startArtistRadio(name: name) }
-                        store.message = "Starting radio from \(name)"
-                    } label: {
-                        Label("Radio", systemImage: "dot.radiowaves.left.and.right").frame(maxWidth: .infinity).padding(.vertical, 6)
-                    }
-                    .buttonStyle(.glass)
-                }
-                .font(.headline)
-                .padding(.horizontal)
-                .padding(.top, 8)
+                header(look)
+                if let latest { featured(latest, look) }
                 if !top.isEmpty {
                     SectionTitle(title: "Top Songs")
                     VStack(spacing: 10) {
@@ -509,22 +568,116 @@ struct ArtistView: View {
             }
             .padding(.bottom, 24)
         }
-        .navigationTitle(name)
-        .themed()
+        .ignoresSafeArea(edges: .top)
+        .scrollEdgeEffectStyle(.soft, for: .top)
+        .onScrollGeometryChange(for: Bool.self) { $0.contentOffset.y > 330 } action: { _, past in
+            withAnimation(.easeOut(duration: 0.2)) { pastHeader = past }
+        }
+        .paged(look)
+        .navigationTitle(pastHeader ? name : "")
+        .navigationBarTitleDisplayMode(.inline)
         .task(id: store.libraryVersion) {
             let name = name
             top = await store.load { try $0.artistSongs(name: name) } ?? []
             albums = await store.load { try $0.artistAlbums(name: name) } ?? []
+            photo = await store.load { $0.artistPhoto(name: name) } ?? nil
+            let picture = photo ?? albums?.first?.artwork
+            colors = await PageColors.of(picture, seed: name)
+            logo = await store.load { $0.artistLogo(name: name) } ?? nil
         }
     }
-}
 
-/// A cover's main colour, for pages that take it.
-func coverTint(_ path: String?) async -> Color? {
-    guard let path, let image = await Covers.load(path, size: 40), let cg = image.cgImage else { return nil }
-    var pixel = [UInt8](repeating: 0, count: 4)
-    guard let context = CGContext(data: &pixel, width: 1, height: 1, bitsPerComponent: 8, bytesPerRow: 4,
-                                  space: CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else { return nil }
-    context.draw(cg, in: CGRect(x: 0, y: 0, width: 1, height: 1))
-    return Color(red: Double(pixel[0]) / 255, green: Double(pixel[1]) / 255, blue: Double(pixel[2]) / 255)
+    /// The newest album, for the box under the name.
+    private var latest: Album? {
+        albums?.max { ($0.year, $0.title) < ($1.year, $1.title) }
+    }
+
+    private func header(_ look: PageColors) -> some View {
+        // The page's width, whatever the picture's shape: a picture laid out at its own width
+        // made the whole page wider than the screen.
+        Color.clear
+            .frame(maxWidth: .infinity)
+            .frame(height: 470)
+            .overlay { Artwork(path: photo ?? albums?.first?.artwork, seed: name, size: 1200) }
+            .clipped()
+            .overlay(alignment: .bottom) { Fade(color: look.page).frame(height: 300) }
+            .modifier(Stretchy())
+            .overlay(alignment: .bottomLeading) {
+                VStack(alignment: .leading, spacing: 14) {
+                    // Their logo when fanart.tv has one, as Apple Music shows artists' own.
+                    if let logo {
+                        Logo(path: logo)
+                            .frame(maxWidth: 300, maxHeight: 120, alignment: .bottomLeading)
+                            .shadow(color: look.page.opacity(0.5), radius: 14)
+                            .accessibilityLabel(name)
+                    } else {
+                        Text(name)
+                            .font(.system(size: 46, weight: .heavy))
+                            .tracking(-1)
+                            .lineLimit(2)
+                            .minimumScaleFactor(0.5)
+                            .shadow(color: look.page.opacity(0.4), radius: 12)
+                    }
+                    GlassEffectContainer(spacing: 10) {
+                        HStack(spacing: 10) {
+                            Button { store.play(top) } label: {
+                                Label("Play", systemImage: "play.fill").padding(.horizontal, 10).padding(.vertical, 5)
+                                    .foregroundStyle(look.page)
+                            }
+                            .buttonStyle(.glassProminent)
+                            .tint(look.ink)
+                            Button { store.shufflePlay(top) } label: {
+                                Label("Shuffle", systemImage: "shuffle").padding(.horizontal, 10).padding(.vertical, 5)
+                            }
+                            .buttonStyle(.glass)
+                            Spacer(minLength: 0)
+                            Button {
+                                let name = name
+                                store.run { $0.startArtistRadio(name: name) }
+                                store.message = "Starting radio from \(name)"
+                            } label: {
+                                Image(systemName: "dot.radiowaves.left.and.right").frame(width: 30, height: 30)
+                            }
+                            .buttonStyle(.glass)
+                            .buttonBorderShape(.circle)
+                            .accessibilityLabel("Radio")
+                        }
+                    }
+                    .font(.headline)
+                    .disabled(top.isEmpty)
+                }
+                .padding(.horizontal, 20)
+                .padding(.bottom, 6)
+            }
+    }
+
+    private func featured(_ album: Album, _ look: PageColors) -> some View {
+        NavigationLink(value: Route.album(album)) {
+            HStack(spacing: 14) {
+                Artwork(path: album.artwork, seed: album.title + album.artist, size: 300)
+                    .frame(width: 92, height: 92)
+                    .clipShape(.rect(cornerRadius: 12))
+                    .shadow(color: .black.opacity(0.3), radius: 8, y: 4)
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(album.year > 0 ? "Latest Release · \(String(album.year))" : "Latest Release")
+                        .font(.caption.weight(.semibold)).foregroundStyle(look.muted)
+                    Text(album.title).font(.headline).lineLimit(2)
+                    Text(count(Int(album.songs), "song")).font(.subheadline).foregroundStyle(look.muted)
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                Button { store.playAlbum(album) } label: {
+                    Image(systemName: "play.fill").frame(width: 30, height: 30)
+                }
+                .buttonStyle(.glass)
+                .buttonBorderShape(.circle)
+            }
+            .padding(12)
+            .glassEffect(.regular.tint(look.ink.opacity(0.05)).interactive(), in: .rect(cornerRadius: 26))
+            .contentShape(.rect)
+        }
+        .buttonStyle(Pressable())
+        .contextMenu { AlbumMenu(album: album) }
+        .padding(.horizontal)
+        .padding(.top, 18)
+    }
 }

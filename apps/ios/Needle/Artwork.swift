@@ -70,6 +70,110 @@ struct Artwork: View {
     }
 }
 
+/// A page's colours from its picture, as Apple Music's album and artist pages take them: the
+/// colour along the picture's foot fills the page under it, so the picture fades into the page,
+/// and the text is white or black, whichever reads on it.
+struct PageColors: Equatable {
+    var page: Color
+    var ink: Color
+    var dark: Bool
+
+    var muted: Color { ink.opacity(0.62) }
+    var line: Color { ink.opacity(0.14) }
+
+    /// The theme's own page, for when colours from covers are off.
+    static func plain(_ theme: ThemeColors) -> PageColors {
+        PageColors(page: theme.page, ink: theme.text, dark: theme.dark)
+    }
+
+    nonisolated(unsafe) private static var known: [String: PageColors] = [:]
+
+    /// For the picture at `path`, or the made-up cover of `seed` when there is none.
+    static func of(_ path: String?, seed: String) async -> PageColors {
+        let key = path ?? "seed:" + seed
+        if let hit = known[key] { return hit }
+        var rgb: (Double, Double, Double)?
+        if let path, let image = await Covers.load(path, size: 64), let cg = image.cgImage {
+            rgb = foot(of: cg)
+        }
+        if rgb == nil {
+            // The made-up cover runs from its first colour into near black.
+            var r: CGFloat = 0, g: CGFloat = 0, b: CGFloat = 0, a: CGFloat = 0
+            UIColor(Palette(seed).colors[0]).getRed(&r, green: &g, blue: &b, alpha: &a)
+            rgb = (Double(r) * 0.35, Double(g) * 0.35, Double(b) * 0.35)
+        }
+        let colors = make(rgb!)
+        known[key] = colors
+        return colors
+    }
+
+    /// The average colour of the picture's lowest rows.
+    private static func foot(of cg: CGImage) -> (Double, Double, Double)? {
+        let side = 32
+        var pixels = [UInt8](repeating: 0, count: side * side * 4)
+        guard let context = CGContext(data: &pixels, width: side, height: side, bitsPerComponent: 8, bytesPerRow: side * 4,
+                                      space: CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else { return nil }
+        context.draw(cg, in: CGRect(x: 0, y: 0, width: side, height: side))
+        // The bitmap's first row is the picture's top.
+        var sum = (0.0, 0.0, 0.0), n = 0.0
+        for y in (side - 5)..<side {
+            for x in 0..<side {
+                let i = (y * side + x) * 4
+                sum.0 += Double(pixels[i]); sum.1 += Double(pixels[i + 1]); sum.2 += Double(pixels[i + 2]); n += 1
+            }
+        }
+        return (sum.0 / n / 255, sum.1 / n / 255, sum.2 / n / 255)
+    }
+
+    /// A little richer than the picture's own colour, never quite white or black.
+    private static func make(_ rgb: (Double, Double, Double)) -> PageColors {
+        var h: CGFloat = 0, s: CGFloat = 0, v: CGFloat = 0, a: CGFloat = 0
+        UIColor(red: rgb.0, green: rgb.1, blue: rgb.2, alpha: 1).getHue(&h, saturation: &s, brightness: &v, alpha: &a)
+        let page = UIColor(hue: h, saturation: min(1, s * 1.12), brightness: min(0.9, max(0.1, v)), alpha: 1)
+        var r: CGFloat = 0, g: CGFloat = 0, b: CGFloat = 0
+        page.getRed(&r, green: &g, blue: &b, alpha: &a)
+        let light = 0.2126 * r + 0.7152 * g + 0.0722 * b > 0.62
+        return PageColors(page: Color(page), ink: light ? Color(white: 0.06) : .white, dark: !light)
+    }
+}
+
+extension View {
+    /// A page in its picture's colours: text, tint, and the system's controls follow them.
+    func paged(_ colors: PageColors) -> some View {
+        self
+            .scrollContentBackground(.hidden)
+            .background(colors.page.ignoresSafeArea())
+            .foregroundStyle(colors.ink)
+            .tint(colors.ink)
+            .environment(\.colorScheme, colors.dark ? .dark : .light)
+            .toolbarColorScheme(colors.dark ? .dark : .light, for: .navigationBar)
+            .animation(.easeOut(duration: 0.35), value: colors)
+    }
+}
+
+/// An artist's logo: a picture with a clear background, kept whole.
+struct Logo: View {
+    let path: String
+    @State private var image: UIImage?
+
+    var body: some View {
+        Group {
+            if let image { Image(uiImage: image).resizable().scaledToFit() } else { Color.clear }
+        }
+        .task(id: path) { image = await Covers.load(path, size: 900) }
+    }
+}
+
+/// A picture that grows when the page is pulled down past its top, as headers do in Music.
+struct Stretchy: ViewModifier {
+    func body(content: Content) -> some View {
+        content.visualEffect { content, proxy in
+            let pulled = max(0, proxy.frame(in: .scrollView).minY)
+            return content.scaleEffect(1 + pulled / max(1, proxy.size.height), anchor: .bottom)
+        }
+    }
+}
+
 /// The colours of a name: three, from its hash, always the same for the same name.
 struct Palette {
     let colors: [Color]
