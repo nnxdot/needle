@@ -71,9 +71,14 @@ struct NowPlayingView: View {
         let immersive = app.immersiveCover && pane == .cover
         ZStack {
             Color.black.ignoresSafeArea()
-            if immersive {
-                ImmersiveCover(song: song, seed: seed, animated: app.animatedCovers && !reduceMotion)
-                    .transition(.opacity)
+            if app.immersiveCover {
+                // Always there, blurred behind the lyrics and the queue, so moving between them
+                // never shows black while it fades.
+                ImmersiveCover(song: song, seed: seed, animated: app.animatedCovers && !reduceMotion && pane == .cover)
+                if !immersive {
+                    CoverBackdrop(path: song?.artwork, seed: seed, blur: CGFloat(app.backdropBlur), moving: app.movingBackdrop && !reduceMotion)
+                        .transition(.opacity)
+                }
             } else if app.coverBackdrop {
                 CoverBackdrop(path: song?.artwork, seed: seed, blur: CGFloat(app.backdropBlur), moving: app.movingBackdrop && !reduceMotion)
             } else {
@@ -170,7 +175,6 @@ struct NowPlayingView: View {
         } label: {
             Image(systemName: "ellipsis").font(.title3.weight(.semibold))
                 .frame(width: 36, height: 36)
-                .background(.white.opacity(0.14), in: .circle)
                 .contentShape(.circle)
         }
         .foregroundStyle(.white)
@@ -272,13 +276,14 @@ struct NowPlayingView: View {
 
     /// The song, small, above the lyrics or the queue.
     private func small(_ song: Song?, seed: String) -> some View {
-        HStack(spacing: 12) {
-            Artwork(path: song?.artwork, seed: seed, size: 200)
-                .frame(width: 56, height: 56)
+        HStack(spacing: 14) {
+            Artwork(path: song?.artwork, seed: seed, size: 240)
+                .frame(width: 72, height: 72)
                 .clipShape(.rect(cornerRadius: 10))
+                .shadow(color: .black.opacity(0.3), radius: 8, y: 4)
             VStack(alignment: .leading, spacing: 2) {
-                Text(song?.title ?? "").font(.headline).lineLimit(1)
-                artistButton(song).font(.subheadline)
+                Text(song?.title ?? "").font(.title3.weight(.semibold)).lineLimit(1)
+                artistButton(song).font(.body)
             }
             .frame(maxWidth: .infinity, alignment: .leading)
             if !(song?.onComputer ?? false) { favoriteButton(song) }
@@ -547,8 +552,16 @@ struct ImmersiveCover: View {
     let song: Song?
     let seed: String
     let animated: Bool
-    @State private var tone = Color.black
+    @State private var tone: Color
     @State private var video: URL?
+
+    init(song: Song?, seed: String, animated: Bool) {
+        self.song = song
+        self.seed = seed
+        self.animated = animated
+        // The colour already known, so it never starts from black.
+        _tone = State(initialValue: PageColors.cached(song?.artwork, seed: seed)?.page.darkened(to: 0.3) ?? .black)
+    }
 
     var body: some View {
         GeometryReader { geo in
@@ -759,19 +772,21 @@ struct QueuePane: View {
     @Environment(Store.self) private var store
 
     var body: some View {
-        VStack(spacing: 10) {
-            HStack {
-                Text(store.onComputer ? "Up next on your computer" : "Up Next").font(.headline)
-                Spacer()
-                HStack(spacing: 6) {
-                    Button { store.shuffle() } label: { PlainSign(symbol: "shuffle", on: false) }
-                        .buttonStyle(.plain)
-                        .accessibilityLabel("Shuffle")
-                    Button { store.cycleRepeat() } label: {
-                        PlainSign(symbol: store.playback?.repeat == .one ? "repeat.1" : "repeat", on: store.playback?.repeat != .off)
-                    }
+        VStack(alignment: .leading, spacing: 14) {
+            HStack(spacing: 12) {
+                Button { store.shuffle() } label: { Pill(symbol: "shuffle", on: false) }
                     .buttonStyle(.plain)
-                    .accessibilityLabel("Repeat")
+                    .accessibilityLabel("Shuffle")
+                Button { store.cycleRepeat() } label: {
+                    Pill(symbol: store.playback?.repeat == .one ? "repeat.1" : "repeat", on: store.playback?.repeat != .off)
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Repeat")
+            }
+            VStack(alignment: .leading, spacing: 2) {
+                Text(store.onComputer ? "Up Next on Your Computer" : "Continue Playing").font(.headline)
+                if let album = store.playback?.current?.album, !album.isEmpty {
+                    Text("From \(album)").font(.subheadline).foregroundStyle(.white.opacity(0.6)).lineLimit(1)
                 }
             }
             if store.upNext.isEmpty {
@@ -780,9 +795,9 @@ struct QueuePane: View {
                 List {
                     ForEach(Array(store.upNext.enumerated()), id: \.offset) { i, song in
                         Button { store.jump(i) } label: {
-                            HStack(spacing: 12) {
-                                Artwork(path: song.artwork, seed: song.album + song.artist, size: 120)
-                                    .frame(width: 44, height: 44).clipShape(.rect(cornerRadius: 7))
+                            HStack(spacing: 14) {
+                                Artwork(path: song.artwork, seed: song.album + song.artist, size: 150)
+                                    .frame(width: 50, height: 50).clipShape(.rect(cornerRadius: 6))
                                 VStack(alignment: .leading, spacing: 2) {
                                     Text(song.title).lineLimit(1)
                                     Text(song.artist).font(.subheadline).foregroundStyle(.secondary).lineLimit(1)
@@ -793,6 +808,7 @@ struct QueuePane: View {
                         }
                         .buttonStyle(.plain)
                         .listRowBackground(Color.clear)
+                        .listRowSeparator(.hidden)
                         .listRowInsets(EdgeInsets(top: 6, leading: 0, bottom: 6, trailing: 0))
                     }
                     .onDelete(perform: store.onComputer ? nil : { rows in
@@ -809,6 +825,23 @@ struct QueuePane: View {
             }
         }
         .frame(maxHeight: .infinity)
+    }
+}
+
+/// A wide pill of Up Next's (shuffle, repeat), as Apple Music's: soft, light while on.
+struct Pill: View {
+    let symbol: String
+    let on: Bool
+
+    var body: some View {
+        Image(systemName: symbol)
+            .font(.body.weight(.semibold))
+            .foregroundStyle(on ? Color.black.opacity(0.8) : .white)
+            .frame(maxWidth: .infinity)
+            .frame(height: 40)
+            .background(.white.opacity(on ? 0.75 : 0.16), in: .capsule)
+            .contentShape(.capsule)
+            .contentTransition(.symbolEffect(.replace))
     }
 }
 

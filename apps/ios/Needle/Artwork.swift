@@ -88,6 +88,11 @@ struct PageColors: Equatable {
 
     nonisolated(unsafe) private static var known: [String: PageColors] = [:]
 
+    /// Already found for this picture (or made-up cover), without waiting.
+    static func cached(_ path: String?, seed: String) -> PageColors? {
+        known[path ?? "seed:" + seed]
+    }
+
     /// For the picture at `path`, or the made-up cover of `seed` when there is none.
     static func of(_ path: String?, seed: String) async -> PageColors {
         let key = path ?? "seed:" + seed
