@@ -137,6 +137,15 @@ struct PageColors: Equatable {
     }
 }
 
+extension Color {
+    /// The same colour, no brighter than `brightness` (0 to 1).
+    func darkened(to brightness: CGFloat) -> Color {
+        var h: CGFloat = 0, s: CGFloat = 0, v: CGFloat = 0, a: CGFloat = 0
+        UIColor(self).getHue(&h, saturation: &s, brightness: &v, alpha: &a)
+        return Color(UIColor(hue: h, saturation: s, brightness: min(v, brightness), alpha: 1))
+    }
+}
+
 extension View {
     /// A page in its picture's colours: text, tint, and the system's controls follow them.
     func paged(_ colors: PageColors) -> some View {

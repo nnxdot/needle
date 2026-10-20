@@ -68,9 +68,13 @@ struct NowPlayingView: View {
         let song = store.playback?.current
         let seed = (song?.album ?? "") + (song?.artist ?? "")
         let app = store.app
+        let immersive = app.immersiveCover && pane == .cover
         ZStack {
             Color.black.ignoresSafeArea()
-            if app.coverBackdrop {
+            if immersive {
+                ImmersiveCover(song: song, seed: seed, animated: app.animatedCovers && !reduceMotion)
+                    .transition(.opacity)
+            } else if app.coverBackdrop {
                 CoverBackdrop(path: song?.artwork, seed: seed, blur: CGFloat(app.backdropBlur), moving: app.movingBackdrop && !reduceMotion)
             } else {
                 LinearGradient(colors: [(store.coverColor ?? .gray).opacity(0.55), .black], startPoint: .top, endPoint: .bottom).ignoresSafeArea()
@@ -79,9 +83,16 @@ struct NowPlayingView: View {
                 top(song)
                 switch pane {
                 case .cover:
-                    Spacer(minLength: 8)
-                    cover(song, seed: seed)
-                    Spacer(minLength: 16)
+                    if immersive {
+                        // The cover is the page itself: the words sit over its foot.
+                        Spacer(minLength: 8)
+                            .contentShape(.rect)
+                            .gesture(swipeToSkip)
+                    } else {
+                        Spacer(minLength: 8)
+                        cover(song, seed: seed)
+                        Spacer(minLength: 16)
+                    }
                     title(song)
                 case .lyrics:
                     small(song, seed: seed)
@@ -196,11 +207,33 @@ struct NowPlayingView: View {
         HStack(alignment: .center, spacing: 12) {
             VStack(alignment: .leading, spacing: 2) {
                 Text(song?.title ?? "").font(.title3.bold()).lineLimit(1)
-                Text(song?.artist ?? "").font(.title3).foregroundStyle(.secondary).lineLimit(1)
+                artistButton(song).font(.title3)
             }
             .frame(maxWidth: .infinity, alignment: .leading)
             if !(song?.onComputer ?? false) { favoriteButton(song) }
         }
+    }
+
+    /// The artist's name, which opens the artist's page.
+    @ViewBuilder
+    private func artistButton(_ song: Song?) -> some View {
+        if let song, !song.onComputer, !song.artist.isEmpty {
+            Button { store.opening = .artist(song.artist) } label: {
+                Text(song.artist).foregroundStyle(.secondary).lineLimit(1)
+            }
+            .buttonStyle(.plain)
+        } else {
+            Text(song?.artist ?? "").foregroundStyle(.secondary).lineLimit(1)
+        }
+    }
+
+    /// Sideways on the cover: the next or the last song.
+    private var swipeToSkip: some Gesture {
+        DragGesture(minimumDistance: 20)
+            .onEnded { g in
+                guard store.app.swipeCover, abs(g.translation.width) > abs(g.translation.height) else { return }
+                if g.translation.width < -80 { store.next() } else if g.translation.width > 80 { store.previous() }
+            }
     }
 
     private func favoriteButton(_ song: Song?) -> some View {
@@ -224,7 +257,7 @@ struct NowPlayingView: View {
                 .clipShape(.rect(cornerRadius: 10))
             VStack(alignment: .leading, spacing: 2) {
                 Text(song?.title ?? "").font(.headline).lineLimit(1)
-                Text(song?.artist ?? "").font(.subheadline).foregroundStyle(.secondary).lineLimit(1)
+                artistButton(song).font(.subheadline)
             }
             .frame(maxWidth: .infinity, alignment: .leading)
             if !(song?.onComputer ?? false) { favoriteButton(song) }
@@ -251,29 +284,30 @@ struct NowPlayingView: View {
         .padding(.top, 10)
     }
 
+    /// Lyrics, speakers, and the queue: plain signs, as Apple Music's, the one open lit.
     private var bottom: some View {
-        GlassEffectContainer(spacing: 20) {
-            HStack {
-                paneButton(.lyrics, symbol: "quote.bubble")
-                Spacer()
-                RoutePicker().frame(width: 48, height: 48).glassEffect(.regular.interactive(), in: .circle)
-                Spacer()
-                paneButton(.queue, symbol: "list.bullet")
-            }
-            .padding(.horizontal, 24)
+        HStack {
+            paneButton(.lyrics, symbol: "quote.bubble")
+            Spacer()
+            RoutePicker().frame(width: 44, height: 44).opacity(0.75)
+            Spacer()
+            paneButton(.queue, symbol: "list.bullet")
         }
+        .padding(.horizontal, 40)
     }
 
     private func paneButton(_ which: Pane, symbol: String) -> some View {
         let on = pane == which
         return Button { pane = on ? .cover : which } label: {
-            Image(systemName: symbol).font(.title3)
-                .foregroundStyle(on ? Color.black : .white)
-                .frame(width: 48, height: 48)
+            Image(systemName: on && which == .lyrics ? "quote.bubble.fill" : symbol)
+                .font(.title3.weight(on ? .semibold : .regular))
+                .foregroundStyle(.white.opacity(on ? 1 : 0.7))
+                .frame(width: 44, height: 44)
+                .background(.white.opacity(on ? 0.2 : 0), in: .circle)
                 .contentShape(.circle)
+                .contentTransition(.symbolEffect(.replace))
         }
         .buttonStyle(.plain)
-        .glassEffect(on ? .regular.tint(.white).interactive() : .regular.interactive(), in: .circle)
     }
 }
 
@@ -384,15 +418,42 @@ struct SeekBar: View {
     }
 }
 
-/// The phone's own volume, as Control Center sets it.
-struct VolumeBar: UIViewRepresentable {
+/// The phone's own volume, as Control Center sets it, drawn as Apple Music's: a thin line
+/// between a quiet and a loud speaker, with no knob.
+struct VolumeBar: View {
+    var body: some View {
+        HStack(spacing: 12) {
+            Image(systemName: "speaker.fill").font(.caption)
+            SystemVolume().frame(height: 34)
+            Image(systemName: "speaker.wave.3.fill").font(.caption)
+        }
+        .foregroundStyle(.white.opacity(0.6))
+    }
+}
+
+/// The system's volume slider (only it may change the phone's volume), in a thin line.
+private struct SystemVolume: UIViewRepresentable {
     func makeUIView(context: Context) -> MPVolumeView {
         let view = MPVolumeView(frame: .zero)
-        view.tintColor = .white
+        view.setVolumeThumbImage(Self.clear, for: .normal)
+        view.setMinimumVolumeSliderImage(Self.line(.white.withAlphaComponent(0.85)), for: .normal)
+        view.setMaximumVolumeSliderImage(Self.line(.white.withAlphaComponent(0.22)), for: .normal)
         return view
     }
 
     func updateUIView(_ view: MPVolumeView, context: Context) {}
+
+    /// No knob to see, but one to hold.
+    static let clear = UIGraphicsImageRenderer(size: CGSize(width: 28, height: 28)).image { _ in }
+
+    /// A round-ended line, stretched along the slider.
+    static func line(_ color: UIColor) -> UIImage {
+        UIGraphicsImageRenderer(size: CGSize(width: 14, height: 7)).image { _ in
+            color.setFill()
+            UIBezierPath(roundedRect: CGRect(x: 0, y: 0, width: 14, height: 7), cornerRadius: 3.5).fill()
+        }
+        .resizableImage(withCapInsets: UIEdgeInsets(top: 0, left: 4, bottom: 0, right: 4))
+    }
 }
 
 /// The computer's volume, while the phone works the computer's player.
@@ -401,15 +462,110 @@ struct ComputerVolume: View {
     @State private var value: Double?
 
     var body: some View {
-        HStack(spacing: 10) {
+        HStack(spacing: 12) {
             Image(systemName: "speaker.fill").font(.caption)
-            Slider(value: Binding(get: { value ?? Double(store.playback?.volume ?? 1) }, set: { value = $0 }), in: 0...1) { editing in
-                if !editing, let value { store.setComputerVolume(Float(value)); self.value = nil }
+            LineSlider(value: value ?? Double(store.playback?.volume ?? 1)) { value = $0 } done: {
+                if let value { store.setComputerVolume(Float(value)); self.value = nil }
             }
             Image(systemName: "speaker.wave.3.fill").font(.caption)
         }
-        .foregroundStyle(.secondary)
-        .tint(.white)
+        .foregroundStyle(.white.opacity(0.6))
+    }
+}
+
+/// A thin line to drag along, thicker while held, as Apple Music's volume.
+struct LineSlider: View {
+    let value: Double
+    let changed: (Double) -> Void
+    var done: () -> Void = {}
+    @State private var held = false
+
+    var body: some View {
+        GeometryReader { geo in
+            ZStack(alignment: .leading) {
+                Capsule().fill(.white.opacity(0.22))
+                Capsule().fill(.white.opacity(0.85)).frame(width: geo.size.width * min(1, max(0, value)))
+            }
+            .frame(height: held ? 11 : 7)
+            .frame(maxHeight: .infinity)
+            .contentShape(.rect)
+            .gesture(DragGesture(minimumDistance: 0)
+                .onChanged { g in held = true; changed(min(1, max(0, g.location.x / max(1, geo.size.width)))) }
+                .onEnded { _ in held = false; done() })
+        }
+        .frame(height: 34)
+        .animation(.spring(response: 0.3, dampingFraction: 0.7), value: held)
+    }
+}
+
+/// The player's cover as Apple Music shows it: across the top, edge to edge, fading into the
+/// cover's colour (darkened, as the player is always dark); a moving cover plays over it.
+struct ImmersiveCover: View {
+    @Environment(Store.self) private var store
+    let song: Song?
+    let seed: String
+    let animated: Bool
+    @State private var tone = Color.black
+    @State private var video: URL?
+
+    var body: some View {
+        GeometryReader { geo in
+            let side = geo.size.width
+            ZStack(alignment: .top) {
+                tone
+                ZStack {
+                    Artwork(path: song?.artwork, seed: seed, size: 1400)
+                    if let video { LoopingVideo(url: video) }
+                }
+                .frame(width: side, height: side)
+                .clipped()
+                .overlay(alignment: .bottom) { Fade(color: tone).frame(height: side * 0.5) }
+                // The status bar and the top buttons read over a bright cover.
+                LinearGradient(colors: [.black.opacity(0.35), .clear], startPoint: .top, endPoint: .bottom)
+                    .frame(height: 150)
+            }
+        }
+        .ignoresSafeArea()
+        .animation(.easeInOut(duration: 0.5), value: tone)
+        .task(id: song?.id) {
+            let colors = await PageColors.of(song?.artwork, seed: seed)
+            tone = colors.page.darkened(to: 0.3)
+            guard animated, let id = song?.id, !(song?.onComputer ?? true) else { video = nil; return }
+            video = (await store.load { $0.animatedCover(id: id) } ?? nil).map(URL.init(fileURLWithPath:))
+        }
+    }
+}
+
+/// A short video over and over, silent, filling its frame: a moving cover.
+struct LoopingVideo: UIViewRepresentable {
+    let url: URL
+
+    func makeUIView(context: Context) -> PlayerView {
+        let view = PlayerView()
+        view.play(url)
+        return view
+    }
+
+    func updateUIView(_ view: PlayerView, context: Context) {
+        if view.url != url { view.play(url) }
+    }
+
+    final class PlayerView: UIView {
+        override class var layerClass: AnyClass { AVPlayerLayer.self }
+        private let player = AVQueuePlayer()
+        private var looper: AVPlayerLooper?
+        private(set) var url: URL?
+
+        func play(_ url: URL) {
+            self.url = url
+            let layer = layer as! AVPlayerLayer
+            layer.player = player
+            layer.videoGravity = .resizeAspectFill
+            player.isMuted = true
+            player.preventsDisplaySleepDuringVideoPlayback = false
+            looper = AVPlayerLooper(player: player, templateItem: AVPlayerItem(url: url))
+            player.play()
+        }
     }
 }
 
