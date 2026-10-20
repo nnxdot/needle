@@ -33,6 +33,10 @@ final class Store {
     private(set) var themes: [ThemeInfo] = []
     /// The playing cover's main colour.
     private(set) var coverColor: Color?
+    /// The song playing (or shown, the computer's) and whether it plays: song rows follow
+    /// these, which change only with the song, not four times a second as `playback` does.
+    private(set) var playingID: String?
+    private(set) var isPlaying = false
     /// The songs up next, read again whenever the queue changes.
     private(set) var upNext: [Song] = []
     /// When the sleep timer pauses the music; `.distantFuture` for "at the end of the song".
@@ -82,7 +86,7 @@ final class Store {
     }
 
     @ObservationIgnored private var timer: Timer?
-    @ObservationIgnored private var wasScanning = false
+    @ObservationIgnored private var scansSeen: UInt64 = 0
     @ObservationIgnored private var queueVersion: UInt64 = .max
     @ObservationIgnored private var shownSong: String?
     @ObservationIgnored private var shownArtwork: MPMediaItemArtwork?
@@ -178,6 +182,8 @@ final class Store {
         if shown != onComputer { onComputer = shown }
         let next = shown ? pc.map(Self.playback(of:)) ?? now : now
         if next != playback { playback = next }
+        if next.current?.id != playingID { playingID = next.current?.id }
+        if next.playing != isPlaying { isPlaying = next.playing }
         if next.queueVersion != queueVersion {
             queueVersion = next.queueVersion
             upNext = shown ? (pc?.upNext ?? []).map(Self.song(of:)) : core.upNext()
@@ -194,8 +200,10 @@ final class Store {
         guard ticks % 2 == 0 else { return }
         let status = core.scanStatus()
         if status != scan { scan = status }
-        if wasScanning && !status.running { libraryChanged() }
-        wasScanning = status.running
+        if status.finished != scansSeen {
+            scansSeen = status.finished
+            libraryChanged()
+        }
         for notice in core.takeNotices() {
             switch notice {
             case .message(let text): message = text
@@ -331,6 +339,26 @@ final class Store {
     func playAlbum(key: String, shuffled: Bool = false) {
         run { core in
             var ids = try core.albumSongs(key: key).map(\.id)
+            if shuffled { ids.shuffle() }
+            try core.play(ids: ids, start: 0)
+        }
+        played()
+    }
+
+    /// All of an artist's songs, the most played first.
+    func playArtist(_ name: String, shuffled: Bool = false) {
+        run { core in
+            var ids = try core.artistAllSongs(name: name).map(\.id)
+            if shuffled { ids.shuffle() }
+            try core.play(ids: ids, start: 0)
+        }
+        played()
+    }
+
+    /// Every song a search finds (all, with an empty one).
+    func playSearch(_ query: String, shuffled: Bool = false) {
+        run { core in
+            var ids = try core.searchSongIds(query: query)
             if shuffled { ids.shuffle() }
             try core.play(ids: ids, start: 0)
         }
@@ -527,7 +555,8 @@ final class Store {
 
     private func followSleep(_ now: Playback) {
         guard let ends = sleepEnds else { return }
-        let songEnded = sleepSong != nil && now.current?.id != sleepSong
+        let atEnd = now.current.map { $0.duration > 1 && now.position >= $0.duration - 0.35 } ?? false
+        let songEnded = sleepSong != nil && (now.current?.id != sleepSong || atEnd)
         if Date() >= ends || songEnded {
             if now.playing { core.toggle() }
             sleepEnds = nil

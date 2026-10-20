@@ -250,7 +250,7 @@ struct NowPlayingView: View {
     /// The artist's name, which opens the artist's page.
     @ViewBuilder
     private func artistButton(_ song: Song?) -> some View {
-        if let song, !song.onComputer, !song.artist.isEmpty, song.artist != unknownArtist {
+        if let song, !song.onComputer, !isPlaceholderArtist(song.artist) {
             Button { store.opening = .artist(song.artist) } label: {
                 Text(song.artist).foregroundStyle(.secondary).lineLimit(1)
             }
@@ -362,6 +362,8 @@ struct RecordSpin<Content: View>: View {
     let on: Bool
     /// Seconds for one turn.
     var period: Double = 12
+    /// Frames a second, at most.
+    var rate: Double = 30
     @ViewBuilder let content: () -> Content
     /// When it began turning this time; nil while still.
     @State private var start: Date?
@@ -369,7 +371,7 @@ struct RecordSpin<Content: View>: View {
     @State private var held: Double = 0
 
     var body: some View {
-        TimelineView(.animation(paused: !on)) { context in
+        TimelineView(.animation(minimumInterval: 1 / rate, paused: !on)) { context in
             // From the state alone, so the frame on which `on` changes does not jump.
             let turned = held + (start.map { max(0, context.date.timeIntervalSince($0)) } ?? 0) * 360 / period
             content().rotationEffect(.degrees(turned))
@@ -456,6 +458,16 @@ struct SeekBar: View {
             }
             .frame(height: 20)
             .animation(.spring(response: 0.3, dampingFraction: 0.7), value: dragged == nil)
+            .accessibilityElement()
+            .accessibilityLabel("Position")
+            .accessibilityValue("\(clock(position)) of \(clock(duration))")
+            .accessibilityAdjustableAction { direction in
+                switch direction {
+                case .increment: store.jumpBy(10)
+                case .decrement: store.jumpBy(-10)
+                @unknown default: break
+                }
+            }
             HStack {
                 Text(clock(position))
                 Spacer()
@@ -569,6 +581,19 @@ struct LineSlider: View {
         }
         .frame(height: 34)
         .animation(.spring(response: 0.3, dampingFraction: 0.7), value: held)
+        .accessibilityElement()
+        .accessibilityLabel("Volume")
+        .accessibilityValue("\(Int((value * 100).rounded())) percent")
+        .accessibilityAdjustableAction { direction in
+            let step: Double
+            switch direction {
+            case .increment: step = 0.1
+            case .decrement: step = -0.1
+            @unknown default: return
+            }
+            changed(min(1, max(0, value + step)))
+            done()
+        }
     }
 }
 
@@ -735,7 +760,9 @@ struct LyricsPane: View {
                                 await load()
                             }
                         }
-                        .buttonStyle(.glassProminent)
+                        // Plain glass: the player's white tint made a prominent one white on white.
+                        .buttonStyle(.glass)
+                        .fontWeight(.semibold)
                     }
                     if let song, !song.onComputer, lyrics?.instrumental != true {
                         Button("Ask NetEase") {
@@ -774,7 +801,7 @@ struct LyricsPane: View {
             found = await store.load { try $0.lyrics(id: id) } ?? nil
         }
         // The song changed while these were looked up: they are the last song's.
-        guard !Task.isCancelled, song.id == self.song?.id else { return }
+        guard !Task.isCancelled, song.id == store.playback?.current?.id else { return }
         online = isOnline
         lyrics = found
         loaded = true

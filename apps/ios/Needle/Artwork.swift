@@ -292,15 +292,38 @@ struct CoverBackdrop: View {
     var moving = true
     @State private var soft: UIImage?
 
+    init(path: String?, seed: String, blur: CGFloat = 70, moving: Bool = true) {
+        self.path = path
+        self.seed = seed
+        self.blur = blur
+        self.moving = moving
+        // The one made before, so a new backdrop (the lyrics opened) never starts black.
+        _soft = State(initialValue: Self.made.object(forKey: (path ?? seed) as NSString)?.image)
+    }
+
     /// The blurred picture's side, in pixels.
     private static let pixels: CGFloat = 160
+
+    /// A blurred picture and how soft it was made.
+    private final class Made {
+        let image: UIImage
+        let radius: Int
+        init(_ image: UIImage, _ radius: Int) { self.image = image; self.radius = radius }
+    }
+
+    nonisolated(unsafe) private static let made: NSCache<NSString, Made> = {
+        let cache = NSCache<NSString, Made>()
+        cache.countLimit = 12
+        return cache
+    }()
+    nonisolated(unsafe) private static let context = CIContext()
 
     var body: some View {
         GeometryReader { geo in
             let side = max(geo.size.width, geo.size.height) * 1.6
             // The blur, in the small picture's pixels: as soft as `blur` points at full size.
             let radius = max(1, blur * Self.pixels / max(1, side))
-            RecordSpin(on: moving, period: 60) {
+            RecordSpin(on: moving, period: 60, rate: 15) {
                 Group {
                     if let soft { Image(uiImage: soft).resizable().interpolation(.medium) } else { Color.black }
                 }
@@ -308,10 +331,19 @@ struct CoverBackdrop: View {
             }
             .position(x: geo.size.width / 2, y: geo.size.height / 2)
             .task(id: "\(path ?? seed)|\(Int(radius))") {
-                let source: UIImage? = if let path { await Covers.load(path, size: Int(Self.pixels)) } else { placeholder }
+                let key = (path ?? seed) as NSString
+                if let kept = Self.made.object(forKey: key), kept.radius == Int(radius) {
+                    soft = kept.image
+                    return
+                }
+                // A cover that cannot be read (gone, or on a computer that is off): the made-up one.
+                var source: UIImage? = if let path { await Covers.load(path, size: Int(Self.pixels)) } else { nil }
+                if source == nil { source = placeholder }
                 guard !Task.isCancelled, let source else { return }
                 let made = await Task.detached(priority: .userInitiated) { Self.soften(source, radius: radius) }.value
-                if !Task.isCancelled, let made { withAnimation(.easeInOut(duration: 0.4)) { soft = made } }
+                guard !Task.isCancelled, let made else { return }
+                Self.made.setObject(Made(made, Int(radius)), forKey: key)
+                withAnimation(.easeInOut(duration: 0.4)) { soft = made }
             }
         }
         .overlay(LinearGradient(colors: [.black.opacity(0.05), .black.opacity(0.5)], startPoint: .top, endPoint: .bottom))
@@ -333,7 +365,7 @@ struct CoverBackdrop: View {
             .applyingGaussianBlur(sigma: Double(radius))
             .applyingFilter("CIColorControls", parameters: [kCIInputSaturationKey: 1.7, kCIInputBrightnessKey: -0.18])
             .cropped(to: input.extent)
-        guard let out = CIContext().createCGImage(blurred, from: input.extent) else { return nil }
+        guard let out = context.createCGImage(blurred, from: input.extent) else { return nil }
         return UIImage(cgImage: out)
     }
 }

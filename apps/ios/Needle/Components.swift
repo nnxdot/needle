@@ -15,6 +15,11 @@ extension Genre: Identifiable { public var id: String { name } }
 /// The core's name for songs without an artist.
 let unknownArtist = "Unknown artist"
 
+/// Not a real artist (none, or the core's name for none): it has no page.
+func isPlaceholderArtist(_ name: String) -> Bool {
+    name.trimmingCharacters(in: .whitespaces).isEmpty || name == unknownArtist
+}
+
 enum Route: Hashable {
     case album(Album)
     case albumOf(String)
@@ -151,6 +156,7 @@ struct AlbumMenu: View {
         Button("Edit Tags", systemImage: "tag") { withSongs { songs in store.sheet = .tags(songs.filter { !$0.fromServer }.map(\.id)) } }
         Divider()
         Button("Go to Artist", systemImage: "music.microphone") { store.opening = .artist(album.artist) }
+            .disabled(isPlaceholderArtist(album.artist))
     }
 
     private func withSongs(_ then: @escaping ([Song]) -> Void) {
@@ -210,7 +216,7 @@ struct SongRow: View {
     let play: () -> Void
 
     var body: some View {
-        let playing = store.playback?.current?.id == song.id
+        let playing = store.playingID == song.id
         // The app's accent, not the tint: on a page in its cover's colours the tint is the
         // text's own colour, and the playing song did not stand out.
         let lit = AnyShapeStyle(store.colors.accent)
@@ -218,7 +224,7 @@ struct SongRow: View {
             HStack(spacing: 12) {
                 if let number {
                     Group {
-                        if playing { Image(systemName: "waveform").symbolEffect(.variableColor.iterative, isActive: store.playback?.playing == true) }
+                        if playing { Image(systemName: "waveform").symbolEffect(.variableColor.iterative, isActive: store.isPlaying) }
                         else { Text("\(number)") }
                     }
                     .font(.subheadline.monospacedDigit()).foregroundStyle(playing ? lit : AnyShapeStyle(.secondary))
@@ -285,6 +291,7 @@ struct SongMenu: View {
             Divider()
             Button("Go to Album", systemImage: "square.stack") { store.opening = .albumOf(song.id) }
             Button("Go to Artist", systemImage: "music.microphone") { store.opening = .artist(song.artist) }
+                .disabled(isPlaceholderArtist(song.artist))
             Divider()
             if song.fromServer {
                 Button("Keep Offline", systemImage: "arrow.down.circle") { store.keepOffline([song], keep: true) }
@@ -444,11 +451,7 @@ struct PagedSongs: View {
     }
 
     private func playAll(shuffled: Bool) {
-        let q = query
-        store.run { core in
-            let all = try core.searchSongsPage(query: q, offset: 0, size: 1000).map(\.id)
-            try core.play(ids: shuffled ? all.shuffled() : all, start: 0)
-        }
+        store.playSearch(query, shuffled: shuffled)
     }
 }
 
