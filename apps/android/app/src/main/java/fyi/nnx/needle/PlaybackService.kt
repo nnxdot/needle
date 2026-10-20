@@ -285,6 +285,14 @@ private class NeedlePlayer(looper: Looper, private val core: Needle) : SimpleBas
         val state = State.Builder()
             .setAvailableCommands(commands)
             .setPlayWhenReady(playback.playing, PLAY_WHEN_READY_CHANGE_REASON_USER_REQUEST)
+            // Android offers Next on the last song only when the list repeats: as Needle's does.
+            .setRepeatMode(
+                when (playback.repeat) {
+                    fyi.nnx.needle.core.RepeatMode.ALL -> REPEAT_MODE_ALL
+                    fyi.nnx.needle.core.RepeatMode.ONE -> REPEAT_MODE_ONE
+                    else -> REPEAT_MODE_OFF
+                },
+            )
         val current = playback.current ?: return state.setPlaybackState(STATE_IDLE).build()
         // The song playing, then a few up next, so Android offers Next. Made again only when
         // the song or the queue changes: the same list each tick tells Android nothing new,

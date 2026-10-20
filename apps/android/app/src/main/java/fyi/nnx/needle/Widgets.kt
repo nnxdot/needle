@@ -248,14 +248,19 @@ private fun Strip(now: Now) {
         contentAlignment = Alignment.Center,
     ) {
         Row(GlanceModifier.fillMaxSize().padding(horizontal = 8.dp), verticalAlignment = Alignment.CenterVertically) {
-            CoverImage(now, cover, cover / 2)
-            Spacer(GlanceModifier.width(10.dp))
+            // Made narrow, it lets go of the cover, then of Previous: play and Next always fit.
+            if (size.width >= 230.dp) {
+                CoverImage(now, cover, cover / 2)
+                Spacer(GlanceModifier.width(10.dp))
+            } else Spacer(GlanceModifier.width(6.dp))
             Column(GlanceModifier.defaultWeight()) {
                 Text(now.song?.title ?: "Needle", maxLines = 1, style = TextStyle(color = White, fontSize = 14.sp, fontWeight = FontWeight.Bold))
                 Text(now.song?.artist ?: "Tap play for a shuffle", maxLines = 1, style = TextStyle(color = Soft, fontSize = 12.sp))
             }
-            Spacer(GlanceModifier.width(4.dp))
-            Round(R.drawable.ic_widget_previous, "Previous", actionRunCallback<Previous>(), 36.dp)
+            if (size.width >= 190.dp) {
+                Spacer(GlanceModifier.width(4.dp))
+                Round(R.drawable.ic_widget_previous, "Previous", actionRunCallback<Previous>(), 36.dp)
+            }
             Spacer(GlanceModifier.width(4.dp))
             PlayPill(now, 44.dp, 36.dp)
             Spacer(GlanceModifier.width(4.dp))
@@ -281,7 +286,8 @@ private fun Small(now: Now) {
 @Composable
 private fun Wide(now: Now) {
     val size = LocalSize.current
-    val side = minOf(size.height - 28.dp, size.width * 0.36f).coerceAtLeast(56.dp)
+    // The cover gives way so the buttons (120 dp at their smallest) always fit beside it.
+    val side = minOf(size.height - 28.dp, size.width * 0.36f, size.width - 42.dp - 120.dp).coerceAtLeast(48.dp)
     val room = size.width - 28.dp - side - 14.dp
     Backdrop(now) {
         Row(GlanceModifier.fillMaxSize().padding(14.dp), verticalAlignment = Alignment.CenterVertically) {
