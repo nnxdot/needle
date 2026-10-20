@@ -23,6 +23,9 @@ marks only what plays, the main action, and links.
   photo is a wide band; the player on its side puts the cover (or the lyrics, or the queue) at the
   left and the controls at the right; Settings shows its list and the chosen section side by side
   from 840 dp.
+- **Side bar** on tablets, in place of the tabs at the foot (`SideBar.kt`): the tabs, your
+  playlists, the albums played last, and Settings at its foot, as Spotify's. It folds to icons and
+  covers; it starts open on screens 840 dp wide or more.
 - **Library** is one page with filter pills at the top (Playlists, Albums, Artists, Songs, and
   More), as Spotify and Apple Music do, not a list of places to go.
 
