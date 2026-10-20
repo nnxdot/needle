@@ -20,7 +20,6 @@ import androidx.compose.ui.input.key.type
 import androidx.compose.ui.semantics.CustomAccessibilityAction
 import androidx.compose.ui.semantics.customActions
 import androidx.compose.ui.semantics.semantics
-import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
@@ -42,8 +41,6 @@ class Reorder(var move: (from: Int, to: Int) -> Unit) {
     var rowHeight by mutableFloatStateOf(1f)
     var count by mutableIntStateOf(0)
 
-    /** The place a row was just moved to with keys, whose handle takes the focus next. */
-    var follow by mutableIntStateOf(-1)
 
     /** Where the dragged row would land now. */
     val target: Int
@@ -87,14 +84,7 @@ fun Modifier.reorderRow(reorder: Reorder, index: Int): Modifier =
 @Composable
 fun DragHandle(reorder: Reorder, index: Int, tint: androidx.compose.ui.graphics.Color = MaterialTheme.colorScheme.onSurfaceVariant, haptics: (Boolean) -> Unit = rememberHaptics()) {
     val focus = remember { androidx.compose.foundation.interaction.MutableInteractionSource() }
-    val requester = remember { androidx.compose.ui.focus.FocusRequester() }
-    // The focus goes with the row moved, so up again moves the same song again.
-    androidx.compose.runtime.LaunchedEffect(reorder.follow) {
-        if (reorder.follow == index) {
-            runCatching { requester.requestFocus() }
-            reorder.follow = -1
-        }
-    }
+    // The rows' keys follow their songs (songKeys), so the focus stays on the row moved.
     val up = index > 0
     val down = index < reorder.count - 1
     Box(
@@ -107,10 +97,7 @@ fun DragHandle(reorder: Reorder, index: Int, tint: androidx.compose.ui.graphics.
                     Key.DirectionDown -> if (down) index + 1 else return@onKeyEvent false
                     else -> return@onKeyEvent false
                 }
-                if (it.type == KeyEventType.KeyDown) {
-                    reorder.move(index, to)
-                    reorder.follow = to
-                }
+                if (it.type == KeyEventType.KeyDown) reorder.move(index, to)
                 true
             }
             .semantics {
@@ -119,7 +106,6 @@ fun DragHandle(reorder: Reorder, index: Int, tint: androidx.compose.ui.graphics.
                     if (down) CustomAccessibilityAction("Move down") { reorder.move(index, index + 1); true } else null,
                 )
             }
-            .focusRequester(requester)
             .focusable(interactionSource = focus)
             .pointerInput(index) {
                 detectDragGestures(

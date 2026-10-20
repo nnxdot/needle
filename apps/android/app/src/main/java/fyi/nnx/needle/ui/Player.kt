@@ -1118,7 +1118,8 @@ private fun UpNextPanel(version: ULong) {
             return@Column
         }
         LazyColumn(Modifier.fillMaxSize()) {
-            itemsIndexed(list, key = { i, s -> "$i-${s.id}" }) { i, song ->
+            val keys = songKeys(list)
+            itemsIndexed(list, key = { i, _ -> keys[i] }) { i, song ->
                 // Swiped away, a song leaves the queue.
                 val dismiss = rememberSwipeToDismissBoxState()
                 LaunchedEffect(dismiss.currentValue) {
