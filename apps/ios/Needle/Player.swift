@@ -455,15 +455,35 @@ struct VolumeBar: View {
 
 /// The system's volume slider (only it may change the phone's volume), in a thin line.
 private struct SystemVolume: UIViewRepresentable {
-    func makeUIView(context: Context) -> MPVolumeView {
+    func makeUIView(context: Context) -> Centred {
         let view = MPVolumeView(frame: .zero)
         view.setVolumeThumbImage(Self.clear, for: .normal)
         view.setMinimumVolumeSliderImage(Self.line(.white.withAlphaComponent(0.85)), for: .normal)
         view.setMaximumVolumeSliderImage(Self.line(.white.withAlphaComponent(0.22)), for: .normal)
-        return view
+        return Centred(view)
     }
 
-    func updateUIView(_ view: MPVolumeView, context: Context) {}
+    func updateUIView(_ view: Centred, context: Context) {}
+
+    /// The system draws its slider at the top of its frame: this holds it in the middle, in
+    /// line with the speakers beside it.
+    final class Centred: UIView {
+        private let volume: MPVolumeView
+
+        init(_ volume: MPVolumeView) {
+            self.volume = volume
+            super.init(frame: .zero)
+            addSubview(volume)
+        }
+
+        required init?(coder: NSCoder) { nil }
+
+        override func layoutSubviews() {
+            super.layoutSubviews()
+            let height = max(1, volume.sizeThatFits(bounds.size).height)
+            volume.frame = CGRect(x: 0, y: (bounds.height - height) / 2, width: bounds.width, height: height)
+        }
+    }
 
     /// No knob to see, but one to hold.
     static let clear = UIGraphicsImageRenderer(size: CGSize(width: 28, height: 28)).image { _ in }
