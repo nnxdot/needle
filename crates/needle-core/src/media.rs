@@ -583,6 +583,22 @@ fn musicbrainz_artist(name: &str) -> Result<Option<String>> {
         .map(String::from))
 }
 
+/// A moving cover beside a song's file: a short video, such as `cover.mp4` or `animated.mov`,
+/// as some downloads of Apple Music's moving covers are saved.
+pub fn animated_cover(track: &Track) -> Option<PathBuf> {
+    if track.source().is_some() || track.path.starts_with("http") {
+        return None;
+    }
+    let folder = Path::new(track.file_path()).parent()?;
+    let names = ["cover", "animated", "folder", "front", "album", "motion"];
+    let kinds = ["mp4", "m4v", "mov"];
+    std::fs::read_dir(folder).ok()?.flatten().map(|e| e.path()).find(|p| {
+        let stem = p.file_stem().and_then(|s| s.to_str()).unwrap_or_default().to_lowercase();
+        let kind = p.extension().and_then(|s| s.to_str()).unwrap_or_default().to_lowercase();
+        names.contains(&stem.as_str()) && kinds.contains(&kind.as_str())
+    })
+}
+
 /// What fanart.tv has for an artist, when online lookups are on and there is a fanart.tv key:
 /// its answer, kept a month (nothing, also kept a month, when it does not know the artist).
 fn fanart(library: &Library, name: &str, online: bool) -> Result<Option<Value>> {
@@ -611,6 +627,14 @@ fn fanart(library: &Library, name: &str, online: bool) -> Result<Option<Value>> 
         "fanart.tv for {name}: {}",
         if found.is_null() { "nothing" } else { "found" }
     ));
+    // A new answer: the picture chosen from the last one goes, so a newer one is chosen.
+    let _ = std::fs::remove_file(
+        library
+            .directory
+            .join("artwork")
+            .join("artists")
+            .join(format!("{}.wide", blake3::hash(name.to_lowercase().as_bytes()).to_hex())),
+    );
     remember(library, &remembered, &found, WEEK * 4)?;
     Ok((!found.is_null()).then_some(found))
 }
@@ -652,10 +676,10 @@ pub fn artist_logo(library: &Library, name: &str, online: bool) -> Result<Option
     fanart_picture(library, name, online, "logo", best_logo)
 }
 
-/// A wide picture of an artist, for the top of their page, from fanart.tv: one of its
-/// backgrounds, or else one of its photos.
+/// A wide picture of an artist, for the top of their page, from fanart.tv: its newest
+/// background, or else its newest photo. Looked at again each month, with fanart.tv's answer.
 pub fn artist_banner(library: &Library, name: &str, online: bool) -> Result<Option<PathBuf>> {
-    fanart_picture(library, name, online, "banner", best_banner)
+    fanart_picture(library, name, online, "wide", best_banner)
 }
 
 /// The most liked of fanart.tv's pictures of one kind; in English or with no language first.
@@ -672,9 +696,20 @@ fn best_logo(data: &Value) -> Option<String> {
     best_of(data, "hdmusiclogo").or_else(|| best_of(data, "musiclogo"))
 }
 
-/// The picture for the top of the page: a wide background first, then a square photo.
+/// The newest of fanart.tv's pictures of one kind (its "added" is "2024-05-01 12:00:00").
+fn newest_of(data: &Value, kind: &str) -> Option<String> {
+    data[kind]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .max_by_key(|v| v["added"].as_str().unwrap_or_default().to_string())
+        .and_then(|v| v["url"].as_str())
+        .map(String::from)
+}
+
+/// The picture for the top of the page: the newest wide background, then the newest photo.
 fn best_banner(data: &Value) -> Option<String> {
-    best_of(data, "artistbackground").or_else(|| best_of(data, "artistthumb"))
+    newest_of(data, "artistbackground").or_else(|| newest_of(data, "artistthumb"))
 }
 
 fn find_artist_image(library: &Library, name: &str) -> Result<Option<String>> {
@@ -811,13 +846,17 @@ mod tests {
     }
 
     #[test]
-    fn the_banner_is_a_background_then_a_photo() {
+    fn the_banner_is_the_newest_background_then_photo() {
         let both = serde_json::json!({
-            "artistthumb": [{ "url": "photo", "likes": "9" }],
-            "artistbackground": [{ "url": "dull", "likes": "1" }, { "url": "wide", "likes": "5" }],
+            "artistthumb": [{ "url": "photo", "added": "2026-01-01 10:00:00" }],
+            "artistbackground": [
+                { "url": "old", "likes": "40", "added": "2022-10-01 16:06:54" },
+                { "url": "new", "likes": "1", "added": "2025-04-11 09:12:00" },
+                { "url": "middle", "likes": "9", "added": "2024-02-02 08:00:00" },
+            ],
         });
-        assert_eq!(super::best_banner(&both).as_deref(), Some("wide"));
-        let photo = serde_json::json!({ "artistthumb": [{ "url": "photo", "likes": "2" }] });
+        assert_eq!(super::best_banner(&both).as_deref(), Some("new"));
+        let photo = serde_json::json!({ "artistthumb": [{ "url": "photo", "added": "2023-01-01 00:00:00" }] });
         assert_eq!(super::best_banner(&photo).as_deref(), Some("photo"));
     }
     use super::*;
