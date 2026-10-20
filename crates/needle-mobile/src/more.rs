@@ -99,6 +99,10 @@ fn stats(s: needle_core::history::HistoryStats, library: &needle_core::database:
             .and_then(|id| library.track(id).ok().flatten())
             .and_then(|t| t.artwork)
     };
+    // A song to play only while its file is there.
+    let present = |id: Option<String>| {
+        id.filter(|id| library.track(id).ok().flatten().is_some_and(|t| !t.missing))
+    };
     let ranked = |list: Vec<needle_core::history::HistoryTop>| {
         list.into_iter()
             .map(|t| Ranked {
@@ -108,7 +112,7 @@ fn stats(s: needle_core::history::HistoryStats, library: &needle_core::database:
                 album: t.album,
                 plays: t.plays as u32,
                 seconds: t.seconds,
-                song_id: t.track_id,
+                song_id: present(t.track_id),
             })
             .collect()
     };
@@ -422,7 +426,7 @@ impl Needle {
     /// Plays a station that sounds like this song: it first, then songs that flow from it.
     pub fn start_radio(&self, id: String) -> Result<()> {
         let Some(track) = self.library.track(&id)? else {
-            return Ok(());
+            return Err(NeedleError::Failed("That song is not in the library".into()));
         };
         if track.missing {
             return Err(NeedleError::Failed("That song's file is gone, so it cannot start a radio".into()));
