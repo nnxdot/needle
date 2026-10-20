@@ -518,10 +518,8 @@ fun PlaylistScreen(route: Route.Playlist, open: (Route) -> Unit) {
     val reorder = rememberReorder(list.size) { from, to ->
         val positions = d?.positions.orEmpty()
         if (from in positions.indices && to in positions.indices) {
-            runCatching { core.moveInPlaylist(route.id, positions[from], positions[to]) }
-                .onFailure { showMessage(it.message ?: "Could not reorder it") }
+            libraryWrite({ core.moveInPlaylist(route.id, positions[from], positions[to]) }, { showMessage(it.message ?: "Could not reorder it") })
         }
-        NeedleApp.instance.libraryVersion.value++
     }
     val art = summary?.artwork ?: list.firstNotNullOfOrNull { it.artwork }
     val name = d?.name ?: route.name
@@ -565,20 +563,15 @@ fun PlaylistScreen(route: Route.Playlist, open: (Route) -> Unit) {
             }
             songList(list, playing, open, numbered = false, remove = if (d?.rule == null) { i ->
                 d?.positions?.getOrNull(i)?.let { position ->
-                    runCatching { core.removeFromPlaylist(route.id, position) }
-                        .onFailure { showMessage(it.message ?: "Could not remove it") }
+                    libraryWrite({ core.removeFromPlaylist(route.id, position) }, { showMessage(it.message ?: "Could not remove it") })
                 }
-                NeedleApp.instance.libraryVersion.value++
             } else null, reorder = if (d?.rule == null && arranging) reorder else null)
         }
         if (menu && d != null) PlaylistSheet(
             d, art,
             onDelete = { deleting = true },
             onPicture = { tryOpen("file picker") { picture.launch(arrayOf("image/*")) } },
-            onCovers = {
-                runCatching { core.setPlaylistPicture(d.id, null) }
-                NeedleApp.instance.libraryVersion.value++
-            },
+            onCovers = { libraryWrite({ core.setPlaylistPicture(d.id, null) }) },
             onExport = { tryOpen("file picker") { export.launch("${d.name}.m3u8") } },
             onArrange = if (d.rule == null && list.size > 1) ({ arranging = true }) else null,
         ) { menu = false }
@@ -591,18 +584,18 @@ fun PlaylistScreen(route: Route.Playlist, open: (Route) -> Unit) {
             confirmButton = {
                 TextButton(onClick = {
                     deleting = false
-                    runCatching { core.deletePlaylist(d.id) }
-                        .onSuccess {
-                            // Away from the page first, and the lists told only once it has gone:
-                            // a playlist that is gone has nothing to show, and would say so.
-                            back?.onBackPressedDispatcher?.onBackPressed()
-                            NeedleApp.instance.scope.launch {
+                    NeedleApp.instance.scope.launch(kotlinx.coroutines.Dispatchers.Main) {
+                        withContext(Dispatchers.IO) { runCatching { core.deletePlaylist(d.id) } }
+                            .onSuccess {
+                                // Away from the page first, and the lists told only once it has
+                                // gone: a playlist that is gone has nothing to show, and would say so.
+                                back?.onBackPressedDispatcher?.onBackPressed()
                                 delay(400)
                                 NeedleApp.instance.libraryVersion.value++
+                                showMessage("Deleted ${d.name}")
                             }
-                            showMessage("Deleted ${d.name}")
-                        }
-                        .onFailure { showMessage("Could not delete it: ${it.message}") }
+                            .onFailure { showMessage("Could not delete it: ${it.message}") }
+                    }
                 }) { Text("Delete") }
             },
             dismissButton = { TextButton(onClick = { deleting = false }) { Text("Cancel") } },
@@ -887,6 +880,7 @@ private fun LazyListScope.artistShelf(artists: List<fyi.nnx.needle.core.Artist>,
 @Composable
 private fun HomeEmpty(scanning: Boolean, open: (Route) -> Unit) {
     Column(Modifier.fillMaxWidth().padding(horizontal = 32.dp, vertical = 48.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+        MusicAccessNotice(Modifier.padding(bottom = 24.dp))
         ShapedIcon(Icons.Rounded.AutoAwesome, 72)
         Text(
             if (scanning) "Reading your music…" else "Your music, on your phone",

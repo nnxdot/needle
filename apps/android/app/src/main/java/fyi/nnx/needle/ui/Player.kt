@@ -1128,7 +1128,9 @@ private fun UpNextPanel(version: ULong) {
             val keys = songKeys(list)
             itemsIndexed(list, key = { i, _ -> keys[i] }) { i, song ->
                 // Swiped away, a song leaves the queue.
-                val dismiss = rememberSwipeToDismissBoxState()
+                // Fresh each time the queue's length changes: a row's key can pass to another
+                // copy of the same song after one is taken out, and must not bring it swiped.
+                val dismiss = androidx.compose.runtime.key(list.size) { rememberSwipeToDismissBoxState() }
                 LaunchedEffect(dismiss.currentValue) {
                     if (dismiss.currentValue != SwipeToDismissBoxValue.Settled && !song.onComputer()) core.removeUpNext(i.toUInt())
                 }

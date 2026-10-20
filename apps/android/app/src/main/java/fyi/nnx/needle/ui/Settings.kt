@@ -330,9 +330,12 @@ private fun SliderRow(
     }
 }
 
-/** Runs a call to the core off the main thread, then `then` on it; a failure says so. */
+/**
+ * Runs a call to the core off the main thread, one at a time in order (settings saved the wrong
+ * way round would undo the newer), then `then` on the main thread; a failure says so.
+ */
 private fun background(then: () -> Unit = {}, work: () -> Unit) {
-    NeedleApp.instance.scope.launch {
+    NeedleApp.instance.scope.launch(NeedleApp.instance.saves) {
         runCatching { work() }
             .onSuccess { withContext(Dispatchers.Main) { then() } }
             .onFailure { showMessage(it.message ?: "That did not work") }
@@ -345,12 +348,18 @@ private fun background(then: () -> Unit = {}, work: () -> Unit) {
  * A folder chosen in Android's picker, as a path Needle can read ("primary:Music" is the
  * phone's own Music folder; other volumes, like an SD card, have their own id).
  */
-private fun treePath(uri: Uri): String? {
+internal fun treePath(uri: Uri): String? {
     val id = runCatching { DocumentsContract.getTreeDocumentId(uri) }.getOrNull() ?: return null
     val volume = id.substringBefore(':')
     val rest = id.substringAfter(':', "")
     val root = if (volume == "primary") Environment.getExternalStorageDirectory().path else "/storage/$volume"
-    return if (rest.isEmpty()) root else "$root/$rest"
+    val path = if (rest.isEmpty()) root else "$root/$rest"
+    // Other places in the picker (Downloads, cloud drives) are not folders Needle can read.
+    if (!File(path).isDirectory) {
+        showMessage("Needle can read folders on the phone or an SD card. Choose one there.")
+        return null
+    }
+    return path
 }
 
 @OptIn(ExperimentalMaterial3ExpressiveApi::class)
@@ -371,6 +380,7 @@ private fun LibrarySettings(open: (Route) -> Unit) {
     }
     val music = File(Environment.getExternalStorageDirectory(), Environment.DIRECTORY_MUSIC).path
 
+    MusicAccessNotice(Modifier.padding(horizontal = 16.dp, vertical = 8.dp))
     Group("Music folders", footer = "Needle reads these folders, and reads them again each time it starts.") {
         folders.orEmpty().forEachIndexed { i, folder ->
             Row(

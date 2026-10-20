@@ -82,10 +82,17 @@ class NeedleApp : Application() {
     /** Asks the screens to open the full player (when a song is chosen, if that is on). */
     val openPlayer = MutableSharedFlow<Unit>(extraBufferCapacity = 1)
 
+    /**
+     * Where settings are saved: one at a time, in the order they were made, so two quick
+     * changes cannot be written the wrong way round (the older last).
+     */
+    @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
+    val saves = kotlinx.coroutines.Dispatchers.IO.limitedParallelism(1)
+
     fun updateApp(change: (AppSettings) -> AppSettings) {
         val next = change(_app.value)
         _app.value = next
-        scope.launch { runCatching { core.setAppSettings(next) } }
+        scope.launch(saves) { runCatching { core.setAppSettings(next) } }
     }
 
     override fun onCreate() {

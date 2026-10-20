@@ -299,7 +299,7 @@ private class NeedlePlayer(looper: Looper, private val core: Needle) : SimpleBas
         // where a fresh one would make it redraw the notification and its cover every time.
         val key = current.id to playback.queueVersion
         val items = if (key == playlistKey) playlist else {
-            (listOf(current) + fyi.nnx.needle.ui.Controls.upNext().take(10)).mapIndexed { i, song ->
+            (listOf(current) + fyi.nnx.needle.ui.Controls.upNextFirst(10)).mapIndexed { i, song ->
                 MediaItemData.Builder("$i:${song.id}")
                     .setMediaItem(songItem(song, "$i:${song.id}", queued = true, playing = i == 0))
                     .setDurationUs((song.duration * 1_000_000).toLong())

@@ -189,13 +189,10 @@ fun SongSheet(song: Song, open: ((Route) -> Unit)?, remove: (() -> Unit)?, onDis
                     IconButton(onClick = {
                         haptics(false)
                         val want = if (stars == n) 0 else n
-                        runCatching { core.rate(song.id, want.toUByte()) }
-                            .onSuccess {
-                                stars = want
-                                showMessage(if (want == 0) "Stars taken off" else "Rated ${"★".repeat(want)}")
-                            }
-                            .onFailure { showMessage("Could not rate it: ${it.message}") }
-                        NeedleApp.instance.libraryVersion.value++
+                        libraryWrite({ core.rate(song.id, want.toUByte()) }, { showMessage("Could not rate it: ${it.message}") }) {
+                            stars = want
+                            showMessage(if (want == 0) "Stars taken off" else "Rated ${"★".repeat(want)}")
+                        }
                     }) {
                         Icon(
                             if (n <= stars) Icons.Rounded.Star else Icons.Rounded.StarBorder,

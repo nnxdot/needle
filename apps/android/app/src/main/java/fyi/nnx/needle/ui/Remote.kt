@@ -104,6 +104,14 @@ object Controls {
         pc { core.pcJump(index.toUInt(), song.id.removePrefix(PcPrefix)) }
     } else core.jump(index.toUInt())
 
+    /**
+     * The first few songs up next, for Android's media session: the whole queue (a whole library
+     * played from Songs) would be slow to hand over at each change of song.
+     */
+    fun upNextFirst(count: Int): List<Song> =
+        if (onComputer()) NeedleApp.instance.remote.value?.upNext?.take(count)?.map { it.asSong() }.orEmpty()
+        else runCatching { core.upNextFirst(count.toUInt()) }.getOrDefault(emptyList())
+
     /** What is up next, on the phone or the computer. */
     fun upNext(): List<Song> =
         if (onComputer()) NeedleApp.instance.remote.value?.upNext?.map { it.asSong() }.orEmpty()
