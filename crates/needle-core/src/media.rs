@@ -606,36 +606,42 @@ pub fn animated_cover(library: &Library, track: &Track) -> Option<PathBuf> {
         return None;
     }
     let folder = Path::new(track.file_path()).parent()?;
-    // Only a folder of one album: in a folder of many (an iPhone's own, say) one cover.mp4
-    // would be every song's.
-    let inside = format!("{}/%", folder.to_string_lossy());
-    let deeper = format!("{}/%/%", folder.to_string_lossy());
-    let albums: i64 = library
-        .connection()
-        .ok()?
-        .query_row(
-            "SELECT COUNT(DISTINCT album) FROM tracks WHERE path LIKE ?1 AND path NOT LIKE ?2",
-            params![inside, deeper],
-            |r| r.get(0),
-        )
-        .ok()?;
-    if albums > 1 {
-        return None;
-    }
     let names = ["cover", "animated", "folder", "front", "album", "motion"];
     let kinds = ["mp4", "m4v", "mov"];
-    std::fs::read_dir(folder).ok()?.flatten().map(|e| e.path()).find(|p| {
+    let video = std::fs::read_dir(folder).ok()?.flatten().map(|e| e.path()).find(|p| {
         let stem = p.file_stem().and_then(|s| s.to_str()).unwrap_or_default().to_lowercase();
         let kind = p.extension().and_then(|s| s.to_str()).unwrap_or_default().to_lowercase();
         // A moving cover is a short loop, not a whole music video.
         let small = std::fs::metadata(p).is_ok_and(|m| m.len() <= 60 * 1024 * 1024);
         names.contains(&stem.as_str()) && kinds.contains(&kind.as_str()) && small
-    })
+    })?;
+    // Only a folder of one album: in a folder of many (an iPhone's own, say) one cover.mp4
+    // would be every song's.
+    let inside = format!("{}/", folder.to_string_lossy());
+    let length = inside.chars().count() as i64;
+    let albums: i64 = library
+        .connection()
+        .ok()?
+        .query_row(
+            "SELECT COUNT(DISTINCT album COLLATE NOCASE) FROM tracks
+             WHERE substr(path, 1, ?2) = ?1 AND instr(substr(path, ?2 + 1), '/') = 0 AND album != ''",
+            params![inside, length],
+            |r| r.get(0),
+        )
+        .ok()?;
+    (albums <= 1).then_some(video)
 }
 
 /// One fanart.tv lookup at a time: an artist page asks for the logo and the picture together,
 /// and the second then finds the first's answer kept.
 static FANART: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+/// Forgets fanart.tv's kept answers, so a new key (or none) is asked with at once: a refused
+/// key's "nothing" was kept a day.
+pub fn forget_fanart(library: &Library) -> Result<()> {
+    library.connection()?.execute("DELETE FROM cache WHERE key LIKE 'fanart:%'", [])?;
+    Ok(())
+}
 
 /// A web error without its address: fanart.tv's carries the key.
 fn without_address(error: reqwest::Error) -> anyhow::Error {
@@ -653,8 +659,12 @@ fn fanart(library: &Library, name: &str, online: bool) -> Result<Option<Value>> 
     let Some(key) = online.then(crate::integrations::fanart_key).flatten() else {
         return Ok(None);
     };
-    let _one = FANART.lock().unwrap_or_else(|e| e.into_inner());
     let remembered = fanart_kept(name);
+    if let Some(hit) = cached::<Value>(library, &remembered)? {
+        return Ok((!hit.is_null()).then_some(hit));
+    }
+    let _one = FANART.lock().unwrap_or_else(|e| e.into_inner());
+    // Asked by another page while this one waited.
     if let Some(hit) = cached::<Value>(library, &remembered)? {
         return Ok((!hit.is_null()).then_some(hit));
     }
@@ -724,6 +734,11 @@ fn fanart_picture(
     };
     let Some(url) = data.as_ref().and_then(pick) else {
         return Ok(kept.then_some(file));
+    };
+    // fanart.tv's answers can give its pictures as http://: the same, over https.
+    let url = match url.strip_prefix("http://assets.fanart.tv/") {
+        Some(rest) => format!("https://assets.fanart.tv/{rest}"),
+        None => url,
     };
     // Only fanart.tv's own pictures are fetched.
     if !url.starts_with("https://assets.fanart.tv/") {

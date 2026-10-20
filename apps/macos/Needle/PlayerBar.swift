@@ -275,6 +275,9 @@ struct MoreButton: View {
 struct ThinBar: View {
     let value: Double
     var tint: Color
+    /// Its name for VoiceOver, and the text of its value.
+    var label = "Position"
+    var spoken: ((Double) -> String)? = nil
     var track: Color = Color.primary.opacity(0.16)
     /// The height that takes clicks; the line is drawn in its middle.
     var area: CGFloat = 12
@@ -315,6 +318,21 @@ struct ThinBar: View {
         .animation(.easeOut(duration: 0.12), value: hover)
         .onChange(of: pressing) { _, now in if !now { finish() } }
         .onDisappear { finish() }
+        .accessibilityElement()
+        .accessibilityLabel(label)
+        .accessibilityValue(spoken?(value) ?? "\(Int((value * 100).rounded())) percent")
+        .accessibilityAdjustableAction { direction in
+            let step: Double
+            switch direction {
+            case .increment: step = 0.05
+            case .decrement: step = -0.05
+            @unknown default: return
+            }
+            let next = min(1, max(0, value + step))
+            began()
+            changed(next)
+            ended(next)
+        }
     }
 
     /// Ends a drag that did not end by itself.
@@ -504,30 +522,38 @@ struct VolumeControl: View {
             .buttonStyle(.borderless)
             .help("Mute")
             if width > 0 {
-                ThinBar(value: Double(volume), tint: light ? .white : store.colors.ink2,
+                ThinBar(value: Double(volume), tint: light ? .white : store.colors.ink2, label: "Volume",
                         track: light ? .white.opacity(0.25) : Color.primary.opacity(0.16)) { store.setVolume(Float($0)) }
                     .frame(width: width)
             }
         }
         .foregroundStyle(light ? .white : store.colors.ink2)
         // The wheel over the volume changes it.
-        .background { VolumeArea() }
+        .background { VolumeArea(overCover: light) }
     }
 }
 
 /// A volume control's place, as a view of its own in the window (the title bar's included),
 /// so the wheel finds it wherever it is.
 private struct VolumeArea: NSViewRepresentable {
-    func makeNSView(context: Context) -> NSView {
-        let view = NSView()
+    /// The big player's (or the mini player's) own, over the cover.
+    let overCover: Bool
+
+    func makeNSView(context: Context) -> Area {
+        let view = Area()
+        view.overCover = overCover
         VolumeWheel.views.add(view)
         return view
     }
 
-    func updateNSView(_ view: NSView, context: Context) {}
+    func updateNSView(_ view: Area, context: Context) { view.overCover = overCover }
 
-    static func dismantleNSView(_ view: NSView, coordinator: ()) {
+    static func dismantleNSView(_ view: Area, coordinator: ()) {
         VolumeWheel.views.remove(view)
+    }
+
+    final class Area: NSView {
+        var overCover = false
     }
 }
 
@@ -543,7 +569,9 @@ enum VolumeWheel {
     static func handle(_ event: NSEvent, store: Store) -> Bool {
         guard let window = event.window else { return false }
         let over = views.allObjects.contains { view in
-            view.window === window && !view.isHiddenOrHasHiddenAncestor
+            // Under the big player, the bar's own volume is hidden by it.
+            let covered = store.big && !((view as? VolumeArea.Area)?.overCover ?? false)
+            return !covered && view.window === window && !view.isHiddenOrHasHiddenAncestor
                 && view.bounds.insetBy(dx: -4, dy: -6).contains(view.convert(event.locationInWindow, from: nil))
         }
         guard over else { return false }

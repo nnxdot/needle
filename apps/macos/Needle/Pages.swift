@@ -129,7 +129,7 @@ struct AlbumTile: View {
                     .shadow(color: .black.opacity(hover ? 0.3 : 0.15), radius: hover ? 12 : 6, y: 4)
                 if hover {
                     Button { play() } label: {
-                        Image(systemName: "play.fill").font(.system(size: 14, weight: .bold)).foregroundStyle(.white)
+                        Image(systemName: "play.fill").font(.system(size: 14, weight: .bold)).foregroundStyle(store.colors.accentInk)
                             .frame(width: 34, height: 34)
                             .background(store.colors.accent, in: Circle())
                     }
@@ -146,6 +146,10 @@ struct AlbumTile: View {
         .contentShape(Rectangle())
         .onHover { h in withAnimation(.snappy(duration: 0.15)) { hover = h } }
         .onTapGesture { store.navigate(album.route) }
+        .accessibilityElement(children: .combine)
+        .accessibilityAddTraits(.isButton)
+        .accessibilityAction { store.navigate(album.route) }
+        .accessibilityAction(named: "Play") { play() }
         .contextMenu { GroupMenu(route: album.route, title: album.title) }
     }
 
@@ -172,6 +176,9 @@ struct ArtistTile: View {
         .frame(width: side)
         .contentShape(Rectangle())
         .onTapGesture { store.navigate(.artist(artist.name)) }
+        .accessibilityElement(children: .combine)
+        .accessibilityAddTraits(.isButton)
+        .accessibilityAction { store.navigate(.artist(artist.name)) }
         .contextMenu { GroupMenu(route: .artist(artist.name), title: artist.title) }
     }
 }
@@ -288,7 +295,6 @@ struct ArtistPage: View {
             // The colour at once, from their first album; the picture's when it comes (a first
             // visit downloads it).
             store.setPageTint(await Covers.pageColor(albums?.first?.artwork, seed: name), for: .artist(name))
-            similar = await store.load { $0.similarArtists(artist: name) } ?? []
             guard !placeholder else { return }
             // Looked up side by side, and let go of when the page closes.
             async let wide = store.load { $0.artistBanner(name: name) } ?? nil
@@ -297,6 +303,12 @@ struct ArtistPage: View {
             if !Task.isCancelled, let picture = hero ?? photo {
                 store.setPageTint(await Covers.pageColor(picture, seed: name), for: .artist(name))
             }
+        }
+        // Similar artists measure the whole library: once for the page, not on each change of
+        // the library (a play, a heart), and not before the pictures.
+        .task(id: name) {
+            let name = name
+            similar = await store.load { $0.similarArtists(artist: name) } ?? []
         }
         // The logo on its own: it shows as soon as it is found, not after the pictures.
         .task(id: "\(name)\(store.libraryVersion)") {
@@ -442,6 +454,8 @@ struct ArtistPage: View {
             }
             .contentShape(Rectangle())
             .onTapGesture { store.navigate(album.route) }
+            .accessibilityAddTraits(.isButton)
+            .accessibilityAction { store.navigate(album.route) }
             .contextMenu { GroupMenu(route: album.route, title: album.title) }
         }
     }

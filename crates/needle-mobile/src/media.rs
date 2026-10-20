@@ -221,10 +221,13 @@ impl Needle {
     pub fn set_fanart_key(&self, key: String) -> Result<()> {
         use needle_core::integrations::{SecretKind, clear_secret, save_secret};
         if key.trim().is_empty() {
-            Ok(clear_secret(SecretKind::FanartKey)?)
+            clear_secret(SecretKind::FanartKey)?;
         } else {
-            Ok(save_secret(SecretKind::FanartKey, key.trim())?)
+            save_secret(SecretKind::FanartKey, key.trim())?;
         }
+        // What the last key was given (or refused) is asked again with this one.
+        media::forget_fanart(&self.library)?;
+        Ok(())
     }
 
     /// Looks up a missing cover online (Cover Art Archive) for a song's album. Returns how
@@ -341,9 +344,8 @@ impl Needle {
     }
 
     pub fn set_crash_reports(&self, on: bool) -> Result<()> {
-        let mut settings = self.library.settings()?;
-        settings.crash_reports = on;
-        self.player.send(Command::Configure(Box::new(settings)));
+        // Saved here: the player keeps (and saves) only the settings of the sound.
+        self.library.update_settings(|s| s.crash_reports = on)?;
         Ok(())
     }
 

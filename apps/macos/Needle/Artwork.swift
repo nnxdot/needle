@@ -93,8 +93,12 @@ enum Covers {
                                       space: CGColorSpaceCreateDeviceRGB(),
                                       bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else { return nil }
         context.draw(cg, in: CGRect(x: 0, y: 0, width: side, height: side))
-        guard let raw = context.data else { return nil }
-        let pixels = UnsafeBufferPointer(start: raw.assumingMemoryBound(to: UInt8.self), count: side * side * 4)
+        // Copied out while the context (which owns the memory) is sure to live.
+        let pixels: [UInt8] = withExtendedLifetime(context) {
+            guard let raw = context.data else { return [] }
+            return Array(UnsafeBufferPointer(start: raw.assumingMemoryBound(to: UInt8.self), count: side * side * 4))
+        }
+        guard !pixels.isEmpty else { return nil }
         // The bitmap's first row is the picture's top.
         var sum = (0.0, 0.0, 0.0), n = 0.0
         for y in (side - 5)..<side {
@@ -115,8 +119,12 @@ enum Covers {
                                       bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else { return nil }
         context.interpolationQuality = .medium
         context.draw(cg, in: CGRect(x: 0, y: 0, width: side, height: side))
-        guard let raw = context.data else { return nil }
-        let pixels = UnsafeBufferPointer(start: raw.assumingMemoryBound(to: UInt8.self), count: side * side * 4)
+        // Copied out while the context (which owns the memory) is sure to live.
+        let pixels: [UInt8] = withExtendedLifetime(context) {
+            guard let raw = context.data else { return [] }
+            return Array(UnsafeBufferPointer(start: raw.assumingMemoryBound(to: UInt8.self), count: side * side * 4))
+        }
+        guard !pixels.isEmpty else { return nil }
         // Hues weighted by how colourful and how bright each pixel is.
         var x = 0.0, y = 0.0, weight = 0.0, saturation = 0.0, brightness = 0.0
         for i in stride(from: 0, to: pixels.count, by: 4) {

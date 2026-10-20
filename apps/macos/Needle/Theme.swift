@@ -174,8 +174,14 @@ struct Palette: Equatable {
         p.line = page.mix(toward, 0.2).color
         p.lineSoft = page.mix(toward, 0.11).color
         p.ink = ink.color
-        p.ink2 = ink.mix(page, 0.22).color
-        p.ink3 = ink.mix(page, 0.36).color
+        // Softer, but never below 4.5:1 on the page (small text uses them).
+        let soft = { (toward: Double) -> Color in
+            var amount = toward
+            while amount > 0, contrast(ink.mix(page, amount), page) < 4.5 { amount -= 0.04 }
+            return ink.mix(page, max(0, amount)).color
+        }
+        p.ink2 = soft(0.22)
+        p.ink3 = soft(0.36)
         // A colour of the page's own hue, far enough from it to read (the playing song, a lit
         // button, a filled Play), with words on it in white or near-black.
         let s = min(0.9, max(0.45, page.s))

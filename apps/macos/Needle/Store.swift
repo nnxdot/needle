@@ -53,6 +53,8 @@ final class Store {
     /// The accent without an open page's colours: for the always-dark mini player and the
     /// sidebar (whose highlight AppKit keeps from when it was made).
     private(set) var playerAccent: Color = .accentColor
+    /// The theme's colours without an open page's, for Settings.
+    private(set) var plainColors = Palette.build(Palette.base("dark"), tint: nil, ambient: false)
     private(set) var stemsJob: StemJob?
     private(set) var importProgress: String?
     private(set) var update: MacUpdate?
@@ -396,8 +398,9 @@ final class Store {
         let look = lookNow()
         if look != colors { colors = look }
         // The mini player is always dark: its lit signs keep the theme's accent, not a page's.
-        let plain = pageTint == nil ? look.accent : lookNow(paged: false).accent
-        if plain != playerAccent { playerAccent = plain }
+        let plain = pageTint == nil ? look : lookNow(paged: false)
+        if plain != plainColors { plainColors = plain }
+        if plain.accent != playerAccent { playerAccent = plain.accent }
         let still = settings.reduceMotion || NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
         if motion == still { motion = !still }
         if displayFont != settings.displayFont { displayFont = settings.displayFont }
@@ -436,8 +439,10 @@ final class Store {
     static func leastWidth(_ settings: NeedleSettings) -> CGFloat {
         let layout = settings.layout
         let sidebar: CGFloat = layout.sidebarHidden ? (layout.compactSidebar ? Rail.width : 0) : 220
-        // The player in the title bar needs its width beside Back and Forward.
-        let page: CGFloat = layout.playerOnTop ? max(560, TopPlayer.width + 90) : 560
+        // The player in the title bar needs its width beside the sidebar button, Back, Forward,
+        // and the command button, and the window's buttons when the sidebar is folded away.
+        let beside: CGFloat = 170 + (layout.sidebarHidden ? 80 : 0)
+        let page: CGFloat = layout.playerOnTop ? max(560, TopPlayer.width + beside) : 560
         return max(760, page + sidebar + (settings.showInspector ? 310 : 0))
     }
 
@@ -732,7 +737,31 @@ final class Store {
     func setImmersive(_ on: Bool) {
         immersive = on
         guard let window = NSApp.windows.first(where: { $0.identifier?.rawValue.hasPrefix("main") == true }) ?? NSApp.mainWindow else { return }
-        if on != window.styleMask.contains(.fullScreen) { window.toggleFullScreen(nil) }
+        watchFullScreen(window)
+        let full = window.styleMask.contains(.fullScreen)
+        if on, !full {
+            ownFullScreen = true
+            window.toggleFullScreen(nil)
+        } else if !on, full, ownFullScreen {
+            // Only the full screen Needle made: one the person chose (the green button) stays.
+            ownFullScreen = false
+            window.toggleFullScreen(nil)
+        }
+    }
+
+    @ObservationIgnored private var ownFullScreen = false
+    @ObservationIgnored private var fullScreenWatch: NSObjectProtocol?
+
+    /// Leaving full screen by hand (the green button, ⌃⌘F) ends Needle's full screen player.
+    private func watchFullScreen(_ window: NSWindow) {
+        guard fullScreenWatch == nil else { return }
+        fullScreenWatch = NotificationCenter.default.addObserver(forName: NSWindow.didExitFullScreenNotification, object: window, queue: .main) { [weak self] _ in
+            MainActor.assumeIsolated {
+                guard let self else { return }
+                self.ownFullScreen = false
+                if self.immersive { self.immersive = false }
+            }
+        }
     }
 
     // MARK: - Folders and files
