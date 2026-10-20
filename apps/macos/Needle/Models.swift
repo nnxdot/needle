@@ -194,6 +194,18 @@ struct RuleKinds: Decodable {
 
 /// Needle's settings, as the desktop keeps them. Only what the app reads is here; changes are
 /// sent by name (see `Store.set`), so the rest stays as it is.
+/// The core keeps this as a pair: [grain, font].
+struct ExtrasBefore: Decodable, Equatable {
+    var grain: Float
+    var font: String
+
+    init(from decoder: Decoder) throws {
+        var pair = try decoder.unkeyedContainer()
+        grain = try pair.decode(Float.self)
+        font = try pair.decode(String.self)
+    }
+}
+
 struct NeedleSettings: Decodable, Equatable {
     var volume: Float = 0.65
     var outputDevice: String?
@@ -218,6 +230,8 @@ struct NeedleSettings: Decodable, Equatable {
     var windowMaterial = "glass"
     var glassAmount: Float = 0.6
     var grain: Float = 0
+    /// The grain and the font from before a theme with its own was chosen, to put back.
+    var themeExtrasBefore: ExtrasBefore?
     var discordPresence = true
     var discordCovers = true
     var discordTitle = "song"

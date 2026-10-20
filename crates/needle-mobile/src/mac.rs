@@ -1883,7 +1883,7 @@ impl Needle {
                         "read_only": !prefix.is_empty(),
                         "music_colors": value.get("music_colors").and_then(|v| v.as_bool()).unwrap_or(true),
                         "colors": colors,
-                        "grain": extras.and_then(|e| e.get("grain")).and_then(|v| v.as_float()),
+                        "grain": extras.and_then(|e| e.get("grain")).and_then(|v| v.as_float().or_else(|| v.as_integer().map(|i| i as f64))),
                         "font": extras.and_then(|e| e.get("font")).and_then(|v| v.as_str()),
                         "path": path.to_string_lossy(),
                     }),
