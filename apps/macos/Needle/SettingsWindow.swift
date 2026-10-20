@@ -21,7 +21,7 @@ struct SettingsWindow: View {
                     Label(name, systemImage: icon).tag(name)
                 }
             }
-            .listItemTint(.fixed(store.colors.accent))
+            .listItemTint(.fixed(store.playerAccent))
             .navigationSplitViewColumnWidth(200)
             .toolbar(removing: .sidebarToggle)
         } detail: {
@@ -55,8 +55,8 @@ struct SettingsWindow: View {
             .navigationTitle(tab)
         }
         .frame(minWidth: 820, idealWidth: 900, minHeight: 600, idealHeight: 720)
-        .tint(store.colors.accent)
-        .preferredColorScheme(store.colors.dark ? .dark : .light)
+        .tint(store.playerAccent)
+        .preferredColorScheme(store.plainColors.dark ? .dark : .light)
     }
 }
 
@@ -77,6 +77,7 @@ struct SettingRow<Control: View>: View {
             }
             Spacer(minLength: 0)
             control
+                .environment(\.settingTitle, title)
         }
         .padding(.vertical, 2)
     }
@@ -98,13 +99,36 @@ struct GroupHeader: View {
 }
 
 /// A switch bound to one of the core's settings, by its name.
+/// A settings row's title, for the switch inside it to be named by (for VoiceOver).
+private struct SettingTitle: EnvironmentKey {
+    static let defaultValue = ""
+}
+
+extension EnvironmentValues {
+    var settingTitle: String {
+        get { self[SettingTitle.self] }
+        set { self[SettingTitle.self] = newValue }
+    }
+}
+
+/// A switch without a visible label, named by its row's title (or `label`) for VoiceOver.
+struct RowToggle: View {
+    @Environment(\.settingTitle) private var title
+    var label: String?
+    let isOn: Binding<Bool>
+
+    var body: some View {
+        Toggle(label ?? title, isOn: isOn)
+    }
+}
+
 struct SettingSwitch: View {
     private var store: Store { .shared }
     let key: String
     let on: Bool
 
     var body: some View {
-        Toggle("", isOn: Binding(get: { on }, set: { store.set([key: $0]) }))
+        RowToggle(isOn: Binding(get: { on }, set: { store.set([key: $0]) }))
             .toggleStyle(.switch)
             .labelsHidden()
     }
@@ -194,7 +218,7 @@ struct PlaybackSettingsView: View {
                 SettingSwitch(key: "tray", on: s.tray)
             }
             SettingRow(title: "Phone remote", detail: "Control Needle from a phone's web browser on the same Wi-Fi. Nothing to install on the phone.") {
-                Toggle("", isOn: Binding(get: { s.remote }, set: { on in
+                RowToggle(isOn: Binding(get: { s.remote }, set: { on in
                     store.set(["remote": on])
                     Task { try? await Task.sleep(for: .milliseconds(300)); address = store.core.remoteAddress() }
                 }))
@@ -468,16 +492,16 @@ struct AppearanceSettings: View {
         }
         Section {
             SettingRow(title: "Compact sidebar", detail: "Folding the sidebar leaves a strip of page icons, as in Apple Music, instead of hiding it altogether.") {
-                Toggle("", isOn: Binding(get: { s.layout.compactSidebar }, set: { store.setLayout(["compact_sidebar": $0]) })).toggleStyle(.switch).labelsHidden()
+                RowToggle(isOn: Binding(get: { s.layout.compactSidebar }, set: { store.setLayout(["compact_sidebar": $0]) })).toggleStyle(.switch).labelsHidden()
             }
             SettingRow(title: "Fold the sidebar now", detail: "The same as the sidebar button in the toolbar.") {
-                Toggle("", isOn: Binding(get: { s.layout.sidebarHidden }, set: { store.setLayout(["sidebar_hidden": $0]) })).toggleStyle(.switch).labelsHidden()
+                RowToggle(isOn: Binding(get: { s.layout.sidebarHidden }, set: { store.setLayout(["sidebar_hidden": $0]) })).toggleStyle(.switch).labelsHidden()
             }
             SettingRow(title: "Player in the title bar", detail: "The player sits in the bar at the top of the window, not at the foot of the page.") {
-                Toggle("", isOn: Binding(get: { s.layout.playerOnTop }, set: { store.setLayout(["player_on_top": $0]) })).toggleStyle(.switch).labelsHidden()
+                RowToggle(isOn: Binding(get: { s.layout.playerOnTop }, set: { store.setLayout(["player_on_top": $0]) })).toggleStyle(.switch).labelsHidden()
             }
             SettingRow(title: "Hide the search field", detail: "Search from the command palette instead (⌘K, or ⌘F).") {
-                Toggle("", isOn: Binding(get: { s.layout.searchHidden }, set: { store.setLayout(["search_hidden": $0]) })).toggleStyle(.switch).labelsHidden()
+                RowToggle(isOn: Binding(get: { s.layout.searchHidden }, set: { store.setLayout(["search_hidden": $0]) })).toggleStyle(.switch).labelsHidden()
             }
         } header: {
             GroupHeader(title: "Layout")

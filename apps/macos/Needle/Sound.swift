@@ -48,10 +48,10 @@ struct SoundPane: View {
                     }
                 }
                 SettingRow(title: "Mono", detail: "Plays both channels in both ears. Useful with one earbud, or for hearing loss in one ear.") {
-                    Toggle("", isOn: Binding(get: { sound.mono }, set: { v in change { $0.mono = v } })).toggleStyle(.switch).labelsHidden()
+                    RowToggle(isOn: Binding(get: { sound.mono }, set: { v in change { $0.mono = v } })).toggleStyle(.switch).labelsHidden()
                 }
                 SettingRow(title: "Headphone crossfeed", detail: "Blends a little of each side into the other, the way speakers reach both ears. Makes hard-panned older recordings less tiring on headphones.") {
-                    Toggle("", isOn: Binding(get: { sound.crossfeed }, set: { v in change { $0.crossfeed = v } })).toggleStyle(.switch).labelsHidden()
+                    RowToggle(isOn: Binding(get: { sound.crossfeed }, set: { v in change { $0.crossfeed = v } })).toggleStyle(.switch).labelsHidden()
                 }
             } header: {
                 GroupHeader(title: "Listening tools")
@@ -83,7 +83,7 @@ struct SoundPane: View {
     private func equalizer(_ s: SoundSettings) -> some View {
         let colors = store.colors
         SettingRow(title: "Equalizer", detail: s.preset.isEmpty ? "" : "Preset: \(s.preset)") {
-            Toggle("", isOn: Binding(get: { s.eq }, set: { v in change { $0.eq = v } })).toggleStyle(.switch).labelsHidden()
+            RowToggle(isOn: Binding(get: { s.eq }, set: { v in change { $0.eq = v } })).toggleStyle(.switch).labelsHidden()
         }
         VStack(alignment: .leading, spacing: 12) {
             HStack {
@@ -159,7 +159,7 @@ struct SoundPane: View {
         VStack(alignment: .leading, spacing: 8) {
             ForEach(Array(s.parametric.enumerated()), id: \.offset) { i, band in
                 HStack(spacing: 10) {
-                    Toggle("", isOn: Binding(get: { band.on }, set: { v in change { $0.parametric[i].on = v } })).labelsHidden()
+                    RowToggle(label: "Band \(i + 1)", isOn: Binding(get: { band.on }, set: { v in change { $0.parametric[i].on = v } })).labelsHidden()
                     Picker("", selection: Binding(get: { band.kind }, set: { v in change { $0.parametric[i].kind = v } })) {
                         Text("Peak").tag("peak")
                         Text("Low shelf").tag("lowshelf")
@@ -202,7 +202,7 @@ struct SoundPane: View {
                             Text("\(effect.pluginName) · \(effect.description)").font(.caption).foregroundStyle(.secondary).lineLimit(2)
                         }
                         Spacer()
-                        Toggle("", isOn: Binding(get: { effect.on }, set: { on in
+                        RowToggle(label: effect.name, isOn: Binding(get: { effect.on }, set: { on in
                             let (plugin, id) = (effect.plugin, effect.id)
                             store.run { try $0.setEffect(plugin: plugin, effect: id, on: on) }
                             Task { try? await Task.sleep(for: .milliseconds(150)); effects = store.core.effects() }

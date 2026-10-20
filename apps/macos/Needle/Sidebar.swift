@@ -98,6 +98,8 @@ struct Sidebar: View {
     private func item(_ name: String, _ icon: String, _ route: Route) -> some View {
         Label(name, systemImage: icon)
             .labelStyle(SidebarLabel(rail: store.settings.layout.sidebarHidden && store.settings.layout.compactSidebar))
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .contentShape(Rectangle())
             .tag(route)
             .help(name)
             // On an album's page Albums is already chosen, so choosing it again is no change:

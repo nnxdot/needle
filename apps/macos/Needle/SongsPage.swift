@@ -162,7 +162,7 @@ struct SongsHeader: View {
     var body: some View {
         if case .album = route {
             // Its room kept while the songs load, so the page does not jump.
-            if let album = albumTrack { albumHeader(album) } else { Color.clear.frame(height: 284) }
+            if let album = albumTrack { albumHeader(album) } else if model.loading { Color.clear.frame(height: 284) } else { plainHeader }
         } else {
             plainHeader
         }

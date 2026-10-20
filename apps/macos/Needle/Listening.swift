@@ -8,6 +8,9 @@ struct HistoryPage: View {
     @State private var stats: Stats?
     @State private var items: [HistoryItem] = []
     @State private var finished = false
+    @State private var loadingMore = false
+    /// Goes up each time the list begins again, so a late page from before is left out.
+    @State private var generation = 0
 
     var body: some View {
         let colors = store.colors
@@ -100,8 +103,10 @@ struct HistoryPage: View {
             stats = await store.load { try $0.stats(days: d) }
         }
         .task(id: store.libraryVersion) {
+            generation += 1
             items = []
             finished = false
+            loadingMore = false
             await more()
         }
     }
@@ -120,9 +125,13 @@ struct HistoryPage: View {
     }
 
     private func more() async {
-        guard !finished else { return }
-        let offset = UInt32(items.count)
+        // One page at a time, and none from before the list began again.
+        guard !finished, !loadingMore else { return }
+        loadingMore = true
+        let (offset, from) = (UInt32(items.count), generation)
         let page = await store.load { try $0.history(offset: offset, limit: 200) } ?? []
+        guard from == generation else { return }
+        loadingMore = false
         if page.count < 200 { finished = true }
         items += page
     }
@@ -297,8 +306,14 @@ struct WrappedPage: View {
         }
         .frame(maxWidth: .infinity, minHeight: 160, alignment: .bottomLeading)
         .padding(20)
-        .background(LinearGradient(colors: [p.colors[0], p.colors[1].opacity(0.75)], startPoint: .topLeading, endPoint: .bottomTrailing),
-                    in: RoundedRectangle(cornerRadius: 22, style: .continuous))
+        .background {
+            ZStack {
+                LinearGradient(colors: [p.colors[0], p.colors[1].opacity(0.75)], startPoint: .topLeading, endPoint: .bottomTrailing)
+                // The words sit at the foot: darker there, so white reads on any hue.
+                LinearGradient(colors: [.black.opacity(0.1), .black.opacity(0.55)], startPoint: .top, endPoint: .bottom)
+            }
+            .clipShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
+        }
     }
 
     private func save(_ w: Wrapped) {

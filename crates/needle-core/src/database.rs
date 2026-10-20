@@ -588,6 +588,9 @@ impl Library {
     }
     pub fn backup(&self, destination: &Path) -> Result<()> {
         self.connection()?.backup("main", destination, None)?;
+        // The link to Needle on the computer opens its remote: it stays on this device, not
+        // in a file that may be shared.
+        rusqlite::Connection::open(destination)?.execute("DELETE FROM settings WHERE key='android.pc'", [])?;
         Ok(())
     }
 }

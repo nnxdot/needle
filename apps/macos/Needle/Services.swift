@@ -114,7 +114,7 @@ struct ServicesSettings: View {
                 if configured && state?.source != "Environment" {
                     Button("Sign out") { signOut("lastfm") }
                 }
-                Toggle("", isOn: Binding(get: { s.lastfmEnabled }, set: { store.set(["lastfm_enabled": $0]) }))
+                RowToggle(isOn: Binding(get: { s.lastfmEnabled }, set: { store.set(["lastfm_enabled": $0]) }))
                     .toggleStyle(.switch).labelsHidden().disabled(!configured)
                     .help("Scrobble qualified listens to Last.fm")
             }
@@ -162,7 +162,7 @@ struct ServicesSettings: View {
                 if configured && state?.source != "Environment" {
                     Button("Sign out") { signOut("listenbrainz") }
                 }
-                Toggle("", isOn: Binding(get: { s.listenbrainzEnabled }, set: { store.set(["listenbrainz_enabled": $0]) }))
+                RowToggle(isOn: Binding(get: { s.listenbrainzEnabled }, set: { store.set(["listenbrainz_enabled": $0]) }))
                     .toggleStyle(.switch).labelsHidden().disabled(!configured)
                     .help("Submit qualified listens to ListenBrainz")
             }
@@ -344,7 +344,7 @@ private struct PluginCard: View {
                     Text(plugin.description).font(.callout).foregroundStyle(.secondary)
                 }
                 Spacer()
-                Toggle("", isOn: Binding(get: { plugin.enabled }, set: { on in
+                RowToggle(label: plugin.name, isOn: Binding(get: { plugin.enabled }, set: { on in
                     store.core.setPluginEnabled(id: plugin.id, on: on)
                     Task { try? await Task.sleep(for: .milliseconds(400)); store.reloadPlugins() }
                 }))
