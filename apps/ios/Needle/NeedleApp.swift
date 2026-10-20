@@ -101,6 +101,9 @@ struct RootView: View {
         .preferredColorScheme(colors.dark ? .dark : .light)
     }
 
+    /// The page last opened in each place from a link, and how deep it was.
+    @State private var opened: [Place: (Int, Route)] = [:]
+
     private func path(_ place: Place) -> Binding<NavigationPath> {
         Binding(get: { paths[place] ?? NavigationPath() }, set: { paths[place] = $0 })
     }
@@ -109,8 +112,11 @@ struct RootView: View {
         place = where_
         if let route {
             var next = paths[where_] ?? NavigationPath()
+            // Already the page on top (opened from it again): nothing new.
+            if let top = opened[where_], top.0 == next.count, top.1 == route { return }
             next.append(route)
             paths[where_] = next
+            opened[where_] = (next.count, route)
         }
     }
 }

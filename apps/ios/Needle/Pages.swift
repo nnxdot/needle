@@ -410,6 +410,11 @@ struct AlbumView: View {
     @State private var selected = Set<String>()
     @State private var pastHeader = false
 
+    init(album: Album) {
+        self.album = album
+        _colors = State(initialValue: PageColors.cached(album.artwork, seed: album.title + album.artist))
+    }
+
     var body: some View {
         let look = store.app.coverColors ? colors ?? .plain(store.colors) : .plain(store.colors)
         List(selection: selecting ? $selected : nil) {
@@ -475,6 +480,7 @@ struct AlbumView: View {
                     Text(album.artist).font(.title3.weight(.medium)).foregroundStyle(look.ink.opacity(0.82)).multilineTextAlignment(.center)
                 }
                 .buttonStyle(.borderless)
+                .disabled(album.artist.isEmpty || album.artist == unknownArtist)
                 Text(details).font(.footnote.weight(.medium)).foregroundStyle(look.muted)
                 if let songs { PlayButtons(songs: songs, look: look).padding(.top, 10) }
             }
@@ -549,6 +555,14 @@ struct ArtistView: View {
     @State private var colors: PageColors?
     @State private var pastHeader = false
 
+    init(name: String) {
+        self.name = name
+        _colors = State(initialValue: PageColors.cached(key: "artist:" + name))
+    }
+
+    /// Not a real artist: songs without one. Nothing is looked up for it.
+    private var placeholder: Bool { name.isEmpty || name == unknownArtist }
+
     var body: some View {
         let look = store.app.coverColors ? colors ?? .plain(store.colors) : .plain(store.colors)
         ScrollView {
@@ -582,18 +596,34 @@ struct ArtistView: View {
         .navigationBarTitleDisplayMode(.inline)
         .task(id: store.libraryVersion) {
             let name = name
-            // The logo is looked up beside the pictures, not after them.
-            async let found = store.load { $0.artistLogo(name: name) }
             top = await store.load { try $0.artistSongs(name: name) } ?? []
             albums = await store.load { try $0.artistAlbums(name: name) } ?? []
             // The colour at once, from their first album; the picture's when it comes (a first
             // visit downloads it).
-            colors = await PageColors.of(albums?.first?.artwork, seed: name)
+            if colors == nil { colors = await PageColors.of(albums?.first?.artwork, seed: name) }
+            guard !placeholder else { return }
             async let wide = store.load { $0.artistBanner(name: name) }
             async let portrait = store.load { $0.artistPhoto(name: name) }
             (banner, photo) = (await wide ?? nil, await portrait ?? nil)
-            if banner != nil || photo != nil { colors = await PageColors.of(picture, seed: name) }
-            logo = await found ?? nil
+            colors = await PageColors.of(picture, seed: name)
+            if let colors { PageColors.keep(colors, as: "artist:" + name) }
+        }
+        // The logo on its own: it shows as soon as it is found, not after the pictures.
+        .task(id: store.libraryVersion) {
+            guard !placeholder else { return }
+            let name = name
+            let found = await store.load { $0.artistLogo(name: name) } ?? nil
+            if !Task.isCancelled { logo = found }
+        }
+    }
+
+    /// All their songs, for Play and Shuffle (the page lists only the top ones).
+    private func playAll(shuffled: Bool) {
+        let name = name
+        store.run { core in
+            var ids = try core.artistAllSongs(name: name).map(\.id)
+            if shuffled { ids.shuffle() }
+            try core.play(ids: ids, start: 0)
         }
     }
 
@@ -623,10 +653,10 @@ struct ArtistView: View {
                 VStack(spacing: 18) {
                     // Their logo when fanart.tv has one, as Apple Music shows artists' own.
                     if let logo {
-                        Logo(path: logo)
+                        // Logos are mostly white: on a light page, the logo takes the page's ink.
+                        Logo(path: logo, ink: look.dark ? nil : look.ink)
                             .frame(maxWidth: 300, maxHeight: 130)
-                            // Logos are mostly white: on a light page, a dark glow keeps them clear.
-                            .shadow(color: look.dark ? look.page.opacity(0.5) : .black.opacity(0.35), radius: 16)
+                            .shadow(color: look.page.opacity(0.5), radius: 16)
                             .accessibilityLabel(name)
                     } else {
                         Text(name)
@@ -638,13 +668,13 @@ struct ArtistView: View {
                             .shadow(color: look.page.opacity(0.4), radius: 12)
                     }
                     HStack(spacing: 26) {
-                        Button { store.shufflePlay(top) } label: {
+                        Button { playAll(shuffled: true) } label: {
                             Image(systemName: "shuffle").font(.title3.weight(.semibold)).frame(width: 34, height: 34)
                         }
                         .buttonStyle(.glass)
                         .buttonBorderShape(.circle)
                         .accessibilityLabel("Shuffle")
-                        Button { store.play(top) } label: {
+                        Button { playAll(shuffled: false) } label: {
                             Image(systemName: "play.fill")
                                 .font(.system(size: 30, weight: .bold))
                                 .foregroundStyle(look.page)

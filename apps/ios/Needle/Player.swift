@@ -76,8 +76,16 @@ struct NowPlayingView: View {
                 // never shows black while it fades.
                 ImmersiveCover(song: song, seed: seed, animated: app.animatedCovers && !reduceMotion && pane == .cover)
                 if !immersive {
-                    CoverBackdrop(path: song?.artwork, seed: seed, blur: CGFloat(app.backdropBlur), moving: app.movingBackdrop && !reduceMotion)
-                        .transition(.opacity)
+                    Group {
+                        if app.coverBackdrop {
+                            CoverBackdrop(path: song?.artwork, seed: seed, blur: CGFloat(app.backdropBlur), moving: app.movingBackdrop && !reduceMotion)
+                        } else {
+                            LinearGradient(colors: [(store.coverColor ?? .gray).opacity(0.55), .black], startPoint: .top, endPoint: .bottom)
+                                .background(.black)
+                                .ignoresSafeArea()
+                        }
+                    }
+                    .transition(.opacity)
                 }
             } else if app.coverBackdrop {
                 CoverBackdrop(path: song?.artwork, seed: seed, blur: CGFloat(app.backdropBlur), moving: app.movingBackdrop && !reduceMotion)
@@ -120,9 +128,11 @@ struct NowPlayingView: View {
         }
         .animation(reduceMotion ? nil : .spring(response: 0.45, dampingFraction: 0.85), value: pane)
         .task(id: song?.id) {
-            loop = []
-            guard let id = song?.id, !(song?.onComputer ?? true) else { favorite = false; return }
-            favorite = await store.load { $0.isFavorite(id: id) } ?? false
+            favorite = false
+            loop = await store.load { $0.loopRange() } ?? []
+            guard let id = song?.id, !(song?.onComputer ?? true) else { return }
+            let found = await store.load { $0.isFavorite(id: id) } ?? false
+            if !Task.isCancelled { favorite = found }
         }
         .onChange(of: song == nil) { _, gone in if gone { dismiss() } }
         .onChange(of: pane) { _, now in
@@ -184,7 +194,8 @@ struct NowPlayingView: View {
     @ViewBuilder
     private func loopMenu(_ song: Song) -> some View {
         Menu {
-            let at = store.playback?.position ?? 0
+            // Not in the song's last second: the part would have no length.
+            let at = min(store.playback?.position ?? 0, max(0, song.duration - 1))
             Button("Start here (\(clock(at)))") { setLoop(at, loop.count == 2 ? max(loop[1], at + 1) : min(song.duration, at + 30)) }
             if loop.count == 2 {
                 Button("End here (\(clock(at)))") { setLoop(loop[0], max(loop[0] + 1, at)) }
@@ -195,9 +206,11 @@ struct NowPlayingView: View {
         }
     }
 
+    /// The core takes the loop a moment later: the menu and the seek bar show it at once.
     private func setLoop(_ start: Double, _ end: Double) {
+        guard end > start else { return }
         store.core.setLoop(start: start, end: end)
-        loop = store.core.loopRange()
+        loop = [start, end]
     }
 
     private func cover(_ song: Song?, seed: String) -> some View {
@@ -237,7 +250,7 @@ struct NowPlayingView: View {
     /// The artist's name, which opens the artist's page.
     @ViewBuilder
     private func artistButton(_ song: Song?) -> some View {
-        if let song, !song.onComputer, !song.artist.isEmpty {
+        if let song, !song.onComputer, !song.artist.isEmpty, song.artist != unknownArtist {
             Button { store.opening = .artist(song.artist) } label: {
                 Text(song.artist).foregroundStyle(.secondary).lineLimit(1)
             }
@@ -260,7 +273,13 @@ struct NowPlayingView: View {
         Button {
             guard let id = song?.id else { return }
             favorite.toggle()
-            store.run { _ = try $0.toggleFavorite(id: id) }
+            Task {
+                if let now = await store.ask({ try $0.toggleFavorite(id: id) }) {
+                    if song?.id == store.playback?.current?.id { favorite = now }
+                } else {
+                    favorite.toggle()
+                }
+            }
         } label: {
             // A plain sign, as Apple Music's.
             Image(systemName: favorite ? "star.fill" : "star").font(.title3.weight(.semibold))
@@ -344,16 +363,24 @@ struct RecordSpin<Content: View>: View {
     /// Seconds for one turn.
     var period: Double = 12
     @ViewBuilder let content: () -> Content
-    @State private var start = Date()
+    /// When it began turning this time; nil while still.
+    @State private var start: Date?
+    /// The turn before this time.
     @State private var held: Double = 0
 
     var body: some View {
         TimelineView(.animation(paused: !on)) { context in
-            let turned = on ? held + context.date.timeIntervalSince(start) * 360 / period : held
+            // From the state alone, so the frame on which `on` changes does not jump.
+            let turned = held + (start.map { max(0, context.date.timeIntervalSince($0)) } ?? 0) * 360 / period
             content().rotationEffect(.degrees(turned))
         }
-        .onChange(of: on) { _, now in
-            if now { start = Date() } else { held += Date().timeIntervalSince(start) * 360 / period }
+        .onChange(of: on, initial: true) { _, now in
+            if now {
+                if start == nil { start = Date() }
+            } else if let began = start {
+                held += Date().timeIntervalSince(began) * 360 / period
+                start = nil
+            }
         }
     }
 }
@@ -573,7 +600,7 @@ struct ImmersiveCover: View {
                 tone
                 ZStack {
                     Artwork(path: song?.artwork, seed: seed, size: 1400)
-                    if let video { LoopingVideo(url: video) }
+                    if animated, let video { LoopingVideo(url: video) }
                 }
                 .frame(width: side, height: tall)
                 .clipped()
@@ -585,11 +612,14 @@ struct ImmersiveCover: View {
         }
         .ignoresSafeArea()
         .animation(.easeInOut(duration: 0.5), value: tone)
-        .task(id: song?.id) {
+        .task(id: "\(song?.id ?? "")|\(animated)") {
+            video = nil
             let colors = await PageColors.of(song?.artwork, seed: seed)
+            guard !Task.isCancelled else { return }
             tone = colors.page.darkened(to: 0.3)
-            guard animated, let id = song?.id, !(song?.onComputer ?? true) else { video = nil; return }
-            video = (await store.load { $0.animatedCover(id: id) } ?? nil).map(URL.init(fileURLWithPath:))
+            guard animated, let id = song?.id, !(song?.onComputer ?? true) else { return }
+            let found = (await store.load { $0.animatedCover(id: id) } ?? nil).map(URL.init(fileURLWithPath:))
+            if !Task.isCancelled { video = found }
         }
     }
 }
@@ -608,21 +638,54 @@ struct LoopingVideo: UIViewRepresentable {
         if view.url != url { view.play(url) }
     }
 
+    static func dismantleUIView(_ view: PlayerView, coordinator: ()) {
+        view.stop()
+    }
+
     final class PlayerView: UIView {
         override class var layerClass: AnyClass { AVPlayerLayer.self }
         private let player = AVQueuePlayer()
         private var looper: AVPlayerLooper?
         private(set) var url: URL?
+        private var watching: [NSObjectProtocol] = []
+
+        override init(frame: CGRect) {
+            super.init(frame: frame)
+            let center = NotificationCenter.default
+            // Still while the app is away, on again when it is back.
+            watching = [
+                center.addObserver(forName: UIApplication.didEnterBackgroundNotification, object: nil, queue: .main) { [weak self] _ in self?.player.pause() },
+                center.addObserver(forName: UIApplication.willEnterForegroundNotification, object: nil, queue: .main) { [weak self] _ in
+                    if self?.looper != nil { self?.player.play() }
+                },
+            ]
+        }
+
+        required init?(coder: NSCoder) { nil }
+
+        deinit { watching.forEach(NotificationCenter.default.removeObserver) }
 
         func play(_ url: URL) {
+            stop()
             self.url = url
             let layer = layer as! AVPlayerLayer
             layer.player = player
             layer.videoGravity = .resizeAspectFill
             player.isMuted = true
+            // A cover, not a video: it never takes the phone's sound or the lock screen.
+            player.audiovisualBackgroundPlaybackPolicy = .pauses
             player.preventsDisplaySleepDuringVideoPlayback = false
             looper = AVPlayerLooper(player: player, templateItem: AVPlayerItem(url: url))
             player.play()
+        }
+
+        /// The last video goes wholly, so it never shows over the next cover.
+        func stop() {
+            looper?.disableLooping()
+            looper = nil
+            player.pause()
+            player.removeAllItems()
+            url = nil
         }
     }
 }
@@ -657,7 +720,7 @@ struct LyricsPane: View {
             } else if let lyrics, !lyrics.plain.isEmpty {
                 plain(lyrics.plain)
             } else if loaded {
-                VStack(spacing: 14) {
+                ScrollView { VStack(spacing: 14) {
                     ContentUnavailableView(lyrics?.instrumental == true ? "Instrumental" : "No lyrics for this song", systemImage: "quote.bubble")
                     if !online, lyrics?.instrumental != true {
                         Text("Online lookups are off, so Needle only looks in the song's own files and your music server.")
@@ -687,6 +750,9 @@ struct LyricsPane: View {
                             .buttonStyle(.glass)
                     }
                 }
+                .padding(.vertical, 20)
+                .frame(maxWidth: .infinity) }
+                .scrollBounceBehavior(.basedOnSize)
             } else {
                 ProgressView().frame(maxHeight: .infinity)
             }
@@ -699,13 +765,18 @@ struct LyricsPane: View {
         loaded = false
         lyrics = nil
         guard let song else { return }
-        online = await store.load { try $0.playbackSettings().onlineMedia } ?? true
+        let isOnline = await store.load { try $0.playbackSettings().onlineMedia } ?? true
+        let found: Lyrics?
         if song.onComputer, let pc = store.pc?.current {
-            lyrics = await store.load { $0.pcLyrics(song: pc) } ?? nil
+            found = await store.load { $0.pcLyrics(song: pc) } ?? nil
         } else {
             let id = song.id
-            lyrics = await store.load { try $0.lyrics(id: id) } ?? nil
+            found = await store.load { try $0.lyrics(id: id) } ?? nil
         }
+        // The song changed while these were looked up: they are the last song's.
+        guard !Task.isCancelled, song.id == self.song?.id else { return }
+        online = isOnline
+        lyrics = found
         loaded = true
     }
 
@@ -727,7 +798,7 @@ struct LyricsPane: View {
         let current = lines.lastIndex { $0.time <= position + 0.2 } ?? -1
         return ScrollViewReader { reader in
             ScrollView(showsIndicators: false) {
-                VStack(alignment: .leading, spacing: 22) {
+                LazyVStack(alignment: .leading, spacing: 22) {
                     Color.clear.frame(height: 40)
                     ForEach(Array(lines.enumerated()), id: \.offset) { i, line in
                         Group {
@@ -789,6 +860,19 @@ struct QueuePane: View {
                     Text("From \(album)").font(.subheadline).foregroundStyle(.white.opacity(0.6)).lineLimit(1)
                 }
             }
+            QueueList()
+        }
+        .frame(maxHeight: .infinity)
+    }
+}
+
+/// The songs up next, apart from the pills and the title, so the list is made again only when
+/// the queue changes.
+private struct QueueList: View {
+    @Environment(Store.self) private var store
+
+    var body: some View {
+        Group {
             if store.upNext.isEmpty {
                 ContentUnavailableView("Nothing up next", systemImage: "list.bullet").frame(maxHeight: .infinity)
             } else {
@@ -824,7 +908,6 @@ struct QueuePane: View {
                 .scrollContentBackground(.hidden)
             }
         }
-        .frame(maxHeight: .infinity)
     }
 }
 
@@ -1000,7 +1083,7 @@ struct TimingView: View {
                 .disabled(!thisSong || next >= lines.count)
                 .sensoryFeedback(.impact(weight: .light), trigger: next)
                 Button("Save") {
-                    let (id, timed) = (song.id, lines)
+                    let (id, timed) = (song.id, lines.sorted { $0.time < $1.time })
                     Task {
                         if await store.ask({ try $0.saveTimedLyrics(id: id, lines: timed) }) != nil {
                             store.message = "Saved the timed lyrics"

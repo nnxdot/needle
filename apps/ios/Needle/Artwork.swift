@@ -1,3 +1,4 @@
+import CoreImage
 import ImageIO
 import SwiftUI
 import UIKit
@@ -65,7 +66,9 @@ struct Artwork: View {
         .task(id: path) {
             guard let path else { image = nil; return }
             if let hit = Covers.cached(path, size: size) { image = hit; return }
-            image = await Covers.load(path, size: size)
+            let found = await Covers.load(path, size: size)
+            // Moved on to another cover while this one loaded: not this one.
+            if !Task.isCancelled { image = found }
         }
     }
 }
@@ -87,20 +90,37 @@ struct PageColors: Equatable {
     }
 
     nonisolated(unsafe) private static var known: [String: PageColors] = [:]
+    private static let lock = NSLock()
 
-    /// Already found for this picture (or made-up cover), without waiting.
+    private static func kept(_ key: String) -> PageColors? {
+        lock.withLock { known[key] }
+    }
+
+    /// Keeps a page's colours under a name of its own (an artist's, say), for its next visit.
+    static func keep(_ colors: PageColors, as key: String) {
+        lock.withLock { known[key] = colors }
+    }
+
+    /// Already found for this picture (or made-up cover), or kept under `key`, without waiting.
     static func cached(_ path: String?, seed: String) -> PageColors? {
-        known[path ?? "seed:" + seed]
+        kept(path ?? "seed:" + seed)
+    }
+
+    static func cached(key: String) -> PageColors? {
+        kept(key)
     }
 
     /// For the picture at `path`, or the made-up cover of `seed` when there is none.
     static func of(_ path: String?, seed: String) async -> PageColors {
         let key = path ?? "seed:" + seed
-        if let hit = known[key] { return hit }
+        if let hit = kept(key) { return hit }
         var rgb: (Double, Double, Double)?
         if let path, let image = await Covers.load(path, size: 64), let cg = image.cgImage {
             rgb = foot(of: cg)
         }
+        // The picture could not be read (gone, or on a computer that is off): the made-up
+        // cover's colours for now, not kept, so the picture's come once it can be read.
+        let failed = path != nil && rgb == nil
         if rgb == nil {
             // The made-up cover runs from its first colour into near black.
             var r: CGFloat = 0, g: CGFloat = 0, b: CGFloat = 0, a: CGFloat = 0
@@ -108,7 +128,7 @@ struct PageColors: Equatable {
             rgb = (Double(r) * 0.35, Double(g) * 0.35, Double(b) * 0.35)
         }
         let colors = make(rgb!)
-        known[key] = colors
+        if !failed { lock.withLock { known[key] = colors } }
         return colors
     }
 
@@ -116,9 +136,14 @@ struct PageColors: Equatable {
     private static func foot(of cg: CGImage) -> (Double, Double, Double)? {
         let side = 32
         var pixels = [UInt8](repeating: 0, count: side * side * 4)
-        guard let context = CGContext(data: &pixels, width: side, height: side, bitsPerComponent: 8, bytesPerRow: side * 4,
-                                      space: CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else { return nil }
-        context.draw(cg, in: CGRect(x: 0, y: 0, width: side, height: side))
+        // The pixels' memory stays put only inside this call.
+        let drawn = pixels.withUnsafeMutableBytes { bytes -> Bool in
+            guard let context = CGContext(data: bytes.baseAddress, width: side, height: side, bitsPerComponent: 8, bytesPerRow: side * 4,
+                                          space: CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else { return false }
+            context.draw(cg, in: CGRect(x: 0, y: 0, width: side, height: side))
+            return true
+        }
+        guard drawn else { return nil }
         // The bitmap's first row is the picture's top.
         var sum = (0.0, 0.0, 0.0), n = 0.0
         for y in (side - 5)..<side {
@@ -137,7 +162,11 @@ struct PageColors: Equatable {
         let page = UIColor(hue: h, saturation: min(1, s * 1.12), brightness: min(0.9, max(0.1, v)), alpha: 1)
         var r: CGFloat = 0, g: CGFloat = 0, b: CGFloat = 0
         page.getRed(&r, green: &g, blue: &b, alpha: &a)
-        let light = 0.2126 * r + 0.7152 * g + 0.0722 * b > 0.62
+        // WCAG's contrast: white on the page against near-black on it.
+        func linear(_ c: CGFloat) -> CGFloat { c <= 0.04045 ? c / 12.92 : pow((c + 0.055) / 1.055, 2.4) }
+        let lum = 0.2126 * linear(r) + 0.7152 * linear(g) + 0.0722 * linear(b)
+        let black = linear(0.06)
+        let light = (lum + 0.05) / (black + 0.05) > 1.05 / (lum + 0.05)
         return PageColors(page: Color(page), ink: light ? Color(white: 0.06) : .white, dark: !light)
     }
 }
@@ -168,13 +197,26 @@ extension View {
 /// An artist's logo: a picture with a clear background, kept whole.
 struct Logo: View {
     let path: String
+    /// Drawn in this colour, its own colours left out: for a light page.
+    var ink: Color?
     @State private var image: UIImage?
 
     var body: some View {
         Group {
-            if let image { Image(uiImage: image).resizable().scaledToFit() } else { Color.clear }
+            if let image {
+                if let ink {
+                    Image(uiImage: image).renderingMode(.template).resizable().scaledToFit().foregroundStyle(ink)
+                } else {
+                    Image(uiImage: image).resizable().scaledToFit()
+                }
+            } else {
+                Color.clear
+            }
         }
-        .task(id: path) { image = await Covers.load(path, size: 900) }
+        .task(id: path) {
+            let found = await Covers.load(path, size: 900)
+            if !Task.isCancelled { image = found }
+        }
     }
 }
 
@@ -241,25 +283,57 @@ struct Placeholder: View {
 }
 
 /// The playing cover, blurred and large, behind the full player; turning slowly when `moving`.
+/// The cover is blurred once into a small picture, which then only turns: blurring a picture
+/// larger than the screen each frame used the battery.
 struct CoverBackdrop: View {
     let path: String?
     let seed: String
     var blur: CGFloat = 70
     var moving = true
+    @State private var soft: UIImage?
+
+    /// The blurred picture's side, in pixels.
+    private static let pixels: CGFloat = 160
 
     var body: some View {
         GeometryReader { geo in
             let side = max(geo.size.width, geo.size.height) * 1.6
+            // The blur, in the small picture's pixels: as soft as `blur` points at full size.
+            let radius = max(1, blur * Self.pixels / max(1, side))
             RecordSpin(on: moving, period: 60) {
-                Artwork(path: path, seed: seed, size: 200)
-                    .frame(width: side, height: side)
+                Group {
+                    if let soft { Image(uiImage: soft).resizable().interpolation(.medium) } else { Color.black }
+                }
+                .frame(width: side, height: side)
             }
-            .blur(radius: blur)
-            .saturation(1.7)
-            .brightness(-0.18)
             .position(x: geo.size.width / 2, y: geo.size.height / 2)
+            .task(id: "\(path ?? seed)|\(Int(radius))") {
+                let source: UIImage? = if let path { await Covers.load(path, size: Int(Self.pixels)) } else { placeholder }
+                guard !Task.isCancelled, let source else { return }
+                let made = await Task.detached(priority: .userInitiated) { Self.soften(source, radius: radius) }.value
+                if !Task.isCancelled, let made { withAnimation(.easeInOut(duration: 0.4)) { soft = made } }
+            }
         }
         .overlay(LinearGradient(colors: [.black.opacity(0.05), .black.opacity(0.5)], startPoint: .top, endPoint: .bottom))
         .ignoresSafeArea()
+    }
+
+    /// The made-up cover, as a small picture.
+    @MainActor private var placeholder: UIImage? {
+        let renderer = ImageRenderer(content: Placeholder(seed: seed).frame(width: Self.pixels, height: Self.pixels))
+        renderer.scale = 1
+        return renderer.uiImage
+    }
+
+    /// Blurred, richer, and a little darker, as the player's backdrop.
+    nonisolated private static func soften(_ image: UIImage, radius: CGFloat) -> UIImage? {
+        guard let cg = image.cgImage else { return nil }
+        let input = CIImage(cgImage: cg)
+        let blurred = input.clampedToExtent()
+            .applyingGaussianBlur(sigma: Double(radius))
+            .applyingFilter("CIColorControls", parameters: [kCIInputSaturationKey: 1.7, kCIInputBrightnessKey: -0.18])
+            .cropped(to: input.extent)
+        guard let out = CIContext().createCGImage(blurred, from: input.extent) else { return nil }
+        return UIImage(cgImage: out)
     }
 }
