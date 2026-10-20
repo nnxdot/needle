@@ -5,8 +5,9 @@ plugins {
 
 val packagedAbis = providers.gradleProperty("needleAbis").orNull
     ?.split(',')?.map { it.trim() } ?: listOf("arm64-v8a", "x86_64")
-require(packagedAbis.isNotEmpty() && packagedAbis.all { it in listOf("arm64-v8a", "x86_64") }) {
-    "needleAbis must contain arm64-v8a, x86_64, or both, separated by commas"
+// armeabi-v7a (32-bit Arm, for TVs and older phones) is its own APK: -PneedleAbis=armeabi-v7a.
+require(packagedAbis.isNotEmpty() && packagedAbis.all { it in listOf("arm64-v8a", "x86_64", "armeabi-v7a") }) {
+    "needleAbis must contain arm64-v8a, x86_64, or armeabi-v7a, separated by commas"
 }
 
 android {
