@@ -93,8 +93,13 @@ class LoadedState<T> internal constructor(private val result: fyi.nnx.needle.Loa
 fun <T> rememberLoaded(vararg keys: Any?, load: Needle.() -> T): LoadedState<T> {
     val version by NeedleApp.instance.libraryVersion.collectAsState()
     var attempt by remember(*keys) { mutableStateOf(0) }
+    // A change in the library (a heart, a scan) reloads quietly: what shows stays until the new
+    // answer comes. New keys (another album, another song) are other data, so they show loading.
+    val shown = remember { arrayOfNulls<List<Any?>>(1) }
+    val wanted = keys.toList()
     val result by produceState<fyi.nnx.needle.LoadResult<T>>(fyi.nnx.needle.LoadResult.Loading, version, attempt, *keys) {
-        value = fyi.nnx.needle.LoadResult.Loading
+        if (shown[0] != wanted || value !is fyi.nnx.needle.LoadResult.Ready) value = fyi.nnx.needle.LoadResult.Loading
+        shown[0] = wanted
         value = withContext(Dispatchers.IO) { fyi.nnx.needle.loadAttempt { core.load() } }
     }
     val failure = result as? fyi.nnx.needle.LoadResult.Failed

@@ -74,6 +74,18 @@ sealed interface Sheet {
     data class EditTags(val ids: List<String>) : Sheet
 }
 
+/**
+ * Opens one of Android's own screens (a browser, the file picker, a settings page). A device
+ * without it, as many TVs are, says so instead of closing Needle.
+ */
+fun tryOpen(what: String, open: () -> Unit) {
+    try {
+        open()
+    } catch (_: android.content.ActivityNotFoundException) {
+        showMessage("This device has no $what")
+    }
+}
+
 fun showMessage(text: String) {
     Ui.messages.tryEmit(text)
 }
@@ -131,7 +143,7 @@ private fun PluginQuestion(q: Notice.Question, done: () -> Unit) {
         }
     }
     if (q.file) {
-        LaunchedEffect(q.id) { pick.launch(arrayOf("*/*")) }
+        LaunchedEffect(q.id) { tryOpen("file picker") { pick.launch(arrayOf("*/*")) } }
         return
     }
     AlertDialog(

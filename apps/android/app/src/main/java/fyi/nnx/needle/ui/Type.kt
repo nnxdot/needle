@@ -73,8 +73,6 @@ fun titleFamily(squeeze: Float = 0f): FontFamily = titleFamilyFor(LocalTitleFont
 
 private val Base = Typography()
 
-private fun TextUnit.times(k: Float): TextUnit = if (isSp) (value * k).sp else this
-
 private fun TextStyle.scaled(k: Float) = copy(fontSize = fontSize.times(k), lineHeight = lineHeight.times(k))
 
 private fun TextStyle.text(k: Float) = copy(fontFamily = Flex).scaled(k)
