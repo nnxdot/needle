@@ -88,6 +88,8 @@ fun SideBar(tab: Tab, page: Route, onTab: (Tab) -> Unit, open: (Route) -> Unit) 
     val albums = home?.let { h -> h.recent.ifEmpty { h.added } }.orEmpty().take(8)
     val go: (Route) -> Unit = { if (it != page) open(it) }
 
+    // The bar is on the frame, not in a Surface: its icons take the frame's colour for text.
+    androidx.compose.runtime.CompositionLocalProvider(androidx.compose.material3.LocalContentColor provides MaterialTheme.colorScheme.onSurfaceVariant) {
     Column(
         Modifier
             .fillMaxHeight()
@@ -95,11 +97,31 @@ fun SideBar(tab: Tab, page: Route, onTab: (Tab) -> Unit, open: (Route) -> Unit) 
             .statusBarsPadding()
             .navigationBarsPadding(),
     ) {
-        IconButton(onClick = { unfolded = !unfolded }, modifier = Modifier.padding(start = 24.dp, top = 12.dp, bottom = 8.dp)) {
-            Icon(
-                if (unfolded) Icons.AutoMirrored.Rounded.MenuOpen else Icons.Rounded.Menu,
-                contentDescription = if (unfolded) "Fold the side bar" else "Open the side bar",
-            )
+        // The fold button, and Needle's record and name beside it while the bar is open.
+        Row(Modifier.padding(start = 24.dp, top = 12.dp, bottom = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+            IconButton(onClick = { unfolded = !unfolded }) {
+                Icon(
+                    if (unfolded) Icons.AutoMirrored.Rounded.MenuOpen else Icons.Rounded.Menu,
+                    contentDescription = if (unfolded) "Fold the side bar" else "Open the side bar",
+                )
+            }
+            if (words > 0f) {
+                Row(Modifier.padding(start = 8.dp).graphicsLayer { alpha = words }, verticalAlignment = Alignment.CenterVertically) {
+                    androidx.compose.foundation.Image(
+                        androidx.compose.ui.res.painterResource(fyi.nnx.needle.R.drawable.needle_logo),
+                        contentDescription = null,
+                        modifier = Modifier.size(30.dp).clip(RoundedCornerShape(8.dp)),
+                    )
+                    Text(
+                        "Needle",
+                        style = MaterialTheme.typography.titleLarge.copy(fontFamily = titleFamily(0.2f)),
+                        color = MaterialTheme.colorScheme.onSurface,
+                        maxLines = 1,
+                        softWrap = false,
+                        modifier = Modifier.padding(start = 10.dp),
+                    )
+                }
+            }
         }
         Tab.entries.forEach { t ->
             SideItem(t.label, null, t == tab, words, CircleShape, onClick = { onTab(t) }) {
@@ -128,6 +150,7 @@ fun SideBar(tab: Tab, page: Route, onTab: (Tab) -> Unit, open: (Route) -> Unit) 
         SideItem("Settings", null, inSettings, words, CircleShape, Modifier.padding(vertical = 8.dp), onClick = { go(Route.Settings) }) {
             Icon(if (inSettings) Icons.Rounded.Settings else Icons.Outlined.Settings, contentDescription = null)
         }
+    }
     }
 }
 
