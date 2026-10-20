@@ -2287,8 +2287,20 @@ fn song_lyrics(id) {
     if list == () {
         return ();
     }
-    let plain = "";
+    // The song's own words first: a server can also list a translation or a romanization.
+    let ordered = [];
     for lyrics in list {
+        if lyrics.kind == () || lyrics.kind == "main" {
+            ordered.push(lyrics);
+        }
+    }
+    for lyrics in list {
+        if !(lyrics.kind == () || lyrics.kind == "main") {
+            ordered.push(lyrics);
+        }
+    }
+    let plain = "";
+    for lyrics in ordered {
         if lyrics.line == () {
             continue;
         }
@@ -2873,8 +2885,9 @@ mod tests {
                     // for the other, and none for any else.
                     let body = match param("id").as_str() {
                         "s1" => ok(r#","lyricsList":{"structuredLyrics":[
+                            {"kind":"translation","lang":"en","synced":true,"line":[{"start":1000,"value":"Hello"}]},
                             {"lang":"xxx","synced":false,"line":[{"value":"Hey"},{"value":"Hi"}]},
-                            {"lang":"xxx","synced":true,"offset":-500,"line":[{"start":1500,"value":"Hey"},{"start":62250,"value":"Hi"}]}
+                            {"kind":"main","lang":"xxx","synced":true,"offset":-500,"line":[{"start":1500,"value":"Hey"},{"start":62250,"value":"Hi"}]}
                         ]}"#),
                         "s2" => ok(r#","lyricsList":{"structuredLyrics":[
                             {"lang":"xxx","synced":false,"line":[{"value":"Sweet"},{"value":"Sour"}]}
