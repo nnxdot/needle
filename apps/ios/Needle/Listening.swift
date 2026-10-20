@@ -152,7 +152,7 @@ struct StatsView: View {
                     if let route = route(r) {
                         NavigationLink(value: route) { row }.buttonStyle(.plain)
                     } else if let id = r.songId {
-                        Button { store.run { try $0.play(ids: [id], start: 0) }; store.played() } label: { row }.buttonStyle(.plain)
+                        Button { store.playIDs { _ in [id] } } label: { row }.buttonStyle(.plain)
                     } else {
                         row
                     }

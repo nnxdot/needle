@@ -595,9 +595,9 @@ struct ScrobblingView: View {
                     if let user = a.lastfmUser {
                         LabeledContent("Signed in", value: user.isEmpty ? "Yes" : user)
                         Toggle("Send listens", isOn: Binding(get: { a.lastfmOn }, set: { on in
-                            store.run { try $0.setScrobbling(lastfm: on, listenbrainz: nil) }; Task { await reload() }
+                            Task { _ = await store.ask { try $0.setScrobbling(lastfm: on, listenbrainz: nil) }; await reload() }
                         }))
-                        Button("Sign out", role: .destructive) { store.run { try $0.signOut(service: "lastfm") }; Task { await reload() } }
+                        Button("Sign out", role: .destructive) { Task { _ = await store.ask { try $0.signOut(service: "lastfm") }; await reload() } }
                     } else if waitingForBrowser {
                         Text("Allow Needle on the Last.fm page, then come back.")
                         Button("I allowed Needle") {
@@ -633,9 +633,9 @@ struct ScrobblingView: View {
                     if let user = a.listenbrainzUser {
                         LabeledContent("Signed in", value: user)
                         Toggle("Send listens", isOn: Binding(get: { a.listenbrainzOn }, set: { on in
-                            store.run { try $0.setScrobbling(lastfm: nil, listenbrainz: on) }; Task { await reload() }
+                            Task { _ = await store.ask { try $0.setScrobbling(lastfm: nil, listenbrainz: on) }; await reload() }
                         }))
-                        Button("Sign out", role: .destructive) { store.run { try $0.signOut(service: "listenbrainz") }; Task { await reload() } }
+                        Button("Sign out", role: .destructive) { Task { _ = await store.ask { try $0.signOut(service: "listenbrainz") }; await reload() } }
                     } else {
                         SecureField("User token", text: $token)
                         Button("Sign in") {
