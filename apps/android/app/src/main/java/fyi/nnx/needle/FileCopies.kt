@@ -29,8 +29,10 @@ internal suspend fun copyFileOnIo(folder: File, displayName: String, open: () ->
  * left for the id put before it.
  */
 private fun fitName(name: String, bytes: Int = 180): String {
-    var kept = name
-    while (kept.toByteArray(Charsets.UTF_8).size > bytes) kept = kept.drop(1)
+    // Never more than 255 letters to start with (a name comes from the app that sends the file),
+    // then whole letters off the front, never half of an emoji.
+    var kept = if (name.length > 255) name.substring(name.offsetByCodePoints(name.length, -minOf(255, name.codePointCount(0, name.length)))) else name
+    while (kept.isNotEmpty() && kept.toByteArray(Charsets.UTF_8).size > bytes) kept = kept.substring(kept.offsetByCodePoints(0, 1))
     return kept
 }
 
