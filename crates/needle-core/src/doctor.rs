@@ -257,7 +257,30 @@ pub fn recycle(path: &Path) -> Result<()> {
     }
     Ok(())
 }
-#[cfg(not(windows))]
+/// Moves a file to the user's Trash (as a rename, or a copy when it is on another disk).
+#[cfg(target_os = "macos")]
+pub fn recycle(path: &Path) -> Result<()> {
+    let home = std::env::var_os("HOME").ok_or_else(|| anyhow::anyhow!("No home folder for the Trash"))?;
+    let trash = std::path::PathBuf::from(home).join(".Trash");
+    std::fs::create_dir_all(&trash)?;
+    let name = path
+        .file_name()
+        .ok_or_else(|| anyhow::anyhow!("{} has no file name", path.display()))?;
+    let mut target = trash.join(name);
+    let stem = path.file_stem().map(|s| s.to_string_lossy().to_string()).unwrap_or_default();
+    let extension = path.extension().map(|e| format!(".{}", e.to_string_lossy())).unwrap_or_default();
+    let mut n = 2;
+    while target.exists() {
+        target = trash.join(format!("{stem} {n}{extension}"));
+        n += 1;
+    }
+    if std::fs::rename(path, &target).is_err() {
+        std::fs::copy(path, &target)?;
+        std::fs::remove_file(path)?;
+    }
+    Ok(())
+}
+#[cfg(not(any(windows, target_os = "macos")))]
 pub fn recycle(path: &Path) -> Result<()> {
     bail!(
         "Moving {} to the trash is only supported on Windows",

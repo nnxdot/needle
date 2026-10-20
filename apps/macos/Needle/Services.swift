@@ -33,7 +33,7 @@ struct ServicesSettings: View {
         }
         Section {
             if let error = info?.status.storeError {
-                Text("The Keychain could not be read: \(error)").foregroundStyle(store.colors.danger).padding(.vertical, 6)
+                Text("The Keychain could not be read: \(error)").foregroundStyle(store.plainColors.danger).padding(.vertical, 6)
             }
             lastfm(s)
             SettingRow(title: "Fix artist names for scrobbles", detail: "When your tags write an artist another way than Apple Music does (키키 for KiiiKiii), scrobble Apple's spelling, so Last.fm and ListenBrainz file the song under the right artist. Your files are not changed.") {
@@ -70,7 +70,7 @@ struct ServicesSettings: View {
             if state.configured { return "Key saved" }
             return "Not connected"
         }()
-        let color: Color = state?.rejected != nil ? store.colors.danger : state?.configured == true ? store.colors.success : store.colors.line
+        let color: Color = state?.rejected != nil ? store.plainColors.danger : state?.configured == true ? store.plainColors.success : store.plainColors.line
         return HStack(spacing: 6) {
             Circle().fill(color).frame(width: 7, height: 7)
             Text(text).font(.callout).foregroundStyle(.secondary)
@@ -87,7 +87,7 @@ struct ServicesSettings: View {
                     Text([q.pending > 0 ? "\(q.pending) waiting to send" : nil, q.failed > 0 ? "\(q.failed) failed" : nil].compactMap { $0 }.joined(separator: " · "))
                         .font(.caption)
                     if let error = q.signInRequired ?? q.lastError {
-                        Text(error).font(.caption).foregroundStyle(store.colors.danger).lineLimit(1)
+                        Text(error).font(.caption).foregroundStyle(store.plainColors.danger).lineLimit(1)
                     }
                     if q.failed > 0 {
                         Button("Retry failed") {
@@ -114,7 +114,7 @@ struct ServicesSettings: View {
                 if configured && state?.source != "Environment" {
                     Button("Sign out") { signOut("lastfm") }
                 }
-                RowToggle(isOn: Binding(get: { s.lastfmEnabled }, set: { store.set(["lastfm_enabled": $0]) }))
+                RowToggle(label: "Scrobble to Last.fm", isOn: Binding(get: { s.lastfmEnabled }, set: { store.set(["lastfm_enabled": $0]) }))
                     .toggleStyle(.switch).labelsHidden().disabled(!configured)
                     .help("Scrobble qualified listens to Last.fm")
             }
@@ -129,7 +129,7 @@ struct ServicesSettings: View {
                         }
                     }
                     .padding(10)
-                    .background(store.colors.raised, in: RoundedRectangle(cornerRadius: 8))
+                    .background(store.plainColors.raised, in: RoundedRectangle(cornerRadius: 8))
                 } else {
                     if info?.status.lastfmApp.configured != true {
                         Text("Needle needs a Last.fm API account to sign in. Create one at last.fm/api/account/create, then paste its key and shared secret.")
@@ -162,7 +162,7 @@ struct ServicesSettings: View {
                 if configured && state?.source != "Environment" {
                     Button("Sign out") { signOut("listenbrainz") }
                 }
-                RowToggle(isOn: Binding(get: { s.listenbrainzEnabled }, set: { store.set(["listenbrainz_enabled": $0]) }))
+                RowToggle(label: "Submit to ListenBrainz", isOn: Binding(get: { s.listenbrainzEnabled }, set: { store.set(["listenbrainz_enabled": $0]) }))
                     .toggleStyle(.switch).labelsHidden().disabled(!configured)
                     .help("Submit qualified listens to ListenBrainz")
             }
@@ -335,9 +335,9 @@ private struct PluginCard: View {
                         Text(plugin.official ? "Official" : "Community")
                             .font(.caption2.weight(.medium))
                             .padding(.horizontal, 6).padding(.vertical, 1)
-                            .background(plugin.official ? store.colors.accentSoft : store.colors.raised, in: Capsule())
+                            .background(plugin.official ? store.plainColors.accentSoft : store.plainColors.raised, in: Capsule())
                         if plugin.verified {
-                            Image(systemName: "checkmark.seal.fill").foregroundStyle(store.colors.accent).help("Verified: comes with Needle and is unchanged")
+                            Image(systemName: "checkmark.seal.fill").foregroundStyle(store.plainColors.accent).help("Verified: comes with Needle and is unchanged")
                         }
                     }
                     if !plugin.author.isEmpty { Text("By \(plugin.author)").font(.caption).foregroundStyle(.secondary) }
@@ -352,7 +352,7 @@ private struct PluginCard: View {
                 .help("Turning it on allows everything listed below.")
             }
             if let error = plugin.error {
-                Text(error).font(.caption).foregroundStyle(store.colors.danger)
+                Text(error).font(.caption).foregroundStyle(store.plainColors.danger)
             }
             Text(plugin.permissions.isEmpty ? "Needs no permissions." : plugin.permissions.joined(separator: " · "))
                 .font(.caption).foregroundStyle(.secondary)
@@ -438,7 +438,7 @@ private struct SourceCard: View {
                 Text("Passwords are kept in the Keychain, not in Needle's files.").font(.caption).foregroundStyle(.secondary)
             }
             if let error = source.error {
-                Text(error).font(.caption).foregroundStyle(store.colors.danger)
+                Text(error).font(.caption).foregroundStyle(store.plainColors.danger)
             }
         }
         .padding(.vertical, 4)

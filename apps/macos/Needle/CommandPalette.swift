@@ -41,7 +41,8 @@ struct CommandPalette: View {
                             if items.isEmpty {
                                 Text(text.isEmpty ? "Type to search." : "Nothing found yet…").foregroundStyle(.secondary).padding(16)
                             }
-                            ForEach(Array(items.enumerated()), id: \.element.id) { index, item in
+                            // By place: the items are made anew on each look, and new ids remade every row.
+                            ForEach(Array(items.enumerated()), id: \.offset) { index, item in
                                 if index == 0 || items[index - 1].section != item.section {
                                     Text(item.section).font(.caption.weight(.semibold)).foregroundStyle(.secondary)
                                         .padding(.horizontal, 16).padding(.top, 10).padding(.bottom, 4)
@@ -135,7 +136,7 @@ struct CommandPalette: View {
         if matches("Settings") {
             list.append(Item(section: "Go to", title: "Settings", detail: "⌘,", icon: "gearshape") { openSettings() })
         }
-        let playing = store.playback?.playing == true
+        let playing = store.isPlaying
         var actions: [(String, String, String, () -> Void)] = [
             (playing ? "Pause" : "Play", "Space", playing ? "pause" : "play", { store.toggle() }),
             ("Next track", "⌘→", "forward", { store.next() }),

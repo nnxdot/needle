@@ -590,7 +590,19 @@ impl Library {
         self.connection()?.backup("main", destination, None)?;
         // The link to Needle on the computer opens its remote: it stays on this device, not
         // in a file that may be shared.
-        rusqlite::Connection::open(destination)?.execute("DELETE FROM settings WHERE key='android.pc'", [])?;
+        let copy = rusqlite::Connection::open(destination)?;
+        copy.execute("DELETE FROM settings WHERE key='android.pc'", [])?;
+        // Nor the key of this computer's own phone remote: the copy's remote is off.
+        let saved: Option<String> = copy
+            .query_row("SELECT value FROM settings WHERE key='settings'", [], |r| r.get(0))
+            .optional()?;
+        if let Some(mut settings) = saved.and_then(|s| serde_json::from_str::<serde_json::Value>(&s).ok()) {
+            if let Some(map) = settings.as_object_mut() {
+                map.insert("remote_key".into(), serde_json::Value::String(String::new()));
+                map.insert("remote".into(), serde_json::Value::Bool(false));
+            }
+            copy.execute("UPDATE settings SET value=? WHERE key='settings'", [settings.to_string()])?;
+        }
         Ok(())
     }
 }

@@ -158,6 +158,9 @@ pub struct Playlist {
     pub songs: u32,
     /// Up to four different covers of its songs, for a mosaic when it has no picture of its own.
     pub mosaic: Vec<String>,
+    /// Its own picture, chosen for it (`artwork` is this, or else a song's cover).
+    #[uniffi(default = None)]
+    pub picture: Option<String>,
 }
 
 #[derive(Clone, uniffi::Record)]
@@ -207,7 +210,15 @@ pub struct ScanStatus {
     /// Scans finished since the app started: one too short to be seen running still counts.
     #[uniffi(default = 0)]
     pub finished: u64,
+    /// Scans since the app started that found something new, changed, or gone: lists load
+    /// again only after these.
+    #[uniffi(default = 0)]
+    pub changes: u64,
 }
+
+/// A scan asked for while one runs: it runs again when that one ends, so what changed in the
+/// meantime (songs just imported) is read.
+static SCAN_AGAIN: AtomicBool = AtomicBool::new(false);
 
 #[derive(uniffi::Object)]
 pub struct Needle {
@@ -291,6 +302,7 @@ impl Needle {
     /// Reads every music folder again, in the background, unless a scan runs already.
     pub fn rescan(&self) {
         if self.scanning.swap(true, Ordering::SeqCst) {
+            SCAN_AGAIN.store(true, Ordering::SeqCst);
             return;
         }
         let (library, status, scanning) = (
@@ -306,8 +318,11 @@ impl Needle {
                 ..Default::default()
             };
         }
-        std::thread::spawn(move || {
+        std::thread::spawn(move || loop {
+            SCAN_AGAIN.store(false, Ordering::SeqCst);
             let mut error = None;
+            let before = library.count().unwrap_or(0);
+            let mut changed = false;
             for root in library.roots().unwrap_or_default() {
                 let cancel = Arc::new(AtomicBool::new(false));
                 // A panic must not leave the scan "running" (and its notice up) for good.
@@ -322,15 +337,24 @@ impl Needle {
                 match result {
                     Ok(Err(e)) => error = Some(format!("{e:#}")),
                     Err(_) => error = Some(format!("Needle stopped reading {root}")),
-                    Ok(Ok(_)) => {}
+                    Ok(Ok(done)) => changed |= done.imported > 0,
                 }
             }
+            changed |= library.count().unwrap_or(0) != before;
             let mut s = status.lock().unwrap_or_else(|e| e.into_inner());
-            s.running = false;
             s.current.clear();
             s.error = error;
             s.finished += 1;
+            if changed {
+                s.changes += 1;
+            }
+            if SCAN_AGAIN.load(Ordering::SeqCst) {
+                // Asked for again meanwhile: once more, still running.
+                continue;
+            }
+            s.running = false;
             scanning.store(false, Ordering::SeqCst);
+            break;
         });
     }
 
@@ -410,6 +434,7 @@ impl Needle {
             }
             out.push(Playlist {
                 mosaic,
+                picture: playlist.cover.clone(),
                 artwork: playlist
                     .cover
                     .clone()
@@ -615,6 +640,7 @@ impl Needle {
                     description: p.description,
                     songs: p.track_ids.len() as u32,
                     smart: p.query.is_some(),
+                    picture: p.cover.clone(),
                     artwork: art,
                     mosaic: vec![],
                 })

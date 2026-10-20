@@ -479,7 +479,7 @@ struct ArtistPage: View {
                     .overlay(alignment: .bottom) { Rectangle().fill(colors.lineSoft).frame(height: 1).padding(.leading, 56) }
                     .contentShape(Rectangle())
                     .onTapGesture(count: 2) { store.play(top.map(\.asTrack), from: index, reason: "From \(name)") }
-                    .contextMenu { SongMenu(tracks: [song.asTrack]) }
+                    .contextMenu { SongMenu(tracks: [song.fullTrack]) }
                 }
             }
         }
@@ -538,6 +538,9 @@ struct FoldersPage: View {
                                 .frame(width: 140)
                                 .contentShape(Rectangle())
                                 .onTapGesture { store.navigate(.folder(folder.path)) }
+                                .accessibilityElement(children: .combine)
+                                .accessibilityAddTraits(.isButton)
+                                .accessibilityAction { store.navigate(.folder(folder.path)) }
                             }
                         }
                     }

@@ -153,7 +153,7 @@ struct HistoryPage: View {
         .padding(.vertical, 4)
         .contentShape(Rectangle())
         .onTapGesture(count: 2) { if let song = item.song { store.play([song.asTrack], reason: "Played again from your history") } }
-        .contextMenu { if let song = item.song { SongMenu(tracks: [song.asTrack]) } }
+        .contextMenu { if let song = item.song { SongMenu(tracks: [song.fullTrack]) } }
     }
 
     private func when(_ seconds: Int64) -> String {

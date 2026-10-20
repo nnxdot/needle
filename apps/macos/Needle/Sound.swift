@@ -130,7 +130,7 @@ struct SoundPane: View {
                             Text(String(format: "%+.0f", i < s.bands.count ? s.bands[i] : 0)).font(.caption2.monospacedDigit()).foregroundStyle(.secondary)
                             VerticalSlider(value: Binding(get: { i < s.bands.count ? s.bands[i] : 0 }, set: { v in
                                 change { if i < $0.bands.count { $0.bands[i] = v }; $0.eq = true; $0.preset = "Custom" }
-                            }), range: -12...12)
+                            }), range: -12...12, label: frequency >= 1000 ? "\(Int(frequency / 1000)) kilohertz" : "\(Int(frequency)) hertz")
                             .frame(height: 150)
                             Text(frequency >= 1000 ? "\(Int(frequency / 1000))k" : "\(Int(frequency))").font(.caption2).foregroundStyle(.secondary)
                         }
@@ -258,6 +258,8 @@ struct VerticalSlider: View {
     private var store: Store { .shared }
     @Binding var value: Float
     let range: ClosedRange<Float>
+    /// Its name for VoiceOver ("60 Hz").
+    var label = "Preamp"
     private let knob: CGFloat = 14
 
     var body: some View {
@@ -281,6 +283,16 @@ struct VerticalSlider: View {
             })
         }
         .frame(width: 22)
+        .accessibilityElement()
+        .accessibilityLabel(label)
+        .accessibilityValue(String(format: "%+.1f decibels", value))
+        .accessibilityAdjustableAction { direction in
+            switch direction {
+            case .increment: value = min(range.upperBound, value + 1)
+            case .decrement: value = max(range.lowerBound, value - 1)
+            @unknown default: break
+            }
+        }
     }
 }
 

@@ -160,6 +160,12 @@ struct Welcome: View {
                         Text("Once a day, asks needle.nnx.fyi for the newest version number.").font(.caption).foregroundStyle(.secondary)
                     }
                 }
+                Toggle(isOn: Binding(get: { s.discordPresence }, set: { store.set(["discord_presence": $0]) })) {
+                    VStack(alignment: .leading) {
+                        Text("Show what you play on Discord")
+                        Text("While Discord runs on this Mac, your profile shows the song. Finding its cover asks Apple's iTunes catalog by artist and title.").font(.caption).foregroundStyle(.secondary)
+                    }
+                }
                 Toggle(isOn: Binding(get: { s.crashReports }, set: { store.set(["crash_reports": $0]) })) {
                     VStack(alignment: .leading) {
                         Text("Send crash reports")
