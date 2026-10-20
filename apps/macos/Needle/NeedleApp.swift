@@ -126,7 +126,7 @@ struct NeedleCommands: Commands {
             Divider()
             Button("Volume Up") { store.nudgeVolume(0.05) }.keyboardShortcut(.upArrow)
             Button("Volume Down") { store.nudgeVolume(-0.05) }.keyboardShortcut(.downArrow)
-            Button(store.mutedVolume == nil ? "Mute" : "Unmute") { store.toggleMute() }
+            Button(store.mutedVolume != nil || (store.playback?.volume ?? 1) <= 0.001 ? "Unmute" : "Mute") { store.toggleMute() }
             Divider()
             Button("Shuffle Up Next") { store.core.shuffle(); store.notify("Up next shuffled.") }
             Button(repeatLabel) { store.cycleRepeat() }.keyboardShortcut("r")

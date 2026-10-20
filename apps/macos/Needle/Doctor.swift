@@ -73,15 +73,29 @@ private struct DuplicatesTab: View {
         .task { sets = await store.load { $0.duplicates() } }
         .confirmationDialog("Merge every duplicate?", isPresented: $confirmAll) {
             // One after another: each changes the playlists the next one reads.
-            Button("Merge all") { let all = sets ?? []; Task { for group in all { await merged(group) } } }
+            Button("Merge all") {
+                let all = sets ?? []
+                Task {
+                    var (merged, stuck) = (0, 0)
+                    for group in all {
+                        let result = await self.merged(group, quiet: true)
+                        merged += result.merged
+                        stuck += result.stuck
+                    }
+                    store.notify(stuck == 0 ? "Merged \(merged == 1 ? "1 copy" : "\(merged) copies"). They are in the Trash."
+                                 : "Merged \(merged == 1 ? "1 copy" : "\(merged) copies"). \(stuck == 1 ? "1 copy" : "\(stuck) copies") could not go to the Trash and stayed.")
+                }
+            }
         } message: { Text("The extra copies go to the Trash.") }
     }
 
     private func merge(_ group: DuplicateSet) {
-        Task { await merged(group) }
+        Task { _ = await merged(group, quiet: false) }
     }
 
-    private func merged(_ group: DuplicateSet) async {
+    /// Merges a group; how many copies went, and how many stayed (their files would not go to
+    /// the Trash). Quiet: the caller says it, once for many groups.
+    private func merged(_ group: DuplicateSet, quiet: Bool) async -> (merged: Int, stuck: Int) {
         let keep = Int(group.keep)
         let extra = group.songs.indices.filter { $0 != keep }
         // The extra copies' files to the Trash, as the Finder does (Put Back works); a copy
@@ -96,16 +110,20 @@ private struct DuplicatesTab: View {
                 gone.append(i)
             } catch {
                 // This copy stays as it is, in the library and on disk; the rest are merged.
-                store.fail("\(url.lastPathComponent) could not go to the Trash: \(error.localizedDescription)")
+                if !quiet { store.fail("\(url.lastPathComponent) could not go to the Trash: \(error.localizedDescription)") }
             }
         }
-        guard !gone.isEmpty else { return }
+        let stuck = extra.count - gone.count
+        guard !gone.isEmpty else { return (0, stuck) }
         let (id, others) = (group.songs[keep].id, gone.map { group.songs[$0].id })
-        if await store.ask({ try $0.mergeInto(keep: id, others: others) }) != nil {
-            sets?.removeAll { $0.songs.first?.id == group.songs.first?.id }
+        guard await store.ask({ try $0.mergeInto(keep: id, others: others) }) != nil else { return (0, extra.count) }
+        // A group with a copy that stayed is still a group of duplicates.
+        if stuck == 0 { sets?.removeAll { $0.songs.first?.id == group.songs.first?.id } }
+        if !quiet, stuck == 0 {
             store.notify(others.count == 1 ? "Merged 1 copy. It is in the Trash." : "Merged \(others.count) copies. They are in the Trash.")
-            store.libraryChanged()
         }
+        store.libraryChanged()
+        return (others.count, stuck)
     }
 }
 

@@ -342,7 +342,11 @@ private struct QueueRow: View {
         .help(entry.reason)
         .contextMenu {
             Button("Play Now") { store.core.jumpTo(id: entry.id, index: UInt32(index)) }
+            Button("Move Up") { store.core.moveUpNext(from: UInt32(index), to: UInt32(max(0, index - 1))) }.disabled(index == 0)
             Button("Remove") { store.core.removeUpNext(index: UInt32(index)) }
         }
+        .accessibilityAction(named: "Play Now") { store.core.jumpTo(id: entry.id, index: UInt32(index)) }
+        .accessibilityAction(named: "Move Up") { store.core.moveUpNext(from: UInt32(index), to: UInt32(max(0, index - 1))) }
+        .accessibilityAction(named: "Remove") { store.core.removeUpNext(index: UInt32(index)) }
     }
 }

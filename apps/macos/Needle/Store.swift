@@ -57,6 +57,7 @@ final class Store {
     /// (`playback` changes ten times a second).
     private(set) var isPlaying = false
     @ObservationIgnored private var scansSeen: UInt64 = 0
+    @ObservationIgnored private var changesSeen: UInt64 = 0
     /// The theme's colours without an open page's, for Settings.
     private(set) var plainColors = Palette.build(Palette.base("dark"), tint: nil, ambient: false)
     private(set) var stemsJob: StemJob?
@@ -160,9 +161,13 @@ final class Store {
             core.rescan()
         }
         // A drive plugged in: its folders are read and watched again.
-        NSWorkspace.shared.notificationCenter.addObserver(forName: NSWorkspace.didMountNotification, object: nil, queue: .main) { [weak self] _ in
+        NSWorkspace.shared.notificationCenter.addObserver(forName: NSWorkspace.didMountNotification, object: nil, queue: .main) { [weak self] note in
+            let volume = (note.userInfo?[NSWorkspace.volumeURLUserInfoKey] as? URL)?.path
             MainActor.assumeIsolated {
-                guard let self, self.settings.welcomed else { return }
+                guard let self, self.settings.welcomed, let volume else { return }
+                // Only a drive that holds one of the music folders (not a disk image, a camera).
+                let roots = (try? self.core.folders()) ?? []
+                guard roots.contains(where: { $0 == volume || $0.hasPrefix(volume.hasSuffix("/") ? volume : volume + "/") }) else { return }
                 self.core.rescan()
                 self.core.rewatch()
             }
@@ -181,11 +186,13 @@ final class Store {
         if status != scan { scan = status }
         if status.finished != scansSeen {
             scansSeen = status.finished
+            let changed = status.changes != changesSeen
+            changesSeen = status.changes
             if let error = status.error { fail(error) } else if status.imported > 0 {
                 notify("\(count(Int(status.imported), "track")) added or updated")
             }
             core.rewatch()
-            libraryChanged()
+            if changed { libraryChanged() }
         }
         wasScanning = status.running
         let seen = core.libraryChanges()
@@ -730,6 +737,18 @@ final class Store {
 
     /// The last rating on its way: the next waits for it, so the last one given is kept.
     @ObservationIgnored private var rating: Task<Void, Never>?
+
+    /// Songs dropped on Favorites: the ones in the library that are not favourites yet.
+    func addToFavorites(_ ids: [String]) {
+        let tracks = JSON.decode([Track].self, (try? core.tracksJson(ids: ids)) ?? "[]") ?? []
+        let new = tracks.filter { !$0.favorite }.map(\.id)
+        guard !new.isEmpty else {
+            notify(tracks.isEmpty ? "Only songs can be added to favorites." : "Already in favorites.")
+            return
+        }
+        rate(new, 5)
+        notify(new.count == 1 ? "Added to favorites." : "Added \(new.count) songs to favorites.")
+    }
 
     func toggleFavorite(_ tracks: [Track]) {
         let all = tracks.allSatisfy(\.favorite)

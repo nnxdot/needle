@@ -359,11 +359,15 @@ struct TimingPage: View {
         let u = units
         var result: [LyricLine] = []
         // The song's own times, line for line, for the lines not tapped this time.
-        let before = store.lyrics.flatMap { $0.lines.count == lines.count ? $0.lines : nil }
+        // (Lines with no words, such as instrumental marks, are not lines here.)
+        let before = store.lyrics.flatMap { lyrics -> [LyricLine]? in
+            let worded = lyrics.lines.filter { !$0.text.trimmingCharacters(in: .whitespaces).isEmpty }
+            return worded.count == lines.count ? worded : nil
+        }
         for (i, line) in lines.enumerated() {
             let mine = u.enumerated().filter { $0.element.line == i && $0.offset < stamps.count }
             guard let first = mine.first else {
-                guard let old = before?[i], old.text == line else {
+                guard let old = before?[i], old.text.trimmingCharacters(in: .whitespaces) == line else {
                     store.fail("Tap every line before saving: lines without a time would be lost from the file.")
                     return
                 }

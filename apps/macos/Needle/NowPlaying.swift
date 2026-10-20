@@ -6,6 +6,8 @@ import MediaPlayer
 @MainActor
 final class NowPlaying {
     private var shownSong: String?
+    /// When the card was last written.
+    private var infoSet = Date()
     private var artwork: MPMediaItemArtwork?
 
     func start(_ store: Store) {
@@ -65,11 +67,15 @@ final class NowPlaying {
         if let artwork { info[MPMediaItemPropertyArtwork] = artwork }
         // Only when something shown changed, or the time drifted.
         let old = center.nowPlayingInfo
-        let drift = abs((old?[MPNowPlayingInfoPropertyElapsedPlaybackTime] as? Double ?? -10) - now.position)
+        // Where the card's clock is now: it runs on by itself at its rate since it was set.
+        let expected = (old?[MPNowPlayingInfoPropertyElapsedPlaybackTime] as? Double ?? -10)
+            + (old?[MPNowPlayingInfoPropertyPlaybackRate] as? Double ?? 0) * Date().timeIntervalSince(infoSet)
+        let drift = abs(expected - now.position)
         let rate = old?[MPNowPlayingInfoPropertyPlaybackRate] as? Double
         if old?[MPMediaItemPropertyTitle] as? String != now.title || rate != (now.playing ? 1.0 : 0.0) || drift > 1.5
             || (old?[MPMediaItemPropertyArtwork] == nil && artwork != nil) {
             center.nowPlayingInfo = info
+            infoSet = Date()
             center.playbackState = now.playing ? .playing : .paused
         }
     }

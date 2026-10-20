@@ -325,7 +325,9 @@ struct LibrarySettings: View {
                     Text(root).lineLimit(1).truncationMode(.middle)
                     Spacer()
                     Button { store.reveal(root) } label: { Image(systemName: "magnifyingglass") }.buttonStyle(.borderless).help("Show in Finder")
+                        .accessibilityLabel("Show \((root as NSString).lastPathComponent) in Finder")
                     Button { remove(root) } label: { Image(systemName: "minus.circle") }.buttonStyle(.borderless).help("Stop reading this folder")
+                        .accessibilityLabel("Stop reading \((root as NSString).lastPathComponent)")
                 }
             }
             HStack {
@@ -398,9 +400,9 @@ struct LibrarySettings: View {
         alert.addButton(withTitle: "Stop Reading It")
         alert.addButton(withTitle: "Cancel")
         alert.buttons.first?.hasDestructiveAction = true
-        // Return answers Cancel; the folder goes only with a click.
+        // Neither Return nor a stray key removes it: only a click. Esc cancels.
         alert.buttons.first?.keyEquivalent = ""
-        alert.buttons.last?.keyEquivalent = "\r"
+        alert.buttons.last?.keyEquivalent = "\u{1b}"
         guard alert.runModal() == .alertFirstButtonReturn else { return }
         Task {
             if await store.ask({ try $0.removeFolder(path: root) }) != nil {
@@ -733,8 +735,12 @@ struct ThemeEditor: View {
 
     private func save() {
         let id = theme?.readOnly == false ? theme!.id : ""
-        let json = JSON.text(["id": id, "name": name, "base": base, "author": author, "music_colors": musicColors,
-                              "colors": colors.mapValues(\.hex)] as [String: Any])
+        var fields: [String: Any] = ["id": id, "name": name, "base": base, "author": author, "music_colors": musicColors,
+                                     "colors": colors.mapValues(\.hex)]
+        // Kept as the theme had them.
+        if let grain = theme?.grain { fields["grain"] = grain }
+        if let font = theme?.font { fields["font"] = font }
+        let json = JSON.text(fields)
         Task {
             if let saved = await store.ask({ try $0.saveThemeJson(json: json) }) {
                 store.reloadThemes()

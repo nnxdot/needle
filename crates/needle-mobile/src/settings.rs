@@ -393,6 +393,8 @@ impl Needle {
         let path = needle_core::database::canonical_root(&path);
         db.execute("DELETE FROM roots WHERE path=?", [&path])
             .map_err(|e| failed(e.into()))?;
+        // A scan running now must not bring it back.
+        crate::REMOVED_ROOTS.lock().unwrap_or_else(|e| e.into_inner()).push(path.clone());
         let prefix = format!("{}/", path.trim_end_matches('/'));
         db.execute(
             "DELETE FROM tracks WHERE substr(path,1,length(?1))=?1",
