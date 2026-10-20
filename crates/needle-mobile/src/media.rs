@@ -221,10 +221,13 @@ impl Needle {
     pub fn set_fanart_key(&self, key: String) -> Result<()> {
         use needle_core::integrations::{SecretKind, clear_secret, save_secret};
         if key.trim().is_empty() {
-            Ok(clear_secret(SecretKind::FanartKey)?)
+            clear_secret(SecretKind::FanartKey)?;
         } else {
-            Ok(save_secret(SecretKind::FanartKey, key.trim())?)
+            save_secret(SecretKind::FanartKey, key.trim())?;
         }
+        // What the last key was given (or refused) is asked again with this one.
+        media::forget_fanart(&self.library)?;
+        Ok(())
     }
 
     /// Looks up a missing cover online (Cover Art Archive) for a song's album. Returns how
