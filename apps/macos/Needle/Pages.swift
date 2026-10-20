@@ -239,10 +239,10 @@ struct TileGrid<Content: View>: View {
     }
 }
 
-/// An artist, after Apple Music's: their photo across the top, under the bar's and sidebar's
-/// glass too, fading into a page (the whole window) of its colour; the name large over it with
-/// Play, Shuffle, Radio, and Blend; then the newest album in its own box, the top songs, and
-/// the albums.
+/// An artist, after Apple Music's: their picture tall across the top, under the bar's and
+/// sidebar's glass too, fading into a page (the whole window) of its colour; their logo (or
+/// name) in the middle near its foot, and under it a large Play between Shuffle, Radio, and
+/// Blend; then the newest album beside the top songs, and the albums.
 struct ArtistPage: View {
     private var store: Store { .shared }
     let name: String
@@ -257,31 +257,12 @@ struct ArtistPage: View {
     var body: some View {
         let colors = store.colors
         ScrollView {
-            VStack(alignment: .leading, spacing: 28) {
+            VStack(alignment: .leading, spacing: 30) {
                 banner
-                VStack(alignment: .leading, spacing: 28) {
-                    if let latest { featured(latest) }
-                    if !top.isEmpty {
-                        VStack(alignment: .leading, spacing: 8) {
-                            Text("Top songs").font(.title3.weight(.semibold))
-                            LazyVGrid(columns: [GridItem(.adaptive(minimum: 300), spacing: 12)], alignment: .leading, spacing: 6) {
-                                ForEach(Array(top.prefix(10).enumerated()), id: \.element.id) { index, song in
-                                    HStack(spacing: 10) {
-                                        Cover(path: song.artwork, seed: song.album + name, side: 38, corner: 4)
-                                        VStack(alignment: .leading, spacing: 1) {
-                                            Text(song.title).lineLimit(1)
-                                            Text(song.album).font(.caption).foregroundStyle(colors.ink2).lineLimit(1)
-                                        }
-                                        Spacer()
-                                        Text(clock(song.duration)).font(.caption).monospacedDigit().foregroundStyle(colors.ink3)
-                                    }
-                                    .padding(6)
-                                    .contentShape(Rectangle())
-                                    .onTapGesture(count: 2) { store.play(top.map(\.asTrack), from: index, reason: "From \(name)") }
-                                    .contextMenu { SongMenu(tracks: [song.asTrack]) }
-                                }
-                            }
-                        }
+                VStack(alignment: .leading, spacing: 32) {
+                    HStack(alignment: .top, spacing: 36) {
+                        if let latest { featured(latest) }
+                        if !top.isEmpty { topSongs }
                     }
                     VStack(alignment: .leading, spacing: 12) {
                         Text("Albums").font(.title3.weight(.semibold))
@@ -290,126 +271,187 @@ struct ArtistPage: View {
                         }
                     }
                 }
-                .padding(.horizontal, 28)
+                .padding(.horizontal, 32)
             }
             .padding(.bottom, 28)
         }
         .ignoresSafeArea(edges: .top)
         .foregroundStyle(colors.ink)
         .task(id: "\(name)\(store.libraryVersion)") {
-            // The logo is looked up beside the photo, not after it.
+            // The logo is looked up beside the pictures, not after them.
             let name = name
             let lookup = Task { await store.load { $0.artistLogo(name: name) } ?? nil }
             let wide = Task { await store.load { $0.artistBanner(name: name) } ?? nil }
             albums = JSON.decode([AlbumSummary].self, await store.load { try $0.artistAlbumsJson(name: name) }) ?? []
+            // The colour at once, from their first album; the picture's when it comes (a first
+            // visit downloads it).
+            store.setPageTint(await Covers.pageColor(albums?.first?.artwork, seed: name), for: .artist(name))
             photo = await Photos.find(name, online: store.settings.onlineMedia, store: store)
             hero = await wide.value
-            let color = await Covers.pageColor(hero ?? photo ?? albums?.first?.artwork, seed: name)
-            store.setPageTint(color, for: .artist(name))
+            if let picture = hero ?? photo {
+                store.setPageTint(await Covers.pageColor(picture, seed: name), for: .artist(name))
+            }
             logo = await lookup.value
             top = await store.load { try $0.artistSongs(name: name) } ?? []
             similar = await store.load { $0.similarArtists(artist: name) } ?? []
         }
     }
 
-    /// The newest album, for the box under the name.
+    /// The newest album, for the box beside the top songs.
     private var latest: AlbumSummary? {
         albums?.max { ($0.year, $0.album) < ($1.year, $1.album) }
     }
 
     private var banner: some View {
         let colors = store.colors
-        return ZStack(alignment: .bottomLeading) {
-            Group {
-                // A wide picture of them, or their photo.
-                if let picture = hero ?? photo {
-                    // The page's width, whatever the picture's shape.
-                    Color.clear
-                        .frame(maxWidth: .infinity)
-                        .frame(height: 430)
-                        .overlay { Artwork(path: picture, seed: name, size: 1600) }
-                        .clipped()
-                        .overlay {
-                            LinearGradient(stops: [
-                                .init(color: colors.canvas.opacity(0), location: 0.35),
-                                .init(color: colors.canvas.opacity(0.7), location: 0.75),
-                                .init(color: colors.canvas, location: 1),
-                            ], startPoint: .top, endPoint: .bottom)
-                        }
-                        .modifier(ExtendsUnderGlass())
-                } else {
-                    // No photo: their first album's cover, blurred across the top.
-                    HeaderBackdrop(path: albums?.first?.artwork, seed: name, height: 430)
-                }
-            }
-            .allowsHitTesting(false)
-            VStack(alignment: .leading, spacing: 14) {
-                // Their logo when fanart.tv has one, as Apple Music shows artists' own.
-                if let logo {
-                    Logo(path: logo)
-                        .frame(maxWidth: 440, maxHeight: 150, alignment: .bottomLeading)
-                        .shadow(color: colors.canvas.opacity(0.5), radius: 16)
-                        .accessibilityLabel(name)
-                } else {
-                    Text(name.isEmpty ? "Unknown artist" : name)
-                        .font(store.display(68))
-                        .tracking(-1.2)
-                        .lineLimit(2)
-                        .minimumScaleFactor(0.5)
-                        .shadow(color: colors.canvas.opacity(0.35), radius: 14)
-                }
-                if let albums {
-                    Text("\(count(albums.count, "album")) · \(count(albums.reduce(0) { $0 + $1.tracks }, "track"))")
-                        .foregroundStyle(colors.ink2)
-                }
-                HStack(spacing: 8) {
-                    Button { play(shuffle: false) } label: { Label("Play", systemImage: "play.fill") }.glassButton(prominent: true)
-                    Button { play(shuffle: true) } label: { Label("Shuffle", systemImage: "shuffle") }.glassButton()
-                    Button { store.artistRadio(name) } label: { Label("Radio", systemImage: "dot.radiowaves.left.and.right") }.glassButton()
-                    Menu {
-                        if let similar {
-                            if similar.isEmpty { Text("No other artists are measured yet.") }
-                            ForEach(similar, id: \.self) { other in
-                                Button(other) { store.blend(name, other) }
+        return Color.clear
+            .frame(maxWidth: .infinity)
+            // Two thirds of the window, as in Apple Music, but never short.
+            .containerRelativeFrame(.vertical) { height, _ in max(460, height * 0.66) }
+            .overlay {
+                Group {
+                    // A wide picture of them, or their photo.
+                    if let picture = hero ?? photo {
+                        Artwork(path: picture, seed: name, size: 1800)
+                            .overlay {
+                                LinearGradient(stops: [
+                                    .init(color: colors.canvas.opacity(0), location: 0.4),
+                                    .init(color: colors.canvas.opacity(0.7), location: 0.78),
+                                    .init(color: colors.canvas, location: 1),
+                                ], startPoint: .top, endPoint: .bottom)
                             }
-                        } else {
-                            Text("Listening for similar artists…")
+                            // No background extension here: it blurred the photo's side
+                            // beside the side panel.
+                    } else {
+                        // No picture: their first album's cover, blurred across the top.
+                        GeometryReader { geo in
+                            HeaderBackdrop(path: albums?.first?.artwork, seed: name, height: geo.size.height)
                         }
-                    } label: { Label("Blend", systemImage: "circle.lefthalf.filled") }
-                        .glassButton()
-                        .fixedSize()
-                        .help("Blend with another artist")
+                    }
                 }
-                .controlSize(.large)
+                .allowsHitTesting(false)
             }
-            .padding(.horizontal, 28)
-            .padding(.bottom, 4)
+            .clipped()
+            .overlay(alignment: .bottom) {
+                VStack(spacing: 18) {
+                    // Their logo when fanart.tv has one, as Apple Music shows artists' own.
+                    if let logo {
+                        Logo(path: logo)
+                            .frame(maxWidth: 420, maxHeight: 140)
+                            // Logos are mostly white: on a light page, a dark glow keeps them clear.
+                            .shadow(color: colors.dark ? colors.canvas.opacity(0.5) : .black.opacity(0.35), radius: 18)
+                            .accessibilityLabel(name)
+                    } else {
+                        Text(name.isEmpty ? "Unknown artist" : name)
+                            .font(store.display(64))
+                            .tracking(-1.2)
+                            .multilineTextAlignment(.center)
+                            .lineLimit(2)
+                            .minimumScaleFactor(0.5)
+                            .shadow(color: colors.canvas.opacity(0.35), radius: 14)
+                    }
+                    HStack(spacing: 20) {
+                        round("shuffle", "Shuffle") { play(shuffle: true) }
+                        Button { play(shuffle: false) } label: {
+                            Image(systemName: "play.fill")
+                                .font(.system(size: 30, weight: .bold))
+                                .foregroundStyle(colors.canvas)
+                                .offset(x: 2)
+                                .frame(width: 76, height: 76)
+                                .background(colors.ink, in: Circle())
+                                .shadow(color: .black.opacity(0.25), radius: 12, y: 5)
+                                .contentShape(Circle())
+                        }
+                        .buttonStyle(.plain)
+                        .help("Play")
+                        round("dot.radiowaves.left.and.right", "Radio") { store.artistRadio(name) }
+                        Menu {
+                            if let similar {
+                                if similar.isEmpty { Text("No other artists are measured yet.") }
+                                ForEach(similar, id: \.self) { other in
+                                    Button(other) { store.blend(name, other) }
+                                }
+                            } else {
+                                Text("Listening for similar artists…")
+                            }
+                        } label: {
+                            Image(systemName: "circle.lefthalf.filled").font(.system(size: 15, weight: .semibold))
+                        }
+                        .menuStyle(.button)
+                        .menuIndicator(.hidden)
+                        .buttonBorderShape(.circle)
+                        .glassButton()
+                        .controlSize(.extraLarge)
+                        .help("Blend with another artist")
+                    }
+                }
+                .padding(.horizontal, 32)
+                .padding(.bottom, 6)
+            }
+    }
+
+    /// A small round button of glass beside Play.
+    private func round(_ symbol: String, _ help: String, _ action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Image(systemName: symbol).font(.system(size: 15, weight: .semibold))
+        }
+        .buttonBorderShape(.circle)
+        .glassButton()
+        .controlSize(.extraLarge)
+        .help(help)
+    }
+
+    /// The newest album, as Apple Music's "Latest Release": its cover, then when, what, and
+    /// how many songs.
+    private func featured(_ album: AlbumSummary) -> some View {
+        let colors = store.colors
+        return VStack(alignment: .leading, spacing: 12) {
+            Text("Latest Release").font(.title3.weight(.semibold))
+            HStack(alignment: .center, spacing: 18) {
+                Cover(path: album.artwork, seed: album.album + album.artist, side: 190, corner: 10)
+                    .shadow(color: .black.opacity(0.25), radius: 12, y: 6)
+                VStack(alignment: .leading, spacing: 4) {
+                    if album.year > 0 {
+                        Text(String(album.year)).font(.callout.weight(.semibold)).foregroundStyle(colors.ink2)
+                    }
+                    Text(album.title).font(store.display(20, weight: .semibold)).lineLimit(3)
+                    Text(count(album.tracks, "song")).foregroundStyle(colors.ink2)
+                    Button { playAlbum(album) } label: { Label("Play", systemImage: "play.fill") }
+                        .glassButton()
+                        .padding(.top, 6)
+                }
+                .frame(maxWidth: 220, alignment: .leading)
+            }
+            .contentShape(Rectangle())
+            .onTapGesture { store.navigate(album.route) }
+            .contextMenu { GroupMenu(route: album.route, title: album.title) }
         }
     }
 
-    /// The newest album, in a box of glass.
-    private func featured(_ album: AlbumSummary) -> some View {
+    private var topSongs: some View {
         let colors = store.colors
-        return HStack(spacing: 18) {
-            Cover(path: album.artwork, seed: album.album + album.artist, side: 116, corner: 10)
-                .shadow(color: .black.opacity(0.25), radius: 10, y: 5)
-            VStack(alignment: .leading, spacing: 4) {
-                Text(album.year > 0 ? "Latest release · \(String(album.year))" : "Latest release")
-                    .font(.callout.weight(.semibold)).foregroundStyle(colors.ink2)
-                Text(album.title).font(store.display(24, weight: .semibold)).lineLimit(2)
-                Text(count(album.tracks, "track")).foregroundStyle(colors.ink3)
+        return VStack(alignment: .leading, spacing: 8) {
+            Text("Top Songs").font(.title3.weight(.semibold))
+            LazyVGrid(columns: [GridItem(.adaptive(minimum: 280), spacing: 18)], alignment: .leading, spacing: 4) {
+                ForEach(Array(top.prefix(8).enumerated()), id: \.element.id) { index, song in
+                    HStack(spacing: 12) {
+                        Cover(path: song.artwork, seed: song.album + name, side: 44, corner: 5)
+                        VStack(alignment: .leading, spacing: 1) {
+                            Text(song.title).lineLimit(1)
+                            Text(song.album).font(.caption).foregroundStyle(colors.ink2).lineLimit(1)
+                        }
+                        Spacer()
+                        Text(clock(song.duration)).font(.caption).monospacedDigit().foregroundStyle(colors.ink3)
+                    }
+                    .padding(.vertical, 5)
+                    .overlay(alignment: .bottom) { Rectangle().fill(colors.lineSoft).frame(height: 1).padding(.leading, 56) }
+                    .contentShape(Rectangle())
+                    .onTapGesture(count: 2) { store.play(top.map(\.asTrack), from: index, reason: "From \(name)") }
+                    .contextMenu { SongMenu(tracks: [song.asTrack]) }
+                }
             }
-            Spacer(minLength: 0)
-            Button { playAlbum(album) } label: { Label("Play", systemImage: "play.fill") }
-                .glassButton()
-                .controlSize(.large)
         }
-        .padding(16)
-        .frame(maxWidth: 640, alignment: .leading)
-        .pane(RoundedRectangle(cornerRadius: 24, style: .continuous), tint: colors.ink.opacity(0.04), interactive: true)
-        .contentShape(RoundedRectangle(cornerRadius: 24, style: .continuous))
-        .onTapGesture { store.navigate(album.route) }
-        .contextMenu { GroupMenu(route: album.route, title: album.title) }
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     private func play(shuffle: Bool) {

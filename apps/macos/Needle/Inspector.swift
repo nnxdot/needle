@@ -7,13 +7,22 @@ struct Inspector: View {
     var body: some View {
         @Bindable var store = store
         VStack(spacing: 0) {
-            Picker("", selection: $store.panel) {
-                ForEach(Store.Panel.allCases, id: \.self) { Text($0.rawValue).tag($0) }
+            HStack(spacing: 8) {
+                Picker("", selection: $store.panel) {
+                    ForEach(Store.Panel.allCases, id: \.self) { Text($0.rawValue).tag($0) }
+                }
+                .pickerStyle(.segmented)
+                .labelsHidden()
+                Button { store.set(["show_inspector": false]) } label: {
+                    Image(systemName: "xmark").font(.system(size: 11, weight: .bold))
+                }
+                .buttonBorderShape(.circle)
+                .glassButton()
+                .help("Close the panel")
             }
-            .pickerStyle(.segmented)
-            .labelsHidden()
             .padding(.horizontal, 14)
-            .padding(.vertical, 10)
+            .padding(.top, 12)
+            .padding(.bottom, 8)
             Group {
                 switch store.panel {
                 case .details: Details()
@@ -24,8 +33,8 @@ struct Inspector: View {
             .frame(maxHeight: .infinity, alignment: .top)
             .transition(.opacity)
         }
-        // The page's colour, not the panel's own grey, under the title bar too.
-        .background { if !store.settings.ambient { store.colors.canvas.ignoresSafeArea() } }
+        // On glass (see MainWindow): the page shows through, a little tinted by its colour.
+        .background { store.colors.canvas.opacity(store.colors.dark ? 0.25 : 0.35) }
     }
 }
 

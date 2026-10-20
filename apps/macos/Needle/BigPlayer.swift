@@ -1,3 +1,4 @@
+import AVFoundation
 import SwiftUI
 
 /// The big player over the whole window (⌘P), and full screen (⌃⌘F): the cover large on its
@@ -12,11 +13,15 @@ struct BigPlayer: View {
     var body: some View {
         @Bindable var store = store
         let p = store.playback
+        let immersive = store.settings.immersiveCover
         GeometryReader { geo in
             let wide = geo.size.width > 980
             ZStack {
                 Color.black
-                if let p, p.hasSong {
+                if let p, p.hasSong, immersive {
+                    ImmersiveCover(path: p.artwork, seed: p.album + p.artist, songID: store.current?.id,
+                                   animated: store.settings.animatedCovers && store.motion)
+                } else if let p, p.hasSong {
                     CoverBackdrop(path: p.artwork, seed: p.album + p.artist, moving: store.motion)
                 } else {
                     store.colors.glow.opacity(0.3)
@@ -24,8 +29,13 @@ struct BigPlayer: View {
                 if let p, p.hasSong {
                     HStack(spacing: wide ? 60 : 32) {
                         VStack(spacing: 22) {
-                            Cover(path: p.artwork, seed: p.album + p.artist, side: min(geo.size.height * 0.5, wide ? 460 : 340), corner: 14)
-                                .shadow(color: .black.opacity(0.45), radius: 40, y: 18)
+                            if immersive {
+                                // The cover is the window's side itself: the words sit over its foot.
+                                Spacer(minLength: 0)
+                            } else {
+                                Cover(path: p.artwork, seed: p.album + p.artist, side: min(geo.size.height * 0.5, wide ? 460 : 340), corner: 14)
+                                    .shadow(color: .black.opacity(0.45), radius: 40, y: 18)
+                            }
                             VStack(spacing: 4) {
                                 Text(p.title).font(store.display(store.immersive ? 34 : 28)).lineLimit(2).multilineTextAlignment(.center)
                                 Button(p.artist) { store.big = false; store.setImmersive(false); store.navigate(.artist(store.current?.artist ?? p.artist)) }
@@ -134,6 +144,87 @@ struct BigPlayer: View {
             .mask(LinearGradient(stops: [.init(color: .clear, location: 0), .init(color: .black, location: 0.08),
                                          .init(color: .black, location: 0.9), .init(color: .clear, location: 1)],
                                  startPoint: .top, endPoint: .bottom))
+        }
+    }
+}
+
+/// The big player's cover as Apple Music's: the cover filling the window's side from top to
+/// foot, edge to edge, fading into its colour (darkened) toward the other side and the foot;
+/// a moving cover beside the songs plays over it.
+struct ImmersiveCover: View {
+    private var store: Store { .shared }
+    let path: String?
+    let seed: String
+    let songID: String?
+    let animated: Bool
+    @State private var tone = Color.black
+    @State private var video: URL?
+
+    var body: some View {
+        GeometryReader { geo in
+            let side = min(geo.size.height, geo.size.width * 0.62)
+            ZStack(alignment: .leading) {
+                tone
+                ZStack {
+                    Artwork(path: path, seed: seed, size: 1800)
+                    if let video { LoopingVideo(url: video) }
+                }
+                .frame(width: side, height: geo.size.height)
+                .clipped()
+                .overlay(alignment: .trailing) {
+                    LinearGradient(colors: [tone.opacity(0), tone.opacity(0.7), tone], startPoint: .leading, endPoint: .trailing)
+                        .frame(width: side * 0.45)
+                }
+                .overlay(alignment: .bottom) {
+                    // Solid at the foot, so the cover's own words never show under the controls.
+                    LinearGradient(stops: [.init(color: tone.opacity(0), location: 0), .init(color: tone.opacity(0.8), location: 0.5),
+                                           .init(color: tone, location: 0.8)], startPoint: .top, endPoint: .bottom)
+                        .frame(height: geo.size.height * 0.55)
+                }
+                .modifier(ExtendsUnderGlass())
+            }
+        }
+        .animation(.easeInOut(duration: 0.6), value: tone)
+        .task(id: songID ?? path) {
+            let color = await Covers.pageColor(path, seed: seed)
+            var h: CGFloat = 0, s: CGFloat = 0, b: CGFloat = 0, a: CGFloat = 0
+            color.getHue(&h, saturation: &s, brightness: &b, alpha: &a)
+            tone = Color(nsColor: NSColor(hue: h, saturation: s, brightness: min(b, 0.3), alpha: 1))
+            guard animated, let id = songID else { video = nil; return }
+            video = (await store.load { $0.animatedCover(id: id) } ?? nil).map(URL.init(fileURLWithPath:))
+        }
+    }
+}
+
+/// A short video over and over, silent, filling its frame: a moving cover.
+struct LoopingVideo: NSViewRepresentable {
+    let url: URL
+
+    func makeNSView(context: Context) -> PlayerView {
+        let view = PlayerView()
+        view.play(url)
+        return view
+    }
+
+    func updateNSView(_ view: PlayerView, context: Context) {
+        if view.url != url { view.play(url) }
+    }
+
+    final class PlayerView: NSView {
+        private let player = AVQueuePlayer()
+        private var looper: AVPlayerLooper?
+        private(set) var url: URL?
+
+        func play(_ url: URL) {
+            self.url = url
+            wantsLayer = true
+            let layer = AVPlayerLayer(player: player)
+            layer.videoGravity = .resizeAspectFill
+            self.layer = layer
+            player.isMuted = true
+            player.preventsDisplaySleepDuringVideoPlayback = false
+            looper = AVPlayerLooper(player: player, templateItem: AVPlayerItem(url: url))
+            player.play()
         }
     }
 }

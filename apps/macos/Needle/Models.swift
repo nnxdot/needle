@@ -207,6 +207,9 @@ struct NeedleSettings: Decodable, Equatable {
     var scrobbleCorrections = true
     var layout = Layout()
     var onlineMedia = false
+    var coverColors = true
+    var immersiveCover = true
+    var animatedCovers = true
     var soundAnalysis = true
     var checkUpdates = true
     var lastUpdateCheck = 0

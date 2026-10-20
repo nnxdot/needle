@@ -448,6 +448,15 @@ struct AppearanceSettings: View {
             SettingRow(title: "Colors from the music", detail: "Tint Needle with the colors of the cover that is playing.") {
                 SettingSwitch(key: "music_colors", on: s.musicColors)
             }
+            SettingRow(title: "Colors from covers", detail: "Album and artist pages, and the whole window while one is open, take the colors of its cover or photo.") {
+                SettingSwitch(key: "cover_colors", on: s.coverColors)
+            }
+            SettingRow(title: "Immersive cover", detail: "In the big player, the cover fills its side of the window edge to edge and fades into its colors, as in Apple Music.") {
+                SettingSwitch(key: "immersive_cover", on: s.immersiveCover)
+            }
+            SettingRow(title: "Moving covers", detail: "A video beside the songs, such as cover.mp4, plays as the cover in the big player.") {
+                SettingSwitch(key: "animated_covers", on: s.animatedCovers)
+            }
             SettingRow(title: "Reduce motion", detail: NSWorkspace.shared.accessibilityDisplayShouldReduceMotion ? "Your Mac has animations turned down, so Needle keeps still too." : "Turns off fades, slides, and other animations.") {
                 SettingSwitch(key: "reduce_motion", on: s.reduceMotion)
             }
