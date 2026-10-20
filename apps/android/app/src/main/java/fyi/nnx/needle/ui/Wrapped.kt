@@ -44,6 +44,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.layout.heightIn
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
@@ -307,12 +308,15 @@ private fun Keep(w: Wrapped) {
         Spacer(Modifier.height(32.dp))
         Button(onClick = { playTop(w) }, colors = ButtonDefaults.buttonColors(containerColor = Color.White, contentColor = Color.Black)) { Text("Play your top songs") }
         Spacer(Modifier.height(8.dp))
-        FilledTonalButton(onClick = {
+        // Once: a second tap would make a second playlist of the same songs.
+        var saved by remember { mutableStateOf(false) }
+        FilledTonalButton(enabled = !saved, onClick = {
+            saved = true
             libraryWrite(
                 { core.createPlaylist("Top songs of ${w.year}", "Your most played songs of ${w.year}.", w.topSongs.map { it.id }, null) },
-                { showMessage("Could not save it: ${it.message}") },
+                { saved = false; showMessage("Could not save it: ${it.message}") },
             ) { showMessage("Saved as a playlist") }
-        }) { Text("Save them as a playlist") }
+        }) { Text(if (saved) "Saved as a playlist" else "Save them as a playlist") }
     }
 }
 

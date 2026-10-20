@@ -294,7 +294,8 @@ internal fun Pinned(
         ShapedIcon(icon, 44, container = accent, content = androidx.compose.material3.contentColorFor(accent))
         Column {
             Text(title, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold, color = text)
-            Text(detail ?: " ", style = MaterialTheme.typography.bodySmall, color = text.copy(alpha = 0.75f), maxLines = 1, overflow = TextOverflow.Ellipsis)
+            // Two lines on a narrow phone, so the words are not cut short.
+            Text(detail ?: " ", style = MaterialTheme.typography.bodySmall, color = text.copy(alpha = 0.75f), maxLines = 2, overflow = TextOverflow.Ellipsis)
         }
     }
 }

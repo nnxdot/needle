@@ -327,7 +327,18 @@ private class NeedlePlayer(looper: Looper, private val core: Needle) : SimpleBas
         // play is already on its way.
         if (playWhenReady && android.os.SystemClock.uptimeMillis() - startedAt < 3000) return Futures.immediateVoidFuture()
         if (playWhenReady != playback().playing) fyi.nnx.needle.ui.Controls.toggle()
-        return Futures.immediateVoidFuture()
+        return afterCore()
+    }
+
+    /**
+     * Done a moment after a command: the core takes it on its own thread, and Media3 reads the
+     * state again when this is done, so the notification, a car, or a watch shows the press at
+     * once rather than at the next tick.
+     */
+    private fun afterCore(): ListenableFuture<*> {
+        val done = com.google.common.util.concurrent.SettableFuture.create<Any?>()
+        handler.postDelayed({ done.set(null) }, 150)
+        return done
     }
 
     /** Songs chosen in Android Auto (or another browser): Needle plays them. */
@@ -338,7 +349,7 @@ private class NeedlePlayer(looper: Looper, private val core: Needle) : SimpleBas
             startedAt = android.os.SystemClock.uptimeMillis()
             if (startPositionMs > 0) core.seek(startPositionMs / 1000.0)
         }
-        return Futures.immediateVoidFuture()
+        return afterCore()
     }
 
     // Changing the list is offered so songs can be set (above); the rest must not throw, as
@@ -362,7 +373,7 @@ private class NeedlePlayer(looper: Looper, private val core: Needle) : SimpleBas
             COMMAND_SEEK_TO_PREVIOUS, COMMAND_SEEK_TO_PREVIOUS_MEDIA_ITEM -> fyi.nnx.needle.ui.Controls.previous()
             else -> fyi.nnx.needle.ui.Controls.seek(positionMs / 1000.0)
         }
-        return Futures.immediateVoidFuture()
+        return afterCore()
     }
 
     override fun handleRelease(): ListenableFuture<*> {

@@ -221,18 +221,24 @@ fun CoverBackdrop(path: String?, modifier: Modifier = Modifier, dim: Float = 0.3
                 rememberInfiniteTransition(label = "drift").animateFloat(0f, 360f, infiniteRepeatable(tween(90_000, easing = LinearEasing)), label = "turn")
             } else remember { androidx.compose.runtime.mutableFloatStateOf(0f) }
             AnimatedContent(path, transitionSpec = { fadeIn(tween(600)) togetherWith fadeOut(tween(600)) }, label = "backdrop") { art ->
+                // Blurred small, then made big: a blur looks the same at an eighth of the size,
+                // and the phone blurs 64 times fewer pixels (a whole screen's, it was, at times
+                // each frame), so the pages and the player scroll and turn smoothly over it.
+                val shrink = 8f
                 AsyncImage(
                     model = coverRequest(fileUri(art)),
                     contentDescription = null,
                     contentScale = ContentScale.Crop,
                     modifier = Modifier
-                        .requiredSize(side)
+                        .requiredSize(side / shrink)
                         .graphicsLayer {
                             val r = if (still) 0f else turn
+                            scaleX = shrink
+                            scaleY = shrink
                             rotationZ = r
-                            translationX = if (still) 0f else kotlin.math.sin(Math.toRadians(r * 2.0)).toFloat() * size.width * 0.06f
+                            translationX = if (still) 0f else kotlin.math.sin(Math.toRadians(r * 2.0)).toFloat() * size.width * shrink * 0.06f
                         }
-                        .blur(app.backdropBlur.toInt().coerceIn(20, 120).dp),
+                        .blur((app.backdropBlur.coerceIn(20f, 120f) / shrink).dp),
                 )
             }
             Box(Modifier.fillMaxSize().background(page.copy(alpha = dim)))

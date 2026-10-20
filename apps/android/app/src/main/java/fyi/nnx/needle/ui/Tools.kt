@@ -305,6 +305,7 @@ fun TagEditorDialog(ids: List<String>, onDone: () -> Unit) {
 /** What a song is, from its sound (AcoustID); a match's names can be written into it. */
 @Composable
 private fun IdentifyDialog(id: String, onDone: (changed: Boolean) -> Unit) {
+    var applying by remember { mutableStateOf(false) }
     var key by remember { mutableStateOf("") }
     var hasKey by remember { mutableStateOf(core.hasAcoustidKey()) }
     var matches by remember { mutableStateOf<List<SoundMatch>?>(null) }
@@ -339,8 +340,12 @@ private fun IdentifyDialog(id: String, onDone: (changed: Boolean) -> Unit) {
                     matches.isNullOrEmpty() -> Text("No match found.")
                     else -> matches!!.take(6).forEach { m ->
                         Row(
-                            Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).clickable {
-                                access { work({ core.applyMatch(id, m) }) { showMessage("Saved"); refresh(); onDone(true) } }
+                            // Once: a second tap would write the tags again.
+                            Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).clickable(enabled = !applying) {
+                                access {
+                                    applying = true
+                                    work({ core.applyMatch(id, m) }, { applying = false }) { showMessage("Saved"); refresh(); onDone(true) }
+                                }
                             }.padding(8.dp),
                             verticalAlignment = Alignment.CenterVertically,
                         ) {
@@ -443,6 +448,7 @@ private fun Card(content: @Composable () -> Unit) {
 
 @Composable
 private fun Duplicates() {
+    var merging by remember { mutableStateOf(false) }
     val context = LocalContext.current
     var sets by remember { mutableStateOf<List<DuplicateSet>?>(null) }
     var round by remember { mutableIntStateOf(0) }
@@ -472,10 +478,12 @@ private fun Duplicates() {
                         if (i == keep) Text("Keep", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary)
                     }
                 }
-                FilledTonalButton(onClick = {
+                // Once: a second tap would merge songs already merged.
+                FilledTonalButton(enabled = !merging, onClick = {
                     val others = set.songs.filterIndexed { i, _ -> i != keep }
                     val paths = set.paths.filterIndexed { i, _ -> i != keep }
-                    work({ core.mergeDuplicates(set.songs[keep].id, others.map { it.id }) }) {
+                    merging = true
+                    work({ core.mergeDuplicates(set.songs[keep].id, others.map { it.id }) }, { merging = false }) {
                         showMessage("Kept one")
                         refresh()
                         trash = paths
@@ -566,6 +574,7 @@ private fun AlbumProblems() {
 
 @Composable
 private fun ReleaseDialog(album: AlbumProblem, onDone: (Boolean) -> Unit) {
+    var applying by remember { mutableStateOf(false) }
     var choices by remember { mutableStateOf<List<ReleaseChoice>?>(null) }
     val access = rememberFileAccess(album.songIds)
     LaunchedEffect(album) {
@@ -585,9 +594,10 @@ private fun ReleaseDialog(album: AlbumProblem, onDone: (Boolean) -> Unit) {
                 }
                 list.orEmpty().forEach { r ->
                     Row(
-                        Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).clickable {
+                        Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).clickable(enabled = !applying) {
                             access {
-                                work({ core.applyRelease(r.id) }) { report ->
+                                applying = true
+                                work({ core.applyRelease(r.id) }, { applying = false }) { report ->
                                     showMessage(if (report.failed.isEmpty()) "Tagged ${count(report.saved.toInt(), "song")}" else "Tagged ${report.saved}; ${report.failed.size} could not be changed")
                                     refresh()
                                     onDone(true)
@@ -758,6 +768,7 @@ fun ThemeEditorScreen(id: String?, back: () -> Unit) {
     var base by remember { mutableStateOf(existing?.base ?: "dark") }
     val colors = remember { mutableStateMapOf<String, String>().apply { existing?.colors?.let { putAll(it) } } }
     var picking by remember { mutableStateOf<String?>(null) }
+    var saving by remember { mutableStateOf(false) }
     val scheme = MaterialTheme.colorScheme
     val defaults = mapOf(
         "page" to scheme.background, "sidebar" to scheme.surfaceContainerLow, "card" to scheme.surfaceContainer,
@@ -799,16 +810,19 @@ fun ThemeEditorScreen(id: String?, back: () -> Unit) {
         }
         item {
             Row(Modifier.padding(Edge), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                Button(onClick = {
-                    work({ core.saveTheme(id?.takeUnless { existing?.readOnly == true }, name, base, colors.toMap()) }) { saved ->
+                // Once: a second tap would make a second theme and go back two pages.
+                Button(enabled = !saving, onClick = {
+                    saving = true
+                    work({ core.saveTheme(id?.takeUnless { existing?.readOnly == true }, name, base, colors.toMap()) }, { saving = false }) { saved ->
                         NeedleApp.instance.themeVersion.value++
                         NeedleApp.instance.updateApp { it.copy(theme = saved) }
                         showMessage("Saved $name")
                         back()
                     }
                 }) { Text("Save and use it") }
-                if (existing != null && !existing.readOnly) TextButton(onClick = {
-                    work({ core.deleteTheme(existing.id) }) {
+                if (existing != null && !existing.readOnly) TextButton(enabled = !saving, onClick = {
+                    saving = true
+                    work({ core.deleteTheme(existing.id) }, { saving = false }) {
                         NeedleApp.instance.themeVersion.value++
                         NeedleApp.instance.updateApp { it.copy(theme = "night") }
                         showMessage("Deleted ${existing.name}")
@@ -873,7 +887,6 @@ fun SpeakersSheet(context: Context) {
     val chosen = remember { mutableStateMapOf<String, Boolean>() }
     val delays = remember { mutableStateMapOf<String, Int>() }
     var phone by remember { mutableStateOf(true) }
-    val scope = rememberCoroutineScope()
     LaunchedEffect(Unit) {
         // Finding speakers needs the phone to listen to the network's announcements.
         // A TV box on a cable may have no Wi-Fi at all: then the network is heard without it.
@@ -892,9 +905,12 @@ fun SpeakersSheet(context: Context) {
         }
     }
     fun apply() {
-        val ids = chosen.filterValues { it }.keys.toList()
+        // Only speakers found now: one not on the network has no row to turn it off by.
+        val found = all.orEmpty().map { it.id }.toSet()
+        val ids = chosen.filterValues { it }.keys.filter { it in found }
         val group = ids.size + (if (phone) 1 else 0) > 1
-        scope.launch(Dispatchers.IO) {
+        // On the app's scope: the sheet's own goes as the sheet closes, on the next line.
+        NeedleApp.instance.scope.launch(Dispatchers.IO) {
             runCatching { core.setSpeakers(ids, phone || ids.isEmpty(), if (group) delays.toMap() else emptyMap()) }
                 .onFailure { showMessage(it.message ?: "Could not play there") }
         }

@@ -20,6 +20,7 @@ import androidx.compose.ui.input.key.type
 import androidx.compose.ui.semantics.CustomAccessibilityAction
 import androidx.compose.ui.semantics.customActions
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
@@ -100,7 +101,9 @@ fun DragHandle(reorder: Reorder, index: Int, tint: androidx.compose.ui.graphics.
                 if (it.type == KeyEventType.KeyDown) reorder.move(index, to)
                 true
             }
-            .semantics {
+            // One stop for TalkBack: the name and the moves on the handle itself.
+            .semantics(mergeDescendants = true) {
+                contentDescription = "Drag to move"
                 customActions = listOfNotNull(
                     if (up) CustomAccessibilityAction("Move up") { reorder.move(index, index - 1); true } else null,
                     if (down) CustomAccessibilityAction("Move down") { reorder.move(index, index + 1); true } else null,
@@ -125,6 +128,6 @@ fun DragHandle(reorder: Reorder, index: Int, tint: androidx.compose.ui.graphics.
             },
         contentAlignment = Alignment.Center,
     ) {
-        Icon(Icons.Rounded.DragHandle, contentDescription = "Drag to move", tint = tint, modifier = Modifier.padding(4.dp))
+        Icon(Icons.Rounded.DragHandle, contentDescription = null, tint = tint, modifier = Modifier.padding(4.dp))
     }
 }

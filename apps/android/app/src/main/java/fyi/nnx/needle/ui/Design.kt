@@ -60,6 +60,10 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.stateDescription
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.ui.semantics.selected
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
@@ -170,11 +174,16 @@ fun SongSheet(song: Song, open: ((Route) -> Unit)?, remove: (() -> Unit)?, onDis
     val state = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     val scope = androidx.compose.runtime.rememberCoroutineScope()
     val haptics = rememberHaptics()
+    // Once only: rows still take taps while the sheet slides away.
+    var acted by remember { mutableStateOf(false) }
     fun act(work: () -> Unit) {
+        if (acted) return
+        acted = true
         scope.launch { state.hide() }.invokeOnCompletion { onDismiss(); work() }
     }
     ModalBottomSheet(onDismissRequest = onDismiss, sheetState = state, containerColor = MaterialTheme.colorScheme.surfaceContainerLow) {
-        Column(Modifier.navigationBarsPadding().padding(horizontal = 16.dp).padding(bottom = 16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        // Scrolled where it is taller than the screen (a phone on its side, a TV, large text).
+        Column(Modifier.verticalScroll(rememberScrollState()).navigationBarsPadding().padding(horizontal = 16.dp).padding(bottom = 16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(14.dp), modifier = Modifier.padding(horizontal = 4.dp)) {
                 Cover(song.artwork, Modifier.size(56.dp), SmallCoverShape)
                 Column(Modifier.weight(1f)) {
@@ -183,10 +192,14 @@ fun SongSheet(song: Song, open: ((Route) -> Unit)?, remove: (() -> Unit)?, onDis
                 }
             }
             // The stars: a tap sets them, a tap on the same one clears them.
-            var stars by remember(song.id) { mutableIntStateOf(runCatching { core.rating(song.id).toInt() }.getOrDefault(song.rating.toInt())) }
+            var stars by remember(song.id) { mutableIntStateOf(song.rating.toInt()) }
+            // The library's own count, read off the main thread.
+            androidx.compose.runtime.LaunchedEffect(song.id) {
+                kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) { runCatching { core.rating(song.id).toInt() }.getOrNull() }?.let { stars = it }
+            }
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.Center) {
                 (1..5).forEach { n ->
-                    IconButton(onClick = {
+                    IconButton(modifier = Modifier.semantics { selected = n == stars }, onClick = {
                         haptics(false)
                         val want = if (stars == n) 0 else n
                         libraryWrite({ core.rate(song.id, want.toUByte()) }, { showMessage("Could not rate it: ${it.message}") }) {
@@ -196,7 +209,7 @@ fun SongSheet(song: Song, open: ((Route) -> Unit)?, remove: (() -> Unit)?, onDis
                     }) {
                         Icon(
                             if (n <= stars) Icons.Rounded.Star else Icons.Rounded.StarBorder,
-                            contentDescription = "$n stars",
+                            contentDescription = if (n == 1) "1 star" else "$n stars",
                             tint = if (n <= stars) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
                             modifier = Modifier.size(30.dp),
                         )
@@ -220,8 +233,12 @@ fun SongSheet(song: Song, open: ((Route) -> Unit)?, remove: (() -> Unit)?, onDis
             }
             MenuGroup {
                 if (song.fromServer()) {
-                    val kept = remember(song.id) { runCatching { core.isKept(song.id) }.getOrDefault(false) }
-                    MenuRow(Icons.Rounded.DownloadForOffline, if (kept) "Stop keeping on this phone" else "Keep on this phone") { act { keepOffline(listOf(song.id), !kept) } }
+                    val kept by androidx.compose.runtime.produceState<Boolean?>(null, song.id) {
+                        value = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) { runCatching { core.isKept(song.id) }.getOrDefault(false) }
+                    }
+                    kept?.let { k ->
+                        MenuRow(Icons.Rounded.DownloadForOffline, if (k) "Stop keeping on this phone" else "Keep on this phone") { act { keepOffline(listOf(song.id), !k) } }
+                    }
                     MenuRow(Icons.Rounded.SaveAlt, "Save to my music") { act { saveToMusic(listOf(song.id)) } }
                 } else {
                     MenuRow(Icons.Rounded.Edit, "Edit tags") { act { Ui.sheet.value = Sheet.EditTags(listOf(song.id)) } }
@@ -235,8 +252,12 @@ fun SongSheet(song: Song, open: ((Route) -> Unit)?, remove: (() -> Unit)?, onDis
                 }
             }
             // Commands from plugins that act on songs.
-            val commands = remember { runCatching { core.plugins() }.getOrDefault(emptyList()).filter { it.enabled } }
-                .flatMap { p -> p.commands.filter { it.forSongs }.map { p.id to it } }
+            val commands by androidx.compose.runtime.produceState(emptyList<Pair<String, fyi.nnx.needle.core.PluginCommand>>()) {
+                value = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                    runCatching { core.plugins() }.getOrDefault(emptyList()).filter { it.enabled }
+                        .flatMap { p -> p.commands.filter { it.forSongs }.map { p.id to it } }
+                }
+            }
             if (commands.isNotEmpty()) {
                 MenuGroup {
                     commands.forEach { (plugin, command) ->
@@ -257,7 +278,7 @@ fun MenuGroup(content: @Composable ColumnScope.() -> Unit) {
 @Composable
 fun MenuRow(icon: ImageVector, label: String, tint: Color = MaterialTheme.colorScheme.onSurface, onClick: () -> Unit) {
     Row(
-        Modifier.fillMaxWidth().heightIn(min = LocalRows.current.height - 4.dp).clickable(onClick = onClick).padding(horizontal = 20.dp),
+        Modifier.fillMaxWidth().heightIn(min = LocalRows.current.height - 4.dp).clickable(role = androidx.compose.ui.semantics.Role.Button, onClick = onClick).padding(horizontal = 20.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(18.dp),
     ) {
@@ -295,9 +316,17 @@ fun ActionSheet(
 ) {
     val state = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     val scope = androidx.compose.runtime.rememberCoroutineScope()
-    val act: (() -> Unit) -> Unit = { work -> scope.launch { state.hide() }.invokeOnCompletion { onDismiss(); work() } }
+    // Once only: rows still take taps while the sheet slides away.
+    var acted by remember { mutableStateOf(false) }
+    val act: (() -> Unit) -> Unit = { work ->
+        if (!acted) {
+            acted = true
+            scope.launch { state.hide() }.invokeOnCompletion { onDismiss(); work() }
+        }
+    }
     ModalBottomSheet(onDismissRequest = onDismiss, sheetState = state, containerColor = MaterialTheme.colorScheme.surfaceContainerLow) {
-        Column(Modifier.navigationBarsPadding().padding(horizontal = 16.dp).padding(bottom = 16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        // Scrolled where it is taller than the screen (a phone on its side, a TV, large text).
+        Column(Modifier.verticalScroll(rememberScrollState()).navigationBarsPadding().padding(horizontal = 16.dp).padding(bottom = 16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(14.dp), modifier = Modifier.padding(horizontal = 4.dp, vertical = 4.dp)) {
                 Cover(art, Modifier.size(56.dp), SmallCoverShape)
                 Column(Modifier.weight(1f)) {
@@ -314,19 +343,25 @@ fun ActionSheet(
 @Composable
 fun AlbumSheet(album: fyi.nnx.needle.core.Album, open: ((Route) -> Unit)?, onDismiss: () -> Unit) {
     fun ids() = runCatching { core.albumSongs(album.key).map { it.id } }.getOrDefault(emptyList())
+    // The album's songs found off the main thread, then used on it.
+    fun withIds(then: (List<String>) -> Unit) {
+        NeedleApp.instance.scope.launch(kotlinx.coroutines.Dispatchers.Main) {
+            then(kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) { ids() })
+        }
+    }
     fun start(list: List<String>) {
         if (list.isEmpty()) return
         playSongs(list)
     }
     ActionSheet(album.artwork, album.title.ifBlank { "Unknown album" }, album.artist, onDismiss) { act ->
         MenuGroup {
-            MenuRow(Icons.Rounded.PlayArrow, "Play") { act { start(ids()) } }
-            MenuRow(Icons.Rounded.Shuffle, "Shuffle") { act { start(ids().shuffled()) } }
+            MenuRow(Icons.Rounded.PlayArrow, "Play") { act { withIds { start(it) } } }
+            MenuRow(Icons.Rounded.Shuffle, "Shuffle") { act { withIds { start(it.shuffled()) } } }
         }
         MenuGroup {
             MenuRow(Icons.Rounded.QueuePlayNext, "Play next") { act { addToQueue(next = true) { ids() } } }
             MenuRow(Icons.AutoMirrored.Rounded.QueueMusic, "Add to queue") { act { addToQueue(next = false) { ids() } } }
-            MenuRow(Icons.AutoMirrored.Rounded.PlaylistAdd, "Add to a playlist") { act { Ui.sheet.value = Sheet.AddToPlaylist(ids()) } }
+            MenuRow(Icons.AutoMirrored.Rounded.PlaylistAdd, "Add to a playlist") { act { withIds { Ui.sheet.value = Sheet.AddToPlaylist(it) } } }
         }
         if (open != null) {
             MenuGroup {

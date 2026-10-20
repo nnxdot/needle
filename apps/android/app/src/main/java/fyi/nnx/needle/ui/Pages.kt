@@ -439,6 +439,8 @@ private fun AlbumPage(album: Album, open: (Route) -> Unit) {
             }
             if (!wide && buttons != null) item { buttons() }
             if (songsLoad.loading) items(6) { SongPlaceholder() }
+            // Its songs were given another album name (in their tags), or taken out.
+            if (songs != null && list.isEmpty()) item { GoneNote("This album is no longer in your library.") }
             songList(list, playing, open, numbered = true)
             if (list.isNotEmpty()) {
                 item {
@@ -513,8 +515,17 @@ fun PlaylistScreen(route: Route.Playlist, open: (Route) -> Unit) {
             }.onSuccess { showMessage("Exported") }.onFailure { showMessage(it.message ?: "Could not export it") }
         }
     }
-    // A change on its way to the library: the list's places are the old ones until it is back.
+    // A change on its way to the library: the list's places are the old ones until it is read
+    // again, so no other change goes until then (or a moment, if it reads the same).
     var writing by remember { mutableStateOf(false) }
+    val scope = androidx.compose.runtime.rememberCoroutineScope()
+    LaunchedEffect(d) { writing = false }
+    val written: (Unit) -> Unit = {
+        scope.launch {
+            delay(2000)
+            writing = false
+        }
+    }
     // Put in order: each row gets a handle to drag it by.
     var arranging by remember { mutableStateOf(false) }
     val reorder = rememberReorder(list.size) { from, to ->
@@ -522,7 +533,7 @@ fun PlaylistScreen(route: Route.Playlist, open: (Route) -> Unit) {
         // One change at a time: until the list is read again, its places are the old ones.
         if (!writing && from in positions.indices && to in positions.indices) {
             writing = true
-            libraryWrite({ core.moveInPlaylist(route.id, positions[from], positions[to]) }, { writing = false; showMessage(it.message ?: "Could not reorder it") }) { writing = false }
+            libraryWrite({ core.moveInPlaylist(route.id, positions[from], positions[to]) }, { writing = false; showMessage(it.message ?: "Could not reorder it") }, written)
         }
     }
     val art = summary?.artwork ?: list.firstNotNullOfOrNull { it.artwork }
@@ -569,7 +580,7 @@ fun PlaylistScreen(route: Route.Playlist, open: (Route) -> Unit) {
             songList(list, playing, open, numbered = false, remove = if (d?.rule == null) { i ->
                 if (!writing) d?.positions?.getOrNull(i)?.let { position ->
                     writing = true
-                    libraryWrite({ core.removeFromPlaylist(route.id, position) }, { writing = false; showMessage(it.message ?: "Could not remove it") }) { writing = false }
+                    libraryWrite({ core.removeFromPlaylist(route.id, position) }, { writing = false; showMessage(it.message ?: "Could not remove it") }, written)
                 }
             } else null, reorder = if (d?.rule == null && arranging) reorder else null)
         }
@@ -595,6 +606,8 @@ fun PlaylistScreen(route: Route.Playlist, open: (Route) -> Unit) {
                             .onSuccess {
                                 // Away from the page first, and the lists told only once it has
                                 // gone: a playlist that is gone has nothing to show, and would say so.
+                                // Songs chosen on the page would take the Back for themselves.
+                                Selection.clear()
                                 back?.onBackPressedDispatcher?.onBackPressed()
                                 delay(400)
                                 NeedleApp.instance.libraryVersion.value++
@@ -664,6 +677,9 @@ fun ArtistScreen(name: String, open: (Route) -> Unit) {
                     }
                 }
             }
+            if (top != null && albums != null && songs.isEmpty() && albums.orEmpty().isEmpty()) {
+                edgeToEdge(Edge) { GoneNote("This artist is no longer in your library.") }
+            }
             if (albums.orEmpty().isNotEmpty()) edgeToEdge(Edge) { SectionHeader("Albums", Modifier.padding(top = 8.dp)) }
             items(albums.orEmpty().size) { i ->
                 val album = albums!![i]
@@ -729,7 +745,7 @@ fun HomeScreen(open: (Route) -> Unit) {
     }, navigation = { if (!hasSideBar()) NeedleMark() }) { padding, scroll ->
         LazyColumn(Modifier.fillMaxSize().padding(padding).then(scroll), contentPadding = PaddingValues(bottom = 32.dp)) {
             if (count == 0u) {
-                item { HomeEmpty(scan.running, open) }
+                item { HomeEmpty(scan.running, scan.scanned, open) }
                 return@LazyColumn
             }
             val h = home ?: return@LazyColumn
@@ -884,7 +900,7 @@ private fun LazyListScope.artistShelf(artists: List<fyi.nnx.needle.core.Artist>,
 }
 
 @Composable
-private fun HomeEmpty(scanning: Boolean, open: (Route) -> Unit) {
+private fun HomeEmpty(scanning: Boolean, read: UInt, open: (Route) -> Unit) {
     Column(Modifier.fillMaxWidth().padding(horizontal = 32.dp, vertical = 48.dp), horizontalAlignment = Alignment.CenterHorizontally) {
         MusicAccessNotice(Modifier.padding(bottom = 24.dp))
         ShapedIcon(Icons.Rounded.AutoAwesome, 72)
@@ -896,7 +912,8 @@ private fun HomeEmpty(scanning: Boolean, open: (Route) -> Unit) {
             modifier = Modifier.padding(top = 20.dp),
         )
         Text(
-            if (scanning) "Songs appear here as Needle finds them." else "Choose the folder your music is in. Needle reads it and keeps it up to date.",
+            // The lists are read again when the scan ends, so say that, and how far it is.
+            if (scanning) "Your songs show here once Needle has read them all. ${if (read > 0u) count(read.toInt(), "file") + " read so far." else ""}".trim() else "Choose the folder your music is in. Needle reads it and keeps it up to date.",
             style = MaterialTheme.typography.bodyLarge,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             textAlign = TextAlign.Center,
@@ -1042,4 +1059,15 @@ internal fun GenreTile(name: String, art: String?, modifier: Modifier, onClick: 
             )
         }
     }
+}
+
+/** A page whose album or artist has gone from the library (new tags, or taken out). */
+@Composable
+private fun GoneNote(text: String) {
+    Text(
+        text,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+        textAlign = TextAlign.Center,
+        modifier = Modifier.fillMaxWidth().padding(32.dp),
+    )
 }

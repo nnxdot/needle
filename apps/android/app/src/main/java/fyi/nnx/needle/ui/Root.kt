@@ -127,6 +127,16 @@ fun NeedleRoot() {
     var barHeight by remember { mutableStateOf(0) }
     // Tablets and unfolded phones get a side bar of tabs, playlists, and albums (SideBar.kt).
     val wide = hasSideBar()
+    // What each page in a tab's stack had (its scroll, its filter, its search words) is kept
+    // while the page is under another, so Back finds it as it was; dropped once the page is.
+    val pageStates = androidx.compose.runtime.saveable.rememberSaveableStateHolder()
+    val kept = remember { HashSet<String>() }
+    androidx.compose.runtime.SideEffect {
+        val live = Tab.entries.flatMap { t -> (stacks[t] ?: listOf(t.root)).mapIndexed { i, r -> pageKey(t, i, r) } }.toSet()
+        (kept - live).forEach(pageStates::removeState)
+        kept.clear()
+        kept += live
+    }
     val chooseTab: (Tab) -> Unit = { t ->
         // Tapping the open tab again goes back to its first page.
         if (t == tab) stacks[t] = listOf(t.root) else tab = t
@@ -137,6 +147,9 @@ fun NeedleRoot() {
             if (NeedleApp.instance.app.value.openPlayerOnPlay) playerOpen = true
         }
     }
+    // Nothing playing (the computer went, or Needle came back without its song): the player is
+    // shut, so Back is not spent on it, and it does not open by itself with the next song.
+    LaunchedEffect(hasSong) { if (!hasSong) playerOpen = false }
     // Back first stops choosing songs, when some are chosen.
     val choosing by Selection.songs.collectAsState()
     BackHandler(enabled = choosing.isNotEmpty()) { Selection.clear() }
@@ -264,6 +277,7 @@ fun NeedleRoot() {
                             LocalSharedScope provides pageTab.name,
                         ) {
                             val route = pages.last()
+                            pageStates.SaveableStateProvider(pageKey(pageTab, pages.lastIndex, route)) {
                             val fullBleed = route is Route.AlbumPage || route is Route.AlbumOf || route is Route.Artist || route is Route.Playlist
                             // The colour pages run on behind the mini player and the tabs; their
                             // lists leave room at the foot instead.
@@ -282,6 +296,7 @@ fun NeedleRoot() {
                                         )
                                     }
                                 }
+                            }
                             }
                         }
                     }
@@ -358,3 +373,6 @@ private fun Page(route: Route, open: (Route) -> Unit) {
         }
     }
 }
+
+/** A page's place in its tab's stack, the key its kept state is held under. */
+private fun pageKey(tab: Tab, index: Int, route: Route) = "${tab.name}/$index/$route"
