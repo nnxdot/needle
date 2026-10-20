@@ -103,10 +103,13 @@ struct LibrarySettingsView: View {
                 }
                 Section {
                     if hasFanart {
-                        LabeledContent("fanart.tv key", value: "Set")
-                        Button("Remove the Key", role: .destructive) {
-                            store.run { try $0.setFanartKey(key: "") }
-                            hasFanart = false
+                        LabeledContent("fanart.tv key", value: "Your own")
+                        Button("Remove Your Key", role: .destructive) {
+                            Task {
+                                if await store.ask({ try $0.setFanartKey(key: "") }) != nil {
+                                    hasFanart = await store.load { $0.hasOwnFanartKey() } ?? false
+                                }
+                            }
                         }
                     } else {
                         SecureField("fanart.tv key", text: $fanartKey).textInputAutocapitalization(.never).autocorrectionDisabled()
@@ -121,7 +124,7 @@ struct LibrarySettingsView: View {
                 } header: {
                     Text("Artists' logos")
                 } footer: {
-                    Text("With online lookups on and a free key from fanart.tv, artist pages show the artist's logo. Needle asks MusicBrainz for the artist's ID by name, and sends fanart.tv only that ID. The key stays in the iPhone Keychain.")
+                    Text("With online lookups on, artist pages show the artist's logo from fanart.tv. Needle asks MusicBrainz for the artist's ID by name, and sends fanart.tv only that ID. Needle has a key of its own; your own key, if you add one, stays in the iPhone Keychain.")
                 }
                 Section {
                     Toggle("Measure songs for radio", isOn: Binding(get: { settings.soundAnalysis }, set: { var s = settings; s.soundAnalysis = $0; save(s) }))
@@ -162,7 +165,7 @@ struct LibrarySettingsView: View {
         .task {
             folders = await store.load { try $0.folders() } ?? []
             settings = await store.load { try $0.playbackSettings() }
-            hasFanart = await store.load { $0.hasFanartKey() } ?? false
+            hasFanart = await store.load { $0.hasOwnFanartKey() } ?? false
             while !Task.isCancelled {
                 measured = await store.load { $0.measured() } ?? []
                 try? await Task.sleep(for: .seconds(2))

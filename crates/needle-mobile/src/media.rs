@@ -212,6 +212,11 @@ impl Needle {
         needle_core::integrations::fanart_key().is_some()
     }
 
+    /// Whether the fanart.tv key in use is the person's own (saved here), not Needle's.
+    pub fn has_own_fanart_key(&self) -> bool {
+        needle_core::integrations::fanart_key_is_own()
+    }
+
     /// Keeps a fanart.tv key in the system's store; an empty one removes it.
     pub fn set_fanart_key(&self, key: String) -> Result<()> {
         use needle_core::integrations::{SecretKind, clear_secret, save_secret};
