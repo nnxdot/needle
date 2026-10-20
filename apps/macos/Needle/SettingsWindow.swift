@@ -398,6 +398,9 @@ struct LibrarySettings: View {
         alert.addButton(withTitle: "Stop Reading It")
         alert.addButton(withTitle: "Cancel")
         alert.buttons.first?.hasDestructiveAction = true
+        // Return answers Cancel; the folder goes only with a click.
+        alert.buttons.first?.keyEquivalent = ""
+        alert.buttons.last?.keyEquivalent = "\r"
         guard alert.runModal() == .alertFirstButtonReturn else { return }
         Task {
             if await store.ask({ try $0.removeFolder(path: root) }) != nil {
@@ -681,6 +684,7 @@ struct ThemeEditor: View {
                             Button { colors[key] = nil } label: { Image(systemName: "arrow.uturn.backward") }
                                 .buttonStyle(.borderless)
                                 .help("Let this color follow the base look and the others")
+                                .accessibilityLabel("Let this color follow the base look and the others")
                         }
                     }
                 }

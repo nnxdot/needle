@@ -227,7 +227,7 @@ private struct RuleRow: View {
             } else {
                 Spacer()
             }
-            Button(action: remove) { Image(systemName: "minus.circle") }.buttonStyle(.borderless).help("Remove this rule")
+            Button(action: remove) { Image(systemName: "minus.circle") }.buttonStyle(.borderless).help("Remove this rule").accessibilityLabel("Remove this rule")
         }
     }
 }

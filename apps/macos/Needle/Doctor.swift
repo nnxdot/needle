@@ -86,17 +86,21 @@ private struct DuplicatesTab: View {
         let extra = group.songs.indices.filter { $0 != keep }
         // The extra copies' files to the Trash, as the Finder does (Put Back works); a copy
         // whose file is already gone only leaves the library.
-        for i in extra where i < group.paths.count {
+        var gone: [Int] = []
+        for i in extra {
+            guard i < group.paths.count else { continue }
             let url = URL(fileURLWithPath: group.paths[i])
-            guard FileManager.default.fileExists(atPath: url.path) else { continue }
+            guard FileManager.default.fileExists(atPath: url.path) else { gone.append(i); continue }
             do {
                 try FileManager.default.trashItem(at: url, resultingItemURL: nil)
+                gone.append(i)
             } catch {
+                // This copy stays as it is, in the library and on disk; the rest are merged.
                 store.fail("\(url.lastPathComponent) could not go to the Trash: \(error.localizedDescription)")
-                return
             }
         }
-        let (id, others) = (group.songs[keep].id, extra.map { group.songs[$0].id })
+        guard !gone.isEmpty else { return }
+        let (id, others) = (group.songs[keep].id, gone.map { group.songs[$0].id })
         if await store.ask({ try $0.mergeInto(keep: id, others: others) }) != nil {
             sets?.removeAll { $0.songs.first?.id == group.songs.first?.id }
             store.notify(others.count == 1 ? "Merged 1 copy. It is in the Trash." : "Merged \(others.count) copies. They are in the Trash.")

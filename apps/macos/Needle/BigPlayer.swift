@@ -105,12 +105,13 @@ struct BigPlayer: View {
         HStack(spacing: 14) {
             Button { store.big = false; store.setImmersive(false) } label: { Image(systemName: "chevron.down").font(.title3.weight(.semibold)) }
                 .help("Close the player · Esc")
+                .accessibilityLabel("Close the player")
             Spacer()
             if store.immersive {
                 Button { showLyrics.toggle() } label: { Image(systemName: showLyrics ? "quote.bubble.fill" : "quote.bubble") }
                     .help(showLyrics ? "Hide the lyrics" : "Show the lyrics")
             }
-            Button { openWindow(id: "mini"); store.big = false } label: { Image(systemName: "pip") }.help("Mini player")
+            Button { openWindow(id: "mini"); store.big = false } label: { Image(systemName: "pip") }.help("Mini player").accessibilityLabel("Mini player")
             Button { store.setImmersive(!store.immersive) } label: {
                 Image(systemName: store.immersive ? "arrow.down.right.and.arrow.up.left" : "arrow.up.left.and.arrow.down.right")
             }

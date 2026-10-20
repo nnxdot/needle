@@ -363,7 +363,7 @@ struct TimingPage: View {
         for (i, line) in lines.enumerated() {
             let mine = u.enumerated().filter { $0.element.line == i && $0.offset < stamps.count }
             guard let first = mine.first else {
-                guard let old = before?[i] else {
+                guard let old = before?[i], old.text == line else {
                     store.fail("Tap every line before saving: lines without a time would be lost from the file.")
                     return
                 }
@@ -374,6 +374,7 @@ struct TimingPage: View {
             result.append(LyricLine(time: stamps[first.offset], text: line, words: wordTimes))
         }
         guard !result.isEmpty else { store.fail("Tap at least one line before saving."); return }
+        result.sort { $0.time < $1.time }
         Task { [result] in
             if let name = await store.ask({ try $0.saveLyricsFile(id: id, lines: result) }) {
                 store.notify("Saved as \(name), beside the song.")

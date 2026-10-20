@@ -105,13 +105,21 @@ struct HistoryPage: View {
         .task(id: store.libraryVersion) {
             generation += 1
             loadingMore = false
-            // As many as were shown, at once, so the list stays where it was scrolled.
-            let shown = UInt32(max(200, items.count))
+            // As many as were shown, so the list stays where it was scrolled: in pages of at most
+            // 500 (the core's most at a time).
+            let want = max(200, items.count)
             let from = generation
-            let page = await store.load { try $0.history(offset: 0, limit: shown) } ?? []
+            var all: [HistoryItem] = []
+            var ended = false
+            while all.count < want {
+                let (offset, limit) = (UInt32(all.count), UInt32(min(500, want - all.count)))
+                let page = await store.load { try $0.history(offset: offset, limit: limit) } ?? []
+                all += page
+                if page.count < Int(limit) { ended = true; break }
+            }
             guard from == generation else { return }
-            items = page
-            finished = page.count < Int(shown)
+            items = all
+            finished = ended
         }
     }
 
