@@ -264,6 +264,7 @@ impl Needle {
             .top_track_ids
             .iter()
             .filter_map(|id| w.tracks.get(id))
+            .filter(|t| !t.missing)
             .map(Song::from)
             .collect();
         Ok(Wrapped {
@@ -423,7 +424,11 @@ impl Needle {
         let Some(track) = self.library.track(&id)? else {
             return Ok(());
         };
+        if track.missing {
+            return Err(NeedleError::Failed("That song's file is gone, so it cannot start a radio".into()));
+        }
         let (library, player) = (self.library.clone(), self.player.clone());
+        let notices = self.plugin_state.clone();
         self.measuring.store(true, Ordering::SeqCst);
         let measuring = self.measuring.clone();
         std::thread::spawn(move || {
@@ -440,7 +445,14 @@ impl Needle {
                         .collect();
                     player.send(Command::Play(items));
                 }
-                Err(e) => log(true, &format!("Radio: {e:#}")),
+                Err(e) => {
+                    log(true, &format!("Radio: {e:#}"));
+                    notices.notices.lock().unwrap_or_else(|e| e.into_inner()).push_back(
+                        crate::plugins::Notice::Message {
+                            text: "Needle could not make a radio from this song.".into(),
+                        },
+                    );
+                }
             }
         });
         self.measure_in_background();
