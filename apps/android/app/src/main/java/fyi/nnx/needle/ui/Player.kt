@@ -360,6 +360,7 @@ fun FullPlayer(onClose: () -> Unit, open: (Route) -> Unit) {
             // left, and the song and its controls at the right, rather than one tall column.
             val wide = maxWidth >= 600.dp && maxWidth > maxHeight
             val roomy = maxHeight >= 560.dp
+            val side = (maxWidth * 0.46f).coerceAtMost(520.dp)
             // The cover, or in its place the lyrics or what is up next.
             val stage: @Composable () -> Unit = {
                 when (panel) {
@@ -442,7 +443,6 @@ fun FullPlayer(onClose: () -> Unit, open: (Route) -> Unit) {
                 }
                 if (searching) PlayerSearch(song.onComputer()) { searching = false }
                 if (wide) {
-                    val side = (maxWidth * 0.46f).coerceAtMost(520.dp)
                     Row(Modifier.weight(1f).fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(48.dp)) {
                         Box(Modifier.weight(1f).fillMaxHeight().padding(vertical = 12.dp), contentAlignment = Alignment.Center) { stage() }
                         // Scrolls when a phone on its side is too short for all of it.
