@@ -42,6 +42,8 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
+import kotlinx.coroutines.flow.collectLatest
+import androidx.lifecycle.repeatOnLifecycle
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
@@ -101,9 +103,12 @@ fun Overlays(snackbar: SnackbarHostState) {
     val context = LocalContext.current
     var question by remember { mutableStateOf<Notice.Question?>(null) }
     val sheet by Ui.sheet.collectAsState()
-    LaunchedEffect(Unit) { Ui.messages.collect { snackbar.showSnackbar(it) } }
-    // What plugins ask of the app, read a few times a second.
-    LaunchedEffect(Unit) {
+    // The newest message at once, in place of one still showing, rather than in a long line.
+    LaunchedEffect(Unit) { Ui.messages.collectLatest { snackbar.showSnackbar(it) } }
+    // What plugins ask of the app, read a few times a second while Needle is on screen.
+    val lifecycle = androidx.lifecycle.compose.LocalLifecycleOwner.current.lifecycle
+    LaunchedEffect(lifecycle) {
+        lifecycle.repeatOnLifecycle(androidx.lifecycle.Lifecycle.State.STARTED) {
         while (true) {
             val notices = withContext(Dispatchers.IO) { runCatching { core.takeNotices() }.getOrDefault(emptyList()) }
             for (notice in notices) {
@@ -114,6 +119,7 @@ fun Overlays(snackbar: SnackbarHostState) {
                 }
             }
             delay(700)
+        }
         }
     }
     question?.let { q -> PluginQuestion(q) { question = null } }
@@ -139,7 +145,12 @@ private fun PluginQuestion(q: Notice.Question, done: () -> Unit) {
                 // The plugin resumes asynchronously and reads this path after answer returns.
                 core.answer(q.id, null, path)
                 done()
-            }, { error -> showMessage(error.message ?: "Could not read that file") }, {})
+            }, { error ->
+                showMessage(error.message ?: "Could not read that file")
+                // The plugin hears "no file" rather than waiting.
+                core.answer(q.id, null, null)
+                done()
+            }, {})
         }
     }
     if (q.file) {

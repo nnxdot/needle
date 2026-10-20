@@ -47,6 +47,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.selection.toggleable
 import androidx.compose.ui.semantics.Role
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.vector.ImageVector
@@ -73,7 +74,7 @@ fun WelcomeGuide(open: (Route) -> Unit) {
     }
     val pick = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocumentTree()) { uri ->
         val path = uri?.let(::folderPath) ?: return@rememberLauncherForActivityResult
-        NeedleApp.instance.scope.launch(Dispatchers.IO) { runCatching { core.addFolder(path) } }
+        NeedleApp.instance.scope.launch(Dispatchers.IO) { runCatching { core.addFolder(path) }.onFailure { showMessage(it.message ?: "Could not add that folder") } }
         step = 2
     }
     androidx.activity.compose.BackHandler { if (step > 0) step-- else finish() }
@@ -91,9 +92,10 @@ fun WelcomeGuide(open: (Route) -> Unit) {
         }, label = "welcome") { page ->
             // Centred where there is room; scrolled where there is not (a TV, a phone on its side,
             // large text), so every choice stays in reach. Room at the foot for the dots.
-            androidx.compose.foundation.layout.BoxWithConstraints(Modifier.fillMaxSize().padding(bottom = 24.dp)) {
+            // A phone's width at most, in the middle, on a tablet or a TV.
+            androidx.compose.foundation.layout.BoxWithConstraints(Modifier.fillMaxSize().padding(bottom = 24.dp), contentAlignment = Alignment.TopCenter) {
             Column(
-                Modifier.fillMaxWidth().heightIn(min = maxHeight).verticalScroll(androidx.compose.foundation.rememberScrollState()),
+                Modifier.widthIn(max = 560.dp).fillMaxWidth().heightIn(min = maxHeight).verticalScroll(androidx.compose.foundation.rememberScrollState()),
                 verticalArrangement = Arrangement.Center,
             ) {
                 when (page) {
@@ -117,7 +119,7 @@ fun WelcomeGuide(open: (Route) -> Unit) {
                         Text("You can add more places later, in Settings.", style = MaterialTheme.typography.bodyLarge, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(top = 8.dp, bottom = 20.dp))
                         val music = File(android.os.Environment.getExternalStorageDirectory(), android.os.Environment.DIRECTORY_MUSIC).path
                         Choice(Icons.Rounded.LibraryMusic, "In this phone's Music folder", "The usual place for music files") {
-                            NeedleApp.instance.scope.launch(Dispatchers.IO) { runCatching { core.addFolder(music) } }
+                            NeedleApp.instance.scope.launch(Dispatchers.IO) { runCatching { core.addFolder(music) }.onFailure { showMessage(it.message ?: "Could not add that folder") } }
                             step = 2
                         }
                         Choice(Icons.Rounded.Folder, "In another folder", "On the phone or an SD card") { tryOpen("file picker") { pick.launch(null) } }

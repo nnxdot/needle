@@ -93,6 +93,9 @@ class LoadedState<T> internal constructor(private val result: fyi.nnx.needle.Loa
 fun <T> rememberLoaded(vararg keys: Any?, load: Needle.() -> T): LoadedState<T> {
     val version by NeedleApp.instance.libraryVersion.collectAsState()
     var attempt by remember(*keys) { mutableStateOf(0) }
+    // Back on the failure card: first it tries again, then (still failing) it leaves the page.
+    var retried by remember(*keys) { mutableStateOf(false) }
+    val back = androidx.activity.compose.LocalOnBackPressedDispatcherOwner.current
     // A change in the library (a heart, a scan) reloads quietly: what shows stays until the new
     // answer comes. New keys (another album, another song) are other data, so they show loading.
     val shown = remember { arrayOfNulls<List<Any?>>(1) }
@@ -103,12 +106,15 @@ fun <T> rememberLoaded(vararg keys: Any?, load: Needle.() -> T): LoadedState<T> 
         value = withContext(Dispatchers.IO) { fyi.nnx.needle.loadAttempt { core.load() } }
     }
     val failure = result as? fyi.nnx.needle.LoadResult.Failed
+    if (result is fyi.nnx.needle.LoadResult.Ready) retried = false
     if (failure != null) {
-        // With a remote the card takes the focus, so Retry is in reach (Back tries again too).
+        // With a remote the card takes the focus, so Retry is in reach.
         val keys = usingKeys()
         androidx.compose.ui.window.Popup(
             alignment = Alignment.BottomCenter,
-            onDismissRequest = if (keys) ({ attempt++ }) else null,
+            onDismissRequest = if (keys) ({
+                if (retried) back?.onBackPressedDispatcher?.onBackPressed() else { retried = true; attempt++ }
+            }) else null,
             properties = androidx.compose.ui.window.PopupProperties(focusable = keys),
         ) {
             androidx.compose.material3.Surface(shape = CoverShape, tonalElevation = 6.dp, modifier = Modifier.padding(Edge)) {
@@ -140,6 +146,15 @@ fun addToQueue(next: Boolean, ids: () -> List<String>) {
             .onSuccess { showMessage(if (next) "Plays next" else "Added to the queue") }
             .onFailure { showMessage(it.message ?: "Could not add them") }
     }
+}
+
+/**
+ * Keys for a list's rows that stay with each song when the list is put in another order: the
+ * song's id, and how many times it came before (a playlist may hold a song twice).
+ */
+fun songKeys(list: List<fyi.nnx.needle.core.Song>): List<String> {
+    val seen = HashMap<String, Int>()
+    return list.map { s -> "${s.id}#${seen.merge(s.id, 1, Int::plus)}" }
 }
 
 /** The id of the song playing, for marking it in a list (see [NeedleApp.playingId]). */

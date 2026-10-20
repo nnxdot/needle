@@ -25,6 +25,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
+import androidx.compose.foundation.selection.toggleable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
@@ -115,7 +116,8 @@ fun UsbBitPerfect() {
         Modifier
             .fillMaxWidth()
             .heightIn(min = 64.dp)
-            .clickable(enabled = usable) { setMixer(!on) }
+            // The whole row is the one switch, named by its words.
+            .toggleable(on, enabled = usable, role = androidx.compose.ui.semantics.Role.Switch) { setMixer(it) }
             .padding(horizontal = 16.dp, vertical = 12.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(16.dp),
@@ -132,7 +134,7 @@ fun UsbBitPerfect() {
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
         }
-        Switch(checked = on, enabled = usable, onCheckedChange = ::setMixer)
+        Switch(checked = on, enabled = usable, onCheckedChange = null)
     }
     HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant, modifier = Modifier.padding(horizontal = 16.dp))
 }

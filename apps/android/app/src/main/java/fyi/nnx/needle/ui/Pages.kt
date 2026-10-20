@@ -369,7 +369,9 @@ private fun LazyListScope.songList(
     remove: ((Int) -> Unit)? = null,
     reorder: Reorder? = null,
 ) {
-    itemsIndexed(list, key = { i, s -> "$i-${s.id}" }) { i, song ->
+    // Keys that follow each song, so a row moved with a remote keeps its focus as it moves.
+    val keys = songKeys(list)
+    itemsIndexed(list, key = { i, _ -> keys[i] }) { i, song ->
         Box(Modifier.entrance(i).then(if (reorder != null) Modifier.reorderRow(reorder, i) else Modifier)) {
             SongRow(
                 song, playing == song.id, open,
@@ -469,7 +471,7 @@ fun AlbumOfScreen(route: Route.AlbumOf, open: (Route) -> Unit) {
     val album by albumLoad
     album?.let { AlbumScreen(it, open) }
     // While it is found, and if there is none: the way back, and a word on what is happening.
-    if (album == null) Column(Modifier.fillMaxSize()) {
+    if (album == null) Column(Modifier.fillMaxSize().statusBarsPadding()) {
         LargeTitle(route.title.ifBlank { "Album" })
         if (albumLoad.loading) {
             androidx.compose.material3.LoadingIndicator(Modifier.align(Alignment.CenterHorizontally).padding(top = 32.dp))
