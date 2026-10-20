@@ -290,16 +290,18 @@ struct HeaderBackdrop: View {
 
     var body: some View {
         let canvas = store.colors.canvas
-        ZStack {
-            if let image {
-                Image(nsImage: image).resizable().interpolation(.medium).scaledToFill()
-            } else {
-                Placeholder(seed: seed).blur(radius: 40).saturation(1.4)
+        // The page's width, whatever the picture's shape.
+        Color.clear
+            .frame(maxWidth: .infinity)
+            .frame(height: height)
+            .overlay {
+                if let image {
+                    Image(nsImage: image).resizable().interpolation(.medium).scaledToFill()
+                } else {
+                    Placeholder(seed: seed).blur(radius: 40).saturation(1.4)
+                }
             }
-        }
-        .frame(maxWidth: .infinity)
-        .frame(height: height)
-        .clipped()
+            .clipped()
         .overlay {
             LinearGradient(stops: [
                 .init(color: canvas.opacity(0.1), location: 0),

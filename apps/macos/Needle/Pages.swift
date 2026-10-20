@@ -315,9 +315,11 @@ struct ArtistPage: View {
         return ZStack(alignment: .bottomLeading) {
             Group {
                 if let photo {
-                    Artwork(path: photo, seed: name, size: 1600)
+                    // The page's width, whatever the photo's shape.
+                    Color.clear
                         .frame(maxWidth: .infinity)
                         .frame(height: 430)
+                        .overlay { Artwork(path: photo, seed: name, size: 1600) }
                         .clipped()
                         .overlay {
                             LinearGradient(stops: [
