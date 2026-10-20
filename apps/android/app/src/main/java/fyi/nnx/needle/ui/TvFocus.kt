@@ -114,7 +114,8 @@ fun Modifier.remoteEscape(lines: Boolean = false): Modifier {
     val tv = isTv()
     if (lines && !tv) return this
     val focus = androidx.compose.ui.platform.LocalFocusManager.current
-    val escape = onPreviewKeyEvent {
+    // From an empty modifier: this one's own (its padding) is added once, below.
+    val escape = Modifier.onPreviewKeyEvent {
         val direction = when (it.key) {
             Key.DirectionUp -> androidx.compose.ui.focus.FocusDirection.Up
             Key.DirectionDown -> androidx.compose.ui.focus.FocusDirection.Down
@@ -123,7 +124,7 @@ fun Modifier.remoteEscape(lines: Boolean = false): Modifier {
         if (it.type == KeyEventType.KeyDown) focus.moveFocus(direction)
         true
     }
-    if (!tv) return escape
+    if (!tv) return this.then(escape)
     var typing by remember { mutableStateOf(false) }
     val field = remember { FocusRequester() }
     val box = remember { androidx.compose.foundation.interaction.MutableInteractionSource() }
