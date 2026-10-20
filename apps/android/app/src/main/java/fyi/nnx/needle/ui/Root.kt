@@ -51,7 +51,6 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.onSizeChanged
-import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.dp
 import fyi.nnx.needle.NeedleApp
@@ -120,7 +119,7 @@ fun NeedleRoot() {
     // messages show above them instead of over them.
     var barHeight by remember { mutableStateOf(0) }
     // Tablets and unfolded phones get a side bar of tabs, playlists, and albums (SideBar.kt).
-    val wide = LocalConfiguration.current.screenWidthDp >= 600
+    val wide = hasSideBar()
     val chooseTab: (Tab) -> Unit = { t ->
         // Tapping the open tab again goes back to its first page.
         if (t == tab) stacks[t] = listOf(t.root) else tab = t

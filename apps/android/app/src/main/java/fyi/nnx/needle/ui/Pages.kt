@@ -666,8 +666,9 @@ fun HomeScreen(open: (Route) -> Unit) {
     val count by countLoad
     val scan by NeedleApp.instance.scan.collectAsState()
     Page(greeting(), actions = {
-        IconButton(onClick = { open(Route.Settings) }) { Icon(Icons.Rounded.Settings, contentDescription = "Settings") }
-    }, navigation = { NeedleMark() }) { padding, scroll ->
+        // With the side bar, Settings is at its foot instead, and the greeting stands alone.
+        if (!hasSideBar()) IconButton(onClick = { open(Route.Settings) }) { Icon(Icons.Rounded.Settings, contentDescription = "Settings") }
+    }, navigation = { if (!hasSideBar()) NeedleMark() }) { padding, scroll ->
         LazyColumn(Modifier.fillMaxSize().padding(padding).then(scroll), contentPadding = PaddingValues(bottom = 32.dp)) {
             if (count == 0u) {
                 item { HomeEmpty(scan.running, open) }

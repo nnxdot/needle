@@ -79,8 +79,9 @@ fun LibraryScreen(open: (Route) -> Unit) {
     var filter by rememberSaveable { mutableStateOf<Filter?>(null) }
     var sort by rememberSaveable { mutableStateOf(Sort.Recent) }
     val scan by NeedleApp.instance.scan.collectAsState()
+    // With the side bar, Settings is at its foot instead.
     Page("Library", actions = {
-        IconButton(onClick = { open(Route.Settings) }) { Icon(Icons.Rounded.Settings, contentDescription = "Settings") }
+        if (!hasSideBar()) IconButton(onClick = { open(Route.Settings) }) { Icon(Icons.Rounded.Settings, contentDescription = "Settings") }
     }) { padding, scroll ->
         PullToRefreshBox(isRefreshing = scan.running, onRefresh = { core.rescan() }, modifier = Modifier.fillMaxSize().padding(padding)) {
             Column(Modifier.fillMaxSize()) {
