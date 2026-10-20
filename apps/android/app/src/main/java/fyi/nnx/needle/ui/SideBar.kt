@@ -16,10 +16,13 @@ import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
-import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.foundation.layout.only
+import androidx.compose.foundation.layout.union
+import androidx.compose.foundation.layout.displayCutout
+import androidx.compose.foundation.layout.systemBars
+import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -94,8 +97,13 @@ fun SideBar(tab: Tab, page: Route, onTab: (Tab) -> Unit, open: (Route) -> Unit) 
         Modifier
             .fillMaxHeight()
             .width(width)
-            .statusBarsPadding()
-            .navigationBarsPadding(),
+            // Clear of the bars and a camera cut-out on its own side only: a navigation bar at the
+            // far side is the pane's to keep clear of, not the rail's.
+            .windowInsetsPadding(
+                androidx.compose.foundation.layout.WindowInsets.systemBars
+                    .union(androidx.compose.foundation.layout.WindowInsets.displayCutout)
+                    .only(androidx.compose.foundation.layout.WindowInsetsSides.Top + androidx.compose.foundation.layout.WindowInsetsSides.Bottom + androidx.compose.foundation.layout.WindowInsetsSides.Start),
+            ),
     ) {
         // The fold button, and Needle's record and name beside it while the bar is open.
         Row(Modifier.padding(start = 24.dp, top = 12.dp, bottom = 8.dp), verticalAlignment = Alignment.CenterVertically) {

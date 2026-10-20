@@ -26,7 +26,7 @@ import kotlin.math.roundToInt
  * Rows put in another order by dragging their handle: the row follows the finger, the rows
  * it passes make room, and on letting go `move(from, to)` is called once.
  */
-class Reorder(val move: (from: Int, to: Int) -> Unit) {
+class Reorder(var move: (from: Int, to: Int) -> Unit) {
     var dragging by mutableIntStateOf(-1)
     var offset by mutableFloatStateOf(0f)
     var rowHeight by mutableFloatStateOf(1f)
@@ -34,7 +34,7 @@ class Reorder(val move: (from: Int, to: Int) -> Unit) {
 
     /** Where the dragged row would land now. */
     val target: Int
-        get() = if (dragging < 0) -1 else (dragging + (offset / rowHeight).roundToInt()).coerceIn(0, count - 1)
+        get() = if (dragging < 0) -1 else (dragging + (offset / rowHeight).roundToInt()).coerceIn(0, maxOf(0, count - 1))
 
     /** How far row `i` moves aside for the one being dragged, in rows. */
     fun shift(i: Int): Int {
@@ -50,7 +50,8 @@ class Reorder(val move: (from: Int, to: Int) -> Unit) {
 
 @Composable
 fun rememberReorder(count: Int, move: (from: Int, to: Int) -> Unit): Reorder =
-    remember { Reorder(move) }.also { it.count = count }
+    // The latest `move` each time: the first one may hold a list that had not loaded yet.
+    remember { Reorder(move) }.also { it.move = move; it.count = count }
 
 /** The row's place while one is dragged: the dragged one follows the finger, others step aside. */
 fun Modifier.reorderRow(reorder: Reorder, index: Int): Modifier =

@@ -43,6 +43,8 @@ import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.vector.ImageVector
@@ -85,7 +87,13 @@ fun WelcomeGuide(open: (Route) -> Unit) {
         AnimatedContent(step, transitionSpec = {
             (slideInHorizontally { it / 4 } + fadeIn()) togetherWith (slideOutHorizontally { -it / 4 } + fadeOut())
         }, label = "welcome") { page ->
-            Column(Modifier.fillMaxSize(), verticalArrangement = Arrangement.Center) {
+            // Centred where there is room; scrolled where there is not (a TV, a phone on its side,
+            // large text), so every choice stays in reach. Room at the foot for the dots.
+            androidx.compose.foundation.layout.BoxWithConstraints(Modifier.fillMaxSize().padding(bottom = 24.dp)) {
+            Column(
+                Modifier.fillMaxWidth().heightIn(min = maxHeight).verticalScroll(androidx.compose.foundation.rememberScrollState()),
+                verticalArrangement = Arrangement.Center,
+            ) {
                 when (page) {
                     0 -> {
                         Image(painterResource(R.drawable.needle_logo), contentDescription = null, modifier = Modifier.size(96.dp).clip(RoundedCornerShape(24.dp)))
@@ -99,7 +107,7 @@ fun WelcomeGuide(open: (Route) -> Unit) {
                         )
                         Spacer(Modifier.height(32.dp))
                         val start = androidx.compose.runtime.remember { androidx.compose.foundation.interaction.MutableInteractionSource() }
-                        Button(onClick = { step = 1 }, interactionSource = start, modifier = Modifier.fillMaxWidth().focusRing(start, 40.dp)) { Text("Start") }
+                        Button(onClick = { step = 1 }, interactionSource = start, modifier = Modifier.fillMaxWidth()) { Text("Start") }
                         TextButton(onClick = ::finish, modifier = Modifier.fillMaxWidth()) { Text("Skip the guide") }
                     }
                     1 -> {
@@ -134,6 +142,7 @@ fun WelcomeGuide(open: (Route) -> Unit) {
                         Button(onClick = ::finish, modifier = Modifier.fillMaxWidth()) { Text("Start listening") }
                     }
                 }
+            }
             }
         }
         // Where you are in the guide.

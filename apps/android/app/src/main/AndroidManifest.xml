@@ -36,6 +36,9 @@
     <!-- Android TV and Google TV: Needle works with a remote, so it needs no touch screen. -->
     <uses-feature android:name="android.hardware.touchscreen" android:required="false" />
     <uses-feature android:name="android.software.leanback" android:required="false" />
+    <!-- Finding speakers asks for Wi-Fi multicast, which would otherwise make Wi-Fi required and
+         hide Needle from TV boxes on a cable. -->
+    <uses-feature android:name="android.hardware.wifi" android:required="false" />
 
     <application
         android:name=".NeedleApp"
@@ -43,6 +46,7 @@
         android:banner="@drawable/tv_banner"
         android:label="@string/app_name"
         android:theme="@style/Theme.Needle"
+        android:allowBackup="false"
         android:enableOnBackInvokedCallback="true"
         android:usesCleartextTraffic="true">
         <!-- Plain http is for the home network: a Navidrome server, Needle on a computer,
@@ -55,6 +59,7 @@
             android:theme="@style/Theme.Needle.Starting"
             android:exported="true"
             android:launchMode="singleTask"
+            android:configChanges="orientation|screenSize|smallestScreenSize|screenLayout|keyboard|keyboardHidden|navigation|density"
             android:windowSoftInputMode="adjustResize">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />

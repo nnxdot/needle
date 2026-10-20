@@ -534,7 +534,6 @@ private fun PlayerControls(playing: Boolean, position: Double, duration: Double,
     val aheadIcon = if (jump) Icons.Rounded.Forward10 else Icons.Rounded.SkipNext
     val backLabel = if (jump) "Back 10 seconds" else "Previous"
     val aheadLabel = if (jump) "Ahead 10 seconds" else "Next"
-    // With a remote, play and pause shows a ring (Motion.kt): its own focus only shades it.
     val middle = remember { androidx.compose.foundation.interaction.MutableInteractionSource() }
     Row(
         Modifier.fillMaxWidth().padding(top = 14.dp, bottom = 18.dp),
@@ -553,7 +552,7 @@ private fun PlayerControls(playing: Boolean, position: Double, duration: Double,
                     shape = CircleShape,
                     colors = androidx.compose.material3.IconButtonDefaults.filledIconButtonColors(containerColor = MaterialTheme.colorScheme.primary, contentColor = MaterialTheme.colorScheme.onPrimary),
                     interactionSource = middle,
-                    modifier = Modifier.size(80.dp).focusRing(middle, 40.dp),
+                    modifier = Modifier.size(80.dp),
                 ) { PlayPauseIcon(playing, 38.dp) }
                 androidx.compose.material3.FilledTonalIconButton(onClick = ahead, colors = side, shape = CircleShape, modifier = Modifier.size(60.dp)) {
                     Icon(aheadIcon, contentDescription = aheadLabel, modifier = Modifier.size(28.dp))
@@ -562,7 +561,7 @@ private fun PlayerControls(playing: Boolean, position: Double, duration: Double,
             // Minimal: the icons alone, large and white, as in Apple Music.
             "minimal" -> {
                 IconButton(onClick = back, modifier = Modifier.size(64.dp)) { Icon(backIcon, contentDescription = backLabel, modifier = Modifier.size(44.dp)) }
-                IconButton(onClick = toggle, interactionSource = middle, modifier = Modifier.size(80.dp).focusRing(middle, 40.dp)) { PlayPauseIcon(playing, 64.dp) }
+                IconButton(onClick = toggle, interactionSource = middle, modifier = Modifier.size(80.dp)) { PlayPauseIcon(playing, 64.dp) }
                 IconButton(onClick = ahead, modifier = Modifier.size(64.dp)) { Icon(aheadIcon, contentDescription = aheadLabel, modifier = Modifier.size(44.dp)) }
             }
             // Expressive (Android 16's media controls): one large button in the cover's colour,
@@ -587,7 +586,7 @@ private fun PlayerControls(playing: Boolean, position: Double, duration: Double,
                         checkedContentColor = MaterialTheme.colorScheme.onPrimary,
                     ),
                     interactionSource = middle,
-                    modifier = Modifier.size(width = 88.dp, height = 72.dp).focusRing(middle, 24.dp),
+                    modifier = Modifier.size(width = 88.dp, height = 72.dp),
                 ) { PlayPauseIcon(playing, 36.dp) }
                 androidx.compose.material3.FilledTonalIconButton(
                     onClick = ahead,
