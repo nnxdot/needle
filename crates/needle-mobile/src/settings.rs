@@ -119,6 +119,11 @@ pub struct AppSettings {
     pub swipe_cover: bool,
     /// The welcome guide was seen (or skipped).
     pub welcomed: bool,
+    /// The player's cover fills its top, edge to edge, fading into the cover's colour, as
+    /// Apple Music's does; off, it is a card over a blur of it.
+    pub immersive_cover: bool,
+    /// Moving covers (a video beside the songs, such as cover.mp4) play in the player.
+    pub animated_covers: bool,
 }
 
 impl Default for AppSettings {
@@ -149,6 +154,8 @@ impl Default for AppSettings {
             volume_slider: false,
             swipe_cover: true,
             welcomed: false,
+            immersive_cover: true,
+            animated_covers: true,
         }
     }
 }
