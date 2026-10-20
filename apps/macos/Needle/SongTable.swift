@@ -358,6 +358,8 @@ struct Stars: View {
                 }
                 .buttonStyle(.borderless)
                 .help("Rate \(star) of 5")
+                .accessibilityLabel("Rate \(star) of 5")
+                .accessibilityAddTraits(rating >= star ? .isSelected : [])
             }
         }
     }

@@ -20,8 +20,7 @@ struct Sidebar: View {
             Section {
                 item("Favorites", "heart", .favorites)
                     .dropDestination(for: String.self) { ids, _ in
-                        store.rate(ids, 5)
-                        store.notify(ids.count == 1 ? "Added to favorites." : "Added \(ids.count) songs to favorites.")
+                        store.addToFavorites(ids)
                         return true
                     }
                 item("Recently added", "clock", .recent)
@@ -285,8 +284,7 @@ struct Rail: View {
                     Divider().padding(.vertical, 4).padding(.horizontal, 12)
                     page("Favorites", "heart", .favorites)
                         .dropDestination(for: String.self) { ids, _ in
-                            store.rate(ids, 5)
-                            store.notify(ids.count == 1 ? "Added to favorites." : "Added \(ids.count) songs to favorites.")
+                            store.addToFavorites(ids)
                             return true
                         }
                     page("Recently added", "clock", .recent)

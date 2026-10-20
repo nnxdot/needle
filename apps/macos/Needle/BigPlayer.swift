@@ -110,12 +110,14 @@ struct BigPlayer: View {
             if store.immersive {
                 Button { showLyrics.toggle() } label: { Image(systemName: showLyrics ? "quote.bubble.fill" : "quote.bubble") }
                     .help(showLyrics ? "Hide the lyrics" : "Show the lyrics")
+                    .accessibilityLabel(showLyrics ? "Hide the lyrics" : "Show the lyrics")
             }
             Button { openWindow(id: "mini"); store.big = false } label: { Image(systemName: "pip") }.help("Mini player").accessibilityLabel("Mini player")
             Button { store.setImmersive(!store.immersive) } label: {
                 Image(systemName: store.immersive ? "arrow.down.right.and.arrow.up.left" : "arrow.up.left.and.arrow.down.right")
             }
             .help(store.immersive ? "Leave full screen · Esc" : "Full screen · ⌃⌘F")
+            .accessibilityLabel(store.immersive ? "Leave full screen" : "Full screen")
         }
         .buttonStyle(.plain)
         .foregroundStyle(.white.opacity(0.85))
@@ -344,11 +346,13 @@ struct MiniPlayer: View {
                         .background(.black.opacity(0.35), in: Circle())
                 }
                 .help("Close the mini player")
+                .accessibilityLabel("Close the mini player")
                 Spacer()
                 Button { onTop.toggle() } label: {
                     Image(systemName: onTop ? "pin.fill" : "pin").rotationEffect(.degrees(45))
                 }
                 .help(onTop ? "Unpin: other windows can cover the mini player" : "Pin: keep the mini player above other windows")
+                .accessibilityLabel(onTop ? "Unpin the mini player" : "Pin the mini player")
                 menu
             }
             .font(.system(size: 14, weight: .semibold))
@@ -392,6 +396,7 @@ struct MiniPlayer: View {
                 .contentShape(Rectangle())
         }
         .help(view == name ? "Hide the \(help.lowercased())" : "Show the \(help.lowercased())")
+        .accessibilityLabel(view == name ? "Hide the \(help.lowercased())" : "Show the \(help.lowercased())")
     }
 
     private var menu: some View {

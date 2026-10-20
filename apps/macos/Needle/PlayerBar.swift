@@ -510,6 +510,7 @@ struct LoopButton: View {
         .buttonStyle(.borderless)
         .disabled(store.playback?.hasSong != true)
         .help(looping ? "A–B loop on · click to clear" : store.loopStart != nil ? "Point A set · click again to set B and start looping" : "A–B loop · click to set point A")
+        .accessibilityLabel(looping ? "Clear the A–B loop" : store.loopStart != nil ? "Set point B" : "Set point A")
     }
 }
 
@@ -674,6 +675,7 @@ struct SpeakersButton: View {
         }
         .buttonStyle(.borderless)
         .help(speaker ? "Playing on another speaker" : "Play on another speaker")
+        .accessibilityLabel("Play on another speaker")
         .popover(isPresented: $open, arrowEdge: .top) { SpeakersPicker().environment(store) }
     }
 }

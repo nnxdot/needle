@@ -1927,6 +1927,18 @@ impl Needle {
             }
         }
         table.insert("colors".into(), toml::Value::Table(slots));
+        // The grain and the font the theme had: the editor changes only its colours.
+        let mut extras = toml::map::Map::new();
+        if let Some(grain) = value["grain"].as_f64() {
+            extras.insert("grain".into(), toml::Value::Float(grain));
+        }
+        let font = text("font");
+        if !font.is_empty() {
+            extras.insert("font".into(), toml::Value::String(font));
+        }
+        if !extras.is_empty() {
+            table.insert("extras".into(), toml::Value::Table(extras));
+        }
         let file = toml::to_string(&toml::Value::Table(table)).map_err(anyhow::Error::from)?;
         let id = text("id");
         crate::media::save_theme_file(

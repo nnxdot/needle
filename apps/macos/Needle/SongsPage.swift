@@ -293,6 +293,7 @@ struct SongsHeader: View {
                 Button { keep(ids, !kept) } label: { Image(systemName: kept ? "pin.fill" : "pin") }
                     .glassButton()
                     .help(kept ? "Stop keeping this album on this computer" : "Keep this album on this computer, to play without the network")
+                    .accessibilityLabel(kept ? "Stop keeping on this computer" : "Keep on this computer")
             }
             if let playlist = model.playlist {
                 if !playlist.smart {
@@ -454,6 +455,7 @@ struct ServerSongs: View {
                                     .frame(maxWidth: 180, alignment: .leading)
                                     Button { store.core.playServerSongs(generation: generation, start: UInt32(index)) } label: { Image(systemName: "play.fill") }
                                         .buttonStyle(.borderless)
+                                        .accessibilityLabel("Play")
                                 }
                                 .padding(6)
                                 .background(store.colors.raised, in: RoundedRectangle(cornerRadius: 8))

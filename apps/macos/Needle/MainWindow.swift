@@ -509,6 +509,7 @@ struct ToastView: View {
                 Text(toast.text).lineLimit(4).frame(maxWidth: 520, alignment: .leading)
                 Button { store.toast = nil } label: { Image(systemName: "xmark").font(.caption.bold()) }
                     .buttonStyle(.borderless)
+                    .accessibilityLabel("Close the message")
             }
             .padding(.vertical, 10)
             .padding(.horizontal, 16)

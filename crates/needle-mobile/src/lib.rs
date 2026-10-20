@@ -216,6 +216,9 @@ pub struct ScanStatus {
     pub changes: u64,
 }
 
+/// Folders removed while a scan may be reading them: the scan takes them out again after.
+pub(crate) static REMOVED_ROOTS: std::sync::Mutex<Vec<String>> = std::sync::Mutex::new(Vec::new());
+
 /// A scan asked for while one runs: it runs again when that one ends, so what changed in the
 /// meantime (songs just imported) is read.
 static SCAN_AGAIN: AtomicBool = AtomicBool::new(false);
@@ -328,7 +331,12 @@ impl Needle {
             let mut changed = false;
             // The whole scan's counts, every folder's (progress comes only now and then).
             let (mut scanned, mut imported) = (0usize, 0usize);
+            REMOVED_ROOTS.lock().unwrap_or_else(|e| e.into_inner()).clear();
             for root in library.roots().unwrap_or_default() {
+                // Not there now (a drive unplugged): passed over, its songs kept as they are.
+                if !std::path::Path::new(&root).exists() {
+                    continue;
+                }
                 let cancel = Arc::new(AtomicBool::new(false));
                 // A panic must not leave the scan "running" (and its notice up) for good.
                 let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
@@ -347,6 +355,14 @@ impl Needle {
                         scanned += done.scanned;
                         imported += done.imported;
                     }
+                }
+            }
+            // Removed while this scan read them: out again (the scan had put them back).
+            for gone in std::mem::take(&mut *REMOVED_ROOTS.lock().unwrap_or_else(|e| e.into_inner())) {
+                if let Ok(db) = library.connection() {
+                    let _ = db.execute("DELETE FROM roots WHERE path=?", [&gone]);
+                    let prefix = format!("{}/", gone.trim_end_matches('/'));
+                    let _ = db.execute("DELETE FROM tracks WHERE substr(path,1,length(?1))=?1", [&prefix]);
                 }
             }
             changed |= present() != before;
