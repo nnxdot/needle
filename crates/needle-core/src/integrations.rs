@@ -495,6 +495,13 @@ pub fn listenbrainz_sign_out() -> Result<()> {
     clear_secret(SecretKind::ListenbrainzToken)?;
     clear_secret(SecretKind::ListenbrainzUser)
 }
+/// The effective fanart.tv key (environment, then the system's store, then the build's).
+pub fn fanart_key() -> Option<String> {
+    resolve(&SystemStore, &|name: &str| std::env::var(name).ok(), SecretKind::FanartKey)
+        .map(|(value, _)| value)
+        .filter(|k| !k.trim().is_empty())
+}
+
 /// The effective AcoustID API key (environment, then Credential Manager).
 pub fn acoustid_key() -> Option<String> {
     Some(Credentials::load().acoustid_key).filter(|k| !k.is_empty())

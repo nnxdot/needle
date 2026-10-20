@@ -176,6 +176,34 @@ impl Needle {
         }
     }
 
+    /// An artist's logo (a picture with a clear background) from fanart.tv, when online
+    /// lookups are on and a fanart.tv key is set; kept once found.
+    pub fn artist_logo(&self, name: String) -> Option<String> {
+        let online = self.library.settings().is_ok_and(|s| s.online_media);
+        match media::artist_logo(&self.library, &name, online) {
+            Ok(path) => path.map(|p| p.to_string_lossy().to_string()),
+            Err(e) => {
+                log(false, &format!("Artist logo for {name}: {e:#}"));
+                None
+            }
+        }
+    }
+
+    /// Whether a fanart.tv key is set, for artists' logos.
+    pub fn has_fanart_key(&self) -> bool {
+        needle_core::integrations::fanart_key().is_some()
+    }
+
+    /// Keeps a fanart.tv key in the system's store; an empty one removes it.
+    pub fn set_fanart_key(&self, key: String) -> Result<()> {
+        use needle_core::integrations::{SecretKind, clear_secret, save_secret};
+        if key.trim().is_empty() {
+            Ok(clear_secret(SecretKind::FanartKey)?)
+        } else {
+            Ok(save_secret(SecretKind::FanartKey, key.trim())?)
+        }
+    }
+
     /// Looks up a missing cover online (Cover Art Archive) for a song's album. Returns how
     /// many songs got it.
     pub fn fetch_cover(&self, id: String) -> Result<u32> {
