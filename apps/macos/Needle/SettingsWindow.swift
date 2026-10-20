@@ -288,6 +288,8 @@ struct LibrarySettings: View {
     private var store: Store { .shared }
     @State private var roots: [String] = []
     @State private var measured: [UInt64] = [0, 0]
+    @State private var hasFanart = false
+    @State private var fanartKey = ""
 
     var body: some View {
         let s = store.settings
@@ -325,6 +327,25 @@ struct LibrarySettings: View {
                         store.job { "Found covers for \(try $0.findAllCovers()) albums." }
                     }
                 }
+                SettingRow(title: "Artists' logos", detail: "With a free key from fanart.tv, artist pages show the artist's logo. Needle sends fanart.tv only the artist's MusicBrainz ID. The key stays in the macOS Keychain.") {
+                    if hasFanart {
+                        Button("Remove the key", role: .destructive) {
+                            store.run { try $0.setFanartKey(key: "") }
+                            hasFanart = false
+                        }
+                    } else {
+                        HStack {
+                            SecureField("fanart.tv key", text: $fanartKey).frame(width: 180)
+                            Button("Save") {
+                                let key = fanartKey
+                                Task {
+                                    if await store.ask({ try $0.setFanartKey(key: key) }) != nil { fanartKey = ""; hasFanart = true }
+                                }
+                            }
+                            .disabled(fanartKey.trimmingCharacters(in: .whitespaces).isEmpty)
+                        }
+                    }
+                }
             }
         } header: {
             GroupHeader(title: "Artwork and lyrics", detail: "Needle always uses covers, .lrc files, and lyrics tags found with your music.")
@@ -332,6 +353,7 @@ struct LibrarySettings: View {
         .task(id: store.libraryVersion) {
             roots = (try? store.core.folders()) ?? []
             measured = store.core.measuredCount()
+            hasFanart = store.core.hasFanartKey()
         }
     }
 

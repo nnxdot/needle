@@ -63,6 +63,48 @@ enum Covers {
         }.value
     }
 
+    /// A page's colour from its picture, as Apple Music's album and artist pages take it: the
+    /// colour along the picture's foot, a little richer, never quite white or black; for no
+    /// picture, the made-up cover's first colour, darkened as the made-up cover is.
+    @MainActor
+    static func pageColor(_ path: String?, seed: String) async -> NSColor {
+        let key = path ?? "seed:" + seed
+        if let hit = pageColors[key] { return hit }
+        var foot: (Double, Double, Double)?
+        if let path { foot = await Task.detached(priority: .userInitiated) { footColor(path) }.value }
+        let rgb = foot ?? {
+            let c = NSColor(SeedPalette(seed).colors[0]).usingColorSpace(.sRGB) ?? .gray
+            return (Double(c.redComponent) * 0.35, Double(c.greenComponent) * 0.35, Double(c.blueComponent) * 0.35)
+        }()
+        var h: CGFloat = 0, s: CGFloat = 0, b: CGFloat = 0, a: CGFloat = 0
+        NSColor(srgbRed: rgb.0, green: rgb.1, blue: rgb.2, alpha: 1).getHue(&h, saturation: &s, brightness: &b, alpha: &a)
+        let color = NSColor(hue: h, saturation: min(1, s * 1.12), brightness: min(0.9, max(0.1, b)), alpha: 1)
+        pageColors[key] = color
+        return color
+    }
+
+    @MainActor private static var pageColors: [String: NSColor] = [:]
+
+    /// The average colour of the picture's lowest rows.
+    nonisolated static func footColor(_ path: String) -> (Double, Double, Double)? {
+        guard let cg = cgImage(path, size: 64) else { return nil }
+        let side = 32
+        var pixels = [UInt8](repeating: 0, count: side * side * 4)
+        guard let context = CGContext(data: &pixels, width: side, height: side, bitsPerComponent: 8, bytesPerRow: side * 4,
+                                      space: CGColorSpaceCreateDeviceRGB(),
+                                      bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else { return nil }
+        context.draw(cg, in: CGRect(x: 0, y: 0, width: side, height: side))
+        // The bitmap's first row is the picture's top.
+        var sum = (0.0, 0.0, 0.0), n = 0.0
+        for y in (side - 5)..<side {
+            for x in 0..<side {
+                let i = (y * side + x) * 4
+                sum.0 += Double(pixels[i]); sum.1 += Double(pixels[i + 1]); sum.2 += Double(pixels[i + 2]); n += 1
+            }
+        }
+        return (sum.0 / n / 255, sum.1 / n / 255, sum.2 / n / 255)
+    }
+
     /// The cover's most colourful tone, for tinting the app (`nil` for a grey cover).
     nonisolated static func vivid(_ path: String) -> NSColor? {
         guard let cg = cgImage(path, size: 48) else { return nil }
@@ -233,6 +275,65 @@ enum Photos {
         }.value
         if online || path != nil { found[name] = .some(path) }
         return path
+    }
+}
+
+/// The top of an album's or artist's page: its picture blurred across the whole width,
+/// fading into the page's colour, and under the sidebar's and the bar's glass as well
+/// (macOS 26), as Apple Music's pages are.
+struct HeaderBackdrop: View {
+    private var store: Store { .shared }
+    let path: String?
+    let seed: String
+    var height: CGFloat = 440
+    @State private var image: NSImage?
+
+    var body: some View {
+        let canvas = store.colors.canvas
+        ZStack {
+            if let image {
+                Image(nsImage: image).resizable().interpolation(.medium).scaledToFill()
+            } else {
+                Placeholder(seed: seed).blur(radius: 40).saturation(1.4)
+            }
+        }
+        .frame(maxWidth: .infinity)
+        .frame(height: height)
+        .clipped()
+        .overlay {
+            LinearGradient(stops: [
+                .init(color: canvas.opacity(0.1), location: 0),
+                .init(color: canvas.opacity(0.55), location: 0.55),
+                .init(color: canvas, location: 1),
+            ], startPoint: .top, endPoint: .bottom)
+        }
+        .modifier(ExtendsUnderGlass())
+        .ignoresSafeArea(edges: .top)
+        .allowsHitTesting(false)
+        .task(id: path) {
+            guard let path else { image = nil; return }
+            image = await Covers.backdrop(path)
+        }
+    }
+}
+
+/// An artist's logo: a picture with a clear background, kept whole.
+struct Logo: View {
+    let path: String
+    @State private var image: NSImage?
+
+    var body: some View {
+        Group {
+            if let image { Image(nsImage: image).resizable().interpolation(.high).scaledToFit() } else { Color.clear }
+        }
+        .task(id: path) { image = await Covers.load(path, size: 1200) }
+    }
+}
+
+/// Under the sidebar and the bar, the picture goes on, mirrored and blurred (macOS 26).
+struct ExtendsUnderGlass: ViewModifier {
+    func body(content: Content) -> some View {
+        if #available(macOS 26, *) { content.backgroundExtensionEffect() } else { content }
     }
 }
 

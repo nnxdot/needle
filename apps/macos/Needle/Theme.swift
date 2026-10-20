@@ -157,6 +157,29 @@ struct Palette: Equatable {
         return p
     }
 
+    /// An album's or artist's page: the window in the colour of its picture, with white or
+    /// near-black words, whichever reads on it, and the buttons in those words' colour.
+    static func paged(_ page: HSL) -> Palette {
+        let dark = luminance(page) < 0.36
+        let toward = dark ? HSL(h: 0, s: 0, l: 1) : HSL(h: 0, s: 0, l: 0)
+        let ink = dark ? HSL(h: page.h, s: 0.06, l: 0.97) : HSL(h: page.h, s: 0.3, l: 0.07)
+        var p = build(dark ? .night : .day, tint: page, ambient: true)
+        p.dark = dark
+        p.canvas = page.color
+        p.chrome = page.mix(HSL(h: 0, s: 0, l: 0), dark ? 0.22 : 0.05).color
+        p.raised = page.mix(toward, 0.08).color
+        p.raisedHover = page.mix(toward, 0.14).color
+        p.line = page.mix(toward, 0.2).color
+        p.lineSoft = page.mix(toward, 0.11).color
+        p.ink = ink.color
+        p.ink2 = ink.mix(page, 0.3).color
+        p.ink3 = ink.mix(page, 0.46).color
+        p.accent = ink.color
+        p.accentInk = page.mix(HSL(h: 0, s: 0, l: 0), dark ? 0.15 : 0).color
+        p.glow = page.mix(toward, 0.25).color
+        return p
+    }
+
     static func luminance(_ c: HSL) -> Double {
         let (r, g, b) = c.rgb
         let channel = { (v: Double) in v <= 0.03928 ? v / 12.92 : pow((v + 0.055) / 1.055, 2.4) }
@@ -257,6 +280,7 @@ extension Store {
     /// music are on, or by the colour chosen when they are off. (Kept in `colors`, which
     /// changes only when they do.)
     func lookNow() -> Palette {
+        if settings.musicColors, let page = pageTint { return Palette.paged(HSL(page)) }
         let tint: HSL? = settings.musicColors ? coverTint.map(HSL.init) : Color(hex: settings.accentColor).map { HSL(NSColor($0)) }
         if let theme = customTheme { return Palette.custom(theme, tint: tint, ambient: settings.ambient) }
         return Palette.build(Palette.base(settings.theme), tint: tint, ambient: settings.ambient)

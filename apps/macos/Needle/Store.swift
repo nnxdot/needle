@@ -45,6 +45,9 @@ final class Store {
     private(set) var themes: [ThemeFile] = [] { didSet { refreshLook() } }
     /// The playing cover's colour, for tinting the app.
     private(set) var coverTint: NSColor? { didSet { refreshLook() } }
+    /// The open album's or artist's colour, from its picture: while one of those pages is
+    /// open, the whole window takes it, as Apple Music's pages do (see `Palette.paged`).
+    private(set) var pageTint: NSColor? { didSet { refreshLook() } }
     private(set) var stemsJob: StemJob?
     private(set) var importProgress: String?
     private(set) var update: MacUpdate?
@@ -456,6 +459,14 @@ final class Store {
         selectedTracks = []
         route = to
         big = false
+        // The next page brings its own colour, if it has one.
+        if pageTint != nil { withAnimation(.easeInOut(duration: 0.35)) { pageTint = nil } }
+    }
+
+    /// An album or artist page's colour, once found; only while that page is still open.
+    func setPageTint(_ color: NSColor?, for page: Route) {
+        guard route == page, color != pageTint else { return }
+        withAnimation(.easeInOut(duration: 0.45)) { pageTint = color }
     }
 
     @ObservationIgnored private var searchQuiet = false

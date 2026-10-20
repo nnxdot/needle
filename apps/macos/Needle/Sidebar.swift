@@ -89,6 +89,9 @@ struct Sidebar: View {
         .listStyle(.sidebar)
         .tint(store.colors.accent)
         .listItemTint(.fixed(store.colors.accent))
+        // AppKit keeps a list's highlight colour from when it was made: anew when an album's
+        // or artist's page brings its own colour.
+        .id(store.colors.accent)
         .safeAreaInset(edge: .bottom, spacing: 0) { footer(rail: rail) }
     }
 
