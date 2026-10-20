@@ -303,13 +303,15 @@ struct HeaderBackdrop: View {
             }
             .clipped()
         .overlay {
+            // Enough of the page's colour over it that the words on it read, as on the page.
             LinearGradient(stops: [
-                .init(color: canvas.opacity(0.1), location: 0),
-                .init(color: canvas.opacity(0.55), location: 0.55),
-                .init(color: canvas, location: 1),
+                .init(color: canvas.opacity(0.4), location: 0),
+                .init(color: canvas.opacity(0.72), location: 0.45),
+                .init(color: canvas, location: 0.9),
             ], startPoint: .top, endPoint: .bottom)
         }
         .modifier(ExtendsUnderGlass())
+        // Under the bar's glass too.
         .ignoresSafeArea(edges: .top)
         .allowsHitTesting(false)
         .task(id: path) {

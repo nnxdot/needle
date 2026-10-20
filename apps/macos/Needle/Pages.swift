@@ -245,6 +245,7 @@ struct TileGrid<Content: View>: View {
 /// Blend; then the newest album beside the top songs, and the albums.
 struct ArtistPage: View {
     private var store: Store { .shared }
+    @Environment(\.panelInset) private var panelInset
     let name: String
     @State private var albums: [AlbumSummary]?
     @State private var top: [Song] = []
@@ -272,9 +273,11 @@ struct ArtistPage: View {
                     }
                 }
                 .padding(.horizontal, 32)
+                .padding(.trailing, panelInset)
             }
             .padding(.bottom, 28)
         }
+        // Under the bar's glass (and the side panel's: see MainWindow.runsUnder).
         .ignoresSafeArea(edges: .top)
         .foregroundStyle(colors.ink)
         .task(id: "\(name)\(store.libraryVersion)") {
@@ -387,6 +390,7 @@ struct ArtistPage: View {
                 }
                 .padding(.horizontal, 32)
                 .padding(.bottom, 6)
+                .padding(.trailing, panelInset)
             }
     }
 

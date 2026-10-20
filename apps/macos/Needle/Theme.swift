@@ -300,6 +300,19 @@ extension Store {
 
 }
 
+/// How much of the page's right side the open side panel covers: pages that run a picture on
+/// under its glass keep their words this far from the edge.
+private struct PanelInset: EnvironmentKey {
+    static let defaultValue: CGFloat = 0
+}
+
+extension EnvironmentValues {
+    var panelInset: CGFloat {
+        get { self[PanelInset.self] }
+        set { self[PanelInset.self] = newValue }
+    }
+}
+
 extension View {
     /// A pane of Liquid Glass (macOS 26), or the frosted material before it.
     @ViewBuilder

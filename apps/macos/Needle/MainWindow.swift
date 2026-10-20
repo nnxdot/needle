@@ -159,14 +159,25 @@ struct MainWindow: View {
     /// The side panel's width, when open.
     static let panelWidth: CGFloat = 320
 
+    /// Pages with a picture across the top, which runs on under the side panel.
+    static func runsUnder(_ route: Route) -> Bool {
+        switch route {
+        case .album, .artist: true
+        default: false
+        }
+    }
+
     @ViewBuilder
     private var detail: some View {
         let open = store.settings.showInspector && !Self.drop.contains("panel")
+        let inset = open ? Self.panelWidth + 20 : 0
         HStack(spacing: 0) {
             if rail { Rail() }
             page
-                // The page goes on under the panel's glass; its words and rows stop beside it.
-                .safeAreaPadding(.trailing, open ? Self.panelWidth + 20 : 0)
+                // Album and artist pages run their picture on under the panel's glass and keep
+                // their words clear of it themselves; other pages stop beside it.
+                .safeAreaPadding(.trailing, Self.runsUnder(store.route) ? 0 : inset)
+                .environment(\.panelInset, Self.runsUnder(store.route) ? inset : 0)
         }
         // The side panel: a pane of glass floating over the page's right side, as in Apple
         // Music, not a column of its own.
@@ -206,6 +217,8 @@ struct MainWindow: View {
             .safeAreaInset(edge: .bottom, spacing: 0) {
                 if !store.settings.layout.playerOnTop && !Self.drop.contains("player") {
                     PlayerBar().padding(.horizontal, 20).padding(.bottom, 14).padding(.top, 4)
+                        // Clear of the side panel on pages that run under it.
+                        .padding(.trailing, store.settings.showInspector && Self.runsUnder(store.route) ? Self.panelWidth + 20 : 0)
                 }
             }
     }
