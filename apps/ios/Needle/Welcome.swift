@@ -5,10 +5,11 @@ struct WelcomeView: View {
     @Environment(Store.self) private var store
     let open: (Place, Route?) -> Void
     @State private var importing = false
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
         ZStack {
-            CoverBackdrop(path: nil, seed: "Needle", blur: 90, moving: true)
+            CoverBackdrop(path: nil, seed: "Needle", blur: 90, moving: !reduceMotion && !store.app.reduceMotion)
             ScrollView {
                 VStack(alignment: .leading, spacing: 18) {
                     Image(uiImage: UIImage(named: "AppIcon") ?? UIImage())

@@ -480,7 +480,7 @@ struct AlbumView: View {
                     Text(album.artist).font(.title3.weight(.medium)).foregroundStyle(look.ink.opacity(0.82)).multilineTextAlignment(.center)
                 }
                 .buttonStyle(.borderless)
-                .disabled(album.artist.isEmpty || album.artist == unknownArtist)
+                .disabled(isPlaceholderArtist(album.artist))
                 Text(details).font(.footnote.weight(.medium)).foregroundStyle(look.muted)
                 if let songs { PlayButtons(songs: songs, look: look).padding(.top, 10) }
             }
@@ -496,7 +496,7 @@ struct AlbumView: View {
         VStack(alignment: .leading, spacing: 0) {
             Text(summary).font(.footnote).foregroundStyle(look.muted)
                 .padding(.horizontal).padding(.top, 14)
-            if !more.isEmpty {
+            if !more.isEmpty, !isPlaceholderArtist(album.artist) {
                 SectionTitle(title: "More by \(album.artist)", route: .artist(album.artist))
                 ScrollView(.horizontal, showsIndicators: false) {
                     LazyHStack(alignment: .top, spacing: 14) {
@@ -561,7 +561,7 @@ struct ArtistView: View {
     }
 
     /// Not a real artist: songs without one. Nothing is looked up for it.
-    private var placeholder: Bool { name.isEmpty || name == unknownArtist }
+    private var placeholder: Bool { isPlaceholderArtist(name) }
 
     var body: some View {
         let look = store.app.coverColors ? colors ?? .plain(store.colors) : .plain(store.colors)
@@ -619,12 +619,7 @@ struct ArtistView: View {
 
     /// All their songs, for Play and Shuffle (the page lists only the top ones).
     private func playAll(shuffled: Bool) {
-        let name = name
-        store.run { core in
-            var ids = try core.artistAllSongs(name: name).map(\.id)
-            if shuffled { ids.shuffle() }
-            try core.play(ids: ids, start: 0)
-        }
+        store.playArtist(name, shuffled: shuffled)
     }
 
     /// At the top: a wide picture of them, or their photo, or else their first album's cover.

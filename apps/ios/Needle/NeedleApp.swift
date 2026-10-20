@@ -105,7 +105,8 @@ struct RootView: View {
     @State private var opened: [Place: (Int, Route)] = [:]
 
     private func path(_ place: Place) -> Binding<NavigationPath> {
-        Binding(get: { paths[place] ?? NavigationPath() }, set: { paths[place] = $0 })
+        // Back, or a page opened inside: what was opened from a link is no longer on top.
+        Binding(get: { paths[place] ?? NavigationPath() }, set: { paths[place] = $0; opened[place] = nil })
     }
 
     private func go(_ where_: Place, _ route: Route?) {
