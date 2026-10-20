@@ -183,7 +183,7 @@ impl Needle {
         match media::artist_logo(&self.library, &name, online) {
             Ok(path) => path.map(|p| p.to_string_lossy().to_string()),
             Err(e) => {
-                log(false, &format!("Artist logo for {name}: {e:#}"));
+                needle_core::logfile::warn(format!("Artist logo for {name}: {e:#}"));
                 None
             }
         }
@@ -195,7 +195,7 @@ impl Needle {
         match media::artist_banner(&self.library, &name, online) {
             Ok(path) => path.map(|p| p.to_string_lossy().to_string()),
             Err(e) => {
-                log(false, &format!("Artist picture for {name}: {e:#}"));
+                needle_core::logfile::warn(format!("Artist picture for {name}: {e:#}"));
                 None
             }
         }
