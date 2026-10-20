@@ -67,7 +67,12 @@ import fyi.nnx.needle.core.Album
 import fyi.nnx.needle.core.Song
 
 private enum class Filter(val label: String) { Playlists("Playlists"), Albums("Albums"), Artists("Artists"), Songs("Songs") }
-private enum class Sort(val label: String) { Recent("Recently added"), Title("Title"), Artist("Artist") }
+private enum class Sort(val label: String) {
+    Recent("Recently added"), Title("Title"), Artist("Artist");
+
+    /** The order songs take: without a date they were added, newest first is by title. */
+    fun forSongs(songs: Boolean) = if (songs && this == Recent) Title else this
+}
 
 /**
  * The library as one page, as Spotify and Apple Music do it: filter pills at the top, and the
@@ -112,7 +117,7 @@ fun LibraryScreen(open: (Route) -> Unit) {
                         null -> Overview(open, scroll)
                         Filter.Albums -> Albums(sort, open, scroll)
                         Filter.Artists -> Artists(open, scroll)
-                        Filter.Songs -> Songs(sort, open, scroll)
+                        Filter.Songs -> Songs(sort.forSongs(true), open, scroll)
                         Filter.Playlists -> Playlists(open, scroll)
                     }
                 }
@@ -145,11 +150,17 @@ private fun Pills(filter: Filter?, choose: (Filter?) -> Unit, sort: Sort, sortBy
             if (filter != null) {
                 item(key = "clear") {
                     // Clears the filter, as Spotify's ✕ does: a pill's size to see, a finger's to touch.
-                    androidx.compose.material3.FilledTonalIconButton(
-                        onClick = { choose(null) },
-                        colors = androidx.compose.material3.IconButtonDefaults.filledTonalIconButtonColors(containerColor = MaterialTheme.colorScheme.surfaceContainerHigh),
-                        modifier = Modifier.size(32.dp),
-                    ) { Icon(Icons.Rounded.Close, contentDescription = "Show all", modifier = Modifier.size(18.dp)) }
+                    Box(
+                        Modifier
+                            .size(48.dp)
+                            .clip(CircleShape)
+                            .clickable(role = androidx.compose.ui.semantics.Role.Button, onClickLabel = "Show all") { choose(null) },
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Box(Modifier.size(32.dp).clip(CircleShape).background(MaterialTheme.colorScheme.surfaceContainerHigh), contentAlignment = Alignment.Center) {
+                            Icon(Icons.Rounded.Close, contentDescription = "Show all", modifier = Modifier.size(18.dp))
+                        }
+                    }
                 }
             }
             // Once one is chosen, only it shows, beside the ✕. Each pill keeps its key, so the
@@ -186,13 +197,16 @@ private fun Pills(filter: Filter?, choose: (Filter?) -> Unit, sort: Sort, sortBy
             }
         }
         if (filter == Filter.Albums || filter == Filter.Songs) {
+            // Songs carry no date they were added, so they sort by name or artist only.
+            val orders = if (filter == Filter.Songs) Sort.entries - Sort.Recent else Sort.entries
+            val current = sort.forSongs(filter == Filter.Songs)
             Box {
-                IconButton(onClick = { sorting = true }) { Icon(Icons.AutoMirrored.Rounded.Sort, contentDescription = "Sort: ${sort.label}") }
+                IconButton(onClick = { sorting = true }) { Icon(Icons.AutoMirrored.Rounded.Sort, contentDescription = "Sort: ${current.label}") }
                 DropdownMenu(expanded = sorting, onDismissRequest = { sorting = false }, shape = RoundedCornerShape(20.dp)) {
-                    Sort.entries.forEach { s ->
+                    orders.forEach { s ->
                         DropdownMenuItem(
                             text = { Text(s.label) },
-                            trailingIcon = { if (s == sort) Icon(Icons.Rounded.Check, null, tint = MaterialTheme.colorScheme.primary) },
+                            trailingIcon = { if (s == current) Icon(Icons.Rounded.Check, null, tint = MaterialTheme.colorScheme.primary) },
                             onClick = { sorting = false; sortBy(s) },
                         )
                     }
@@ -333,8 +347,9 @@ private fun Artists(open: (Route) -> Unit, scroll: Modifier) {
 private fun Songs(sort: Sort, open: (Route) -> Unit, scroll: Modifier) {
     val songsLoad = rememberLoaded { songs() }
     val songs by songsLoad
-    val playing = NeedleApp.instance.playback.collectAsState().value?.current?.id
-    val list = songs?.let { sortedSongs(it, sort) }.orEmpty()
+    val playing = playingSongId()
+    // Sorted once per list and order, not at every redraw.
+    val list = remember(songs, sort) { songs?.let { sortedSongs(it, sort) }.orEmpty() }
     androidx.compose.foundation.lazy.LazyColumn(Modifier.fillMaxSize().then(scroll), contentPadding = PaddingValues(bottom = 32.dp)) {
         if (songsLoad.loading) items(8) { SongPlaceholder() }
         items(list.size, key = { list[it].id }) { i ->

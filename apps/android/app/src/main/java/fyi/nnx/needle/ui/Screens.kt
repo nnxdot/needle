@@ -88,7 +88,7 @@ import kotlinx.coroutines.withContext
 private fun play(songs: List<Song>, start: Int = 0) = playSongs(songs.map { it.id }, start)
 
 @Composable
-private fun currentId(): String? = NeedleApp.instance.playback.collectAsState().value?.current?.id
+private fun currentId(): String? = playingSongId()
 
 internal fun LazyGridScope.full(content: @Composable () -> Unit) =
     item(span = { GridItemSpan(maxLineSpan) }) { content() }

@@ -11,7 +11,11 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import fyi.nnx.needle.ui.asPlayback
@@ -31,6 +35,15 @@ class NeedleApp : Application() {
      * the phone shows that (see [remoteShown]).
      */
     val playback: StateFlow<Playback?> = _playback
+
+    /**
+     * The song playing, changing only when the song does: lists mark it without redrawing at
+     * every tick of the playing position.
+     */
+    val playingId: StateFlow<String?> = _playback
+        .map { it?.current?.id }
+        .distinctUntilChanged()
+        .stateIn(scope, SharingStarted.Eagerly, null)
 
     private val _remote = MutableStateFlow<fyi.nnx.needle.core.PcState?>(null)
     /** What Needle on the computer plays, while the phone is connected to it. */

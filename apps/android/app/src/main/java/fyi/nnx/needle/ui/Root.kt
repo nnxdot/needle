@@ -147,7 +147,11 @@ fun NeedleRoot() {
     val songsLoad = rememberLoaded { songCount() }
     val songs by songsLoad
     val again by Ui.welcome.collectAsState()
-    val welcoming = again || (!app.welcomed && songs == 0u)
+    // Once begun, it stays until it is finished: the songs the first folder brings in would
+    // otherwise close it before its last step.
+    var guiding by rememberSaveable { mutableStateOf(false) }
+    if (!app.welcomed && songs == 0u) guiding = true
+    val welcoming = again || (guiding && !app.welcomed)
     // With a remote (TvFocus.kt): the player and the guide hold the focus while they cover the
     // app. A page opened from the page takes the focus, and so does the page under the player
     // or the guide when it closes; otherwise Android would give it to the side bar's first

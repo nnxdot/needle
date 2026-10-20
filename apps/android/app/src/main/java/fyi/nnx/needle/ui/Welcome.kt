@@ -45,6 +45,8 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.selection.toggleable
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.vector.ImageVector
@@ -131,12 +133,18 @@ fun WelcomeGuide(open: (Route) -> Unit) {
                                 FilterChip(app.theme == id, { NeedleApp.instance.updateApp { it.copy(theme = id) } }, label = { Text(label) })
                             }
                         }
-                        Row(Modifier.fillMaxWidth().padding(vertical = 16.dp), verticalAlignment = Alignment.CenterVertically) {
+                        // The whole row is the one switch, named by its words.
+                        Row(
+                            Modifier.fillMaxWidth()
+                                .toggleable(app.ambientColors, role = Role.Switch) { on -> NeedleApp.instance.updateApp { it.copy(ambientColors = on) } }
+                                .padding(vertical = 16.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
                             Column(Modifier.weight(1f)) {
                                 Text("Colours from what's playing", style = MaterialTheme.typography.bodyLarge)
                                 Text("The whole app takes the song's colours", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
                             }
-                            Switch(app.ambientColors, { on -> NeedleApp.instance.updateApp { it.copy(ambientColors = on) } })
+                            Switch(app.ambientColors, onCheckedChange = null)
                         }
                         Spacer(Modifier.height(20.dp))
                         Button(onClick = ::finish, modifier = Modifier.fillMaxWidth()) { Text("Start listening") }

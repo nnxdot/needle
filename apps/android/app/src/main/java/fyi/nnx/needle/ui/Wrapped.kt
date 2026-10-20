@@ -41,6 +41,9 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
@@ -135,7 +138,16 @@ fun WrappedScreen(year: Int?, open: (Route) -> Unit) {
                         // A tap moves on, as in a story.
                         .clickable { scope.launch { pager.animateScrollToPage((page + 1).coerceAtMost(pages.size - 1)) } }
                         .padding(28.dp),
-                ) { pages[page]() }
+                ) {
+                    // Centred where the card has room; scrolled where it has not (a TV, a phone
+                    // on its side), so its foot and its button stay in reach.
+                    androidx.compose.foundation.layout.BoxWithConstraints(Modifier.fillMaxSize()) {
+                        Box(
+                            Modifier.fillMaxWidth().heightIn(min = maxHeight).verticalScroll(rememberScrollState()),
+                            propagateMinConstraints = true,
+                        ) { pages[page]() }
+                    }
+                }
             }
         }
     }
@@ -188,7 +200,7 @@ private fun TopSong(w: Wrapped) {
         Spacer(Modifier.height(24.dp))
         Cover(
             song.artwork,
-            Modifier.widthIn(max = 400.dp).fillMaxWidth(0.8f).aspectRatio(1f).graphicsLayer { rotationZ = if (reduce) 0f else spin },
+            Modifier.widthIn(max = 280.dp).fillMaxWidth(0.8f).aspectRatio(1f).graphicsLayer { rotationZ = if (reduce) 0f else spin },
             MaterialShapes.Cookie12Sided.toShape(),
         )
         Spacer(Modifier.height(28.dp))
@@ -286,9 +298,12 @@ private fun Keep(w: Wrapped) {
         Button(onClick = { playTop(w) }, colors = ButtonDefaults.buttonColors(containerColor = Color.White, contentColor = Color.Black)) { Text("Play your top songs") }
         Spacer(Modifier.height(8.dp))
         FilledTonalButton(onClick = {
-            core.createPlaylist("Top songs of ${w.year}", "Your most played songs of ${w.year}.", w.topSongs.map { it.id }, null)
-            NeedleApp.instance.libraryVersion.value++
-            showMessage("Saved as a playlist")
+            runCatching { core.createPlaylist("Top songs of ${w.year}", "Your most played songs of ${w.year}.", w.topSongs.map { it.id }, null) }
+                .onSuccess {
+                    NeedleApp.instance.libraryVersion.value++
+                    showMessage("Saved as a playlist")
+                }
+                .onFailure { showMessage("Could not save it: ${it.message}") }
         }) { Text("Save them as a playlist") }
     }
 }

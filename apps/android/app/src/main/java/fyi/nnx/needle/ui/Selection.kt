@@ -96,7 +96,7 @@ fun SelectionBar() {
                     playSongs(ids)
                     Selection.clear()
                 }) { Icon(Icons.Rounded.PlayArrow, contentDescription = "Play") }
-                IconButton(onClick = { core.playNext(ids); showMessage("Play next"); Selection.clear() }) {
+                IconButton(onClick = { addToQueue(next = true) { ids }; Selection.clear() }) {
                     Icon(Icons.Rounded.QueuePlayNext, contentDescription = "Play next")
                 }
                 IconButton(onClick = { Ui.sheet.value = Sheet.AddToPlaylist(ids); Selection.clear() }) {
@@ -107,7 +107,7 @@ fun SelectionBar() {
                     DropdownMenuItem(
                         text = { Text("Add to queue") },
                         leadingIcon = { Icon(Icons.AutoMirrored.Rounded.QueueMusic, null) },
-                        onClick = { more = false; core.enqueue(ids); showMessage("Added to the queue"); Selection.clear() },
+                        onClick = { more = false; addToQueue(next = false) { ids }; Selection.clear() },
                     )
                     DropdownMenuItem(
                         text = { Text("New playlist from these") },

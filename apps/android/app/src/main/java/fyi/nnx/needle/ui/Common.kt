@@ -104,7 +104,13 @@ fun <T> rememberLoaded(vararg keys: Any?, load: Needle.() -> T): LoadedState<T> 
     }
     val failure = result as? fyi.nnx.needle.LoadResult.Failed
     if (failure != null) {
-        androidx.compose.ui.window.Popup(alignment = Alignment.BottomCenter) {
+        // With a remote the card takes the focus, so Retry is in reach (Back tries again too).
+        val keys = usingKeys()
+        androidx.compose.ui.window.Popup(
+            alignment = Alignment.BottomCenter,
+            onDismissRequest = if (keys) ({ attempt++ }) else null,
+            properties = androidx.compose.ui.window.PopupProperties(focusable = keys),
+        ) {
             androidx.compose.material3.Surface(shape = CoverShape, tonalElevation = 6.dp, modifier = Modifier.padding(Edge)) {
                 Column(Modifier.padding(16.dp)) {
                     Text(failure.error.message ?: "Could not load this page", color = MaterialTheme.colorScheme.error)
@@ -122,13 +128,33 @@ fun fileUri(path: String?): Uri? = path?.let {
 }
 
 /**
+ * Puts songs next, or at the end of what is to play, and says so. Off the main thread: the core
+ * looks each song up, which for a long playlist takes a moment. `ids` is read there too.
+ */
+fun addToQueue(next: Boolean, ids: () -> List<String>) {
+    NeedleApp.instance.scope.launch(Dispatchers.IO) {
+        runCatching {
+            val list = ids()
+            if (next) core.playNext(list) else core.enqueue(list)
+        }
+            .onSuccess { showMessage(if (next) "Plays next" else "Added to the queue") }
+            .onFailure { showMessage(it.message ?: "Could not add them") }
+    }
+}
+
+/** The id of the song playing, for marking it in a list (see [NeedleApp.playingId]). */
+@Composable
+fun playingSongId(): String? = NeedleApp.instance.playingId.collectAsState().value
+
+/**
  * Plays songs from `start`, then opens the player (when that is on). Off the main thread: the
  * core looks each song up, which for a whole library or a long playlist takes a moment.
  */
 fun playSongs(ids: List<String>, start: Int = 0) {
     NeedleApp.instance.scope.launch(Dispatchers.IO) {
-        runCatching { core.play(ids, start.toUInt()) }.onFailure { showMessage(it.message ?: "Could not play these songs") }
-        NeedleApp.instance.openPlayer.tryEmit(Unit)
+        runCatching { core.play(ids, start.toUInt()) }
+            .onSuccess { NeedleApp.instance.openPlayer.tryEmit(Unit) }
+            .onFailure { showMessage(it.message ?: "Could not play these songs") }
     }
 }
 

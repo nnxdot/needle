@@ -198,8 +198,8 @@ fun SongSheet(song: Song, open: ((Route) -> Unit)?, remove: (() -> Unit)?, onDis
                 }
             }
             MenuGroup {
-                MenuRow(Icons.Rounded.QueuePlayNext, "Play next") { act { core.playNext(listOf(song.id)); showMessage("Plays next") } }
-                MenuRow(Icons.AutoMirrored.Rounded.QueueMusic, "Add to queue") { act { core.enqueue(listOf(song.id)); showMessage("Added to the queue") } }
+                MenuRow(Icons.Rounded.QueuePlayNext, "Play next") { act { addToQueue(next = true) { listOf(song.id) } } }
+                MenuRow(Icons.AutoMirrored.Rounded.QueueMusic, "Add to queue") { act { addToQueue(next = false) { listOf(song.id) } } }
                 MenuRow(Icons.Rounded.Radio, "Start radio") {
                     act {
                         showMessage("Starting radio from ${song.title}…")
@@ -318,8 +318,8 @@ fun AlbumSheet(album: fyi.nnx.needle.core.Album, open: ((Route) -> Unit)?, onDis
             MenuRow(Icons.Rounded.Shuffle, "Shuffle") { act { start(ids().shuffled()) } }
         }
         MenuGroup {
-            MenuRow(Icons.Rounded.QueuePlayNext, "Play next") { act { core.playNext(ids()); showMessage("Plays next") } }
-            MenuRow(Icons.AutoMirrored.Rounded.QueueMusic, "Add to queue") { act { core.enqueue(ids()); showMessage("Added to the queue") } }
+            MenuRow(Icons.Rounded.QueuePlayNext, "Play next") { act { addToQueue(next = true) { ids() } } }
+            MenuRow(Icons.AutoMirrored.Rounded.QueueMusic, "Add to queue") { act { addToQueue(next = false) { ids() } } }
             MenuRow(Icons.AutoMirrored.Rounded.PlaylistAdd, "Add to a playlist") { act { Ui.sheet.value = Sheet.AddToPlaylist(ids()) } }
         }
         if (open != null) {
@@ -347,8 +347,8 @@ fun PlaylistSheet(
     ActionSheet(art, detail.name, if (detail.rule != null) "Smart playlist" else count(ids.size, "song"), onDismiss) { act ->
         if (ids.isNotEmpty()) {
             MenuGroup {
-                MenuRow(Icons.Rounded.QueuePlayNext, "Play next") { act { core.playNext(ids); showMessage("Plays next") } }
-                MenuRow(Icons.AutoMirrored.Rounded.QueueMusic, "Add to queue") { act { core.enqueue(ids); showMessage("Added to the queue") } }
+                MenuRow(Icons.Rounded.QueuePlayNext, "Play next") { act { addToQueue(next = true) { ids } } }
+                MenuRow(Icons.AutoMirrored.Rounded.QueueMusic, "Add to queue") { act { addToQueue(next = false) { ids } } }
             }
         }
         MenuGroup {
