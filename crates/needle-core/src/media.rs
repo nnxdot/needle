@@ -517,7 +517,7 @@ pub fn artist_image(library: &Library, name: &str, online: bool) -> Result<Optio
     if cached::<bool>(library, &key)?.is_some() {
         return Ok(None);
     }
-    let url = find_artist_image(name)?;
+    let url = find_artist_image(library, name)?;
     match url {
         Some(url) => {
             download_image(&url, &file)?;
@@ -528,6 +528,17 @@ pub fn artist_image(library: &Library, name: &str, online: bool) -> Result<Optio
             Ok(None)
         }
     }
+}
+
+/// The artist's MusicBrainz id, kept three months (a week when none matched).
+fn musicbrainz_artist_kept(library: &Library, name: &str) -> Result<Option<String>> {
+    let key = format!("mb-artist:{}", name.to_lowercase());
+    if let Some(hit) = cached::<Option<String>>(library, &key)? {
+        return Ok(hit);
+    }
+    let found = musicbrainz_artist(name)?;
+    remember(library, &key, &found, if found.is_some() { WEEK * 13 } else { WEEK })?;
+    Ok(found)
 }
 
 /// The artist's MusicBrainz id: a close match by name, or by one of their other names (a
@@ -566,7 +577,7 @@ fn fanart(library: &Library, name: &str, online: bool) -> Result<Option<Value>> 
     if let Some(hit) = cached::<Value>(library, &remembered)? {
         return Ok((!hit.is_null()).then_some(hit));
     }
-    let found = match musicbrainz_artist(name)? {
+    let found = match musicbrainz_artist_kept(library, name)? {
         Some(id) => {
             let response = client()?
                 .get(format!("https://webservice.fanart.tv/v3/music/{id}"))
@@ -650,8 +661,8 @@ fn best_banner(data: &Value) -> Option<String> {
     best_of(data, "artistbackground").or_else(|| best_of(data, "artistthumb"))
 }
 
-fn find_artist_image(name: &str) -> Result<Option<String>> {
-    let Some(id) = musicbrainz_artist(name)? else {
+fn find_artist_image(library: &Library, name: &str) -> Result<Option<String>> {
+    let Some(id) = musicbrainz_artist_kept(library, name)? else {
         return Ok(None);
     };
     let detail = musicbrainz_get(&format!("artist/{id}"), &[("inc", "url-rels")])?;

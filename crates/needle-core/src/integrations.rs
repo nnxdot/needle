@@ -39,23 +39,31 @@ pub struct RecordingMatch {
     pub release_id: Option<String>,
 }
 
-/// A MusicBrainz web-service GET that honours the one-request-per-second limit shared by all callers.
+/// A MusicBrainz web-service GET that honours the one-request-per-second limit shared by all
+/// callers. When MusicBrainz is busy (503), it is asked twice more, a little later each time.
 pub(crate) fn musicbrainz_get(path: &str, query: &[(&str, &str)]) -> Result<Value> {
     let mut last = MB_LAST.lock().unwrap();
-    if let Some(time) = *last {
-        let elapsed = time.elapsed();
-        if elapsed < Duration::from_secs(1) {
-            std::thread::sleep(Duration::from_secs(1) - elapsed);
+    let mut wait = Duration::from_secs(1);
+    for attempt in 0..3 {
+        if let Some(time) = *last {
+            let elapsed = time.elapsed();
+            if elapsed < wait {
+                std::thread::sleep(wait - elapsed);
+            }
         }
+        *last = Some(Instant::now());
+        let response = client()?
+            .get(format!("https://musicbrainz.org/ws/2/{path}"))
+            .query(query)
+            .query(&[("fmt", "json")])
+            .send()?;
+        if response.status() == reqwest::StatusCode::SERVICE_UNAVAILABLE && attempt < 2 {
+            wait = Duration::from_secs(2 << attempt);
+            continue;
+        }
+        return Ok(response.error_for_status()?.json()?);
     }
-    *last = Some(Instant::now());
-    Ok(client()?
-        .get(format!("https://musicbrainz.org/ws/2/{path}"))
-        .query(query)
-        .query(&[("fmt", "json")])
-        .send()?
-        .error_for_status()?
-        .json()?)
+    unreachable!("the last attempt returns")
 }
 
 pub fn musicbrainz_search(
