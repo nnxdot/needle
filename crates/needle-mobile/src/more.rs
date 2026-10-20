@@ -400,7 +400,13 @@ impl Needle {
     }
 
     pub fn delete_playlist(&self, id: String) -> Result<()> {
-        Ok(self.library.delete_playlist(&id)?)
+        let cover = self.library.playlists()?.into_iter().find(|p| p.id == id).and_then(|p| p.cover);
+        self.library.delete_playlist(&id)?;
+        // Its own picture goes with it.
+        if let Some(cover) = cover {
+            self.library.forget_playlist_picture(&cover);
+        }
+        Ok(())
     }
 
     /// Whether a smart playlist's rule is one Needle understands (`None`), or what is wrong.
