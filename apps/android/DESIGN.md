@@ -11,11 +11,20 @@ marks only what plays, the main action, and links.
 ## Structure
 
 - **Page:** a large title that shrinks as the page scrolls (Material's flexible top bar), actions
-  at its right. Every top-level page and every page opened from one has it.
-- **Content sits on the page**, not in cards. Cards (rounded 28 dp surfaces) are for groups of
-  settings and for the few tiles on Home.
+  at its right, and under the title a line of what the page holds (Home: songs and albums;
+  Library: albums, artists, playlists). Every top-level page and every page opened from one has it.
+- **Covers and tiles sit on the page.** Rows sit in groups (`segment` in Design.kt), as Android
+  16's own lists: one tone a step above the page (`groupColor`), the rows 2 dp apart, the group's
+  ends rounded 24 dp and the corners between rows 6 dp. No hairlines. The playing song's row
+  takes the secondary container, chosen songs the primary container. Settings' groups are the
+  same, their rows a gap of the page apart.
+- **Tiles** (Home, Library): each on its own tone, Material's secondary or tertiary container,
+  its icon's cookie in the tone's strong colour.
 - **Lists:** 60 dp rows; cover 52 dp (12 dp corners); title and one line under it; the row's
   menu at the right. Long press opens the same menu.
+- **Home:** the first shelf is Material's carousel (multi-browse from three covers; with fewer,
+  each keeps one card's width); then the tiles, recently added, your playlists, most played, and
+  the artists with the most songs.
 - **Grids:** two covers across on phones, a title and one line under each; on tablets as many as
   fit (`gridColumns` in Adaptive.kt).
 - **Tablets** (pages 560 dp wide or more) use the room, never a phone's layout stretched: album
@@ -34,9 +43,13 @@ marks only what plays, the main action, and links.
 ## Shapes (each means one thing)
 
 - Covers of albums, songs, and playlists: rounded squares, 12 dp (8 dp when small).
-- Artists: circles.
-- Icons in a shape: the scalloped "cookie", always the same one.
-- Buttons: pills; the main Play is the one large filled button.
+- Artists: Material's arch (`artistShape`), as a portrait's frame.
+- Icons in a shape: the scalloped "cookie", always the same one (Settings' sections too).
+- Buttons: pills; the main Play is the one large filled button. On a page, Shuffle, Play, and
+  the page's own button are one connected group (Material's button group): round at its ends,
+  small corners where they meet.
+- Waiting: Material's shape-changing loading indicator (pull to refresh, loading dialogs).
+- Choosing songs: Material's floating toolbar, in its vibrant colours, Play its one filled button.
 
 ## Colour
 
@@ -72,6 +85,8 @@ marks only what plays, the main action, and links.
 
 - Roboto Flex, one variable font. Text at its usual width; display and headline sizes narrow
   and heavy (`titleFamily`), as posters are. Big titles grow narrower as their page scrolls.
+- Section titles use the emphasized styles (`titleLargeEmphasized`): the title font, a step
+  heavier.
 
 ## Menus
 

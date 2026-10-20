@@ -198,7 +198,7 @@ private fun SectionList(chosen: SettingsSection?, onChoose: (SettingsSection) ->
                 horizontalArrangement = Arrangement.spacedBy(16.dp),
             ) {
                 Box(
-                    Modifier.size(40.dp).clip(CircleShape).background(section.tint.copy(alpha = 0.18f)),
+                    Modifier.size(42.dp).clip(iconShape()).background(section.tint.copy(alpha = 0.18f)),
                     contentAlignment = Alignment.Center,
                 ) { Icon(section.icon, contentDescription = null, tint = section.tint) }
                 Column(Modifier.weight(1f)) {
@@ -233,7 +233,10 @@ fun SettingsSectionScreen(section: SettingsSection, open: (Route) -> Unit) {
 
 // ---------- Building blocks
 
-/** Rows grouped on one rounded surface, as in Android's own Settings. */
+/**
+ * Rows grouped on one rounded surface, as in Android 16's own Settings: the group's ends are
+ * rounded, and its rows stand a hair apart (each [Divider] is a gap the page shows through).
+ */
 @Composable
 private fun Group(title: String? = null, footer: String? = null, content: @Composable () -> Unit) {
     Column(Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) {
@@ -249,7 +252,7 @@ private fun Group(title: String? = null, footer: String? = null, content: @Compo
             Modifier
                 .fillMaxWidth()
                 .clip(RoundedCornerShape(24.dp))
-                .background(MaterialTheme.colorScheme.surfaceContainer)
+                .background(groupColor())
                 .animateContentSize(),
         ) { content() }
         if (footer != null) {
@@ -263,8 +266,9 @@ private fun Group(title: String? = null, footer: String? = null, content: @Compo
     }
 }
 
+/** Between two rows of a [Group]: a gap of the page, rather than a line. */
 @Composable
-private fun Divider() = HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant, modifier = Modifier.padding(horizontal = 16.dp))
+private fun Divider() = Box(Modifier.fillMaxWidth().height(2.dp).background(MaterialTheme.colorScheme.background))
 
 @Composable
 private fun SwitchRow(title: String, summary: String?, checked: Boolean, enabled: Boolean = true, onChange: (Boolean) -> Unit) {

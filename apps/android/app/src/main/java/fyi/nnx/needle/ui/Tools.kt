@@ -180,6 +180,7 @@ fun rememberFileAccess(songIds: List<String> = emptyList()): (then: () -> Unit) 
  * Changes the tags of one song or many. With many, a field shows a value only when every
  * song has it; left as it is, each song keeps its own.
  */
+@OptIn(androidx.compose.material3.ExperimentalMaterial3ExpressiveApi::class)
 @Composable
 fun TagEditorDialog(ids: List<String>, onDone: () -> Unit) {
     var loaded by remember { mutableStateOf(false) }
@@ -231,7 +232,7 @@ fun TagEditorDialog(ids: List<String>, onDone: () -> Unit) {
         title = { Text(if (ids.size == 1) "Edit tags" else "Edit ${ids.size} songs") },
         text = {
             if (!loaded) {
-                CircularProgressIndicator()
+                androidx.compose.material3.LoadingIndicator()
                 return@AlertDialog
             }
             Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(8.dp)) {

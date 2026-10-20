@@ -73,17 +73,37 @@ private enum class Sort(val label: String) { Recent("Recently added"), Title("Ti
  * music itself below, sorted as chosen. With no pill chosen: favorites and history, then what
  * came in lately.
  */
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalMaterial3Api::class, androidx.compose.material3.ExperimentalMaterial3ExpressiveApi::class)
 @Composable
 fun LibraryScreen(open: (Route) -> Unit) {
     var filter by rememberSaveable { mutableStateOf<Filter?>(null) }
     var sort by rememberSaveable { mutableStateOf(Sort.Recent) }
     val scan by NeedleApp.instance.scan.collectAsState()
+    // Under the title, what the library holds: the flexible top bar's subtitle.
+    val sizesLoad = rememberLoaded {
+        listOf(count(albums().size, "album"), count(artists().size, "artist"), count(playlists().size, "playlist"))
+    }
+    val sizes by sizesLoad
     // With the side bar, Settings is at its foot instead.
-    Page("Library", actions = {
+    Page("Library", subtitle = sizes?.joinToString(" · "), actions = {
         if (!hasSideBar()) IconButton(onClick = { open(Route.Settings) }) { Icon(Icons.Rounded.Settings, contentDescription = "Settings") }
     }) { padding, scroll ->
-        PullToRefreshBox(isRefreshing = scan.running, onRefresh = { core.rescan() }, modifier = Modifier.fillMaxSize().padding(padding)) {
+        // Pulled down, it reads the music folders again; Material 3 Expressive's shape-changing
+        // loading indicator shows while it does.
+        val pull = androidx.compose.material3.pulltorefresh.rememberPullToRefreshState()
+        PullToRefreshBox(
+            isRefreshing = scan.running,
+            onRefresh = { core.rescan() },
+            state = pull,
+            indicator = {
+                androidx.compose.material3.pulltorefresh.PullToRefreshDefaults.LoadingIndicator(
+                    state = pull,
+                    isRefreshing = scan.running,
+                    modifier = Modifier.align(Alignment.TopCenter),
+                )
+            },
+            modifier = Modifier.fillMaxSize().padding(padding),
+        ) {
             Column(Modifier.fillMaxSize()) {
                 Pills(filter, { filter = it }, sort, { sort = it }, open)
                 AnimatedContent(filter, transitionSpec = { fadeIn(tween(200)) togetherWith fadeOut(tween(120)) }, label = "filter") { f ->
@@ -200,33 +220,68 @@ private fun Overview(open: (Route) -> Unit, scroll: Modifier) {
     AlbumGrid(albums?.let { sorted(it, Sort.Recent).take(24) }, open, scroll, albumsLoad.loading) {
         span {
             Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                Pinned(Icons.Rounded.Favorite, "Favorites", favorites?.let { count(it, "song") }, Modifier.weight(1f)) { open(Route.Favorites) }
+                val colors = MaterialTheme.colorScheme
+                Pinned(Icons.Rounded.Favorite, "Favorites", favorites?.let { count(it, "song") }, Modifier.weight(1f), colors.tertiaryContainer, colors.tertiary) { open(Route.Favorites) }
                 Pinned(Icons.Rounded.History, "History", "What you played", Modifier.weight(1f)) { open(Route.History) }
             }
         }
-        span { Text("Recently added", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold, modifier = Modifier.padding(top = 12.dp)) }
+        span { Text("Recently added", style = MaterialTheme.typography.titleLargeEmphasized, modifier = Modifier.padding(top = 12.dp)) }
     }
 }
 
-/** A pinned place: its icon in the one icon shape, a name, and a line. */
+/**
+ * A pinned place: its icon in the one icon shape, a name, and a line, on a tone of its own
+ * (Material's secondary or tertiary container), the icon's shape in the tone's strong colour.
+ */
 @Composable
-internal fun Pinned(icon: ImageVector, title: String, detail: String?, modifier: Modifier, onClick: () -> Unit) {
+internal fun Pinned(
+    icon: ImageVector,
+    title: String,
+    detail: String?,
+    modifier: Modifier,
+    container: androidx.compose.ui.graphics.Color = MaterialTheme.colorScheme.secondaryContainer,
+    accent: androidx.compose.ui.graphics.Color = MaterialTheme.colorScheme.secondary,
+    onClick: () -> Unit,
+) {
     val interaction = remember { MutableInteractionSource() }
+    val text = androidx.compose.material3.contentColorFor(container)
     Row(
         modifier
             .pressScale(interaction)
-            .clip(RoundedCornerShape(20.dp))
-            .background(MaterialTheme.colorScheme.surfaceContainer)
+            .clip(RoundedCornerShape(24.dp))
+            .background(container)
             .clickable(interactionSource = interaction, indication = null, onClick = onClick)
             .padding(12.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(12.dp),
     ) {
-        ShapedIcon(icon, 44)
+        ShapedIcon(icon, 44, container = accent, content = androidx.compose.material3.contentColorFor(accent))
         Column {
-            Text(title, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
-            Text(detail ?: " ", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            Text(title, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold, color = text)
+            Text(detail ?: " ", style = MaterialTheme.typography.bodySmall, color = text.copy(alpha = 0.75f), maxLines = 1, overflow = TextOverflow.Ellipsis)
         }
+    }
+}
+
+/** An artist: the photo (or a cover of theirs) in the artists' arch, the name under it. */
+@Composable
+internal fun ArtistTile(artist: fyi.nnx.needle.core.Artist, modifier: Modifier, open: (Route) -> Unit) {
+    val photoLoad = rememberLoaded(artist.name) { artistPhoto(artist.name) }
+    val photo by photoLoad
+    val interaction = remember { MutableInteractionSource() }
+    Column(
+        modifier.pressScale(interaction).clickable(interactionSource = interaction, indication = null) { open(Route.Artist(artist.name)) },
+        horizontalAlignment = Alignment.CenterHorizontally,
+    ) {
+        Cover(photo ?: artist.artwork, Modifier.fillMaxWidth().aspectRatio(1f), artistShape(), seed = artist.name)
+        Text(
+            artist.name.ifBlank { "Unknown artist" },
+            style = MaterialTheme.typography.bodyMedium,
+            fontWeight = FontWeight.Medium,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.padding(top = 8.dp),
+        )
     }
 }
 
@@ -248,21 +303,7 @@ private fun Artists(open: (Route) -> Unit, scroll: Modifier) {
         verticalArrangement = Arrangement.spacedBy(LocalRows.current.grid),
         modifier = Modifier.fillMaxSize().then(scroll),
     ) {
-        items(artists.orEmpty(), key = { it.name }) { artist ->
-            val photoLoad = rememberLoaded(artist.name) { artistPhoto(artist.name) }
-            val photo by photoLoad
-            Column(Modifier.clip(RoundedCornerShape(16.dp)).clickable { open(Route.Artist(artist.name)) }, horizontalAlignment = Alignment.CenterHorizontally) {
-                Cover(photo ?: artist.artwork, Modifier.fillMaxWidth().aspectRatio(1f), CircleShape)
-                Text(
-                    artist.name.ifBlank { "Unknown artist" },
-                    style = MaterialTheme.typography.bodyMedium,
-                    fontWeight = FontWeight.Medium,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                    modifier = Modifier.padding(top = 8.dp),
-                )
-            }
-        }
+        items(artists.orEmpty(), key = { it.name }) { artist -> ArtistTile(artist, Modifier, open) }
     }
 }
 
@@ -276,7 +317,7 @@ private fun Songs(sort: Sort, open: (Route) -> Unit, scroll: Modifier) {
         if (songsLoad.loading) items(8) { SongPlaceholder() }
         items(list.size, key = { list[it].id }) { i ->
             val song = list[i]
-            SongRow(song, playing == song.id, open) {
+            SongRow(song, playing == song.id, open, place = Place(i, list.size)) {
                 core.play(list.map { it.id }, i.toUInt())
                 NeedleApp.instance.openPlayer.tryEmit(Unit)
             }
@@ -289,22 +330,23 @@ private fun Playlists(open: (Route) -> Unit, scroll: Modifier) {
     val playlistsLoad = rememberLoaded { playlists() }
     val playlists by playlistsLoad
     androidx.compose.foundation.lazy.LazyColumn(Modifier.fillMaxSize().then(scroll), contentPadding = PaddingValues(bottom = 32.dp)) {
+        // A new playlist: Material's tonal button, above the group of playlists.
         item {
-            Row(
-                Modifier.fillMaxWidth().clickable { Ui.sheet.value = Sheet.NewPlaylist(emptyList()) }.heightIn(min = LocalRows.current.height + 12.dp).padding(horizontal = 16.dp),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(14.dp),
+            androidx.compose.material3.FilledTonalButton(
+                onClick = { Ui.sheet.value = Sheet.NewPlaylist(emptyList()) },
+                modifier = Modifier.padding(start = 16.dp, top = 4.dp, bottom = 14.dp).heightIn(min = 48.dp),
             ) {
-                Box(Modifier.size(56.dp).clip(SmallCoverShape).background(MaterialTheme.colorScheme.surfaceContainerHigh), contentAlignment = Alignment.Center) {
-                    Icon(Icons.Rounded.Add, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
-                }
-                Text("New playlist", style = MaterialTheme.typography.bodyLarge, color = MaterialTheme.colorScheme.primary)
+                Icon(Icons.Rounded.Add, contentDescription = null)
+                androidx.compose.foundation.layout.Spacer(Modifier.size(8.dp))
+                Text("New playlist")
             }
         }
-        items(playlists.orEmpty().size, key = { playlists!![it].id }) { i ->
+        val count = playlists.orEmpty().size
+        items(count, key = { playlists!![it].id }) { i ->
             val playlist = playlists!![i]
             Row(
-                Modifier.fillMaxWidth().clickable { open(Route.Playlist(playlist.id, playlist.name)) }.heightIn(min = LocalRows.current.height + 12.dp).padding(horizontal = 16.dp),
+                Modifier.fillMaxWidth().segment(Place(i, count), groupColor()).clickable { open(Route.Playlist(playlist.id, playlist.name)) }
+                    .heightIn(min = LocalRows.current.height + 12.dp).padding(horizontal = 12.dp, vertical = 8.dp),
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(14.dp),
             ) {

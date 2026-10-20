@@ -242,6 +242,7 @@ fun LargeTitle(text: String, modifier: Modifier = Modifier, action: @Composable 
 }
 
 /** A section's title; with `onMore`, a chevron leads to the whole list. */
+@OptIn(androidx.compose.material3.ExperimentalMaterial3ExpressiveApi::class)
 @Composable
 fun SectionHeader(text: String, modifier: Modifier = Modifier, onMore: (() -> Unit)? = null) {
     Row(
@@ -251,7 +252,7 @@ fun SectionHeader(text: String, modifier: Modifier = Modifier, onMore: (() -> Un
             .padding(start = Edge, end = 12.dp, top = 28.dp, bottom = 12.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Text(text, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+        Text(text, style = MaterialTheme.typography.titleLargeEmphasized)
         if (onMore != null) {
             Icon(
                 Icons.AutoMirrored.Rounded.KeyboardArrowRight,
@@ -340,7 +341,8 @@ val LocalRows = androidx.compose.runtime.compositionLocalOf { Rows.of("comfortab
 
 /**
  * A song in a list: its cover (or its number on an album page), title and artist, and its menu,
- * over a hairline that starts where the text does.
+ * over a hairline that starts where the text does. With a [place], a row of a group instead
+ * (`segment`): no hairline, and the playing song on its own tone.
  */
 @Composable
 fun SongRow(
@@ -353,6 +355,7 @@ fun SongRow(
     remove: (() -> Unit)? = null,
     /** Shown at the end instead of the menu, such as a handle to drag the row by. */
     trailing: (@Composable () -> Unit)? = null,
+    place: Place? = null,
     onClick: () -> Unit,
 ) {
     val rows = LocalRows.current
@@ -364,17 +367,28 @@ fun SongRow(
     var menu by remember { mutableStateOf(false) }
     val haptics = rememberHaptics()
     val isPlaying = playing && NeedleApp.instance.playback.collectAsState().value?.playing == true
+    val colors = MaterialTheme.colorScheme
     Column(
         modifier
             .fillMaxWidth()
-            .background(if (chosen) MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.45f) else Color.Transparent)
+            .then(
+                if (place == null) {
+                    Modifier.background(if (chosen) colors.primaryContainer.copy(alpha = 0.45f) else Color.Transparent)
+                } else {
+                    Modifier.segment(place, when {
+                        chosen -> colors.primaryContainer
+                        playing -> colors.secondaryContainer
+                        else -> groupColor()
+                    })
+                },
+            )
             .combinedClickable(
                 onClick = { if (choosing) Selection.toggle(song) else onClick() },
                 onLongClick = { haptics(true); if (choosing) Selection.toggle(song) else menu = true },
             ),
     ) {
         Row(
-            Modifier.fillMaxWidth().heightIn(min = rows.height).padding(start = Edge, end = 4.dp),
+            Modifier.fillMaxWidth().heightIn(min = rows.height).padding(start = if (place == null) Edge else 14.dp, end = 4.dp),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(rows.gap),
         ) {
@@ -423,7 +437,7 @@ fun SongRow(
                 else -> SongMenu(song, open, menu, remove) { menu = it }
             }
         }
-        if (divider) {
+        if (divider && place == null) {
             HorizontalDivider(
                 color = MaterialTheme.colorScheme.outlineVariant,
                 modifier = Modifier.padding(start = Edge + lead + rows.gap),
