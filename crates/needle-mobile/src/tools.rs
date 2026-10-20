@@ -678,10 +678,7 @@ impl Needle {
         self.library.save_playlist(&playlist)?;
         // The picture it had, when it was Needle's own copy, goes.
         if let Some(old) = old.filter(|o| Some(o) != playlist.cover.as_ref()) {
-            let folder = self.library.directory.join("artwork");
-            if std::path::Path::new(&old).parent() == Some(folder.as_path()) && old.ends_with(".img") {
-                let _ = std::fs::remove_file(&old);
-            }
+            self.library.forget_playlist_picture(&old);
         }
         Ok(())
     }
