@@ -503,6 +503,17 @@ impl Needle {
     }
 
     /// An artist's most played songs.
+    /// All of an artist's songs, the most played first: what Play on their page plays.
+    pub fn artist_all_songs(&self, name: String) -> Result<Vec<Song>> {
+        Ok(self
+            .library
+            .top_tracks(&name, 100_000)?
+            .iter()
+            .filter(|t| !t.missing)
+            .map(Song::from)
+            .collect())
+    }
+
     pub fn artist_songs(&self, name: String) -> Result<Vec<Song>> {
         Ok(self
             .library
