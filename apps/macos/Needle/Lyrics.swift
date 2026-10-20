@@ -308,12 +308,19 @@ struct TimingPage: View {
 
     /// What this page last filled in, to tell it from words typed here.
     @State private var filled = ""
+    @State private var filledSong: String?
 
     private func fill() {
-        // Words typed here stay: only what this page filled in is replaced.
-        guard text == filled else { return }
-        timing = false
-        stamps = []
+        let song = store.current?.id
+        if song != filledSong {
+            // Another song: its own words, and no timing carried over from the last one.
+            filledSong = song
+            timing = false
+            stamps = []
+        } else if text != filled {
+            // The same song's lyrics came, but words were typed here: they stay.
+            return
+        }
         let found = store.lyrics.map { $0.lines.isEmpty ? $0.plain : $0.lines.map(\.text).joined(separator: "\n") } ?? ""
         text = found
         filled = found

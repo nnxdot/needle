@@ -1476,10 +1476,15 @@ impl Needle {
     }
 
     /// Keeps `keep` and merges the others into it; their files go to the Trash.
+    /// Folds `others` into `keep`. The app has moved their files to the Trash first (the
+    /// Finder's own way, so Put Back works), so here they only leave the library.
     pub fn merge_into(&self, keep: String, others: Vec<String>) -> Result<()> {
+        // With the other playlist edits: two merges at once each saved a playlist from before
+        // the other's change.
+        let _edit = DESK.playlist_edit.lock().unwrap_or_else(|p| p.into_inner());
         let keep = self.mac_track(&keep)?;
         let others = self.library.tracks_by_ids(&others)?;
-        Ok(self.library.merge_duplicates(&keep, &others, true)?)
+        Ok(self.library.merge_duplicates(&keep, &others, false)?)
     }
 
     // ---------- Lyrics beside the song

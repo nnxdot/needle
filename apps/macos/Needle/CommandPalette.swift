@@ -91,7 +91,8 @@ struct CommandPalette: View {
     private func row(_ item: Item, active: Bool) -> some View {
         HStack(spacing: 12) {
             if let cover = item.cover {
-                Cover(path: cover, seed: item.title, side: 28, corner: 4)
+                // Made anew for another cover: rows are kept by place as results change.
+                Cover(path: cover, seed: item.title, side: 28, corner: 4).id(cover)
             } else {
                 Image(systemName: item.icon).frame(width: 28).foregroundStyle(active ? store.colors.accent : .secondary)
             }
