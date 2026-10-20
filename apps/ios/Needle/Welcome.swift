@@ -5,6 +5,8 @@ struct WelcomeView: View {
     @Environment(Store.self) private var store
     let open: (Place, Route?) -> Void
     @State private var importing = false
+    /// Off until chosen here: nothing leaves the phone unless asked.
+    @State private var crashReports = false
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
@@ -27,6 +29,15 @@ struct WelcomeView: View {
                     Button("Look around first") { finish(.home, nil) }
                         .frame(maxWidth: .infinity)
                         .padding(.top, 8)
+                    Toggle(isOn: $crashReports) {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text("Send crash reports").font(.subheadline.weight(.semibold))
+                            Text("If Needle stops by mistake, it sends what went wrong (no music, names, or files).")
+                                .font(.caption).foregroundStyle(.secondary)
+                        }
+                    }
+                    .padding(.top, 12)
+                    .onChange(of: crashReports) { _, on in store.run { try $0.setCrashReports(on: on) } }
                 }
                 .padding(24)
             }
@@ -57,6 +68,8 @@ struct WelcomeView: View {
     }
 
     private func finish(_ place: Place, _ route: Route?) {
+        let on = crashReports
+        store.run { try $0.setCrashReports(on: on) }
         store.updateApp { $0.welcomed = true }
         open(place, route)
     }

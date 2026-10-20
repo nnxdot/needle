@@ -427,7 +427,7 @@ struct PagedSongs: View {
                 .listRowSeparator(.hidden).listRowBackground(Color.clear).selectionDisabled()
             }
             ForEach(Array(songs.enumerated()), id: \.element.id) { i, song in
-                SongRow(song: song) { store.play(songs, from: i) }
+                SongRow(song: song) { store.playSearch(query, from: i) }
                     .tag(song.id)
                     .onAppear { if i == songs.count - 20 || i == songs.count - 1 { Task { await more() } } }
             }

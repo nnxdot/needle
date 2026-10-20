@@ -70,7 +70,7 @@ struct PlaylistView: View {
         .toolbar {
             if selecting {
                 ToolbarItem(placement: .topBarLeading) { Button("Done") { selecting = false; selected = [] } }
-                SelectionActions(songs: songs.filter { selected.contains($0.id) })
+                if !selected.isEmpty { SelectionActions(songs: songs.filter { selected.contains($0.id) }) }
             } else {
                 ToolbarItem(placement: .topBarTrailing) {
                     Menu {

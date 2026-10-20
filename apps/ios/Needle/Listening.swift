@@ -12,6 +12,10 @@ struct HistoryView: View {
     @State private var items: [HistoryItem] = []
     @State private var done = false
 
+    @State private var loading = false
+    /// Goes up each time the list begins again.
+    @State private var generation = 0
+
     var body: some View {
         List {
             Section {
@@ -46,13 +50,16 @@ struct HistoryView: View {
         .overlay { if done && items.isEmpty { ContentUnavailableView("Nothing played yet", systemImage: "clock") } }
         .navigationTitle("History")
         .themed()
-        .task(id: store.libraryVersion) { items = []; done = false; await more() }
+        .task(id: store.libraryVersion) { generation += 1; loading = false; items = []; done = false; await more() }
     }
 
     private func more() async {
-        guard !done else { return }
-        let offset = UInt32(items.count)
+        guard !done, !loading else { return }
+        loading = true
+        let (offset, from) = (UInt32(items.count), generation)
         let page = await store.load { try $0.history(offset: offset, limit: 100) } ?? []
+        guard from == generation, UInt32(items.count) == offset else { return }
+        loading = false
         if page.count < 100 { done = true }
         items += page
     }
