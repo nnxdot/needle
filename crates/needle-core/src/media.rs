@@ -606,6 +606,15 @@ pub fn animated_cover(library: &Library, track: &Track) -> Option<PathBuf> {
         return None;
     }
     let folder = Path::new(track.file_path()).parent()?;
+    let names = ["cover", "animated", "folder", "front", "album", "motion"];
+    let kinds = ["mp4", "m4v", "mov"];
+    let video = std::fs::read_dir(folder).ok()?.flatten().map(|e| e.path()).find(|p| {
+        let stem = p.file_stem().and_then(|s| s.to_str()).unwrap_or_default().to_lowercase();
+        let kind = p.extension().and_then(|s| s.to_str()).unwrap_or_default().to_lowercase();
+        // A moving cover is a short loop, not a whole music video.
+        let small = std::fs::metadata(p).is_ok_and(|m| m.len() <= 60 * 1024 * 1024);
+        names.contains(&stem.as_str()) && kinds.contains(&kind.as_str()) && small
+    })?;
     // Only a folder of one album: in a folder of many (an iPhone's own, say) one cover.mp4
     // would be every song's.
     let inside = format!("{}/", folder.to_string_lossy());
@@ -620,18 +629,7 @@ pub fn animated_cover(library: &Library, track: &Track) -> Option<PathBuf> {
             |r| r.get(0),
         )
         .ok()?;
-    if albums > 1 {
-        return None;
-    }
-    let names = ["cover", "animated", "folder", "front", "album", "motion"];
-    let kinds = ["mp4", "m4v", "mov"];
-    std::fs::read_dir(folder).ok()?.flatten().map(|e| e.path()).find(|p| {
-        let stem = p.file_stem().and_then(|s| s.to_str()).unwrap_or_default().to_lowercase();
-        let kind = p.extension().and_then(|s| s.to_str()).unwrap_or_default().to_lowercase();
-        // A moving cover is a short loop, not a whole music video.
-        let small = std::fs::metadata(p).is_ok_and(|m| m.len() <= 60 * 1024 * 1024);
-        names.contains(&stem.as_str()) && kinds.contains(&kind.as_str()) && small
-    })
+    (albums <= 1).then_some(video)
 }
 
 /// One fanart.tv lookup at a time: an artist page asks for the logo and the picture together,
@@ -736,6 +734,11 @@ fn fanart_picture(
     };
     let Some(url) = data.as_ref().and_then(pick) else {
         return Ok(kept.then_some(file));
+    };
+    // fanart.tv's answers can give its pictures as http://: the same, over https.
+    let url = match url.strip_prefix("http://assets.fanart.tv/") {
+        Some(rest) => format!("https://assets.fanart.tv/{rest}"),
+        None => url,
     };
     // Only fanart.tv's own pictures are fetched.
     if !url.starts_with("https://assets.fanart.tv/") {
