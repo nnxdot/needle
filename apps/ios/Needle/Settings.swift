@@ -64,6 +64,8 @@ private func saved<T: Sendable>(_ value: Binding<T?>, _ store: Store, _ write: @
 
 struct LibrarySettingsView: View {
     @Environment(Store.self) private var store
+    /// Folders asked to be removed, waiting for a yes.
+    @State private var removing: [String] = []
     @State private var folders: [String] = []
     @State private var settings: PlaybackSettings?
     @State private var hasFanart = false
@@ -81,17 +83,26 @@ struct LibrarySettingsView: View {
                         Text(folder == store.musicFolder.path ? "Files › On My iPhone › Needle" : folder)
                             .font(.caption).foregroundStyle(.secondary).lineLimit(1)
                     }
-                    .deleteDisabled(folder == store.musicFolder.path)
+                    .deleteDisabled(Store.realPath(folder) == Store.realPath(store.musicFolder.path))
                 }
                 .onDelete { rows in
-                    let gone = rows.map { folders[$0] }
-                    folders.remove(atOffsets: rows)
-                    Task {
-                        for folder in gone { _ = await store.ask { try $0.removeFolder(path: folder) } }
-                        store.libraryChanged()
-                    }
+                    // Asked first: its songs leave the library, with their plays and stars.
+                    removing = rows.map { folders[$0] }
                 }
                 Button("Read the music again") { store.rescan() }.disabled(store.scan.running)
+                    .confirmationDialog("Stop reading this folder?", isPresented: Binding(get: { !removing.isEmpty }, set: { if !$0 { removing = [] } }), titleVisibility: .visible) {
+                        Button("Stop Reading It", role: .destructive) {
+                            let gone = removing
+                            removing = []
+                            folders.removeAll { gone.contains($0) }
+                            Task {
+                                for folder in gone { _ = await store.ask { try $0.removeFolder(path: folder) } }
+                                store.libraryChanged()
+                            }
+                        }
+                    } message: {
+                        Text("Its songs leave the library, with their plays, stars, and places in playlists. The files stay.")
+                    }
             } header: {
                 Text("Music folders")
             } footer: {

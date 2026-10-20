@@ -43,9 +43,16 @@ final class Store {
     private(set) var sleepEnds: Date?
     /// A short message to show at the top of the screen.
     var message: String? {
-        // VoiceOver hears each message once (two toasts show it while the player is open).
-        didSet { if let message, message != oldValue { UIAccessibility.post(notification: .announcement, argument: message) } }
+        // VoiceOver hears each message once (two toasts show it while the player is open), and
+        // the same one given again is heard (and shown its full time) again.
+        didSet {
+            guard let message else { return }
+            messageCount += 1
+            UIAccessibility.post(notification: .announcement, argument: message)
+        }
     }
+    /// Goes up with each message.
+    private(set) var messageCount = 0
     /// A plugin's question, answered with text.
     var question: Question?
     var showPlayer = false
@@ -118,9 +125,11 @@ final class Store {
         let home = NSHomeDirectory()
         let defaults = UserDefaults.standard
         if let earlier = defaults.string(forKey: "home"), earlier != home {
-            _ = try? relocate(dataDir: support.path, old: earlier, new: home)
+            // Kept as moved only when the library moved with it; else tried again next time.
+            if (try? relocate(dataDir: support.path, old: earlier, new: home)) != nil { defaults.set(home, forKey: "home") }
+        } else {
+            defaults.set(home, forKey: "home")
         }
-        defaults.set(home, forKey: "home")
         do {
             core = try Needle(dataDir: support.path)
         } catch {
@@ -132,7 +141,7 @@ final class Store {
         startRemoteCommands()
         Actions.handler = { [weak self] action in self?.perform(action) }
         Actions.takeWaiting().forEach(perform)
-        let folder = musicFolder.path
+        let folder = Self.realPath(musicFolder.path)
         let core = core
         Task.detached {
             // Already known: it is read again when the app comes to the front.
@@ -179,6 +188,21 @@ final class Store {
         }
         #endif
         Task { await updateWidgets(library: true) }
+        checkForUpdate()
+    }
+
+    /// Asks needle.nnx.fyi once a day, when "Ask once a day" is on, whether a newer Needle is
+    /// out, and says so.
+    private func checkForUpdate() {
+        let defaults = UserDefaults.standard
+        guard app.welcomed, Date().timeIntervalSince1970 - defaults.double(forKey: "update-asked") > 86_400 else { return }
+        Task {
+            guard await load({ try $0.playbackSettings().checkUpdates }) == true else { return }
+            defaults.set(Date().timeIntervalSince1970, forKey: "update-asked")
+            if let found = await load({ try $0.checkUpdate() }) ?? nil {
+                message = "Needle \(found.version) is out. See Settings › About."
+            }
+        }
     }
 
     // MARK: - Following the core
@@ -366,6 +390,19 @@ final class Store {
         played()
     }
 
+    /// Opens the player (if that is on) once a song plays: a radio station takes a moment to
+    /// make, and an empty player showed until then.
+    func playedWhenReady() {
+        guard app.openPlayerOnPlay else { return }
+        let before = local?.current?.id
+        Task {
+            for _ in 0..<40 {
+                try? await Task.sleep(for: .milliseconds(250))
+                if let now = local?.current?.id, now != before { showPlayer = true; return }
+            }
+        }
+    }
+
     /// All of an artist's songs, the most played first.
     func playArtist(_ name: String, shuffled: Bool = false) {
         run { core in
@@ -386,6 +423,14 @@ final class Store {
         played()
     }
 
+    /// A folder's real path (links followed: the phone's /var is /private/var), as the library
+    /// keeps its folders.
+    nonisolated static func realPath(_ path: String) -> String {
+        guard let real = realpath(path, nil) else { return path }
+        defer { free(real) }
+        return String(cString: real)
+    }
+
     /// Text with any web address taken out.
     nonisolated static func withoutAddresses(_ text: String) -> String {
         text.replacingOccurrences(of: #"https?://\S+"#, with: "the server", options: .regularExpression)
@@ -393,8 +438,6 @@ final class Store {
 
     /// Opens the player when a song is chosen, if that is on.
     func played() {
-        // A song chosen again that fails again says so again.
-        shownError = nil
         if app.openPlayerOnPlay { showPlayer = true }
     }
 

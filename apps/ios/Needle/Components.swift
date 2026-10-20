@@ -153,7 +153,12 @@ struct AlbumMenu: View {
         Button("Play Next", systemImage: "text.line.first.and.arrowtriangle.forward") { withSongs(store.playNext) }
         Button("Add to Queue", systemImage: "text.line.last.and.arrowtriangle.forward") { withSongs(store.enqueue) }
         Button("Add to a Playlist", systemImage: "music.note.list") { withSongs { store.sheet = .addToPlaylist($0) } }
-        Button("Edit Tags", systemImage: "tag") { withSongs { songs in store.sheet = .tags(songs.filter { !$0.fromServer }.map(\.id)) } }
+        Button("Edit Tags", systemImage: "tag") {
+            withSongs { songs in
+                let own = songs.filter { !$0.fromServer }.map(\.id)
+                if own.isEmpty { store.message = "These songs are on your music server: edit their tags there." } else { store.sheet = .tags(own) }
+            }
+        }
         Divider()
         Button("Go to Artist", systemImage: "music.microphone") { store.opening = .artist(album.artist) }
             .disabled(isPlaceholderArtist(album.artist))
@@ -274,7 +279,7 @@ struct SongMenu: View {
             Button("Start Radio", systemImage: "dot.radiowaves.left.and.right") {
                 let id = song.id
                 store.run { try $0.startRadio(id: id) }
-                store.played()
+                store.playedWhenReady()
             }
             Menu {
                 ForEach((0...5).reversed(), id: \.self) { stars in
@@ -504,7 +509,7 @@ struct Toast: View {
                 .glassEffect(.regular, in: .capsule)
                 .padding(.top, 8)
                 .transition(.move(edge: .top).combined(with: .opacity))
-                .task(id: text) {
+                .task(id: store.messageCount) {
                     try? await Task.sleep(for: .seconds(2.5))
                     withAnimation { store.message = nil }
                 }
