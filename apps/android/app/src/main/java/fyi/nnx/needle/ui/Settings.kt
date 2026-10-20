@@ -109,6 +109,7 @@ import androidx.compose.foundation.selection.toggleable
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.luminance
+import androidx.compose.ui.unit.sp
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
@@ -709,6 +710,8 @@ private fun EqualizerBands(gains: List<Float>, frequencies: List<Float>, onChang
                     if (gain % 1f == 0f) "%+.0f".format(gain) else "%+.1f".format(gain),
                     style = MaterialTheme.typography.labelSmall,
                     color = if (held) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 1,
+                    softWrap = false,
                 )
                 val focus = remember { androidx.compose.foundation.interaction.MutableInteractionSource() }
                 val nudge: (Float) -> Unit = { by ->
@@ -718,7 +721,8 @@ private fun EqualizerBands(gains: List<Float>, frequencies: List<Float>, onChang
                 BoxWithConstraints(
                     Modifier
                         .weight(1f)
-                        .width(28.dp)
+                        // The band's whole share of the row to take hold of, not a thin strip.
+                        .fillMaxWidth()
                         .padding(vertical = 6.dp)
                         .focusRing(focus, 14.dp)
                         .onFocusChanged { if (!it.isFocused) held = false }
@@ -1210,7 +1214,18 @@ private fun <T> ChoiceRow(title: String, options: List<Pair<T, String>>, current
                     onClick = { onChange(value) },
                     shape = SegmentedButtonDefaults.itemShape(i, options.size),
                     icon = {},
-                ) { Text(label, maxLines = 1) }
+                ) {
+                    // Smaller rather than cut, where large text leaves a segment too narrow.
+                    Text(
+                        label,
+                        maxLines = 1,
+                        softWrap = false,
+                        autoSize = androidx.compose.foundation.text.TextAutoSize.StepBased(
+                            minFontSize = 9.sp,
+                            maxFontSize = MaterialTheme.typography.labelLarge.fontSize,
+                        ),
+                    )
+                }
             }
         }
     }

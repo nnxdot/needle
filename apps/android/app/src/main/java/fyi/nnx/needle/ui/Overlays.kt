@@ -101,7 +101,8 @@ private fun refreshLibrary() {
 @Composable
 fun Overlays(snackbar: SnackbarHostState) {
     val context = LocalContext.current
-    var question by remember { mutableStateOf<Notice.Question?>(null) }
+    // Questions in a line: one at a time, each answered, none lost to the next.
+    val questions = remember { androidx.compose.runtime.mutableStateListOf<Notice.Question>() }
     val sheet by Ui.sheet.collectAsState()
     // The newest message at once, in place of one still showing, rather than in a long line.
     LaunchedEffect(Unit) { Ui.messages.collectLatest { snackbar.showSnackbar(it) } }
@@ -115,14 +116,14 @@ fun Overlays(snackbar: SnackbarHostState) {
                 when (notice) {
                     is Notice.Message -> showMessage(notice.text)
                     is Notice.LibraryChanged -> refreshLibrary()
-                    is Notice.Question -> question = notice
+                    is Notice.Question -> questions += notice
                 }
             }
             delay(700)
         }
         }
     }
-    question?.let { q -> PluginQuestion(q) { question = null } }
+    questions.firstOrNull()?.let { q -> androidx.compose.runtime.key(q.id) { PluginQuestion(q) { questions.remove(q) } } }
     when (val s = sheet) {
         is Sheet.AddToPlaylist -> AddToPlaylistSheet(s.ids)
         is Sheet.NewPlaylist -> PlaylistDialog(null, s.ids, s.smart)

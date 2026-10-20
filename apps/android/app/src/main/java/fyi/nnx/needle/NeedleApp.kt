@@ -45,6 +45,20 @@ class NeedleApp : Application() {
         .distinctUntilChanged()
         .stateIn(scope, SharingStarted.Eagerly, null)
 
+    /** Whether music plays (not paused), changing only when that does, as [playingId]. */
+    /** A press from outside the app (a widget): the loop below looks at once, and closely for a moment. */
+    private val wakeUp = kotlinx.coroutines.channels.Channel<Unit>(kotlinx.coroutines.channels.Channel.CONFLATED)
+    @Volatile private var wokeAt = 0L
+    fun wake() {
+        wokeAt = android.os.SystemClock.uptimeMillis()
+        wakeUp.trySend(Unit)
+    }
+
+    val isPlaying: StateFlow<Boolean> = _playback
+        .map { it?.playing == true }
+        .distinctUntilChanged()
+        .stateIn(scope, SharingStarted.Eagerly, false)
+
     private val _remote = MutableStateFlow<fyi.nnx.needle.core.PcState?>(null)
     /** What Needle on the computer plays, while the phone is connected to it. */
     val remote: StateFlow<fyi.nnx.needle.core.PcState?> = _remote
@@ -145,8 +159,10 @@ class NeedleApp : Application() {
                 }
                 wasScanning = scan.running
                 // Nothing to follow closely while Needle is out of sight and nothing plays.
-                val busy = visible > 0 || playback.playing || scan.running
-                delay(if (busy) 200 else 2000)
+                // Just after a widget's press too, so the widget shows it at once.
+                val busy = visible > 0 || playback.playing || scan.running ||
+                    android.os.SystemClock.uptimeMillis() - wokeAt < 2000
+                kotlinx.coroutines.withTimeoutOrNull(if (busy) 200L else 2000L) { wakeUp.receive() }
             }
         }
         // Needle on the computer, once a second while connected to it.

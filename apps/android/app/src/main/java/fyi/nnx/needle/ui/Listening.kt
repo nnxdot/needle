@@ -127,6 +127,15 @@ fun FoldersScreen(path: String?, open: (Route) -> Unit) {
                 }
             }
         }
+        // Read, and nothing in it: say so rather than show a blank page.
+        val empty = if (path == null) roots?.isEmpty() == true else subfolders?.isEmpty() == true && songs?.isEmpty() == true
+        if (empty) item {
+            Text(
+                if (path == null) "No music folders yet. Add one in Settings, under Library." else "No songs in this folder.",
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(Edge),
+            )
+        }
     }
 }
 
@@ -211,7 +220,8 @@ private fun Numbers(open: (Route) -> Unit) {
     val stats by statsLoad
     LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = 24.dp)) {
         item {
-            Row(Modifier.padding(horizontal = Edge, vertical = 8.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            // Onto a second line with large text on a narrow phone, rather than squeezed.
+            androidx.compose.foundation.layout.FlowRow(Modifier.padding(horizontal = Edge, vertical = 8.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 listOf(7 to "Week", 30 to "Month", 365 to "Year", 0 to "All time").forEach { (days, label) ->
                     FilterChip(selected = span == days, onClick = { span = days }, label = { Text(label) })
                 }

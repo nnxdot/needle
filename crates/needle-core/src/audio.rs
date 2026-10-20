@@ -786,6 +786,18 @@ impl Worker {
         })?;
         Ok(())
     }
+    /// Whether new settings change how the sound is opened: the output, its gain, the overlap
+    /// of songs, or the equalizer turning on or off (songs queued without it would not hear
+    /// it). Then the song is opened again where it was.
+    fn needs_reopen(&self, new: &Settings) -> bool {
+        let off = |d: &crate::dsp::Dsp| d.is_transparent() && !d.eq;
+        new.output_device != self.settings.output_device
+            || new.exclusive != self.settings.exclusive
+            || new.replay_gain != self.settings.replay_gain
+            || new.album_gain != self.settings.album_gain
+            || new.crossfade != self.settings.crossfade
+            || off(&new.dsp) != off(&self.settings.dsp)
+    }
     /// Whether output is exclusive. That is WASAPI's, so elsewhere the setting (kept as it is,
     /// for when the library is opened on Windows again) is ignored.
     fn exclusive(&self) -> bool {
@@ -1494,6 +1506,23 @@ impl Worker {
             Command::Configure(settings) if self.sink.is_none() => {
                 self.settings = *settings;
                 self.dsp.set(self.settings.dsp.clone());
+                self.persist_audio_settings()?;
+            }
+            // Nothing that changes how the sound is opened (a setting of the app, the equalizer's
+            // bands, the volume, autoplay): kept, and the song plays on without a break.
+            Command::Configure(settings) if !self.needs_reopen(&settings) => {
+                let volume = settings.volume != self.settings.volume;
+                self.settings = *settings;
+                self.dsp.set(self.settings.dsp.clone());
+                if volume {
+                    if let Some(sink) = &self.sink {
+                        sink.set_volume(if self.exclusive() {
+                            1.0
+                        } else {
+                            self.settings.volume
+                        });
+                    }
+                }
                 self.persist_audio_settings()?;
             }
             Command::Configure(settings) => {

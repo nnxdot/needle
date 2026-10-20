@@ -39,6 +39,7 @@ import androidx.compose.runtime.compositionLocalOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
+import androidx.lifecycle.compose.currentStateAsState
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.composed
 import androidx.compose.ui.draw.clip
@@ -57,7 +58,9 @@ import fyi.nnx.needle.NeedleApp
 fun reduceMotion(): Boolean {
     val app by NeedleApp.instance.app.collectAsState()
     val context = LocalContext.current
-    val system = remember {
+    // Read again each time Needle comes back on screen: the switch may have changed meanwhile.
+    val lifecycle by androidx.lifecycle.compose.LocalLifecycleOwner.current.lifecycle.currentStateAsState()
+    val system = remember(lifecycle.isAtLeast(androidx.lifecycle.Lifecycle.State.RESUMED)) {
         Settings.Global.getFloat(context.contentResolver, Settings.Global.ANIMATOR_DURATION_SCALE, 1f) == 0f
     }
     return app.reduceMotion || system

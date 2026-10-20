@@ -58,8 +58,11 @@ fun onComputer(): Boolean = NeedleApp.instance.remoteShown.value
  * showing that. A computer that does not answer says so.
  */
 object Controls {
+    /** One at a time, in the order pressed: the last volume dragged to is the one that stays. */
+    private val toComputer = Dispatchers.IO.limitedParallelism(1)
+
     private fun pc(work: () -> Unit) {
-        NeedleApp.instance.scope.launch(Dispatchers.IO) {
+        NeedleApp.instance.scope.launch(toComputer) {
             runCatching(work).onFailure { showMessage(it.message ?: "Your computer did not answer") }
         }
     }
@@ -156,7 +159,8 @@ object Live {
         }
         if (wantSeek == null) seek = null
         val (base, since) = if (wantSeek != null) wantSeek.value to wantSeek.at else pc.position to heardAt
-        val length = pc.current?.duration ?: Double.MAX_VALUE
+        // A song whose length is not known (0) is not held at its start.
+        val length = pc.current?.duration?.takeIf { it > 0 } ?: Double.MAX_VALUE
         val position = (base + if (isPlaying) (t - since).coerceAtLeast(0) / 1000.0 else 0.0).coerceIn(0.0, length)
 
         val wantVolume = volume?.takeIf { t - it.at < KEEP && kotlin.math.abs(it.value - pc.volume) > 0.02f }

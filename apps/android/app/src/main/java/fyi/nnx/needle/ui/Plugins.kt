@@ -37,6 +37,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
+import androidx.lifecycle.repeatOnLifecycle
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.text.input.KeyboardType
@@ -52,14 +53,17 @@ import kotlinx.coroutines.withContext
 import java.text.DateFormat
 import java.util.Date
 
-/** Reads the plugins again every second while `watch` holds, as they load and sync. */
+/** Reads the plugins again every second while Needle is on screen, as they load and sync. */
 @Composable
 private fun rememberPlugins(): List<PluginItem>? {
     var list by remember { mutableStateOf<List<PluginItem>?>(null) }
-    LaunchedEffect(Unit) {
-        while (true) {
-            list = withContext(Dispatchers.IO) { runCatching { core.plugins() }.getOrNull() }
-            delay(1000)
+    val lifecycle = androidx.lifecycle.compose.LocalLifecycleOwner.current.lifecycle
+    LaunchedEffect(lifecycle) {
+        lifecycle.repeatOnLifecycle(androidx.lifecycle.Lifecycle.State.STARTED) {
+            while (true) {
+                list = withContext(Dispatchers.IO) { runCatching { core.plugins() }.getOrNull() }
+                delay(1000)
+            }
         }
     }
     return list

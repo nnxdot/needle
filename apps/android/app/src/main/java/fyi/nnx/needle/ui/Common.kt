@@ -53,6 +53,10 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.lifecycle.repeatOnLifecycle
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.heading
+import androidx.compose.ui.semantics.stateDescription
+import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.Modifier
 import androidx.compose.foundation.layout.offset
 import androidx.compose.ui.unit.sp
@@ -358,7 +362,7 @@ fun LargeTitle(text: String, modifier: Modifier = Modifier, action: @Composable 
             style = MaterialTheme.typography.headlineLarge,
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
-            modifier = Modifier.weight(1f),
+            modifier = Modifier.weight(1f).semantics { heading() },
         )
         action()
     }
@@ -376,7 +380,7 @@ fun SectionHeader(text: String, modifier: Modifier = Modifier, onMore: (() -> Un
             .padding(start = Edge, end = 12.dp, top = 28.dp, bottom = 12.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Text(text, style = MaterialTheme.typography.titleLargeEmphasized)
+        Text(text, style = MaterialTheme.typography.titleLargeEmphasized, modifier = Modifier.semantics { heading() })
         if (onMore != null) {
             Icon(
                 Icons.AutoMirrored.Rounded.KeyboardArrowRight,
@@ -490,7 +494,8 @@ fun SongRow(
     val lead: Dp = if (number) 36.dp else rows.cover + 4.dp
     var menu by remember { mutableStateOf(false) }
     val haptics = rememberHaptics()
-    val isPlaying = playing && NeedleApp.instance.playback.collectAsState().value?.playing == true
+    // Not the whole playback: a row would redraw at every tick of the playing position.
+    val isPlaying = playing && NeedleApp.instance.isPlaying.collectAsState().value
     val colors = MaterialTheme.colorScheme
     Column(
         modifier
@@ -506,6 +511,11 @@ fun SongRow(
                     })
                 },
             )
+            // TalkBack hears what only colour shows: the song playing, a song chosen.
+            .semantics {
+                if (playing) stateDescription = if (isPlaying) "Playing" else "Paused"
+                if (choosing) selected = chosen
+            }
             .combinedClickable(
                 onClick = { if (choosing) Selection.toggle(song) else onClick() },
                 onLongClick = { haptics(true); if (choosing) Selection.toggle(song) else menu = true },
@@ -556,7 +566,8 @@ fun SongRow(
                 }
             }
             when {
-                choosing -> androidx.compose.material3.Checkbox(chosen, { Selection.toggle(song) })
+                // The row is the one stop that chooses; the box only shows it.
+                choosing -> androidx.compose.material3.Checkbox(chosen, onCheckedChange = null, modifier = Modifier.padding(12.dp))
                 trailing != null -> trailing()
                 else -> SongMenu(song, open, menu, remove) { menu = it }
             }

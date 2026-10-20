@@ -113,14 +113,15 @@ fun SideBar(tab: Tab, page: Route, onTab: (Tab) -> Unit, open: (Route) -> Unit) 
     Column(
         Modifier
             .fillMaxHeight()
-            .width(width)
             // Clear of the bars and a camera cut-out on its own side only: a navigation bar at the
-            // far side is the pane's to keep clear of, not the rail's.
+            // far side is the pane's to keep clear of, not the rail's. Added to the bar's width,
+            // not taken from it, so its buttons keep their size beside a left bar or cut-out.
             .windowInsetsPadding(
                 androidx.compose.foundation.layout.WindowInsets.systemBars
                     .union(androidx.compose.foundation.layout.WindowInsets.displayCutout)
                     .only(androidx.compose.foundation.layout.WindowInsetsSides.Top + androidx.compose.foundation.layout.WindowInsetsSides.Bottom + androidx.compose.foundation.layout.WindowInsetsSides.Start),
-            ),
+            )
+            .width(width),
     ) {
         // The fold button, and Needle's record and name beside it while the bar is open.
         Row(Modifier.padding(start = 24.dp, top = 12.dp, bottom = 8.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -149,12 +150,15 @@ fun SideBar(tab: Tab, page: Route, onTab: (Tab) -> Unit, open: (Route) -> Unit) 
             }
         }
         if (!short) tabs()
-        LazyColumn(Modifier.weight(1f).padding(top = 8.dp).fadeFoot()) {
+        // Short, Settings is the list's last row: the fade at the foot is kept off it.
+        LazyColumn(Modifier.weight(1f).padding(top = 8.dp).then(if (short) Modifier else Modifier.fadeFoot())) {
             if (short) item(key = "tabs") { Column { tabs() } }
             item { SideHeader("Playlists", words) { Ui.sheet.value = Sheet.NewPlaylist(emptyList()) } }
             items(playlists.orEmpty(), key = { "p" + it.id }) { p ->
                 val route = Route.Playlist(p.id, p.name)
-                SideItem(p.name, if (p.smart) "Smart playlist" else count(p.songs.toInt(), "song"), page == route, words, onClick = { go(route) }) {
+                // By its id: a page opened before a rename still has the old name.
+                val here = page is Route.Playlist && page.id == p.id
+                SideItem(p.name, if (p.smart) "Smart playlist" else count(p.songs.toInt(), "song"), here, words, onClick = { if (!here) go(route) }) {
                     PlaylistCover(p, Modifier.size(48.dp), SmallCoverShape)
                 }
             }

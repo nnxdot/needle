@@ -351,6 +351,8 @@ class Toggle : ActionCallback {
         if (!NeedleApp.instance.remoteShown.value && core.playback().current == null) core.play(core.songs().shuffled().take(200).map { it.id }, 0u)
         else fyi.nnx.needle.ui.Controls.toggle()
         withService(context)
+        // The app looks at the player at once, and the widget then shows the press.
+        NeedleApp.instance.wake()
         updateWidgets(context)
     }
 }
@@ -359,6 +361,8 @@ class Next : ActionCallback {
     override suspend fun onAction(context: Context, glanceId: GlanceId, parameters: ActionParameters) {
         fyi.nnx.needle.ui.Controls.next()
         withService(context)
+        // The app looks at the player at once, and the widget then shows the press.
+        NeedleApp.instance.wake()
         updateWidgets(context)
     }
 }
@@ -367,6 +371,8 @@ class Previous : ActionCallback {
     override suspend fun onAction(context: Context, glanceId: GlanceId, parameters: ActionParameters) {
         fyi.nnx.needle.ui.Controls.previous()
         withService(context)
+        // The app looks at the player at once, and the widget then shows the press.
+        NeedleApp.instance.wake()
         updateWidgets(context)
     }
 }
@@ -428,6 +434,8 @@ class PlayAlbum : ActionCallback {
         val core = NeedleApp.instance.core
         core.play(core.albumSongs(key).map { it.id }, 0u)
         withService(context)
+        // The app looks at the player at once, and the widget then shows the press.
+        NeedleApp.instance.wake()
         updateWidgets(context)
     }
 }
