@@ -84,6 +84,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.coerceIn
 import androidx.compose.ui.unit.dp
 import fyi.nnx.needle.NeedleApp
 import fyi.nnx.needle.core.Album
@@ -159,9 +160,24 @@ fun DetailFrame(art: String?, title: String, scrolled: () -> Float, menu: (() ->
  * back, and the name grows narrower.
  */
 @Composable
-fun DetailHeader(art: String?, title: String, sub: String?, meta: List<String>, scrolled: () -> Float, onSub: (() -> Unit)? = null, key: String? = null, mosaic: List<String> = emptyList()) {
+fun DetailHeader(
+    art: String?,
+    title: String,
+    sub: String?,
+    meta: List<String>,
+    scrolled: () -> Float,
+    onSub: (() -> Unit)? = null,
+    key: String? = null,
+    mosaic: List<String> = emptyList(),
+    /** The page's buttons, beside the cover on a tablet (on a phone they follow the header). */
+    buttons: (@Composable () -> Unit)? = null,
+) {
     val density = androidx.compose.ui.platform.LocalDensity.current
     val squeeze by remember { derivedStateOf { (scrolled() / with(density) { 260.dp.toPx() }).coerceIn(0f, 1f) } }
+    if (isWide()) {
+        WideDetailHeader(art, title, sub, meta, squeeze, onSub, key, mosaic, buttons)
+        return
+    }
     Box(Modifier.fillMaxWidth()) {
         CoverBackdrop(art, Modifier.matchParentSize())
         Column(
@@ -213,6 +229,67 @@ fun DetailHeader(art: String?, title: String, sub: String?, meta: List<String>, 
     }
 }
 
+/**
+ * The top of an album or playlist page on a tablet, as Apple Music shows it there: the cover at
+ * the left, and the name, the facts, and the buttons beside it, rather than a cover the width of
+ * the screen.
+ */
+@Composable
+private fun WideDetailHeader(
+    art: String?,
+    title: String,
+    sub: String?,
+    meta: List<String>,
+    squeeze: Float,
+    onSub: (() -> Unit)?,
+    key: String?,
+    mosaic: List<String>,
+    buttons: (@Composable () -> Unit)?,
+) {
+    val cover = (LocalPageWidth.current * 0.28f).coerceIn(200.dp, 320.dp)
+    Box(Modifier.fillMaxWidth()) {
+        CoverBackdrop(art, Modifier.matchParentSize())
+        Row(
+            Modifier.fillMaxWidth().statusBarsPadding().padding(top = 64.dp, start = Edge + 8.dp, end = Edge, bottom = 8.dp),
+            verticalAlignment = Alignment.Bottom,
+            horizontalArrangement = Arrangement.spacedBy(32.dp),
+        ) {
+            Mosaic(
+                mosaic,
+                art,
+                Modifier
+                    .size(cover)
+                    .then(if (key != null) Modifier.sharedCover(key) else Modifier)
+                    .shadow(28.dp, CoverShape, ambientColor = Color.Black, spotColor = Color.Black),
+                seed = title,
+            )
+            Column(Modifier.weight(1f)) {
+                Text(
+                    title,
+                    style = MaterialTheme.typography.displayMedium.copy(fontFamily = titleFamily(0.3f + squeeze * 0.7f)),
+                    maxLines = 3,
+                    overflow = TextOverflow.Ellipsis,
+                )
+                if (sub != null) {
+                    Text(
+                        sub,
+                        style = MaterialTheme.typography.titleLarge,
+                        color = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier
+                            .padding(top = 4.dp)
+                            .offset(x = (-10).dp)
+                            .clip(CircleShape)
+                            .then(if (onSub != null) Modifier.clickable(onClick = onSub) else Modifier)
+                            .padding(horizontal = 10.dp, vertical = 4.dp),
+                    )
+                }
+                if (meta.isNotEmpty()) MetaLine(meta, Modifier.padding(top = 6.dp))
+                buttons?.invoke()
+            }
+        }
+    }
+}
+
 /** Small facts in a row: "Album · 2026 · 16 min". */
 @Composable
 fun MetaLine(parts: List<String>, modifier: Modifier = Modifier) {
@@ -231,11 +308,12 @@ fun MetaLine(parts: List<String>, modifier: Modifier = Modifier) {
  */
 @OptIn(ExperimentalMaterial3ExpressiveApi::class)
 @Composable
-fun PlayRow(songs: List<Song>, side: (@Composable () -> Unit)? = null) {
+fun PlayRow(songs: List<Song>, inline: Boolean = false, side: (@Composable () -> Unit)? = null) {
     val haptics = rememberHaptics()
     Row(
-        Modifier.fillMaxWidth().padding(horizontal = Edge, vertical = 16.dp),
-        horizontalArrangement = Arrangement.spacedBy(14.dp, Alignment.CenterHorizontally),
+        // Inline: under the name beside a tablet's cover, from its left edge.
+        if (inline) Modifier.padding(top = 20.dp) else Modifier.fillMaxWidth().padding(horizontal = Edge, vertical = 16.dp),
+        horizontalArrangement = if (inline) Arrangement.spacedBy(14.dp) else Arrangement.spacedBy(14.dp, Alignment.CenterHorizontally),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         RoundAction(Icons.Rounded.Shuffle, "Shuffle") { haptics(false); play(songs.shuffled()) }
@@ -311,6 +389,10 @@ fun AlbumScreen(album: Album, open: (Route) -> Unit) {
     }
     val art = album.artwork ?: list.firstNotNullOfOrNull { it.artwork }
     val title = album.title.ifBlank { "Unknown album" }
+    val wide = isWide()
+    val buttons: (@Composable () -> Unit)? = if (list.isEmpty()) null else {
+        { PlayRow(list, inline = wide) { RoundAction(Icons.AutoMirrored.Rounded.PlaylistAdd, "Add to a playlist") { Ui.sheet.value = Sheet.AddToPlaylist(list.map { it.id }) } } }
+    }
     DetailFrame(art, title, { state.headerScroll() }, { menu = true }) {
         LazyColumn(Modifier.fillMaxSize(), state = state, contentPadding = PaddingValues(bottom = 32.dp + LocalBottomInset.current)) {
             item {
@@ -320,11 +402,10 @@ fun AlbumScreen(album: Album, open: (Route) -> Unit) {
                     { state.headerScroll() },
                     onSub = { open(Route.Artist(album.artist)) },
                     key = "album-${album.key}",
+                    buttons = buttons?.takeIf { wide },
                 )
             }
-            if (list.isNotEmpty()) {
-                item { PlayRow(list) { RoundAction(Icons.AutoMirrored.Rounded.PlaylistAdd, "Add to a playlist") { Ui.sheet.value = Sheet.AddToPlaylist(list.map { it.id }) } } }
-            }
+            if (!wide && buttons != null) item { buttons() }
             if (songsLoad.loading) items(6) { SongPlaceholder() }
             songList(list, playing, open, numbered = true)
             if (list.isNotEmpty()) {
@@ -404,6 +485,10 @@ fun PlaylistScreen(route: Route.Playlist, open: (Route) -> Unit) {
     }
     val art = summary?.artwork ?: list.firstNotNullOfOrNull { it.artwork }
     val name = d?.name ?: route.name
+    val wide = isWide()
+    val buttons: (@Composable () -> Unit)? = if (d == null) null else {
+        { PlayRow(list, inline = wide) { RoundAction(Icons.Rounded.Edit, "Edit") { Ui.sheet.value = Sheet.EditPlaylist(d.id) } } }
+    }
     DetailFrame(art, name, { state.headerScroll() }, { menu = true }) {
         LazyColumn(Modifier.fillMaxSize(), state = state, contentPadding = PaddingValues(bottom = 32.dp + LocalBottomInset.current)) {
             item {
@@ -412,10 +497,11 @@ fun PlaylistScreen(route: Route.Playlist, open: (Route) -> Unit) {
                     listOfNotNull(if (d?.rule != null) "Smart playlist" else "Playlist", d?.let { count(list.size, "song") }, d?.takeIf { list.isNotEmpty() }?.let { length(list) }),
                     { state.headerScroll() },
                     mosaic = summary?.mosaic.orEmpty(),
+                    buttons = buttons?.takeIf { wide },
                 )
             }
             if (d != null) {
-                item { PlayRow(list) { RoundAction(Icons.Rounded.Edit, "Edit") { Ui.sheet.value = Sheet.EditPlaylist(d.id) } } }
+                if (!wide && buttons != null) item { buttons() }
                 if (arranging) item {
                     Row(Modifier.fillMaxWidth().padding(horizontal = Edge), verticalAlignment = Alignment.CenterVertically) {
                         Text("Drag the handles to put songs in order", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.weight(1f))
@@ -495,17 +581,18 @@ fun ArtistScreen(name: String, open: (Route) -> Unit) {
     val art = photo ?: albums?.firstNotNullOfOrNull { it.artwork }
     val shown = name.ifBlank { "Unknown artist" }
     DetailFrame(art, shown, { state.headerScroll() }, null) {
+        // Two covers across on a phone, more on a tablet; the rows and the photo run to the edges.
         LazyVerticalGrid(
-            columns = GridCells.Fixed(2),
+            columns = gridColumns(180.dp),
             state = state,
-            contentPadding = PaddingValues(bottom = 32.dp + LocalBottomInset.current),
+            contentPadding = PaddingValues(start = Edge, end = Edge, bottom = 32.dp + LocalBottomInset.current),
             horizontalArrangement = Arrangement.spacedBy(14.dp),
             verticalArrangement = Arrangement.spacedBy(LocalRows.current.grid),
             modifier = Modifier.fillMaxSize(),
         ) {
-            full { ArtistHero(art, shown, albums?.size, songs.size, { state.headerScroll() }) }
+            edgeToEdge(Edge) { ArtistHero(art, shown, albums?.size, songs.size, { state.headerScroll() }) }
             if (songs.isNotEmpty()) {
-                full {
+                edgeToEdge(Edge) {
                     PlayRow(songs) {
                         RoundAction(Icons.Rounded.Radio, "Artist radio") {
                             showMessage("Starting radio from $name…")
@@ -513,10 +600,10 @@ fun ArtistScreen(name: String, open: (Route) -> Unit) {
                         }
                     }
                 }
-                full { SectionHeader("Top songs", Modifier.padding(top = 0.dp)) }
+                edgeToEdge(Edge) { SectionHeader("Top songs", Modifier.padding(top = 0.dp)) }
                 items(minOf(5, songs.size), span = { GridItemSpan(maxLineSpan) }) { i ->
                     val song = songs[i]
-                    Row(Modifier.entrance(i), verticalAlignment = Alignment.CenterVertically) {
+                    Row(Modifier.bleed(Edge).entrance(i), verticalAlignment = Alignment.CenterVertically) {
                         // The rank, as charts show it.
                         Text(
                             "${i + 1}",
@@ -529,10 +616,10 @@ fun ArtistScreen(name: String, open: (Route) -> Unit) {
                     }
                 }
             }
-            full { SectionHeader("Albums", Modifier.padding(top = 8.dp)) }
+            edgeToEdge(Edge) { SectionHeader("Albums", Modifier.padding(top = 8.dp)) }
             items(albums.orEmpty().size) { i ->
                 val album = albums!![i]
-                AlbumTile(album, Modifier.entrance(i + 5).padding(start = if (i % 2 == 0) Edge else 0.dp, end = if (i % 2 == 1) Edge else 0.dp), open) { open(Route.AlbumPage(album)) }
+                AlbumTile(album, Modifier.entrance(i + 5), open) { open(Route.AlbumPage(album)) }
             }
         }
     }
@@ -543,7 +630,8 @@ private fun ArtistHero(art: String?, name: String, albums: Int?, songs: Int, scr
     val density = androidx.compose.ui.platform.LocalDensity.current
     val squeeze by remember { derivedStateOf { (scrolled() / with(density) { 240.dp.toPx() }).coerceIn(0f, 1f) } }
     val page = MaterialTheme.colorScheme.background
-    Box(Modifier.fillMaxWidth().aspectRatio(0.9f).clipToBounds()) {
+    // On a tablet a photo the width of the screen would be taller than the screen: a band instead.
+    Box(Modifier.fillMaxWidth().aspectRatio(if (isWide()) 2.4f else 0.9f).clipToBounds()) {
         Cover(
             art,
             Modifier.fillMaxSize().graphicsLayer {
@@ -637,12 +725,13 @@ private fun greeting(): String {
 @Composable
 private fun Hero(albums: List<Album>, open: (Route) -> Unit) {
     val state = rememberCarouselState { albums.size }
+    val wide = isWide()
     HorizontalMultiBrowseCarousel(
         state = state,
-        preferredItemWidth = 280.dp,
+        preferredItemWidth = if (wide) 360.dp else 280.dp,
         itemSpacing = 10.dp,
         contentPadding = PaddingValues(horizontal = 16.dp),
-        modifier = Modifier.fillMaxWidth().height(300.dp),
+        modifier = Modifier.fillMaxWidth().height(if (wide) 360.dp else 300.dp),
     ) { i ->
         val album = albums[i]
         // Held, it offers the album's menu, as album tiles do.
@@ -671,8 +760,9 @@ private fun LazyListScope.shelf(title: String, albums: List<Album>, open: (Route
     if (albums.isEmpty()) return
     item { SectionHeader(title, onMore = { open(Route.Albums) }) }
     item {
+        val tile = if (isWide()) 180.dp else 150.dp
         LazyRow(contentPadding = PaddingValues(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(LocalRows.current.grid - 4.dp)) {
-            items(albums, key = { it.key }) { album -> AlbumTile(album, Modifier.width(150.dp), open) { open(Route.AlbumPage(album)) } }
+            items(albums, key = { it.key }) { album -> AlbumTile(album, Modifier.width(tile), open) { open(Route.AlbumPage(album)) } }
         }
     }
 }
@@ -728,14 +818,15 @@ fun SearchScreen(open: (Route) -> Unit) {
     }
     val hints = remember(query) { if (query.isBlank()) emptyList() else runCatching { core.suggest(query, query.length.toUInt()) }.getOrDefault(emptyList()) }
     Page("Search") { padding, scroll ->
+        // Two genres across on a phone, more on a tablet; the rows run to the edges.
         LazyVerticalGrid(
-            columns = GridCells.Fixed(2),
-            contentPadding = PaddingValues(bottom = 32.dp),
+            columns = gridColumns(210.dp),
+            contentPadding = PaddingValues(start = 16.dp, end = 16.dp, bottom = 32.dp),
             horizontalArrangement = Arrangement.spacedBy(12.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp),
             modifier = Modifier.fillMaxSize().padding(padding).then(scroll),
         ) {
-            full {
+            edgeToEdge(16.dp) {
                 TextField(
                     value = query,
                     onValueChange = { query = it },
@@ -756,7 +847,7 @@ fun SearchScreen(open: (Route) -> Unit) {
             }
             // Typing a smart rule (rating >= 4, genre = "K-pop"): what can come next, with
             // the library's own names.
-            if (hints.isNotEmpty()) full {
+            if (hints.isNotEmpty()) edgeToEdge(16.dp) {
                 androidx.compose.foundation.lazy.LazyRow(
                     contentPadding = PaddingValues(horizontal = 16.dp),
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
@@ -772,22 +863,22 @@ fun SearchScreen(open: (Route) -> Unit) {
             if (query.isBlank()) {
                 val list = genres.orEmpty()
                 if (list.isNotEmpty()) {
-                    full { SectionHeader("Browse by genre", Modifier.padding(top = 4.dp)) }
+                    edgeToEdge(16.dp) { SectionHeader("Browse by genre", Modifier.padding(top = 4.dp)) }
                     items(list.size, key = { list[it].name }) { i ->
-                        GenreTile(list[i].name, list[i].artwork, Modifier.padding(start = if (i % 2 == 0) 16.dp else 0.dp, end = if (i % 2 == 1) 16.dp else 0.dp)) { open(Route.Genre(list[i].name)) }
+                        GenreTile(list[i].name, list[i].artwork, Modifier) { open(Route.Genre(list[i].name)) }
                     }
                 }
             } else {
                 if (songs.isEmpty()) {
-                    full { Text("Nothing found for “$query”.", color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(horizontal = Edge, vertical = 16.dp)) }
+                    edgeToEdge(16.dp) { Text("Nothing found for “$query”.", color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(horizontal = Edge, vertical = 16.dp)) }
                 }
                 items(songs.size, key = { songs[it].id }, span = { GridItemSpan(maxLineSpan) }) { i ->
-                    SongRow(songs[i], playing == songs[i].id, open) { play(songs, i) }
+                    SongRow(songs[i], playing == songs[i].id, open, Modifier.bleed(16.dp)) { play(songs, i) }
                 }
                 server?.let { (number, found) ->
-                    full { SectionHeader("On your server") }
+                    edgeToEdge(16.dp) { SectionHeader("On your server") }
                     items(found.size, key = { "server-" + found[it].id }, span = { GridItemSpan(maxLineSpan) }) { i ->
-                        SongRow(found[i], playing == found[i].id, null) { core.playServerSongs(number, i.toUInt()) }
+                        SongRow(found[i], playing == found[i].id, null, Modifier.bleed(16.dp)) { core.playServerSongs(number, i.toUInt()) }
                     }
                 }
             }

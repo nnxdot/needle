@@ -99,17 +99,11 @@ internal fun LazyGridScope.full(content: @Composable () -> Unit) =
 /** Albums two to a row, with the page's side margins; soft placeholders while they load. */
 private fun LazyGridScope.albumGrid(albums: List<Album>?, open: (Route) -> Unit, loading: Boolean) {
     if (loading) {
-        items(6) { i ->
-            AlbumPlaceholder(Modifier.padding(start = if (i % 2 == 0) Edge else 0.dp, end = if (i % 2 == 1) Edge else 0.dp))
-        }
+        items(6) { AlbumPlaceholder() }
         return
     }
-    gridItemsIndexed(albums.orEmpty(), key = { _, a -> a.key }) { i, album ->
-        AlbumTile(
-            album,
-            Modifier.padding(start = if (i % 2 == 0) Edge else 0.dp, end = if (i % 2 == 1) Edge else 0.dp),
-            open,
-        ) { open(Route.AlbumPage(album)) }
+    gridItemsIndexed(albums.orEmpty(), key = { _, a -> a.key }) { _, album ->
+        AlbumTile(album, Modifier, open) { open(Route.AlbumPage(album)) }
     }
 }
 
@@ -118,9 +112,10 @@ fun AlbumsScreen(open: (Route) -> Unit) {
     val albumsLoad = rememberLoaded { albums() }
     val albums by albumsLoad
     Page("Albums", albums?.let { count(it.size, "album") }) { padding, scroll ->
+        // Two covers across on a phone, more on a tablet.
         LazyVerticalGrid(
-            columns = GridCells.Fixed(2),
-            contentPadding = PaddingValues(bottom = 24.dp),
+            columns = gridColumns(180.dp),
+            contentPadding = PaddingValues(start = Edge, end = Edge, bottom = 24.dp),
             horizontalArrangement = Arrangement.spacedBy(16.dp),
             verticalArrangement = Arrangement.spacedBy(LocalRows.current.grid),
             modifier = Modifier.fillMaxSize().padding(padding).then(scroll),
@@ -224,14 +219,14 @@ fun GenresScreen(open: (Route) -> Unit) {
     val list = genres.orEmpty()
     Page("Genres") { padding, scroll ->
         LazyVerticalGrid(
-            columns = GridCells.Fixed(2),
-            contentPadding = PaddingValues(bottom = 24.dp),
+            columns = gridColumns(210.dp),
+            contentPadding = PaddingValues(start = 16.dp, end = 16.dp, bottom = 24.dp),
             horizontalArrangement = Arrangement.spacedBy(12.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp),
             modifier = Modifier.fillMaxSize().padding(padding).then(scroll),
         ) {
-            gridItemsIndexed(list, key = { _, g -> g.name }) { i, genre ->
-                GenreTile(genre.name, genre.artwork, Modifier.padding(start = if (i % 2 == 0) 16.dp else 0.dp, end = if (i % 2 == 1) 16.dp else 0.dp)) { open(Route.Genre(genre.name)) }
+            gridItemsIndexed(list, key = { _, g -> g.name }) { _, genre ->
+                GenreTile(genre.name, genre.artwork, Modifier) { open(Route.Genre(genre.name)) }
             }
         }
     }
