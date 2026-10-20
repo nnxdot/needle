@@ -703,12 +703,16 @@ final class Store {
     func rate(_ ids: [String], _ stars: Int) {
         if let f = focused, ids.contains(f.id) { focused?.rating = stars }
         if let c = current, ids.contains(c.id) { current?.rating = stars }
-        let core = core
-        Task {
+        let (core, before) = (core, rating)
+        rating = Task {
+            await before?.value
             await Task.detached { for id in ids { try? core.rate(id: id, stars: UInt8(stars)) } }.value
             libraryVersion += 1
         }
     }
+
+    /// The last rating on its way: the next waits for it, so the last one given is kept.
+    @ObservationIgnored private var rating: Task<Void, Never>?
 
     func toggleFavorite(_ tracks: [Track]) {
         let all = tracks.allSatisfy(\.favorite)

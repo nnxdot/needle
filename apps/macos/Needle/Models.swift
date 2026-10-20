@@ -357,13 +357,16 @@ extension Song {
     /// The library's whole track for this song (album artist, file, source), for its menu: the
     /// song's own shape lacks them, and Go to Album, Show in Finder, and Keep need them.
     @MainActor var fullTrack: Track {
-        if let kept = Song.whole[id] { return kept }
-        let found = JSON.decode(Track.self, (try? Store.shared.core.trackJson(id: id)) ?? nil) ?? asTrack
-        Song.whole[id] = found
+        let version = Store.shared.libraryVersion
+        if let kept = Song.whole[id], kept.version == version { return kept.track }
+        guard let found = JSON.decode(Track.self, (try? Store.shared.core.trackJson(id: id)) ?? nil) else { return asTrack }
+        // Kept until the library changes (a rating, a tag): then read again.
+        if Song.whole.count > 500 { Song.whole.removeAll() }
+        Song.whole[id] = (version, found)
         return found
     }
 
-    @MainActor private static var whole: [String: Track] = [:]
+    @MainActor private static var whole: [String: (version: Int, track: Track)] = [:]
 
     /// A song of the phones' shape, as some of the core's answers give it.
     var asTrack: Track {

@@ -72,19 +72,35 @@ private struct DuplicatesTab: View {
         }
         .task { sets = await store.load { $0.duplicates() } }
         .confirmationDialog("Merge every duplicate?", isPresented: $confirmAll) {
-            Button("Merge all") { for group in sets ?? [] { merge(group) } }
+            // One after another: each changes the playlists the next one reads.
+            Button("Merge all") { let all = sets ?? []; Task { for group in all { await merged(group) } } }
         } message: { Text("The extra copies go to the Trash.") }
     }
 
     private func merge(_ group: DuplicateSet) {
-        let keep = group.songs[Int(group.keep)].id
-        let others = group.songs.enumerated().filter { $0.offset != Int(group.keep) }.map(\.element.id)
-        Task {
-            if await store.ask({ try $0.mergeInto(keep: keep, others: others) }) != nil {
-                sets?.removeAll { $0.songs.first?.id == group.songs.first?.id }
-                store.notify(others.count == 1 ? "Merged 1 copy. It is in the Trash." : "Merged \(others.count) copies. They are in the Trash.")
-                store.libraryChanged()
+        Task { await merged(group) }
+    }
+
+    private func merged(_ group: DuplicateSet) async {
+        let keep = Int(group.keep)
+        let extra = group.songs.indices.filter { $0 != keep }
+        // The extra copies' files to the Trash, as the Finder does (Put Back works); a copy
+        // whose file is already gone only leaves the library.
+        for i in extra where i < group.paths.count {
+            let url = URL(fileURLWithPath: group.paths[i])
+            guard FileManager.default.fileExists(atPath: url.path) else { continue }
+            do {
+                try FileManager.default.trashItem(at: url, resultingItemURL: nil)
+            } catch {
+                store.fail("\(url.lastPathComponent) could not go to the Trash: \(error.localizedDescription)")
+                return
             }
+        }
+        let (id, others) = (group.songs[keep].id, extra.map { group.songs[$0].id })
+        if await store.ask({ try $0.mergeInto(keep: id, others: others) }) != nil {
+            sets?.removeAll { $0.songs.first?.id == group.songs.first?.id }
+            store.notify(others.count == 1 ? "Merged 1 copy. It is in the Trash." : "Merged \(others.count) copies. They are in the Trash.")
+            store.libraryChanged()
         }
     }
 }

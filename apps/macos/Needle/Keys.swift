@@ -24,8 +24,9 @@ enum Keys {
             guard let window = event.window,
                   window.identifier.map({ $0.rawValue.hasPrefix("main") || $0.rawValue.hasPrefix("mini") }) == true,
                   window.attachedSheet == nil, NSApp.modalWindow == nil else { return event }
-            // A button or switch with the focus takes Space (lists still play with it).
-            let control = window.firstResponder is NSControl && !(window.firstResponder is NSTableView)
+            // A button with the focus (a sheet's, a menu's) takes Space; lists, sliders, and
+            // switches clicked do not.
+            let control = window.firstResponder is NSButton
             // The lyric timing editor uses Space and the arrows itself.
             let typing = (window.firstResponder as? NSText) != nil || (window.firstResponder is NSTextView)
                 || store.route == .timing || control
