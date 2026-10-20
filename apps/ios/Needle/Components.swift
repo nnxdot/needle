@@ -274,6 +274,7 @@ struct SongMenu: View {
             Button("Start Radio", systemImage: "dot.radiowaves.left.and.right") {
                 let id = song.id
                 store.run { try $0.startRadio(id: id) }
+                store.played()
             }
             Menu {
                 ForEach((0...5).reversed(), id: \.self) { stars in
@@ -504,7 +505,6 @@ struct Toast: View {
                 .padding(.top, 8)
                 .transition(.move(edge: .top).combined(with: .opacity))
                 .task(id: text) {
-                    UIAccessibility.post(notification: .announcement, argument: text)
                     try? await Task.sleep(for: .seconds(2.5))
                     withAnimation { store.message = nil }
                 }

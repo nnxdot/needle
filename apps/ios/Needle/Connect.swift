@@ -49,7 +49,7 @@ struct ComputerView: View {
                     }
                 }
                 Section {
-                    Button("Disconnect", role: .destructive) { store.core.disconnectPc(); connected = false }
+                    Button("Disconnect", role: .destructive) { store.core.disconnectPc(); connected = false; store.askComputer() }
                 }
             }
         }
@@ -171,6 +171,7 @@ struct ComputerView: View {
         let address = link.trimmingCharacters(in: .whitespacesAndNewlines)
         Task {
             let result = await store.ask { try $0.connectPc(link: address) }
+            store.askComputer()
             busy = false
             if result != nil {
                 connected = true
