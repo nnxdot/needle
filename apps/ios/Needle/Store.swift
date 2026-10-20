@@ -1,5 +1,6 @@
 import ActivityKit
 import AVFoundation
+import CryptoKit
 import MediaPlayer
 import Observation
 import SwiftUI
@@ -118,6 +119,7 @@ final class Store {
         startAudio()
         startRemoteCommands()
         Actions.handler = { [weak self] action in self?.perform(action) }
+        Actions.takeWaiting().forEach(perform)
         let folder = musicFolder.path
         let core = core
         Task.detached {
@@ -286,7 +288,21 @@ final class Store {
         change(&next)
         app = next
         let saved = next
-        run { try $0.setAppSettings(value: saved) }
+        inOrder { try $0.setAppSettings(value: saved) }
+    }
+
+    @ObservationIgnored private var saving: Task<Void, Never>?
+
+    /// Runs `work` away from the screen after the work given before it: settings saved in the
+    /// order they were changed (a slider sends many), so the last one is the one kept.
+    func inOrder(_ work: @escaping @Sendable (Needle) throws -> Void) {
+        let (core, before) = (core, saving)
+        saving = Task.detached {
+            await before?.value
+            do { try work(core) } catch {
+                await MainActor.run { self.message = "\(error.localizedDescription)" }
+            }
+        }
     }
 
     func reloadThemes() {
@@ -649,7 +665,18 @@ final class Store {
 
     // MARK: - Widgets
 
+    @ObservationIgnored private var widgetWork: Task<Void, Never>?
+
+    /// One update of the widgets at a time: a slow one (the library's) never writes an older
+    /// song over a newer one.
     private func updateWidgets(library: Bool) async {
+        let before = widgetWork
+        let work = Task { await before?.value; await writeWidgets(library: library) }
+        widgetWork = work
+        await work.value
+    }
+
+    private func writeWidgets(library: Bool) async {
         guard let folder = Snapshot.folder else { return }
         var snapshot = Snapshot.load()
         let now = local
@@ -678,16 +705,34 @@ final class Store {
             snapshot.weekSongs = Int(week?.songs ?? 0)
             snapshot.topArtist = week?.topArtists.first?.title
         }
+        // The song as it is now: it may have changed while the library was read.
+        if let current = local?.current?.id, current != now?.current?.id {
+            snapshot.title = local?.current?.title
+            snapshot.artist = local?.current?.artist
+            snapshot.album = local?.current?.album
+            snapshot.playing = local?.playing ?? false
+            snapshot.cover = await Self.shareCover(local?.current?.artwork, in: folder)
+        }
         snapshot.save()
+        Self.pruneCovers(in: folder, keeping: snapshot)
         WidgetCenter.shared.reloadAllTimelines()
     }
 
-    /// A small copy of a cover in the folder the widgets can read; its file name.
+    /// Takes away the widgets' covers that no widget shows now.
+    private static func pruneCovers(in folder: URL, keeping snapshot: Snapshot) {
+        let used = Set([snapshot.cover] + snapshot.recent.map(\.cover) + snapshot.playlists.map(\.cover)).compactMap { $0 }
+        let files = (try? FileManager.default.contentsOfDirectory(atPath: folder.path)) ?? []
+        for file in files where file.hasPrefix("cover-") && file.hasSuffix(".jpg") && !used.contains(file) {
+            try? FileManager.default.removeItem(at: folder.appendingPathComponent(file))
+        }
+    }
+
+    /// A small copy of a cover in the folder the widgets can read; its file name, the same
+    /// for the same cover from one start of the app to the next.
     private static func shareCover(_ path: String?, in folder: URL) async -> String? {
         guard let path else { return nil }
-        var hasher = Hasher()
-        hasher.combine(path)
-        let name = "cover-\(UInt64(bitPattern: Int64(hasher.finalize()))).jpg"
+        let digest = SHA256.hash(data: Data(path.utf8)).prefix(12).map { String(format: "%02x", $0) }.joined()
+        let name = "cover-\(digest).jpg"
         let url = folder.appendingPathComponent(name)
         if FileManager.default.fileExists(atPath: url.path) { return name }
         guard let image = await Covers.load(path, size: 300), let data = image.jpegData(compressionQuality: 0.8) else { return nil }

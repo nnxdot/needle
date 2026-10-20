@@ -12,6 +12,9 @@ extension Playlist: Identifiable {}
 extension Genre: Identifiable { public var id: String { name } }
 
 /// The places a screen can open.
+/// The core's name for songs without an artist.
+let unknownArtist = "Unknown artist"
+
 enum Route: Hashable {
     case album(Album)
     case albumOf(String)
@@ -208,6 +211,9 @@ struct SongRow: View {
 
     var body: some View {
         let playing = store.playback?.current?.id == song.id
+        // The app's accent, not the tint: on a page in its cover's colours the tint is the
+        // text's own colour, and the playing song did not stand out.
+        let lit = AnyShapeStyle(store.colors.accent)
         Button(action: play) {
             HStack(spacing: 12) {
                 if let number {
@@ -215,7 +221,7 @@ struct SongRow: View {
                         if playing { Image(systemName: "waveform").symbolEffect(.variableColor.iterative, isActive: store.playback?.playing == true) }
                         else { Text("\(number)") }
                     }
-                    .font(.subheadline.monospacedDigit()).foregroundStyle(playing ? AnyShapeStyle(.tint) : AnyShapeStyle(.secondary))
+                    .font(.subheadline.monospacedDigit()).foregroundStyle(playing ? lit : AnyShapeStyle(.secondary))
                     .frame(width: 24)
                 } else if showCover {
                     Artwork(path: song.artwork, seed: song.album + song.artist, size: 120)
@@ -223,7 +229,7 @@ struct SongRow: View {
                         .clipShape(.rect(cornerRadius: 8))
                 }
                 VStack(alignment: .leading, spacing: 2) {
-                    Text(song.title).foregroundStyle(playing ? AnyShapeStyle(.tint) : AnyShapeStyle(.primary)).lineLimit(1)
+                    Text(song.title).foregroundStyle(playing ? lit : AnyShapeStyle(.primary)).lineLimit(1)
                     if number == nil {
                         HStack(spacing: 4) {
                             if song.fromServer { Image(systemName: "server.rack").font(.caption2) }

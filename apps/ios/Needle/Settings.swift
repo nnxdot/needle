@@ -56,7 +56,7 @@ struct SettingsView: View {
 private func saved<T: Sendable>(_ value: Binding<T?>, _ store: Store, _ write: @escaping @Sendable (Needle, T) throws -> Void) -> (T) -> Void {
     { new in
         value.wrappedValue = new
-        store.run { try write($0, new) }
+        store.inOrder { try write($0, new) }
     }
 }
 
@@ -99,7 +99,7 @@ struct LibrarySettingsView: View {
                 Section {
                     Toggle("Look up online", isOn: Binding(get: { settings.onlineMedia }, set: { var s = settings; s.onlineMedia = $0; save(s) }))
                 } footer: {
-                    Text("Lyrics from LRCLIB when a song has none, and covers and artist photos from MusicBrainz and Wikidata. Off: Needle asks no one.")
+                    Text("Lyrics from LRCLIB when a song has none, and covers and artist photos from MusicBrainz and Wikidata. Off: Needle asks none of these. Your own music server is still asked for its songs' lyrics.")
                 }
                 Section {
                     if hasFanart {
@@ -121,7 +121,7 @@ struct LibrarySettingsView: View {
                 } header: {
                     Text("Artists' logos")
                 } footer: {
-                    Text("With online lookups on and a free key from fanart.tv, artist pages show the artist's logo. Needle sends fanart.tv only the artist's MusicBrainz ID. The key stays in the iPhone Keychain.")
+                    Text("With online lookups on and a free key from fanart.tv, artist pages show the artist's logo. Needle asks MusicBrainz for the artist's ID by name, and sends fanart.tv only that ID. The key stays in the iPhone Keychain.")
                 }
                 Section {
                     Toggle("Measure songs for radio", isOn: Binding(get: { settings.soundAnalysis }, set: { var s = settings; s.soundAnalysis = $0; save(s) }))
@@ -506,7 +506,7 @@ struct AppearanceView: View {
             Section("Player") {
                 toggle("Immersive cover", "The cover fills the top of the player, edge to edge, as in Apple Music.", \.immersiveCover)
                 toggle("Moving covers", "A video beside the songs, such as cover.mp4, plays as the cover.", \.animatedCovers)
-                toggle("Cover behind the player", "The player's background is the playing cover, blurred.", \.coverBackdrop)
+                toggle("Cover behind the player", app.immersiveCover ? "Behind the lyrics and the queue, the playing cover, blurred." : "The player's background is the playing cover, blurred.", \.coverBackdrop)
                 if app.coverBackdrop {
                     toggle("Moving cover", nil, \.movingBackdrop)
                     VStack(alignment: .leading) {
@@ -514,9 +514,12 @@ struct AppearanceView: View {
                         Slider(value: Binding(get: { Double(app.backdropBlur) }, set: { v in store.updateApp { $0.backdropBlur = Float(v.rounded()) } }), in: 20...120)
                     }
                 }
-                Picker("Cover", selection: Binding(get: { app.coverShape }, set: { v in store.updateApp { $0.coverShape = v } })) {
-                    Text("Square").tag("square")
-                    Text("Record").tag("round")
+                // The immersive cover is always square, across the top.
+                if !app.immersiveCover {
+                    Picker("Cover", selection: Binding(get: { app.coverShape }, set: { v in store.updateApp { $0.coverShape = v } })) {
+                        Text("Square").tag("square")
+                        Text("Record").tag("round")
+                    }
                 }
                 Picker("Beside play", selection: Binding(get: { app.sideButtons }, set: { v in store.updateApp { $0.sideButtons = v } })) {
                     Text("Skip songs").tag("skip")
