@@ -99,6 +99,8 @@ final class Store {
     @ObservationIgnored private var scansSeen: UInt64 = 0
     @ObservationIgnored private var shownError: String?
     @ObservationIgnored private var askComputerNow = false
+    /// Music played at the last look (the audio was taken for it).
+    @ObservationIgnored private var audioTaken = false
 
     /// Asks the computer for its state at once (a link was just made or dropped).
     func askComputer() { askComputerNow = true }
@@ -202,6 +204,8 @@ final class Store {
         let next = shown ? pc.map(Self.playback(of:)) ?? now : now
         if next != playback { playback = next }
         if next.current?.id != playingID { playingID = next.current?.id }
+        if now.playing, !audioTaken { activateAudio() }
+        audioTaken = now.playing
         if next.playing != isPlaying { isPlaying = next.playing }
         if next.queueVersion != queueVersion {
             queueVersion = next.queueVersion
@@ -383,10 +387,10 @@ final class Store {
 
     /// Plays the songs `find` gives, from `start`; with none, says so, and the player stays shut.
     func playIDs(_ find: @escaping @Sendable (Needle) throws -> [String], shuffled: Bool = false, from start: Int = 0) {
-        activateAudio()
         Task {
             guard var ids = await ask(find) else { return }
             guard !ids.isEmpty else { message = "These songs are not on this iPhone"; return }
+            activateAudio()
             if shuffled { ids.shuffle() }
             let at = UInt32(min(start, ids.count - 1))
             if await ask({ try $0.play(ids: ids, start: at) }) != nil { played() }
@@ -453,7 +457,13 @@ final class Store {
     }
 
     func toggle() {
-        if onComputer { computer { try $0.pcDo(action: "toggle") } } else { activateAudio(); core.toggle() }
+        if onComputer {
+            computer { try $0.pcDo(action: "toggle") }
+        } else {
+            // Only when there is a song to play: else another app's sound stopped for nothing.
+            if local?.current != nil, local?.playing != true { activateAudio() }
+            core.toggle()
+        }
     }
     func next() { onComputer ? computer { try $0.pcDo(action: "next") } : core.next() }
     func previous() { onComputer ? computer { try $0.pcDo(action: "previous") } : core.previous() }
@@ -901,7 +911,9 @@ final class Store {
             return .success
         }
         commands.togglePlayPauseCommand.addTarget { [weak self] _ in
-            MainActor.assumeIsolated { self?.activateAudio() }
+            MainActor.assumeIsolated {
+                if self?.local?.current != nil, self?.local?.playing != true { self?.activateAudio() }
+            }
             core.toggle()
             return .success
         }

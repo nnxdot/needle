@@ -442,10 +442,18 @@ struct PagedSongs: View {
             else if total == 0 { ContentUnavailableView("No songs", systemImage: "music.note", description: Text("Add music in Sources.")) }
         }
         .task(id: store.libraryVersion) {
-            let (q, size) = (query, max(page, UInt32(songs.count)))
+            let (q, want) = (query, max(Int(page), songs.count))
             total = await store.load { try $0.searchSongsCount(query: q) } ?? 0
-            // As many as were shown, at once: the list stays where it was scrolled.
-            songs = await store.load { try $0.searchSongsPage(query: q, offset: 0, size: size) } ?? []
+            // As many as were shown, so the list stays where it was scrolled: in pages of at
+            // most 1,000, the core's most at a time.
+            var all: [Song] = []
+            while all.count < want {
+                let (offset, size) = (UInt32(all.count), UInt32(min(1000, want - all.count)))
+                let next = await store.load { try $0.searchSongsPage(query: q, offset: offset, size: size) } ?? []
+                all += next
+                if next.count < Int(size) { break }
+            }
+            songs = all
         }
     }
 
