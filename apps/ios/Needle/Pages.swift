@@ -542,6 +542,8 @@ struct ArtistView: View {
     @State private var albums: [Album]?
     @State private var photo: String?
     @State private var logo: String?
+    /// A wide picture of them from fanart.tv, for the top of the page before their photo.
+    @State private var banner: String?
     @State private var colors: PageColors?
     @State private var pastHeader = false
 
@@ -578,13 +580,21 @@ struct ArtistView: View {
         .navigationBarTitleDisplayMode(.inline)
         .task(id: store.libraryVersion) {
             let name = name
+            // The logo is looked up beside the pictures, not after them.
+            async let found = store.load { $0.artistLogo(name: name) }
             top = await store.load { try $0.artistSongs(name: name) } ?? []
             albums = await store.load { try $0.artistAlbums(name: name) } ?? []
-            photo = await store.load { $0.artistPhoto(name: name) } ?? nil
-            let picture = photo ?? albums?.first?.artwork
+            async let wide = store.load { $0.artistBanner(name: name) }
+            async let portrait = store.load { $0.artistPhoto(name: name) }
+            (banner, photo) = (await wide ?? nil, await portrait ?? nil)
             colors = await PageColors.of(picture, seed: name)
-            logo = await store.load { $0.artistLogo(name: name) } ?? nil
+            logo = await found ?? nil
         }
+    }
+
+    /// At the top: a wide picture of them, or their photo, or else their first album's cover.
+    private var picture: String? {
+        banner ?? photo ?? albums?.first?.artwork
     }
 
     /// The newest album, for the box under the name.
@@ -598,7 +608,7 @@ struct ArtistView: View {
         Color.clear
             .frame(maxWidth: .infinity)
             .frame(height: 470)
-            .overlay { Artwork(path: photo ?? albums?.first?.artwork, seed: name, size: 1200) }
+            .overlay { Artwork(path: picture, seed: name, size: 1200) }
             .clipped()
             .overlay(alignment: .bottom) { Fade(color: look.page).frame(height: 300) }
             .modifier(Stretchy())
