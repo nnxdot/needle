@@ -660,6 +660,7 @@ impl Needle {
             .into_iter()
             .find(|p| p.id == id)
             .ok_or_else(|| failed("That playlist is gone"))?;
+        let old = playlist.cover.clone();
         playlist.cover = match path {
             Some(path) => {
                 let bytes = std::fs::read(&path).map_err(anyhow::Error::from)?;
@@ -674,7 +675,15 @@ impl Needle {
             }
             None => None,
         };
-        Ok(self.library.save_playlist(&playlist)?)
+        self.library.save_playlist(&playlist)?;
+        // The picture it had, when it was Needle's own copy, goes.
+        if let Some(old) = old.filter(|o| Some(o) != playlist.cover.as_ref()) {
+            let folder = self.library.directory.join("artwork");
+            if std::path::Path::new(&old).parent() == Some(folder.as_path()) && old.ends_with(".img") {
+                let _ = std::fs::remove_file(&old);
+            }
+        }
+        Ok(())
     }
 
     /// Writes the playlist as an .m3u8 file, for other players.

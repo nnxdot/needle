@@ -130,7 +130,10 @@ struct PlaylistView: View {
     private func reload() async {
         let id = playlist.id
         detail = await store.load { try $0.playlistDetail(id: id) }
-        current = await store.load { try $0.playlists().first { $0.id == id } } ?? nil
+        // The whole list only when the picture changed (or the first time): it is costly.
+        if current == nil || current?.picture != detail?.artwork {
+            current = await store.load { try $0.playlists().first { $0.id == id } } ?? nil
+        }
     }
 
     private func export() {

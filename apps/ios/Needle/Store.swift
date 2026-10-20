@@ -42,7 +42,10 @@ final class Store {
     /// When the sleep timer pauses the music; `.distantFuture` for "at the end of the song".
     private(set) var sleepEnds: Date?
     /// A short message to show at the top of the screen.
-    var message: String?
+    var message: String? {
+        // VoiceOver hears each message once (two toasts show it while the player is open).
+        didSet { if let message, message != oldValue { UIAccessibility.post(notification: .announcement, argument: message) } }
+    }
     /// A plugin's question, answered with text.
     var question: Question?
     var showPlayer = false
@@ -88,6 +91,10 @@ final class Store {
     @ObservationIgnored private var timer: Timer?
     @ObservationIgnored private var scansSeen: UInt64 = 0
     @ObservationIgnored private var shownError: String?
+    @ObservationIgnored private var askComputerNow = false
+
+    /// Asks the computer for its state at once (a link was just made or dropped).
+    func askComputer() { askComputerNow = true }
     @ObservationIgnored private var queueVersion: UInt64 = .max
     @ObservationIgnored private var shownSong: String?
     @ObservationIgnored private var shownArtwork: MPMediaItemArtwork?
@@ -386,6 +393,8 @@ final class Store {
 
     /// Opens the player when a song is chosen, if that is on.
     func played() {
+        // A song chosen again that fails again says so again.
+        shownError = nil
         if app.openPlayerOnPlay { showPlayer = true }
     }
 
@@ -536,12 +545,19 @@ final class Store {
                     return (connected, connected ? try? core.pcState() : nil)
                 }.value
                 guard let self else { return }
-                if heard != self.pc { self.pc = heard }
                 // Not answering (another network, the computer off): wait longer each time.
                 failures = connected && heard == nil ? min(failures + 1, 5) : 0
+                // One missed answer keeps what the computer last said: Wi-Fi drops one now and then.
+                if (heard != nil || failures > 2 || !connected), heard != self.pc { self.pc = heard }
                 let away = UIApplication.shared.applicationState == .background && !self.onComputer
-                let seconds = failures > 0 ? min(30, 1.5 * pow(2, Double(failures))) : away ? 15 : self.onComputer ? 0.7 : 1.5
-                try? await Task.sleep(for: .seconds(seconds))
+                let seconds = self.onComputer ? 0.7 : failures > 2 ? min(30, 1.5 * pow(2, Double(failures - 2))) : away ? 15 : 1.5
+                // Woken at once when a link is made or dropped.
+                var waited = 0.0
+                while waited < seconds, !self.askComputerNow {
+                    try? await Task.sleep(for: .milliseconds(250))
+                    waited += 0.25
+                }
+                self.askComputerNow = false
             }
         }
     }

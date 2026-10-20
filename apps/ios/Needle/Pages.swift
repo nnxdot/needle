@@ -688,6 +688,7 @@ struct ArtistView: View {
                         Button {
                             let name = name
                             store.run { $0.startArtistRadio(name: name) }
+                            store.played()
                             store.message = "Starting radio from \(name)"
                         } label: {
                             Image(systemName: "dot.radiowaves.left.and.right").font(.title3.weight(.semibold)).frame(width: 34, height: 34)

@@ -314,14 +314,19 @@ impl Needle {
             *s = ScanStatus {
                 running: true,
                 finished: s.finished,
+                changes: s.changes,
                 ..Default::default()
             };
         }
         std::thread::spawn(move || loop {
             SCAN_AGAIN.store(false, Ordering::SeqCst);
             let mut error = None;
-            let before = library.count().unwrap_or(0);
+            // Songs that are there: a file gone is kept, marked missing, so all rows would not change.
+            let present = || library.available_count("").unwrap_or(0);
+            let before = present();
             let mut changed = false;
+            // The whole scan's counts, every folder's (progress comes only now and then).
+            let (mut scanned, mut imported) = (0usize, 0usize);
             for root in library.roots().unwrap_or_default() {
                 let cancel = Arc::new(AtomicBool::new(false));
                 // A panic must not leave the scan "running" (and its notice up) for good.
@@ -336,13 +341,19 @@ impl Needle {
                 match result {
                     Ok(Err(e)) => error = Some(format!("{e:#}")),
                     Err(_) => error = Some(format!("Needle stopped reading {root}")),
-                    Ok(Ok(done)) => changed |= done.imported > 0,
+                    Ok(Ok(done)) => {
+                        changed |= done.imported > 0;
+                        scanned += done.scanned;
+                        imported += done.imported;
+                    }
                 }
             }
-            changed |= library.count().unwrap_or(0) != before;
+            changed |= present() != before;
             let mut s = status.lock().unwrap_or_else(|e| e.into_inner());
             s.current.clear();
             s.error = error;
+            s.scanned = scanned as u32;
+            s.imported = imported as u32;
             s.finished += 1;
             if changed {
                 s.changes += 1;
@@ -352,7 +363,13 @@ impl Needle {
                 continue;
             }
             s.running = false;
+            drop(s);
             scanning.store(false, Ordering::SeqCst);
+            // Asked for between the look above and now (it saw a scan running): once more.
+            if SCAN_AGAIN.load(Ordering::SeqCst) && !scanning.swap(true, Ordering::SeqCst) {
+                status.lock().unwrap_or_else(|e| e.into_inner()).running = true;
+                continue;
+            }
             break;
         });
     }
