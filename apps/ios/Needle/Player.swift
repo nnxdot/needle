@@ -511,18 +511,21 @@ struct ImmersiveCover: View {
     var body: some View {
         GeometryReader { geo in
             let side = geo.size.width
+            // Down to just above the song's name and the controls, as in Apple Music: on a tall
+            // phone a square cover stopped halfway, over an empty band.
+            let tall = max(side, geo.size.height - 400)
             ZStack(alignment: .top) {
                 tone
                 ZStack {
                     Artwork(path: song?.artwork, seed: seed, size: 1400)
                     if let video { LoopingVideo(url: video) }
                 }
-                .frame(width: side, height: side)
+                .frame(width: side, height: tall)
                 .clipped()
-                .overlay(alignment: .bottom) { Fade(color: tone).frame(height: side * 0.5) }
+                .overlay(alignment: .bottom) { Fade(color: tone).frame(height: tall * 0.42) }
                 // The status bar and the top buttons read over a bright cover.
-                LinearGradient(colors: [.black.opacity(0.35), .clear], startPoint: .top, endPoint: .bottom)
-                    .frame(height: 150)
+                LinearGradient(colors: [.black.opacity(0.5), .black.opacity(0.2), .clear], startPoint: .top, endPoint: .bottom)
+                    .frame(height: 220)
             }
         }
         .ignoresSafeArea()
