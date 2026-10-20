@@ -241,11 +241,16 @@ fun UpdatesRow() {
                         result.onSuccess { path ->
                             status = "Checked. Android asks you to install it."
                             // Android's installer takes it from here, and asks the person.
-                            val uri = FileProvider.getUriForFile(context, "${context.packageName}.files", File(path))
-                            context.startActivity(
-                                Intent(Intent.ACTION_VIEW).setDataAndType(uri, "application/vnd.android.package-archive")
-                                    .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_ACTIVITY_NEW_TASK),
-                            )
+                            val opened = runCatching {
+                                val uri = FileProvider.getUriForFile(context, "${context.packageName}.files", File(path))
+                                tryOpen("app installer") {
+                                    context.startActivity(
+                                        Intent(Intent.ACTION_VIEW).setDataAndType(uri, "application/vnd.android.package-archive")
+                                            .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_ACTIVITY_NEW_TASK),
+                                    )
+                                }
+                            }.getOrDefault(false)
+                            if (!opened) status = "This device cannot install it here. Get Needle from needle.nnx.fyi instead."
                         }.onFailure { status = "The update did not work: ${it.message}" }
                     }
                 }) { Text("Update to ${update.version}") }

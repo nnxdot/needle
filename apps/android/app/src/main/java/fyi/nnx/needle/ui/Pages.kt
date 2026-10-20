@@ -103,7 +103,7 @@ import kotlinx.coroutines.withContext
 private fun play(songs: List<Song>, start: Int = 0) = playSongs(songs.map { it.id }, start)
 
 @Composable
-private fun playingId(): String? = NeedleApp.instance.playback.collectAsState().value?.current?.id
+private fun playingId(): String? = playingSongId()
 
 // ---------- Shared: album, playlist, and artist pages
 
@@ -462,13 +462,20 @@ private fun AlbumPage(album: Album, open: (Route) -> Unit) {
     }
 }
 
+@OptIn(ExperimentalMaterial3ExpressiveApi::class)
 @Composable
 fun AlbumOfScreen(route: Route.AlbumOf, open: (Route) -> Unit) {
     val albumLoad = rememberLoaded(route.songId) { albumOf(route.songId) }
     val album by albumLoad
     album?.let { AlbumScreen(it, open) }
-    if (!albumLoad.loading && !albumLoad.failed && album == null) {
-        Text("This song has no album in the library.", modifier = Modifier.padding(Edge))
+    // While it is found, and if there is none: the way back, and a word on what is happening.
+    if (album == null) Column(Modifier.fillMaxSize()) {
+        LargeTitle(route.title.ifBlank { "Album" })
+        if (albumLoad.loading) {
+            androidx.compose.material3.LoadingIndicator(Modifier.align(Alignment.CenterHorizontally).padding(top = 32.dp))
+        } else if (!albumLoad.failed) {
+            Text("This song has no album in the library.", color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(Edge))
+        }
     }
 }
 
@@ -581,12 +588,19 @@ fun PlaylistScreen(route: Route.Playlist, open: (Route) -> Unit) {
             text = { Text("The playlist goes. Its songs stay in your library.") },
             confirmButton = {
                 TextButton(onClick = {
-                    runCatching { core.deletePlaylist(d.id) }
                     deleting = false
-                    // Away from the page first: a playlist that is gone has nothing to show.
-                    back?.onBackPressedDispatcher?.onBackPressed()
-                    NeedleApp.instance.libraryVersion.value++
-                    showMessage("Deleted ${d.name}")
+                    runCatching { core.deletePlaylist(d.id) }
+                        .onSuccess {
+                            // Away from the page first, and the lists told only once it has gone:
+                            // a playlist that is gone has nothing to show, and would say so.
+                            back?.onBackPressedDispatcher?.onBackPressed()
+                            NeedleApp.instance.scope.launch {
+                                delay(400)
+                                NeedleApp.instance.libraryVersion.value++
+                            }
+                            showMessage("Deleted ${d.name}")
+                        }
+                        .onFailure { showMessage("Could not delete it: ${it.message}") }
                 }) { Text("Delete") }
             },
             dismissButton = { TextButton(onClick = { deleting = false }) { Text("Cancel") } },
@@ -898,6 +912,7 @@ private fun HomeEmpty(scanning: Boolean, open: (Route) -> Unit) {
 @Composable
 fun SearchScreen(open: (Route) -> Unit) {
     var query by rememberSaveable { mutableStateOf("") }
+    val keyboard = androidx.compose.ui.platform.LocalSoftwareKeyboardController.current
     var songs by remember { mutableStateOf<List<Song>>(emptyList()) }
     // What the songs shown were found for, so "Nothing found" waits for its own answer.
     var searched by remember { mutableStateOf<String?>(null) }
@@ -943,6 +958,8 @@ fun SearchScreen(open: (Route) -> Unit) {
                     trailingIcon = { if (query.isNotEmpty()) IconButton(onClick = { query = "" }) { Icon(Icons.Rounded.Close, contentDescription = "Clear") } },
                     singleLine = true,
                     keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
+                    // The results come as it is typed; the keyboard's Search puts the keyboard away.
+                    keyboardActions = androidx.compose.foundation.text.KeyboardActions(onSearch = { keyboard?.hide() }),
                     shape = RoundedCornerShape(28.dp),
                     colors = TextFieldDefaults.colors(
                         focusedIndicatorColor = Color.Transparent,
@@ -987,7 +1004,10 @@ fun SearchScreen(open: (Route) -> Unit) {
                 server?.let { (number, found) ->
                     edgeToEdge(16.dp) { SectionHeader("On your server") }
                     items(found.size, key = { "server-$it-" + found[it].id }, span = { GridItemSpan(maxLineSpan) }) { i ->
-                        SongRow(found[i], playing == found[i].id, null, Modifier.bleed(16.dp), place = Place(i, found.size)) { core.playServerSongs(number, i.toUInt()) }
+                        SongRow(found[i], playing == found[i].id, null, Modifier.bleed(16.dp), place = Place(i, found.size)) {
+                            core.playServerSongs(number, i.toUInt())
+                            NeedleApp.instance.openPlayer.tryEmit(Unit)
+                        }
                     }
                 }
             }

@@ -11,6 +11,16 @@ import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.foundation.focusable
+import androidx.compose.ui.input.key.Key
+import androidx.compose.ui.input.key.KeyEventType
+import androidx.compose.ui.input.key.key
+import androidx.compose.ui.input.key.onKeyEvent
+import androidx.compose.ui.input.key.type
+import androidx.compose.ui.semantics.CustomAccessibilityAction
+import androidx.compose.ui.semantics.customActions
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
@@ -31,6 +41,9 @@ class Reorder(var move: (from: Int, to: Int) -> Unit) {
     var offset by mutableFloatStateOf(0f)
     var rowHeight by mutableFloatStateOf(1f)
     var count by mutableIntStateOf(0)
+
+    /** The place a row was just moved to with keys, whose handle takes the focus next. */
+    var follow by mutableIntStateOf(-1)
 
     /** Where the dragged row would land now. */
     val target: Int
@@ -67,12 +80,47 @@ fun Modifier.reorderRow(reorder: Reorder, index: Int): Modifier =
             }
         }
 
-/** The handle a row is dragged by. */
+/**
+ * The handle a row is dragged by. With a remote or keys it takes the focus, and up and down move
+ * the row a place; TalkBack offers the same as actions.
+ */
 @Composable
 fun DragHandle(reorder: Reorder, index: Int, tint: androidx.compose.ui.graphics.Color = MaterialTheme.colorScheme.onSurfaceVariant, haptics: (Boolean) -> Unit = rememberHaptics()) {
+    val focus = remember { androidx.compose.foundation.interaction.MutableInteractionSource() }
+    val requester = remember { androidx.compose.ui.focus.FocusRequester() }
+    // The focus goes with the row moved, so up again moves the same song again.
+    androidx.compose.runtime.LaunchedEffect(reorder.follow) {
+        if (reorder.follow == index) {
+            runCatching { requester.requestFocus() }
+            reorder.follow = -1
+        }
+    }
+    val up = index > 0
+    val down = index < reorder.count - 1
     Box(
         Modifier
             .size(48.dp)
+            .focusRing(focus, 24.dp)
+            .onKeyEvent {
+                val to = when (it.key) {
+                    Key.DirectionUp -> if (up) index - 1 else return@onKeyEvent false
+                    Key.DirectionDown -> if (down) index + 1 else return@onKeyEvent false
+                    else -> return@onKeyEvent false
+                }
+                if (it.type == KeyEventType.KeyDown) {
+                    reorder.move(index, to)
+                    reorder.follow = to
+                }
+                true
+            }
+            .semantics {
+                customActions = listOfNotNull(
+                    if (up) CustomAccessibilityAction("Move up") { reorder.move(index, index - 1); true } else null,
+                    if (down) CustomAccessibilityAction("Move down") { reorder.move(index, index + 1); true } else null,
+                )
+            }
+            .focusRequester(requester)
+            .focusable(interactionSource = focus)
             .pointerInput(index) {
                 detectDragGestures(
                     onDragStart = { haptics(true); reorder.dragging = index; reorder.offset = 0f },

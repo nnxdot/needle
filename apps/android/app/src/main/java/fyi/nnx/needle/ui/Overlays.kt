@@ -78,12 +78,12 @@ sealed interface Sheet {
  * Opens one of Android's own screens (a browser, the file picker, a settings page). A device
  * without it, as many TVs are, says so instead of closing Needle.
  */
-fun tryOpen(what: String, open: () -> Unit) {
-    try {
-        open()
-    } catch (_: android.content.ActivityNotFoundException) {
-        showMessage("This device has no $what")
-    }
+fun tryOpen(what: String, open: () -> Unit): Boolean = try {
+    open()
+    true
+} catch (_: android.content.ActivityNotFoundException) {
+    showMessage("This device has no $what")
+    false
 }
 
 fun showMessage(text: String) {
@@ -143,7 +143,13 @@ private fun PluginQuestion(q: Notice.Question, done: () -> Unit) {
         }
     }
     if (q.file) {
-        LaunchedEffect(q.id) { tryOpen("file picker") { pick.launch(arrayOf("*/*")) } }
+        LaunchedEffect(q.id) {
+            // Without a file picker, the plugin hears "no file" rather than waiting for ever.
+            if (!tryOpen("file picker") { pick.launch(arrayOf("*/*")) }) {
+                core.answer(q.id, null, null)
+                done()
+            }
+        }
         return
     }
     AlertDialog(
@@ -233,10 +239,12 @@ private fun AddToPlaylistSheet(ids: List<String>) {
 private fun PlaylistDialog(editing: String?, ids: List<String>, smartAtFirst: Boolean) {
     val detailLoad = rememberLoaded(editing) { editing?.let { playlistDetail(it) } }
     val detail by detailLoad
-    var name by remember(detail) { mutableStateOf(detail?.name ?: "") }
-    var description by remember(detail) { mutableStateOf(detail?.description ?: "") }
-    var smart by remember(detail) { mutableStateOf(detail?.rule != null || (editing == null && smartAtFirst)) }
-    var rule by remember(detail) { mutableStateOf(detail?.rule ?: "") }
+    // Filled in once the playlist has loaded, then left to the person: a scan that reloads the
+    // library while they type does not put the old words back.
+    var name by remember(detail?.id) { mutableStateOf(detail?.name ?: "") }
+    var description by remember(detail?.id) { mutableStateOf(detail?.description ?: "") }
+    var smart by remember(detail?.id) { mutableStateOf(detail?.rule != null || (editing == null && smartAtFirst)) }
+    var rule by remember(detail?.id) { mutableStateOf(detail?.rule ?: "") }
     // Checked off the main thread as the rule is typed.
     val problem by androidx.compose.runtime.produceState<String?>(null, smart, rule) {
         value = if (smart && rule.isNotBlank()) withContext(kotlinx.coroutines.Dispatchers.IO) { runCatching { core.checkRule(rule) }.getOrNull() } else null

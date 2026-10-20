@@ -74,8 +74,7 @@ fun RecentlyAddedScreen(open: (Route) -> Unit) {
 
 @Composable
 fun TitledSongs(title: String, songs: List<Song>?, open: (Route) -> Unit, empty: String = "", loading: Boolean = false) {
-    val playback by fyi.nnx.needle.NeedleApp.instance.playback.collectAsStateWithLifecycle()
-    val playing = playback?.current?.id
+    val playing = playingSongId()
     val list = songs.orEmpty()
     LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = 24.dp)) {
         item { LargeTitle(title) }
@@ -102,8 +101,7 @@ fun FoldersScreen(path: String?, open: (Route) -> Unit) {
     val subfolders by subfoldersLoad
     val songsLoad = rememberLoaded(path) { if (path == null) emptyList() else folderSongs(path) }
     val songs by songsLoad
-    val playback by fyi.nnx.needle.NeedleApp.instance.playback.collectAsStateWithLifecycle()
-    val playing = playback?.current?.id
+    val playing = playingSongId()
     val title = path?.substringAfterLast('/')?.ifBlank { path } ?: "Folders"
     // Every song in this folder and the folders in it, so a whole folder can be played.
     val here = songs.orEmpty()
@@ -296,7 +294,7 @@ private fun RankedRow(r: Ranked, onClick: (() -> Unit)? = null) {
         Modifier
             .fillMaxWidth()
             .clickable(enabled = onClick != null || r.songId != null) {
-                if (onClick != null) onClick() else r.songId?.let { core.play(listOf(it), 0u) }
+                if (onClick != null) onClick() else r.songId?.let { playSongs(listOf(it)) }
             }
             .padding(horizontal = Edge, vertical = 6.dp),
         verticalAlignment = Alignment.CenterVertically,
