@@ -139,9 +139,9 @@ struct SongsPage: View {
                 .font(.callout).foregroundStyle(store.colors.ink2)
             Spacer()
             Button { model.offset = max(0, model.offset - SongsModel.pageSize) } label: { Image(systemName: "chevron.left") }
-                .disabled(model.offset == 0).help("Previous 1,000")
+                .disabled(model.offset == 0).help("Previous 1,000").accessibilityLabel("Previous 1,000")
             Button { model.offset += SongsModel.pageSize } label: { Image(systemName: "chevron.right") }
-                .disabled(model.offset + model.tracks.count >= model.total).help("Next 1,000")
+                .disabled(model.offset + model.tracks.count >= model.total).help("Next 1,000").accessibilityLabel("Next 1,000")
         }
         .buttonStyle(.borderless)
         .padding(.horizontal, 24)
@@ -311,6 +311,7 @@ struct SongsHeader: View {
                 Button { saveAsPlaylist() } label: { Image(systemName: "text.badge.plus") }
                     .glassButton()
                     .help("Save as a playlist")
+                    .accessibilityLabel("Save as a playlist")
             }
         }
         // On a page in its cover's colours, glass in the page's ink: the glass then picks words

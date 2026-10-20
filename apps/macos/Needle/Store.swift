@@ -154,7 +154,19 @@ final class Store {
             MainActor.assumeIsolated { self?.tick() }
         }
         maybeWelcome()
-        if settings.welcomed { checkForUpdate(force: false) }
+        if settings.welcomed {
+            checkForUpdate(force: false)
+            // Folders changed while Needle was closed: the watcher sees only what comes after.
+            core.rescan()
+        }
+        // A drive plugged in: its folders are read and watched again.
+        NSWorkspace.shared.notificationCenter.addObserver(forName: NSWorkspace.didMountNotification, object: nil, queue: .main) { [weak self] _ in
+            MainActor.assumeIsolated {
+                guard let self, self.settings.welcomed else { return }
+                self.core.rescan()
+                self.core.rewatch()
+            }
+        }
     }
 
     // MARK: - Following the core
@@ -649,7 +661,9 @@ final class Store {
         seek(min(max(0, p.position + seconds), max(0, p.duration - 1)))
     }
 
-    func setVolume(_ value: Float) {
+    func setVolume(_ value: Float, fromMute: Bool = false) {
+        // Set by hand (the slider, the wheel, the keys): not muted any more.
+        if !fromMute { mutedVolume = nil }
         core.setVolume(value: value)
         if let p = playback { var next = p; next.volume = value; playback = next }
     }
@@ -659,12 +673,16 @@ final class Store {
     }
 
     func toggleMute() {
+        let volume = playback?.volume ?? 0.65
         if let restore = mutedVolume {
             mutedVolume = nil
-            setVolume(restore)
+            setVolume(restore, fromMute: true)
+        } else if volume <= 0.001 {
+            // Already silent (the slider at its foot): a sound to hear again.
+            setVolume(0.65, fromMute: true)
         } else {
-            mutedVolume = max(0.05, playback?.volume ?? 0.65)
-            setVolume(0)
+            mutedVolume = volume
+            setVolume(0, fromMute: true)
         }
     }
 
@@ -911,8 +929,10 @@ final class Store {
             // Asked by the person: its error shows. By itself (offline at login, say): quiet.
             let found = force ? await ask { try $0.checkMacUpdate() } : await load { try $0.checkMacUpdate() }
             reloadSettings()
-            update = found ?? nil
-            if let found = found ?? nil {
+            // nil: the check failed (its error, if asked, is shown); .some(nil): none newer.
+            guard let found else { return }
+            update = found
+            if let found {
                 notify(force ? "Needle \(found.version) is out. You have \(version)." : "Needle \(found.version) is out. Update it in Settings › Online services.")
             } else if force {
                 notify("Needle \(version) is the latest version.")

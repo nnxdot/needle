@@ -176,7 +176,7 @@ struct SoundPane: View {
                                   value: Binding(get: { Double(band.gain) }, set: { v in change { $0.parametric[i].gain = Float(v) } }), range: -24...24)
                     LabeledSlider(label: String(format: "Q %.2f", band.q),
                                   value: Binding(get: { Double(band.q) }, set: { v in change { $0.parametric[i].q = Float(v) } }), range: 0.1...10)
-                    Button { change { $0.parametric.remove(at: i) } } label: { Image(systemName: "minus.circle") }.buttonStyle(.borderless).help("Remove")
+                    Button { change { $0.parametric.remove(at: i) } } label: { Image(systemName: "minus.circle") }.buttonStyle(.borderless).help("Remove").accessibilityLabel("Remove")
                 }
             }
             Button { change { $0.parametric.append(EqBand(kind: "peak", frequency: 1000, gain: 0, q: 1, on: true)); $0.eq = true } } label: {

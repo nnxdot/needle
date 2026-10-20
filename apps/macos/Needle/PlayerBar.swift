@@ -608,6 +608,7 @@ struct SoundButton: View {
         }
         .buttonStyle(.borderless)
         .help("Equalizer and sound tools")
+        .accessibilityLabel("Equalizer and sound tools")
         .task(id: store.libraryVersion) {
             if let s = try? store.core.soundSettings() {
                 on = s.eq || s.mono || s.crossfeed || abs(s.balance) > 0.001
@@ -657,6 +658,7 @@ struct MiniButton: View {
         Button { openWindow(id: "mini") } label: { Image(systemName: "pip").foregroundStyle(store.colors.ink2) }
             .buttonStyle(.borderless)
             .help("Mini player · ⌥⌘M")
+            .accessibilityLabel("Mini player")
     }
 }
 

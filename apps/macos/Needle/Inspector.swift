@@ -105,10 +105,10 @@ struct Details: View {
                     Stars(rating: track.rating, size: 15) { store.rate([track.id], $0) }
                     Spacer()
                     Button { store.enqueue([track.id]) } label: { Image(systemName: "text.badge.plus") }
-                        .buttonStyle(.borderless).help("Add to queue").disabled(track.missing)
+                        .buttonStyle(.borderless).help("Add to queue").accessibilityLabel("Add to queue").disabled(track.missing)
                     if source == nil {
                         Button { store.tagging = [track.id] } label: { Image(systemName: "pencil") }
-                            .buttonStyle(.borderless).help("Edit tags · ⌘E")
+                            .buttonStyle(.borderless).help("Edit tags · ⌘E").accessibilityLabel("Edit tags")
                     }
                     Button { store.play([track], reason: "Chosen from track details") } label: { Label("Play", systemImage: "play.fill") }
                         .glassButton(prominent: true).controlSize(.small).disabled(track.missing)
@@ -153,9 +153,9 @@ struct Details: View {
                         HStack {
                             fact("File", track.filePath)
                             Button { store.copy(track.filePath) } label: { Image(systemName: "doc.on.doc") }
-                                .buttonStyle(.borderless).help("Copy file path")
+                                .buttonStyle(.borderless).help("Copy file path").accessibilityLabel("Copy file path")
                             Button { store.reveal(track.filePath) } label: { Image(systemName: "magnifyingglass") }
-                                .buttonStyle(.borderless).help("Show in Finder")
+                                .buttonStyle(.borderless).help("Show in Finder").accessibilityLabel("Show in Finder")
                         }
                     }
                 }
@@ -329,9 +329,9 @@ private struct QueueRow: View {
             Spacer()
             if hover {
                 Button { store.core.moveUpNext(from: UInt32(index), to: UInt32(max(0, index - 1))) } label: { Image(systemName: "arrow.up") }
-                    .buttonStyle(.borderless).disabled(index == 0).help("Move up")
+                    .buttonStyle(.borderless).disabled(index == 0).help("Move up").accessibilityLabel("Move up")
                 Button { store.core.removeUpNext(index: UInt32(index)) } label: { Image(systemName: "xmark") }
-                    .buttonStyle(.borderless).help("Remove")
+                    .buttonStyle(.borderless).help("Remove").accessibilityLabel("Remove")
             } else {
                 Text(clock(entry.duration)).font(.caption).monospacedDigit().foregroundStyle(store.colors.ink3)
             }

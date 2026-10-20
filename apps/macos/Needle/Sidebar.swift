@@ -82,6 +82,7 @@ struct Sidebar: View {
                         Button { store.editor = .new() } label: { Image(systemName: "plus") }
                             .buttonStyle(.borderless)
                             .help("New playlist")
+                            .accessibilityLabel("New playlist")
                     }
                 }
             }
@@ -307,6 +308,8 @@ struct Rail: View {
                             }
                             .buttonStyle(.plain)
                             .help(playlist.name)
+                            .accessibilityLabel(playlist.name)
+                            .accessibilityAddTraits(store.route == .playlist(playlist.id) ? .isSelected : [])
                             .dropDestination(for: String.self) { ids, _ in
                                 guard !playlist.smart else { return false }
                                 store.addToPlaylist(playlist, ids)
@@ -323,6 +326,7 @@ struct Rail: View {
             SettingsLink { icon("gearshape", selected: false) }
                 .buttonStyle(.plain)
                 .help("Settings · ⌘,")
+                .accessibilityLabel("Settings")
         }
         .padding(.vertical, 10)
         .frame(width: Self.width)

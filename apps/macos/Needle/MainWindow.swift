@@ -254,6 +254,7 @@ struct MainWindow: View {
         ToolbarItem(placement: .navigation) {
             Button { store.palette = true } label: { Image(systemName: "command") }
                 .help("Command palette: go anywhere, do anything · ⌘K")
+                .accessibilityLabel("Command palette: go anywhere, do anything")
         }
         // Right after Back and Forward: as the bar's middle item macOS pushed it over to the
         // right, half over the side panel.

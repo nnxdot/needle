@@ -403,15 +403,19 @@ struct CoverBackdrop: View {
     /// For a light look: a light wash over the colours, for dark words, in place of darkening.
     var light = false
     @State private var image: NSImage?
+    /// When it began turning this time; nil while still.
+    @State private var turning: Date?
+    /// The turn before this time, in degrees.
+    @State private var turned: Double = 0
 
     var body: some View {
         GeometryReader { geo in
             let side = max(geo.size.width, geo.size.height) * 1.5
             Group {
                 if let image {
-                    // Blurred once (see `Covers.backdrop`); only turned here.
+                    // Blurred once (see `Covers.backdrop`); only turned here, a turn in 90 s.
                     TimelineView(.animation(minimumInterval: 1 / 15, paused: !moving)) { context in
-                        let angle = moving ? context.date.timeIntervalSinceReferenceDate.truncatingRemainder(dividingBy: 90) / 90 * 360 : 0
+                        let angle = turned + (turning.map { max(0, context.date.timeIntervalSince($0)) } ?? 0) * 4
                         Image(nsImage: image)
                             .resizable()
                             .interpolation(.medium)
@@ -446,6 +450,14 @@ struct CoverBackdrop: View {
         .task(id: path) {
             guard let path else { image = nil; return }
             image = await Covers.backdrop(path)
+        }
+        .onChange(of: moving, initial: true) { _, now in
+            if now {
+                if turning == nil { turning = Date() }
+            } else if let began = turning {
+                turned += Date().timeIntervalSince(began) * 4
+                turning = nil
+            }
         }
     }
 }
