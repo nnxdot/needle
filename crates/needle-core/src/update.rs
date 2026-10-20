@@ -241,7 +241,7 @@ fn check_iphone(current: &str) -> Result<Option<Release>> {
         .unwrap_or_default();
     Ok((!version.is_empty() && newer(current, version)).then(|| Release {
         version: version.trim_start_matches('v').to_string(),
-        page: "https://needle.nnx.fyi/#iphone".into(),
+        page: "https://needle.nnx.fyi/#download".into(),
         package: None,
         installer: String::new(),
         installer_url: String::new(),
