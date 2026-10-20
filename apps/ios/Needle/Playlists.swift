@@ -131,7 +131,8 @@ struct PlaylistView: View {
         let id = playlist.id
         detail = await store.load { try $0.playlistDetail(id: id) }
         // The whole list only when the picture changed (or the first time): it is costly.
-        if current == nil || current?.picture != detail?.artwork {
+        if current == nil || current?.picture != detail?.artwork || Int(current?.songs ?? 0) != detail?.songs.count
+            || current?.artwork != (detail?.artwork ?? detail?.songs.first(where: { $0.artwork != nil })?.artwork) {
             current = await store.load { try $0.playlists().first { $0.id == id } } ?? nil
         }
     }
