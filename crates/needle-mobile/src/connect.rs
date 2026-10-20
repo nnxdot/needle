@@ -98,7 +98,7 @@ impl Needle {
             .post(format!("{base}api/{action}"))
             .body(body.to_string())
             .send()
-            .map_err(|e| NeedleError::Failed(format!("Your computer did not answer: {e}")))?;
+            .map_err(|e| NeedleError::Failed(format!("Your computer did not answer: {}", e.without_url())))?;
         if response.status().is_success() {
             Ok(())
         } else {
@@ -137,7 +137,8 @@ impl Needle {
             .and_then(|r| r.json())
             .map_err(|e| {
                 NeedleError::Failed(format!(
-                    "Needle on your computer did not answer ({e}). Check that the phone remote is on and both are on the same network."
+                    "Needle on your computer did not answer ({}). Check that the phone remote is on and both are on the same network.",
+                    e.without_url()
                 ))
             })?;
         *ADDRESS.lock().unwrap() = Some(base);
@@ -174,7 +175,7 @@ impl Needle {
             .send()
             .and_then(|r| r.error_for_status())
             .and_then(|r| r.json())
-            .map_err(|e| NeedleError::Failed(format!("Your computer did not answer: {e}")))?;
+            .map_err(|e| NeedleError::Failed(format!("Your computer did not answer: {}", e.without_url())))?;
         Ok(PcState {
             playing: v["playing"].as_bool().unwrap_or(false),
             position: v["position"].as_f64().unwrap_or(0.),
@@ -235,7 +236,7 @@ impl Needle {
             .send()
             .and_then(|r| r.error_for_status())
             .and_then(|r| r.json())
-            .map_err(|e| NeedleError::Failed(format!("Your computer did not answer: {e}")))?;
+            .map_err(|e| NeedleError::Failed(format!("Your computer did not answer: {}", e.without_url())))?;
         Ok(found.iter().map(|v| song(&base, v)).collect())
     }
 

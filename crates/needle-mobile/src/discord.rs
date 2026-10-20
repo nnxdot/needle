@@ -795,7 +795,10 @@ mod sdk {
         std::thread::spawn(move || {
             if let Err(why) = linked(client_id) {
                 needle_core::logfile::warn(format!("Linking Discord: {why}"));
-                account::problem(Some(why));
+                // Cancelled by the person: nothing went wrong.
+                if !account::CANCEL.load(Ordering::SeqCst) {
+                    account::problem(Some(why));
+                }
             }
             account::LINKING.store(false, Ordering::SeqCst);
         });

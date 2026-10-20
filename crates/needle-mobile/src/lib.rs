@@ -203,6 +203,9 @@ pub struct ScanStatus {
     pub imported: u32,
     pub current: String,
     pub error: Option<String>,
+    /// Scans finished since the app started: one too short to be seen running still counts.
+    #[uniffi(default = 0)]
+    pub finished: u64,
 }
 
 #[derive(uniffi::Object)]
@@ -294,10 +297,14 @@ impl Needle {
             self.scan.clone(),
             self.scanning.clone(),
         );
-        *status.lock().unwrap() = ScanStatus {
-            running: true,
-            ..Default::default()
-        };
+        {
+            let mut s = status.lock().unwrap_or_else(|e| e.into_inner());
+            *s = ScanStatus {
+                running: true,
+                finished: s.finished,
+                ..Default::default()
+            };
+        }
         std::thread::spawn(move || {
             let mut error = None;
             for root in library.roots().unwrap_or_default() {
@@ -321,6 +328,7 @@ impl Needle {
             s.running = false;
             s.current.clear();
             s.error = error;
+            s.finished += 1;
             scanning.store(false, Ordering::SeqCst);
         });
     }
@@ -553,6 +561,16 @@ impl Needle {
             .map(Song::from)
             .collect())
     }
+    /// Every song a search finds (all, with an empty one), for Play and Shuffle.
+    pub fn search_song_ids(&self, query: String) -> Result<Vec<String>> {
+        Ok(self
+            .library
+            .available_page(&query, 0, 500_000)?
+            .into_iter()
+            .map(|t| t.id)
+            .collect())
+    }
+
     pub fn search_songs_count(&self, query: String) -> Result<u32> {
         Ok(self.library.available_count(&query)? as u32)
     }

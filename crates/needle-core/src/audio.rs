@@ -1496,6 +1496,19 @@ impl Worker {
                 self.dsp.set(self.settings.dsp.clone());
                 self.persist_audio_settings()?;
             }
+            // Nothing that changes how the sound is made (lookups, autoplay's rule): the song
+            // plays on, without the gap of opening the output again.
+            Command::Configure(settings)
+                if settings.output_device == self.settings.output_device
+                    && settings.exclusive == self.settings.exclusive
+                    && settings.replay_gain == self.settings.replay_gain
+                    && settings.album_gain == self.settings.album_gain
+                    && settings.crossfade == self.settings.crossfade =>
+            {
+                self.settings = *settings;
+                self.dsp.set(self.settings.dsp.clone());
+                self.persist_audio_settings()?;
+            }
             Command::Configure(settings) => {
                 let current = self.queue.active.clone();
                 let position = self.position();

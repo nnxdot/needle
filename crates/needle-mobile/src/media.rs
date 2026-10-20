@@ -344,9 +344,8 @@ impl Needle {
     }
 
     pub fn set_crash_reports(&self, on: bool) -> Result<()> {
-        let mut settings = self.library.settings()?;
-        settings.crash_reports = on;
-        self.player.send(Command::Configure(Box::new(settings)));
+        // Saved here: the player keeps (and saves) only the settings of the sound.
+        self.library.update_settings(|s| s.crash_reports = on)?;
         Ok(())
     }
 
