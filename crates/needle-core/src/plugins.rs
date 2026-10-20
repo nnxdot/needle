@@ -2287,20 +2287,25 @@ fn song_lyrics(id) {
     if list == () {
         return ();
     }
-    // The song's own words first: a server can also list a translation or a romanization.
-    let ordered = [];
+    // The song's own words first, timed or not: a server can also list a translation or a
+    // romanization, which comes only when the song's own are missing.
+    let main = [];
+    let other = [];
     for lyrics in list {
         if lyrics.kind == () || lyrics.kind == "main" {
-            ordered.push(lyrics);
+            main.push(lyrics);
+        } else {
+            other.push(lyrics);
         }
     }
-    for lyrics in list {
-        if !(lyrics.kind == () || lyrics.kind == "main") {
-            ordered.push(lyrics);
-        }
-    }
+    let found = pick_lyrics(main);
+    if found != () { found } else { pick_lyrics(other) }
+}
+
+// Timed lyrics from the list when it has them, else its plain ones.
+fn pick_lyrics(list) {
     let plain = "";
-    for lyrics in ordered {
+    for lyrics in list {
         if lyrics.line == () {
             continue;
         }
@@ -2890,6 +2895,7 @@ mod tests {
                             {"kind":"main","lang":"xxx","synced":true,"offset":-500,"line":[{"start":1500,"value":"Hey"},{"start":62250,"value":"Hi"}]}
                         ]}"#),
                         "s2" => ok(r#","lyricsList":{"structuredLyrics":[
+                            {"kind":"translation","lang":"en","synced":true,"line":[{"start":0,"value":"Sugar"}]},
                             {"lang":"xxx","synced":false,"line":[{"value":"Sweet"},{"value":"Sour"}]}
                         ]}"#),
                         _ => ok(r#","lyricsList":{}"#),
