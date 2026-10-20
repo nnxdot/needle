@@ -249,7 +249,9 @@ private fun MiniPlayerBody(p: fyi.nnx.needle.core.Playback, song: Song, onOpen: 
 @Composable
 private fun MiniLyrics(song: Song, position: Double, modifier: Modifier = Modifier) {
     // Not rememberLoaded: a song without lyrics should not offer Retry over the page.
-    val lyrics by androidx.compose.runtime.produceState<fyi.nnx.needle.core.Lyrics?>(null, song.id) {
+    // Read again when the library changes too (lyrics just timed or saved).
+    val version by NeedleApp.instance.libraryVersion.collectAsState()
+    val lyrics by androidx.compose.runtime.produceState<fyi.nnx.needle.core.Lyrics?>(null, song.id, version) {
         value = withContext(Dispatchers.IO) {
             runCatching {
                 if (song.onComputer()) {
@@ -305,7 +307,7 @@ internal fun coverColor(path: String?): Color {
 
 /** Behind the player: the cover itself, blurred and darkened, as in Apple Music. */
 @Composable
-private fun PlayerBackdrop(song: Song) {
+private fun PlayerBackdrop(song: Song, reading: Boolean = false) {
     val glow = coverColor(song.artwork)
     Box(Modifier.fillMaxSize().background(Color(0xFF0F0E0D))) {
         val app by NeedleApp.instance.app.collectAsState()
@@ -314,6 +316,10 @@ private fun PlayerBackdrop(song: Song) {
         } else {
             Box(Modifier.fillMaxSize().background(Brush.verticalGradient(listOf(glow, Color(0xFF0F0E0D)))))
         }
+        // Darker while lyrics or Up next show: their small white words sit over the bright
+        // middle of a cover, where the controls' shade does not reach.
+        val shade by animateFloatAsState(if (reading) 0.3f else 0f, label = "reading shade")
+        Box(Modifier.fillMaxSize().graphicsLayer { alpha = shade }.background(Color.Black))
         // Darker at the foot, so the controls always read.
         Box(
             Modifier.fillMaxSize().background(
@@ -390,7 +396,7 @@ fun FullPlayer(onClose: () -> Unit, open: (Route) -> Unit) {
                 ) { _, dy -> pull += dy }
             },
     ) {
-        PlayerBackdrop(song)
+        PlayerBackdrop(song, reading = panel != Panel.Cover)
         CompositionLocalProvider(LocalContentColor provides Color.White) {
             BoxWithConstraints(Modifier.fillMaxSize().statusBarsPadding().navigationBarsPadding().padding(horizontal = 28.dp)) {
             // A tablet (or a phone) on its side: the cover, the lyrics, or what is up next at the
@@ -1112,8 +1118,11 @@ private fun LyricsPanel(song: Song, position: Double, time: () -> Unit) {
 @OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
 @Composable
 private fun UpNextPanel(version: ULong) {
-    val songsLoad = rememberLoaded(version) { Controls.upNext() }
-    val songs by songsLoad
+    // Read again at each change of the queue, with the old list kept on screen until the new
+    // one is in: no blank moment, and the list keeps its place as songs are moved or taken out.
+    val songs by androidx.compose.runtime.produceState<List<Song>?>(null, version) {
+        withContext(Dispatchers.IO) { runCatching { Controls.upNext() }.getOrNull() }?.let { value = it }
+    }
     val list = songs.orEmpty()
     val onComputer = list.firstOrNull()?.onComputer() == true
     // Up next on this phone can be put in order by dragging a song's handle.

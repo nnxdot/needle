@@ -213,6 +213,9 @@ fun NeedleTheme(content: @Composable () -> Unit) {
         androidx.compose.runtime.CompositionLocalProvider(
             LocalTitleFont provides app.titleFont,
             LocalRows provides Rows.of(app.density),
+            // Links in text (Help, Privacy) open safely: a device with no browser or mail app
+            // (many TVs) says so instead of closing Needle.
+            androidx.compose.ui.platform.LocalUriHandler provides remember(context) { SafeLinks(context) },
         ) {
             FocusShades {
                 androidx.compose.foundation.layout.Box {
@@ -246,5 +249,14 @@ private fun Grain(amount: Float) {
     }
     androidx.compose.foundation.Canvas(androidx.compose.ui.Modifier.fillMaxSize()) {
         drawRect(brush, alpha = (amount * 0.12f).coerceIn(0f, 0.12f), blendMode = androidx.compose.ui.graphics.BlendMode.Overlay)
+    }
+}
+
+/** Opens a link with the app Android picks for it, or says there is none. */
+private class SafeLinks(private val context: android.content.Context) : androidx.compose.ui.platform.UriHandler {
+    override fun openUri(uri: String) {
+        tryOpen("app for this link") {
+            context.startActivity(android.content.Intent(android.content.Intent.ACTION_VIEW, android.net.Uri.parse(uri)).addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK))
+        }
     }
 }

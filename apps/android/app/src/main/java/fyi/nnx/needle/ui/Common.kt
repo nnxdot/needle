@@ -231,6 +231,8 @@ fun playingSongId(): String? = NeedleApp.instance.playingId.collectAsState().val
  * core looks each song up, which for a whole library or a long playlist takes a moment.
  */
 fun playSongs(ids: List<String>, start: Int = 0) {
+    // Nothing to play (an empty playlist): the player is not opened on nothing.
+    if (ids.isEmpty()) return
     NeedleApp.instance.scope.launch(Dispatchers.IO) {
         runCatching { core.play(ids, start.toUInt()) }
             .onSuccess { NeedleApp.instance.openPlayer.tryEmit(Unit) }

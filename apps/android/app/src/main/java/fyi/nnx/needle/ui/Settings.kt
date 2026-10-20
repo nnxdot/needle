@@ -873,23 +873,31 @@ private fun AppearanceSettings(open: (Route) -> Unit) {
         )
         // What TalkBack calls each one.
         val names = listOf("Amber", "Red", "Pink", "Purple", "Blue", "Sky blue", "Teal", "Green", "Orange")
-        Row(
-            Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 16.dp),
-            horizontalArrangement = Arrangement.SpaceBetween,
+        // Each a full finger's width to tap, onto a second line where the screen is narrow.
+        androidx.compose.foundation.layout.FlowRow(
+            Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 12.dp),
+            horizontalArrangement = Arrangement.spacedBy(4.dp),
         ) {
             swatches.forEachIndexed { n, (id, color) ->
                 val chosen = app.accentColor.equals(id, ignoreCase = true)
                 Box(
                     Modifier
-                        .size(32.dp)
+                        .size(48.dp)
                         .clip(androidx.compose.foundation.shape.CircleShape)
-                        .background(color)
-                        .border(if (chosen) 3.dp else 0.dp, MaterialTheme.colorScheme.onSurface, androidx.compose.foundation.shape.CircleShape)
                         .selectable(chosen, role = Role.RadioButton) { update { it.copy(accentColor = id) } }
                         .semantics { contentDescription = names[n] },
                     contentAlignment = Alignment.Center,
                 ) {
-                    if (chosen) Icon(androidx.compose.material.icons.Icons.Rounded.Check, contentDescription = null, tint = Color.White, modifier = Modifier.size(18.dp))
+                    Box(
+                        Modifier
+                            .size(36.dp)
+                            .clip(androidx.compose.foundation.shape.CircleShape)
+                            .background(color)
+                            .border(if (chosen) 3.dp else 0.dp, MaterialTheme.colorScheme.onSurface, androidx.compose.foundation.shape.CircleShape),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        if (chosen) Icon(androidx.compose.material.icons.Icons.Rounded.Check, contentDescription = null, tint = Color.White, modifier = Modifier.size(18.dp))
+                    }
                 }
             }
         }
@@ -1090,6 +1098,8 @@ private fun ScrobblingSettings() {
                             if (user.isBlank()) "Signed in to Last.fm." else "Signed in as $user."
                         }
                     }) { Text("I allowed it") }
+                    // The browser page was closed, or the key was wrong: ask for a new page.
+                    TextButton(enabled = !busy, onClick = { waitingForBrowser = false }) { Text("Start again") }
                 }
             }
         }

@@ -91,6 +91,22 @@ fun SideBar(tab: Tab, page: Route, onTab: (Tab) -> Unit, open: (Route) -> Unit) 
     val home by rememberLoaded { home() }
     val albums = home?.let { h -> h.recent.ifEmpty { h.added } }.orEmpty().take(8)
     val go: (Route) -> Unit = { if (it != page) open(it) }
+    // A short window (a phone turned on its side): the tabs and Settings scroll with the lists,
+    // or the lists would have no room left at all, and Settings would fall off the foot.
+    val short = androidx.compose.ui.platform.LocalConfiguration.current.screenHeightDp < 480
+    val inSettings = page == Route.Settings || page is Route.SettingsPage
+    val tabs: @Composable () -> Unit = {
+        Tab.entries.forEach { t ->
+            SideItem(t.label, null, t == tab, words, CircleShape, onClick = { onTab(t) }) {
+                Icon(if (t == tab) t.icon else t.outline, contentDescription = null)
+            }
+        }
+    }
+    val settings: @Composable () -> Unit = {
+        SideItem("Settings", null, inSettings, words, CircleShape, Modifier.padding(vertical = 8.dp), onClick = { go(Route.Settings) }) {
+            Icon(if (inSettings) Icons.Rounded.Settings else Icons.Outlined.Settings, contentDescription = null)
+        }
+    }
 
     // The bar is on the frame, not in a Surface: its icons take the frame's colour for text.
     androidx.compose.runtime.CompositionLocalProvider(androidx.compose.material3.LocalContentColor provides MaterialTheme.colorScheme.onSurfaceVariant) {
@@ -132,12 +148,9 @@ fun SideBar(tab: Tab, page: Route, onTab: (Tab) -> Unit, open: (Route) -> Unit) 
                 }
             }
         }
-        Tab.entries.forEach { t ->
-            SideItem(t.label, null, t == tab, words, CircleShape, onClick = { onTab(t) }) {
-                Icon(if (t == tab) t.icon else t.outline, contentDescription = null)
-            }
-        }
+        if (!short) tabs()
         LazyColumn(Modifier.weight(1f).padding(top = 8.dp).fadeFoot()) {
+            if (short) item(key = "tabs") { Column { tabs() } }
             item { SideHeader("Playlists", words) { Ui.sheet.value = Sheet.NewPlaylist(emptyList()) } }
             items(playlists.orEmpty(), key = { "p" + it.id }) { p ->
                 val route = Route.Playlist(p.id, p.name)
@@ -154,11 +167,9 @@ fun SideBar(tab: Tab, page: Route, onTab: (Tab) -> Unit, open: (Route) -> Unit) 
                     }
                 }
             }
+            if (short) item(key = "settings") { settings() }
         }
-        val inSettings = page == Route.Settings || page is Route.SettingsPage
-        SideItem("Settings", null, inSettings, words, CircleShape, Modifier.padding(vertical = 8.dp), onClick = { go(Route.Settings) }) {
-            Icon(if (inSettings) Icons.Rounded.Settings else Icons.Outlined.Settings, contentDescription = null)
-        }
+        if (!short) settings()
     }
     }
 }
