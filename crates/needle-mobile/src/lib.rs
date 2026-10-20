@@ -296,6 +296,9 @@ impl Needle {
 
     /// Adds a music folder and reads it (in the background; see [`Needle::scan_status`]).
     pub fn add_folder(&self, path: String) -> Result<()> {
+        // Removed and added again while a scan runs: it stays.
+        let real = needle_core::database::canonical_root(&path);
+        REMOVED_ROOTS.lock().unwrap_or_else(|e| e.into_inner()).retain(|r| *r != path && *r != real);
         self.library.add_root(&path)?;
         self.rescan();
         Ok(())
