@@ -59,8 +59,10 @@ object ScanNotice {
             .setTimeoutAfter(60_000)
         if (Build.VERSION.SDK_INT >= 36) {
             builder.setShortCriticalText("${scan.scanned}")
-            // Asks Android to show it as a live update; Android sets the flag itself if it does.
-            builder.setRequestPromotedOngoing(true)
+            // Asks Android to show it as a live update: Android 17 has a call for it, and sets the
+            // flag itself if it does; Android 16 has only the flag, which the app sets.
+            if (Build.VERSION.SDK_INT >= 37) builder.setRequestPromotedOngoing(true)
+            else builder.setFlag(Notification.FLAG_PROMOTED_ONGOING, true)
         }
         runCatching { manager(context).notify(ID, builder.build()) }
     }
