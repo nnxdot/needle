@@ -157,6 +157,9 @@ pub struct Playlist {
     pub songs: u32,
     /// Up to four different covers of its songs, for a mosaic when it has no picture of its own.
     pub mosaic: Vec<String>,
+    /// Its own picture, chosen for it (`artwork` is this, or else a song's cover).
+    #[uniffi(default = None)]
+    pub picture: Option<String>,
 }
 
 #[derive(Clone, uniffi::Record)]
@@ -430,6 +433,7 @@ impl Needle {
             }
             out.push(Playlist {
                 mosaic,
+                picture: playlist.cover.clone(),
                 artwork: playlist
                     .cover
                     .clone()
@@ -635,6 +639,7 @@ impl Needle {
                     description: p.description,
                     songs: p.track_ids.len() as u32,
                     smart: p.query.is_some(),
+                    picture: p.cover.clone(),
                     artwork: art,
                     mosaic: vec![],
                 })

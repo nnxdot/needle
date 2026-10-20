@@ -148,6 +148,7 @@ struct ComputerView: View {
                     Button("Play here", systemImage: "iphone") {
                         let songs = Array(found.prefix(50))
                         store.core.playFromPc(songs: songs, start: UInt32(i), at: 0)
+                        store.played()
                     }
                 } label: { pcRow(song) }
             }
