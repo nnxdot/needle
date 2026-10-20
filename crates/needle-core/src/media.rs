@@ -530,26 +530,105 @@ pub fn artist_image(library: &Library, name: &str, online: bool) -> Result<Optio
     }
 }
 
-fn find_artist_image(name: &str) -> Result<Option<String>> {
+/// The artist's MusicBrainz id: a close match by name, or by one of their other names (a
+/// group's name in Hangul, say).
+fn musicbrainz_artist(name: &str) -> Result<Option<String>> {
     let query = format!(
         "artist:\"{}\"",
         name.replace('\\', "\\\\").replace('"', "\\\"")
     );
     let search = musicbrainz_get("artist/", &[("query", query.as_str()), ("limit", "3")])?;
-    let Some(artist) = search["artists"]
+    let same = |n: &str| n.to_lowercase() == name.to_lowercase();
+    Ok(search["artists"]
         .as_array()
         .into_iter()
         .flatten()
         .find(|a| {
             a["score"].as_i64().unwrap_or(0) >= 90
-                && a["name"]
-                    .as_str()
-                    .is_some_and(|n| n.eq_ignore_ascii_case(name))
+                && (a["name"].as_str().is_some_and(same)
+                    || a["aliases"]
+                        .as_array()
+                        .into_iter()
+                        .flatten()
+                        .any(|alias| alias["name"].as_str().is_some_and(same)))
         })
-    else {
+        .and_then(|a| a["id"].as_str())
+        .map(String::from))
+}
+
+/// An artist's logo, with a clear background, from fanart.tv (when online lookups are on and
+/// there is a fanart.tv key): kept beside their photo, and asked for again a month later when
+/// they have none.
+pub fn artist_logo(library: &Library, name: &str, online: bool) -> Result<Option<PathBuf>> {
+    if name.trim().is_empty() {
+        return Ok(None);
+    }
+    let file = library
+        .directory
+        .join("artwork")
+        .join("artists")
+        .join(format!(
+            "{}.logo",
+            blake3::hash(name.to_lowercase().as_bytes()).to_hex()
+        ));
+    if file.is_file() {
+        return Ok(Some(file));
+    }
+    let Some(key) = online.then(crate::integrations::fanart_key).flatten() else {
         return Ok(None);
     };
-    let id = artist["id"].as_str().unwrap_or_default();
+    let remembered = format!("artist-logo:{}", name.to_lowercase());
+    if cached::<bool>(library, &remembered)?.is_some() {
+        return Ok(None);
+    }
+    let found = match musicbrainz_artist(name)? {
+        Some(id) => find_logo(&id, &key)?,
+        None => None,
+    };
+    match found {
+        Some(url) => {
+            if let Some(folder) = file.parent() {
+                std::fs::create_dir_all(folder)?;
+            }
+            download_image(&url, &file)?;
+            Ok(Some(file))
+        }
+        None => {
+            remember(library, &remembered, &false, WEEK * 4)?;
+            Ok(None)
+        }
+    }
+}
+
+/// fanart.tv's best logo for a MusicBrainz artist: the high-definition ones first, the most
+/// liked first, in English or with no language before others.
+fn find_logo(artist: &str, key: &str) -> Result<Option<String>> {
+    let response = client()?
+        .get(format!("https://webservice.fanart.tv/v3/music/{artist}"))
+        .query(&[("api_key", key)])
+        .send()?;
+    if response.status() == reqwest::StatusCode::NOT_FOUND {
+        return Ok(None);
+    }
+    Ok(best_logo(&response.error_for_status()?.json()?))
+}
+
+/// The logo to show from fanart.tv's answer for an artist.
+fn best_logo(data: &Value) -> Option<String> {
+    let pick = |kind: &str| {
+        let mut logos: Vec<&Value> = data[kind].as_array().into_iter().flatten().collect();
+        let likes = |v: &Value| v["likes"].as_str().and_then(|n| n.parse::<i64>().ok()).unwrap_or(0);
+        let english = |v: &Value| matches!(v["lang"].as_str(), Some("en" | "" | "00") | None);
+        logos.sort_by_key(|v| (!english(v), -likes(v)));
+        logos.first().and_then(|v| v["url"].as_str()).map(String::from)
+    };
+    pick("hdmusiclogo").or_else(|| pick("musiclogo"))
+}
+
+fn find_artist_image(name: &str) -> Result<Option<String>> {
+    let Some(id) = musicbrainz_artist(name)? else {
+        return Ok(None);
+    };
     let detail = musicbrainz_get(&format!("artist/{id}"), &[("inc", "url-rels")])?;
     let relations = detail["relations"].as_array().cloned().unwrap_or_default();
     let url = |kind: &str| {
@@ -662,6 +741,22 @@ pub fn fetch_album_art(library: &Library, track: &Track) -> Result<usize> {
 
 #[cfg(test)]
 mod tests {
+
+    #[test]
+    fn the_best_logo_is_high_definition_english_and_liked() {
+        let data = serde_json::json!({
+            "musiclogo": [{ "url": "old", "lang": "en", "likes": "50" }],
+            "hdmusiclogo": [
+                { "url": "korean", "lang": "ko", "likes": "40" },
+                { "url": "few", "lang": "en", "likes": "2" },
+                { "url": "liked", "lang": "en", "likes": "9" },
+            ],
+        });
+        assert_eq!(super::best_logo(&data).as_deref(), Some("liked"));
+        let only_old = serde_json::json!({ "musiclogo": [{ "url": "old", "likes": "1" }] });
+        assert_eq!(super::best_logo(&only_old).as_deref(), Some("old"));
+        assert_eq!(super::best_logo(&serde_json::json!({})), None);
+    }
     use super::*;
 
     #[test]
