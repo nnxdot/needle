@@ -131,34 +131,49 @@ struct NowPlayingView: View {
         }
         #endif
         // The player is always dark: its page is the cover's own dark colours, whatever the
-        // theme (light text and glass on them, and a light status bar).
+        // theme (light text and glass on them, and a light status bar), and its signs white.
+        .tint(.white)
         .preferredColorScheme(.dark)
     }
 
+    /// The top, as Apple Music's: a grabber to tap or pull down to close the player (and, on
+    /// the computer, a word that it plays there).
     private func top(_ song: Song?) -> some View {
-        HStack {
-            Button { dismiss() } label: { Image(systemName: "chevron.down").font(.headline).frame(width: 30, height: 30) }
-                .buttonStyle(.glass).buttonBorderShape(.circle)
-            Spacer()
-            VStack(spacing: 1) {
-                Text(store.onComputer ? "Playing on your computer" : "Playing from").font(.caption2).foregroundStyle(.secondary)
-                Text(song?.album ?? "").font(.footnote.weight(.semibold)).lineLimit(1)
+        VStack(spacing: 6) {
+            Capsule().fill(.white.opacity(0.4)).frame(width: 38, height: 5)
+            if store.onComputer {
+                Text("Playing on your computer").font(.caption.weight(.semibold)).foregroundStyle(.white.opacity(0.7))
             }
-            Spacer()
-            Menu {
-                if let song, !song.onComputer {
-                    SongMenu(song: song, inPlayer: true)
-                    Divider()
-                    loopMenu(song)
-                }
-                SleepMenu()
-                Button("Play on…", systemImage: "hifispeaker.2") { store.sheet = .speakers }
-            } label: {
-                Image(systemName: "ellipsis").font(.headline).frame(width: 30, height: 30)
-            }
-            .buttonStyle(.glass).buttonBorderShape(.circle)
         }
-        .padding(.top, 8)
+        .frame(maxWidth: .infinity)
+        .frame(height: 34)
+        .contentShape(.rect)
+        .onTapGesture { dismiss() }
+        .gesture(DragGesture(minimumDistance: 10).onEnded { g in
+            if g.translation.height > 80 { dismiss() }
+        })
+        .accessibilityAddTraits(.isButton)
+        .accessibilityLabel("Close the player")
+        .padding(.top, 4)
+    }
+
+    /// The song's menu, a plain sign beside its name.
+    private func moreMenu(_ song: Song?) -> some View {
+        Menu {
+            if let song, !song.onComputer {
+                SongMenu(song: song, inPlayer: true)
+                Divider()
+                loopMenu(song)
+            }
+            SleepMenu()
+            Button("Play on…", systemImage: "hifispeaker.2") { store.sheet = .speakers }
+        } label: {
+            Image(systemName: "ellipsis").font(.title3.weight(.semibold))
+                .frame(width: 36, height: 36)
+                .background(.white.opacity(0.14), in: .circle)
+                .contentShape(.circle)
+        }
+        .foregroundStyle(.white)
     }
 
     /// A-B loop: repeat part of the song.
@@ -211,6 +226,7 @@ struct NowPlayingView: View {
             }
             .frame(maxWidth: .infinity, alignment: .leading)
             if !(song?.onComputer ?? false) { favoriteButton(song) }
+            moreMenu(song)
         }
     }
 
@@ -242,10 +258,15 @@ struct NowPlayingView: View {
             favorite.toggle()
             store.run { _ = try $0.toggleFavorite(id: id) }
         } label: {
-            Image(systemName: favorite ? "star.fill" : "star").font(.headline).frame(width: 30, height: 30)
+            // A plain sign, as Apple Music's.
+            Image(systemName: favorite ? "star.fill" : "star").font(.title3.weight(.semibold))
+                .foregroundStyle(.white)
+                .frame(width: 36, height: 36)
+                .contentShape(.circle)
                 .contentTransition(.symbolEffect(.replace))
         }
-        .buttonStyle(.glass).buttonBorderShape(.circle)
+        .buttonStyle(.plain)
+        .accessibilityLabel(favorite ? "Unfavourite" : "Favourite")
         .sensoryFeedback(.success, trigger: favorite) { _, now in now && store.app.haptics }
     }
 
@@ -261,6 +282,7 @@ struct NowPlayingView: View {
             }
             .frame(maxWidth: .infinity, alignment: .leading)
             if !(song?.onComputer ?? false) { favoriteButton(song) }
+            moreMenu(song)
         }
         .padding(.vertical, 14)
         .transition(.opacity)
@@ -721,16 +743,15 @@ struct QueuePane: View {
             HStack {
                 Text(store.onComputer ? "Up next on your computer" : "Up Next").font(.headline)
                 Spacer()
-                GlassEffectContainer {
-                    HStack(spacing: 8) {
-                        Button { store.shuffle() } label: { Image(systemName: "shuffle").frame(width: 22, height: 22) }
-                            .buttonStyle(.glass).buttonBorderShape(.circle)
-                        Button { store.cycleRepeat() } label: {
-                            Image(systemName: store.playback?.repeat == .one ? "repeat.1" : "repeat").frame(width: 22, height: 22)
-                        }
-                        .buttonStyle(store.playback?.repeat == .off ? AnyPrimitiveButtonStyle(.glass) : AnyPrimitiveButtonStyle(.glassProminent))
-                        .buttonBorderShape(.circle)
+                HStack(spacing: 6) {
+                    Button { store.shuffle() } label: { PlainSign(symbol: "shuffle", on: false) }
+                        .buttonStyle(.plain)
+                        .accessibilityLabel("Shuffle")
+                    Button { store.cycleRepeat() } label: {
+                        PlainSign(symbol: store.playback?.repeat == .one ? "repeat.1" : "repeat", on: store.playback?.repeat != .off)
                     }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("Repeat")
                 }
             }
             if store.upNext.isEmpty {
@@ -768,6 +789,22 @@ struct QueuePane: View {
             }
         }
         .frame(maxHeight: .infinity)
+    }
+}
+
+/// A player's sign without a frame, as Apple Music's: white, a soft circle behind it while on.
+struct PlainSign: View {
+    let symbol: String
+    let on: Bool
+
+    var body: some View {
+        Image(systemName: symbol)
+            .font(.body.weight(.semibold))
+            .foregroundStyle(on ? Color.black : .white.opacity(0.85))
+            .frame(width: 34, height: 34)
+            .background(.white.opacity(on ? 0.9 : 0.12), in: .circle)
+            .contentShape(.circle)
+            .contentTransition(.symbolEffect(.replace))
     }
 }
 
