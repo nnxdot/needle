@@ -2052,7 +2052,7 @@ fn lyrics(song) {
         "subsonic",
         r#"id = "subsonic"
 name = "Navidrome / Subsonic"
-version = "1.4.0"
+version = "1.4.1"
 author = "nnx"
 description = "Plays the music on your Navidrome or other Subsonic server. Songs are listed with your own and streamed; plays and ratings are saved on the server. Experimental: with its switch on, it also searches the server as you type, which brings songs from octo-fiesta (a Subsonic proxy that fetches songs from streaming services)."
 permissions = ["network"]
@@ -2300,7 +2300,8 @@ fn song_lyrics(id) {
                 if type_of(ms) != "i64" {
                     ms = ms.to_int();
                 }
-                ms += offset;
+                // OpenSubsonic: a positive offset shows the lyrics sooner.
+                ms -= offset;
                 if ms < 0 {
                     ms = 0;
                 }
@@ -2391,6 +2392,7 @@ pub const EXAMPLE_FILES: &[(&str, &str, &str)] = &[(
 /// Scripts of the Navidrome / Subsonic plugin from before bundled plugins kept a record
 /// (SHA-256). A copy that still matches one exactly was never edited, so it is updated.
 const EARLIER_EXAMPLES: &[(&str, &str)] = &[
+    ("subsonic", "fc69ff1803c8c06ddb36a9f849aca1d561cd29adabbcbd7de77ee100d6371acc"),
     (
         "subsonic",
         "6d850964abfedd0a27cf8cf365b1e88524c54b0d301e3d8644849172ee7e7e70",
@@ -3230,7 +3232,7 @@ mod tests {
 
         let timed = host.source_lyrics("subsonic", "s1").unwrap().unwrap();
         assert!(timed.timed);
-        assert_eq!(timed.text, "[00:01.00]Hey\n[01:01.75]Hi\n");
+        assert_eq!(timed.text, "[00:02.00]Hey\n[01:02.75]Hi\n");
         let plain = host.source_lyrics("subsonic", "s2").unwrap().unwrap();
         assert_eq!((plain.timed, plain.text.as_str()), (false, "Sweet\nSour\n"));
         assert_eq!(host.source_lyrics("subsonic", "s9").unwrap(), None);
@@ -3242,7 +3244,7 @@ mod tests {
             .unwrap()
             .unwrap();
         assert_eq!(found.lines.len(), 2);
-        assert_eq!((found.lines[1].time, found.lines[1].text.as_str()), (61.75, "Hi"));
+        assert_eq!((found.lines[1].time, found.lines[1].text.as_str()), (62.75, "Hi"));
     }
 
     /// A server that finds nothing for an empty search (Ampache) is listed album by album.
