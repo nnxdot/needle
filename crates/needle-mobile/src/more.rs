@@ -88,6 +88,9 @@ pub struct PlaylistDetail {
     pub songs: Vec<Song>,
     /// Stored positions of visible occurrences, including repeated songs.
     pub positions: Vec<u32>,
+    /// Its own picture, if it has one (else the page shows its songs' covers).
+    #[uniffi(default = None)]
+    pub artwork: Option<String>,
 }
 
 fn stats(s: needle_core::history::HistoryStats, library: &needle_core::database::Library) -> Stats {
@@ -312,6 +315,7 @@ impl Needle {
                 .unzip()
         };
         Ok(PlaylistDetail {
+            artwork: playlist.cover.clone(),
             id: playlist.id,
             name: playlist.name,
             description: playlist.description,
