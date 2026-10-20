@@ -95,6 +95,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.semantics.progressBarRangeInfo
 import androidx.compose.ui.semantics.setProgress
+import androidx.compose.foundation.layout.RowScope
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.blur
 import androidx.compose.ui.draw.clip
@@ -347,9 +348,13 @@ fun FullPlayer(onClose: () -> Unit, open: (Route) -> Unit) {
     }
     // The A-B loop: the first tap marks A, the second B, the third lets go.
     var loopStart by remember(song.id) { mutableStateOf<Double?>(null) }
-    // Read again after each change of the loop too, not only as the song moves (it may be paused).
+    // Read again after each change of the loop too, not only as the song moves (it may be
+    // paused): a moment after, as the player takes the change in on its own thread.
     var loopChanged by remember { androidx.compose.runtime.mutableIntStateOf(0) }
-    val looping = remember(p.position, song.id, loopChanged) { core.loopRange() }
+    val looping by androidx.compose.runtime.produceState(emptyList<Double>(), p.position, song.id, loopChanged) {
+        if (loopChanged > 0) kotlinx.coroutines.delay(80)
+        value = withContext(kotlinx.coroutines.Dispatchers.IO) { runCatching { core.loopRange() }.getOrDefault(emptyList()) }
+    }
     // Pulled down far enough, the player closes.
     var pull by remember { mutableFloatStateOf(0f) }
     var searching by remember { mutableStateOf(false) }
@@ -795,11 +800,14 @@ private fun PlayerToolbar(
  * `state` is what TalkBack says it is set to; actions (Shuffle, Play on) have none.
  */
 @Composable
-private fun RoundToggle(on: Boolean, onClick: () -> Unit, state: String? = null, icon: @Composable () -> Unit) {
+private fun RowScope.RoundToggle(on: Boolean, onClick: () -> Unit, state: String? = null, icon: @Composable () -> Unit) {
     val fill by animateColorAsState(if (on) Color.White.copy(alpha = 0.2f) else Color.Transparent, label = "toggle")
-    IconButton(onClick = onClick, modifier = Modifier.clip(CircleShape).background(fill).semantics { if (state != null) stateDescription = state }) {
-        CompositionLocalProvider(LocalContentColor provides if (on) Color.White else Color.White.copy(alpha = 0.7f)) {
-            icon()
+    // Each its share of the row, so on a narrow screen the last is not the one squeezed.
+    Box(Modifier.weight(1f), contentAlignment = Alignment.Center) {
+        IconButton(onClick = onClick, modifier = Modifier.clip(CircleShape).background(fill).semantics { if (state != null) stateDescription = state }) {
+            CompositionLocalProvider(LocalContentColor provides if (on) Color.White else Color.White.copy(alpha = 0.7f)) {
+                icon()
+            }
         }
     }
 }
@@ -839,11 +847,10 @@ private fun PlayerCover(song: Song, playing: Boolean, haptics: (Boolean) -> Unit
             label = "turn",
         )
     } else remember { mutableFloatStateOf(0f) }
-    // The turn holds where it was last drawn while paused, and goes on from there.
+    // The turn holds where it was last drawn while paused, and goes on from there: the angle is
+    // taken as playing starts or stops, before that frame draws (a new turn starts at 0).
     val drawn = remember { floatArrayOf(0f) }
-    var held by remember { mutableFloatStateOf(0f) }
-    var offset by remember { mutableFloatStateOf(0f) }
-    LaunchedEffect(playing) { if (!playing) held = drawn[0] else offset = held - turn.value }
+    val from = remember(playing, still) { drawn[0] }
     val shape = when (app.coverShape) {
         "round" -> CircleShape
         "shape" -> androidx.compose.material3.MaterialShapes.Cookie12Sided.toShape()
@@ -911,7 +918,7 @@ private fun PlayerCover(song: Song, playing: Boolean, haptics: (Boolean) -> Unit
                 .graphicsLayer {
                 scaleX = scale
                 scaleY = scale
-                rotationZ = (if (still) 0f else if (playing) turn.value + offset else held).also { drawn[0] = it }
+                rotationZ = (if (still) 0f else if (playing) turn.value + from else from).also { drawn[0] = it }
             },
             shape,
             seed = song.album + song.artist,
