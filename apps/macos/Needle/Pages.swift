@@ -251,6 +251,8 @@ struct ArtistPage: View {
     @State private var similar: [String]?
     @State private var photo: String?
     @State private var logo: String?
+    /// A wide picture of them from fanart.tv, for the top of the page before their photo.
+    @State private var hero: String?
 
     var body: some View {
         let colors = store.colors
@@ -295,11 +297,16 @@ struct ArtistPage: View {
         .ignoresSafeArea(edges: .top)
         .foregroundStyle(colors.ink)
         .task(id: "\(name)\(store.libraryVersion)") {
+            // The logo is looked up beside the photo, not after it.
+            let name = name
+            let lookup = Task { await store.load { $0.artistLogo(name: name) } ?? nil }
+            let wide = Task { await store.load { $0.artistBanner(name: name) } ?? nil }
             albums = JSON.decode([AlbumSummary].self, await store.load { try $0.artistAlbumsJson(name: name) }) ?? []
             photo = await Photos.find(name, online: store.settings.onlineMedia, store: store)
-            let color = await Covers.pageColor(photo ?? albums?.first?.artwork, seed: name)
+            hero = await wide.value
+            let color = await Covers.pageColor(hero ?? photo ?? albums?.first?.artwork, seed: name)
             store.setPageTint(color, for: .artist(name))
-            logo = await store.load { $0.artistLogo(name: name) } ?? nil
+            logo = await lookup.value
             top = await store.load { try $0.artistSongs(name: name) } ?? []
             similar = await store.load { $0.similarArtists(artist: name) } ?? []
         }
@@ -314,12 +321,13 @@ struct ArtistPage: View {
         let colors = store.colors
         return ZStack(alignment: .bottomLeading) {
             Group {
-                if let photo {
-                    // The page's width, whatever the photo's shape.
+                // A wide picture of them, or their photo.
+                if let picture = hero ?? photo {
+                    // The page's width, whatever the picture's shape.
                     Color.clear
                         .frame(maxWidth: .infinity)
                         .frame(height: 430)
-                        .overlay { Artwork(path: photo, seed: name, size: 1600) }
+                        .overlay { Artwork(path: picture, seed: name, size: 1600) }
                         .clipped()
                         .overlay {
                             LinearGradient(stops: [
