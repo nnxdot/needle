@@ -34,9 +34,11 @@ pub enum SecretKind {
     ListenbrainzToken,
     ListenbrainzUser,
     AcoustidKey,
+    /// fanart.tv's key, for artists' logos.
+    FanartKey,
 }
 impl SecretKind {
-    pub const ALL: [SecretKind; 7] = [
+    pub const ALL: [SecretKind; 8] = [
         Self::LastfmApiKey,
         Self::LastfmSecret,
         Self::LastfmSession,
@@ -44,6 +46,7 @@ impl SecretKind {
         Self::ListenbrainzToken,
         Self::ListenbrainzUser,
         Self::AcoustidKey,
+        Self::FanartKey,
     ];
     pub fn account(self) -> &'static str {
         match self {
@@ -54,6 +57,7 @@ impl SecretKind {
             Self::ListenbrainzToken => "listenbrainz-token",
             Self::ListenbrainzUser => "listenbrainz-user",
             Self::AcoustidKey => "acoustid-key",
+            Self::FanartKey => "fanart-key",
         }
     }
     /// Environment variables override stored values when set and nonempty.
@@ -64,6 +68,7 @@ impl SecretKind {
             Self::LastfmSession => Some("NEEDLE_LASTFM_SESSION"),
             Self::ListenbrainzToken => Some("NEEDLE_LISTENBRAINZ_TOKEN"),
             Self::AcoustidKey => Some("NEEDLE_ACOUSTID_API_KEY"),
+            Self::FanartKey => Some("NEEDLE_FANART_KEY"),
             Self::LastfmUser | Self::ListenbrainzUser => None,
         }
     }
@@ -72,6 +77,7 @@ impl SecretKind {
         match self {
             Self::LastfmApiKey => option_env!("NEEDLE_LASTFM_API_KEY"),
             Self::LastfmSecret => option_env!("NEEDLE_LASTFM_SECRET"),
+            Self::FanartKey => option_env!("NEEDLE_FANART_KEY"),
             _ => None,
         }
         .filter(|s| !s.trim().is_empty())
