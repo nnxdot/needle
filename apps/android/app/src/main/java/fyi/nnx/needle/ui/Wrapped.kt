@@ -17,6 +17,7 @@ import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -48,6 +49,7 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.coerceAtLeast
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import fyi.nnx.needle.NeedleApp
@@ -114,7 +116,9 @@ fun WrappedScreen(year: Int?, open: (Route) -> Unit) {
                     }
                 }
             }
-            HorizontalPager(pager, Modifier.weight(1f), pageSpacing = 12.dp, contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 16.dp, vertical = 12.dp)) { page ->
+            // On a tablet the cards stay the shape of a phone's, the next ones showing at the sides.
+            val sides = ((LocalPageWidth.current - 560.dp) / 2).coerceAtLeast(16.dp)
+            HorizontalPager(pager, Modifier.weight(1f), pageSpacing = 12.dp, contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = sides, vertical = 12.dp)) { page ->
                 // Each card its own colour; the song card takes its cover's.
                 val (top, bottom) = if (page == 1) glow to Color(0xFF0E0D0C) else CardColors[page % CardColors.size]
                 Box(
@@ -178,7 +182,7 @@ private fun TopSong(w: Wrapped) {
         Spacer(Modifier.height(24.dp))
         Cover(
             song.artwork,
-            Modifier.fillMaxWidth(0.8f).aspectRatio(1f).graphicsLayer { rotationZ = if (reduce) 0f else spin },
+            Modifier.widthIn(max = 400.dp).fillMaxWidth(0.8f).aspectRatio(1f).graphicsLayer { rotationZ = if (reduce) 0f else spin },
             MaterialShapes.Cookie12Sided.toShape(),
         )
         Spacer(Modifier.height(28.dp))

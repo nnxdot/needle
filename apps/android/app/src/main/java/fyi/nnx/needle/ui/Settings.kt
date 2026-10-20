@@ -1,5 +1,12 @@
 package fyi.nnx.needle.ui
 
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.togetherWith
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.saveable.rememberSaveable
 import android.content.Intent
 import android.net.Uri
 import android.os.Build
@@ -135,34 +142,72 @@ private fun SettingsSection.route(): Route = when (this) {
 
 @Composable
 fun SettingsScreen(open: (Route) -> Unit) {
+    if (isTwoPane()) {
+        TwoPaneSettings(open)
+        return
+    }
     LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = 24.dp)) {
         item { LargeTitle("Settings") }
-        item {
-            // Discord only in builds that have Discord's library.
-            val sections = SettingsSection.entries.filter { it != SettingsSection.Discord || Discord.available }
-            Group {
-                sections.forEachIndexed { i, section ->
-                    Row(
-                        Modifier
-                            .fillMaxWidth()
-                            .clickable { open(section.route()) }
-                            .padding(horizontal = 16.dp, vertical = LocalRows.current.pad + 2.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(16.dp),
-                    ) {
-                        Box(
-                            Modifier.size(40.dp).clip(CircleShape).background(section.tint.copy(alpha = 0.18f)),
-                            contentAlignment = Alignment.Center,
-                        ) { Icon(section.icon, contentDescription = null, tint = section.tint) }
-                        Column(Modifier.weight(1f)) {
-                            Text(section.title, style = MaterialTheme.typography.titleMedium)
-                            Text(section.summary, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                        }
-                        Icon(Icons.AutoMirrored.Rounded.KeyboardArrowRight, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
+        item { SectionList(null) { open(it.route()) } }
+    }
+}
+
+/**
+ * Settings on a tablet, as Android's own Settings there: the sections in a list at the left, and
+ * the one chosen open beside it.
+ */
+@Composable
+private fun TwoPaneSettings(open: (Route) -> Unit) {
+    var chosen by rememberSaveable { mutableStateOf(SettingsSection.Library) }
+    Row(Modifier.fillMaxSize()) {
+        LazyColumn(Modifier.width(380.dp).fillMaxHeight(), contentPadding = PaddingValues(bottom = 24.dp)) {
+            item { LargeTitle("Settings") }
+            item { SectionList(chosen) { chosen = it } }
+        }
+        // The section is not a page of its own here, so it has no way back of its own.
+        Box(Modifier.weight(1f).fillMaxHeight()) {
+            CompositionLocalProvider(LocalCanGoBack provides false) {
+                AnimatedContent(chosen, transitionSpec = { fadeIn(tween(200)) togetherWith fadeOut(tween(120)) }, label = "section") { section ->
+                    when (section) {
+                        SettingsSection.Plugins -> PluginsScreen(open)
+                        SettingsSection.Computer -> ConnectScreen()
+                        SettingsSection.Sync -> SyncScreen()
+                        SettingsSection.WhatsNew -> WhatsNewScreen()
+                        else -> SettingsSectionScreen(section, open)
                     }
-                    if (i < sections.size - 1) Divider()
                 }
             }
+        }
+    }
+}
+
+/** The sections, each with its icon and what is in it; `chosen` is lit in two panes. */
+@Composable
+private fun SectionList(chosen: SettingsSection?, onChoose: (SettingsSection) -> Unit) {
+    // Discord only in builds that have Discord's library.
+    val sections = SettingsSection.entries.filter { it != SettingsSection.Discord || Discord.available }
+    Group {
+        sections.forEachIndexed { i, section ->
+            Row(
+                Modifier
+                    .fillMaxWidth()
+                    .background(if (section == chosen) MaterialTheme.colorScheme.secondaryContainer else Color.Transparent)
+                    .clickable { onChoose(section) }
+                    .padding(horizontal = 16.dp, vertical = LocalRows.current.pad + 2.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(16.dp),
+            ) {
+                Box(
+                    Modifier.size(40.dp).clip(CircleShape).background(section.tint.copy(alpha = 0.18f)),
+                    contentAlignment = Alignment.Center,
+                ) { Icon(section.icon, contentDescription = null, tint = section.tint) }
+                Column(Modifier.weight(1f)) {
+                    Text(section.title, style = MaterialTheme.typography.titleMedium)
+                    Text(section.summary, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+                if (chosen == null) Icon(Icons.AutoMirrored.Rounded.KeyboardArrowRight, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+            if (i < sections.size - 1) Divider()
         }
     }
 }
@@ -863,6 +908,8 @@ private fun AppearanceSettings(open: (Route) -> Unit) {
         SwitchRow("Follow the song", "The line playing is lit and stays in view", app.liveLyrics) { on -> update { it.copy(liveLyrics = on) } }
         Divider()
         SwitchRow("Keep the screen on", "While the lyrics show", app.keepScreenOnLyrics) { on -> update { it.copy(keepScreenOnLyrics = on) } }
+        Divider()
+        SwitchRow("Lyrics under the mini player", "The line playing, across the foot of the screen. Made for tablets", app.miniPlayerLyrics) { on -> update { it.copy(miniPlayerLyrics = on) } }
     }
 }
 

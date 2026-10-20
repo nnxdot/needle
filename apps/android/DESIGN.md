@@ -16,7 +16,13 @@ marks only what plays, the main action, and links.
   settings and for the few tiles on Home.
 - **Lists:** 60 dp rows; cover 52 dp (12 dp corners); title and one line under it; the row's
   menu at the right. Long press opens the same menu.
-- **Grids:** two covers across on phones, a title and one line under each.
+- **Grids:** two covers across on phones, a title and one line under each; on tablets as many as
+  fit (`gridColumns` in Adaptive.kt).
+- **Tablets** (pages 560 dp wide or more) use the room, never a phone's layout stretched: album
+  and playlist pages put the cover at the left with the name and buttons beside it; an artist's
+  photo is a wide band; the player on its side puts the cover (or the lyrics, or the queue) at the
+  left and the controls at the right; Settings shows its list and the chosen section side by side
+  from 840 dp.
 - **Library** is one page with filter pills at the top (Playlists, Albums, Artists, Songs, and
   More), as Spotify and Apple Music do, not a list of places to go.
 

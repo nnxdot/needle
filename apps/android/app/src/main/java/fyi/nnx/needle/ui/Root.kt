@@ -162,8 +162,10 @@ fun NeedleRoot() {
                         Spacer(Modifier.weight(1f))
                     }
                 }
+                // Pages lay out by the room they have (see Adaptive.kt).
+                androidx.compose.foundation.layout.BoxWithConstraints(Modifier.weight(1f)) {
+                CompositionLocalProvider(LocalPageWidth provides maxWidth) {
                 Scaffold(
-                    modifier = Modifier.weight(1f),
                     containerColor = MaterialTheme.colorScheme.background,
                     // The top is left to each page: most keep clear of the status bar, and the
                     // album, artist, and playlist pages run their colour up under it.
@@ -248,6 +250,8 @@ fun NeedleRoot() {
                             }
                         }
                     }
+                }
+                }
                 }
                 }
                 AnimatedVisibility(

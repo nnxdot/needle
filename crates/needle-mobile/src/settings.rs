@@ -95,6 +95,8 @@ pub struct AppSettings {
     pub seek_style: String,
     /// The mini player takes the playing cover's colour, rather than the page's.
     pub mini_player_colored: bool,
+    /// The line of the lyrics playing shows under the mini player (made for tablets).
+    pub mini_player_lyrics: bool,
     /// The player's cover: "square", "round" (a turning record), or "shape" (Material's shapes).
     pub cover_shape: String,
     /// Font for titles: "flex" (Roboto Flex, narrow and heavy), "fraunces" (a soft serif, as
@@ -138,6 +140,7 @@ impl Default for AppSettings {
             backdrop_blur: 70.0,
             seek_style: "wave".into(),
             mini_player_colored: true,
+            mini_player_lyrics: false,
             cover_shape: "square".into(),
             title_font: "flex".into(),
             text_scale: 1.0,

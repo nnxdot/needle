@@ -58,7 +58,7 @@ class NeedleApp : Application() {
             coverBackdrop = true, wallpaperColors = false, reduceMotion = false, liveLyrics = true,
             haptics = true, openPlayerOnPlay = false, keepScreenOnLyrics = false, theme = "night",
             coverColors = true, ambientColors = false, movingBackdrop = true, backdropBlur = 70f,
-            seekStyle = "wave", miniPlayerColored = true, coverShape = "square",
+            seekStyle = "wave", miniPlayerColored = true, miniPlayerLyrics = false, coverShape = "square",
             titleFont = "flex", textScale = 1f, density = "comfortable", accentColor = "", grain = 0f,
             controlStyle = "expressive", sideButtons = "skip", volumeSlider = false, swipeCover = true, welcomed = false,
         ),
