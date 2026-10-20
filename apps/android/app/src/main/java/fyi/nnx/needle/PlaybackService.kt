@@ -108,7 +108,9 @@ private class Library(private val core: Needle) : MediaLibraryService.MediaLibra
         pageSize: Int,
         params: MediaLibraryService.LibraryParams?,
     ): ListenableFuture<LibraryResult<ImmutableList<MediaItem>>> {
-        if (page < 0 || pageSize !in 1..1000 || page.toLong() * pageSize > UInt.MAX_VALUE.toLong()) {
+        // Older browsers (Bluetooth, some cars) ask for everything at once; they get a long page.
+        val pageSize = pageSize.coerceAtMost(1000)
+        if (page < 0 || pageSize < 1 || page.toLong() * pageSize > UInt.MAX_VALUE.toLong()) {
             return Futures.immediateFailedFuture(IllegalArgumentException("Invalid library page"))
         }
         val offset = (page.toLong() * pageSize).toUInt()
@@ -167,7 +169,8 @@ private class Library(private val core: Needle) : MediaLibraryService.MediaLibra
         pageSize: Int,
         params: MediaLibraryService.LibraryParams?,
     ): ListenableFuture<LibraryResult<ImmutableList<MediaItem>>> {
-        if (page < 0 || pageSize !in 1..1000 || page.toLong() * pageSize > UInt.MAX_VALUE.toLong()) {
+        val pageSize = pageSize.coerceAtMost(1000)
+        if (page < 0 || pageSize < 1 || page.toLong() * pageSize > UInt.MAX_VALUE.toLong()) {
             return Futures.immediateFailedFuture(IllegalArgumentException("Invalid search page"))
         }
         return executor.submit<LibraryResult<ImmutableList<MediaItem>>> {

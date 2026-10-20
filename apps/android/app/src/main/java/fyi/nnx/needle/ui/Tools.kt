@@ -405,6 +405,21 @@ fun FixLibraryScreen() {
     }
 }
 
+/**
+ * A long list a hundred at a time, with a button for the next: a big library's page opens at
+ * once instead of building thousands of rows first.
+ */
+@Composable
+private fun <T> Paged(list: List<T>, row: @Composable (T) -> Unit) {
+    var shown by remember(list) { mutableIntStateOf(100) }
+    list.take(shown).forEach { row(it) }
+    if (list.size > shown) {
+        TextButton(onClick = { shown += 100 }, modifier = Modifier.padding(horizontal = Edge)) {
+            Text("Show ${minOf(100, list.size - shown)} more")
+        }
+    }
+}
+
 @Composable
 private fun Explain(text: String) {
     Text(text, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(horizontal = Edge, vertical = 8.dp))
@@ -444,7 +459,7 @@ private fun Duplicates() {
             list == null -> Loading("Looking for songs that are here twice…")
             list.isEmpty() -> Explain("No duplicates. Nice and tidy.")
         }
-        list.orEmpty().forEach { set ->
+        Paged(list.orEmpty()) { set ->
             var keep by remember(set) { mutableIntStateOf(set.keep.toInt()) }
             Card {
                 set.songs.forEachIndexed { i, song ->
@@ -512,7 +527,7 @@ private fun MissingCovers() {
                 modifier = Modifier.padding(horizontal = Edge),
             ) { Text(if (busy) "Looking online…" else "Find ${count(list.size, "cover")} online") }
         }
-        list.orEmpty().forEach { song ->
+        Paged(list.orEmpty()) { song ->
             Row(Modifier.fillMaxWidth().padding(horizontal = Edge, vertical = 6.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                 Cover(null, Modifier.size(44.dp), SmallCoverShape, seed = song.album + song.artist)
                 Column {
@@ -537,7 +552,7 @@ private fun AlbumProblems() {
             list == null -> Loading("Checking your albums…")
             list.isEmpty() -> Explain("Every album looks right.")
         }
-        list.orEmpty().forEach { p ->
+        Paged(list.orEmpty()) { p ->
             Card {
                 Text(p.album.ifBlank { "Unknown album" }, style = MaterialTheme.typography.titleMedium)
                 Text("${p.artist} · ${count(p.songIds.size, "song")}", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -826,11 +841,12 @@ private fun ColorDialog(start: Color, onDismiss: () -> Unit, onPick: (Color) -> 
         onDismissRequest = onDismiss,
         title = { Text("Colour") },
         text = {
-            Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            // Scrolled where the window is short (a phone on its side), so the hex box stays in reach.
+            Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                 Box(Modifier.fillMaxWidth().heightIn(min = 56.dp).clip(RoundedCornerShape(16.dp)).background(color))
-                Text("Hue"); Slider(h, { h = it; exact = null }, valueRange = 0f..359f)
-                Text("Colourfulness"); Slider(s, { s = it; exact = null })
-                Text("Lightness"); Slider(l, { l = it; exact = null })
+                Text("Hue"); Slider(h, { h = it; exact = null }, valueRange = 0f..359f, modifier = Modifier.named("Hue"))
+                Text("Colourfulness"); Slider(s, { s = it; exact = null }, modifier = Modifier.named("Colourfulness"))
+                Text("Lightness"); Slider(l, { l = it; exact = null }, modifier = Modifier.named("Lightness"))
                 OutlinedTextField(typed, { t ->
                     typed = t
                     colorOf(t.trim())?.let { c ->
@@ -860,8 +876,9 @@ fun SpeakersSheet(context: Context) {
     val scope = rememberCoroutineScope()
     LaunchedEffect(Unit) {
         // Finding speakers needs the phone to listen to the network's announcements.
-        val wifi = context.applicationContext.getSystemService(Context.WIFI_SERVICE) as WifiManager
-        val lock = wifi.createMulticastLock("needle-speakers").apply { setReferenceCounted(false); acquire() }
+        // A TV box on a cable may have no Wi-Fi at all: then the network is heard without it.
+        val wifi = context.applicationContext.getSystemService(Context.WIFI_SERVICE) as? WifiManager
+        val lock = wifi?.createMulticastLock("needle-speakers")?.apply { setReferenceCounted(false); acquire() }
         try {
             val found = withContext(Dispatchers.IO) { runCatching { core.speakers() }.getOrNull() }
             if (found != null) {
@@ -871,7 +888,7 @@ fun SpeakersSheet(context: Context) {
                 all = found.all
             } else all = emptyList()
         } finally {
-            lock.release()
+            lock?.release()
         }
     }
     fun apply() {
@@ -891,7 +908,8 @@ fun SpeakersSheet(context: Context) {
         Ui.sheet.value = null
     }
     ModalBottomSheet(onDismissRequest = { Ui.sheet.value = null }) {
-        Column(Modifier.navigationBarsPadding().padding(bottom = 16.dp)) {
+        // Scrolled where it does not fit (many speakers, a short window), so Done stays in reach.
+        Column(Modifier.verticalScroll(rememberScrollState()).navigationBarsPadding().padding(bottom = 16.dp)) {
             Text("Play on", style = MaterialTheme.typography.titleLarge, modifier = Modifier.padding(horizontal = Edge, vertical = 8.dp))
             Text("Choose one, or several to play on all at once.", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(horizontal = Edge))
             SpeakerRow(Icons.Rounded.PhoneAndroid, "This phone", null, phone) { phone = it }
@@ -911,7 +929,7 @@ fun SpeakersSheet(context: Context) {
                     val ms = delays[id] ?: 0
                     Column(Modifier.padding(horizontal = Edge)) {
                         Row { Text(label, Modifier.weight(1f)); Text("$ms ms", color = MaterialTheme.colorScheme.primary) }
-                        Slider(ms.toFloat(), { delays[id] = (it / 10).toInt() * 10 }, valueRange = 0f..1000f)
+                        Slider(ms.toFloat(), { delays[id] = (it / 10).toInt() * 10 }, valueRange = 0f..1000f, modifier = Modifier.named("$label delay", "$ms ms"))
                     }
                 }
             }

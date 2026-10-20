@@ -8,6 +8,9 @@ import androidx.compose.ui.input.key.KeyEventType
 import androidx.compose.ui.input.key.key
 import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.key.type
+import androidx.compose.foundation.focusable
+import androidx.compose.foundation.indication
+import androidx.compose.ui.input.key.onKeyEvent
 import androidx.compose.foundation.focusGroup
 import androidx.compose.foundation.interaction.FocusInteraction
 import androidx.compose.foundation.interaction.InteractionSource
@@ -98,15 +101,20 @@ fun Modifier.firstFocus(): Modifier {
 }
 
 /**
- * A text box a remote can leave: up and down move on to what is above or below, where the
- * text box itself would keep them. Left and right still move along the text. A box of
- * [lines] keeps up and down for its lines where there is a keyboard, so only on a TV.
+ * A text box for a remote and keys. Up and down move on to what is above or below, where the
+ * text box itself would keep them; left and right still move along the text. A box of
+ * [lines] keeps up and down for its lines where there is a keyboard, so it escapes on a TV only.
+ *
+ * On a TV the box is passed over without its keyboard, which would otherwise open as soon as
+ * the box had the focus and take the remote's arrows: the box takes the focus as a whole (with
+ * a ring), and OK opens it to type.
  */
 @Composable
 fun Modifier.remoteEscape(lines: Boolean = false): Modifier {
-    if (lines && !isTv()) return this
+    val tv = isTv()
+    if (lines && !tv) return this
     val focus = androidx.compose.ui.platform.LocalFocusManager.current
-    return onPreviewKeyEvent {
+    val escape = onPreviewKeyEvent {
         val direction = when (it.key) {
             Key.DirectionUp -> androidx.compose.ui.focus.FocusDirection.Up
             Key.DirectionDown -> androidx.compose.ui.focus.FocusDirection.Down
@@ -115,31 +123,34 @@ fun Modifier.remoteEscape(lines: Boolean = false): Modifier {
         if (it.type == KeyEventType.KeyDown) focus.moveFocus(direction)
         true
     }
+    if (!tv) return escape
+    var typing by remember { mutableStateOf(false) }
+    val field = remember { FocusRequester() }
+    val box = remember { androidx.compose.foundation.interaction.MutableInteractionSource() }
+    LaunchedEffect(typing) { if (typing) runCatching { field.requestFocus() } }
+    return this
+        .onKeyEvent {
+            val ok = it.key == Key.DirectionCenter || it.key == Key.Enter || it.key == Key.NumPadEnter
+            if (typing || !ok) return@onKeyEvent false
+            if (it.type == KeyEventType.KeyUp) typing = true
+            true
+        }
+        .indication(box, androidx.compose.foundation.LocalIndication.current)
+        .focusable(interactionSource = box)
+        .then(escape)
+        .focusRequester(field)
+        .onFocusChanged { if (typing && !it.isFocused) typing = false }
+        .focusProperties { canFocus = typing }
 }
 
 /**
- * A text box a remote passes over on its way down the page: on a TV the keyboard waits for OK,
- * where it would open (and take the remote's arrows) as soon as the box had the focus. By touch
- * it is the text box alone. [content] gets the modifier for its text box.
+ * A text box a remote passes over on its way down the page (the search box): the keyboard waits
+ * for OK, as for every text box on a TV ([remoteEscape]). [content] gets the modifier for its
+ * text box.
  */
 @Composable
 fun RemoteTyping(modifier: Modifier = Modifier, content: @Composable (Modifier) -> Unit) {
-    if (!isTv()) {
-        content(modifier.remoteEscape())
-        return
-    }
-    var typing by remember { mutableStateOf(false) }
-    val field = remember { FocusRequester() }
-    LaunchedEffect(typing) { if (typing) runCatching { field.requestFocus() } }
-    androidx.compose.foundation.layout.Box(modifier.clickable { typing = true }) {
-        content(
-            Modifier
-                .focusRequester(field)
-                .onFocusChanged { if (!it.isFocused) typing = false }
-                .remoteEscape()
-                .focusProperties { canFocus = typing },
-        )
-    }
+    content(modifier.remoteEscape())
 }
 
 /** What sits under a [focusLayer]: while [covered], the remote's arrows cannot come into it. */

@@ -48,6 +48,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
+import androidx.compose.foundation.selection.selectable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawWithContent
@@ -193,7 +194,8 @@ private fun SideItem(
             .fillMaxWidth()
             .clip(shape)
             .background(fill)
-            .clickable(onClick = onClick)
+            // TalkBack says which one is open, as it does for tabs.
+            .selectable(selected, role = androidx.compose.ui.semantics.Role.Tab, onClick = onClick)
             .heightIn(min = 56.dp)
             .padding(horizontal = 12.dp, vertical = 4.dp)
             .then(if (words == 0f) Modifier.semantics { contentDescription = label } else Modifier),

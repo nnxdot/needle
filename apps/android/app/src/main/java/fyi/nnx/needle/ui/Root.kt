@@ -22,6 +22,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.imePadding
+import androidx.compose.foundation.layout.isImeVisible
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.only
 import androidx.compose.foundation.layout.statusBarsPadding
@@ -107,7 +108,7 @@ enum class Tab(val label: String, val icon: ImageVector, val root: Route) {
     Search("Search", Icons.Rounded.Search, Route.Search),
 }
 
-@OptIn(ExperimentalSharedTransitionApi::class, androidx.compose.material3.ExperimentalMaterial3ExpressiveApi::class)
+@OptIn(ExperimentalSharedTransitionApi::class, androidx.compose.material3.ExperimentalMaterial3ExpressiveApi::class, androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
 @Composable
 fun NeedleRoot() {
     var tab by rememberSaveable { mutableStateOf(Tab.Home) }
@@ -204,9 +205,11 @@ fun NeedleRoot() {
                     ),
                     bottomBar = {
                         Column(Modifier.onSizeChanged { barHeight = it.height }) {
-                            SelectionBar()
+                            // While typing, the keyboard needs the room: the bars come back after.
+                            val typing = androidx.compose.foundation.layout.WindowInsets.isImeVisible
+                            if (!typing) SelectionBar()
                             AnimatedVisibility(
-                                visible = hasSong && !playerOpen,
+                                visible = hasSong && !playerOpen && !typing,
                                 enter = fadeIn(tween(200)) + slideInVertically(tween(250)) { it / 2 },
                                 exit = fadeOut(tween(150)),
                             ) {
@@ -214,7 +217,7 @@ fun NeedleRoot() {
                                     MiniPlayer(onOpen = { playerOpen = true })
                                 }
                             }
-                            if (!wide) {
+                            if (!wide && !typing) {
                                 // Material 3 Expressive's shorter bar.
                                 ShortNavigationBar(containerColor = MaterialTheme.colorScheme.surfaceContainerLow) {
                                     Tab.entries.forEach { t ->
@@ -302,6 +305,8 @@ fun NeedleRoot() {
                     snackbar,
                     Modifier
                         .align(androidx.compose.ui.Alignment.BottomCenter)
+                        // Above the keyboard while it is up, where it would otherwise hide.
+                        .imePadding()
                         // On a tablet the bars sit in the pane, above the navigation bar and its margin.
                         .then(if (playerOpen || bars == 0.dp || wide) Modifier.navigationBarsPadding() else Modifier)
                         .padding(bottom = if (playerOpen) 16.dp else bars + 8.dp + if (wide) 12.dp else 0.dp),

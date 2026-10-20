@@ -107,6 +107,8 @@ import androidx.compose.ui.semantics.setProgress
 import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.selection.toggleable
 import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
@@ -197,8 +199,11 @@ private fun TwoPaneSettings(open: (Route) -> Unit) {
 private fun SectionList(chosen: SettingsSection?, onChoose: (SettingsSection) -> Unit) {
     // Discord only in builds that have Discord's library.
     val sections = SettingsSection.entries.filter { it != SettingsSection.Discord || Discord.available }
+    // The tints are made for the dark pages; on a light page they are deepened to read.
+    val light = MaterialTheme.colorScheme.background.luminance() > 0.5f
     Group {
         sections.forEachIndexed { i, section ->
+            val tint = if (light) androidx.compose.ui.graphics.lerp(section.tint, Color.Black, 0.45f) else section.tint
             Row(
                 Modifier
                     .fillMaxWidth()
@@ -209,9 +214,9 @@ private fun SectionList(chosen: SettingsSection?, onChoose: (SettingsSection) ->
                 horizontalArrangement = Arrangement.spacedBy(16.dp),
             ) {
                 Box(
-                    Modifier.size(42.dp).clip(iconShape()).background(section.tint.copy(alpha = 0.18f)),
+                    Modifier.size(42.dp).clip(iconShape()).background(tint.copy(alpha = 0.18f)),
                     contentAlignment = Alignment.Center,
-                ) { Icon(section.icon, contentDescription = null, tint = section.tint) }
+                ) { Icon(section.icon, contentDescription = null, tint = tint) }
                 Column(Modifier.weight(1f)) {
                     Text(section.title, style = MaterialTheme.typography.titleMedium)
                     Text(section.summary, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -321,13 +326,17 @@ private fun SliderRow(
             Text(shown, style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary)
         }
         if (summary != null) Text(summary, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-        Slider(value = value, onValueChange = onChange, onValueChangeFinished = onDone, valueRange = range, steps = steps, enabled = enabled)
+        Slider(value = value, onValueChange = onChange, onValueChangeFinished = onDone, valueRange = range, steps = steps, enabled = enabled, modifier = Modifier.named(title, shown))
     }
 }
 
-/** Runs a call to the core off the main thread. */
-private fun background(work: () -> Unit) {
-    NeedleApp.instance.scope.launch { runCatching { work() } }
+/** Runs a call to the core off the main thread, then `then` on it; a failure says so. */
+private fun background(then: () -> Unit = {}, work: () -> Unit) {
+    NeedleApp.instance.scope.launch {
+        runCatching { work() }
+            .onSuccess { withContext(Dispatchers.Main) { then() } }
+            .onFailure { showMessage(it.message ?: "That did not work") }
+    }
 }
 
 // ---------- Library
@@ -573,7 +582,7 @@ private fun SoundSettingsPage() {
                     items(mine) { name ->
                         FilterChip(
                             selected = s.preset == name,
-                            onClick = { background { core.usePreset(name) }; reload() },
+                            onClick = { background(then = { reload() }) { core.usePreset(name) } },
                             label = { Text(name) },
                             leadingIcon = { Icon(Icons.Rounded.Star, contentDescription = "Yours", modifier = Modifier.size(16.dp)) },
                         )
@@ -658,7 +667,8 @@ private fun SoundSettingsPage() {
 
 /**
  * Ten upright bars, dragged up and down, with a line through their tops. With a remote or keys,
- * each bar takes the focus and up and down move it half a decibel.
+ * each bar takes the focus; OK takes hold of it, up and down then move it half a decibel, and
+ * OK or Back lets go. Not held, up and down move on through the page as anywhere else.
  */
 @Composable
 private fun EqualizerBands(gains: List<Float>, frequencies: List<Float>, onChange: (List<Float>) -> Unit) {
@@ -673,7 +683,12 @@ private fun EqualizerBands(gains: List<Float>, frequencies: List<Float>, onChang
         live.forEachIndexed { i, gain ->
             Column(Modifier.weight(1f), horizontalAlignment = Alignment.CenterHorizontally) {
                 // Half steps show as such (+1.5); whole ones without a point (+2).
-                Text(if (gain % 1f == 0f) "%+.0f".format(gain) else "%+.1f".format(gain), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                var held by remember { mutableStateOf(false) }
+                Text(
+                    if (gain % 1f == 0f) "%+.0f".format(gain) else "%+.1f".format(gain),
+                    style = MaterialTheme.typography.labelSmall,
+                    color = if (held) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
+                )
                 val focus = remember { androidx.compose.foundation.interaction.MutableInteractionSource() }
                 val nudge: (Float) -> Unit = { by ->
                     live = live.toMutableList().also { it[i] = (it[i] + by).coerceIn(-12f, 12f) }
@@ -685,14 +700,26 @@ private fun EqualizerBands(gains: List<Float>, frequencies: List<Float>, onChang
                         .width(28.dp)
                         .padding(vertical = 6.dp)
                         .focusRing(focus, 14.dp)
+                        .onFocusChanged { if (!it.isFocused) held = false }
                         .onKeyEvent {
-                            val by = when (it.key) {
-                                androidx.compose.ui.input.key.Key.DirectionUp -> 0.5f
-                                androidx.compose.ui.input.key.Key.DirectionDown -> -0.5f
-                                else -> return@onKeyEvent false
+                            val down = it.type == androidx.compose.ui.input.key.KeyEventType.KeyDown
+                            when (it.key) {
+                                androidx.compose.ui.input.key.Key.DirectionCenter, androidx.compose.ui.input.key.Key.Enter, androidx.compose.ui.input.key.Key.NumPadEnter -> {
+                                    if (down) held = !held
+                                    true
+                                }
+                                androidx.compose.ui.input.key.Key.Back, androidx.compose.ui.input.key.Key.Escape -> {
+                                    if (!held) return@onKeyEvent false
+                                    if (down) held = false
+                                    true
+                                }
+                                androidx.compose.ui.input.key.Key.DirectionUp, androidx.compose.ui.input.key.Key.DirectionDown -> {
+                                    if (!held) return@onKeyEvent false
+                                    if (down) nudge(if (it.key == androidx.compose.ui.input.key.Key.DirectionUp) 0.5f else -0.5f)
+                                    true
+                                }
+                                else -> false
                             }
-                            if (it.type == androidx.compose.ui.input.key.KeyEventType.KeyDown) nudge(by)
-                            true
                         }
                         .semantics {
                             contentDescription = frequencies.getOrNull(i)?.let { f -> if (f >= 1000f) "${(f / 1000f).let { k -> if (k % 1f == 0f) k.toInt().toString() else k.toString() }} kHz" else "${f.toInt()} Hz" } ?: "Band ${i + 1}"
@@ -1026,8 +1053,10 @@ private fun ScrobblingSettings() {
                     Button(enabled = !busy, onClick = {
                         run {
                             val url = core.lastfmBegin(key, secret)
-                            context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
-                            waitingForBrowser = true
+                            // Without a browser there is no page to allow Needle on; say so plainly.
+                            if (tryOpen("web browser to sign in with") { context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) }) {
+                                waitingForBrowser = true
+                            }
                             null
                         }
                     }) { Text("Sign in with Last.fm") }
@@ -1247,7 +1276,7 @@ private fun ParametricBands(bands: List<fyi.nnx.needle.core.EqBand>, onChange: (
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         modifier = Modifier.weight(1f),
                     )
-                    Switch(band.on, { set(i, band.copy(on = it), true) })
+                    Switch(band.on, { set(i, band.copy(on = it), true) }, Modifier.named("Band ${i + 1}"))
                     IconButton(onClick = { onChange(live.filterIndexed { j, _ -> j != i }) }) {
                         Icon(Icons.Rounded.Delete, contentDescription = "Remove this band", tint = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
@@ -1259,13 +1288,14 @@ private fun ParametricBands(bands: List<fyi.nnx.needle.core.EqBand>, onChange: (
                     { set(i, band.copy(frequency = Math.pow(10.0, it.toDouble()).toFloat()), false) },
                     valueRange = kotlin.math.log10(20f)..kotlin.math.log10(20000f),
                     onValueChangeFinished = { onChange(live) },
+                    modifier = Modifier.named("Frequency", "${band.frequency.toInt()} Hz"),
                 )
                 if (band.kind in listOf("peak", "lowshelf", "highshelf")) {
                     Text("Gain", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    Slider(band.gain, { set(i, band.copy(gain = it), false) }, valueRange = -12f..12f, onValueChangeFinished = { onChange(live) })
+                    Slider(band.gain, { set(i, band.copy(gain = it), false) }, valueRange = -12f..12f, onValueChangeFinished = { onChange(live) }, modifier = Modifier.named("Gain", "%+.1f dB".format(band.gain)))
                 }
                 Text("Width (Q)", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                Slider(band.q, { set(i, band.copy(q = it), false) }, valueRange = 0.2f..6f, onValueChangeFinished = { onChange(live) })
+                Slider(band.q, { set(i, band.copy(q = it), false) }, valueRange = 0.2f..6f, onValueChangeFinished = { onChange(live) }, modifier = Modifier.named("Width", "%.1f".format(band.q)))
             }
         }
         if (live.size < 20) TextButton(onClick = {

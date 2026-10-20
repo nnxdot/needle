@@ -14,6 +14,8 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.launch
@@ -64,10 +66,15 @@ internal class AudioFocus(private val context: Context) {
         scope.launch {
             combine(NeedleApp.instance.playback, NeedleApp.instance.remoteShown) { playback, pc -> playback?.playing == true && !pc }
                 .distinctUntilChanged()
-                .collect { playing ->
+                .collectLatest { playing ->
                     if (playing) {
                         pausedForOther = false
-                        if (!held) held = audio.requestAudioFocus(request) == AudioManager.AUDIOFOCUS_REQUEST_GRANTED
+                        // Android may say no (a call is on, or Needle is not yet in the
+                        // foreground): asked again each second while it plays.
+                        while (!held) {
+                            held = audio.requestAudioFocus(request) == AudioManager.AUDIOFOCUS_REQUEST_GRANTED
+                            if (!held) delay(1000)
+                        }
                     } else if (held && !pausedForOther) {
                         // Paused by the person: the audio goes back to the others.
                         audio.abandonAudioFocusRequest(request)

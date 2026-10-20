@@ -25,6 +25,11 @@ cargo run -q -p needle-mobile --bin uniffi-bindgen -- generate \
     --language kotlin \
     --out-dir "$app/src/main/java" --no-format
 
+# Discord's library is not in the repository; without it the APK has no Discord status.
+if [ "$kind" = release ] && [ ! -f "$here/apps/android/app/libs/discord_partner_sdk.aar" ]; then
+    echo "warning: apps/android/app/libs/discord_partner_sdk.aar is missing: this APK has no Discord status" >&2
+fi
+
 cd "$here/apps/android"
 task=$([ "$kind" = release ] && echo assembleRelease || echo assembleDebug)
 ./gradlew --quiet "$task"

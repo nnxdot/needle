@@ -23,6 +23,17 @@ internal suspend fun copyFileOnIo(folder: File, displayName: String, open: () ->
     }
 }
 
+/**
+ * A name short enough for the file system: names may be 255 bytes, and a long name in Chinese
+ * or emoji is three or four bytes a letter. The end is kept (with the extension), and room is
+ * left for the id put before it.
+ */
+private fun fitName(name: String, bytes: Int = 180): String {
+    var kept = name
+    while (kept.toByteArray(Charsets.UTF_8).size > bytes) kept = kept.drop(1)
+    return kept
+}
+
 /** Each import is a new file; only a complete copy becomes visible. */
 internal fun copyFileAtomically(
     folder: File,
@@ -32,7 +43,7 @@ internal fun copyFileAtomically(
 ): File {
     check(folder.isDirectory || folder.mkdirs()) { "Could not create the import folder" }
     val name = displayName.substringAfterLast('/').substringAfterLast('\\')
-        .replace(Regex("[\\p{Cntrl}:*?\"<>|]"), "_").takeLast(160).ifBlank { "opened" }
+        .replace(Regex("[\\p{Cntrl}:*?\"<>|]"), "_").let(::fitName).ifBlank { "opened" }
     val file = File(folder, "${UUID.randomUUID()}-$name")
     val temporary = File.createTempFile(".copy-", ".part", folder)
     try {
