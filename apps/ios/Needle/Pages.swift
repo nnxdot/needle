@@ -487,7 +487,7 @@ struct AlbumView: View {
                 .buttonStyle(.borderless)
                 .disabled(isPlaceholderArtist(album.artist))
                 Text(details).font(.footnote.weight(.medium)).foregroundStyle(look.muted)
-                if let songs { PlayButtons(songs: songs, look: look).padding(.top, 10) }
+                if let songs, !songs.isEmpty { PlayButtons(songs: songs, look: look).padding(.top, 10) }
             }
             .padding(.horizontal, 22)
             // Over the foot of the fading cover.
@@ -525,8 +525,11 @@ struct AlbumView: View {
         return parts.joined(separator: " · ")
     }
 
+    /// What the page lists (songs whose files are gone are left out).
     private var summary: String {
-        "\(count(Int(album.songs), "song")), \(clock(album.duration))"
+        guard let songs else { return "\(count(Int(album.songs), "song")), \(clock(album.duration))" }
+        if songs.isEmpty { return "These songs are not on this iPhone." }
+        return "\(count(songs.count, "song")), \(clock(songs.reduce(0) { $0 + $1.duration }))"
     }
 }
 
