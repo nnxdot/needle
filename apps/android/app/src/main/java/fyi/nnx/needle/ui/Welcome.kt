@@ -73,7 +73,7 @@ fun WelcomeGuide(open: (Route) -> Unit) {
         NeedleApp.instance.updateApp { it.copy(welcomed = true) }
     }
     val pick = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocumentTree()) { uri ->
-        val path = uri?.let(::folderPath) ?: return@rememberLauncherForActivityResult
+        val path = uri?.let(::treePath) ?: return@rememberLauncherForActivityResult
         NeedleApp.instance.scope.launch(Dispatchers.IO) { runCatching { core.addFolder(path) }.onFailure { showMessage(it.message ?: "Could not add that folder") } }
         step = 2
     }
@@ -180,11 +180,3 @@ private fun Choice(icon: ImageVector, title: String, detail: String, onClick: ()
     }
 }
 
-/** A folder chosen in Android's picker, as a path Needle can read. */
-private fun folderPath(uri: android.net.Uri): String? {
-    val id = runCatching { android.provider.DocumentsContract.getTreeDocumentId(uri) }.getOrNull() ?: return null
-    val volume = id.substringBefore(':')
-    val rest = id.substringAfter(':', "")
-    val root = if (volume == "primary") android.os.Environment.getExternalStorageDirectory().path else "/storage/$volume"
-    return if (rest.isEmpty()) root else "$root/$rest"
-}

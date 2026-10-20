@@ -298,12 +298,10 @@ private fun Keep(w: Wrapped) {
         Button(onClick = { playTop(w) }, colors = ButtonDefaults.buttonColors(containerColor = Color.White, contentColor = Color.Black)) { Text("Play your top songs") }
         Spacer(Modifier.height(8.dp))
         FilledTonalButton(onClick = {
-            runCatching { core.createPlaylist("Top songs of ${w.year}", "Your most played songs of ${w.year}.", w.topSongs.map { it.id }, null) }
-                .onSuccess {
-                    NeedleApp.instance.libraryVersion.value++
-                    showMessage("Saved as a playlist")
-                }
-                .onFailure { showMessage("Could not save it: ${it.message}") }
+            libraryWrite(
+                { core.createPlaylist("Top songs of ${w.year}", "Your most played songs of ${w.year}.", w.topSongs.map { it.id }, null) },
+                { showMessage("Could not save it: ${it.message}") },
+            ) { showMessage("Saved as a playlist") }
         }) { Text("Save them as a playlist") }
     }
 }

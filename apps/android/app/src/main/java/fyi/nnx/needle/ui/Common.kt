@@ -51,6 +51,8 @@ import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
+import androidx.lifecycle.repeatOnLifecycle
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.ui.Modifier
 import androidx.compose.foundation.layout.offset
 import androidx.compose.ui.unit.sp
@@ -145,6 +147,69 @@ fun addToQueue(next: Boolean, ids: () -> List<String>) {
         }
             .onSuccess { showMessage(if (next) "Plays next" else "Added to the queue") }
             .onFailure { showMessage(it.message ?: "Could not add them") }
+    }
+}
+
+/** Needle may read the music files (Android 13 and newer ask for music alone; older, for files). */
+fun hasMusicAccess(context: android.content.Context): Boolean {
+    if (android.os.Build.VERSION.SDK_INT >= 30 && android.os.Environment.isExternalStorageManager()) return true
+    val permission = if (android.os.Build.VERSION.SDK_INT >= 33) android.Manifest.permission.READ_MEDIA_AUDIO else android.Manifest.permission.READ_EXTERNAL_STORAGE
+    return androidx.core.content.ContextCompat.checkSelfPermission(context, permission) == android.content.pm.PackageManager.PERMISSION_GRANTED
+}
+
+/**
+ * Said where the library is empty because Needle may not read music: Android's question again,
+ * or (asked too often already, when Android no longer asks) its page for Needle in Settings.
+ */
+@Composable
+fun MusicAccessNotice(modifier: Modifier = Modifier) {
+    val context = androidx.compose.ui.platform.LocalContext.current
+    // Checked again each time Needle comes back to the screen (from Settings, say).
+    val lifecycle = androidx.lifecycle.compose.LocalLifecycleOwner.current.lifecycle
+    var allowed by remember { mutableStateOf(hasMusicAccess(context)) }
+    LaunchedEffect(lifecycle) {
+        lifecycle.repeatOnLifecycle(androidx.lifecycle.Lifecycle.State.RESUMED) { allowed = hasMusicAccess(context) }
+    }
+    val ask = androidx.activity.compose.rememberLauncherForActivityResult(androidx.activity.result.contract.ActivityResultContracts.RequestPermission()) { granted ->
+        allowed = granted
+        if (granted) runCatching { core.rescan() }
+        else tryOpen("page in Settings for Needle") {
+            context.startActivity(
+                android.content.Intent(android.provider.Settings.ACTION_APPLICATION_DETAILS_SETTINGS, android.net.Uri.parse("package:${context.packageName}"))
+                    .addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK),
+            )
+        }
+    }
+    if (allowed) return
+    Column(
+        modifier.fillMaxWidth().clip(CoverShape).background(MaterialTheme.colorScheme.errorContainer).padding(16.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        Text("Needle may not read your music", style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.onErrorContainer)
+        Text(
+            "Android asks first. Without it, the music folders look empty.",
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onErrorContainer,
+        )
+        androidx.compose.material3.Button(onClick = {
+            ask.launch(if (android.os.Build.VERSION.SDK_INT >= 33) android.Manifest.permission.READ_MEDIA_AUDIO else android.Manifest.permission.READ_EXTERNAL_STORAGE)
+        }) { Text("Allow") }
+    }
+}
+
+/**
+ * Writes to the library off the main thread (a scan writing at the same time holds it a
+ * moment, and the page would freeze), then reports back on the main thread: `done` with the
+ * answer, or `failed`; the lists are read again either way.
+ */
+fun <T> libraryWrite(
+    work: () -> T,
+    failed: (Throwable) -> Unit = { showMessage(it.message ?: "That did not work") },
+    done: (T) -> Unit = {},
+) {
+    NeedleApp.instance.scope.launch(Dispatchers.Main) {
+        withContext(Dispatchers.IO) { runCatching(work) }.onSuccess(done).onFailure(failed)
+        NeedleApp.instance.libraryVersion.value++
     }
 }
 

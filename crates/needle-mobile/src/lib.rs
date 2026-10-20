@@ -688,6 +688,18 @@ impl Needle {
             .collect()
     }
 
+    /// The first `count` songs up next: for Android's media session, which shows a few, where
+    /// the whole queue (a whole library, played from Songs) would be slow to hand over.
+    pub fn up_next_first(&self, count: u32) -> Vec<Song> {
+        self.player
+            .state()
+            .queue
+            .iter()
+            .take(count as usize)
+            .map(|q| Song::from(&q.track))
+            .collect()
+    }
+
     /// Saves the session and stops playback, for when the app closes.
     pub fn shutdown(&self) {
         self.player.shutdown();

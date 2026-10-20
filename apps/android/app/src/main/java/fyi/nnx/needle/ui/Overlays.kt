@@ -225,9 +225,10 @@ private fun AddToPlaylistSheet(ids: List<String>) {
                 items(playlists.orEmpty().filter { !it.smart }, key = { it.id }) { playlist ->
                     Row(
                         Modifier.fillMaxWidth().clickable {
-                            runCatching { core.addToPlaylist(playlist.id, ids) }
-                                .onSuccess { showMessage("Added to ${playlist.name}"); refreshLibrary() }
-                                .onFailure { showMessage(it.message ?: "Could not add it") }
+                            libraryWrite({ core.addToPlaylist(playlist.id, ids) }, { showMessage(it.message ?: "Could not add it") }) {
+                                showMessage("Added to ${playlist.name}")
+                                refreshLibrary()
+                            }
                             Ui.sheet.value = null
                         }.padding(horizontal = Edge, vertical = 8.dp),
                         verticalAlignment = Alignment.CenterVertically,
@@ -290,17 +291,17 @@ private fun PlaylistDialog(editing: String?, ids: List<String>, smartAtFirst: Bo
             TextButton(
                 enabled = name.isNotBlank() && (!smart || (rule.isNotBlank() && problem == null)),
                 onClick = {
-                    runCatching {
+                    libraryWrite({
                         if (editing == null) {
                             core.createPlaylist(name, description, ids, if (smart) rule else null)
                         } else {
                             core.editPlaylist(editing, name, description, if (smart) rule else null)
                         }
-                    }.onSuccess {
+                    }, { showMessage(it.message ?: "Could not save it") }) {
                         showMessage(if (editing == null) "Made $name" else "Saved")
                         refreshLibrary()
                         close()
-                    }.onFailure { showMessage(it.message ?: "Could not save it") }
+                    }
                 },
             ) { Text(if (editing == null) "Make it" else "Save") }
         },
