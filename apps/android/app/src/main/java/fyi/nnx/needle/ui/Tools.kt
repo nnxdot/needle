@@ -912,7 +912,8 @@ fun SpeakersSheet(context: Context) {
         Column(Modifier.verticalScroll(rememberScrollState()).navigationBarsPadding().padding(bottom = 16.dp)) {
             Text("Play on", style = MaterialTheme.typography.titleLarge, modifier = Modifier.padding(horizontal = Edge, vertical = 8.dp))
             Text("Choose one, or several to play on all at once.", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(horizontal = Edge))
-            SpeakerRow(Icons.Rounded.PhoneAndroid, "This phone", null, phone) { phone = it }
+            // Not before the speakers in use are known: Done would put them all back to the phone.
+            SpeakerRow(Icons.Rounded.PhoneAndroid, "This phone", null, phone, enabled = all != null) { phone = it }
             val list = all
             if (list == null) Loading("Looking for speakers on your network…")
             list.orEmpty().forEach { o ->
@@ -933,15 +934,15 @@ fun SpeakersSheet(context: Context) {
                     }
                 }
             }
-            Button(onClick = ::apply, modifier = Modifier.padding(horizontal = Edge, vertical = 8.dp).fillMaxWidth()) { Text("Done") }
+            Button(onClick = ::apply, enabled = all != null, modifier = Modifier.padding(horizontal = Edge, vertical = 8.dp).fillMaxWidth()) { Text("Done") }
         }
     }
 }
 
 @Composable
-private fun SpeakerRow(icon: androidx.compose.ui.graphics.vector.ImageVector, name: String, kind: String?, on: Boolean, onChange: (Boolean) -> Unit) {
+private fun SpeakerRow(icon: androidx.compose.ui.graphics.vector.ImageVector, name: String, kind: String?, on: Boolean, enabled: Boolean = true, onChange: (Boolean) -> Unit) {
     Row(
-        Modifier.fillMaxWidth().toggleable(on, role = Role.Checkbox, onValueChange = onChange).padding(horizontal = Edge, vertical = 8.dp),
+        Modifier.fillMaxWidth().toggleable(on, enabled = enabled, role = Role.Checkbox, onValueChange = onChange).padding(horizontal = Edge, vertical = 8.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(16.dp),
     ) {
@@ -950,6 +951,6 @@ private fun SpeakerRow(icon: androidx.compose.ui.graphics.vector.ImageVector, na
             Text(name, style = MaterialTheme.typography.bodyLarge)
             if (kind != null) Text(kind, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
-        Checkbox(on, onCheckedChange = null)
+        Checkbox(on, onCheckedChange = null, enabled = enabled)
     }
 }

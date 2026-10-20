@@ -513,18 +513,23 @@ fun PlaylistScreen(route: Route.Playlist, open: (Route) -> Unit) {
             }.onSuccess { showMessage("Exported") }.onFailure { showMessage(it.message ?: "Could not export it") }
         }
     }
+    // A change on its way to the library: the list's places are the old ones until it is back.
+    var writing by remember { mutableStateOf(false) }
     // Put in order: each row gets a handle to drag it by.
     var arranging by remember { mutableStateOf(false) }
     val reorder = rememberReorder(list.size) { from, to ->
         val positions = d?.positions.orEmpty()
-        if (from in positions.indices && to in positions.indices) {
-            libraryWrite({ core.moveInPlaylist(route.id, positions[from], positions[to]) }, { showMessage(it.message ?: "Could not reorder it") })
+        // One change at a time: until the list is read again, its places are the old ones.
+        if (!writing && from in positions.indices && to in positions.indices) {
+            writing = true
+            libraryWrite({ core.moveInPlaylist(route.id, positions[from], positions[to]) }, { writing = false; showMessage(it.message ?: "Could not reorder it") }) { writing = false }
         }
     }
     val art = summary?.artwork ?: list.firstNotNullOfOrNull { it.artwork }
     val name = d?.name ?: route.name
     val wide = isWide()
-    val buttons: (@Composable () -> Unit)? = if (d == null) null else {
+    // No Play or Shuffle for a playlist with nothing in it (its menu still edits it).
+    val buttons: (@Composable () -> Unit)? = if (d == null || list.isEmpty()) null else {
         { PlayRow(list, inline = wide) { RoundAction(Icons.Rounded.Edit, "Edit") { Ui.sheet.value = Sheet.EditPlaylist(d.id) } } }
     }
     DetailFrame(art, name, { state.headerScroll() }, { menu = true }) {
@@ -562,8 +567,9 @@ fun PlaylistScreen(route: Route.Playlist, open: (Route) -> Unit) {
                 }
             }
             songList(list, playing, open, numbered = false, remove = if (d?.rule == null) { i ->
-                d?.positions?.getOrNull(i)?.let { position ->
-                    libraryWrite({ core.removeFromPlaylist(route.id, position) }, { showMessage(it.message ?: "Could not remove it") })
+                if (!writing) d?.positions?.getOrNull(i)?.let { position ->
+                    writing = true
+                    libraryWrite({ core.removeFromPlaylist(route.id, position) }, { writing = false; showMessage(it.message ?: "Could not remove it") }) { writing = false }
                 }
             } else null, reorder = if (d?.rule == null && arranging) reorder else null)
         }

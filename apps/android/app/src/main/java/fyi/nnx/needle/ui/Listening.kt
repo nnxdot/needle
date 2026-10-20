@@ -35,6 +35,7 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.unit.sp
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
@@ -257,7 +258,15 @@ fun androidx.compose.foundation.lazy.LazyListScope.statsItems(s: Stats, open: (R
 @Composable
 fun Figure(value: String, label: String, modifier: Modifier = Modifier) {
     Column(modifier.clip(RoundedCornerShape(20.dp)).background(MaterialTheme.colorScheme.surfaceContainer).padding(14.dp)) {
-        Text(value, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold, maxLines = 1)
+        // Smaller where three share a narrow row ("12 h 30 min"), rather than cut short.
+        Text(
+            value,
+            style = MaterialTheme.typography.titleLarge,
+            fontWeight = FontWeight.Bold,
+            maxLines = 1,
+            softWrap = false,
+            autoSize = androidx.compose.foundation.text.TextAutoSize.StepBased(minFontSize = 12.sp, maxFontSize = MaterialTheme.typography.titleLarge.fontSize),
+        )
         Text(label, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
     }
 }

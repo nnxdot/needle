@@ -306,6 +306,9 @@ private class NeedlePlayer(looper: Looper, private val core: Needle) : SimpleBas
                     .build()
             }.also { playlist = it; playlistKey = key }
         }
+        // Android reads "repeat one" as "no repeat" for Next, so with nothing up next it would
+        // offer none; Needle's Next plays the song again then, as a repeating list of one does.
+        if (playback.repeat == fyi.nnx.needle.core.RepeatMode.ONE && items.size == 1) state.setRepeatMode(REPEAT_MODE_ALL)
         return state
             .setPlaylist(items)
             .setCurrentMediaItemIndex(0)

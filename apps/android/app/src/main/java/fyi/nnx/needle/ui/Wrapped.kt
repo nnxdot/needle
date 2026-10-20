@@ -165,7 +165,17 @@ private val CardColors = listOf(
 
 @Composable
 private fun Big(text: String, size: Int = 88) {
-    Text(text, color = Color.White, fontSize = size.sp, lineHeight = (size * 0.95).sp, fontWeight = FontWeight.Black, letterSpacing = (-2).sp)
+    // On one line, smaller where it would not fit (a narrow phone, large text), never broken mid-word.
+    Text(
+        text,
+        color = Color.White,
+        lineHeight = (size * 0.95).sp,
+        fontWeight = FontWeight.Black,
+        letterSpacing = (-2).sp,
+        maxLines = 1,
+        softWrap = false,
+        autoSize = androidx.compose.foundation.text.TextAutoSize.StepBased(minFontSize = 28.sp, maxFontSize = size.sp),
+    )
 }
 
 @Composable

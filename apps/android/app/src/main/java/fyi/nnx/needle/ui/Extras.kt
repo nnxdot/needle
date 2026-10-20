@@ -185,9 +185,10 @@ fun TimingScreen(songId: String) {
             FilledTonalButton(
                 enabled = lines.isNotEmpty() && lines.all { it.time >= 0 },
                 onClick = {
-                    runCatching { core.saveTimedLyrics(songId, lines.toList()) }
-                        .onSuccess { showMessage("Saved the timed lyrics") }
-                        .onFailure { showMessage(it.message ?: "Could not save them") }
+                    // The player's lyrics are read again once saved.
+                    libraryWrite({ core.saveTimedLyrics(songId, lines.toList()) }, { showMessage(it.message ?: "Could not save them") }) {
+                        showMessage("Saved the timed lyrics")
+                    }
                 },
             ) { Text("Save") }
         }

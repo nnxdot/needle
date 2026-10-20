@@ -257,6 +257,7 @@ private fun PlaylistDialog(editing: String?, ids: List<String>, smartAtFirst: Bo
     var description by remember(detail?.id) { mutableStateOf(detail?.description ?: "") }
     var smart by remember(detail?.id) { mutableStateOf(detail?.rule != null || (editing == null && smartAtFirst)) }
     var rule by remember(detail?.id) { mutableStateOf(detail?.rule ?: "") }
+    var saving by remember { mutableStateOf(false) }
     // Checked off the main thread as the rule is typed.
     val problem by androidx.compose.runtime.produceState<String?>(null, smart, rule) {
         value = if (smart && rule.isNotBlank()) withContext(kotlinx.coroutines.Dispatchers.IO) { runCatching { core.checkRule(rule) }.getOrNull() } else null
@@ -289,15 +290,17 @@ private fun PlaylistDialog(editing: String?, ids: List<String>, smartAtFirst: Bo
         },
         confirmButton = {
             TextButton(
-                enabled = name.isNotBlank() && (!smart || (rule.isNotBlank() && problem == null)),
+                // Once only: a second tap while it saves would make the playlist twice.
+                enabled = !saving && name.isNotBlank() && (!smart || (rule.isNotBlank() && problem == null)),
                 onClick = {
+                    saving = true
                     libraryWrite({
                         if (editing == null) {
                             core.createPlaylist(name, description, ids, if (smart) rule else null)
                         } else {
                             core.editPlaylist(editing, name, description, if (smart) rule else null)
                         }
-                    }, { showMessage(it.message ?: "Could not save it") }) {
+                    }, { saving = false; showMessage(it.message ?: "Could not save it") }) {
                         showMessage(if (editing == null) "Made $name" else "Saved")
                         refreshLibrary()
                         close()

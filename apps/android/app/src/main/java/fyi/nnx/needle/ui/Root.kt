@@ -118,7 +118,8 @@ fun NeedleRoot() {
     val playback by NeedleApp.instance.playback.collectAsState()
     val reduce = reduceMotion()
     val stack = stacks[tab] ?: listOf(tab.root)
-    val open: (Route) -> Unit = { stacks[tab] = stack + it }
+    // A second tap while the page slides in (or OK pressed twice) does not open it twice.
+    val open: (Route) -> Unit = { if (stack.lastOrNull() != it) stacks[tab] = stack + it }
     val hasSong = playback?.current != null
     val snackbar = remember { SnackbarHostState() }
     // How tall the mini player, the tabs, and the bar of chosen songs are together, so

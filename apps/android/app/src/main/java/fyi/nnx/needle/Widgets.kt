@@ -346,8 +346,9 @@ private fun withService(context: Context) {
 class Toggle : ActionCallback {
     override suspend fun onAction(context: Context, glanceId: GlanceId, parameters: ActionParameters) {
         val core = NeedleApp.instance.core
-        // Nothing to go on with: shuffle the whole library.
-        if (NeedleApp.instance.playback.value?.current == null) core.play(core.songs().shuffled().take(200).map { it.id }, 0u)
+        // Nothing to go on with: shuffle the whole library. Asked of the core itself: just
+        // after a start the app has not yet heard of the song it brought back, paused.
+        if (!NeedleApp.instance.remoteShown.value && core.playback().current == null) core.play(core.songs().shuffled().take(200).map { it.id }, 0u)
         else fyi.nnx.needle.ui.Controls.toggle()
         withService(context)
         updateWidgets(context)
