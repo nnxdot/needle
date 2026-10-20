@@ -66,6 +66,8 @@ struct LibrarySettingsView: View {
     @Environment(Store.self) private var store
     @State private var folders: [String] = []
     @State private var settings: PlaybackSettings?
+    @State private var hasFanart = false
+    @State private var fanartKey = ""
     @State private var measured: [UInt32] = []
     @State private var backup: URL?
     @State private var moving = false
@@ -98,6 +100,28 @@ struct LibrarySettingsView: View {
                     Toggle("Look up online", isOn: Binding(get: { settings.onlineMedia }, set: { var s = settings; s.onlineMedia = $0; save(s) }))
                 } footer: {
                     Text("Lyrics from LRCLIB when a song has none, and covers and artist photos from MusicBrainz and Wikidata. Off: Needle asks no one.")
+                }
+                Section {
+                    if hasFanart {
+                        LabeledContent("fanart.tv key", value: "Set")
+                        Button("Remove the Key", role: .destructive) {
+                            store.run { try $0.setFanartKey(key: "") }
+                            hasFanart = false
+                        }
+                    } else {
+                        SecureField("fanart.tv key", text: $fanartKey).textInputAutocapitalization(.never).autocorrectionDisabled()
+                        Button("Save the Key") {
+                            let key = fanartKey
+                            Task {
+                                if await store.ask({ try $0.setFanartKey(key: key) }) != nil { fanartKey = ""; hasFanart = true }
+                            }
+                        }
+                        .disabled(fanartKey.trimmingCharacters(in: .whitespaces).isEmpty)
+                    }
+                } header: {
+                    Text("Artists' logos")
+                } footer: {
+                    Text("With online lookups on and a free key from fanart.tv, artist pages show the artist's logo. Needle sends fanart.tv only the artist's MusicBrainz ID. The key stays in the iPhone Keychain.")
                 }
                 Section {
                     Toggle("Measure songs for radio", isOn: Binding(get: { settings.soundAnalysis }, set: { var s = settings; s.soundAnalysis = $0; save(s) }))
@@ -138,6 +162,7 @@ struct LibrarySettingsView: View {
         .task {
             folders = await store.load { try $0.folders() } ?? []
             settings = await store.load { try $0.playbackSettings() }
+            hasFanart = await store.load { $0.hasFanartKey() } ?? false
             while !Task.isCancelled {
                 measured = await store.load { $0.measured() } ?? []
                 try? await Task.sleep(for: .seconds(2))

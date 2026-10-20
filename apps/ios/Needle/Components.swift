@@ -359,14 +359,19 @@ struct SelectToolbar: ToolbarContent {
     @Binding var selecting: Bool
     @Binding var selected: Set<String>
     let songs: [Song]
+    /// On a page in its picture's colours, the words in the page's ink.
+    var tint: Color?
 
     var body: some ToolbarContent {
         ToolbarItem(placement: .topBarTrailing) {
-            if selecting {
-                Button("Done") { selecting = false; selected = [] }
-            } else if !songs.isEmpty {
-                Button("Select") { selecting = true }
+            Group {
+                if selecting {
+                    Button("Done") { selecting = false; selected = [] }
+                } else if !songs.isEmpty {
+                    Button("Select") { selecting = true }
+                }
             }
+            .tint(tint)
         }
         if selecting && !selected.isEmpty {
             SelectionActions(songs: songs.filter { selected.contains($0.id) })
@@ -445,17 +450,23 @@ struct PagedSongs: View {
 struct PlayButtons: View {
     @Environment(Store.self) private var store
     let songs: [Song]
+    /// On a page in its picture's colours: Play in the page's ink, its words in the page's colour.
+    var look: PageColors?
 
     var body: some View {
-        HStack(spacing: 12) {
-            Button { store.play(songs) } label: {
-                Label("Play", systemImage: "play.fill").frame(maxWidth: .infinity).padding(.vertical, 6)
+        GlassEffectContainer(spacing: 12) {
+            HStack(spacing: 12) {
+                Button { store.play(songs) } label: {
+                    Label("Play", systemImage: "play.fill").frame(maxWidth: .infinity).padding(.vertical, 6)
+                        .foregroundStyle(look?.page ?? .white)
+                }
+                .buttonStyle(.glassProminent)
+                .tint(look?.ink)
+                Button { store.shufflePlay(songs) } label: {
+                    Label("Shuffle", systemImage: "shuffle").frame(maxWidth: .infinity).padding(.vertical, 6)
+                }
+                .buttonStyle(.glass)
             }
-            .buttonStyle(.glassProminent)
-            Button { store.shufflePlay(songs) } label: {
-                Label("Shuffle", systemImage: "shuffle").frame(maxWidth: .infinity).padding(.vertical, 6)
-            }
-            .buttonStyle(.glass)
         }
         .font(.headline)
         .padding(.vertical, 6)

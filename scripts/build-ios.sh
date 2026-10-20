@@ -11,6 +11,12 @@ set -euo pipefail
 
 here="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$here"
+# Keys built into the app (fanart.tv's, for artists' logos), from a private file outside the
+# code: lines such as `export NEEDLE_FANART_KEY=...`. Without it, people add their own in Settings.
+if [ -f "$HOME/.needle-keys" ]; then
+    # shellcheck disable=SC1091
+    . "$HOME/.needle-keys"
+fi
 kind="${1:-sim}"
 ios="$here/apps/ios"
 export IPHONEOS_DEPLOYMENT_TARGET=26.0

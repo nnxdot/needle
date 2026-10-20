@@ -54,6 +54,15 @@ struct RootView: View {
                 place = ["library": .library, "sources": .sources, "search": .search][args[i + 1]] ?? .home
             }
             if args.contains("-albums") { paths[place] = NavigationPath([Route.albums]) }
+            // -artist <name>, -album <title>: open that page.
+            let value = { (flag: String) in args.firstIndex(of: flag).flatMap { args.indices.contains($0 + 1) ? args[$0 + 1] : nil } }
+            if let name = value("-artist") { store.opening = .artist(name) }
+            if let title = value("-album") {
+                Task {
+                    try? await Task.sleep(for: .seconds(1))
+                    if let album = await store.load({ try $0.albums().first { $0.title == title } }) ?? nil { store.opening = .album(album) }
+                }
+            }
         }
         #endif
         .tabViewBottomAccessory {
