@@ -143,12 +143,14 @@ final class Store {
         Actions.takeWaiting().forEach(perform)
         let folder = Self.realPath(musicFolder.path)
         let core = core
+        let welcomed = app.welcomed
         Task.detached {
             // Already known: it is read again when the app comes to the front.
             if (try? core.folders())?.contains(folder) != true {
                 try? core.addFolder(path: folder)
             }
-            _ = core.sendCrashReports()
+            // Only once the welcome screen has let the person choose.
+            if welcomed { _ = core.sendCrashReports() }
             _ = core.reconnectPc()
             // Discord's status, when this build has Discord's library (it waits, unlinked).
             core.startDiscord()
@@ -298,9 +300,16 @@ final class Store {
         let core = core
         Task.detached {
             do { try work(core) } catch {
-                await MainActor.run { self.message = "\(error.localizedDescription)" }
+                await MainActor.run { self.message = Self.words(error) }
             }
         }
+    }
+
+    /// An error's own words (Needle's errors carry a message; the generated description is the
+    /// error's type and fields).
+    nonisolated static func words(_ error: Error) -> String {
+        if let error = error as? NeedleError, case .Failed(let message) = error { return withoutAddresses(message) }
+        return error.localizedDescription
     }
 
     /// Runs `work` away from the screen and gives back its result, or shows its error.
@@ -309,7 +318,7 @@ final class Store {
         let result = await Task.detached { Result { try work(core) } }.value
         switch result {
         case .success(let value): return value
-        case .failure(let error): message = error.localizedDescription; return nil
+        case .failure(let error): message = Self.words(error); return nil
         }
     }
 
@@ -338,7 +347,7 @@ final class Store {
         saving = Task.detached {
             await before?.value
             do { try work(core) } catch {
-                await MainActor.run { self.message = "\(error.localizedDescription)" }
+                await MainActor.run { self.message = Self.words(error) }
             }
         }
     }
@@ -351,6 +360,7 @@ final class Store {
 
     func play(_ songs: [Song], from start: Int = 0) {
         guard !songs.isEmpty else { message = "These songs are not on this iPhone"; return }
+        activateAudio()
         let ids = songs.map(\.id)
         run { try $0.play(ids: ids, start: UInt32(start)) }
         played()
@@ -368,12 +378,25 @@ final class Store {
     }
 
     func playAlbum(key: String, shuffled: Bool = false) {
-        run { core in
-            var ids = try core.albumSongs(key: key).map(\.id)
+        playIDs({ try $0.albumSongs(key: key).map(\.id) }, shuffled: shuffled)
+    }
+
+    /// Plays the songs `find` gives, from `start`; with none, says so, and the player stays shut.
+    func playIDs(_ find: @escaping @Sendable (Needle) throws -> [String], shuffled: Bool = false, from start: Int = 0) {
+        activateAudio()
+        Task {
+            guard var ids = await ask(find) else { return }
+            guard !ids.isEmpty else { message = "These songs are not on this iPhone"; return }
             if shuffled { ids.shuffle() }
-            try core.play(ids: ids, start: 0)
+            let at = UInt32(min(start, ids.count - 1))
+            if await ask({ try $0.play(ids: ids, start: at) }) != nil { played() }
         }
-        played()
+    }
+
+    /// The phone's audio, taken when music is asked for (not at launch, which stopped other
+    /// apps' sound when Needle only opened).
+    func activateAudio() {
+        try? AVAudioSession.sharedInstance().setActive(true)
     }
 
     /// Opens the player (if that is on) once a song plays: a radio station takes a moment to
@@ -391,22 +414,12 @@ final class Store {
 
     /// All of an artist's songs, the most played first.
     func playArtist(_ name: String, shuffled: Bool = false) {
-        run { core in
-            var ids = try core.artistAllSongs(name: name).map(\.id)
-            if shuffled { ids.shuffle() }
-            try core.play(ids: ids, start: 0)
-        }
-        played()
+        playIDs({ try $0.artistAllSongs(name: name).map(\.id) }, shuffled: shuffled)
     }
 
-    /// Every song a search finds (all, with an empty one).
-    func playSearch(_ query: String, shuffled: Bool = false) {
-        run { core in
-            var ids = try core.searchSongIds(query: query)
-            if shuffled { ids.shuffle() }
-            try core.play(ids: ids, start: 0)
-        }
-        played()
+    /// Every song a search finds (all, with an empty one), from the song at `start`.
+    func playSearch(_ query: String, shuffled: Bool = false, from start: Int = 0) {
+        playIDs({ try $0.searchSongIds(query: query) }, shuffled: shuffled, from: start)
     }
 
     /// A folder's real path (links followed: the phone's /var is /private/var), as the library
@@ -439,7 +452,9 @@ final class Store {
         message = "Added to the queue"
     }
 
-    func toggle() { onComputer ? computer { try $0.pcDo(action: "toggle") } : core.toggle() }
+    func toggle() {
+        if onComputer { computer { try $0.pcDo(action: "toggle") } } else { activateAudio(); core.toggle() }
+    }
     func next() { onComputer ? computer { try $0.pcDo(action: "next") } : core.next() }
     func previous() { onComputer ? computer { try $0.pcDo(action: "previous") } : core.previous() }
 
@@ -494,10 +509,7 @@ final class Store {
         case .previous: previous()
         case .playAlbum(let key): playAlbum(key: key)
         case .playPlaylist(let id):
-            run { core in
-                let ids = try core.playlistSongs(id: id).map(\.id)
-                try core.play(ids: ids, start: 0)
-            }
+            playIDs { try $0.playlistSongs(id: id).map(\.id) }
         case .favourites:
             run { core in
                 let ids = try core.favorites().map(\.id).shuffled()
@@ -507,12 +519,11 @@ final class Store {
         case .radio:
             run { core in
                 // From the song played most, or any song when nothing has played yet.
-                let top = try core.stats(days: 30).topSongs.compactMap(\.songId).first
+                let top = try core.stats(days: 30).topSongs.compactMap(\.songId)
                 let any = try core.songs().randomElement()?.id
-                guard let id = top ?? any else {
-                    throw NeedleError.Failed(message: "Add music first")
-                }
-                try core.startRadio(id: id)
+                // The first that can start one (a song whose file is gone cannot).
+                for id in top + [any].compactMap({ $0 }) where (try? core.startRadio(id: id)) != nil { return }
+                throw NeedleError.Failed(message: "Add music first")
             }
         }
     }
@@ -846,7 +857,7 @@ final class Store {
     private func startAudio() {
         let session = AVAudioSession.sharedInstance()
         try? session.setCategory(.playback, mode: .default, policy: .longFormAudio)
-        try? session.setActive(true)
+        // Made active when music is asked for (see `activateAudio`), not here.
         let center = NotificationCenter.default
         // A call or an alarm pauses the music; it goes on afterwards when the phone says so.
         center.addObserver(forName: AVAudioSession.interruptionNotification, object: nil, queue: .main) { [weak self] note in
@@ -882,14 +893,18 @@ final class Store {
         let commands = MPRemoteCommandCenter.shared()
         let core = core
         commands.playCommand.addTarget { [weak self] _ in
-            MainActor.assumeIsolated { if self?.local?.playing != true { core.toggle() } }
+            MainActor.assumeIsolated { if self?.local?.playing != true { self?.activateAudio(); core.toggle() } }
             return .success
         }
         commands.pauseCommand.addTarget { [weak self] _ in
             MainActor.assumeIsolated { if self?.local?.playing == true { core.toggle() } }
             return .success
         }
-        commands.togglePlayPauseCommand.addTarget { _ in core.toggle(); return .success }
+        commands.togglePlayPauseCommand.addTarget { [weak self] _ in
+            MainActor.assumeIsolated { self?.activateAudio() }
+            core.toggle()
+            return .success
+        }
         commands.nextTrackCommand.addTarget { _ in core.next(); return .success }
         commands.previousTrackCommand.addTarget { _ in core.previous(); return .success }
         commands.changePlaybackPositionCommand.addTarget { event in
