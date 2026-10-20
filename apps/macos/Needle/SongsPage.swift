@@ -160,7 +160,12 @@ struct SongsHeader: View {
     @State private var blendWith: [String]?
 
     var body: some View {
-        if case .album = route, let album = albumTrack { albumHeader(album) } else { plainHeader }
+        if case .album = route {
+            // Its room kept while the songs load, so the page does not jump.
+            if let album = albumTrack { albumHeader(album) } else { Color.clear.frame(height: 284) }
+        } else {
+            plainHeader
+        }
     }
 
     /// An album, after Apple Music's: its cover large beside its name, over the cover blurred
@@ -308,6 +313,9 @@ struct SongsHeader: View {
                     .help("Save as a playlist")
             }
         }
+        // On a page in its cover's colours, glass in the page's ink: the glass then picks words
+        // that read on it (an accent of the page's hue, lighter than a dark page, did not).
+        .tint(store.isPaged ? store.colors.ink : store.colors.accent)
         .controlSize(.large)
     }
 

@@ -160,9 +160,11 @@ struct Palette: Equatable {
     /// An album's or artist's page: the window in the colour of its picture, with white or
     /// near-black words, whichever reads on it, and the buttons in those words' colour.
     static func paged(_ page: HSL) -> Palette {
-        let dark = luminance(page) < 0.36
+        let light = HSL(h: page.h, s: 0.06, l: 0.97), deep = HSL(h: page.h, s: 0.3, l: 0.07)
+        // Whichever of the two reads better on the page.
+        let dark = contrast(light, page) >= contrast(deep, page)
         let toward = dark ? HSL(h: 0, s: 0, l: 1) : HSL(h: 0, s: 0, l: 0)
-        let ink = dark ? HSL(h: page.h, s: 0.06, l: 0.97) : HSL(h: page.h, s: 0.3, l: 0.07)
+        let ink = dark ? light : deep
         var p = build(dark ? .night : .day, tint: page, ambient: true)
         p.dark = dark
         p.canvas = page.color
@@ -172,10 +174,21 @@ struct Palette: Equatable {
         p.line = page.mix(toward, 0.2).color
         p.lineSoft = page.mix(toward, 0.11).color
         p.ink = ink.color
-        p.ink2 = ink.mix(page, 0.3).color
-        p.ink3 = ink.mix(page, 0.46).color
-        p.accent = ink.color
-        p.accentInk = page.mix(HSL(h: 0, s: 0, l: 0), dark ? 0.15 : 0).color
+        p.ink2 = ink.mix(page, 0.22).color
+        p.ink3 = ink.mix(page, 0.36).color
+        // A colour of the page's own hue, far enough from it to read (the playing song, a lit
+        // button, a filled Play), with words on it in white or near-black.
+        let s = min(0.9, max(0.45, page.s))
+        var accent = page
+        var l = page.l
+        while contrast(accent, page) < 3.4, (0.04...0.96).contains(l) {
+            l += dark ? 0.03 : -0.03
+            accent = HSL(h: page.h, s: s, l: min(0.96, max(0.04, l)))
+        }
+        if contrast(accent, page) < 3 { accent = ink }
+        p.accent = accent.color
+        let white = HSL(h: 0, s: 0, l: 1), black = HSL(h: page.h, s: 0.3, l: 0.07)
+        p.accentInk = (contrast(white, accent) >= contrast(black, accent) ? white : black).color
         p.glow = page.mix(toward, 0.25).color
         return p
     }
@@ -279,8 +292,9 @@ extension Store {
     /// The colours now: the look chosen, tinted by the playing cover when colours from the
     /// music are on, or by the colour chosen when they are off. (Kept in `colors`, which
     /// changes only when they do.)
-    func lookNow() -> Palette {
-        if settings.coverColors, let page = pageTint { return Palette.paged(HSL(page)) }
+    /// The window's colours now; with `paged` off, without an open page's own.
+    func lookNow(paged: Bool = true) -> Palette {
+        if paged, settings.coverColors, !big, let page = pageTint { return Palette.paged(HSL(page)) }
         let tint: HSL? = settings.musicColors ? coverTint.map(HSL.init) : Color(hex: settings.accentColor).map { HSL(NSColor($0)) }
         if let theme = customTheme { return Palette.custom(theme, tint: tint, ambient: settings.ambient) }
         return Palette.build(Palette.base(settings.theme), tint: tint, ambient: settings.ambient)

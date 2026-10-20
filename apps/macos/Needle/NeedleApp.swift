@@ -46,9 +46,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         keys = Keys.install { [weak self] in self?.store }
     }
 
-    /// With Needle in the menu bar, closing the window hides it there and the music plays on.
+    /// Closing the window leaves Needle open and the music playing, as Music does: the Dock
+    /// icon (or the menu bar's, with Needle there) opens it again; ⌘Q quits.
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
-        MainActor.assumeIsolated { !(store?.settings.tray ?? false) }
+        false
     }
 
     func application(_ application: NSApplication, open urls: [URL]) {

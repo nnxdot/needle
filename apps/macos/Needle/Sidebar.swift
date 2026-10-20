@@ -87,11 +87,11 @@ struct Sidebar: View {
             }
         }
         .listStyle(.sidebar)
-        .tint(store.colors.accent)
-        .listItemTint(.fixed(store.colors.accent))
-        // AppKit keeps a list's highlight colour from when it was made: anew when an album's
-        // or artist's page brings its own colour.
-        .id(store.colors.accent)
+        // The theme's accent, not an open page's: AppKit keeps a list's highlight colour from
+        // when it was made, so the list is made anew only when the theme's accent changes.
+        .tint(store.playerAccent)
+        .listItemTint(.fixed(store.playerAccent))
+        .id(store.playerAccent)
         .safeAreaInset(edge: .bottom, spacing: 0) { footer(rail: rail) }
     }
 
@@ -100,6 +100,11 @@ struct Sidebar: View {
             .labelStyle(SidebarLabel(rail: store.settings.layout.sidebarHidden && store.settings.layout.compactSidebar))
             .tag(route)
             .help(name)
+            // On an album's page Albums is already chosen, so choosing it again is no change:
+            // a click on it goes back to all the albums.
+            .simultaneousGesture(TapGesture().onEnded {
+                if store.route != route, store.route.sidebarRoute == route { store.navigate(route) }
+            })
     }
 
     private func setCollection(_ key: String, on: Bool) {

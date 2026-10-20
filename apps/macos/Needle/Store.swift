@@ -48,6 +48,11 @@ final class Store {
     /// The open album's or artist's colour, from its picture: while one of those pages is
     /// open, the whole window takes it, as Apple Music's pages do (see `Palette.paged`).
     private(set) var pageTint: NSColor? { didSet { refreshLook() } }
+    /// The window is in an open page's colours (see `Palette.paged`).
+    var isPaged: Bool { settings.coverColors && pageTint != nil && !big }
+    /// The accent without an open page's colours: for the always-dark mini player and the
+    /// sidebar (whose highlight AppKit keeps from when it was made).
+    private(set) var playerAccent: Color = .accentColor
     private(set) var stemsJob: StemJob?
     private(set) var importProgress: String?
     private(set) var update: MacUpdate?
@@ -63,7 +68,8 @@ final class Store {
     /// The song the details panel describes: the last one clicked.
     var focused: Track?
     var panel: Panel = .details
-    var big = false
+    /// The big player is open: the window is the player's, not a page's colours.
+    var big = false { didSet { if big != oldValue, pageTint != nil { refreshLook() } } }
     var bigSide: BigSide = .lyrics
     var immersive = false
     var palette = false
@@ -389,6 +395,9 @@ final class Store {
     func refreshLook() {
         let look = lookNow()
         if look != colors { colors = look }
+        // The mini player is always dark: its lit signs keep the theme's accent, not a page's.
+        let plain = pageTint == nil ? look.accent : lookNow(paged: false).accent
+        if plain != playerAccent { playerAccent = plain }
         let still = settings.reduceMotion || NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
         if motion == still { motion = !still }
         if displayFont != settings.displayFont { displayFont = settings.displayFont }
@@ -398,8 +407,26 @@ final class Store {
 
     func reloadSettings() {
         guard let next = JSON.decode(NeedleSettings.self, try? core.settingsJson()), next != settings else { return }
-        Self.makeRoom(Self.leastWidth(next))
+        let need = Self.leastWidth(next)
+        let (was, now) = (settings.layout, next.layout)
+        if was.sidebarHidden != now.sidebarHidden || was.compactSidebar != now.compactSidebar {
+            // A column of the split view: room before it opens (see `makeRoom`).
+            Self.makeRoom(need)
+        } else {
+            // The side panel floats over the page: room after the click that opened it, not
+            // inside it (a button in the title bar asks).
+            DispatchQueue.main.async { Self.makeRoom(need) }
+        }
         settings = next
+    }
+
+    /// Opens the big player once the click that asks has ended: it hides the title bar, and
+    /// the button clicked is in it.
+    func openBig() {
+        Task { @MainActor in
+            await Task.yield()
+            big = true
+        }
     }
 
     /// The narrowest the main window may be with the columns these settings open: the page
@@ -409,7 +436,9 @@ final class Store {
     static func leastWidth(_ settings: NeedleSettings) -> CGFloat {
         let layout = settings.layout
         let sidebar: CGFloat = layout.sidebarHidden ? (layout.compactSidebar ? Rail.width : 0) : 220
-        return max(760, 560 + sidebar + (settings.showInspector ? 310 : 0))
+        // The player in the title bar needs its width beside Back and Forward.
+        let page: CGFloat = layout.playerOnTop ? max(560, TopPlayer.width + 90) : 560
+        return max(760, page + sidebar + (settings.showInspector ? 310 : 0))
     }
 
     /// Widens the main window, at once, when a column is about to open and there is no room
@@ -462,14 +491,15 @@ final class Store {
         selectedTracks = []
         route = to
         big = false
-        // The next page brings its own colour, if it has one.
-        if pageTint != nil { withAnimation(.easeInOut(duration: 0.35)) { pageTint = nil } }
+        // A page without a colour of its own goes back to the theme's. From one album or
+        // artist to another, the colour stays until the next one's is found: no flash between.
+        if pageTint != nil, !to.isPaged { withAnimation(motion ? .easeInOut(duration: 0.35) : nil) { pageTint = nil } }
     }
 
     /// An album or artist page's colour, once found; only while that page is still open.
     func setPageTint(_ color: NSColor?, for page: Route) {
         guard route == page, color != pageTint else { return }
-        withAnimation(.easeInOut(duration: 0.45)) { pageTint = color }
+        withAnimation(motion ? .easeInOut(duration: 0.45) : nil) { pageTint = color }
     }
 
     @ObservationIgnored private var searchQuiet = false
@@ -480,7 +510,12 @@ final class Store {
         if !search.isEmpty, !route.searchesInside {
             back.append(route)
             forward.removeAll()
+            // As `open` does, but the search stays.
+            sort = nil
+            selectedTracks = []
             route = .songs
+            big = false
+            if pageTint != nil { pageTint = nil }
         }
     }
 

@@ -48,11 +48,13 @@ struct TopPlayer: View {
             Transport(play: 24, compact: true, bare: true, icons: 13)
                 .fixedSize()
             TopScreen()
-                .frame(minWidth: 220, idealWidth: 360, maxWidth: 440)
+                .frame(width: TopPlayer.screen)
             HStack(spacing: 14) {
-                if let c = store.current {
-                    Heart(on: c.favorite, size: 13) { store.toggleFavorite([c]) }
+                // Always there (dimmed with nothing playing), so the bar keeps its width.
+                Heart(on: store.current?.favorite ?? false, size: 13) {
+                    if let c = store.current { store.toggleFavorite([c]) }
                 }
+                .disabled(store.current == nil)
                 PanelButton(panel: .lyrics, icon: "quote.bubble", help: "Lyrics · ⌘L")
                 QueueButton()
                 MoreButton(all: true)
@@ -64,6 +66,11 @@ struct TopPlayer: View {
         .padding(.leading, 12)
         .padding(.trailing, 14)
     }
+
+    /// The screen's width, fixed.
+    static let screen: CGFloat = 300
+    /// About the whole player's width, for the window's least width.
+    static let width: CGFloat = 640
 }
 
 /// The title bar player's screen: a panel a little sunk into the glass, the cover at its left
@@ -74,6 +81,7 @@ struct TopScreen: View {
     private var store: Store { .shared }
     @State private var held: Double?
     @State private var hover = false
+    @State private var release: Task<Void, Never>?
 
     var body: some View {
         let colors = store.colors
@@ -85,7 +93,7 @@ struct TopScreen: View {
         HStack(spacing: 0) {
             Group {
                 if let p, has {
-                    Button { store.big = true } label: {
+                    Button { store.openBig() } label: {
                         Cover(path: p.artwork, seed: p.album + p.artist, side: 30, corner: 5)
                     }
                     .buttonStyle(.plain)
@@ -133,11 +141,12 @@ struct TopScreen: View {
         // Where the song is, along the screen's foot.
         .overlay(alignment: .bottom) {
             ThinBar(value: min(1, position / duration), tint: colors.ink.opacity(0.7), track: .clear, area: 6) { held = $0 } began: {
+                release?.cancel()
                 store.core.scrub(held: true)
             } ended: { fraction in
                 store.seek(fraction * duration)
                 store.core.scrub(held: false)
-                Task { try? await Task.sleep(for: .milliseconds(400)); held = nil }
+                release = Task { try? await Task.sleep(for: .milliseconds(400)); if !Task.isCancelled { held = nil } }
             }
             .disabled(!has)
             .overlay { LoopMarks(duration: duration) }
@@ -161,6 +170,7 @@ struct NowScreen: View {
     var small = false
     @State private var held: Double?
     @State private var hover = false
+    @State private var release: Task<Void, Never>?
 
     var body: some View {
         let colors = store.colors
@@ -172,7 +182,7 @@ struct NowScreen: View {
         VStack(spacing: 0) {
             HStack(spacing: 10) {
                 if let p, has {
-                    Button { store.big = true } label: { Cover(path: p.artwork, seed: p.album + p.artist, side: side, corner: small ? 4 : 5) }
+                    Button { store.openBig() } label: { Cover(path: p.artwork, seed: p.album + p.artist, side: side, corner: small ? 4 : 5) }
                         .buttonStyle(.plain)
                         .help("Open the big player · ⌘P")
                     VStack(alignment: .leading, spacing: small ? 0 : 1) {
@@ -210,11 +220,12 @@ struct NowScreen: View {
             // In the title bar it takes only the height its words need: the bar is low.
             .frame(height: small ? nil : 38)
             ThinBar(value: min(1, position / duration), tint: colors.accent, area: small ? 4 : 10) { held = $0 } began: {
+                release?.cancel()
                 store.core.scrub(held: true)
             } ended: { fraction in
                 store.seek(fraction * duration)
                 store.core.scrub(held: false)
-                Task { try? await Task.sleep(for: .milliseconds(400)); held = nil }
+                release = Task { try? await Task.sleep(for: .milliseconds(400)); if !Task.isCancelled { held = nil } }
             }
             .disabled(!has)
             .overlay { LoopMarks(duration: duration) }
@@ -272,6 +283,7 @@ struct ThinBar: View {
     var ended: (Double) -> Void = { _ in }
     @State private var hover = false
     @State private var dragged: Double?
+    @GestureState private var pressing = false
     @Environment(\.isEnabled) private var enabled
 
     var body: some View {
@@ -285,6 +297,7 @@ struct ThinBar: View {
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .contentShape(Rectangle())
             .gesture(DragGesture(minimumDistance: 0)
+                .updating($pressing) { _, state, _ in state = true }
                 .onChanged { drag in
                     let next = min(1, max(0, drag.location.x / max(1, geo.size.width)))
                     if dragged == nil { began() }
@@ -300,6 +313,15 @@ struct ThinBar: View {
         .opacity(enabled ? 1 : 0.5)
         .onHover { hover = $0 }
         .animation(.easeOut(duration: 0.12), value: hover)
+        .onChange(of: pressing) { _, now in if !now { finish() } }
+        .onDisappear { finish() }
+    }
+
+    /// Ends a drag that did not end by itself.
+    private func finish() {
+        guard let last = dragged else { return }
+        dragged = nil
+        ended(last)
     }
 }
 
@@ -489,34 +511,42 @@ struct VolumeControl: View {
         }
         .foregroundStyle(light ? .white : store.colors.ink2)
         // The wheel over the volume changes it.
-        .background {
-            GeometryReader { geo in
-                Color.clear
-                    .onAppear { VolumeWheel.areas[id] = geo.frame(in: .global) }
-                    .onChange(of: geo.frame(in: .global)) { _, frame in VolumeWheel.areas[id] = frame }
-                    .onDisappear { VolumeWheel.areas[id] = nil }
-            }
-        }
+        .background { VolumeArea() }
+    }
+}
+
+/// A volume control's place, as a view of its own in the window (the title bar's included),
+/// so the wheel finds it wherever it is.
+private struct VolumeArea: NSViewRepresentable {
+    func makeNSView(context: Context) -> NSView {
+        let view = NSView()
+        VolumeWheel.views.add(view)
+        return view
     }
 
-    @State private var id = UUID()
+    func updateNSView(_ view: NSView, context: Context) {}
+
+    static func dismantleNSView(_ view: NSView, coordinator: ()) {
+        VolumeWheel.views.remove(view)
+    }
 }
 
 /// Where the volume controls are, so the scroll wheel over them changes the volume
 /// (see `Keys`).
 @MainActor
 enum VolumeWheel {
-    static var areas: [UUID: CGRect] = [:]
+    static let views = NSHashTable<NSView>.weakObjects()
     /// Part of a step from a touchpad, kept until it makes a whole one.
     static var partial: CGFloat = 0
 
     /// Whether `event` is over a volume control; it then changes the volume.
     static func handle(_ event: NSEvent, store: Store) -> Bool {
-        guard let window = event.window, let content = window.contentView else { return false }
-        let p = event.locationInWindow
-        // SwiftUI's global frames start at the top left of the window's content.
-        let point = CGPoint(x: p.x, y: content.bounds.height - p.y)
-        guard areas.values.contains(where: { $0.insetBy(dx: -4, dy: -6).contains(point) }) else { return false }
+        guard let window = event.window else { return false }
+        let over = views.allObjects.contains { view in
+            view.window === window && !view.isHiddenOrHasHiddenAncestor
+                && view.bounds.insetBy(dx: -4, dy: -6).contains(view.convert(event.locationInWindow, from: nil))
+        }
+        guard over else { return false }
         var steps: CGFloat
         if event.hasPreciseScrollingDeltas {
             partial += event.scrollingDeltaY / 40

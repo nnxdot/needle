@@ -81,6 +81,9 @@ struct BigPlayer: View {
 
     private func rest(_ on: Bool) {
         if resting != on { resting = on }
+        // Only in full screen do the controls rest; and twice a second is enough to know the
+        // pointer moves (each move made the whole player again).
+        guard store.immersive, Date().timeIntervalSince(moved) > 0.5 else { return }
         moved = Date()
     }
 
@@ -167,7 +170,7 @@ struct ImmersiveCover: View {
                 tone
                 ZStack {
                     Artwork(path: path, seed: seed, size: 1800)
-                    if let video { LoopingVideo(url: video) }
+                    if animated, let video { LoopingVideo(url: video) }
                 }
                 .frame(width: side, height: geo.size.height)
                 .clipped()
@@ -185,13 +188,17 @@ struct ImmersiveCover: View {
             }
         }
         .animation(.easeInOut(duration: 0.6), value: tone)
-        .task(id: songID ?? path) {
+        .task(id: "\(songID ?? path ?? seed)|\(animated)") {
+            // The last song's video never plays over this one's cover.
+            video = nil
             let color = await Covers.pageColor(path, seed: seed)
+            guard !Task.isCancelled else { return }
             var h: CGFloat = 0, s: CGFloat = 0, b: CGFloat = 0, a: CGFloat = 0
             color.getHue(&h, saturation: &s, brightness: &b, alpha: &a)
             tone = Color(nsColor: NSColor(hue: h, saturation: s, brightness: min(b, 0.3), alpha: 1))
-            guard animated, let id = songID else { video = nil; return }
-            video = (await store.load { $0.animatedCover(id: id) } ?? nil).map(URL.init(fileURLWithPath:))
+            guard animated, let id = songID else { return }
+            let found = (await store.load { $0.animatedCover(id: id) } ?? nil).map(URL.init(fileURLWithPath:))
+            if !Task.isCancelled { video = found }
         }
     }
 }
@@ -210,21 +217,60 @@ struct LoopingVideo: NSViewRepresentable {
         if view.url != url { view.play(url) }
     }
 
+    static func dismantleNSView(_ view: PlayerView, coordinator: ()) {
+        view.stop()
+    }
+
     final class PlayerView: NSView {
         private let player = AVQueuePlayer()
         private var looper: AVPlayerLooper?
         private(set) var url: URL?
+        private var watching: NSObjectProtocol?
 
-        func play(_ url: URL) {
-            self.url = url
+        override init(frame: NSRect) {
+            super.init(frame: frame)
+            // A layer of AppKit's own making, which it sizes with the view.
             wantsLayer = true
+        }
+
+        required init?(coder: NSCoder) { nil }
+
+        override func makeBackingLayer() -> CALayer {
             let layer = AVPlayerLayer(player: player)
             layer.videoGravity = .resizeAspectFill
-            self.layer = layer
+            return layer
+        }
+
+        /// Still while the window is hidden behind others, on again when it shows.
+        override func viewDidMoveToWindow() {
+            super.viewDidMoveToWindow()
+            if let watching { NotificationCenter.default.removeObserver(watching) }
+            watching = nil
+            guard let window else { return }
+            watching = NotificationCenter.default.addObserver(forName: NSWindow.didChangeOcclusionStateNotification, object: window, queue: .main) { [weak self] _ in
+                guard let self, self.looper != nil else { return }
+                if window.occlusionState.contains(.visible) { self.player.play() } else { self.player.pause() }
+            }
+        }
+
+        deinit { if let watching { NotificationCenter.default.removeObserver(watching) } }
+
+        func play(_ url: URL) {
+            stop()
+            self.url = url
             player.isMuted = true
             player.preventsDisplaySleepDuringVideoPlayback = false
             looper = AVPlayerLooper(player: player, templateItem: AVPlayerItem(url: url))
             player.play()
+        }
+
+        /// The last video goes wholly, so it never shows over the next cover.
+        func stop() {
+            looper?.disableLooping()
+            looper = nil
+            player.pause()
+            player.removeAllItems()
+            url = nil
         }
     }
 }
@@ -264,7 +310,7 @@ struct MiniPlayer: View {
         .background(MiniWindow(floating: onTop))
         .containerBackground(.clear, for: .window)
         .preferredColorScheme(.dark)
-        .tint(store.colors.accent)
+        .tint(store.playerAccent)
     }
 
     private func cover(_ p: MacPlayback?) -> some View {
@@ -340,7 +386,7 @@ struct MiniPlayer: View {
     private func fold(_ name: String, icon: String, help: String) -> some View {
         Button { view = view == name ? "cover" : name } label: {
             Image(systemName: icon)
-                .foregroundStyle(view == name ? store.colors.accent : .white.opacity(0.85))
+                .foregroundStyle(view == name ? store.playerAccent : .white.opacity(0.85))
                 .frame(width: 26, height: 26)
                 .contentShape(Rectangle())
         }

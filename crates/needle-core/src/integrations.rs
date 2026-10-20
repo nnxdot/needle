@@ -510,6 +510,12 @@ pub fn fanart_key() -> Option<String> {
         .filter(|k| !k.trim().is_empty())
 }
 
+/// Whether the fanart.tv key in use is one the person saved (not Needle's own, built in).
+pub fn fanart_key_is_own() -> bool {
+    resolve(&SystemStore, &|name: &str| std::env::var(name).ok(), SecretKind::FanartKey)
+        .is_some_and(|(_, source)| source != SecretSource::BuiltIn)
+}
+
 /// The effective AcoustID API key (environment, then Credential Manager).
 pub fn acoustid_key() -> Option<String> {
     Some(Credentials::load().acoustid_key).filter(|k| !k.is_empty())
