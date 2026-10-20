@@ -178,9 +178,11 @@ fun NeedleTheme(content: @Composable () -> Unit) {
             LocalTitleFont provides app.titleFont,
             LocalRows provides Rows.of(app.density),
         ) {
-            androidx.compose.foundation.layout.Box {
-                content()
-                if (app.grain > 0f) Grain(app.grain)
+            FocusShades {
+                androidx.compose.foundation.layout.Box {
+                    content()
+                    if (app.grain > 0f) Grain(app.grain)
+                }
             }
         }
     }

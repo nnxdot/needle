@@ -99,7 +99,7 @@ fun SyncScreen() {
                     visualTransformation = PasswordVisualTransformation(),
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
                     supportingText = { Text("At least 12 characters. Needle cannot open the file without it.") },
-                    modifier = Modifier.fillMaxWidth(),
+                    modifier = Modifier.remoteEscape().fillMaxWidth(),
                 )
                 Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                     Button(enabled = !busy && passphrase.length >= 12, onClick = { save.launch("library.needle") }) { Text("Save a sync file") }
@@ -150,7 +150,7 @@ fun TimingScreen(songId: String) {
             }
             if (lines.isEmpty()) {
                 item {
-                    OutlinedTextField(text, { text = it }, label = { Text("Lyrics") }, minLines = 6, modifier = Modifier.fillMaxWidth().padding(Edge))
+                    OutlinedTextField(text, { text = it }, label = { Text("Lyrics") }, minLines = 6, modifier = Modifier.remoteEscape(lines = true).fillMaxWidth().padding(Edge))
                     TextButton(onClick = {
                         lines.addAll(text.lines().filter { it.isNotBlank() }.map { LyricLine(-1.0, it.trim(), emptyList()) })
                     }, modifier = Modifier.padding(horizontal = 12.dp)) { Text("Use these lines") }

@@ -49,6 +49,10 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.foundation.focusGroup
+import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalDensity
@@ -138,17 +142,49 @@ fun NeedleRoot() {
     }
 
     val app by NeedleApp.instance.app.collectAsState()
+    // The welcome guide, the first time Needle opens with no music yet.
+    val songsLoad = rememberLoaded { songCount() }
+    val songs by songsLoad
+    val again by Ui.welcome.collectAsState()
+    val welcoming = again || (!app.welcomed && songs == 0u)
+    // With a remote (TvFocus.kt): the player and the guide hold the focus while they cover the
+    // app. A page opened from the page takes the focus, and so does the page under the player
+    // or the guide when it closes; otherwise Android would give it to the side bar's first
+    // button when what had it goes.
+    val covered = welcoming || (playerOpen && hasSong)
+    val keys = usingKeys()
+    val pageFocus = remember { androidx.compose.ui.focus.FocusRequester() }
+    var inPage by remember { mutableStateOf(false) }
+    var toPage by remember { androidx.compose.runtime.mutableIntStateOf(0) }
+    // When a key was last pressed: the page losing the focus with no key pressed is what had
+    // it going (a filter changing the page), not the remote moving on.
+    var lastKey by remember { androidx.compose.runtime.mutableLongStateOf(0L) }
+    LaunchedEffect(tab, stack.last()) { if (inPage) toPage++ }
+    LaunchedEffect(covered) { if (!covered) toPage++ }
+    LaunchedEffect(toPage, keys, covered) {
+        if (!keys || covered) return@LaunchedEffect
+        // After the page slides in, so the focus lands on the new page, not the old.
+        kotlinx.coroutines.delay(350)
+        // A page can take a moment to load its first buttons, the first time most.
+        repeat(60) {
+            if (runCatching { pageFocus.requestFocus() }.getOrDefault(false)) return@LaunchedEffect
+            kotlinx.coroutines.delay(50)
+        }
+    }
     // Settings › Appearance › Colours from what is playing: every page in the song's colours.
     CoverTheme(if (app.ambientColors) playback?.current?.artwork else null) {
     SharedTransitionLayout(Modifier.fillMaxSize()) {
         CompositionLocalProvider(LocalShared provides this) {
-            Box(Modifier.fillMaxSize()) {
+            Box(Modifier.fillMaxSize().onPreviewKeyEvent { lastKey = android.os.SystemClock.uptimeMillis(); false }) {
                 // On tablets the side bar sits on a frame, and the pages in a rounded pane
                 // beside it, as Google's own apps on a tablet (Material's panes).
-                Row(Modifier.fillMaxSize().then(if (wide) Modifier.background(MaterialTheme.colorScheme.surfaceContainer) else Modifier)) {
+                Row(Modifier.fillMaxSize().focusCovered(covered).then(if (wide) Modifier.background(MaterialTheme.colorScheme.surfaceContainer) else Modifier)) {
                 if (wide) SideBar(tab, stack.last(), chooseTab, open)
                 // Pages lay out by the room they have (see Adaptive.kt).
-                androidx.compose.foundation.layout.BoxWithConstraints(Modifier.weight(1f).then(if (wide) Modifier.pane() else Modifier)) {
+                androidx.compose.foundation.layout.BoxWithConstraints(Modifier.weight(1f).then(if (wide) Modifier.pane() else Modifier).focusRequester(pageFocus).onFocusChanged {
+                    if (inPage && !it.hasFocus && android.os.SystemClock.uptimeMillis() - lastKey > 250) toPage++
+                    inPage = it.hasFocus
+                }.focusGroup()) {
                 CompositionLocalProvider(LocalPageWidth provides maxWidth) {
                 Scaffold(
                     containerColor = MaterialTheme.colorScheme.background,
@@ -245,7 +281,9 @@ fun NeedleRoot() {
                     exit = if (reduce) fadeOut(tween(150)) else slideOutVertically(tween(300)) { it } + fadeOut(tween(250)),
                 ) {
                     CompositionLocalProvider(LocalAnimated provides this) {
-                        FullPlayer(onClose = { playerOpen = false }, open = { playerOpen = false; open(it) })
+                        Box(Modifier.focusLayer()) {
+                            FullPlayer(onClose = { playerOpen = false }, open = { playerOpen = false; open(it) })
+                        }
                     }
                 }
                 // Messages show above everything, the player too, and clear of the bars below.
@@ -258,11 +296,7 @@ fun NeedleRoot() {
                         .padding(bottom = if (playerOpen) 16.dp else bars + 8.dp),
                 )
                 Overlays(snackbar)
-                // The welcome guide, the first time Needle opens with no music yet.
-                val songsLoad = rememberLoaded { songCount() }
-                val songs by songsLoad
-                val again by Ui.welcome.collectAsState()
-                if (again || (!app.welcomed && songs == 0u)) WelcomeGuide(open)
+                if (welcoming) Box(Modifier.focusLayer()) { WelcomeGuide(open) }
             }
         }
     }

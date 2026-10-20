@@ -140,7 +140,9 @@ fun rememberCoverScheme(path: String?, forceDark: Boolean = false): ColorScheme?
 @Composable
 fun CoverTheme(path: String?, dark: Boolean = false, content: @Composable () -> Unit) {
     val target = rememberCoverScheme(path, dark) ?: MaterialTheme.colorScheme
-    MaterialTheme(colorScheme = animatedScheme(target), typography = MaterialTheme.typography, shapes = MaterialTheme.shapes, content = content)
+    MaterialTheme(colorScheme = animatedScheme(target), typography = MaterialTheme.typography, shapes = MaterialTheme.shapes) {
+        FocusShades(content)
+    }
 }
 
 /** A colour scheme that blends into the next one, rather than snapping. */

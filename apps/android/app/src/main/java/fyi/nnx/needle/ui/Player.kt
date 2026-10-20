@@ -99,6 +99,15 @@ import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.foundation.focusable
+import androidx.compose.foundation.interaction.collectIsFocusedAsState
+import androidx.compose.ui.input.key.Key
+import androidx.compose.ui.input.key.KeyEventType
+import androidx.compose.ui.input.key.key
+import androidx.compose.ui.input.key.onKeyEvent
+import androidx.compose.ui.input.key.type
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.onSizeChanged
@@ -503,6 +512,8 @@ private fun PlayerControls(playing: Boolean, position: Double, duration: Double,
     val aheadIcon = if (jump) Icons.Rounded.Forward10 else Icons.Rounded.SkipNext
     val backLabel = if (jump) "Back 10 seconds" else "Previous"
     val aheadLabel = if (jump) "Ahead 10 seconds" else "Next"
+    // With a remote, play and pause shows a ring (Motion.kt): its own focus only shades it.
+    val middle = remember { androidx.compose.foundation.interaction.MutableInteractionSource() }
     Row(
         Modifier.fillMaxWidth().padding(top = 14.dp, bottom = 18.dp),
         horizontalArrangement = Arrangement.spacedBy(if (app.controlStyle == "minimal") 36.dp else 14.dp, Alignment.CenterHorizontally),
@@ -519,7 +530,8 @@ private fun PlayerControls(playing: Boolean, position: Double, duration: Double,
                     onClick = toggle,
                     shape = CircleShape,
                     colors = androidx.compose.material3.IconButtonDefaults.filledIconButtonColors(containerColor = MaterialTheme.colorScheme.primary, contentColor = MaterialTheme.colorScheme.onPrimary),
-                    modifier = Modifier.size(80.dp),
+                    interactionSource = middle,
+                    modifier = Modifier.size(80.dp).focusRing(middle, 40.dp),
                 ) { PlayPauseIcon(playing, 38.dp) }
                 androidx.compose.material3.FilledTonalIconButton(onClick = ahead, colors = side, shape = CircleShape, modifier = Modifier.size(60.dp)) {
                     Icon(aheadIcon, contentDescription = aheadLabel, modifier = Modifier.size(28.dp))
@@ -528,7 +540,7 @@ private fun PlayerControls(playing: Boolean, position: Double, duration: Double,
             // Minimal: the icons alone, large and white, as in Apple Music.
             "minimal" -> {
                 IconButton(onClick = back, modifier = Modifier.size(64.dp)) { Icon(backIcon, contentDescription = backLabel, modifier = Modifier.size(44.dp)) }
-                IconButton(onClick = toggle, modifier = Modifier.size(80.dp)) { PlayPauseIcon(playing, 64.dp) }
+                IconButton(onClick = toggle, interactionSource = middle, modifier = Modifier.size(80.dp).focusRing(middle, 40.dp)) { PlayPauseIcon(playing, 64.dp) }
                 IconButton(onClick = ahead, modifier = Modifier.size(64.dp)) { Icon(aheadIcon, contentDescription = aheadLabel, modifier = Modifier.size(44.dp)) }
             }
             // Expressive (Android 16's media controls): one large button in the cover's colour,
@@ -552,7 +564,8 @@ private fun PlayerControls(playing: Boolean, position: Double, duration: Double,
                         checkedContainerColor = MaterialTheme.colorScheme.primary,
                         checkedContentColor = MaterialTheme.colorScheme.onPrimary,
                     ),
-                    modifier = Modifier.size(width = 88.dp, height = 72.dp),
+                    interactionSource = middle,
+                    modifier = Modifier.size(width = 88.dp, height = 72.dp).focusRing(middle, 24.dp),
                 ) { PlayPauseIcon(playing, 36.dp) }
                 androidx.compose.material3.FilledTonalIconButton(
                     onClick = ahead,
@@ -671,7 +684,7 @@ private fun PlayerSearch(computer: Boolean, onDismiss: () -> Unit) {
                     focusedContainerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
                     unfocusedContainerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
                 ),
-                modifier = Modifier.fillMaxWidth(),
+                modifier = Modifier.remoteEscape().fillMaxWidth(),
             )
             LazyColumn(Modifier.fillMaxSize().padding(top = 8.dp)) {
                 itemsIndexed(found, key = { i, s -> "$i-${s.id}" }) { _, song ->
@@ -897,12 +910,26 @@ private fun SeekBar(position: Double, duration: Double, playing: Boolean) {
     var held by remember { mutableStateOf<Float?>(null) }
     val length = duration.coerceAtLeast(1.0).toFloat()
     val shown = held ?: (position.toFloat() / length).coerceIn(0f, 1f)
-    val thickness by animateDpAsState(if (held != null) 10.dp else 5.dp, label = "seek thickness")
+    // With a remote or keys: the bar takes the focus, and left and right go back or on ten seconds.
+    val focus = remember { androidx.compose.foundation.interaction.MutableInteractionSource() }
+    val focused by focus.collectIsFocusedAsState()
+    val thickness by animateDpAsState(if (held != null || focused) 10.dp else 5.dp, label = "seek thickness")
     Column(Modifier.padding(top = 16.dp)) {
         Box(
             Modifier
                 .fillMaxWidth()
                 .height(28.dp)
+                .onKeyEvent {
+                    val step = when (it.key) {
+                        Key.DirectionLeft -> -10.0
+                        Key.DirectionRight -> 10.0
+                        else -> return@onKeyEvent false
+                    }
+                    if (it.type == KeyEventType.KeyDown) Controls.seek((position + step).coerceIn(0.0, length.toDouble()))
+                    true
+                }
+                .focusable(interactionSource = focus)
+                .semantics { contentDescription = "Seek" }
                 .pointerInput(length) {
                     detectTapGestures { Controls.seek((it.x / size.width).coerceIn(0f, 1f) * length.toDouble()) }
                 }
@@ -915,7 +942,7 @@ private fun SeekBar(position: Double, duration: Double, playing: Boolean) {
                 },
             contentAlignment = Alignment.CenterStart,
         ) {
-            if (held == null) {
+            if (held == null && !focused) {
                 ProgressLine(shown, playing, Color.White, Color.White.copy(alpha = 0.25f))
             } else {
                 Box(Modifier.fillMaxWidth().height(thickness).clip(CircleShape).background(Color.White.copy(alpha = 0.25f)))
