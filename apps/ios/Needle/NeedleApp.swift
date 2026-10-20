@@ -76,21 +76,14 @@ struct RootView: View {
                 .navigationTransition(.zoom(sourceID: "player", in: player))
                 .sheet(item: $store.sheet) { SheetView(sheet: $0) }
                 .overlay(alignment: .top) { Toast().animation(.spring, value: store.message) }
+                .modifier(QuestionAlert(shown: true))
         }
         .fullScreenCover(isPresented: Binding(get: { !store.app.welcomed }, set: { _ in })) {
             WelcomeView { where_, route in go(where_, route) }
         }
         .sheet(item: Binding(get: { store.showPlayer ? nil : store.sheet }, set: { store.sheet = $0 })) { SheetView(sheet: $0) }
         .overlay(alignment: .top) { Toast().animation(.spring, value: store.message) }
-        .alert(store.question?.title ?? "", isPresented: Binding(get: { store.question != nil }, set: { if !$0, let q = store.question { store.answer(q, with: nil) } })) {
-            if let q = store.question {
-                TextField("", text: Binding(get: { store.question?.answer ?? "" }, set: { store.question?.answer = $0 }))
-                Button("OK") { store.answer(store.question ?? q, with: store.question?.answer ?? "") }
-                Button("Cancel", role: .cancel) { store.answer(q, with: nil) }
-            }
-        } message: {
-            Text(store.question?.prompt ?? "")
-        }
+        .modifier(QuestionAlert(shown: !store.showPlayer))
         .onChange(of: store.opening) { _, route in
             guard let route else { return }
             store.opening = nil
@@ -135,6 +128,25 @@ struct SheetView: View {
             case .timing(let song): TimingView(song: song)
             case .speakers: SpeakersView()
             }
+        }
+    }
+}
+
+/// A plugin's question, answered with text: over the page, or over the player when it is open
+/// (an alert under the player could not show).
+struct QuestionAlert: ViewModifier {
+    @Environment(Store.self) private var store
+    let shown: Bool
+
+    func body(content: Content) -> some View {
+        content.alert(store.question?.title ?? "", isPresented: Binding(get: { shown && store.question != nil }, set: { if !$0, let q = store.question { store.answer(q, with: nil) } })) {
+            if let q = store.question {
+                TextField("", text: Binding(get: { store.question?.answer ?? "" }, set: { store.question?.answer = $0 }))
+                Button("OK") { store.answer(store.question ?? q, with: store.question?.answer ?? "") }
+                Button("Cancel", role: .cancel) { store.answer(q, with: nil) }
+            }
+        } message: {
+            Text(store.question?.prompt ?? "")
         }
     }
 }

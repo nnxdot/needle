@@ -127,7 +127,8 @@ struct SourcesView: View {
         songs = await store.load { try $0.songCount() } ?? 0
         servers = await store.load { $0.plugins().filter { $0.source != nil } } ?? []
         pcConnected = await store.load { $0.pcConnected() } ?? false
-        pc = pcConnected ? await store.load { try $0.pcState() } : nil
+        // The Store already asks the computer: its answer, not another request.
+        pc = pcConnected ? store.pc : nil
     }
 }
 

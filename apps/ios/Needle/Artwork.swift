@@ -338,11 +338,14 @@ struct CoverBackdrop: View {
                 }
                 // A cover that cannot be read (gone, or on a computer that is off): the made-up one.
                 var source: UIImage? = if let path { await Covers.load(path, size: Int(Self.pixels)) } else { nil }
+                // Kept only when it is the cover itself (or the made-up one asked for), so the
+                // cover shows once it can be read.
+                let real = source != nil || path == nil
                 if source == nil { source = placeholder }
                 guard !Task.isCancelled, let source else { return }
                 let made = await Task.detached(priority: .userInitiated) { Self.soften(source, radius: radius) }.value
                 guard !Task.isCancelled, let made else { return }
-                Self.made.setObject(Made(made, Int(radius)), forKey: key)
+                if real { Self.made.setObject(Made(made, Int(radius)), forKey: key) }
                 withAnimation(.easeInOut(duration: 0.4)) { soft = made }
             }
         }

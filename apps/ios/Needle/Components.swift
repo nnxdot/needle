@@ -436,10 +436,10 @@ struct PagedSongs: View {
             else if total == 0 { ContentUnavailableView("No songs", systemImage: "music.note", description: Text("Add music in Sources.")) }
         }
         .task(id: store.libraryVersion) {
-            let q = query
+            let (q, size) = (query, max(page, UInt32(songs.count)))
             total = await store.load { try $0.searchSongsCount(query: q) } ?? 0
-            songs = []
-            await more()
+            // As many as were shown, at once: the list stays where it was scrolled.
+            songs = await store.load { try $0.searchSongsPage(query: q, offset: 0, size: size) } ?? []
         }
     }
 
@@ -504,6 +504,7 @@ struct Toast: View {
                 .padding(.top, 8)
                 .transition(.move(edge: .top).combined(with: .opacity))
                 .task(id: text) {
+                    UIAccessibility.post(notification: .announcement, argument: text)
                     try? await Task.sleep(for: .seconds(2.5))
                     withAnimation { store.message = nil }
                 }

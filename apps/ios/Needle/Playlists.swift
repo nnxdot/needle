@@ -15,13 +15,15 @@ struct PlaylistView: View {
     @State private var deleting = false
     @State private var selecting = false
     @State private var selected = Set<String>()
+    /// The playlist as it is now (its picture, after a change).
+    @State private var current: Playlist?
 
     var body: some View {
         let songs = detail?.songs ?? []
         let smart = detail?.rule != nil
         List(selection: selecting ? $selected : nil) {
             VStack(spacing: 6) {
-                PlaylistCover(playlist: playlist)
+                PlaylistCover(playlist: current ?? playlist)
                     .frame(width: 230, height: 230)
                     .clipShape(.rect(cornerRadius: 18))
                     .shadow(color: .black.opacity(0.4), radius: 20, y: 12)
@@ -76,11 +78,12 @@ struct PlaylistView: View {
                         Button("Edit", systemImage: "pencil") { editing = true }
                         if !smart {
                             Button("Choose a picture", systemImage: "photo") { picking = true }
-                            if playlist.artwork != nil {
+                            if detail?.artwork != nil {
                                 Button("Use the songs' covers", systemImage: "square.grid.2x2") {
                                     let id = playlist.id
-                                    store.run { try $0.setPlaylistPicture(id: id, path: nil) }
-                                    store.libraryChanged()
+                                    Task {
+                                        if await store.ask({ try $0.setPlaylistPicture(id: id, path: nil) }) != nil { store.libraryChanged() }
+                                    }
                                 }
                             }
                         }
@@ -127,6 +130,7 @@ struct PlaylistView: View {
     private func reload() async {
         let id = playlist.id
         detail = await store.load { try $0.playlistDetail(id: id) }
+        current = await store.load { try $0.playlists().first { $0.id == id } } ?? nil
     }
 
     private func export() {

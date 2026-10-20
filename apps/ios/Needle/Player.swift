@@ -180,7 +180,7 @@ struct NowPlayingView: View {
                 Divider()
                 loopMenu(song)
             }
-            SleepMenu()
+            if !store.onComputer { SleepMenu() }
             Button("Play on…", systemImage: "hifispeaker.2") { store.sheet = .speakers }
         } label: {
             Image(systemName: "ellipsis").font(.title3.weight(.semibold))
@@ -550,8 +550,14 @@ struct ComputerVolume: View {
     var body: some View {
         HStack(spacing: 12) {
             Image(systemName: "speaker.fill").font(.caption)
-            LineSlider(value: value ?? Double(store.playback?.volume ?? 1)) { value = $0 } done: {
-                if let value { store.setComputerVolume(Float(value)); self.value = nil }
+            LineSlider(value: value ?? Double(store.pc?.volume ?? 1)) { value = $0 } done: {
+                guard let value else { return }
+                store.setComputerVolume(Float(value))
+                // Until the computer's next answer has it.
+                Task {
+                    try? await Task.sleep(for: .seconds(1.5))
+                    if self.value == value { self.value = nil }
+                }
             }
             Image(systemName: "speaker.wave.3.fill").font(.caption)
         }

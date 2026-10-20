@@ -142,10 +142,12 @@ struct ThemeEditorView: View {
             if let id {
                 Section {
                     Button("Delete theme", role: .destructive) {
-                        store.run { try $0.deleteTheme(id: id) }
                         if store.app.theme == id { store.updateApp { $0.theme = "night" } }
-                        store.reloadThemes()
-                        dismiss()
+                        Task {
+                            _ = await store.ask { try $0.deleteTheme(id: id) }
+                            store.reloadThemes()
+                            dismiss()
+                        }
                     }
                 }
             }

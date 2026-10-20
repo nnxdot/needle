@@ -84,9 +84,12 @@ struct LibrarySettingsView: View {
                     .deleteDisabled(folder == store.musicFolder.path)
                 }
                 .onDelete { rows in
-                    for folder in rows.map({ folders[$0] }) { store.run { try $0.removeFolder(path: folder) } }
+                    let gone = rows.map { folders[$0] }
                     folders.remove(atOffsets: rows)
-                    store.libraryChanged()
+                    Task {
+                        for folder in gone { _ = await store.ask { try $0.removeFolder(path: folder) } }
+                        store.libraryChanged()
+                    }
                 }
                 Button("Read the music again") { store.rescan() }.disabled(store.scan.running)
             } header: {

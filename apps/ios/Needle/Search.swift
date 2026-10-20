@@ -111,7 +111,7 @@ struct SearchView: View {
             SectionTitle(title: "On your server")
             LazyVStack(spacing: 10) {
                 ForEach(Array(server.prefix(30).enumerated()), id: \.element.id) { i, song in
-                    SongRow(song: song) { let g = generation; store.core.playServerSongs(generation: g, start: UInt32(i)) }
+                    SongRow(song: song) { let g = generation; store.core.playServerSongs(generation: g, start: UInt32(i)); store.played() }
                 }
             }
             .padding(.horizontal)

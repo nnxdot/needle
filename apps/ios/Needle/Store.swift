@@ -87,6 +87,7 @@ final class Store {
 
     @ObservationIgnored private var timer: Timer?
     @ObservationIgnored private var scansSeen: UInt64 = 0
+    @ObservationIgnored private var shownError: String?
     @ObservationIgnored private var queueVersion: UInt64 = .max
     @ObservationIgnored private var shownSong: String?
     @ObservationIgnored private var shownArtwork: MPMediaItemArtwork?
@@ -186,7 +187,20 @@ final class Store {
         if next.playing != isPlaying { isPlaying = next.playing }
         if next.queueVersion != queueVersion {
             queueVersion = next.queueVersion
-            upNext = shown ? (pc?.upNext ?? []).map(Self.song(of:)) : core.upNext()
+            if shown {
+                upNext = (pc?.upNext ?? []).map(Self.song(of:))
+            } else {
+                let (core, version) = (core, next.queueVersion)
+                Task {
+                    let list = await Task.detached { core.upNext() }.value
+                    if self.queueVersion == version { self.upNext = list }
+                }
+            }
+        }
+        // A song that could not play says so (without any address, which may hold a key).
+        if now.error != shownError {
+            shownError = now.error
+            if let error = now.error { message = Self.withoutAddresses(error) }
         }
         updateNowPlaying(now)
         followSleep(now)
@@ -200,8 +214,8 @@ final class Store {
         guard ticks % 2 == 0 else { return }
         let status = core.scanStatus()
         if status != scan { scan = status }
-        if status.finished != scansSeen {
-            scansSeen = status.finished
+        if status.changes != scansSeen {
+            scansSeen = status.changes
             libraryChanged()
         }
         for notice in core.takeNotices() {
@@ -365,8 +379,13 @@ final class Store {
         played()
     }
 
+    /// Text with any web address taken out.
+    nonisolated static func withoutAddresses(_ text: String) -> String {
+        text.replacingOccurrences(of: #"https?://\S+"#, with: "the server", options: .regularExpression)
+    }
+
     /// Opens the player when a song is chosen, if that is on.
-    private func played() {
+    func played() {
         if app.openPlayerOnPlay { showPlayer = true }
     }
 
@@ -510,11 +529,19 @@ final class Store {
     private func followComputer() {
         let core = core
         Task { [weak self] in
+            var failures = 0
             while true {
-                let heard = await Task.detached { core.pcConnected() ? try? core.pcState() : nil }.value
+                let (connected, heard) = await Task.detached { () -> (Bool, PcState?) in
+                    let connected = core.pcConnected()
+                    return (connected, connected ? try? core.pcState() : nil)
+                }.value
                 guard let self else { return }
                 if heard != self.pc { self.pc = heard }
-                try? await Task.sleep(for: .milliseconds(self.onComputer ? 700 : 1500))
+                // Not answering (another network, the computer off): wait longer each time.
+                failures = connected && heard == nil ? min(failures + 1, 5) : 0
+                let away = UIApplication.shared.applicationState == .background && !self.onComputer
+                let seconds = failures > 0 ? min(30, 1.5 * pow(2, Double(failures))) : away ? 15 : self.onComputer ? 0.7 : 1.5
+                try? await Task.sleep(for: .seconds(seconds))
             }
         }
     }

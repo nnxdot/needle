@@ -151,7 +151,9 @@ struct PlaylistCover: View {
     let playlist: Playlist
 
     var body: some View {
-        if playlist.artwork == nil || playlist.mosaic.count < 4 {
+        if let picture = playlist.picture {
+            Artwork(path: picture, seed: playlist.name, size: 400)
+        } else if playlist.artwork == nil || playlist.mosaic.count < 4 {
             Artwork(path: playlist.artwork, seed: playlist.name, size: 400)
                 .overlay {
                     if playlist.smart {
@@ -271,16 +273,19 @@ struct ArtistsView: View {
 
     var body: some View {
         List(shown) { artist in
-            NavigationLink(value: Route.artist(artist.name)) {
-                HStack(spacing: 14) {
-                    Artwork(path: artist.artwork, seed: artist.name, size: 160)
-                        .frame(width: 52, height: 52).clipShape(.circle)
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text(artist.name).lineLimit(1)
-                        Text(count(Int(artist.albums), "album") + " · " + count(Int(artist.songs), "song"))
-                            .font(.subheadline).foregroundStyle(.secondary)
-                    }
+            let row = HStack(spacing: 14) {
+                Artwork(path: artist.artwork, seed: artist.name, size: 160)
+                    .frame(width: 52, height: 52).clipShape(.circle)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(isPlaceholderArtist(artist.name) ? unknownArtist : artist.name).lineLimit(1)
+                    Text(count(Int(artist.albums), "album") + " · " + count(Int(artist.songs), "song"))
+                        .font(.subheadline).foregroundStyle(.secondary)
                 }
+            }
+            if isPlaceholderArtist(artist.name) {
+                row
+            } else {
+                NavigationLink(value: Route.artist(artist.name)) { row }
             }
         }
         .listStyle(.plain)
