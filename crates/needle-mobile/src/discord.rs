@@ -86,6 +86,12 @@ impl Needle {
         sdk::link(APP_ID);
     }
 
+    /// iPhone: stops linking (Discord's sign-in page may stay open; its answer is ignored).
+    pub fn discord_cancel_link(&self) {
+        #[cfg(target_os = "ios")]
+        sdk::account::CANCEL.store(true, std::sync::atomic::Ordering::SeqCst);
+    }
+
     /// iPhone: forgets the Discord account; the status goes away.
     pub fn discord_unlink(&self) {
         #[cfg(target_os = "ios")]
@@ -150,8 +156,21 @@ fn follow(player: needle_core::audio::Player, library: needle_core::database::Li
     let mut presence: Option<Presence> = None;
     let mut sent: Option<(_, i64)> = None;
     let mut idle_since: Option<i64> = None;
+    #[cfg(target_os = "ios")]
+    let mut unlinked = sdk::account::UNLINKED.load(std::sync::atomic::Ordering::SeqCst);
     loop {
         std::thread::sleep(std::time::Duration::from_secs(1));
+        // Unlinked: the status goes now (dropping the presence clears it and lets go of the
+        // client), not when the song next changes.
+        #[cfg(target_os = "ios")]
+        {
+            let now = sdk::account::UNLINKED.load(std::sync::atomic::Ordering::SeqCst);
+            if now != unlinked {
+                unlinked = now;
+                presence = None;
+                sent = None;
+            }
+        }
         let Ok(settings) = library.settings() else {
             continue;
         };
@@ -199,6 +218,8 @@ fn follow(player: needle_core::audio::Player, library: needle_core::database::Li
                 (
                     a.title.clone(),
                     a.artist.clone(),
+                    a.album.clone(),
+                    a.ends.map(|end| end - a.started),
                     a.paused,
                     a.find_cover,
                     a.layout,
@@ -209,7 +230,7 @@ fn follow(player: needle_core::audio::Player, library: needle_core::database::Li
         let changed = match (&sent, &key) {
             (None, None) => false,
             (Some((what, started)), Some((new_what, new_started))) => {
-                what != new_what || (!new_what.2 && (started - new_started).abs() > 2i64)
+                what != new_what || (!new_what.4 && (started - new_started).abs() > 2i64)
             }
             _ => true,
         };
@@ -476,12 +497,15 @@ mod sdk {
         client: Box<Object>,
         /// The last refusal, so the log has each one once, not every few seconds.
         refused: Option<String>,
+        /// Refusals in a row: after a few, the connection is made again.
+        refusals: u32,
         /// iPhone: the unlinks before this connection (see [`account::UNLINKED`]).
         #[cfg(target_os = "ios")]
         unlinked: u64,
-        /// iPhone: when the access key runs out, a while early.
+        /// iPhone: when the access key runs out, a while early, by the wall clock (which,
+        /// unlike `Instant`, goes on while the phone sleeps).
         #[cfg(target_os = "ios")]
-        expires: Instant,
+        expires: std::time::SystemTime,
     }
 
     impl Sdk {
@@ -499,10 +523,11 @@ mod sdk {
                 api,
                 client,
                 refused: None,
+                refusals: 0,
                 #[cfg(target_os = "ios")]
                 unlinked: account::UNLINKED.load(std::sync::atomic::Ordering::SeqCst),
                 #[cfg(target_os = "ios")]
-                expires: Instant::now(),
+                expires: std::time::SystemTime::now(),
             }
         }
     }
@@ -525,18 +550,19 @@ mod sdk {
 
         fn show(&mut self, activity: Option<&Activity>) -> std::io::Result<bool> {
             let api = self.api;
-            // Unlinked, or the key is running out: let go, and connect again (or not).
-            #[cfg(target_os = "ios")]
-            if account::UNLINKED.load(std::sync::atomic::Ordering::SeqCst) != self.unlinked
-                || Instant::now() > self.expires
-            {
-                return Err(std::io::Error::other("Connecting to Discord again"));
-            }
             let Some(activity) = activity else {
+                // Clearing comes first, even after an unlink: it is how the status goes.
                 // SAFETY: the live client.
                 unsafe { (api.clear_rich_presence)(&mut *self.client) };
                 return Ok(true);
             };
+            // Unlinked, or the key is running out: let go, and connect again (or not).
+            #[cfg(target_os = "ios")]
+            if account::UNLINKED.load(std::sync::atomic::Ordering::SeqCst) != self.unlinked
+                || std::time::SystemTime::now() > self.expires
+            {
+                return Err(std::io::Error::other("Connecting to Discord again"));
+            }
             let card = activity.card();
             let picture = |name: String| {
                 if name == "needle" {
@@ -598,12 +624,18 @@ mod sdk {
             match wait_for(api, &answer, Duration::from_secs(10)) {
                 Some(Ok(())) => {
                     self.refused = None;
+                    self.refusals = 0;
                     Ok(true)
                 }
                 Some(Err(why)) => {
                     if self.refused.as_ref() != Some(&why) {
                         needle_core::logfile::warn(format!("Discord did not take the status: {why}"));
                         self.refused = Some(why);
+                    }
+                    // Refused again and again: the connection is likely gone; make it anew.
+                    self.refusals += 1;
+                    if self.refusals >= 4 {
+                        return Err(std::io::Error::other("Discord keeps refusing the status"));
                     }
                     Ok(false)
                 }
@@ -684,17 +716,28 @@ mod sdk {
             let (access, refresh, lifetime) = match wait_for(api, &tokens, Duration::from_secs(30)) {
                 Some(Ok(tokens)) => tokens,
                 Some(Err(why)) => {
-                    account::problem(Some(format!(
-                        "Discord did not take Needle's key ({why}). Link your account again."
-                    )));
+                    // A refused key needs a new link; anything else (no internet) is tried
+                    // again later.
+                    if why.to_lowercase().contains("invalid") {
+                        account::problem(Some(format!(
+                            "Discord did not take Needle's key ({why}). Link your account again."
+                        )));
+                    }
                     return false;
                 }
                 // No answer (no internet): try again later.
                 None => return false,
             };
-            account::save(&refresh);
+            // Unlinked meanwhile: the new key is not kept, and nothing connects.
+            if account::UNLINKED.load(std::sync::atomic::Ordering::SeqCst) != self.unlinked {
+                return false;
+            }
+            // Discord's old key no longer works once it gave this one.
+            if !account::save(&refresh) {
+                account::problem(Some("Needle could not keep Discord's key in the Keychain. Link your account again.".into()));
+            }
             // An hour early, so it never runs out while connected.
-            self.expires = Instant::now()
+            self.expires = std::time::SystemTime::now()
                 + Duration::from_secs((lifetime.max(0) as u64).saturating_sub(3600).max(600));
             let done: Slot<Outcome> = Slot::default();
             // SAFETY: the live client; Discord copies the key. 1 is a Bearer key.
@@ -747,6 +790,7 @@ mod sdk {
         if account::LINKING.swap(true, Ordering::SeqCst) {
             return;
         }
+        account::CANCEL.store(false, Ordering::SeqCst);
         account::problem(None);
         std::thread::spawn(move || {
             if let Err(why) = linked(client_id) {
@@ -792,9 +836,19 @@ mod sdk {
             (api.verifier_drop)(&mut verifier);
             verifier_text
         };
-        // The person signs in on Discord's page: give them time.
-        let (code, redirect) = wait_for(api, &code, Duration::from_secs(600))
-            .ok_or("Discord's sign-in page was open too long")??;
+        // The person signs in on Discord's page: give them time, or stop when they cancel.
+        let until = Instant::now() + Duration::from_secs(600);
+        let (code, redirect) = loop {
+            if let Some(answer) = wait_for(api, &code, Duration::from_millis(500)) {
+                break answer?;
+            }
+            if account::CANCEL.load(std::sync::atomic::Ordering::SeqCst) {
+                return Err("Linking was cancelled".into());
+            }
+            if Instant::now() > until {
+                return Err("Discord's sign-in page was open too long".into());
+            }
+        };
         let tokens: Slot<Tokens> = Slot::default();
         // SAFETY: the live client; Discord copies what it is given.
         unsafe {
@@ -811,8 +865,7 @@ mod sdk {
         };
         let (_, refresh, _) =
             wait_for(api, &tokens, Duration::from_secs(30)).ok_or("Discord did not answer")??;
-        account::save(&refresh);
-        if account::token().as_deref() != Some(refresh.as_str()) {
+        if !account::save(&refresh) || account::token().as_deref() != Some(refresh.as_str()) {
             return Err("Needle could not keep Discord's key in the Keychain".into());
         }
         drop(sdk);
@@ -831,6 +884,8 @@ mod sdk {
         const PLACE: &str = "discord";
         const KEY: &str = "refresh_token";
         pub static LINKING: AtomicBool = AtomicBool::new(false);
+        /// Asks linking to stop.
+        pub static CANCEL: AtomicBool = AtomicBool::new(false);
         /// Goes up when the account is unlinked, so a connection made before lets go.
         pub static UNLINKED: AtomicU64 = AtomicU64::new(0);
         static PROBLEM: Mutex<Option<String>> = Mutex::new(None);
@@ -839,9 +894,14 @@ mod sdk {
             plugin::get(PLACE, KEY).ok().flatten()
         }
 
-        pub fn save(token: &str) {
-            if let Err(e) = plugin::set(PLACE, KEY, token) {
-                needle_core::logfile::warn(format!("Keeping Discord's key: {e:#}"));
+        /// Keeps the key; false when the Keychain would not.
+        pub fn save(token: &str) -> bool {
+            match plugin::set(PLACE, KEY, token) {
+                Ok(()) => true,
+                Err(e) => {
+                    needle_core::logfile::warn(format!("Keeping Discord's key: {e:#}"));
+                    false
+                }
             }
         }
 
