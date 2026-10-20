@@ -118,7 +118,7 @@ fun ConnectScreen() {
                         Icon(Icons.Rounded.QrCodeScanner, contentDescription = null)
                         Text("  Scan the QR code")
                     }
-                    OutlinedTextField(link, { link = it }, label = { Text("Or its address") }, placeholder = { Text("http://192.168.1.5:47380/r/…") }, singleLine = true, modifier = Modifier.fillMaxWidth())
+                    OutlinedTextField(link, { link = it }, label = { Text("Or its address") }, placeholder = { Text("http://192.168.1.5:47380/r/…") }, singleLine = true, modifier = Modifier.remoteEscape().fillMaxWidth())
                     FilledTonalButton(enabled = !busy && link.isNotBlank(), onClick = { connect(link) }) { Text("Connect") }
                 }
             }
@@ -171,7 +171,7 @@ fun ConnectScreen() {
         }
         item { SectionHeader("Search your computer") }
         item {
-            OutlinedTextField(query, { query = it }, placeholder = { Text("Songs, albums, artists") }, singleLine = true, shape = RoundedCornerShape(28.dp), modifier = Modifier.fillMaxWidth().padding(horizontal = Edge))
+            OutlinedTextField(query, { query = it }, placeholder = { Text("Songs, albums, artists") }, singleLine = true, shape = RoundedCornerShape(28.dp), modifier = Modifier.remoteEscape().fillMaxWidth().padding(horizontal = Edge))
         }
         items(found, key = { it.id }) { song ->
             var menu by remember { mutableStateOf(false) }

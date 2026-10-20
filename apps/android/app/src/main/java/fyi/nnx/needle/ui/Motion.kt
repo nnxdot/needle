@@ -1,5 +1,7 @@
 package fyi.nnx.needle.ui
 
+import androidx.compose.ui.draw.drawWithContent
+import androidx.compose.foundation.interaction.collectIsFocusedAsState
 import android.provider.Settings
 import androidx.compose.animation.AnimatedVisibilityScope
 import androidx.compose.animation.ExperimentalSharedTransitionApi
@@ -73,16 +75,47 @@ fun rememberHaptics(): (strong: Boolean) -> Unit {
     }
 }
 
-/** Shrinks a little while pressed, and springs back, as covers do in Apple Music. */
+/**
+ * Shrinks a little while pressed, and springs back, as covers do in Apple Music. With a remote
+ * it grows a little and takes a ring while it has the focus, as on a TV's home screen.
+ */
 fun Modifier.pressScale(interaction: MutableInteractionSource, scale: Float = 0.96f): Modifier = composed {
     val pressed by interaction.collectIsPressedAsState()
+    val focused by interaction.collectIsFocusedAsState()
     val reduce = reduceMotion()
     val value by animateFloatAsState(
-        if (pressed && !reduce) scale else 1f,
+        when {
+            reduce -> 1f
+            pressed -> scale
+            focused -> 1.04f
+            else -> 1f
+        },
         spring(dampingRatio = 0.6f, stiffness = 600f),
         label = "press",
     )
-    graphicsLayer { scaleX = value; scaleY = value }
+    graphicsLayer { scaleX = value; scaleY = value }.focusRing(interaction)
+}
+
+/**
+ * A ring just outside what has a remote's focus, so its own corners do not cut it: for cards,
+ * and for Material's filled buttons, whose own focus only darkens them. [corner] is the
+ * thing's own corner; a pill or a circle keeps its shape.
+ */
+fun Modifier.focusRing(interaction: androidx.compose.foundation.interaction.InteractionSource, corner: Dp = 20.dp): Modifier = composed {
+    val focused by interaction.collectIsFocusedAsState()
+    val ring = MaterialTheme.colorScheme.onSurface
+    drawWithContent {
+        drawContent()
+        if (!focused) return@drawWithContent
+        val out = 5.dp.toPx()
+        drawRoundRect(
+            ring,
+            topLeft = androidx.compose.ui.geometry.Offset(-out, -out),
+            size = androidx.compose.ui.geometry.Size(size.width + out * 2, size.height + out * 2),
+            cornerRadius = androidx.compose.ui.geometry.CornerRadius(minOf(corner.toPx(), size.minDimension / 2) + out),
+            style = androidx.compose.ui.graphics.drawscope.Stroke(3.dp.toPx()),
+        )
+    }
 }
 
 /** Three bars that bounce while the song plays and rest while it is paused. */

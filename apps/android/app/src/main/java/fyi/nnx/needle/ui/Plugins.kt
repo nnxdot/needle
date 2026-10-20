@@ -193,7 +193,7 @@ fun PluginScreen(id: String) {
                                     singleLine = true,
                                     visualTransformation = if (field.secret) PasswordVisualTransformation() else androidx.compose.ui.text.input.VisualTransformation.None,
                                     keyboardOptions = KeyboardOptions(keyboardType = if (field.secret) KeyboardType.Password else KeyboardType.Uri),
-                                    modifier = Modifier.fillMaxWidth(),
+                                    modifier = Modifier.remoteEscape().fillMaxWidth(),
                                 )
                             }
                             Button(onClick = { core.sourceSignIn(plugin.id, fields.toMap()) }) { Text("Sign in") }

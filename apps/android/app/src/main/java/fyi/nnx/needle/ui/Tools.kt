@@ -252,7 +252,7 @@ fun TagEditorDialog(ids: List<String>, onDone: () -> Unit) {
                         placeholder = { if (ids.size > 1 && start[key].isNullOrEmpty()) Text("As each song has it") },
                         singleLine = true,
                         keyboardOptions = if (key == "year" || key == "track") KeyboardOptions(keyboardType = KeyboardType.Number) else KeyboardOptions.Default,
-                        modifier = Modifier.fillMaxWidth(),
+                        modifier = Modifier.remoteEscape().fillMaxWidth(),
                     )
                 }
                 Text(
@@ -324,7 +324,7 @@ private fun IdentifyDialog(id: String, onDone: (changed: Boolean) -> Unit) {
                         TextButton(onClick = {
                             context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("https://acoustid.org/new-application")).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
                         }) { Text("Get a key at acoustid.org") }
-                        OutlinedTextField(key, { key = it }, label = { Text("Application key") }, singleLine = true, modifier = Modifier.fillMaxWidth())
+                        OutlinedTextField(key, { key = it }, label = { Text("Application key") }, singleLine = true, modifier = Modifier.remoteEscape().fillMaxWidth())
                     }
                     busy -> Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                         CircularProgressIndicator(Modifier.size(20.dp), strokeWidth = 2.dp)
@@ -678,8 +678,8 @@ fun ImportScreen() {
                         FilterChip(service == "listenbrainz", { service = "listenbrainz" }, label = { Text("ListenBrainz") })
                         FilterChip(service == "lastfm", { service = "lastfm" }, label = { Text("Last.fm") })
                     }
-                    OutlinedTextField(user, { user = it }, label = { Text("User name") }, singleLine = true, modifier = Modifier.fillMaxWidth())
-                    if (service == "lastfm") OutlinedTextField(key, { key = it }, label = { Text("Last.fm API key") }, supportingText = { Text("From last.fm/api") }, singleLine = true, modifier = Modifier.fillMaxWidth())
+                    OutlinedTextField(user, { user = it }, label = { Text("User name") }, singleLine = true, modifier = Modifier.remoteEscape().fillMaxWidth())
+                    if (service == "lastfm") OutlinedTextField(key, { key = it }, label = { Text("Last.fm API key") }, supportingText = { Text("From last.fm/api") }, singleLine = true, modifier = Modifier.remoteEscape().fillMaxWidth())
                 }
             },
             confirmButton = {
@@ -748,7 +748,7 @@ fun ThemeEditorScreen(id: String?, back: () -> Unit) {
         item { LargeTitle(if (existing == null) "New theme" else "Edit theme") }
         item {
             Column(Modifier.padding(horizontal = Edge), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                OutlinedTextField(name, { name = it }, label = { Text("Name") }, singleLine = true, modifier = Modifier.fillMaxWidth())
+                OutlinedTextField(name, { name = it }, label = { Text("Name") }, singleLine = true, modifier = Modifier.remoteEscape().fillMaxWidth())
                 Text("Starts from", style = MaterialTheme.typography.titleSmall)
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     listOf("dark" to "Night", "midnight" to "Midnight", "light" to "Day").forEach { (b, label) ->
@@ -829,7 +829,7 @@ private fun ColorDialog(start: Color, onDismiss: () -> Unit, onPick: (Color) -> 
                         androidx.core.graphics.ColorUtils.colorToHSL(c.toArgb(), out)
                         h = out[0]; s = out[1]; l = out[2]
                     }
-                }, singleLine = true, label = { Text("Hex") }, modifier = Modifier.fillMaxWidth())
+                }, singleLine = true, label = { Text("Hex") }, modifier = Modifier.remoteEscape().fillMaxWidth())
             }
         },
         confirmButton = { TextButton(onClick = { onPick(color) }) { Text("Use it") } },

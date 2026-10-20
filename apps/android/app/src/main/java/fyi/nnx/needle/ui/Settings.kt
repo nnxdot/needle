@@ -494,7 +494,7 @@ private fun PlaybackSettingsPage() {
             trailingIcon = {
                 if (query != s.autoplayQuery && problem == null) TextButton(onClick = { save(s.copy(autoplayQuery = query.trim())); showMessage("Saved") }) { Text("Save") }
             },
-            modifier = Modifier.fillMaxWidth().padding(16.dp),
+            modifier = Modifier.remoteEscape().fillMaxWidth().padding(16.dp),
         )
     }
     Group("Radio", footer = "Radio picks songs that sound alike, from how each one sounds. Measuring reads each song once, on this phone.") {
@@ -599,7 +599,7 @@ private fun SoundSettingsPage() {
         AlertDialog(
             onDismissRequest = { naming = false },
             title = { Text("Save as a preset") },
-            text = { OutlinedTextField(name, { name = it }, label = { Text("Name") }, singleLine = true) },
+            text = { OutlinedTextField(name, { name = it }, label = { Text("Name") }, singleLine = true, modifier = Modifier.remoteEscape()) },
             confirmButton = {
                 TextButton(enabled = name.isNotBlank(), onClick = {
                     naming = false
@@ -969,8 +969,8 @@ private fun ScrobblingSettings() {
             Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 if (!a.lastfmKeyBuiltIn) {
                     Text("This build needs your own Last.fm API account: create one at last.fm/api, then paste its key and secret.", color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    OutlinedTextField(key, { key = it }, label = { Text("API key") }, singleLine = true, modifier = Modifier.fillMaxWidth())
-                    OutlinedTextField(secret, { secret = it }, label = { Text("Shared secret") }, singleLine = true, visualTransformation = PasswordVisualTransformation(), modifier = Modifier.fillMaxWidth())
+                    OutlinedTextField(key, { key = it }, label = { Text("API key") }, singleLine = true, modifier = Modifier.remoteEscape().fillMaxWidth())
+                    OutlinedTextField(secret, { secret = it }, label = { Text("Shared secret") }, singleLine = true, visualTransformation = PasswordVisualTransformation(), modifier = Modifier.remoteEscape().fillMaxWidth())
                 }
                 if (!waitingForBrowser) {
                     Button(enabled = !busy, onClick = {
@@ -1008,7 +1008,7 @@ private fun ScrobblingSettings() {
                     token, { token = it }, label = { Text("User token") }, singleLine = true,
                     visualTransformation = PasswordVisualTransformation(),
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
-                    modifier = Modifier.fillMaxWidth(),
+                    modifier = Modifier.remoteEscape().fillMaxWidth(),
                 )
                 Button(enabled = !busy && token.isNotBlank(), onClick = {
                     run { val user = core.listenbrainzSignIn(token.trim()); if (user.isBlank()) "Signed in to ListenBrainz." else "Signed in as $user." }

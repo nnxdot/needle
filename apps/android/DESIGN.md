@@ -57,6 +57,17 @@ marks only what plays, the main action, and links.
 - Every page opened from another has a back button at its top left, besides the back gesture.
 - Covers fly between pages of one tab only; switching tabs cross-fades.
 
+## TV and keys
+
+- On Android TV the app is the tablet's: the side bar, the pane, the wide player. A remote
+  moves the focus (`TvFocus.kt`).
+- What has the focus shows plainly, from across a room: cards grow a little and take a ring in
+  the text colour (`pressScale`, `focusRing`); other buttons take a ring or a deeper shade.
+- The player and the welcome guide keep the focus while they are open (`focusLayer`). A page
+  opened from the page takes the focus; its Play first, where it has one (`firstFocus`).
+- Text boxes let the remote leave them up and down (`remoteEscape`); on a TV the search box
+  opens the keyboard only on OK (`RemoteTyping`).
+
 ## Type
 
 - Roboto Flex, one variable font. Text at its usual width; display and headline sizes narrow

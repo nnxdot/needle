@@ -141,7 +141,7 @@ private fun PluginQuestion(q: Notice.Question, done: () -> Unit) {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Text("${q.plugin} asks", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 if (q.prompt.isNotBlank()) Text(q.prompt)
-                OutlinedTextField(text, { text = it }, singleLine = true, modifier = Modifier.fillMaxWidth())
+                OutlinedTextField(text, { text = it }, singleLine = true, modifier = Modifier.remoteEscape().fillMaxWidth())
             }
         },
         confirmButton = { TextButton(onClick = { core.answer(q.id, text, null); done() }) { Text("OK") } },
@@ -232,8 +232,8 @@ private fun PlaylistDialog(editing: String?, ids: List<String>, smartAtFirst: Bo
         title = { Text(if (editing == null) "New playlist" else "Edit playlist") },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                OutlinedTextField(name, { name = it }, label = { Text("Name") }, singleLine = true, modifier = Modifier.fillMaxWidth())
-                OutlinedTextField(description, { description = it }, label = { Text("Description (if you like)") }, modifier = Modifier.fillMaxWidth())
+                OutlinedTextField(name, { name = it }, label = { Text("Name") }, singleLine = true, modifier = Modifier.remoteEscape().fillMaxWidth())
+                OutlinedTextField(description, { description = it }, label = { Text("Description (if you like)") }, modifier = Modifier.remoteEscape(lines = true).fillMaxWidth())
                 if (editing == null && ids.isEmpty()) {
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         FilterChip(selected = !smart, onClick = { smart = false }, label = { Text("Songs I pick") })
@@ -247,7 +247,7 @@ private fun PlaylistDialog(editing: String?, ids: List<String>, smartAtFirst: Bo
                         placeholder = { Text("rating >= 4 and genre = \"Pop\"") },
                         isError = problem != null,
                         supportingText = { Text(problem ?: "Songs that match this rule, as you would type it in search.") },
-                        modifier = Modifier.fillMaxWidth(),
+                        modifier = Modifier.remoteEscape(lines = true).fillMaxWidth(),
                     )
                 }
             }

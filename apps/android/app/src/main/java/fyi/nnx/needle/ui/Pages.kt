@@ -317,10 +317,12 @@ fun PlayRow(songs: List<Song>, inline: Boolean = false, side: (@Composable () ->
         verticalAlignment = Alignment.CenterVertically,
     ) {
         RoundAction(Icons.Rounded.Shuffle, "Shuffle") { haptics(false); play(songs.shuffled()) }
+        val interaction = remember { androidx.compose.foundation.interaction.MutableInteractionSource() }
         Button(
             onClick = { haptics(false); play(songs) },
             shapes = ButtonDefaults.shapes(),
-            modifier = Modifier.height(64.dp).width(172.dp),
+            interactionSource = interaction,
+            modifier = Modifier.height(64.dp).width(172.dp).focusRing(interaction, 32.dp).firstFocus(),
         ) {
             Icon(Icons.Rounded.PlayArrow, contentDescription = null, modifier = Modifier.size(30.dp))
             Spacer(Modifier.width(8.dp))
@@ -333,7 +335,8 @@ fun PlayRow(songs: List<Song>, inline: Boolean = false, side: (@Composable () ->
 @OptIn(ExperimentalMaterial3ExpressiveApi::class)
 @Composable
 fun RoundAction(icon: androidx.compose.ui.graphics.vector.ImageVector, label: String, onClick: () -> Unit) {
-    FilledTonalIconButton(onClick = onClick, shapes = IconButtonDefaults.shapes(), modifier = Modifier.size(64.dp)) {
+    val interaction = remember { androidx.compose.foundation.interaction.MutableInteractionSource() }
+    FilledTonalIconButton(onClick = onClick, shapes = IconButtonDefaults.shapes(), interactionSource = interaction, modifier = Modifier.size(64.dp).focusRing(interaction, 32.dp)) {
         Icon(icon, contentDescription = label)
     }
 }
@@ -828,6 +831,7 @@ fun SearchScreen(open: (Route) -> Unit) {
             modifier = Modifier.fillMaxSize().padding(padding).then(scroll),
         ) {
             edgeToEdge(16.dp) {
+                RemoteTyping(Modifier.fillMaxWidth().padding(horizontal = 16.dp)) { field ->
                 TextField(
                     value = query,
                     onValueChange = { query = it },
@@ -843,8 +847,9 @@ fun SearchScreen(open: (Route) -> Unit) {
                         focusedContainerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
                         unfocusedContainerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
                     ),
-                    modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp),
+                    modifier = field.fillMaxWidth(),
                 )
+                }
             }
             // Typing a smart rule (rating >= 4, genre = "K-pop"): what can come next, with
             // the library's own names.

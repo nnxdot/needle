@@ -98,7 +98,8 @@ fun WelcomeGuide(open: (Route) -> Unit) {
                             modifier = Modifier.padding(top = 12.dp),
                         )
                         Spacer(Modifier.height(32.dp))
-                        Button(onClick = { step = 1 }, modifier = Modifier.fillMaxWidth()) { Text("Start") }
+                        val start = androidx.compose.runtime.remember { androidx.compose.foundation.interaction.MutableInteractionSource() }
+                        Button(onClick = { step = 1 }, interactionSource = start, modifier = Modifier.fillMaxWidth().focusRing(start, 40.dp)) { Text("Start") }
                         TextButton(onClick = ::finish, modifier = Modifier.fillMaxWidth()) { Text("Skip the guide") }
                     }
                     1 -> {
