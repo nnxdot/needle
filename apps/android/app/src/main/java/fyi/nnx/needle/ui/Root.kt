@@ -17,7 +17,6 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.height
@@ -35,8 +34,6 @@ import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.ShortNavigationBar
 import androidx.compose.material3.ShortNavigationBarItem
-import androidx.compose.material3.NavigationRail
-import androidx.compose.material3.NavigationRailItem
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Scaffold
@@ -122,7 +119,7 @@ fun NeedleRoot() {
     // How tall the mini player, the tabs, and the bar of chosen songs are together, so
     // messages show above them instead of over them.
     var barHeight by remember { mutableStateOf(0) }
-    // Tablets and unfolded phones get a rail of tabs at the side, as Material asks.
+    // Tablets and unfolded phones get a side bar of tabs, playlists, and albums (SideBar.kt).
     val wide = LocalConfiguration.current.screenWidthDp >= 600
     val chooseTab: (Tab) -> Unit = { t ->
         // Tapping the open tab again goes back to its first page.
@@ -148,20 +145,7 @@ fun NeedleRoot() {
         CompositionLocalProvider(LocalShared provides this) {
             Box(Modifier.fillMaxSize()) {
                 Row(Modifier.fillMaxSize()) {
-                if (wide) {
-                    NavigationRail(containerColor = MaterialTheme.colorScheme.surfaceContainerLow) {
-                        Spacer(Modifier.weight(1f))
-                        Tab.entries.forEach { t ->
-                            NavigationRailItem(
-                                selected = t == tab,
-                                onClick = { chooseTab(t) },
-                                icon = { Icon(t.icon, contentDescription = null) },
-                                label = { Text(t.label) },
-                            )
-                        }
-                        Spacer(Modifier.weight(1f))
-                    }
-                }
+                if (wide) SideBar(tab, stack.last(), chooseTab, open)
                 // Pages lay out by the room they have (see Adaptive.kt).
                 androidx.compose.foundation.layout.BoxWithConstraints(Modifier.weight(1f)) {
                 CompositionLocalProvider(LocalPageWidth provides maxWidth) {
