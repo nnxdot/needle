@@ -212,7 +212,8 @@ fun NeedleRoot() {
                                         ShortNavigationBarItem(
                                             selected = t == tab,
                                             onClick = { chooseTab(t) },
-                                            icon = { Icon(t.icon, contentDescription = null) },
+                                            // The open tab's icon filled, the others outlined, as on the side bar.
+                                            icon = { Icon(if (t == tab) t.icon else t.outline, contentDescription = null) },
                                             label = { Text(t.label) },
                                         )
                                     }

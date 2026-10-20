@@ -355,7 +355,8 @@ fun RoundAction(icon: androidx.compose.ui.graphics.vector.ImageVector, label: St
     val interaction = remember { androidx.compose.foundation.interaction.MutableInteractionSource() }
     val shapes = LocalGroupShapes.current ?: IconButtonDefaults.shapes()
     FilledTonalIconButton(onClick = onClick, shapes = shapes, interactionSource = interaction, modifier = Modifier.size(width = 72.dp, height = 64.dp).focusRing(interaction, 32.dp)) {
-        Icon(icon, contentDescription = label)
+        // As large beside Play as Play's own icon, so the group reads as one.
+        Icon(icon, contentDescription = label, modifier = Modifier.size(28.dp))
     }
 }
 
@@ -760,9 +761,11 @@ private fun Hero(albums: List<Album>, open: (Route) -> Unit) {
     // The multi-browse carousel needs a few covers to shrink the next ones beside the first;
     // with one or two, each keeps one card's width instead of one cover filling the row.
     if (albums.size < 3) {
+        // On a phone one alone takes the row, rather than leaving a gap beside it.
+        val page = LocalPageWidth.current - 32.dp
         androidx.compose.material3.carousel.HorizontalUncontainedCarousel(
             state = state,
-            itemWidth = if (wide) 320.dp else 280.dp,
+            itemWidth = if (wide) 320.dp else if (albums.size == 1) page else 280.dp,
             itemSpacing = 10.dp,
             contentPadding = PaddingValues(horizontal = 16.dp),
             modifier = modifier,
