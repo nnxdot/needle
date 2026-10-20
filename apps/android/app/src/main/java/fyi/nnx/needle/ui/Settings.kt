@@ -366,8 +366,8 @@ private fun LibrarySettings(open: (Route) -> Unit) {
     LaunchedEffect(Unit) { playback = withContext(Dispatchers.IO) { runCatching { core.playbackSettings() }.getOrNull() } }
     val pick = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocumentTree()) { uri ->
         val path = uri?.let(::treePath) ?: return@rememberLauncherForActivityResult
-        background { core.addFolder(path) }
-        NeedleApp.instance.libraryVersion.value++
+        // The lists are read again once the folder is in (a scan may hold it back a moment).
+        background(then = { NeedleApp.instance.libraryVersion.value++ }) { core.addFolder(path) }
     }
     val music = File(Environment.getExternalStorageDirectory(), Environment.DIRECTORY_MUSIC).path
 
@@ -392,7 +392,7 @@ private fun LibrarySettings(open: (Route) -> Unit) {
         Row(Modifier.fillMaxWidth().padding(16.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
             Button(onClick = { tryOpen("file picker") { pick.launch(null) } }) { Text("Add a folder") }
             if (folders?.contains(music) == false) {
-                FilledTonalButton(onClick = { background { core.addFolder(music) }; NeedleApp.instance.libraryVersion.value++ }) {
+                FilledTonalButton(onClick = { background(then = { NeedleApp.instance.libraryVersion.value++ }) { core.addFolder(music) } }) {
                     Text("Use Music")
                 }
             }
@@ -509,7 +509,13 @@ private fun PlaybackSettingsPage() {
     }
     Group("When Up next ends", footer = "Needle plays songs that match this search, as you would type it in Search. Leave it empty to stop.") {
         var query by remember(s.autoplayQuery) { mutableStateOf(s.autoplayQuery) }
-        val problem = if (query.isNotBlank() && core.isRule(query)) core.checkRule(query) else null
+        // Checked off the main thread as it is typed.
+        val problem by androidx.compose.runtime.produceState<String?>(null, query) {
+            value = if (query.isBlank()) null else withContext(Dispatchers.IO) {
+                runCatching { if (core.isRule(query)) core.checkRule(query) else null }.getOrNull()
+            }
+        }
+        val keep = { if (query != s.autoplayQuery && problem == null) { save(s.copy(autoplayQuery = query.trim())); showMessage("Saved") } }
         OutlinedTextField(
             query, { query = it },
             label = { Text("Keep playing") },
@@ -518,8 +524,11 @@ private fun PlaybackSettingsPage() {
             isError = problem != null,
             supportingText = problem?.let { { Text(it) } },
             trailingIcon = {
-                if (query != s.autoplayQuery && problem == null) TextButton(onClick = { save(s.copy(autoplayQuery = query.trim())); showMessage("Saved") }) { Text("Save") }
+                if (query != s.autoplayQuery && problem == null) TextButton(onClick = keep) { Text("Save") }
             },
+            // The keyboard's Done saves too: on a TV the Save beside the words is out of the remote's reach.
+            keyboardOptions = KeyboardOptions(imeAction = androidx.compose.ui.text.input.ImeAction.Done),
+            keyboardActions = androidx.compose.foundation.text.KeyboardActions(onDone = { keep() }),
             modifier = Modifier.remoteEscape().fillMaxWidth().padding(16.dp),
         )
     }
@@ -684,6 +693,8 @@ private fun EqualizerBands(gains: List<Float>, frequencies: List<Float>, onChang
             Column(Modifier.weight(1f), horizontalAlignment = Alignment.CenterHorizontally) {
                 // Half steps show as such (+1.5); whole ones without a point (+2).
                 var held by remember { mutableStateOf(false) }
+                // Back lets go of a held band, before it would leave the page.
+                androidx.activity.compose.BackHandler(enabled = held) { held = false }
                 Text(
                     if (gain % 1f == 0f) "%+.0f".format(gain) else "%+.1f".format(gain),
                     style = MaterialTheme.typography.labelSmall,

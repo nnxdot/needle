@@ -155,14 +155,14 @@ fun rememberFileAccess(songIds: List<String> = emptyList()): (then: () -> Unit) 
                         pending = then
                         legacy.launch(android.Manifest.permission.WRITE_EXTERNAL_STORAGE)
                     } else if (Build.VERSION.SDK_INT >= 30) {
-                        tryOpen("page in Settings for this") {
+                        val opened = tryOpen("page in Settings for this") {
                             context.startActivity(
                                 Intent(AndroidSettings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION, Uri.parse("package:${context.packageName}"))
                                     .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
                             )
                         }
                         // Android asks in its own settings; the person taps the button again after.
-                        showMessage("Turn on Needle, then come back and try again")
+                        if (opened) showMessage("Turn on Needle, then come back and try again")
                     } else {
                         showMessage("Android 10 does not allow editing these shared files by path. Open a copy with Needle to edit files in its own storage.")
                     }
