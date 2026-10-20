@@ -189,6 +189,18 @@ impl Needle {
         }
     }
 
+    /// A wide picture of an artist for the top of their page, from fanart.tv (as for logos).
+    pub fn artist_banner(&self, name: String) -> Option<String> {
+        let online = self.library.settings().is_ok_and(|s| s.online_media);
+        match media::artist_banner(&self.library, &name, online) {
+            Ok(path) => path.map(|p| p.to_string_lossy().to_string()),
+            Err(e) => {
+                log(false, &format!("Artist picture for {name}: {e:#}"));
+                None
+            }
+        }
+    }
+
     /// Whether a fanart.tv key is set, for artists' logos.
     pub fn has_fanart_key(&self) -> bool {
         needle_core::integrations::fanart_key().is_some()

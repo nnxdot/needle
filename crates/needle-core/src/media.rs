@@ -556,10 +556,42 @@ fn musicbrainz_artist(name: &str) -> Result<Option<String>> {
         .map(String::from))
 }
 
-/// An artist's logo, with a clear background, from fanart.tv (when online lookups are on and
-/// there is a fanart.tv key): kept beside their photo, and asked for again a month later when
-/// they have none.
-pub fn artist_logo(library: &Library, name: &str, online: bool) -> Result<Option<PathBuf>> {
+/// What fanart.tv has for an artist, when online lookups are on and there is a fanart.tv key:
+/// its answer, kept a month (nothing, also kept a month, when it does not know the artist).
+fn fanart(library: &Library, name: &str, online: bool) -> Result<Option<Value>> {
+    let Some(key) = online.then(crate::integrations::fanart_key).flatten() else {
+        return Ok(None);
+    };
+    let remembered = format!("fanart:{}", name.to_lowercase());
+    if let Some(hit) = cached::<Value>(library, &remembered)? {
+        return Ok((!hit.is_null()).then_some(hit));
+    }
+    let found = match musicbrainz_artist(name)? {
+        Some(id) => {
+            let response = client()?
+                .get(format!("https://webservice.fanart.tv/v3/music/{id}"))
+                .query(&[("api_key", key.as_str())])
+                .send()?;
+            if response.status() == reqwest::StatusCode::NOT_FOUND {
+                Value::Null
+            } else {
+                response.error_for_status()?.json()?
+            }
+        }
+        None => Value::Null,
+    };
+    remember(library, &remembered, &found, WEEK * 4)?;
+    Ok((!found.is_null()).then_some(found))
+}
+
+/// One of fanart.tv's pictures of an artist, chosen by `pick`, kept beside their photo.
+fn fanart_picture(
+    library: &Library,
+    name: &str,
+    online: bool,
+    kind: &str,
+    pick: fn(&Value) -> Option<String>,
+) -> Result<Option<PathBuf>> {
     if name.trim().is_empty() {
         return Ok(None);
     }
@@ -568,61 +600,50 @@ pub fn artist_logo(library: &Library, name: &str, online: bool) -> Result<Option
         .join("artwork")
         .join("artists")
         .join(format!(
-            "{}.logo",
+            "{}.{kind}",
             blake3::hash(name.to_lowercase().as_bytes()).to_hex()
         ));
     if file.is_file() {
         return Ok(Some(file));
     }
-    let Some(key) = online.then(crate::integrations::fanart_key).flatten() else {
+    let Some(url) = fanart(library, name, online)?.as_ref().and_then(pick) else {
         return Ok(None);
     };
-    let remembered = format!("artist-logo:{}", name.to_lowercase());
-    if cached::<bool>(library, &remembered)?.is_some() {
-        return Ok(None);
+    if let Some(folder) = file.parent() {
+        std::fs::create_dir_all(folder)?;
     }
-    let found = match musicbrainz_artist(name)? {
-        Some(id) => find_logo(&id, &key)?,
-        None => None,
-    };
-    match found {
-        Some(url) => {
-            if let Some(folder) = file.parent() {
-                std::fs::create_dir_all(folder)?;
-            }
-            download_image(&url, &file)?;
-            Ok(Some(file))
-        }
-        None => {
-            remember(library, &remembered, &false, WEEK * 4)?;
-            Ok(None)
-        }
-    }
+    download_image(&url, &file)?;
+    Ok(Some(file))
 }
 
-/// fanart.tv's best logo for a MusicBrainz artist: the high-definition ones first, the most
-/// liked first, in English or with no language before others.
-fn find_logo(artist: &str, key: &str) -> Result<Option<String>> {
-    let response = client()?
-        .get(format!("https://webservice.fanart.tv/v3/music/{artist}"))
-        .query(&[("api_key", key)])
-        .send()?;
-    if response.status() == reqwest::StatusCode::NOT_FOUND {
-        return Ok(None);
-    }
-    Ok(best_logo(&response.error_for_status()?.json()?))
+/// An artist's logo, with a clear background, from fanart.tv.
+pub fn artist_logo(library: &Library, name: &str, online: bool) -> Result<Option<PathBuf>> {
+    fanart_picture(library, name, online, "logo", best_logo)
 }
 
-/// The logo to show from fanart.tv's answer for an artist.
+/// A wide picture of an artist, for the top of their page, from fanart.tv: one of its
+/// backgrounds, or else one of its photos.
+pub fn artist_banner(library: &Library, name: &str, online: bool) -> Result<Option<PathBuf>> {
+    fanart_picture(library, name, online, "banner", best_banner)
+}
+
+/// The most liked of fanart.tv's pictures of one kind; in English or with no language first.
+fn best_of(data: &Value, kind: &str) -> Option<String> {
+    let mut found: Vec<&Value> = data[kind].as_array().into_iter().flatten().collect();
+    let likes = |v: &Value| v["likes"].as_str().and_then(|n| n.parse::<i64>().ok()).unwrap_or(0);
+    let english = |v: &Value| matches!(v["lang"].as_str(), Some("en" | "" | "00") | None);
+    found.sort_by_key(|v| (!english(v), -likes(v)));
+    found.first().and_then(|v| v["url"].as_str()).map(String::from)
+}
+
+/// The logo to show from fanart.tv's answer: the high-definition ones first.
 fn best_logo(data: &Value) -> Option<String> {
-    let pick = |kind: &str| {
-        let mut logos: Vec<&Value> = data[kind].as_array().into_iter().flatten().collect();
-        let likes = |v: &Value| v["likes"].as_str().and_then(|n| n.parse::<i64>().ok()).unwrap_or(0);
-        let english = |v: &Value| matches!(v["lang"].as_str(), Some("en" | "" | "00") | None);
-        logos.sort_by_key(|v| (!english(v), -likes(v)));
-        logos.first().and_then(|v| v["url"].as_str()).map(String::from)
-    };
-    pick("hdmusiclogo").or_else(|| pick("musiclogo"))
+    best_of(data, "hdmusiclogo").or_else(|| best_of(data, "musiclogo"))
+}
+
+/// The picture for the top of the page: a wide background first, then a square photo.
+fn best_banner(data: &Value) -> Option<String> {
+    best_of(data, "artistbackground").or_else(|| best_of(data, "artistthumb"))
 }
 
 fn find_artist_image(name: &str) -> Result<Option<String>> {
@@ -756,6 +777,17 @@ mod tests {
         let only_old = serde_json::json!({ "musiclogo": [{ "url": "old", "likes": "1" }] });
         assert_eq!(super::best_logo(&only_old).as_deref(), Some("old"));
         assert_eq!(super::best_logo(&serde_json::json!({})), None);
+    }
+
+    #[test]
+    fn the_banner_is_a_background_then_a_photo() {
+        let both = serde_json::json!({
+            "artistthumb": [{ "url": "photo", "likes": "9" }],
+            "artistbackground": [{ "url": "dull", "likes": "1" }, { "url": "wide", "likes": "5" }],
+        });
+        assert_eq!(super::best_banner(&both).as_deref(), Some("wide"));
+        let photo = serde_json::json!({ "artistthumb": [{ "url": "photo", "likes": "2" }] });
+        assert_eq!(super::best_banner(&photo).as_deref(), Some("photo"));
     }
     use super::*;
 
