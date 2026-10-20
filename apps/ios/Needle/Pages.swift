@@ -586,10 +586,13 @@ struct ArtistView: View {
             async let found = store.load { $0.artistLogo(name: name) }
             top = await store.load { try $0.artistSongs(name: name) } ?? []
             albums = await store.load { try $0.artistAlbums(name: name) } ?? []
+            // The colour at once, from their first album; the picture's when it comes (a first
+            // visit downloads it).
+            colors = await PageColors.of(albums?.first?.artwork, seed: name)
             async let wide = store.load { $0.artistBanner(name: name) }
             async let portrait = store.load { $0.artistPhoto(name: name) }
             (banner, photo) = (await wide ?? nil, await portrait ?? nil)
-            colors = await PageColors.of(picture, seed: name)
+            if banner != nil || photo != nil { colors = await PageColors.of(picture, seed: name) }
             logo = await found ?? nil
         }
     }
@@ -622,7 +625,8 @@ struct ArtistView: View {
                     if let logo {
                         Logo(path: logo)
                             .frame(maxWidth: 300, maxHeight: 130)
-                            .shadow(color: look.page.opacity(0.5), radius: 14)
+                            // Logos are mostly white: on a light page, a dark glow keeps them clear.
+                            .shadow(color: look.dark ? look.page.opacity(0.5) : .black.opacity(0.35), radius: 16)
                             .accessibilityLabel(name)
                     } else {
                         Text(name)
