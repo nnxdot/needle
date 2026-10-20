@@ -22,6 +22,10 @@ import androidx.compose.ui.unit.dp
 /** How wide the pages are: the screen less the rail of tabs. The app's frame sets it. */
 val LocalPageWidth = compositionLocalOf { 400.dp }
 
+/** The side bar shows (tablets and unfolded phones): its tabs, Settings, and Needle's own place. */
+@Composable
+fun hasSideBar(): Boolean = androidx.compose.ui.platform.LocalConfiguration.current.screenWidthDp >= 600
+
 /** A tablet or an unfolded phone: room for a cover beside its words, or two panes. */
 @Composable
 fun isWide(): Boolean = LocalPageWidth.current >= 560.dp
