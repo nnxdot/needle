@@ -30,6 +30,7 @@ import java.io.File
 class PlaybackService : MediaLibraryService() {
     private var session: MediaLibrarySession? = null
     private var library: Library? = null
+    private var focus: AudioFocus? = null
 
     @UnstableApi
     override fun onCreate() {
@@ -38,12 +39,20 @@ class PlaybackService : MediaLibraryService() {
         val player = NeedlePlayer(Looper.getMainLooper(), core)
         val callback = Library(core)
         library = callback
-        session = MediaLibrarySession.Builder(this, player, callback).build()
+        // Tapping the notification, the lock screen's player, or a TV's "now playing" opens Needle.
+        val open = android.app.PendingIntent.getActivity(
+            this, 0, android.content.Intent(this, MainActivity::class.java),
+            android.app.PendingIntent.FLAG_IMMUTABLE or android.app.PendingIntent.FLAG_UPDATE_CURRENT,
+        )
+        session = MediaLibrarySession.Builder(this, player, callback).setSessionActivity(open).build()
+        focus = AudioFocus(this).also { it.start() }
     }
 
     override fun onGetSession(controllerInfo: MediaSession.ControllerInfo) = session
 
     override fun onDestroy() {
+        focus?.stop()
+        focus = null
         session?.run {
             player.release()
             release()
@@ -295,7 +304,14 @@ private class NeedlePlayer(looper: Looper, private val core: Needle) : SimpleBas
             .also { lastSong = it; lastSongAt = android.os.SystemClock.uptimeMillis() }
     }
 
+    /** When songs were last handed to the core to play (see [handleSetPlayWhenReady]). */
+    private var startedAt = 0L
+
     override fun handleSetPlayWhenReady(playWhenReady: Boolean): ListenableFuture<*> {
+        // Android Auto and the Assistant set songs and then say play. The core plays them a
+        // moment later, so "not playing yet" would be toggled into a pause; just after a start,
+        // play is already on its way.
+        if (playWhenReady && android.os.SystemClock.uptimeMillis() - startedAt < 3000) return Futures.immediateVoidFuture()
         if (playWhenReady != playback().playing) fyi.nnx.needle.ui.Controls.toggle()
         return Futures.immediateVoidFuture()
     }
@@ -305,10 +321,24 @@ private class NeedlePlayer(looper: Looper, private val core: Needle) : SimpleBas
         val ids = mediaItems.mapNotNull { it.mediaId.substringAfter("song:", "").ifBlank { null } }
         if (ids.isNotEmpty()) {
             core.play(ids, startIndex.coerceAtLeast(0).toUInt())
+            startedAt = android.os.SystemClock.uptimeMillis()
             if (startPositionMs > 0) core.seek(startPositionMs / 1000.0)
         }
         return Futures.immediateVoidFuture()
     }
+
+    // Changing the list is offered so songs can be set (above); the rest must not throw, as
+    // Media3's own versions do, or a car's queue button would close Needle. Added songs go up
+    // next; removing and moving the songs Android shows is not Needle's way, so it does nothing.
+    override fun handleAddMediaItems(index: Int, mediaItems: MutableList<MediaItem>): ListenableFuture<*> {
+        val ids = mediaItems.mapNotNull { it.mediaId.substringAfter("song:", "").ifBlank { null } }
+        if (ids.isNotEmpty()) core.enqueue(ids)
+        return Futures.immediateVoidFuture()
+    }
+
+    override fun handleRemoveMediaItems(fromIndex: Int, toIndex: Int): ListenableFuture<*> = Futures.immediateVoidFuture()
+
+    override fun handleMoveMediaItems(fromIndex: Int, toIndex: Int, newIndex: Int): ListenableFuture<*> = Futures.immediateVoidFuture()
 
     override fun handlePrepare(): ListenableFuture<*> = Futures.immediateVoidFuture()
 

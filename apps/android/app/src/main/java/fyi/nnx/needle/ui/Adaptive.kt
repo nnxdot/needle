@@ -3,6 +3,8 @@ package fyi.nnx.needle.ui
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.WindowInsetsSides
+import androidx.compose.foundation.layout.displayCutout
+import androidx.compose.foundation.layout.union
 import androidx.compose.foundation.layout.only
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.systemBars
@@ -68,6 +70,6 @@ internal fun LazyGridScope.edgeToEdge(side: Dp, key: Any? = null, content: @Comp
  */
 @Composable
 fun Modifier.pane(): Modifier = this
-    .windowInsetsPadding(WindowInsets.systemBars.only(WindowInsetsSides.Top + WindowInsetsSides.Bottom + WindowInsetsSides.End))
+    .windowInsetsPadding(WindowInsets.systemBars.union(WindowInsets.displayCutout).only(WindowInsetsSides.Top + WindowInsetsSides.Bottom + WindowInsetsSides.End))
     .padding(top = 8.dp, end = 12.dp, bottom = 12.dp)
     .clip(RoundedCornerShape(28.dp))

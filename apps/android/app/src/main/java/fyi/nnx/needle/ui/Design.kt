@@ -74,6 +74,9 @@ import kotlinx.coroutines.launch
 @Composable
 fun iconShape(): androidx.compose.ui.graphics.Shape = MaterialShapes.Cookie9Sided.toShape()
 
+/** The album whose page this is, if any: its menus need not offer to go to it. */
+val LocalAlbumHere = androidx.compose.runtime.compositionLocalOf<String?> { null }
+
 /** The shape for artists: Material's arch, as a portrait's frame. */
 @OptIn(ExperimentalMaterial3ExpressiveApi::class)
 @Composable
@@ -220,7 +223,7 @@ fun SongSheet(song: Song, open: ((Route) -> Unit)?, remove: (() -> Unit)?, onDis
             }
             if (open != null) {
                 MenuGroup {
-                    MenuRow(Icons.Rounded.Album, "Go to album") { act { open(Route.AlbumOf(song.album, song.id)) } }
+                    if (LocalAlbumHere.current != song.album) MenuRow(Icons.Rounded.Album, "Go to album") { act { open(Route.AlbumOf(song.album, song.id)) } }
                     MenuRow(Icons.Rounded.Person, "Go to artist") { act { open(Route.Artist(song.artist)) } }
                     MenuRow(Icons.Rounded.Lyrics, "Time the lyrics") { act { open(Route.Timing(song.id)) } }
                 }
@@ -307,8 +310,7 @@ fun AlbumSheet(album: fyi.nnx.needle.core.Album, open: ((Route) -> Unit)?, onDis
     fun ids() = runCatching { core.albumSongs(album.key).map { it.id } }.getOrDefault(emptyList())
     fun start(list: List<String>) {
         if (list.isEmpty()) return
-        core.play(list, 0u)
-        NeedleApp.instance.openPlayer.tryEmit(Unit)
+        playSongs(list)
     }
     ActionSheet(album.artwork, album.title.ifBlank { "Unknown album" }, album.artist, onDismiss) { act ->
         MenuGroup {
@@ -322,7 +324,7 @@ fun AlbumSheet(album: fyi.nnx.needle.core.Album, open: ((Route) -> Unit)?, onDis
         }
         if (open != null) {
             MenuGroup {
-                MenuRow(Icons.Rounded.Album, "Go to album") { act { open(Route.AlbumPage(album)) } }
+                if (LocalAlbumHere.current != album.title) MenuRow(Icons.Rounded.Album, "Go to album") { act { open(Route.AlbumPage(album)) } }
                 MenuRow(Icons.Rounded.Person, "Go to artist") { act { open(Route.Artist(album.artist)) } }
             }
         }

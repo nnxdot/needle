@@ -75,12 +75,15 @@ fun Song.fromServer() = id.startsWith("src-")
 @Composable
 fun SelectionBar() {
     val chosen by Selection.songs.collectAsState()
+    // What was chosen, kept while the bar slides away, so it does not read "0 songs" as it goes.
+    var shown by remember { mutableStateOf(chosen) }
+    if (chosen.isNotEmpty()) shown = chosen
     AnimatedVisibility(
         chosen.isNotEmpty(),
         enter = fadeIn() + slideInVertically { it },
         exit = fadeOut() + slideOutVertically { it },
     ) {
-        val ids = chosen.map { it.id }
+        val ids = shown.map { it.id }
         var more by remember { mutableStateOf(false) }
         androidx.compose.foundation.layout.Box(Modifier.fillMaxWidth().padding(vertical = 8.dp), contentAlignment = Alignment.Center) {
             androidx.compose.material3.HorizontalFloatingToolbar(
@@ -88,10 +91,9 @@ fun SelectionBar() {
                 colors = androidx.compose.material3.FloatingToolbarDefaults.vibrantFloatingToolbarColors(),
             ) {
                 IconButton(onClick = Selection::clear) { Icon(Icons.Rounded.Close, contentDescription = "Stop choosing") }
-                Text(count(chosen.size, "song"), style = MaterialTheme.typography.titleMedium, modifier = Modifier.align(Alignment.CenterVertically).padding(end = 8.dp))
+                Text(count(shown.size, "song"), style = MaterialTheme.typography.titleMedium, modifier = Modifier.align(Alignment.CenterVertically).padding(end = 8.dp))
                 androidx.compose.material3.FilledIconButton(onClick = {
-                    core.play(ids, 0u)
-                    NeedleApp.instance.openPlayer.tryEmit(Unit)
+                    playSongs(ids)
                     Selection.clear()
                 }) { Icon(Icons.Rounded.PlayArrow, contentDescription = "Play") }
                 IconButton(onClick = { core.playNext(ids); showMessage("Play next"); Selection.clear() }) {
@@ -112,13 +114,13 @@ fun SelectionBar() {
                         leadingIcon = { Icon(Icons.AutoMirrored.Rounded.PlaylistAdd, null) },
                         onClick = { more = false; Ui.sheet.value = Sheet.NewPlaylist(ids); Selection.clear() },
                     )
-                    val own = chosen.filterNot { it.fromServer() }
+                    val own = shown.filterNot { it.fromServer() }
                     if (own.isNotEmpty()) DropdownMenuItem(
                         text = { Text("Edit tags") },
                         leadingIcon = { Icon(Icons.Rounded.Edit, null) },
                         onClick = { more = false; Ui.sheet.value = Sheet.EditTags(own.map { it.id }); Selection.clear() },
                     )
-                    val server = chosen.filter { it.fromServer() }
+                    val server = shown.filter { it.fromServer() }
                     if (server.isNotEmpty()) DropdownMenuItem(
                         text = { Text("Keep on this phone") },
                         leadingIcon = { Icon(Icons.Rounded.DownloadForOffline, null) },

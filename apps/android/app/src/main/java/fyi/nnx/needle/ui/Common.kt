@@ -121,6 +121,17 @@ fun fileUri(path: String?): Uri? = path?.let {
     if (it.startsWith("http://") || it.startsWith("https://")) Uri.parse(it) else Uri.fromFile(File(it))
 }
 
+/**
+ * Plays songs from `start`, then opens the player (when that is on). Off the main thread: the
+ * core looks each song up, which for a whole library or a long playlist takes a moment.
+ */
+fun playSongs(ids: List<String>, start: Int = 0) {
+    NeedleApp.instance.scope.launch(Dispatchers.IO) {
+        runCatching { core.play(ids, start.toUInt()) }.onFailure { showMessage(it.message ?: "Could not play these songs") }
+        NeedleApp.instance.openPlayer.tryEmit(Unit)
+    }
+}
+
 fun time(seconds: Double): String {
     val s = seconds.coerceAtLeast(0.0).toLong()
     return if (s >= 3600) "%d:%02d:%02d".format(s / 3600, s / 60 % 60, s % 60)

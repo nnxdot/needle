@@ -143,16 +143,19 @@ private fun Pills(filter: Filter?, choose: (Filter?) -> Unit, sort: Sort, sortBy
             verticalAlignment = Alignment.CenterVertically,
         ) {
             if (filter != null) {
-                item {
-                    // Clears the filter, as Spotify's ✕ does.
-                    Box(Modifier.size(32.dp).clip(CircleShape).background(MaterialTheme.colorScheme.surfaceContainerHigh).clickable { choose(null) }, contentAlignment = Alignment.Center) {
-                        Icon(Icons.Rounded.Close, contentDescription = "All", modifier = Modifier.size(18.dp))
-                    }
+                item(key = "clear") {
+                    // Clears the filter, as Spotify's ✕ does: a pill's size to see, a finger's to touch.
+                    androidx.compose.material3.FilledTonalIconButton(
+                        onClick = { choose(null) },
+                        colors = androidx.compose.material3.IconButtonDefaults.filledTonalIconButtonColors(containerColor = MaterialTheme.colorScheme.surfaceContainerHigh),
+                        modifier = Modifier.size(32.dp),
+                    ) { Icon(Icons.Rounded.Close, contentDescription = "Show all", modifier = Modifier.size(18.dp)) }
                 }
             }
-            // Once one is chosen, only it shows, beside the ✕.
+            // Once one is chosen, only it shows, beside the ✕. Each pill keeps its key, so the
+            // chosen one is the same pill afterwards and a remote's focus stays on it.
             val shown = if (filter == null) Filter.entries else listOf(filter)
-            items(shown.size) { i ->
+            items(shown.size, key = { shown[it].name }) { i ->
                 val f = shown[i]
                 FilterChip(
                     selected = filter == f,
@@ -163,7 +166,7 @@ private fun Pills(filter: Filter?, choose: (Filter?) -> Unit, sort: Sort, sortBy
                     border = null,
                 )
             }
-            if (filter == null) item {
+            if (filter == null) item(key = "more") {
                 Box {
                     FilterChip(
                         selected = false,
@@ -337,8 +340,7 @@ private fun Songs(sort: Sort, open: (Route) -> Unit, scroll: Modifier) {
         items(list.size, key = { list[it].id }) { i ->
             val song = list[i]
             SongRow(song, playing == song.id, open, place = Place(i, list.size)) {
-                core.play(list.map { it.id }, i.toUInt())
-                NeedleApp.instance.openPlayer.tryEmit(Unit)
+                playSongs(list.map { it.id }, i)
             }
         }
     }

@@ -1,6 +1,7 @@
 package fyi.nnx.needle
 
 import android.content.Context
+import kotlinx.coroutines.launch
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.graphics.Canvas
@@ -317,12 +318,28 @@ private fun Large(now: Now) {
     }
 }
 
+/**
+ * A widget's button with Needle closed: the playback service starts too, by connecting to it
+ * for a moment, so the song has its notification, lock screen player, and Bluetooth buttons,
+ * and Android does not stop it. (A widget's tap may start it, where a background task may not.)
+ */
+private fun withService(context: Context) {
+    NeedleApp.instance.scope.launch(kotlinx.coroutines.Dispatchers.Main) {
+        val token = androidx.media3.session.SessionToken(context, android.content.ComponentName(context, PlaybackService::class.java))
+        val connecting = androidx.media3.session.MediaController.Builder(context, token).buildAsync()
+        // Long enough for the service to see the song start and keep itself running.
+        kotlinx.coroutines.delay(5000)
+        androidx.media3.session.MediaController.releaseFuture(connecting)
+    }
+}
+
 class Toggle : ActionCallback {
     override suspend fun onAction(context: Context, glanceId: GlanceId, parameters: ActionParameters) {
         val core = NeedleApp.instance.core
         // Nothing to go on with: shuffle the whole library.
         if (NeedleApp.instance.playback.value?.current == null) core.play(core.songs().shuffled().take(200).map { it.id }, 0u)
         else fyi.nnx.needle.ui.Controls.toggle()
+        withService(context)
         updateWidgets(context)
     }
 }
@@ -330,6 +347,7 @@ class Toggle : ActionCallback {
 class Next : ActionCallback {
     override suspend fun onAction(context: Context, glanceId: GlanceId, parameters: ActionParameters) {
         fyi.nnx.needle.ui.Controls.next()
+        withService(context)
         updateWidgets(context)
     }
 }
@@ -337,6 +355,7 @@ class Next : ActionCallback {
 class Previous : ActionCallback {
     override suspend fun onAction(context: Context, glanceId: GlanceId, parameters: ActionParameters) {
         fyi.nnx.needle.ui.Controls.previous()
+        withService(context)
         updateWidgets(context)
     }
 }
@@ -397,6 +416,7 @@ class PlayAlbum : ActionCallback {
         val key = parameters[AlbumKey] ?: return
         val core = NeedleApp.instance.core
         core.play(core.albumSongs(key).map { it.id }, 0u)
+        withService(context)
         updateWidgets(context)
     }
 }

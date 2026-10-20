@@ -85,10 +85,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
-private fun play(songs: List<Song>, start: Int = 0) {
-    core.play(songs.map { it.id }, start.toUInt())
-    NeedleApp.instance.openPlayer.tryEmit(Unit)
-}
+private fun play(songs: List<Song>, start: Int = 0) = playSongs(songs.map { it.id }, start)
 
 @Composable
 private fun currentId(): String? = NeedleApp.instance.playback.collectAsState().value?.current?.id

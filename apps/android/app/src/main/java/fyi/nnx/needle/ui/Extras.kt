@@ -176,7 +176,8 @@ fun TimingScreen(songId: String) {
             Button(
                 enabled = thisSong && next < lines.size,
                 onClick = {
-                    lines[next] = lines[next].copy(time = position)
+                    // Asked now, not taken from the last redraw, which can be a fifth of a second old.
+                    lines[next] = lines[next].copy(time = runCatching { core.playback().position }.getOrDefault(position))
                     next++
                 },
                 modifier = Modifier.weight(1f),

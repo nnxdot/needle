@@ -56,10 +56,7 @@ import fyi.nnx.needle.NeedleApp
 import fyi.nnx.needle.core.Wrapped
 import kotlinx.coroutines.launch
 
-private fun playTop(w: Wrapped, start: Int = 0) {
-    core.play(w.topSongs.map { it.id }, start.toUInt())
-    NeedleApp.instance.openPlayer.tryEmit(Unit)
-}
+private fun playTop(w: Wrapped, start: Int = 0) = playSongs(w.topSongs.map { it.id }, start)
 
 /**
  * The year in music as a story: full-height cards to swipe through, coloured by the year's
@@ -82,7 +79,14 @@ fun WrappedScreen(year: Int?, open: (Route) -> Unit) {
         }
         return
     }
-    if (w == null) return
+    // Loading (or another year coming): the way back, and Material's loading shape.
+    if (w == null) {
+        Box(Modifier.fillMaxSize()) {
+            if (LocalCanGoBack.current) BackButton(Modifier.padding(start = 6.dp, top = 4.dp))
+            androidx.compose.material3.LoadingIndicator(Modifier.align(Alignment.Center))
+        }
+        return
+    }
     val glow = coverColor(w.topSongs.firstOrNull()?.artwork)
     val pages = listOfNotNull<@Composable () -> Unit>(
         { Intro(w) },
@@ -100,7 +104,9 @@ fun WrappedScreen(year: Int?, open: (Route) -> Unit) {
             .background(Brush.verticalGradient(listOf(glow.copy(alpha = 0.9f), MaterialTheme.colorScheme.background), endY = 1800f)),
     ) {
         Column(Modifier.fillMaxSize()) {
-            // Story segments along the top: done, current, still to come.
+            // The way back, as every page opened from another has, then the story segments along
+            // the top: done, current, still to come.
+            if (LocalCanGoBack.current) BackButton(Modifier.padding(start = 6.dp, top = 4.dp))
             Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
                 repeat(pages.size) { i ->
                     val fill by animateFloatAsState(if (i <= pager.currentPage) 1f else 0f, tween(300), label = "segment")

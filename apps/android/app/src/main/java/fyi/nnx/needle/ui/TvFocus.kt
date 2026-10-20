@@ -148,13 +148,15 @@ fun Modifier.focusCovered(covered: Boolean): Modifier = this
     .focusGroup()
 
 /**
- * What has a remote's focus shows plainly: Material's buttons in a deeper shade than their own,
- * and everything else with a [FocusRing]. Inside each MaterialTheme, which sets its own ripple.
+ * What has a remote's focus shows plainly: Material's own controls (buttons, pills, switches)
+ * with Material's ring inside their shape and a deeper shade, and everything else with a
+ * [FocusRing]. Inside each MaterialTheme, which sets its own ripple.
  */
 @OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class)
 @Composable
 fun FocusShades(content: @Composable () -> Unit) = androidx.compose.runtime.CompositionLocalProvider(
     androidx.compose.foundation.LocalIndication provides FocusRing,
+    androidx.compose.material3.LocalRippleThemeConfiguration provides androidx.compose.material3.RippleDefaults.InsetFocusRingThemeConfiguration,
     androidx.compose.material3.LocalRippleConfiguration provides androidx.compose.material3.RippleConfiguration(
         rippleAlpha = androidx.compose.material.ripple.RippleAlpha(
             draggedAlpha = 0.16f,
@@ -172,7 +174,8 @@ fun FocusShades(content: @Composable () -> Unit) = androidx.compose.runtime.Comp
  */
 object FocusRing : IndicationNodeFactory {
     override fun create(interactionSource: InteractionSource): DelegatableNode =
-        FocusRingNode(interactionSource, ripple().create(interactionSource))
+        // The ripple without Material's own focus ring: this one draws its ring instead.
+        FocusRingNode(interactionSource, ripple(enableFocusIndication = false).create(interactionSource))
 
     override fun equals(other: Any?) = other === this
     override fun hashCode() = 7

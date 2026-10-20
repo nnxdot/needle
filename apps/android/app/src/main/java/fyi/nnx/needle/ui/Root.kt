@@ -21,6 +21,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.only
 import androidx.compose.foundation.layout.statusBarsPadding
@@ -167,6 +168,9 @@ fun NeedleRoot() {
         kotlinx.coroutines.delay(350)
         // A page can take a moment to load its first buttons, the first time most.
         repeat(60) {
+            // Something in the page has it already (its Play): asking the page again would
+            // move it back to the page's first button.
+            if (inPage) return@LaunchedEffect
             if (runCatching { pageFocus.requestFocus() }.getOrDefault(false)) return@LaunchedEffect
             kotlinx.coroutines.delay(50)
         }
@@ -178,7 +182,8 @@ fun NeedleRoot() {
             Box(Modifier.fillMaxSize().onPreviewKeyEvent { lastKey = android.os.SystemClock.uptimeMillis(); false }) {
                 // On tablets the side bar sits on a frame, and the pages in a rounded pane
                 // beside it, as Google's own apps on a tablet (Material's panes).
-                Row(Modifier.fillMaxSize().focusCovered(covered).then(if (wide) Modifier.background(MaterialTheme.colorScheme.surfaceContainer) else Modifier)) {
+                // The keyboard takes room from the pages, so a text box low on a page shows above it.
+                Row(Modifier.fillMaxSize().imePadding().focusCovered(covered).then(if (wide) Modifier.background(MaterialTheme.colorScheme.surfaceContainer) else Modifier)) {
                 if (wide) SideBar(tab, stack.last(), chooseTab, open)
                 // Pages lay out by the room they have (see Adaptive.kt).
                 androidx.compose.foundation.layout.BoxWithConstraints(Modifier.weight(1f).then(if (wide) Modifier.pane() else Modifier).focusRequester(pageFocus).onFocusChanged {
@@ -293,8 +298,9 @@ fun NeedleRoot() {
                     snackbar,
                     Modifier
                         .align(androidx.compose.ui.Alignment.BottomCenter)
-                        .then(if (playerOpen || bars == 0.dp) Modifier.navigationBarsPadding() else Modifier)
-                        .padding(bottom = if (playerOpen) 16.dp else bars + 8.dp),
+                        // On a tablet the bars sit in the pane, above the navigation bar and its margin.
+                        .then(if (playerOpen || bars == 0.dp || wide) Modifier.navigationBarsPadding() else Modifier)
+                        .padding(bottom = if (playerOpen) 16.dp else bars + 8.dp + if (wide) 12.dp else 0.dp),
                 )
                 Overlays(snackbar)
                 if (welcoming) Box(Modifier.focusLayer()) { WelcomeGuide(open) }

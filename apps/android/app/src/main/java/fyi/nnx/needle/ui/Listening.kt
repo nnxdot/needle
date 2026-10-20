@@ -48,10 +48,7 @@ import fyi.nnx.needle.core.Stats
 import java.text.DateFormat
 import java.util.Date
 
-private fun play(songs: List<Song>, start: Int = 0) {
-    core.play(songs.map { it.id }, start.toUInt())
-    fyi.nnx.needle.NeedleApp.instance.openPlayer.tryEmit(Unit)
-}
+private fun play(songs: List<Song>, start: Int = 0) = playSongs(songs.map { it.id }, start)
 
 /** "3 h 20 min", or "45 min". */
 fun hoursMinutes(seconds: Double): String {

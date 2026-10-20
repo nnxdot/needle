@@ -237,7 +237,10 @@ private fun PlaylistDialog(editing: String?, ids: List<String>, smartAtFirst: Bo
     var description by remember(detail) { mutableStateOf(detail?.description ?: "") }
     var smart by remember(detail) { mutableStateOf(detail?.rule != null || (editing == null && smartAtFirst)) }
     var rule by remember(detail) { mutableStateOf(detail?.rule ?: "") }
-    val problem = if (smart && rule.isNotBlank()) core.checkRule(rule) else null
+    // Checked off the main thread as the rule is typed.
+    val problem by androidx.compose.runtime.produceState<String?>(null, smart, rule) {
+        value = if (smart && rule.isNotBlank()) withContext(kotlinx.coroutines.Dispatchers.IO) { runCatching { core.checkRule(rule) }.getOrNull() } else null
+    }
     val close = { Ui.sheet.value = null }
     AlertDialog(
         onDismissRequest = close,

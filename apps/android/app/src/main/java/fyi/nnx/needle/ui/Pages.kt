@@ -26,6 +26,7 @@ import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListScope
 import androidx.compose.foundation.lazy.LazyRow
@@ -75,6 +76,7 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.foundation.combinedClickable
+import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
@@ -98,10 +100,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
-private fun play(songs: List<Song>, start: Int = 0) {
-    core.play(songs.map { it.id }, start.toUInt())
-    NeedleApp.instance.openPlayer.tryEmit(Unit)
-}
+private fun play(songs: List<Song>, start: Int = 0) = playSongs(songs.map { it.id }, start)
 
 @Composable
 private fun playingId(): String? = NeedleApp.instance.playback.collectAsState().value?.current?.id
@@ -333,7 +332,9 @@ fun PlayRow(songs: List<Song>, inline: Boolean = false, side: (@Composable () ->
                 if (side == null) ButtonGroupDefaults.connectedTrailingButtonPressShape else ButtonGroupDefaults.connectedMiddleButtonPressShape,
             ),
             interactionSource = interaction,
-            modifier = Modifier.height(64.dp).width(172.dp).focusRing(interaction, 10.dp).firstFocus(),
+            // Narrower on a narrow screen (split screen, the largest display size), so the
+            // group's last button keeps its size.
+            modifier = Modifier.height(64.dp).weight(1f, fill = false).widthIn(min = 96.dp, max = 172.dp).firstFocus(),
         ) {
             Icon(Icons.Rounded.PlayArrow, contentDescription = null, modifier = Modifier.size(30.dp))
             Spacer(Modifier.width(8.dp))
@@ -354,7 +355,7 @@ private val LocalGroupShapes = androidx.compose.runtime.compositionLocalOf<IconB
 fun RoundAction(icon: androidx.compose.ui.graphics.vector.ImageVector, label: String, onClick: () -> Unit) {
     val interaction = remember { androidx.compose.foundation.interaction.MutableInteractionSource() }
     val shapes = LocalGroupShapes.current ?: IconButtonDefaults.shapes()
-    FilledTonalIconButton(onClick = onClick, shapes = shapes, interactionSource = interaction, modifier = Modifier.size(width = 72.dp, height = 64.dp).focusRing(interaction, 32.dp)) {
+    FilledTonalIconButton(onClick = onClick, shapes = shapes, interactionSource = interaction, modifier = Modifier.size(width = 72.dp, height = 64.dp)) {
         // As large beside Play as Play's own icon, so the group reads as one.
         Icon(icon, contentDescription = label, modifier = Modifier.size(28.dp))
     }
@@ -391,6 +392,12 @@ private fun length(songs: List<Song>): String {
 
 @Composable
 fun AlbumScreen(album: Album, open: (Route) -> Unit) {
+    // Its menus, and its songs' menus, know they are on this album already.
+    CompositionLocalProvider(LocalAlbumHere provides album.title) { AlbumPage(album, open) }
+}
+
+@Composable
+private fun AlbumPage(album: Album, open: (Route) -> Unit) {
     val songsLoad = rememberLoaded(album.key) { albumSongs(album.key) }
     val songs by songsLoad
     val othersLoad = rememberLoaded(album.artist) { artistAlbums(album.artist) }
@@ -469,6 +476,7 @@ fun AlbumOfScreen(route: Route.AlbumOf, open: (Route) -> Unit) {
 
 @Composable
 fun PlaylistScreen(route: Route.Playlist, open: (Route) -> Unit) {
+    val back = androidx.activity.compose.LocalOnBackPressedDispatcherOwner.current
     val detailLoad = rememberLoaded(route.id) { playlistDetail(route.id) }
     val detail by detailLoad
     val summaryLoad = rememberLoaded(route.id) { playlists().firstOrNull { it.id == route.id } }
@@ -557,12 +565,12 @@ fun PlaylistScreen(route: Route.Playlist, open: (Route) -> Unit) {
         if (menu && d != null) PlaylistSheet(
             d, art,
             onDelete = { deleting = true },
-            onPicture = { picture.launch(arrayOf("image/*")) },
+            onPicture = { tryOpen("file picker") { picture.launch(arrayOf("image/*")) } },
             onCovers = {
                 runCatching { core.setPlaylistPicture(d.id, null) }
                 NeedleApp.instance.libraryVersion.value++
             },
-            onExport = { export.launch("${d.name}.m3u8") },
+            onExport = { tryOpen("file picker") { export.launch("${d.name}.m3u8") } },
             onArrange = if (d.rule == null && list.size > 1) ({ arranging = true }) else null,
         ) { menu = false }
     }
@@ -574,8 +582,10 @@ fun PlaylistScreen(route: Route.Playlist, open: (Route) -> Unit) {
             confirmButton = {
                 TextButton(onClick = {
                     runCatching { core.deletePlaylist(d.id) }
-                    NeedleApp.instance.libraryVersion.value++
                     deleting = false
+                    // Away from the page first: a playlist that is gone has nothing to show.
+                    back?.onBackPressedDispatcher?.onBackPressed()
+                    NeedleApp.instance.libraryVersion.value++
                     showMessage("Deleted ${d.name}")
                 }) { Text("Delete") }
             },
@@ -619,7 +629,7 @@ fun ArtistScreen(name: String, open: (Route) -> Unit) {
                     PlayRow(songs) {
                         RoundAction(Icons.Rounded.Radio, "Artist radio") {
                             showMessage("Starting radio from $name…")
-                            NeedleApp.instance.scope.launch { runCatching { core.startArtistRadio(name) } }
+                            NeedleApp.instance.scope.launch { runCatching { core.startArtistRadio(name) }.onFailure { showMessage(it.message ?: "Could not start the radio") } }
                         }
                     }
                 }
@@ -639,7 +649,7 @@ fun ArtistScreen(name: String, open: (Route) -> Unit) {
                     }
                 }
             }
-            edgeToEdge(Edge) { SectionHeader("Albums", Modifier.padding(top = 8.dp)) }
+            if (albums.orEmpty().isNotEmpty()) edgeToEdge(Edge) { SectionHeader("Albums", Modifier.padding(top = 8.dp)) }
             items(albums.orEmpty().size) { i ->
                 val album = albums!![i]
                 AlbumTile(album, Modifier.entrance(i + 5), open) { open(Route.AlbumPage(album)) }
@@ -665,6 +675,8 @@ private fun ArtistHero(art: String?, name: String, albums: Int?, songs: Int, scr
                 scaleY = k
             },
             RoundedCornerShape(0.dp),
+            // No photo: the made-up cover in the artist's own colours, as their tiles have.
+            seed = name,
         )
         Box(Modifier.fillMaxSize().background(Brush.verticalGradient(0f to Color.Black.copy(alpha = 0.35f), 0.25f to Color.Transparent, 0.6f to Color.Transparent, 1f to page)))
         Column(Modifier.align(Alignment.BottomStart).padding(horizontal = Edge, vertical = 8.dp)) {
@@ -718,7 +730,7 @@ fun HomeScreen(open: (Route) -> Unit) {
                     Pinned(Icons.Rounded.Computer, "Computer", "Play from there", Modifier.weight(1f), colors.secondaryContainer, colors.secondary) { open(Route.Connect) }
                 }
             }
-            if (h.recent.isNotEmpty()) shelf("Recently added", h.added, open)
+            if (h.recent.isNotEmpty()) shelf("Recently added", h.added, open, Route.RecentlyAdded)
             playlistShelf(playlists.orEmpty(), open)
             shelf("Most played", h.mostPlayed, open)
             artistShelf(artists.orEmpty().sortedByDescending { it.songs }.take(12), open)
@@ -806,9 +818,10 @@ private fun androidx.compose.material3.carousel.CarouselItemScope.HeroCard(album
     }
 }
 
-private fun LazyListScope.shelf(title: String, albums: List<Album>, open: (Route) -> Unit) {
+private fun LazyListScope.shelf(title: String, albums: List<Album>, open: (Route) -> Unit, more: Route? = null) {
     if (albums.isEmpty()) return
-    item { SectionHeader(title, onMore = { open(Route.Albums) }) }
+    // "See all" only where there is a page of the same albums in the same order.
+    item { SectionHeader(title, onMore = more?.let { { open(it) } }) }
     item {
         val tile = if (isWide()) 180.dp else 150.dp
         LazyRow(contentPadding = PaddingValues(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(LocalRows.current.grid - 4.dp)) {
@@ -886,6 +899,8 @@ private fun HomeEmpty(scanning: Boolean, open: (Route) -> Unit) {
 fun SearchScreen(open: (Route) -> Unit) {
     var query by rememberSaveable { mutableStateOf("") }
     var songs by remember { mutableStateOf<List<Song>>(emptyList()) }
+    // What the songs shown were found for, so "Nothing found" waits for its own answer.
+    var searched by remember { mutableStateOf<String?>(null) }
     var server by remember { mutableStateOf<Pair<ULong, List<Song>>?>(null) }
     val genresLoad = rememberLoaded { genres() }
     val genres by genresLoad
@@ -893,6 +908,7 @@ fun SearchScreen(open: (Route) -> Unit) {
     LaunchedEffect(query) {
         delay(200)
         songs = if (query.isBlank()) emptyList() else withContext(Dispatchers.IO) { runCatching { core.search(query) }.getOrDefault(emptyList()) }
+        searched = query
         // Music servers that search (octo-fiesta) answer a moment later.
         server = null
         if (query.isNotBlank()) {
@@ -904,7 +920,10 @@ fun SearchScreen(open: (Route) -> Unit) {
             }
         }
     }
-    val hints = remember(query) { if (query.isBlank()) emptyList() else runCatching { core.suggest(query, query.length.toUInt()) }.getOrDefault(emptyList()) }
+    // Off the main thread, as each letter is typed.
+    val hints by produceState(emptyList<fyi.nnx.needle.core.Suggestion>(), query) {
+        value = if (query.isBlank()) emptyList() else withContext(Dispatchers.IO) { runCatching { core.suggest(query, query.length.toUInt()) }.getOrDefault(emptyList()) }
+    }
     Page("Search") { padding, scroll ->
         // Two genres across on a phone, more on a tablet; the rows run to the edges.
         LazyVerticalGrid(
@@ -959,7 +978,7 @@ fun SearchScreen(open: (Route) -> Unit) {
                     }
                 }
             } else {
-                if (songs.isEmpty()) {
+                if (songs.isEmpty() && searched == query && server == null) {
                     edgeToEdge(16.dp) { Text("Nothing found for “$query”.", color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(horizontal = Edge, vertical = 16.dp)) }
                 }
                 items(songs.size, key = { songs[it].id }, span = { GridItemSpan(maxLineSpan) }) { i ->
@@ -967,7 +986,7 @@ fun SearchScreen(open: (Route) -> Unit) {
                 }
                 server?.let { (number, found) ->
                     edgeToEdge(16.dp) { SectionHeader("On your server") }
-                    items(found.size, key = { "server-" + found[it].id }, span = { GridItemSpan(maxLineSpan) }) { i ->
+                    items(found.size, key = { "server-$it-" + found[it].id }, span = { GridItemSpan(maxLineSpan) }) { i ->
                         SongRow(found[i], playing == found[i].id, null, Modifier.bleed(16.dp), place = Place(i, found.size)) { core.playServerSongs(number, i.toUInt()) }
                     }
                 }
