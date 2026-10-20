@@ -30,6 +30,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.Sort
 import androidx.compose.material.icons.rounded.Add
+import androidx.compose.material.icons.rounded.ArrowDropDown
 import androidx.compose.material.icons.rounded.Check
 import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.Favorite
@@ -125,10 +126,21 @@ private fun Pills(filter: Filter?, choose: (Filter?) -> Unit, sort: Sort, sortBy
     var more by remember { mutableStateOf(false) }
     var sorting by remember { mutableStateOf(false) }
     Row(Modifier.fillMaxWidth().padding(bottom = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+        // Tonal pills, no outlines: the page's own tone a step up, the chosen one in amber.
+        val pill = FilterChipDefaults.filterChipColors(
+            containerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
+            labelColor = MaterialTheme.colorScheme.onSurface,
+            iconColor = MaterialTheme.colorScheme.onSurfaceVariant,
+            selectedContainerColor = MaterialTheme.colorScheme.primary,
+            selectedLabelColor = MaterialTheme.colorScheme.onPrimary,
+        )
         LazyRow(
             Modifier.weight(1f),
             contentPadding = PaddingValues(start = 16.dp, end = 8.dp),
             horizontalArrangement = Arrangement.spacedBy(8.dp),
+            // Pills keep a 48 dp place to touch; the ✕ beside them is centred on them, not set
+            // at the top of that place.
+            verticalAlignment = Alignment.CenterVertically,
         ) {
             if (filter != null) {
                 item {
@@ -147,15 +159,22 @@ private fun Pills(filter: Filter?, choose: (Filter?) -> Unit, sort: Sort, sortBy
                     onClick = { choose(if (filter == f) null else f) },
                     label = { Text(f.label) },
                     shape = RoundedCornerShape(50),
-                    colors = FilterChipDefaults.filterChipColors(
-                        selectedContainerColor = MaterialTheme.colorScheme.primary,
-                        selectedLabelColor = MaterialTheme.colorScheme.onPrimary,
-                    ),
+                    colors = pill,
+                    border = null,
                 )
             }
             if (filter == null) item {
                 Box {
-                    FilterChip(selected = false, onClick = { more = true }, label = { Text("More") }, shape = RoundedCornerShape(50))
+                    FilterChip(
+                        selected = false,
+                        onClick = { more = true },
+                        label = { Text("More") },
+                        // It opens a menu, so it says so, as Material's menu chips do.
+                        trailingIcon = { Icon(Icons.Rounded.ArrowDropDown, contentDescription = null, modifier = Modifier.size(FilterChipDefaults.IconSize)) },
+                        shape = RoundedCornerShape(50),
+                        colors = pill,
+                        border = null,
+                    )
                     DropdownMenu(expanded = more, onDismissRequest = { more = false }, shape = RoundedCornerShape(20.dp)) {
                         DropdownMenuItem(text = { Text("Genres") }, leadingIcon = { Icon(Icons.Rounded.Style, null) }, onClick = { more = false; open(Route.Genres) })
                         DropdownMenuItem(text = { Text("Folders") }, leadingIcon = { Icon(Icons.Rounded.Folder, null) }, onClick = { more = false; open(Route.Folder(null)) })

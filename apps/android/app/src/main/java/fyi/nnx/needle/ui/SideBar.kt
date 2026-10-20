@@ -155,7 +155,7 @@ fun SideBar(tab: Tab, page: Route, onTab: (Tab) -> Unit, open: (Route) -> Unit) 
 }
 
 /** A tab's icon while another tab is open: outlined, as Material's navigation does. */
-private val Tab.outline: ImageVector
+internal val Tab.outline: ImageVector
     get() = when (this) {
         Tab.Home -> Icons.Outlined.Home
         Tab.Library -> Icons.Outlined.LibraryMusic

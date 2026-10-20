@@ -34,9 +34,14 @@ val NeedleColors = darkColorScheme(
     onPrimaryContainer = Color(0xFFF6DDB4),
     secondary = Color(0xFFD4BFA0),
     onSecondary = Color(0xFF2A2116),
-    secondaryContainer = Color(0xFF2E2A26),
+    // A warm tone a clear step above the page: the open tab, a lit row, a tile.
+    secondaryContainer = Color(0xFF3B3229),
     onSecondaryContainer = Color(0xFFE2B46C),
+    // A cool second accent, for tiles beside the warm ones (Material's tertiary roles).
     tertiary = Color(0xFFB9C7FF),
+    onTertiary = Color(0xFF1B2A55),
+    tertiaryContainer = Color(0xFF2F3754),
+    onTertiaryContainer = Color(0xFFDDE2FF),
     background = Color(0xFF141312),
     onBackground = Color(0xFFF1EFED),
     surface = Color(0xFF141312),
@@ -71,8 +76,14 @@ val DayColors = lightColorScheme(
     onPrimary = Color.White,
     primaryContainer = Color(0xFFF6DDB4),
     onPrimaryContainer = Color(0xFF2B1D07),
-    secondaryContainer = Color(0xFFEFE7DC),
-    onSecondaryContainer = Color(0xFF8A5A12),
+    secondary = Color(0xFF6F5B3E),
+    onSecondary = Color.White,
+    secondaryContainer = Color(0xFFF1E3CC),
+    onSecondaryContainer = Color(0xFF6B440A),
+    tertiary = Color(0xFF4A5A92),
+    onTertiary = Color.White,
+    tertiaryContainer = Color(0xFFDDE2FF),
+    onTertiaryContainer = Color(0xFF14204A),
     background = Color(0xFFFBFAF8),
     onBackground = Color(0xFF1C1B1A),
     surface = Color(0xFFFBFAF8),
@@ -140,7 +151,9 @@ fun NeedleTheme(content: @Composable () -> Unit) {
                 primary = made.primary, onPrimary = made.onPrimary,
                 primaryContainer = made.primaryContainer, onPrimaryContainer = made.onPrimaryContainer,
                 secondaryContainer = made.secondaryContainer, onSecondaryContainer = made.primary,
-                tertiary = made.tertiary, surfaceTint = made.surfaceTint,
+                tertiary = made.tertiary, onTertiary = made.onTertiary,
+                tertiaryContainer = made.tertiaryContainer, onTertiaryContainer = made.onTertiaryContainer,
+                surfaceTint = made.surfaceTint,
             )
         }
     }
