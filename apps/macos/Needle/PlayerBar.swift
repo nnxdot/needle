@@ -37,30 +37,118 @@ struct PlayerBar: View {
     }
 }
 
-/// The player in the title bar: the same controls and small screen as the player bar, smaller,
-/// in the bar's own glass.
+/// The player in the title bar, after Apple Music's: the controls, then a small screen sunk
+/// into the glass with the song in its middle and where it is along its foot, then the panels
+/// and the volume.
 struct TopPlayer: View {
     private var store: Store { .shared }
 
     var body: some View {
-        HStack(spacing: 14) {
-            Transport(play: 22, compact: true, bare: true, icons: 13)
+        HStack(spacing: 16) {
+            Transport(play: 24, compact: true, bare: true, icons: 13)
                 .fixedSize()
-            NowScreen(small: true)
-                .frame(minWidth: 160, idealWidth: 280, maxWidth: 340)
-            HStack(spacing: 12) {
+            TopScreen()
+                .frame(minWidth: 220, idealWidth: 360, maxWidth: 440)
+            HStack(spacing: 14) {
                 if let c = store.current {
                     Heart(on: c.favorite, size: 13) { store.toggleFavorite([c]) }
                 }
                 PanelButton(panel: .lyrics, icon: "quote.bubble", help: "Lyrics · ⌘L")
                 QueueButton()
                 MoreButton(all: true)
-                VolumeControl(width: 56)
+                VolumeControl(width: 60)
             }
             .font(.system(size: 13))
             .fixedSize()
         }
-        .padding(.horizontal, 10)
+        .padding(.leading, 12)
+        .padding(.trailing, 14)
+    }
+}
+
+/// The title bar player's screen: a panel a little sunk into the glass, the cover at its left
+/// (it opens the big player), the song and "artist — album" in its middle (they open the
+/// album and the artist), and where the song is along its foot, to click or drag; the times
+/// show at its ends while the pointer is over it.
+struct TopScreen: View {
+    private var store: Store { .shared }
+    @State private var held: Double?
+    @State private var hover = false
+
+    var body: some View {
+        let colors = store.colors
+        let p = store.playback
+        let has = p?.hasSong == true
+        let duration = max(p?.duration ?? 0, 0.01)
+        let position = held.map { $0 * duration } ?? p?.position ?? 0
+        let shape = RoundedRectangle(cornerRadius: 9, style: .continuous)
+        HStack(spacing: 0) {
+            Group {
+                if let p, has {
+                    Button { store.big = true } label: {
+                        Cover(path: p.artwork, seed: p.album + p.artist, side: 30, corner: 5)
+                    }
+                    .buttonStyle(.plain)
+                    .help("Open the big player · ⌘P")
+                } else {
+                    RoundedRectangle(cornerRadius: 5).fill(colors.raised).frame(width: 30, height: 30)
+                        .overlay { Image(systemName: "music.note").font(.system(size: 12)).foregroundStyle(colors.ink3) }
+                }
+            }
+            .padding(.leading, 4)
+            ZStack {
+                VStack(spacing: 0) {
+                    if let p, has {
+                        Button { if let c = store.current { store.navigate(c.albumRoute) } } label: {
+                            Text(p.title).font(.system(size: 11.5, weight: .semibold)).foregroundStyle(colors.ink).lineLimit(1)
+                        }
+                        .buttonStyle(.plain)
+                        Button { store.navigate(.artist(store.current?.artist ?? p.artist)) } label: {
+                            Text([p.artist, p.album].filter { !$0.isEmpty }.joined(separator: " — "))
+                                .font(.system(size: 10.5)).foregroundStyle(colors.ink2).lineLimit(1)
+                        }
+                        .buttonStyle(.plain)
+                    } else {
+                        Text("Needle").font(.system(size: 11.5, weight: .semibold)).foregroundStyle(colors.ink2)
+                    }
+                }
+                .padding(.horizontal, hover && has ? 40 : 8)
+                if hover, let p, has {
+                    HStack {
+                        Text(clock(position))
+                        Spacer()
+                        Text("-" + clock(max(0, p.duration - position)))
+                    }
+                    .font(.system(size: 9.5, weight: .medium).monospacedDigit())
+                    .foregroundStyle(colors.ink3)
+                    .padding(.horizontal, 8)
+                    .transition(.opacity)
+                }
+            }
+            .frame(maxWidth: .infinity)
+        }
+        .frame(height: 36)
+        .background(colors.ink.opacity(colors.dark ? 0.07 : 0.05), in: shape)
+        .overlay(shape.strokeBorder(colors.ink.opacity(0.07), lineWidth: 0.5))
+        // Where the song is, along the screen's foot.
+        .overlay(alignment: .bottom) {
+            ThinBar(value: min(1, position / duration), tint: colors.ink.opacity(0.7), track: .clear, area: 6) { held = $0 } began: {
+                store.core.scrub(held: true)
+            } ended: { fraction in
+                store.seek(fraction * duration)
+                store.core.scrub(held: false)
+                Task { try? await Task.sleep(for: .milliseconds(400)); held = nil }
+            }
+            .disabled(!has)
+            .overlay { LoopMarks(duration: duration) }
+            // Under the words, not the cover.
+            .padding(.leading, 40)
+            .padding(.trailing, 8)
+        }
+        .clipShape(shape)
+        .contentShape(shape)
+        .onHover { h in withAnimation(.easeOut(duration: 0.15)) { hover = h } }
+        .contextMenu { if let c = store.current { SongMenu(tracks: [c], playing: true) } }
     }
 }
 
