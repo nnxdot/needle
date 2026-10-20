@@ -350,6 +350,29 @@ pub fn lyrics(
     if let Some(local) = local_lyrics(track) {
         return Ok(Some(local));
     }
+    // A music server's song: the server's own lyrics. It is the person's own server, so it
+    // is asked even with online lookups off.
+    if let (Some(host), Some((owner, id))) = (plugins, track.source()) {
+        // Kept a day, so opening the lyrics again does not ask the server again.
+        let key = format!("server-lyrics:{owner}:{id}");
+        let found = match cached::<Option<Lyrics>>(library, &key)? {
+            Some(hit) => hit,
+            None => match host.source_lyrics(owner, &id) {
+                Ok(found) => {
+                    let found = found.and_then(from_plugin);
+                    remember(library, &key, &found, 86400)?;
+                    found
+                }
+                Err(problem) => {
+                    crate::logfile::warn(format!("Lyrics from {owner}: {problem:#}"));
+                    None
+                }
+            },
+        };
+        if found.is_some() {
+            return Ok(found);
+        }
+    }
     if !online || track.title.is_empty() || track.artist.is_empty() {
         return Ok(None);
     }
@@ -412,21 +435,7 @@ fn plugin_lyrics(
             return Ok(None);
         }
     };
-    let found = found.and_then(|found| {
-        if found.instrumental {
-            return Some(Lyrics {
-                lines: vec![],
-                plain: String::new(),
-                instrumental: true,
-                source: LyricsSource::Plugin,
-                provider: found.provider,
-            });
-        }
-        Lyrics::from_text(&found.text, LyricsSource::Plugin).map(|mut l| {
-            l.provider = found.provider;
-            l
-        })
-    });
+    let found = found.and_then(from_plugin);
     remember(
         library,
         &key,
@@ -434,6 +443,23 @@ fn plugin_lyrics(
         if found.is_some() { 30 * 86400 } else { 86400 },
     )?;
     Ok(found)
+}
+
+/// A plugin's lyrics, as Needle shows them.
+fn from_plugin(found: crate::plugins::PluginLyrics) -> Option<Lyrics> {
+    if found.instrumental {
+        return Some(Lyrics {
+            lines: vec![],
+            plain: String::new(),
+            instrumental: true,
+            source: LyricsSource::Plugin,
+            provider: found.provider,
+        });
+    }
+    Lyrics::from_text(&found.text, LyricsSource::Plugin).map(|mut l| {
+        l.provider = found.provider;
+        l
+    })
 }
 
 /// LRCLIB's lyrics for `track`, kept a month (a week when it has none).
@@ -487,7 +513,10 @@ fn download_image(url: &str, destination: &Path) -> Result<()> {
     if let Some(parent) = destination.parent() {
         std::fs::create_dir_all(parent)?;
     }
-    let partial = destination.with_extension("part");
+    // Each picture its own part file: an artist's photo, logo, and wide picture are fetched at
+    // the same time, and one shared part file mixed them up.
+    let kind = destination.extension().and_then(|e| e.to_str()).unwrap_or("img");
+    let partial = destination.with_extension(format!("{kind}.part"));
     std::fs::write(&partial, bytes)?;
     std::fs::rename(partial, destination)?;
     Ok(())
@@ -532,6 +561,9 @@ pub fn artist_image(library: &Library, name: &str, online: bool) -> Result<Optio
 
 /// The artist's MusicBrainz id, kept three months (a week when none matched).
 fn musicbrainz_artist_kept(library: &Library, name: &str) -> Result<Option<String>> {
+    // One search for an artist even when the photo, logo, and picture ask at once.
+    static ONE: std::sync::Mutex<()> = std::sync::Mutex::new(());
+    let _one = ONE.lock().unwrap_or_else(|e| e.into_inner());
     let key = format!("mb-artist:{}", name.to_lowercase());
     if let Some(hit) = cached::<Option<String>>(library, &key)? {
         return Ok(hit);
@@ -569,27 +601,60 @@ fn musicbrainz_artist(name: &str) -> Result<Option<String>> {
 
 /// A moving cover beside a song's file: a short video, such as `cover.mp4` or `animated.mov`,
 /// as some downloads of Apple Music's moving covers are saved.
-pub fn animated_cover(track: &Track) -> Option<PathBuf> {
+pub fn animated_cover(library: &Library, track: &Track) -> Option<PathBuf> {
     if track.source().is_some() || track.path.starts_with("http") {
         return None;
     }
     let folder = Path::new(track.file_path()).parent()?;
+    // Only a folder of one album: in a folder of many (an iPhone's own, say) one cover.mp4
+    // would be every song's.
+    let inside = format!("{}/%", folder.to_string_lossy());
+    let deeper = format!("{}/%/%", folder.to_string_lossy());
+    let albums: i64 = library
+        .connection()
+        .ok()?
+        .query_row(
+            "SELECT COUNT(DISTINCT album) FROM tracks WHERE path LIKE ?1 AND path NOT LIKE ?2",
+            params![inside, deeper],
+            |r| r.get(0),
+        )
+        .ok()?;
+    if albums > 1 {
+        return None;
+    }
     let names = ["cover", "animated", "folder", "front", "album", "motion"];
     let kinds = ["mp4", "m4v", "mov"];
     std::fs::read_dir(folder).ok()?.flatten().map(|e| e.path()).find(|p| {
         let stem = p.file_stem().and_then(|s| s.to_str()).unwrap_or_default().to_lowercase();
         let kind = p.extension().and_then(|s| s.to_str()).unwrap_or_default().to_lowercase();
-        names.contains(&stem.as_str()) && kinds.contains(&kind.as_str())
+        // A moving cover is a short loop, not a whole music video.
+        let small = std::fs::metadata(p).is_ok_and(|m| m.len() <= 60 * 1024 * 1024);
+        names.contains(&stem.as_str()) && kinds.contains(&kind.as_str()) && small
     })
 }
 
+/// One fanart.tv lookup at a time: an artist page asks for the logo and the picture together,
+/// and the second then finds the first's answer kept.
+static FANART: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+/// A web error without its address: fanart.tv's carries the key.
+fn without_address(error: reqwest::Error) -> anyhow::Error {
+    anyhow::anyhow!("{}", error.without_url())
+}
+
+fn fanart_kept(name: &str) -> String {
+    format!("fanart:{}", name.to_lowercase())
+}
+
 /// What fanart.tv has for an artist, when online lookups are on and there is a fanart.tv key:
-/// its answer, kept a month (nothing, also kept a month, when it does not know the artist).
+/// its answer, kept a month (nothing, also kept a month, when it does not know the artist; a
+/// day when it refused the key).
 fn fanart(library: &Library, name: &str, online: bool) -> Result<Option<Value>> {
     let Some(key) = online.then(crate::integrations::fanart_key).flatten() else {
         return Ok(None);
     };
-    let remembered = format!("fanart:{}", name.to_lowercase());
+    let _one = FANART.lock().unwrap_or_else(|e| e.into_inner());
+    let remembered = fanart_kept(name);
     if let Some(hit) = cached::<Value>(library, &remembered)? {
         return Ok((!hit.is_null()).then_some(hit));
     }
@@ -598,11 +663,19 @@ fn fanart(library: &Library, name: &str, online: bool) -> Result<Option<Value>> 
             let response = client()?
                 .get(format!("https://webservice.fanart.tv/v3/music/{id}"))
                 .query(&[("api_key", key.as_str())])
-                .send()?;
-            if response.status() == reqwest::StatusCode::NOT_FOUND {
-                Value::Null
-            } else {
-                response.error_for_status()?.json()?
+                .send()
+                .map_err(without_address)?;
+            match response.status().as_u16() {
+                404 => Value::Null,
+                status @ (401 | 403) => {
+                    remember(library, &remembered, &Value::Null, 86400)?;
+                    bail!("fanart.tv refused the key ({status})");
+                }
+                _ => response
+                    .error_for_status()
+                    .map_err(without_address)?
+                    .json()
+                    .map_err(without_address)?,
             }
         }
         None => Value::Null,
@@ -611,14 +684,6 @@ fn fanart(library: &Library, name: &str, online: bool) -> Result<Option<Value>> 
         "fanart.tv for {name}: {}",
         if found.is_null() { "nothing" } else { "found" }
     ));
-    // A new answer: the picture chosen from the last one goes, so a newer one is chosen.
-    let _ = std::fs::remove_file(
-        library
-            .directory
-            .join("artwork")
-            .join("artists")
-            .join(format!("{}.wide", blake3::hash(name.to_lowercase().as_bytes()).to_hex())),
-    );
     remember(library, &remembered, &found, WEEK * 4)?;
     Ok((!found.is_null()).then_some(found))
 }
@@ -642,14 +707,27 @@ fn fanart_picture(
             "{}.{kind}",
             blake3::hash(name.to_lowercase().as_bytes()).to_hex()
         ));
-    if file.is_file() {
+    let kept = file.is_file();
+    // The one kept, while fanart.tv's answer is fresh, or when it cannot be asked again; with a
+    // new answer (each month) the choice is made again, so a newer picture comes in.
+    let fresh = cached::<Value>(library, &fanart_kept(name))?.is_some();
+    if kept && (fresh || !online || crate::integrations::fanart_key().is_none()) {
         return Ok(Some(file));
     }
-    let Some(url) = fanart(library, name, online)?.as_ref().and_then(pick) else {
-        return Ok(None);
+    let data = match fanart(library, name, online) {
+        Ok(data) => data,
+        Err(problem) if kept => {
+            crate::logfile::warn(format!("fanart.tv for {name}: {problem:#}"));
+            return Ok(Some(file));
+        }
+        Err(problem) => return Err(problem),
     };
-    if let Some(folder) = file.parent() {
-        std::fs::create_dir_all(folder)?;
+    let Some(url) = data.as_ref().and_then(pick) else {
+        return Ok(kept.then_some(file));
+    };
+    // Only fanart.tv's own pictures are fetched.
+    if !url.starts_with("https://assets.fanart.tv/") {
+        bail!("fanart.tv gave a picture from elsewhere");
     }
     download_image(&url, &file)?;
     Ok(Some(file))

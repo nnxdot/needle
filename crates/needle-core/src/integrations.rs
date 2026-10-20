@@ -42,7 +42,7 @@ pub struct RecordingMatch {
 /// A MusicBrainz web-service GET that honours the one-request-per-second limit shared by all
 /// callers. When MusicBrainz is busy (503), it is asked twice more, a little later each time.
 pub(crate) fn musicbrainz_get(path: &str, query: &[(&str, &str)]) -> Result<Value> {
-    let mut last = MB_LAST.lock().unwrap();
+    let mut last = MB_LAST.lock().unwrap_or_else(|e| e.into_inner());
     let mut wait = Duration::from_secs(1);
     for attempt in 0..3 {
         if let Some(time) = *last {
