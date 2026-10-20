@@ -401,8 +401,10 @@ struct WindowBackground: View {
     private var store: Store { .shared }
 
     var body: some View {
+        // An album's or artist's page in its own colours: its ink was chosen for that colour,
+        // so the playing cover is not drawn behind it.
         ZStack {
-            if store.settings.ambient {
+            if store.settings.ambient && !store.isPaged {
                 store.colors.chrome
                 if let p = store.playback, p.hasSong {
                     // Full strength, dimmed only a little: mixed into the grey beneath and

@@ -89,11 +89,12 @@ enum Covers {
     nonisolated static func footColor(_ path: String) -> (Double, Double, Double)? {
         guard let cg = cgImage(path, size: 64) else { return nil }
         let side = 32
-        var pixels = [UInt8](repeating: 0, count: side * side * 4)
-        guard let context = CGContext(data: &pixels, width: side, height: side, bitsPerComponent: 8, bytesPerRow: side * 4,
+        guard let context = CGContext(data: nil, width: side, height: side, bitsPerComponent: 8, bytesPerRow: side * 4,
                                       space: CGColorSpaceCreateDeviceRGB(),
                                       bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else { return nil }
         context.draw(cg, in: CGRect(x: 0, y: 0, width: side, height: side))
+        guard let raw = context.data else { return nil }
+        let pixels = UnsafeBufferPointer(start: raw.assumingMemoryBound(to: UInt8.self), count: side * side * 4)
         // The bitmap's first row is the picture's top.
         var sum = (0.0, 0.0, 0.0), n = 0.0
         for y in (side - 5)..<side {
@@ -109,12 +110,13 @@ enum Covers {
     nonisolated static func vivid(_ path: String) -> NSColor? {
         guard let cg = cgImage(path, size: 48) else { return nil }
         let side = 16
-        var pixels = [UInt8](repeating: 0, count: side * side * 4)
-        guard let context = CGContext(data: &pixels, width: side, height: side, bitsPerComponent: 8, bytesPerRow: side * 4,
+        guard let context = CGContext(data: nil, width: side, height: side, bitsPerComponent: 8, bytesPerRow: side * 4,
                                       space: CGColorSpaceCreateDeviceRGB(),
                                       bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else { return nil }
         context.interpolationQuality = .medium
         context.draw(cg, in: CGRect(x: 0, y: 0, width: side, height: side))
+        guard let raw = context.data else { return nil }
+        let pixels = UnsafeBufferPointer(start: raw.assumingMemoryBound(to: UInt8.self), count: side * side * 4)
         // Hues weighted by how colourful and how bright each pixel is.
         var x = 0.0, y = 0.0, weight = 0.0, saturation = 0.0, brightness = 0.0
         for i in stride(from: 0, to: pixels.count, by: 4) {
@@ -324,13 +326,26 @@ struct HeaderBackdrop: View {
 /// An artist's logo: a picture with a clear background, kept whole.
 struct Logo: View {
     let path: String
+    /// Drawn in this colour, its own colours left out: for a light page.
+    var ink: Color?
     @State private var image: NSImage?
 
     var body: some View {
         Group {
-            if let image { Image(nsImage: image).resizable().interpolation(.high).scaledToFit() } else { Color.clear }
+            if let image {
+                if let ink {
+                    Image(nsImage: image).renderingMode(.template).resizable().interpolation(.high).scaledToFit().foregroundStyle(ink)
+                } else {
+                    Image(nsImage: image).resizable().interpolation(.high).scaledToFit()
+                }
+            } else {
+                Color.clear
+            }
         }
-        .task(id: path) { image = await Covers.load(path, size: 1200) }
+        .task(id: path) {
+            let found = await Covers.load(path, size: 1200)
+            if !Task.isCancelled { image = found }
+        }
     }
 }
 

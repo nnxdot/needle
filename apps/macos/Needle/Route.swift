@@ -92,6 +92,14 @@ enum Route: Hashable {
     }
 
     /// The sidebar entry that stays lit while this page shows.
+    /// An album's or artist's page: the window takes its picture's colours.
+    var isPaged: Bool {
+        switch self {
+        case .album, .artist: true
+        default: false
+        }
+    }
+
     var sidebarRoute: Route {
         switch self {
         case .album: .albums

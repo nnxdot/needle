@@ -327,11 +327,14 @@ struct LibrarySettings: View {
                         store.job { "Found covers for \(try $0.findAllCovers()) albums." }
                     }
                 }
-                SettingRow(title: "Artists' logos", detail: "With a free key from fanart.tv, artist pages show the artist's logo. Needle sends fanart.tv only the artist's MusicBrainz ID. The key stays in the macOS Keychain.") {
+                SettingRow(title: "Artists' logos", detail: "With online lookups on, artist pages show the artist's logo from fanart.tv. Needle asks MusicBrainz for the artist's ID by name, and sends fanart.tv only that ID. Needle has a key of its own; your own key, if you add one, stays in the macOS Keychain.") {
                     if hasFanart {
-                        Button("Remove the key", role: .destructive) {
-                            store.run { try $0.setFanartKey(key: "") }
-                            hasFanart = false
+                        Button("Remove your key", role: .destructive) {
+                            Task {
+                                if await store.ask({ try $0.setFanartKey(key: "") }) != nil {
+                                    hasFanart = await store.load { $0.hasOwnFanartKey() } ?? false
+                                }
+                            }
                         }
                     } else {
                         HStack {
@@ -353,7 +356,7 @@ struct LibrarySettings: View {
         .task(id: store.libraryVersion) {
             roots = (try? store.core.folders()) ?? []
             measured = store.core.measuredCount()
-            hasFanart = store.core.hasFanartKey()
+            hasFanart = await store.load { $0.hasOwnFanartKey() } ?? false
         }
     }
 

@@ -281,28 +281,39 @@ struct ArtistPage: View {
         .ignoresSafeArea(edges: .top)
         .foregroundStyle(colors.ink)
         .task(id: "\(name)\(store.libraryVersion)") {
-            // The logo is looked up beside the pictures, not after them.
             let name = name
-            let lookup = Task { await store.load { $0.artistLogo(name: name) } ?? nil }
-            let wide = Task { await store.load { $0.artistBanner(name: name) } ?? nil }
+            // What the library has first: it never waits on the web.
             albums = JSON.decode([AlbumSummary].self, await store.load { try $0.artistAlbumsJson(name: name) }) ?? []
+            top = await store.load { try $0.artistSongs(name: name) } ?? []
             // The colour at once, from their first album; the picture's when it comes (a first
             // visit downloads it).
             store.setPageTint(await Covers.pageColor(albums?.first?.artwork, seed: name), for: .artist(name))
-            photo = await Photos.find(name, online: store.settings.onlineMedia, store: store)
-            hero = await wide.value
-            if let picture = hero ?? photo {
+            similar = await store.load { $0.similarArtists(artist: name) } ?? []
+            guard !placeholder else { return }
+            // Looked up side by side, and let go of when the page closes.
+            async let wide = store.load { $0.artistBanner(name: name) } ?? nil
+            async let portrait = Photos.find(name, online: store.settings.onlineMedia, store: store)
+            (hero, photo) = await (wide, portrait)
+            if !Task.isCancelled, let picture = hero ?? photo {
                 store.setPageTint(await Covers.pageColor(picture, seed: name), for: .artist(name))
             }
-            logo = await lookup.value
-            top = await store.load { try $0.artistSongs(name: name) } ?? []
-            similar = await store.load { $0.similarArtists(artist: name) } ?? []
+        }
+        // The logo on its own: it shows as soon as it is found, not after the pictures.
+        .task(id: "\(name)\(store.libraryVersion)") {
+            guard !placeholder else { return }
+            let name = name
+            let found = await store.load { $0.artistLogo(name: name) } ?? nil
+            if !Task.isCancelled { logo = found }
         }
     }
 
-    /// The newest album, for the box beside the top songs.
+    /// Not a real artist: songs without one. Nothing is looked up for it.
+    private var placeholder: Bool { name.isEmpty || name == "Unknown artist" }
+
+    /// The newest album, for the box beside the top songs: only among albums with a year (with
+    /// none, there is no box).
     private var latest: AlbumSummary? {
-        albums?.max { ($0.year, $0.album) < ($1.year, $1.album) }
+        albums?.filter { $0.year > 0 }.max { ($0.year, $0.album) < ($1.year, $1.album) }
     }
 
     private var banner: some View {
@@ -339,10 +350,10 @@ struct ArtistPage: View {
                 VStack(spacing: 18) {
                     // Their logo when fanart.tv has one, as Apple Music shows artists' own.
                     if let logo {
-                        Logo(path: logo)
+                        // Logos are mostly white: on a light page, the logo takes the page's ink.
+                        Logo(path: logo, ink: colors.dark ? nil : colors.ink)
                             .frame(maxWidth: 420, maxHeight: 140)
-                            // Logos are mostly white: on a light page, a dark glow keeps them clear.
-                            .shadow(color: colors.dark ? colors.canvas.opacity(0.5) : .black.opacity(0.35), radius: 18)
+                            .shadow(color: colors.canvas.opacity(0.5), radius: 18)
                             .accessibilityLabel(name)
                     } else {
                         Text(name.isEmpty ? "Unknown artist" : name)
@@ -387,6 +398,8 @@ struct ArtistPage: View {
                         .controlSize(.extraLarge)
                         .help("Blend with another artist")
                     }
+                    // Glass in the page's own ink, as Apple Music's.
+                    .tint(colors.ink)
                 }
                 .padding(.horizontal, 32)
                 .padding(.bottom, 6)
@@ -422,6 +435,7 @@ struct ArtistPage: View {
                     Text(count(album.tracks, "song")).foregroundStyle(colors.ink2)
                     Button { playAlbum(album) } label: { Label("Play", systemImage: "play.fill") }
                         .glassButton()
+                        .tint(store.isPaged ? colors.ink : colors.accent)
                         .padding(.top, 6)
                 }
                 .frame(maxWidth: 220, alignment: .leading)
