@@ -33,7 +33,7 @@ struct SettingsView: View {
         }
         .navigationTitle("Settings")
         .themed()
-        .task { discord = store.core.discordAccount().available }
+        .task { discord = await store.load { $0.discordAccount() }?.available ?? false }
     }
 
     private func row(_ title: String, _ detail: String, _ symbol: String, _ tint: Color, _ route: Route) -> some View {
@@ -675,6 +675,9 @@ struct DiscordView: View {
                         HStack(spacing: 10) {
                             ProgressView()
                             Text("Allow Needle on Discord's page.")
+                        }
+                        Button("Cancel", role: .cancel) {
+                            store.core.discordCancelLink()
                         }
                     } else {
                         Button("Link Your Discord Account") {
