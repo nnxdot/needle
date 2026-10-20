@@ -192,7 +192,7 @@ impl Needle {
     /// A song's moving cover: a video beside its file (cover.mp4, animated.mov, and so on).
     pub fn animated_cover(&self, id: String) -> Option<String> {
         let track = self.library.track(&id).ok().flatten()?;
-        media::animated_cover(&track).map(|p| p.to_string_lossy().to_string())
+        media::animated_cover(&self.library, &track).map(|p| p.to_string_lossy().to_string())
     }
 
     /// A wide picture of an artist for the top of their page, from fanart.tv (as for logos).
