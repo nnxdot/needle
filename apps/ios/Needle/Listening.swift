@@ -262,7 +262,7 @@ struct FoldersView: View {
                 songs = await store.load { try $0.folderSongs(path: path) } ?? []
             } else {
                 let roots = await store.load { try $0.folders() } ?? []
-                folders = roots.map { Folder(path: $0, name: $0 == store.musicFolder.path ? "Needle's folder" : ($0 as NSString).lastPathComponent, songs: 0, artwork: nil) }
+                folders = roots.map { Folder(path: $0, name: Store.realPath($0) == Store.realPath(store.musicFolder.path) ? "Needle's folder" : ($0 as NSString).lastPathComponent, songs: 0, artwork: nil) }
                 if roots.count == 1, let only = roots.first {
                     folders = await store.load { try $0.subfolders(path: only) } ?? []
                     songs = await store.load { try $0.folderSongs(path: only) } ?? []

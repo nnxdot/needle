@@ -79,8 +79,8 @@ struct LibrarySettingsView: View {
             Section {
                 ForEach(folders, id: \.self) { folder in
                     VStack(alignment: .leading, spacing: 2) {
-                        Text(folder == store.musicFolder.path ? "Needle's folder" : (folder as NSString).lastPathComponent)
-                        Text(folder == store.musicFolder.path ? "Files › On My iPhone › Needle" : folder)
+                        Text(Store.realPath(folder) == Store.realPath(store.musicFolder.path) ? "Needle's folder" : (folder as NSString).lastPathComponent)
+                        Text(Store.realPath(folder) == Store.realPath(store.musicFolder.path) ? "Files › On My iPhone › Needle" : folder)
                             .font(.caption).foregroundStyle(.secondary).lineLimit(1)
                     }
                     .deleteDisabled(Store.realPath(folder) == Store.realPath(store.musicFolder.path))
@@ -1033,10 +1033,6 @@ struct AboutView: View {
                             store.message = "This is the newest Needle"
                         }
                     }
-                }
-                if let settings {
-                    let save = saved($settings, store) { try $0.setPlaybackSettings(value: $1) }
-                    Toggle("Ask once a day", isOn: Binding(get: { settings.checkUpdates }, set: { var s = settings; s.checkUpdates = $0; save(s) }))
                 }
             } footer: {
                 Text("Asking sends nothing but the request to needle.nnx.fyi.")

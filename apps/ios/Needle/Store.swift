@@ -188,21 +188,6 @@ final class Store {
         }
         #endif
         Task { await updateWidgets(library: true) }
-        checkForUpdate()
-    }
-
-    /// Asks needle.nnx.fyi once a day, when "Ask once a day" is on, whether a newer Needle is
-    /// out, and says so.
-    private func checkForUpdate() {
-        let defaults = UserDefaults.standard
-        guard app.welcomed, Date().timeIntervalSince1970 - defaults.double(forKey: "update-asked") > 86_400 else { return }
-        Task {
-            guard await load({ try $0.playbackSettings().checkUpdates }) == true else { return }
-            defaults.set(Date().timeIntervalSince1970, forKey: "update-asked")
-            if let found = await load({ try $0.checkUpdate() }) ?? nil {
-                message = "Needle \(found.version) is out. See Settings › About."
-            }
-        }
     }
 
     // MARK: - Following the core
@@ -365,6 +350,7 @@ final class Store {
     // MARK: - Playback
 
     func play(_ songs: [Song], from start: Int = 0) {
+        guard !songs.isEmpty else { message = "These songs are not on this iPhone"; return }
         let ids = songs.map(\.id)
         run { try $0.play(ids: ids, start: UInt32(start)) }
         played()
@@ -394,11 +380,11 @@ final class Store {
     /// make, and an empty player showed until then.
     func playedWhenReady() {
         guard app.openPlayerOnPlay else { return }
-        let before = local?.current?.id
+        let before = local?.queueVersion
         Task {
             for _ in 0..<40 {
                 try? await Task.sleep(for: .milliseconds(250))
-                if let now = local?.current?.id, now != before { showPlayer = true; return }
+                if local?.current != nil, local?.queueVersion != before { showPlayer = true; return }
             }
         }
     }
@@ -723,7 +709,7 @@ final class Store {
             let scoped = url.startAccessingSecurityScopedResource()
             defer { if scoped { url.stopAccessingSecurityScopedResource() } }
             var path = url.path
-            if !path.hasPrefix(target.deletingLastPathComponent().path) {
+            if !Self.realPath(path).hasPrefix(Self.realPath(target.deletingLastPathComponent().path)) {
                 try? FileManager.default.createDirectory(at: target, withIntermediateDirectories: true)
                 let destination = Self.freeName(for: url.lastPathComponent, in: target)
                 if (try? FileManager.default.copyItem(at: url, to: destination)) != nil {
