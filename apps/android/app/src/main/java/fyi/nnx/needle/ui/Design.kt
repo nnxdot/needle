@@ -74,6 +74,45 @@ import kotlinx.coroutines.launch
 @Composable
 fun iconShape(): androidx.compose.ui.graphics.Shape = MaterialShapes.Cookie9Sided.toShape()
 
+/** The shape for artists: Material's arch, as a portrait's frame. */
+@OptIn(ExperimentalMaterial3ExpressiveApi::class)
+@Composable
+fun artistShape(): androidx.compose.ui.graphics.Shape = MaterialShapes.Arch.toShape()
+
+/** Where a row sits in its group (see [segment]): its place and how many rows there are. */
+@androidx.compose.runtime.Immutable
+data class Place(val index: Int, val count: Int) {
+    val first get() = index == 0
+    val last get() = index == count - 1
+
+    /** The group's ends round large; the corners between its rows, small. */
+    fun shape(): androidx.compose.ui.graphics.Shape {
+        val big = 24.dp
+        val small = 6.dp
+        return RoundedCornerShape(
+            topStart = if (first) big else small,
+            topEnd = if (first) big else small,
+            bottomStart = if (last) big else small,
+            bottomEnd = if (last) big else small,
+        )
+    }
+}
+
+/**
+ * One row of a group, as Android 16's own lists (Material 3 Expressive): the rows sit on one
+ * tone a hair apart, inset from the page's edges, the group's ends rounded large. Clipped, so a
+ * row's ripple keeps its shape.
+ */
+fun Modifier.segment(place: Place, color: Color, inset: androidx.compose.ui.unit.Dp = 16.dp): Modifier = this
+    .padding(horizontal = inset)
+    .padding(bottom = if (place.last) 0.dp else 2.dp)
+    .clip(place.shape())
+    .background(color)
+
+/** A group's tone: a step above the page, so the group stands on it. */
+@Composable
+fun groupColor(): Color = MaterialTheme.colorScheme.surfaceContainer
+
 /**
  * A page: its large title shrinks into a bar as the content scrolls (Material 3 Expressive's
  * flexible top bar). `content` gets the padding and the scroll to hand to its list.

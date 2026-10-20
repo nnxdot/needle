@@ -67,7 +67,11 @@ object Selection {
 /** Songs from a music server have ids that start with this. */
 fun Song.fromServer() = id.startsWith("src-")
 
-/** The bar over the tabs while songs are chosen. */
+/**
+ * The bar over the tabs while songs are chosen: Material 3 Expressive's floating toolbar, in
+ * its vibrant colours, with Play as its one filled button.
+ */
+@OptIn(androidx.compose.material3.ExperimentalMaterial3ExpressiveApi::class)
 @Composable
 fun SelectionBar() {
     val chosen by Selection.songs.collectAsState()
@@ -78,17 +82,14 @@ fun SelectionBar() {
     ) {
         val ids = chosen.map { it.id }
         var more by remember { mutableStateOf(false) }
-        Surface(
-            color = MaterialTheme.colorScheme.primaryContainer,
-            contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
-            shape = RoundedCornerShape(28.dp),
-            shadowElevation = 8.dp,
-            modifier = Modifier.fillMaxWidth().padding(horizontal = 10.dp, vertical = 8.dp),
-        ) {
-            Row(Modifier.padding(horizontal = 6.dp, vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+        androidx.compose.foundation.layout.Box(Modifier.fillMaxWidth().padding(vertical = 8.dp), contentAlignment = Alignment.Center) {
+            androidx.compose.material3.HorizontalFloatingToolbar(
+                expanded = true,
+                colors = androidx.compose.material3.FloatingToolbarDefaults.vibrantFloatingToolbarColors(),
+            ) {
                 IconButton(onClick = Selection::clear) { Icon(Icons.Rounded.Close, contentDescription = "Stop choosing") }
-                Text(count(chosen.size, "song"), style = MaterialTheme.typography.titleMedium, modifier = Modifier.weight(1f))
-                IconButton(onClick = {
+                Text(count(chosen.size, "song"), style = MaterialTheme.typography.titleMedium, modifier = Modifier.align(Alignment.CenterVertically).padding(end = 8.dp))
+                androidx.compose.material3.FilledIconButton(onClick = {
                     core.play(ids, 0u)
                     NeedleApp.instance.openPlayer.tryEmit(Unit)
                     Selection.clear()

@@ -92,6 +92,7 @@ private fun TextStyle.title(font: String, weight: Int, tight: Double, k: Float) 
  * Needle's type: Material's sizes, in Roboto Flex; the large sizes in the chosen title font
  * (narrow and heavy by default); everything scaled by the chosen text size.
  */
+@OptIn(androidx.compose.material3.ExperimentalMaterial3ExpressiveApi::class)
 fun needleType(font: String = "flex", scale: Float = 1f): Typography {
     val k = scale.coerceIn(0.8f, 1.4f)
     return Typography(
@@ -110,6 +111,23 @@ fun needleType(font: String = "flex", scale: Float = 1f): Typography {
         labelLarge = Base.labelLarge.text(k).copy(fontWeight = FontWeight.SemiBold),
         labelMedium = Base.labelMedium.text(k).copy(fontWeight = FontWeight.SemiBold),
         labelSmall = Base.labelSmall.text(k).copy(fontWeight = FontWeight.SemiBold),
+        // Material 3 Expressive's emphasized styles: a step heavier, for what a page leads with
+        // (section titles, the main button). Large ones in the title font, as the others.
+        displayLargeEmphasized = Base.displayLarge.title(font, 1000, -0.03, k),
+        displayMediumEmphasized = Base.displayMedium.title(font, 1000, -0.03, k),
+        displaySmallEmphasized = Base.displaySmall.title(font, 1000, -0.02, k),
+        headlineLargeEmphasized = Base.headlineLarge.title(font, 1000, -0.02, k),
+        headlineMediumEmphasized = Base.headlineMedium.title(font, 900, -0.015, k),
+        headlineSmallEmphasized = Base.headlineSmall.title(font, 900, -0.01, k),
+        titleLargeEmphasized = Base.titleLarge.title(font, 800, -0.01, k),
+        titleMediumEmphasized = Base.titleMedium.text(k).copy(fontWeight = FontWeight.Bold),
+        titleSmallEmphasized = Base.titleSmall.text(k).copy(fontWeight = FontWeight.Bold),
+        bodyLargeEmphasized = Base.bodyLarge.text(k).copy(fontWeight = FontWeight.Medium),
+        bodyMediumEmphasized = Base.bodyMedium.text(k).copy(fontWeight = FontWeight.Medium),
+        bodySmallEmphasized = Base.bodySmall.text(k).copy(fontWeight = FontWeight.Medium),
+        labelLargeEmphasized = Base.labelLarge.text(k).copy(fontWeight = FontWeight.Bold),
+        labelMediumEmphasized = Base.labelMedium.text(k).copy(fontWeight = FontWeight.Bold),
+        labelSmallEmphasized = Base.labelSmall.text(k).copy(fontWeight = FontWeight.Bold),
     )
 }
 

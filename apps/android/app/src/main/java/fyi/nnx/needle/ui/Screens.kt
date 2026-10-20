@@ -128,17 +128,15 @@ fun ArtistsScreen(open: (Route) -> Unit) {
     val artistsLoad = rememberLoaded { artists() }
     val artists by artistsLoad
     Page("Artists") { padding, scroll ->
-        LazyColumn(Modifier.fillMaxSize().padding(padding).then(scroll), contentPadding = PaddingValues(bottom = 24.dp)) {
-            items(artists.orEmpty(), key = { it.name }) { artist ->
-                Row(
-                    Modifier.fillMaxWidth().clickable { open(Route.Artist(artist.name)) }.padding(horizontal = Edge, vertical = LocalRows.current.pad / 2),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(14.dp),
-                ) {
-                    RoundCover(artist.artwork, LocalRows.current.cover + 4.dp)
-                    Text(artist.name.ifBlank { "Unknown artist" }, style = MaterialTheme.typography.bodyLarge, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                }
-            }
+        // As the Library's artists: each in the artists' arch, as many across as fit.
+        androidx.compose.foundation.lazy.grid.LazyVerticalGrid(
+            columns = androidx.compose.foundation.lazy.grid.GridCells.Adaptive(104.dp),
+            contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 8.dp, bottom = 24.dp),
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
+            verticalArrangement = Arrangement.spacedBy(LocalRows.current.grid),
+            modifier = Modifier.fillMaxSize().padding(padding).then(scroll),
+        ) {
+            items(artists.orEmpty().size, key = { artists!![it].name }) { i -> ArtistTile(artists!![i], Modifier, open) }
         }
     }
 }
@@ -152,7 +150,7 @@ private fun SongListPage(title: String, songs: List<Song>?, open: (Route) -> Uni
             if (loading) items(8) { SongPlaceholder() }
             if (list.isNotEmpty()) item { PlayRow(list) }
             itemsIndexed(list, key = { _, s -> s.id }) { i, song ->
-                SongRow(song, playing == song.id, open) { play(list, i) }
+                SongRow(song, playing == song.id, open, place = Place(i, list.size)) { play(list, i) }
             }
         }
     }
@@ -190,9 +188,11 @@ fun PlaylistsScreen(open: (Route) -> Unit) {
             if (playlists != null && list.isEmpty()) {
                 item { Text("No playlists yet.", color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(horizontal = Edge, vertical = 8.dp)) }
             }
-            items(list, key = { it.id }) { playlist ->
+            items(list.size, key = { list[it].id }) { i ->
+                val playlist = list[i]
                 Row(
-                    Modifier.fillMaxWidth().clickable { open(Route.Playlist(playlist.id, playlist.name)) }.padding(horizontal = Edge, vertical = LocalRows.current.pad / 2),
+                    Modifier.fillMaxWidth().segment(Place(i, list.size), groupColor()).clickable { open(Route.Playlist(playlist.id, playlist.name)) }
+                        .padding(horizontal = 14.dp, vertical = LocalRows.current.pad / 2 + 2.dp),
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(14.dp),
                 ) {

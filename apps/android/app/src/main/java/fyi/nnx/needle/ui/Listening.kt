@@ -89,7 +89,7 @@ fun TitledSongs(title: String, songs: List<Song>?, open: (Route) -> Unit, empty:
             }
         }
         itemsIndexed(list, key = { i, s -> "$i-${s.id}" }) { i, song ->
-            SongRow(song, playing == song.id, open) { play(list, i) }
+            SongRow(song, playing == song.id, open, place = Place(i, list.size)) { play(list, i) }
         }
     }
 }
@@ -113,17 +113,21 @@ fun FoldersScreen(path: String?, open: (Route) -> Unit) {
     LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = 24.dp)) {
         item { LargeTitle(title) }
         if (path == null) {
-            items(roots.orEmpty()) { root ->
-                FolderRow(root.substringAfterLast('/').ifBlank { root }, root, null) { open(Route.Folder(root)) }
+            val list = roots.orEmpty()
+            items(list.size) { i ->
+                val root = list[i]
+                FolderRow(root.substringAfterLast('/').ifBlank { root }, root, null, Place(i, list.size)) { open(Route.Folder(root)) }
             }
         } else {
-            items(subfolders.orEmpty(), key = { it.path }) { folder ->
-                FolderRow(folder.name, count(folder.songs.toInt(), "song"), folder.artwork) { open(Route.Folder(folder.path)) }
+            val list = subfolders.orEmpty()
+            items(list.size, key = { list[it].path }) { i ->
+                val folder = list[i]
+                FolderRow(folder.name, count(folder.songs.toInt(), "song"), folder.artwork, Place(i, list.size)) { open(Route.Folder(folder.path)) }
             }
             if (here.isNotEmpty()) {
                 item { SectionHeader("Every song in here") }
                 itemsIndexed(here, key = { _, s -> s.id }) { i, song ->
-                    SongRow(song, playing == song.id, open) { play(here, i) }
+                    SongRow(song, playing == song.id, open, place = Place(i, here.size)) { play(here, i) }
                 }
             }
         }
@@ -131,10 +135,10 @@ fun FoldersScreen(path: String?, open: (Route) -> Unit) {
 }
 
 @Composable
-private fun FolderRow(name: String, detail: String, artwork: String?, onClick: () -> Unit) {
-    Column(Modifier.fillMaxWidth().clickable(onClick = onClick)) {
+private fun FolderRow(name: String, detail: String, artwork: String?, place: Place, onClick: () -> Unit) {
+    Column(Modifier.fillMaxWidth().segment(place, groupColor()).clickable(onClick = onClick)) {
         Row(
-            Modifier.fillMaxWidth().heightIn(min = LocalRows.current.height + 4.dp).padding(horizontal = Edge, vertical = LocalRows.current.pad / 1.5f),
+            Modifier.fillMaxWidth().heightIn(min = LocalRows.current.height + 4.dp).padding(horizontal = 14.dp, vertical = LocalRows.current.pad / 1.5f),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(14.dp),
         ) {
@@ -150,7 +154,6 @@ private fun FolderRow(name: String, detail: String, artwork: String?, onClick: (
                 Text(detail, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
             }
         }
-        HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant, modifier = Modifier.padding(start = Edge + 62.dp))
     }
 }
 
