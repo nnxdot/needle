@@ -122,7 +122,7 @@ pub enum Notice {
 /// What the plugin host shares with the app.
 #[derive(Default)]
 pub(crate) struct PluginState {
-    notices: Mutex<VecDeque<Notice>>,
+    pub(crate) notices: Mutex<VecDeque<Notice>>,
     /// The latest songs the music servers found for a search, by its number.
     server_songs: Mutex<(u64, Vec<Track>)>,
     search_number: std::sync::atomic::AtomicU64,
