@@ -324,12 +324,16 @@ private fun Large(now: Now) {
  * and Android does not stop it. (A widget's tap may start it, where a background task may not.)
  */
 private fun withService(context: Context) {
+    // The app's own context: a widget's is a receiver's, which may not connect to a service.
+    val app = context.applicationContext
     NeedleApp.instance.scope.launch(kotlinx.coroutines.Dispatchers.Main) {
-        val token = androidx.media3.session.SessionToken(context, android.content.ComponentName(context, PlaybackService::class.java))
-        val connecting = androidx.media3.session.MediaController.Builder(context, token).buildAsync()
-        // Long enough for the service to see the song start and keep itself running.
-        kotlinx.coroutines.delay(5000)
-        androidx.media3.session.MediaController.releaseFuture(connecting)
+        runCatching {
+            val token = androidx.media3.session.SessionToken(app, android.content.ComponentName(app, PlaybackService::class.java))
+            val connecting = androidx.media3.session.MediaController.Builder(app, token).buildAsync()
+            // Long enough for the service to see the song start and keep itself running.
+            kotlinx.coroutines.delay(5000)
+            androidx.media3.session.MediaController.releaseFuture(connecting)
+        }
     }
 }
 

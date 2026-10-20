@@ -110,7 +110,7 @@ fun PluginsScreen(open: (Route) -> Unit) {
                             maxLines = 2,
                         )
                     }
-                    SoonSwitch(plugin.enabled) { core.setPluginEnabled(plugin.id, it) }
+                    SoonSwitch(plugin.enabled, plugin.name) { core.setPluginEnabled(plugin.id, it) }
                     Icon(Icons.AutoMirrored.Rounded.KeyboardArrowRight, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
                 HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant, modifier = Modifier.padding(start = Edge))
@@ -142,7 +142,7 @@ fun PluginScreen(id: String) {
             Section(title = "Turned on") {
                 Row(Modifier.fillMaxWidth().padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
                     Text(if (plugin.enabled) "On" else "Off", style = MaterialTheme.typography.bodyLarge, modifier = Modifier.weight(1f))
-                    SoonSwitch(plugin.enabled) { core.setPluginEnabled(plugin.id, it) }
+                    SoonSwitch(plugin.enabled, plugin.name) { core.setPluginEnabled(plugin.id, it) }
                 }
             }
         }
@@ -207,7 +207,7 @@ fun PluginScreen(id: String) {
                                 Text(switch.label, style = MaterialTheme.typography.bodyLarge)
                                 if (switch.detail.isNotBlank()) Text(switch.detail, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
                             }
-                            SoonSwitch(switch.on) { core.sourceSwitch(plugin.id, switch.id, it) }
+                            SoonSwitch(switch.on, switch.label) { core.sourceSwitch(plugin.id, switch.id, it) }
                         }
                     }
                 }
@@ -286,7 +286,7 @@ fun PluginEffects() {
                         Text(effect.name, style = MaterialTheme.typography.bodyLarge)
                         Text(effect.failure ?: "${effect.pluginName} · ${effect.description}", style = MaterialTheme.typography.bodyMedium, color = if (effect.failure != null) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant)
                     }
-                    Switch(checked = effect.on, onCheckedChange = { on ->
+                    Switch(checked = effect.on, modifier = Modifier.named(effect.name), onCheckedChange = { on ->
                         NeedleApp.instance.scope.launch { runCatching { core.setEffect(effect.plugin, effect.id, on) }; delay(300); refresh++ }
                     })
                 }
@@ -298,7 +298,9 @@ fun PluginEffects() {
                                 Text(param.name, style = MaterialTheme.typography.bodyMedium, modifier = Modifier.weight(1f))
                                 Text(if (value == param.value) param.shown else "%.2f".format(value), style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary)
                             }
-                            Slider(
+                            // A plugin's range the wrong way round (or empty) gets no slider, only its value.
+                            if (param.max > param.min) Slider(
+                                modifier = Modifier.named(param.name, if (value == param.value) param.shown else "%.2f".format(value)),
                                 value = value,
                                 onValueChange = { value = it },
                                 onValueChangeFinished = {
@@ -319,12 +321,12 @@ fun PluginEffects() {
  * at once, then follows the plugin's answer, or goes back if none comes.
  */
 @Composable
-private fun SoonSwitch(on: Boolean, change: (Boolean) -> Unit) {
+private fun SoonSwitch(on: Boolean, name: String, change: (Boolean) -> Unit) {
     var asked by remember(on) { mutableStateOf<Boolean?>(null) }
     LaunchedEffect(asked) {
         if (asked == null) return@LaunchedEffect
         kotlinx.coroutines.delay(3000)
         asked = null
     }
-    Switch(checked = asked ?: on, onCheckedChange = { asked = it; change(it) })
+    Switch(checked = asked ?: on, onCheckedChange = { asked = it; change(it) }, modifier = Modifier.named(name))
 }

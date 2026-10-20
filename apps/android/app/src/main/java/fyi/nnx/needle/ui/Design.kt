@@ -57,6 +57,9 @@ import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
@@ -73,6 +76,12 @@ import kotlinx.coroutines.launch
 @OptIn(ExperimentalMaterial3ExpressiveApi::class)
 @Composable
 fun iconShape(): androidx.compose.ui.graphics.Shape = MaterialShapes.Cookie9Sided.toShape()
+
+/** A control's name (and value) for TalkBack, where its words sit beside it, not in it. */
+fun Modifier.named(name: String, value: String? = null): Modifier = semantics {
+    contentDescription = name
+    if (value != null) stateDescription = value
+}
 
 /** The album whose page this is, if any: its menus need not offer to go to it. */
 val LocalAlbumHere = androidx.compose.runtime.compositionLocalOf<String?> { null }

@@ -15,6 +15,7 @@ import androidx.compose.foundation.lazy.grid.GridItemSpan
 import androidx.compose.foundation.lazy.grid.LazyGridScope
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.compositionLocalOf
+import androidx.compose.foundation.layout.consumeWindowInsets
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.layout.layout
@@ -71,5 +72,7 @@ internal fun LazyGridScope.edgeToEdge(side: Dp, key: Any? = null, content: @Comp
 @Composable
 fun Modifier.pane(): Modifier = this
     .windowInsetsPadding(WindowInsets.systemBars.union(WindowInsets.displayCutout).only(WindowInsetsSides.Top + WindowInsetsSides.Bottom + WindowInsetsSides.End))
+    // A navigation bar on the left is the side bar's to clear, not the pages' again.
+    .consumeWindowInsets(WindowInsets.systemBars.union(WindowInsets.displayCutout).only(WindowInsetsSides.Start))
     .padding(top = 8.dp, end = 12.dp, bottom = 12.dp)
     .clip(RoundedCornerShape(28.dp))

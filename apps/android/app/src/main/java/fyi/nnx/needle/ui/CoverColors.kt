@@ -216,8 +216,10 @@ fun CoverBackdrop(path: String?, modifier: Modifier = Modifier, dim: Float = 0.3
         if (path != null && Build.VERSION.SDK_INT >= 31) {
             // A square wider than the box's diagonal, so no corner shows as it turns.
             val side = kotlin.math.hypot(maxWidth.value, maxHeight.value).dp * 1.15f
-            val drift = rememberInfiniteTransition(label = "drift")
-            val turn by drift.animateFloat(0f, 360f, infiniteRepeatable(tween(90_000, easing = LinearEasing)), label = "turn")
+            // Drifting only when it moves at all: a still backdrop takes no frames.
+            val turn by if (!still) {
+                rememberInfiniteTransition(label = "drift").animateFloat(0f, 360f, infiniteRepeatable(tween(90_000, easing = LinearEasing)), label = "turn")
+            } else remember { androidx.compose.runtime.mutableFloatStateOf(0f) }
             AnimatedContent(path, transitionSpec = { fadeIn(tween(600)) togetherWith fadeOut(tween(600)) }, label = "backdrop") { art ->
                 AsyncImage(
                     model = coverRequest(fileUri(art)),

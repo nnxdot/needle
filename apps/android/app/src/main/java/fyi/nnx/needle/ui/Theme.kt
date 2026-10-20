@@ -104,6 +104,15 @@ private fun hex(text: String?): Color? = text?.trim()?.removePrefix("#")?.takeIf
     Color(("FF$it").toLong(16))
 }
 
+/** Black-ish or white text on `color`, whichever stands out more (WCAG contrast). */
+private fun readableOn(color: Color): Color {
+    val ink = Color(0xFF1C1B1A)
+    val l = color.luminance()
+    val onWhite = 1.05f / (l + 0.05f)
+    val onInk = (l + 0.05f) / (ink.luminance() + 0.05f)
+    return if (onInk >= onWhite) ink else Color.White
+}
+
 /** A desktop theme's colours on Android's colour roles. */
 fun ColorScheme.with(theme: ThemeInfo): ColorScheme {
     val c = theme.colors
@@ -120,9 +129,9 @@ fun ColorScheme.with(theme: ThemeInfo): ColorScheme {
         val dark = s.background.luminance() < 0.5f
         val made = coverScheme(accent.toArgb(), dark = dark, black = s.background == Color.Black)
         s = s.copy(
-            primary = accent, onSecondaryContainer = accent,
+            primary = accent, onSecondaryContainer = made.onSecondaryContainer,
             // Without the theme's own text colour for it, whichever of black and white reads.
-            onPrimary = if (accent.luminance() > 0.4f) Color(0xFF1C1B1A) else Color.White,
+            onPrimary = readableOn(accent),
             primaryContainer = made.primaryContainer, onPrimaryContainer = made.onPrimaryContainer,
             secondaryContainer = made.secondaryContainer,
             tertiary = made.tertiary, onTertiary = made.onTertiary,

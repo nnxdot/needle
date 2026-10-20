@@ -316,7 +316,10 @@ impl Needle {
             .iter()
             .find(|p| p.name == name)
             .ok_or_else(|| NeedleError::Failed("That preset is gone".into()))?;
-        self.player.send(Command::Dsp(preset.apply(&s.dsp)));
+        let dsp = preset.apply(&s.dsp);
+        // Saved before the player hears it, as save_preset does, so the page reads it back at once.
+        self.library.update_settings(|s| s.dsp = dsp.clone())?;
+        self.player.send(Command::Dsp(dsp));
         Ok(())
     }
 
@@ -345,6 +348,8 @@ impl Needle {
                     .to_string()
             })
             .unwrap_or_else(|| "Correction".into());
+        // Saved before the player hears it, so the page reads it back at once.
+        self.library.update_settings(|s| s.dsp = d.clone())?;
         self.player.send(Command::Dsp(d));
         Ok(count)
     }

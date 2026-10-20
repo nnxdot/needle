@@ -114,6 +114,9 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.ui.semantics.CustomAccessibilityAction
 import androidx.compose.ui.semantics.customActions
+import androidx.compose.ui.semantics.clearAndSetSemantics
+import androidx.compose.ui.semantics.onClick
+import androidx.compose.ui.semantics.role
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.onSizeChanged
@@ -215,6 +218,7 @@ private fun MiniPlayerBody(p: fyi.nnx.needle.core.Playback, song: Song, onOpen: 
                             checkedContainerColor = MaterialTheme.colorScheme.primary,
                             checkedContentColor = MaterialTheme.colorScheme.onPrimary,
                         ),
+                        modifier = Modifier.playPauseSemantics(p.playing) { haptics(false); Controls.toggle() },
                     ) { PlayPauseIcon(p.playing, 26.dp) }
                     IconButton(onClick = { Controls.next() }) {
                         Icon(Icons.Rounded.SkipNext, contentDescription = "Next", modifier = Modifier.size(30.dp))
@@ -330,16 +334,22 @@ fun FullPlayer(onClose: () -> Unit, open: (Route) -> Unit) {
     // Read again when the library changes, so stars given from the song's menu show here.
     val version by NeedleApp.instance.libraryVersion.collectAsState()
     var favorite by remember(song.id, version) { mutableStateOf(runCatching { core.isFavorite(song.id) }.getOrDefault(song.rating >= 4)) }
+    val hearts = androidx.compose.runtime.rememberCoroutineScope()
     val toggleFavorite: () -> Unit = {
         haptics(false)
-        runCatching { core.toggleFavorite(song.id) }
-            .onSuccess { favorite = it; showMessage(if (it) "Added to favorites" else "Taken out of favorites") }
-            .onFailure { showMessage("Could not change favorites: ${it.message}") }
-        NeedleApp.instance.libraryVersion.value++
+        // Off the main thread: it writes to the library, which waits while a scan writes too.
+        hearts.launch {
+            withContext(kotlinx.coroutines.Dispatchers.IO) { runCatching { core.toggleFavorite(song.id) } }
+                .onSuccess { favorite = it; showMessage(if (it) "Added to favorites" else "Taken out of favorites") }
+                .onFailure { showMessage("Could not change favorites: ${it.message}") }
+            NeedleApp.instance.libraryVersion.value++
+        }
     }
     // The A-B loop: the first tap marks A, the second B, the third lets go.
     var loopStart by remember(song.id) { mutableStateOf<Double?>(null) }
-    val looping = remember(p.position, song.id) { core.loopRange() }
+    // Read again after each change of the loop too, not only as the song moves (it may be paused).
+    var loopChanged by remember { androidx.compose.runtime.mutableIntStateOf(0) }
+    val looping = remember(p.position, song.id, loopChanged) { core.loopRange() }
     // Pulled down far enough, the player closes.
     var pull by remember { mutableFloatStateOf(0f) }
     var searching by remember { mutableStateOf(false) }
@@ -430,7 +440,7 @@ fun FullPlayer(onClose: () -> Unit, open: (Route) -> Unit) {
                         when {
                             // The loop is the phone's player's own; the computer's has none.
                             song.onComputer() -> showMessage("The A-B loop works for songs playing on this phone")
-                            looping.isNotEmpty() -> { core.setLoop(null, null); loopStart = null; showMessage("Loop off") }
+                            looping.isNotEmpty() -> { core.setLoop(null, null); loopStart = null; loopChanged++; showMessage("Loop off") }
                             loopStart == null -> { loopStart = p.position; showMessage("Loop from ${time(p.position)}: tap again where it ends") }
                             else -> {
                                 // B may be before A (sought back): the loop is between them either way.
@@ -440,6 +450,7 @@ fun FullPlayer(onClose: () -> Unit, open: (Route) -> Unit) {
                                     showMessage("Too short to loop: tap again further on")
                                 } else {
                                     core.setLoop(a, b)
+                                    loopChanged++
                                     showMessage("Looping ${time(a)} to ${time(b)}")
                                     loopStart = null
                                 }
@@ -586,7 +597,8 @@ private fun PlayerControls(playing: Boolean, position: Double, duration: Double,
                         checkedContentColor = MaterialTheme.colorScheme.onPrimary,
                     ),
                     interactionSource = middle,
-                    modifier = Modifier.size(width = 88.dp, height = 72.dp),
+                    // A button that plays or pauses, not a box to tick: TalkBack says which it does.
+                    modifier = Modifier.size(width = 88.dp, height = 72.dp).playPauseSemantics(playing) { toggle() },
                 ) { PlayPauseIcon(playing, 36.dp) }
                 androidx.compose.material3.FilledTonalIconButton(
                     onClick = ahead,
@@ -622,6 +634,7 @@ private fun VolumeRow(computer: Boolean) {
     Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth().padding(bottom = 10.dp)) {
         Icon(Icons.AutoMirrored.Rounded.VolumeDown, contentDescription = null, tint = Color.White.copy(alpha = 0.7f))
         androidx.compose.material3.Slider(
+            modifier = Modifier.weight(1f).padding(horizontal = 8.dp).named("Volume"),
             value = value,
             onValueChange = { v ->
                 held = v
@@ -639,7 +652,6 @@ private fun VolumeRow(computer: Boolean) {
                 activeTrackColor = Color.White,
                 inactiveTrackColor = Color.White.copy(alpha = 0.25f),
             ),
-            modifier = Modifier.weight(1f).padding(horizontal = 8.dp),
         )
         Icon(Icons.AutoMirrored.Rounded.VolumeUp, contentDescription = null, tint = Color.White.copy(alpha = 0.7f))
     }
@@ -751,7 +763,7 @@ private fun PlayerToolbar(
         horizontalArrangement = Arrangement.SpaceBetween,
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        RoundToggle(panel == Panel.Lyrics, { onPanel(Panel.Lyrics) }) { Icon(Icons.Rounded.Lyrics, contentDescription = "Lyrics") }
+        RoundToggle(panel == Panel.Lyrics, { onPanel(Panel.Lyrics) }, if (panel == Panel.Lyrics) "Showing" else "Hidden") { Icon(Icons.Rounded.Lyrics, contentDescription = "Lyrics") }
         RoundToggle(false, { Controls.shuffle(); showMessage("Shuffled what is up next") }) { Icon(Icons.Rounded.Shuffle, contentDescription = "Shuffle what is up next") }
         RoundToggle(repeat != RepeatMode.OFF, {
             Controls.setRepeat(
@@ -761,20 +773,31 @@ private fun PlayerToolbar(
                     RepeatMode.ONE -> RepeatMode.OFF
                 },
             )
+        }, when (repeat) {
+            RepeatMode.OFF -> "Off"
+            RepeatMode.ALL -> "All songs"
+            RepeatMode.ONE -> "This song"
         }) { Icon(if (repeat == RepeatMode.ONE) Icons.Rounded.RepeatOne else Icons.Rounded.Repeat, contentDescription = "Repeat") }
-        RoundToggle(looping || loopStarted, onLoop) {
-            Text(if (loopStarted) "A…" else "A-B", style = MaterialTheme.typography.labelLarge)
+        RoundToggle(looping || loopStarted, onLoop, if (looping) "Looping" else if (loopStarted) "Start marked" else "Off") {
+            Text(
+                if (loopStarted) "A…" else "A-B",
+                style = MaterialTheme.typography.labelLarge,
+                modifier = Modifier.semantics { contentDescription = "A-B loop" },
+            )
         }
         RoundToggle(false, { Ui.sheet.value = Sheet.PlayOn }) { Icon(Icons.Rounded.Cast, contentDescription = "Play on") }
-        RoundToggle(panel == Panel.UpNext, { onPanel(Panel.UpNext) }) { Icon(Icons.AutoMirrored.Rounded.QueueMusic, contentDescription = "Up next") }
+        RoundToggle(panel == Panel.UpNext, { onPanel(Panel.UpNext) }, if (panel == Panel.UpNext) "Showing" else "Hidden") { Icon(Icons.AutoMirrored.Rounded.QueueMusic, contentDescription = "Up next") }
     }
 }
 
-/** An icon button that shows a soft circle when on, as Apple Music's lyrics and queue buttons. */
+/**
+ * An icon button that shows a soft circle when on, as Apple Music's lyrics and queue buttons.
+ * `state` is what TalkBack says it is set to; actions (Shuffle, Play on) have none.
+ */
 @Composable
-private fun RoundToggle(on: Boolean, onClick: () -> Unit, icon: @Composable () -> Unit) {
+private fun RoundToggle(on: Boolean, onClick: () -> Unit, state: String? = null, icon: @Composable () -> Unit) {
     val fill by animateColorAsState(if (on) Color.White.copy(alpha = 0.2f) else Color.Transparent, label = "toggle")
-    IconButton(onClick = onClick, modifier = Modifier.clip(CircleShape).background(fill).semantics { stateDescription = if (on) "On" else "Off" }) {
+    IconButton(onClick = onClick, modifier = Modifier.clip(CircleShape).background(fill).semantics { if (state != null) stateDescription = state }) {
         CompositionLocalProvider(LocalContentColor provides if (on) Color.White else Color.White.copy(alpha = 0.7f)) {
             icon()
         }
@@ -806,18 +829,21 @@ private fun PlayerCover(song: Song, playing: Boolean, haptics: (Boolean) -> Unit
     }
     val scale by animateFloatAsState(if (playing) 1f else 0.82f, tween(350), label = "cover size")
     val reduce = reduceMotion()
-    val spin = androidx.compose.animation.core.rememberInfiniteTransition(label = "spin")
+    val still = reduce || app.coverShape == "square"
+    // Turning only while it plays and is not square: a turn that stands still takes no frames.
     // Read only where the layer draws, so the turning redraws the cover, not the whole player.
-    val turn = spin.animateFloat(
-        0f, 360f,
-        androidx.compose.animation.core.infiniteRepeatable(tween(if (app.coverShape == "round") 12_000 else 40_000, easing = androidx.compose.animation.core.LinearEasing)),
-        label = "turn",
-    )
-    // The turn holds where it is while paused, rather than jumping back.
+    val turn: androidx.compose.runtime.State<Float> = if (!still && playing) {
+        androidx.compose.animation.core.rememberInfiniteTransition(label = "spin").animateFloat(
+            0f, 360f,
+            androidx.compose.animation.core.infiniteRepeatable(tween(if (app.coverShape == "round") 12_000 else 40_000, easing = androidx.compose.animation.core.LinearEasing)),
+            label = "turn",
+        )
+    } else remember { mutableFloatStateOf(0f) }
+    // The turn holds where it was last drawn while paused, and goes on from there.
+    val drawn = remember { floatArrayOf(0f) }
     var held by remember { mutableFloatStateOf(0f) }
     var offset by remember { mutableFloatStateOf(0f) }
-    LaunchedEffect(playing) { if (!playing) held = turn.value else offset = held - turn.value }
-    val still = reduce || app.coverShape == "square"
+    LaunchedEffect(playing) { if (!playing) held = drawn[0] else offset = held - turn.value }
     val shape = when (app.coverShape) {
         "round" -> CircleShape
         "shape" -> androidx.compose.material3.MaterialShapes.Cookie12Sided.toShape()
@@ -882,7 +908,11 @@ private fun PlayerCover(song: Song, playing: Boolean, haptics: (Boolean) -> Unit
             Modifier
                 .size(side)
                 .sharedCover("now-${song.id}")
-                .graphicsLayer { scaleX = scale; scaleY = scale; rotationZ = if (still) 0f else if (playing) turn.value + offset else held },
+                .graphicsLayer {
+                scaleX = scale
+                scaleY = scale
+                rotationZ = (if (still) 0f else if (playing) turn.value + offset else held).also { drawn[0] = it }
+            },
             shape,
             seed = song.album + song.artist,
         )
@@ -1146,6 +1176,13 @@ private fun UpNextPanel(version: ULong) {
             }
         }
     }
+}
+
+/** Play and pause as one button for TalkBack: "Play" or "Pause", not a checked box. */
+private fun Modifier.playPauseSemantics(playing: Boolean, toggle: () -> Unit) = clearAndSetSemantics {
+    role = androidx.compose.ui.semantics.Role.Button
+    contentDescription = if (playing) "Pause" else "Play"
+    onClick { toggle(); true }
 }
 
 /** Play and pause, turning into each other. */
