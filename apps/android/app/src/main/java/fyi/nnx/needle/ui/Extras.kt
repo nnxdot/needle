@@ -102,8 +102,8 @@ fun SyncScreen() {
                     modifier = Modifier.remoteEscape().fillMaxWidth(),
                 )
                 Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                    Button(enabled = !busy && passphrase.length >= 12, onClick = { save.launch("library.needle") }) { Text("Save a sync file") }
-                    FilledTonalButton(enabled = !busy && passphrase.length >= 12, onClick = { read.launch(arrayOf("*/*")) }) { Text("Read one") }
+                    Button(enabled = !busy && passphrase.length >= 12, onClick = { tryOpen("file picker") { save.launch("library.needle") } }) { Text("Save a sync file") }
+                    FilledTonalButton(enabled = !busy && passphrase.length >= 12, onClick = { tryOpen("file picker") { read.launch(arrayOf("*/*")) } }) { Text("Read one") }
                 }
             }
         }
@@ -250,7 +250,7 @@ fun UpdatesRow() {
                 }) { Text("Update to ${update.version}") }
             } else {
                 Button(onClick = {
-                    context.startActivity(Intent(Intent.ACTION_VIEW, android.net.Uri.parse(update.page.ifBlank { "https://needle.nnx.fyi" })).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+                    tryOpen("web browser") { context.startActivity(Intent(Intent.ACTION_VIEW, android.net.Uri.parse(update.page.ifBlank { "https://needle.nnx.fyi" })).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) }
                 }) { Text("Get Needle ${update.version}") }
             }
         }

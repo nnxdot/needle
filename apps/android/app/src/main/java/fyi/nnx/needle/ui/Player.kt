@@ -92,6 +92,9 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.semantics.stateDescription
+import androidx.compose.ui.semantics.progressBarRangeInfo
+import androidx.compose.ui.semantics.setProgress
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.blur
 import androidx.compose.ui.draw.clip
@@ -108,6 +111,9 @@ import androidx.compose.ui.input.key.onKeyEvent
 import androidx.compose.ui.input.key.type
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.foundation.combinedClickable
+import androidx.compose.ui.semantics.CustomAccessibilityAction
+import androidx.compose.ui.semantics.customActions
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.onSizeChanged
@@ -277,10 +283,15 @@ private fun MiniLyrics(song: Song, position: Double, modifier: Modifier = Modifi
 @Composable
 internal fun coverColor(path: String?): Color {
     val context = LocalContext.current
-    var color by remember { mutableStateOf(Color(0xFF3A2E20)) }
+    val plain = Color(0xFF3A2E20)
+    var color by remember { mutableStateOf(plain) }
     LaunchedEffect(path) {
-        if (path == null) return@LaunchedEffect
-        val found = coverSeed(context, path) ?: return@LaunchedEffect
+        // A song without a cover goes back to the plain colour, not the last song's.
+        val found = path?.let { coverSeed(context, it) }
+        if (found == null) {
+            color = plain
+            return@LaunchedEffect
+        }
         // Deep enough for white on it.
         color = Color(com.materialkolor.hct.Hct.fromInt(found).let { if (it.tone > 32) it.withTone(32.0) else it }.toInt())
     }
@@ -316,7 +327,9 @@ fun FullPlayer(onClose: () -> Unit, open: (Route) -> Unit) {
     val song = p.current ?: return
     var panel by rememberSaveable { mutableStateOf(Panel.Cover) }
     val haptics = rememberHaptics()
-    var favorite by remember(song.id) { mutableStateOf(runCatching { core.isFavorite(song.id) }.getOrDefault(song.rating >= 4)) }
+    // Read again when the library changes, so stars given from the song's menu show here.
+    val version by NeedleApp.instance.libraryVersion.collectAsState()
+    var favorite by remember(song.id, version) { mutableStateOf(runCatching { core.isFavorite(song.id) }.getOrDefault(song.rating >= 4)) }
     val toggleFavorite: () -> Unit = {
         haptics(false)
         runCatching { core.toggleFavorite(song.id) }
@@ -415,12 +428,21 @@ fun FullPlayer(onClose: () -> Unit, open: (Route) -> Unit) {
                     loopStarted = loopStart != null,
                     onLoop = {
                         when {
+                            // The loop is the phone's player's own; the computer's has none.
+                            song.onComputer() -> showMessage("The A-B loop works for songs playing on this phone")
                             looping.isNotEmpty() -> { core.setLoop(null, null); loopStart = null; showMessage("Loop off") }
                             loopStart == null -> { loopStart = p.position; showMessage("Loop from ${time(p.position)}: tap again where it ends") }
                             else -> {
-                                core.setLoop(loopStart, p.position)
-                                showMessage("Looping ${time(loopStart!!)} to ${time(p.position)}")
-                                loopStart = null
+                                // B may be before A (sought back): the loop is between them either way.
+                                val a = minOf(loopStart!!, p.position)
+                                val b = maxOf(loopStart!!, p.position)
+                                if (b - a < 0.5) {
+                                    showMessage("Too short to loop: tap again further on")
+                                } else {
+                                    core.setLoop(a, b)
+                                    showMessage("Looping ${time(a)} to ${time(b)}")
+                                    loopStart = null
+                                }
                             }
                         }
                     },
@@ -753,7 +775,7 @@ private fun PlayerToolbar(
 @Composable
 private fun RoundToggle(on: Boolean, onClick: () -> Unit, icon: @Composable () -> Unit) {
     val fill by animateColorAsState(if (on) Color.White.copy(alpha = 0.2f) else Color.Transparent, label = "toggle")
-    IconButton(onClick = onClick, modifier = Modifier.clip(CircleShape).background(fill)) {
+    IconButton(onClick = onClick, modifier = Modifier.clip(CircleShape).background(fill).semantics { stateDescription = if (on) "On" else "Off" }) {
         CompositionLocalProvider(LocalContentColor provides if (on) Color.White else Color.White.copy(alpha = 0.7f)) {
             icon()
         }
@@ -786,7 +808,8 @@ private fun PlayerCover(song: Song, playing: Boolean, haptics: (Boolean) -> Unit
     val scale by animateFloatAsState(if (playing) 1f else 0.82f, tween(350), label = "cover size")
     val reduce = reduceMotion()
     val spin = androidx.compose.animation.core.rememberInfiniteTransition(label = "spin")
-    val turn by spin.animateFloat(
+    // Read only where the layer draws, so the turning redraws the cover, not the whole player.
+    val turn = spin.animateFloat(
         0f, 360f,
         androidx.compose.animation.core.infiniteRepeatable(tween(if (app.coverShape == "round") 12_000 else 40_000, easing = androidx.compose.animation.core.LinearEasing)),
         label = "turn",
@@ -794,8 +817,8 @@ private fun PlayerCover(song: Song, playing: Boolean, haptics: (Boolean) -> Unit
     // The turn holds where it is while paused, rather than jumping back.
     var held by remember { mutableFloatStateOf(0f) }
     var offset by remember { mutableFloatStateOf(0f) }
-    LaunchedEffect(playing) { if (!playing) held = turn else offset = held - turn }
-    val angle = if (reduce || app.coverShape == "square") 0f else if (playing) turn + offset else held
+    LaunchedEffect(playing) { if (!playing) held = turn.value else offset = held - turn.value }
+    val still = reduce || app.coverShape == "square"
     val shape = when (app.coverShape) {
         "round" -> CircleShape
         "shape" -> androidx.compose.material3.MaterialShapes.Cookie12Sided.toShape()
@@ -860,7 +883,7 @@ private fun PlayerCover(song: Song, playing: Boolean, haptics: (Boolean) -> Unit
             Modifier
                 .size(side)
                 .sharedCover("now-${song.id}")
-                .graphicsLayer { scaleX = scale; scaleY = scale; rotationZ = angle },
+                .graphicsLayer { scaleX = scale; scaleY = scale; rotationZ = if (still) 0f else if (playing) turn.value + offset else held },
             shape,
             seed = song.album + song.artist,
         )
@@ -929,7 +952,12 @@ private fun SeekBar(position: Double, duration: Double, playing: Boolean) {
                     true
                 }
                 .focusable(interactionSource = focus)
-                .semantics { contentDescription = "Seek" }
+                .semantics {
+                    contentDescription = "Seek"
+                    // Where the song is, and a way for TalkBack to move it.
+                    progressBarRangeInfo = androidx.compose.ui.semantics.ProgressBarRangeInfo(shown, 0f..1f)
+                    setProgress { to -> Controls.seek(to.coerceIn(0f, 1f) * length.toDouble()); true }
+                }
                 .pointerInput(length) {
                     detectTapGestures { Controls.seek((it.x / size.width).coerceIn(0f, 1f) * length.toDouble()) }
                 }
@@ -952,7 +980,8 @@ private fun SeekBar(position: Double, duration: Double, playing: Boolean) {
         Row(Modifier.fillMaxWidth()) {
             Text(time((shown * length).toDouble()), style = MaterialTheme.typography.labelMedium, color = Color.White.copy(alpha = 0.6f))
             Spacer(Modifier.weight(1f))
-            Text("-" + time(length.toDouble() - shown * length), style = MaterialTheme.typography.labelMedium, color = Color.White.copy(alpha = 0.6f))
+            // A song whose length is not known has no time left to show.
+            if (duration > 0) Text("-" + time(length.toDouble() - shown * length), style = MaterialTheme.typography.labelMedium, color = Color.White.copy(alpha = 0.6f))
         }
     }
 }
@@ -1010,7 +1039,7 @@ private fun LyricsPanel(song: Song, position: Double, time: () -> Unit) {
         }
         lines.isEmpty() -> LazyColumn(Modifier.fillMaxSize()) {
             item { Text(lyrics!!.plain, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold) }
-            item { androidx.compose.material3.TextButton(onClick = time) { Text("Time these lyrics", color = Color.White) } }
+            if (!song.onComputer()) item { androidx.compose.material3.TextButton(onClick = time) { Text("Time these lyrics", color = Color.White) } }
         }
         else -> LazyColumn(Modifier.fillMaxSize(), state = state) {
             itemsIndexed(lines) { i, line ->
@@ -1044,6 +1073,7 @@ private fun LyricsPanel(song: Song, position: Double, time: () -> Unit) {
     }
 }
 
+@OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
 @Composable
 private fun UpNextPanel(version: ULong) {
     val songsLoad = rememberLoaded(version) { Controls.upNext() }
@@ -1068,6 +1098,9 @@ private fun UpNextPanel(version: ULong) {
                 SwipeToDismissBox(
                     modifier = if (onComputer) Modifier else Modifier.reorderRow(reorder, i),
                     state = dismiss,
+                    // The computer's queue cannot be changed from here, so its rows do not swipe.
+                    enableDismissFromStartToEnd = !onComputer,
+                    enableDismissFromEndToStart = !onComputer,
                     backgroundContent = {
                         // Only while a row is being swiped; the rows themselves are see-through.
                         if (dismiss.dismissDirection != SwipeToDismissBoxValue.Settled) Box(
@@ -1076,8 +1109,24 @@ private fun UpNextPanel(version: ULong) {
                         ) { Text("Remove", color = Color.White.copy(alpha = 0.8f)) }
                     },
                 ) {
+                    // Held (or OK held on a remote), a menu moves the song or takes it out: the
+                    // swipe and the handle are for touch alone. TalkBack offers the same.
+                    var menu by remember { mutableStateOf(false) }
+                    val move: (Int) -> Unit = { to -> core.moveUpNext(i.toUInt(), to.toUInt()) }
+                    Box {
                     Row(
-                        Modifier.fillMaxWidth().clip(RoundedCornerShape(8.dp)).clickable { Controls.jump(i, song) }.padding(vertical = 6.dp),
+                        Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(8.dp))
+                            .combinedClickable(onClick = { Controls.jump(i, song) }, onLongClick = { if (!onComputer) menu = true })
+                            .semantics {
+                                if (!onComputer) customActions = listOfNotNull(
+                                    if (i > 0) CustomAccessibilityAction("Move up") { move(i - 1); true } else null,
+                                    if (i < list.size - 1) CustomAccessibilityAction("Move down") { move(i + 1); true } else null,
+                                    CustomAccessibilityAction("Remove") { core.removeUpNext(i.toUInt()); true },
+                                )
+                            }
+                            .padding(vertical = 6.dp),
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(12.dp),
                     ) {
@@ -1087,6 +1136,12 @@ private fun UpNextPanel(version: ULong) {
                             Text(song.artist, style = MaterialTheme.typography.bodyMedium, color = Color.White.copy(alpha = 0.6f), maxLines = 1, overflow = TextOverflow.Ellipsis)
                         }
                         if (!onComputer) DragHandle(reorder, i, tint = Color.White.copy(alpha = 0.7f))
+                    }
+                    androidx.compose.material3.DropdownMenu(menu, { menu = false }, shape = RoundedCornerShape(20.dp)) {
+                        if (i > 0) androidx.compose.material3.DropdownMenuItem(text = { Text("Move up") }, onClick = { menu = false; move(i - 1) })
+                        if (i < list.size - 1) androidx.compose.material3.DropdownMenuItem(text = { Text("Move down") }, onClick = { menu = false; move(i + 1) })
+                        androidx.compose.material3.DropdownMenuItem(text = { Text("Remove") }, onClick = { menu = false; core.removeUpNext(i.toUInt()) })
+                    }
                     }
                 }
             }

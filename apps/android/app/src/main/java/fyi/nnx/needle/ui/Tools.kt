@@ -69,6 +69,8 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
+import androidx.compose.foundation.selection.toggleable
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
@@ -153,10 +155,12 @@ fun rememberFileAccess(songIds: List<String> = emptyList()): (then: () -> Unit) 
                         pending = then
                         legacy.launch(android.Manifest.permission.WRITE_EXTERNAL_STORAGE)
                     } else if (Build.VERSION.SDK_INT >= 30) {
-                        context.startActivity(
-                            Intent(AndroidSettings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION, Uri.parse("package:${context.packageName}"))
-                                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
-                        )
+                        tryOpen("page in Settings for this") {
+                            context.startActivity(
+                                Intent(AndroidSettings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION, Uri.parse("package:${context.packageName}"))
+                                    .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
+                            )
+                        }
                         // Android asks in its own settings; the person taps the button again after.
                         showMessage("Turn on Needle, then come back and try again")
                     } else {
@@ -304,7 +308,8 @@ private fun IdentifyDialog(id: String, onDone: (changed: Boolean) -> Unit) {
     var key by remember { mutableStateOf("") }
     var hasKey by remember { mutableStateOf(core.hasAcoustidKey()) }
     var matches by remember { mutableStateOf<List<SoundMatch>?>(null) }
-    var busy by remember { mutableStateOf(false) }
+    // Busy from the start when there is a key, so "No match found" never shows before the search.
+    var busy by remember { mutableStateOf(hasKey) }
     val access = rememberFileAccess(listOf(id))
     val context = LocalContext.current
     LaunchedEffect(hasKey) {
@@ -323,7 +328,7 @@ private fun IdentifyDialog(id: String, onDone: (changed: Boolean) -> Unit) {
                     !hasKey -> {
                         Text("Needle asks AcoustID, which needs a free application key.")
                         TextButton(onClick = {
-                            context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("https://acoustid.org/new-application")).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+                            tryOpen("web browser") { context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("https://acoustid.org/new-application")).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) }
                         }) { Text("Get a key at acoustid.org") }
                         OutlinedTextField(key, { key = it }, label = { Text("Application key") }, singleLine = true, modifier = Modifier.remoteEscape().fillMaxWidth())
                     }
@@ -658,9 +663,9 @@ fun ImportScreen() {
         item { LargeTitle("Import") }
         item { Explain("Bring in your plays, stars, and playlists from another player. Songs are matched to the music you already have.") }
         item {
-            ImportCard(Icons.Rounded.LibraryMusic, "iTunes, Apple Music, or MusicBee", "Their library XML file: plays, stars, and playlists") { itunes.launch(arrayOf("*/*")) }
-            ImportCard(Icons.Rounded.Album, "Spotify", "Your data download from Spotify (the zip): plays and playlists") { spotify.launch(arrayOf("*/*")) }
-            ImportCard(Icons.Rounded.PlaylistPlay, "A playlist file", "An .m3u or .m3u8 playlist") { playlist.launch(arrayOf("*/*")) }
+            ImportCard(Icons.Rounded.LibraryMusic, "iTunes, Apple Music, or MusicBee", "Their library XML file: plays, stars, and playlists") { tryOpen("file picker") { itunes.launch(arrayOf("*/*")) } }
+            ImportCard(Icons.Rounded.Album, "Spotify", "Your data download from Spotify (the zip): plays and playlists") { tryOpen("file picker") { spotify.launch(arrayOf("*/*")) } }
+            ImportCard(Icons.Rounded.PlaylistPlay, "A playlist file", "An .m3u or .m3u8 playlist") { tryOpen("file picker") { playlist.launch(arrayOf("*/*")) } }
             ImportCard(Icons.Rounded.History, "Last.fm or ListenBrainz", "Your listening history, by your user name") { history = "listenbrainz" }
         }
         if (busy) item { Loading("Bringing it in…") }
@@ -812,7 +817,10 @@ private fun ColorDialog(start: Color, onDismiss: () -> Unit, onPick: (Color) -> 
     var h by remember { mutableStateOf(hsl[0]) }
     var s by remember { mutableStateOf(hsl[1]) }
     var l by remember { mutableStateOf(hsl[2]) }
-    val color = Color.hsl(h, s, l)
+    // A typed colour is kept as typed: through hue, colourfulness, and lightness it can come
+    // back a digit off. Moving a slider makes the colour the sliders' again.
+    var exact by remember { mutableStateOf<Color?>(null) }
+    val color = exact ?: Color.hsl(h, s, l)
     var typed by remember(color) { mutableStateOf(hexOf(color)) }
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -820,12 +828,13 @@ private fun ColorDialog(start: Color, onDismiss: () -> Unit, onPick: (Color) -> 
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
                 Box(Modifier.fillMaxWidth().heightIn(min = 56.dp).clip(RoundedCornerShape(16.dp)).background(color))
-                Text("Hue"); Slider(h, { h = it }, valueRange = 0f..359f)
-                Text("Colourfulness"); Slider(s, { s = it })
-                Text("Lightness"); Slider(l, { l = it })
+                Text("Hue"); Slider(h, { h = it; exact = null }, valueRange = 0f..359f)
+                Text("Colourfulness"); Slider(s, { s = it; exact = null })
+                Text("Lightness"); Slider(l, { l = it; exact = null })
                 OutlinedTextField(typed, { t ->
                     typed = t
                     colorOf(t.trim())?.let { c ->
+                        exact = c
                         val out = FloatArray(3)
                         androidx.core.graphics.ColorUtils.colorToHSL(c.toArgb(), out)
                         h = out[0]; s = out[1]; l = out[2]
@@ -914,7 +923,7 @@ fun SpeakersSheet(context: Context) {
 @Composable
 private fun SpeakerRow(icon: androidx.compose.ui.graphics.vector.ImageVector, name: String, kind: String?, on: Boolean, onChange: (Boolean) -> Unit) {
     Row(
-        Modifier.fillMaxWidth().clickable { onChange(!on) }.padding(horizontal = Edge, vertical = 8.dp),
+        Modifier.fillMaxWidth().toggleable(on, role = Role.Checkbox, onValueChange = onChange).padding(horizontal = Edge, vertical = 8.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(16.dp),
     ) {
@@ -923,6 +932,6 @@ private fun SpeakerRow(icon: androidx.compose.ui.graphics.vector.ImageVector, na
             Text(name, style = MaterialTheme.typography.bodyLarge)
             if (kind != null) Text(kind, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
-        Checkbox(on, onChange)
+        Checkbox(on, onCheckedChange = null)
     }
 }

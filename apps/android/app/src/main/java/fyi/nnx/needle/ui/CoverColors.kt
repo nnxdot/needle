@@ -125,13 +125,18 @@ fun rememberCoverScheme(path: String?, forceDark: Boolean = false): ColorScheme?
     val theme = MaterialTheme.colorScheme
     val dark = forceDark || theme.background.luminance() < 0.5f
     val black = theme.background == Color.Black
-    var scheme by remember(path, dark, black) {
+    // The last cover's scheme stays while the next one's is found, so a new song blends from
+    // one cover's colours to the next instead of through the page's own.
+    var scheme by remember(dark, black) {
         mutableStateOf(path?.let { seeds.get(it) }?.let { coverScheme(it, dark, black) })
     }
     LaunchedEffect(path, dark, black) {
-        if (path == null || scheme != null) return@LaunchedEffect
-        val seed = coverSeed(context, path) ?: return@LaunchedEffect
-        scheme = withContext(Dispatchers.Default) { coverScheme(seed, dark, black) }
+        if (path == null) {
+            scheme = null
+            return@LaunchedEffect
+        }
+        val seed = seeds.get(path) ?: coverSeed(context, path)
+        scheme = seed?.let { withContext(Dispatchers.Default) { coverScheme(it, dark, black) } }
     }
     return scheme
 }
@@ -139,7 +144,9 @@ fun rememberCoverScheme(path: String?, forceDark: Boolean = false): ColorScheme?
 /** Everything inside takes the cover's colours: the page, the buttons, the menus. */
 @Composable
 fun CoverTheme(path: String?, dark: Boolean = false, content: @Composable () -> Unit) {
-    val target = rememberCoverScheme(path, dark) ?: MaterialTheme.colorScheme
+    // Without a cover, a dark place (the player) keeps a dark scheme even in the Day theme.
+    val target = rememberCoverScheme(path, dark)
+        ?: if (dark && MaterialTheme.colorScheme.background.luminance() > 0.5f) NeedleColors else MaterialTheme.colorScheme
     MaterialTheme(colorScheme = animatedScheme(target), typography = MaterialTheme.typography, shapes = MaterialTheme.shapes) {
         FocusShades(content)
     }

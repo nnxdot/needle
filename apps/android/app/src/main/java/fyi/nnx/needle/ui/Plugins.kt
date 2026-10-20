@@ -110,7 +110,7 @@ fun PluginsScreen(open: (Route) -> Unit) {
                             maxLines = 2,
                         )
                     }
-                    Switch(checked = plugin.enabled, onCheckedChange = { core.setPluginEnabled(plugin.id, it) })
+                    SoonSwitch(plugin.enabled) { core.setPluginEnabled(plugin.id, it) }
                     Icon(Icons.AutoMirrored.Rounded.KeyboardArrowRight, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
                 HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant, modifier = Modifier.padding(start = Edge))
@@ -142,7 +142,7 @@ fun PluginScreen(id: String) {
             Section(title = "Turned on") {
                 Row(Modifier.fillMaxWidth().padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
                     Text(if (plugin.enabled) "On" else "Off", style = MaterialTheme.typography.bodyLarge, modifier = Modifier.weight(1f))
-                    Switch(checked = plugin.enabled, onCheckedChange = { core.setPluginEnabled(plugin.id, it) })
+                    SoonSwitch(plugin.enabled) { core.setPluginEnabled(plugin.id, it) }
                 }
             }
         }
@@ -207,7 +207,7 @@ fun PluginScreen(id: String) {
                                 Text(switch.label, style = MaterialTheme.typography.bodyLarge)
                                 if (switch.detail.isNotBlank()) Text(switch.detail, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
                             }
-                            Switch(checked = switch.on, onCheckedChange = { core.sourceSwitch(plugin.id, switch.id, it) })
+                            SoonSwitch(switch.on) { core.sourceSwitch(plugin.id, switch.id, it) }
                         }
                     }
                 }
@@ -312,4 +312,19 @@ fun PluginEffects() {
             }
         }
     }
+}
+
+/**
+ * A switch for what a plugin turns on a moment later (the list is read once a second): it moves
+ * at once, then follows the plugin's answer, or goes back if none comes.
+ */
+@Composable
+private fun SoonSwitch(on: Boolean, change: (Boolean) -> Unit) {
+    var asked by remember(on) { mutableStateOf<Boolean?>(null) }
+    LaunchedEffect(asked) {
+        if (asked == null) return@LaunchedEffect
+        kotlinx.coroutines.delay(3000)
+        asked = null
+    }
+    Switch(checked = asked ?: on, onCheckedChange = { asked = it; change(it) })
 }

@@ -114,7 +114,21 @@ fun ColorScheme.with(theme: ThemeInfo): ColorScheme {
     hex(c["card_hover"])?.let { s = s.copy(surfaceContainerHigh = it, surfaceContainerHighest = it) }
     hex(c["text"])?.let { s = s.copy(onSurface = it, onBackground = it) }
     hex(c["text_muted"])?.let { s = s.copy(onSurfaceVariant = it) }
-    hex(c["accent"])?.let { s = s.copy(primary = it, onSecondaryContainer = it) }
+    hex(c["accent"])?.let { accent ->
+        // The accent's own containers, made as a chosen accent's are, on the theme's page;
+        // Needle's amber-brown ones would sit oddly under a blue theme.
+        val dark = s.background.luminance() < 0.5f
+        val made = coverScheme(accent.toArgb(), dark = dark, black = s.background == Color.Black)
+        s = s.copy(
+            primary = accent, onSecondaryContainer = accent,
+            // Without the theme's own text colour for it, whichever of black and white reads.
+            onPrimary = if (accent.luminance() > 0.4f) Color(0xFF1C1B1A) else Color.White,
+            primaryContainer = made.primaryContainer, onPrimaryContainer = made.onPrimaryContainer,
+            secondaryContainer = made.secondaryContainer,
+            tertiary = made.tertiary, onTertiary = made.onTertiary,
+            tertiaryContainer = made.tertiaryContainer, onTertiaryContainer = made.onTertiaryContainer,
+        )
+    }
     hex(c["accent_text"])?.let { s = s.copy(onPrimary = it) }
     hex(c["border"])?.let { s = s.copy(outline = it) }
     hex(c["border_soft"])?.let { s = s.copy(outlineVariant = it) }
