@@ -557,7 +557,7 @@ struct AppearanceSettings: View {
     private func delete(_ theme: ThemeFile) {
         let id = theme.id
         store.run { try $0.deleteTheme(id: id) }
-        if store.settings.theme == id { store.set(["theme": "dark"]) }
+        if store.settings.theme == id { store.chooseTheme("dark", extras: nil) }
         Task { try? await Task.sleep(for: .milliseconds(200)); store.reloadThemes(); store.notify("Deleted the theme \(theme.name).") }
     }
 
@@ -644,12 +644,7 @@ struct ThemeCard: View {
     }
 
     private func choose() {
-        var patch: [String: Any] = ["theme": mode]
-        if let theme {
-            if let grain = theme.grain { patch["grain"] = grain }
-            if let font = theme.font { patch["display_font"] = font }
-        }
-        store.set(patch)
+        store.chooseTheme(mode, extras: theme)
     }
 }
 

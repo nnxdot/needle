@@ -43,7 +43,7 @@ private struct DuplicatesTab: View {
                 } else {
                     VStack(alignment: .leading, spacing: 10) {
                         HStack {
-                            Text("\(sets.count) songs are in your library more than once. Needle keeps the best copy of each; the others' plays, stars, and playlist places move to it, and their files go to the Trash.")
+                            Text("\(sets.count == 1 ? "1 song is" : "\(sets.count) songs are") in your library more than once. Needle keeps the best copy of each; the others' plays, stars, and playlist places move to it, and their files go to the Trash.")
                                 .foregroundStyle(.secondary)
                             Spacer()
                             Button("Merge all (\(sets.reduce(0) { $0 + $1.songs.count - 1 }))") { confirmAll = true }
@@ -100,25 +100,41 @@ private struct DuplicatesTab: View {
         let extra = group.songs.indices.filter { $0 != keep }
         // The extra copies' files to the Trash, as the Finder does (Put Back works); a copy
         // whose file is already gone only leaves the library.
+        // Away from the window: many copies, or a slow drive, would hold it still.
+        let paths = extra.map { i in i < group.paths.count ? group.paths[i] : nil }
+        let results = await Task.detached { () -> [String?] in
+            paths.map { path -> String? in
+                guard let path else { return "Its file is not known" }
+                let url = URL(fileURLWithPath: path)
+                guard FileManager.default.fileExists(atPath: url.path) else { return nil }
+                do { try FileManager.default.trashItem(at: url, resultingItemURL: nil); return nil } catch { return error.localizedDescription }
+            }
+        }.value
         var gone: [Int] = []
-        for i in extra {
-            guard i < group.paths.count else { continue }
-            let url = URL(fileURLWithPath: group.paths[i])
-            guard FileManager.default.fileExists(atPath: url.path) else { gone.append(i); continue }
-            do {
-                try FileManager.default.trashItem(at: url, resultingItemURL: nil)
-                gone.append(i)
-            } catch {
+        for (n, i) in extra.enumerated() {
+            if let problem = results[n] {
                 // This copy stays as it is, in the library and on disk; the rest are merged.
-                if !quiet { store.fail("\(url.lastPathComponent) could not go to the Trash: \(error.localizedDescription)") }
+                if !quiet { store.fail("\(URL(fileURLWithPath: group.paths[i]).lastPathComponent) could not go to the Trash: \(problem)") }
+            } else {
+                gone.append(i)
             }
         }
         let stuck = extra.count - gone.count
         guard !gone.isEmpty else { return (0, stuck) }
         let (id, others) = (group.songs[keep].id, gone.map { group.songs[$0].id })
-        guard await store.ask({ try $0.mergeInto(keep: id, others: others) }) != nil else { return (0, extra.count) }
-        // A group with a copy that stayed is still a group of duplicates.
-        if stuck == 0 { sets?.removeAll { $0.songs.first?.id == group.songs.first?.id } }
+        // Not merged: their files are in the Trash all the same (the next scan marks them gone).
+        guard await store.ask({ try $0.mergeInto(keep: id, others: others) }) != nil else { return (0, stuck) }
+        if stuck == 0 {
+            sets?.removeAll { $0.songs.first?.id == group.songs.first?.id }
+        } else if let at = sets?.firstIndex(where: { $0.songs.first?.id == group.songs.first?.id }) {
+            // Still a group: the kept song and the copies that stayed.
+            let left = [keep] + extra.filter { !gone.contains($0) }
+            var smaller = group
+            smaller.songs = left.map { group.songs[$0] }
+            smaller.paths = left.map { $0 < group.paths.count ? group.paths[$0] : "" }
+            smaller.keep = 0
+            sets?[at] = smaller
+        }
         if !quiet, stuck == 0 {
             store.notify(others.count == 1 ? "Merged 1 copy. It is in the Trash." : "Merged \(others.count) copies. They are in the Trash.")
         }

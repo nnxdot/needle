@@ -419,6 +419,22 @@ final class Store {
 
     func setLayout(_ patch: [String: Any]) { set(["layout": patch]) }
 
+    /// Chooses a look. A theme with its own grain or font brings them, and the person's own are
+    /// kept to put back when a theme without them is chosen (as the desktop does).
+    func chooseTheme(_ mode: String, extras theme: ThemeFile?) {
+        var patch: [String: Any] = ["theme": mode]
+        if let theme, theme.grain != nil || theme.font != nil {
+            if settings.themeExtrasBefore == nil { patch["theme_extras_before"] = [settings.grain, settings.displayFont] as [Any] }
+            if let grain = theme.grain { patch["grain"] = grain }
+            if let font = theme.font { patch["display_font"] = font }
+        } else if let before = settings.themeExtrasBefore {
+            patch["grain"] = before.grain
+            patch["display_font"] = before.font
+            patch["theme_extras_before"] = NSNull()
+        }
+        set(patch)
+    }
+
     /// Brings `colors` and the others kept beside `settings` up to date.
     func refreshLook() {
         let look = lookNow()
@@ -832,8 +848,9 @@ final class Store {
         panel.message = "Add a music folder to Needle"
         guard panel.runModal() == .OK else { return }
         let paths = panel.urls.map(\.path)
-        run { core in
-            for path in paths { try core.addFolder(path: path) }
+        Task {
+            _ = await ask { core in for path in paths { try core.addFolder(path: path) } }
+            libraryChanged()
         }
         notify("Adding the folder…")
     }
