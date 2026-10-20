@@ -205,6 +205,9 @@ pub(crate) fn from_json(
 /// Ask needle.nnx.fyi whether a newer Needle is out. Sends nothing but the request itself.
 /// On macOS and Android a release for that system alone is asked about first.
 pub fn check(current: &str) -> Result<Option<Release>> {
+    #[cfg(target_os = "ios")]
+    return check_iphone(current);
+    #[allow(unreachable_code)]
     let own = if cfg!(target_os = "macos") {
         Some(LATEST_MACOS)
     } else if cfg!(target_os = "android") {
@@ -218,6 +221,32 @@ pub fn check(current: &str) -> Result<Option<Release>> {
         return Ok(Some(release));
     }
     check_at(LATEST, current)
+}
+
+/// The iPhone's newest build, from the SideStore source that lists it (the computer's releases
+/// are not the phone's).
+pub const LATEST_IPHONE: &str = "https://needle.nnx.fyi/sidestore.json";
+
+#[cfg_attr(not(target_os = "ios"), allow(dead_code))]
+fn check_iphone(current: &str) -> Result<Option<Release>> {
+    let source: Value = crate::integrations::client()?
+        .get(LATEST_IPHONE)
+        .send()?
+        .error_for_status()?
+        .json()?;
+    let app = &source["apps"][0];
+    let version = app["versions"][0]["version"]
+        .as_str()
+        .or_else(|| app["version"].as_str())
+        .unwrap_or_default();
+    Ok((!version.is_empty() && newer(current, version)).then(|| Release {
+        version: version.trim_start_matches('v').to_string(),
+        page: "https://needle.nnx.fyi/#iphone".into(),
+        package: None,
+        installer: String::new(),
+        installer_url: String::new(),
+        checksums_url: None,
+    }))
 }
 
 fn check_at(url: &str, current: &str) -> Result<Option<Release>> {
