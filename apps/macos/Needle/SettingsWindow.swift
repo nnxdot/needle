@@ -232,7 +232,7 @@ struct PlaybackSettingsView: View {
                         Text("Or type this address in the phone's browser. Add it to the home screen to open it like an app.")
                             .font(.callout).foregroundStyle(.secondary)
                         Text(address).font(.callout.monospaced()).textSelection(.enabled)
-                            .padding(6).background(store.colors.raised, in: RoundedRectangle(cornerRadius: 6))
+                            .padding(6).background(store.plainColors.raised, in: RoundedRectangle(cornerRadius: 6))
                         HStack {
                             Button("Copy address") { store.copy(address); store.notify("Address copied.") }
                             Button("New address") {
@@ -268,10 +268,10 @@ struct PlaybackSettingsView: View {
             members = store.core.groupMembers()
         } label: {
             HStack {
-                Image(systemName: "hifispeaker").foregroundStyle(selected ? store.colors.accent : .secondary)
+                Image(systemName: "hifispeaker").foregroundStyle(selected ? store.plainColors.accent : .secondary)
                 Text(name).lineLimit(1)
                 Spacer()
-                if selected { Image(systemName: "checkmark").foregroundStyle(store.colors.accent) }
+                if selected { Image(systemName: "checkmark").foregroundStyle(store.plainColors.accent) }
             }
             .contentShape(Rectangle())
         }
@@ -622,7 +622,7 @@ struct ThemeCard: View {
                 .padding(6)
                 .frame(width: 150, height: 96)
                 .background(look.chrome, in: RoundedRectangle(cornerRadius: 10))
-                .overlay(RoundedRectangle(cornerRadius: 10).strokeBorder(active ? store.colors.accent : store.colors.line, lineWidth: 2))
+                .overlay(RoundedRectangle(cornerRadius: 10).strokeBorder(active ? store.plainColors.accent : store.plainColors.line, lineWidth: 2))
                 Text(name).font(.callout.weight(active ? .semibold : .regular)).lineLimit(1)
                 Text(about).font(.caption).foregroundStyle(.secondary).lineLimit(1)
             }
@@ -840,7 +840,7 @@ struct DiscordSettings: View {
         }
         .padding(12)
         .frame(width: 340, alignment: .leading)
-        .background(store.colors.raised, in: RoundedRectangle(cornerRadius: 10))
+        .background(store.plainColors.raised, in: RoundedRectangle(cornerRadius: 10))
     }
 }
 

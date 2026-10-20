@@ -1051,9 +1051,12 @@ impl Needle {
         if playlist.query.is_some() {
             return Err(failed("A smart playlist picks its own songs"));
         }
+        // Only songs in the library: any text dropped on a playlist is not a song.
+        let known: std::collections::HashSet<String> =
+            self.library.tracks_by_ids(&ids)?.into_iter().map(|t| t.id).collect();
         let mut new: Vec<String> = vec![];
         for song in ids {
-            if !playlist.track_ids.contains(&song) && !new.contains(&song) {
+            if known.contains(&song) && !playlist.track_ids.contains(&song) && !new.contains(&song) {
                 new.push(song);
             }
         }
@@ -1085,7 +1088,14 @@ impl Needle {
             .filter(|t| ids.contains(t))
             .cloned()
             .collect();
-        let mut adding = if moving.is_empty() { ids } else { moving };
+        let mut adding = if moving.is_empty() {
+            // New to the list: only songs in the library.
+            let known: std::collections::HashSet<String> =
+                self.library.tracks_by_ids(&ids)?.into_iter().map(|t| t.id).collect();
+            ids.into_iter().filter(|id| known.contains(id)).collect()
+        } else {
+            moving
+        };
         playlist.track_ids.retain(|t| !adding.contains(t));
         adding.dedup();
         let at = before

@@ -19,9 +19,16 @@ enum Keys {
                 default: return event
                 }
             }
+            // Only in the main window and the mini player, with no sheet or panel over them: an
+            // open panel's column view, a sheet's buttons, and Settings use these keys themselves.
+            guard let window = event.window,
+                  window.identifier.map({ $0.rawValue.hasPrefix("main") || $0.rawValue.hasPrefix("mini") }) == true,
+                  window.attachedSheet == nil, NSApp.modalWindow == nil else { return event }
+            // A button or switch with the focus takes Space (lists still play with it).
+            let control = window.firstResponder is NSControl && !(window.firstResponder is NSTableView)
             // The lyric timing editor uses Space and the arrows itself.
-            let typing = (event.window?.firstResponder as? NSText) != nil || (event.window?.firstResponder is NSTextView)
-                || store.route == .timing
+            let typing = (window.firstResponder as? NSText) != nil || (window.firstResponder is NSTextView)
+                || store.route == .timing || control
             let plain = event.modifierFlags.intersection([.command, .control, .option]).isEmpty
             guard plain else { return event }
             switch event.keyCode {

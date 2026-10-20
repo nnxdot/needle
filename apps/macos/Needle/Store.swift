@@ -53,6 +53,10 @@ final class Store {
     /// The accent without an open page's colours: for the always-dark mini player and the
     /// sidebar (whose highlight AppKit keeps from when it was made).
     private(set) var playerAccent: Color = .accentColor
+    /// Whether music plays: menus and the palette follow this, which changes only when it does
+    /// (`playback` changes ten times a second).
+    private(set) var isPlaying = false
+    @ObservationIgnored private var scansSeen: UInt64 = 0
     /// The theme's colours without an open page's, for Settings.
     private(set) var plainColors = Palette.build(Palette.base("dark"), tint: nil, ambient: false)
     private(set) var stemsJob: StemJob?
@@ -151,7 +155,7 @@ final class Store {
             MainActor.assumeIsolated { self?.tick() }
         }
         maybeWelcome()
-        checkForUpdate(force: false)
+        if settings.welcomed { checkForUpdate(force: false) }
     }
 
     // MARK: - Following the core
@@ -164,7 +168,8 @@ final class Store {
         guard ticks % 5 == 0 else { return }
         let status = core.scanStatus()
         if status != scan { scan = status }
-        if wasScanning && !status.running {
+        if status.finished != scansSeen {
+            scansSeen = status.finished
             if let error = status.error { fail(error) } else if status.imported > 0 {
                 notify("\(count(Int(status.imported), "track")) added or updated")
             }
@@ -199,6 +204,7 @@ final class Store {
     private func follow(_ now: MacPlayback) {
         let before = playback
         playback = now
+        if now.playing != isPlaying { isPlaying = now.playing }
         if now.error != lastError {
             lastError = now.error
             if let error = now.error { fail(error) }
@@ -318,6 +324,8 @@ final class Store {
 
     private func show(_ next: Toast) {
         withAnimation(.snappy) { toast = next }
+        NSAccessibility.post(element: NSApp!, notification: .announcementRequested,
+                             userInfo: [.announcement: next.text, .priority: NSAccessibilityPriorityLevel.high.rawValue])
         toastTask?.cancel()
         toastTask = Task {
             try? await Task.sleep(for: .seconds(next.error ? 14 : 6))
@@ -443,7 +451,10 @@ final class Store {
         // and the command button, and the window's buttons when the sidebar is folded away.
         let beside: CGFloat = 170 + (layout.sidebarHidden ? 80 : 0)
         let page: CGFloat = layout.playerOnTop ? max(560, TopPlayer.width + beside) : 560
-        return max(760, page + sidebar + (settings.showInspector ? 310 : 0))
+        let wanted = max(760, page + sidebar + (settings.showInspector ? 310 : 0))
+        // Never wider than the screen: on a small one the window could not fit.
+        let screen = NSScreen.main?.visibleFrame.width ?? wanted
+        return min(wanted, max(760, screen))
     }
 
     /// Widens the main window, at once, when a column is about to open and there is no room
@@ -690,10 +701,13 @@ final class Store {
 
     /// Stars, 0 to 5; 4 and 5 make a favorite.
     func rate(_ ids: [String], _ stars: Int) {
-        for id in ids { try? core.rate(id: id, stars: UInt8(stars)) }
         if let f = focused, ids.contains(f.id) { focused?.rating = stars }
         if let c = current, ids.contains(c.id) { current?.rating = stars }
-        libraryVersion += 1
+        let core = core
+        Task {
+            await Task.detached { for id in ids { try? core.rate(id: id, stars: UInt8(stars)) } }.value
+            libraryVersion += 1
+        }
     }
 
     func toggleFavorite(_ tracks: [Track]) {
@@ -755,9 +769,11 @@ final class Store {
     /// Leaving full screen by hand (the green button, ⌃⌘F) ends Needle's full screen player.
     private func watchFullScreen(_ window: NSWindow) {
         guard fullScreenWatch == nil else { return }
-        fullScreenWatch = NotificationCenter.default.addObserver(forName: NSWindow.didExitFullScreenNotification, object: window, queue: .main) { [weak self] _ in
+        // Any window, checked inside: the main window can be made anew after it is closed.
+        fullScreenWatch = NotificationCenter.default.addObserver(forName: NSWindow.didExitFullScreenNotification, object: nil, queue: .main) { [weak self] note in
+            let main = (note.object as? NSWindow)?.identifier?.rawValue.hasPrefix("main") == true
             MainActor.assumeIsolated {
-                guard let self else { return }
+                guard let self, main else { return }
                 self.ownFullScreen = false
                 if self.immersive { self.immersive = false }
             }

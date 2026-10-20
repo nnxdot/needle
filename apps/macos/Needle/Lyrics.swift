@@ -290,7 +290,7 @@ struct TimingPage: View {
         .onKeyPress(.delete) { guard timing, !stamps.isEmpty else { return .ignored }; stamps.removeLast(); return .handled }
         .onKeyPress(.leftArrow) { nudge(-0.05) }
         .onKeyPress(.rightArrow) { nudge(0.05) }
-        .task(id: store.current?.id) { fill() }
+        .task(id: "\(store.current?.id ?? "")|\(store.lyricsFor ?? "")") { fill() }
     }
 
     private var currentLine: Int {
@@ -306,11 +306,17 @@ struct TimingPage: View {
         String(format: "%d:%05.2f", Int(t) / 60, t.truncatingRemainder(dividingBy: 60))
     }
 
+    /// What this page last filled in, to tell it from words typed here.
+    @State private var filled = ""
+
     private func fill() {
+        // Words typed here stay: only what this page filled in is replaced.
+        guard text == filled else { return }
         timing = false
         stamps = []
-        guard let lyrics = store.lyrics else { text = ""; return }
-        text = lyrics.lines.isEmpty ? lyrics.plain : lyrics.lines.map(\.text).joined(separator: "\n")
+        let found = store.lyrics.map { $0.lines.isEmpty ? $0.plain : $0.lines.map(\.text).joined(separator: "\n") } ?? ""
+        text = found
+        filled = found
     }
 
     private func start() {

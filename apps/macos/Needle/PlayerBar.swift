@@ -570,7 +570,7 @@ enum VolumeWheel {
         guard let window = event.window else { return false }
         let over = views.allObjects.contains { view in
             // Under the big player, the bar's own volume is hidden by it.
-            let covered = store.big && !((view as? VolumeArea.Area)?.overCover ?? false)
+            let covered = (store.big || store.immersive) && !((view as? VolumeArea.Area)?.overCover ?? false)
             return !covered && view.window === window && !view.isHiddenOrHasHiddenAncestor
                 && view.bounds.insetBy(dx: -4, dy: -6).contains(view.convert(event.locationInWindow, from: nil))
         }

@@ -33,7 +33,7 @@ struct NeedleApp: App {
         MenuBarExtra(isInserted: Binding(get: { store.settings.tray }, set: { store.set(["tray": $0]) })) {
             TrayMenu().environment(store)
         } label: {
-            Image(systemName: store.playback?.playing == true ? "waveform" : "music.note")
+            Image(systemName: store.isPlaying ? "waveform" : "music.note")
         }
     }
 }
@@ -77,7 +77,7 @@ struct TrayMenu: View {
             Text("\(p.title) · \(p.artist)")
             Divider()
         }
-        Button(store.playback?.playing == true ? "Pause" : "Play") { store.toggle() }
+        Button(store.isPlaying ? "Pause" : "Play") { store.toggle() }
         Button("Next") { store.next() }
         Button("Previous") { store.previous() }
         Divider()
@@ -118,7 +118,7 @@ struct NeedleCommands: Commands {
             Button("Search") { store.focusSearch += 1 }.keyboardShortcut("f")
         }
         CommandMenu("Controls") {
-            Button(store.playback?.playing == true ? "Pause" : "Play") { store.toggle() }
+            Button(store.isPlaying ? "Pause" : "Play") { store.toggle() }
             Button("Next") { store.next() }.keyboardShortcut(.rightArrow)
             Button("Previous") { store.previous() }.keyboardShortcut(.leftArrow)
             Button("Forward 10 Seconds") { store.seekBy(10) }.keyboardShortcut(.rightArrow, modifiers: [.command, .option])

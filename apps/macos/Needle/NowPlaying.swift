@@ -27,6 +27,10 @@ final class NowPlaying {
             core.seek(seconds: event.positionTime)
             return .success
         }
+        for command in [commands.playCommand, commands.pauseCommand, commands.togglePlayPauseCommand,
+                        commands.nextTrackCommand, commands.previousTrackCommand, commands.changePlaybackPositionCommand] {
+            command.isEnabled = true
+        }
         commands.skipForwardCommand.isEnabled = false
         commands.skipBackwardCommand.isEnabled = false
     }

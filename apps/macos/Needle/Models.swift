@@ -354,6 +354,17 @@ struct PluginUpdate: Decodable {
 }
 
 extension Song {
+    /// The library's whole track for this song (album artist, file, source), for its menu: the
+    /// song's own shape lacks them, and Go to Album, Show in Finder, and Keep need them.
+    @MainActor var fullTrack: Track {
+        if let kept = Song.whole[id] { return kept }
+        let found = JSON.decode(Track.self, (try? Store.shared.core.trackJson(id: id)) ?? nil) ?? asTrack
+        Song.whole[id] = found
+        return found
+    }
+
+    @MainActor private static var whole: [String: Track] = [:]
+
     /// A song of the phones' shape, as some of the core's answers give it.
     var asTrack: Track {
         Track(id: id, path: "", title: title, artist: artist, album: album, albumArtist: "", genre: "", year: 0,
