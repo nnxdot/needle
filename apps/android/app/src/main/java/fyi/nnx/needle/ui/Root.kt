@@ -144,10 +144,12 @@ fun NeedleRoot() {
     SharedTransitionLayout(Modifier.fillMaxSize()) {
         CompositionLocalProvider(LocalShared provides this) {
             Box(Modifier.fillMaxSize()) {
-                Row(Modifier.fillMaxSize()) {
+                // On tablets the side bar sits on a frame, and the pages in a rounded pane
+                // beside it, as Google's own apps on a tablet (Material's panes).
+                Row(Modifier.fillMaxSize().then(if (wide) Modifier.background(MaterialTheme.colorScheme.surfaceContainer) else Modifier)) {
                 if (wide) SideBar(tab, stack.last(), chooseTab, open)
                 // Pages lay out by the room they have (see Adaptive.kt).
-                androidx.compose.foundation.layout.BoxWithConstraints(Modifier.weight(1f)) {
+                androidx.compose.foundation.layout.BoxWithConstraints(Modifier.weight(1f).then(if (wide) Modifier.pane() else Modifier)) {
                 CompositionLocalProvider(LocalPageWidth provides maxWidth) {
                 Scaffold(
                     containerColor = MaterialTheme.colorScheme.background,

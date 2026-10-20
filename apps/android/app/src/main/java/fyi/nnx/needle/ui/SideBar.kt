@@ -1,5 +1,6 @@
 package fyi.nnx.needle.ui
 
+import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.animateFloatAsState
@@ -26,6 +27,10 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.MenuOpen
+import androidx.compose.material.icons.outlined.Home
+import androidx.compose.material.icons.outlined.LibraryMusic
+import androidx.compose.material.icons.outlined.Search
+import androidx.compose.material.icons.outlined.Settings
 import androidx.compose.material.icons.rounded.Add
 import androidx.compose.material.icons.rounded.Menu
 import androidx.compose.material.icons.rounded.Settings
@@ -42,7 +47,13 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawWithContent
+import androidx.compose.ui.graphics.BlendMode
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.CompositingStrategy
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Shape
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.semantics.contentDescription
@@ -81,7 +92,6 @@ fun SideBar(tab: Tab, page: Route, onTab: (Tab) -> Unit, open: (Route) -> Unit) 
         Modifier
             .fillMaxHeight()
             .width(width)
-            .background(MaterialTheme.colorScheme.surfaceContainerLow)
             .statusBarsPadding()
             .navigationBarsPadding(),
     ) {
@@ -93,10 +103,10 @@ fun SideBar(tab: Tab, page: Route, onTab: (Tab) -> Unit, open: (Route) -> Unit) 
         }
         Tab.entries.forEach { t ->
             SideItem(t.label, null, t == tab, words, CircleShape, onClick = { onTab(t) }) {
-                Icon(t.icon, contentDescription = null)
+                Icon(if (t == tab) t.icon else t.outline, contentDescription = null)
             }
         }
-        LazyColumn(Modifier.weight(1f).padding(top = 8.dp)) {
+        LazyColumn(Modifier.weight(1f).padding(top = 8.dp).fadeFoot()) {
             item { SideHeader("Playlists", words) { Ui.sheet.value = Sheet.NewPlaylist(emptyList()) } }
             items(playlists.orEmpty(), key = { "p" + it.id }) { p ->
                 val route = Route.Playlist(p.id, p.name)
@@ -114,11 +124,20 @@ fun SideBar(tab: Tab, page: Route, onTab: (Tab) -> Unit, open: (Route) -> Unit) 
                 }
             }
         }
-        SideItem("Settings", null, page == Route.Settings || page is Route.SettingsPage, words, CircleShape, Modifier.padding(vertical = 8.dp), onClick = { go(Route.Settings) }) {
-            Icon(Icons.Rounded.Settings, contentDescription = null)
+        val inSettings = page == Route.Settings || page is Route.SettingsPage
+        SideItem("Settings", null, inSettings, words, CircleShape, Modifier.padding(vertical = 8.dp), onClick = { go(Route.Settings) }) {
+            Icon(if (inSettings) Icons.Rounded.Settings else Icons.Outlined.Settings, contentDescription = null)
         }
     }
 }
+
+/** A tab's icon while another tab is open: outlined, as Material's navigation does. */
+private val Tab.outline: ImageVector
+    get() = when (this) {
+        Tab.Home -> Icons.Outlined.Home
+        Tab.Library -> Icons.Outlined.LibraryMusic
+        Tab.Search -> Icons.Outlined.Search
+    }
 
 /**
  * One row of the side bar: an icon or a cover, and its name beside it while the bar is open.
@@ -136,12 +155,13 @@ private fun SideItem(
     lead: @Composable () -> Unit,
 ) {
     val colors = MaterialTheme.colorScheme
+    val fill by animateColorAsState(if (selected) colors.secondaryContainer else Color.Transparent, tween(200), label = "side item")
     Row(
         modifier
             .padding(horizontal = 12.dp, vertical = 2.dp)
             .fillMaxWidth()
             .clip(shape)
-            .background(if (selected) colors.secondaryContainer else colors.surfaceContainerLow)
+            .background(fill)
             .clickable(onClick = onClick)
             .heightIn(min = 56.dp)
             .padding(horizontal = 12.dp, vertical = 4.dp)
@@ -157,7 +177,7 @@ private fun SideItem(
             Column(Modifier.weight(1f).padding(start = 14.dp).graphicsLayer { alpha = words }) {
                 Text(
                     label,
-                    style = MaterialTheme.typography.titleSmall,
+                    style = if (sub == null) MaterialTheme.typography.labelLarge else MaterialTheme.typography.titleSmall,
                     color = if (selected) colors.onSecondaryContainer else colors.onSurface,
                     maxLines = 1,
                     softWrap = false,
@@ -191,8 +211,8 @@ private fun SideHeader(title: String, words: Float, onAdd: (() -> Unit)? = null)
     ) {
         Text(
             title,
-            style = MaterialTheme.typography.titleSmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            style = MaterialTheme.typography.labelLarge,
+            color = MaterialTheme.colorScheme.primary,
             maxLines = 1,
             softWrap = false,
             modifier = Modifier.weight(1f),
@@ -202,3 +222,17 @@ private fun SideHeader(title: String, words: Float, onAdd: (() -> Unit)? = null)
         }
     }
 }
+
+/** The list fades out at its foot instead of stopping at a hard edge above Settings. */
+private fun Modifier.fadeFoot(): Modifier = this
+    .graphicsLayer { compositingStrategy = CompositingStrategy.Offscreen }
+    .drawWithContent {
+        drawContent()
+        val fade = 32.dp.toPx()
+        drawRect(
+            Brush.verticalGradient(listOf(Color.Black, Color.Transparent), startY = size.height - fade, endY = size.height),
+            topLeft = androidx.compose.ui.geometry.Offset(0f, size.height - fade),
+            size = androidx.compose.ui.geometry.Size(size.width, fade),
+            blendMode = BlendMode.DstIn,
+        )
+    }

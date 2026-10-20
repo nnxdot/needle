@@ -1,12 +1,20 @@
 package fyi.nnx.needle.ui
 
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.WindowInsetsSides
+import androidx.compose.foundation.layout.only
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.systemBars
+import androidx.compose.foundation.layout.windowInsetsPadding
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.GridItemSpan
 import androidx.compose.foundation.lazy.grid.LazyGridScope
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.compositionLocalOf
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.layout.layout
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
@@ -48,3 +56,14 @@ fun Modifier.bleed(side: Dp): Modifier = layout { measurable, constraints ->
 /** A grid item across the whole row that runs past the grid's side padding (see [bleed]). */
 internal fun LazyGridScope.edgeToEdge(side: Dp, key: Any? = null, content: @Composable () -> Unit) =
     item(key = key, span = { GridItemSpan(maxLineSpan) }) { Box(Modifier.bleed(side)) { content() } }
+
+/**
+ * A tablet's page pane: clear of the status and navigation bars, with a margin from the frame
+ * and Material's large rounded corners. The bars' space is taken here, so pages inside keep
+ * no room for them again.
+ */
+@Composable
+fun Modifier.pane(): Modifier = this
+    .windowInsetsPadding(WindowInsets.systemBars.only(WindowInsetsSides.Top + WindowInsetsSides.Bottom + WindowInsetsSides.End))
+    .padding(top = 8.dp, end = 12.dp, bottom = 12.dp)
+    .clip(RoundedCornerShape(28.dp))
