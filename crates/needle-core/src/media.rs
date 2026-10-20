@@ -580,6 +580,10 @@ fn fanart(library: &Library, name: &str, online: bool) -> Result<Option<Value>> 
         }
         None => Value::Null,
     };
+    crate::logfile::info(format!(
+        "fanart.tv for {name}: {}",
+        if found.is_null() { "nothing" } else { "found" }
+    ));
     remember(library, &remembered, &found, WEEK * 4)?;
     Ok((!found.is_null()).then_some(found))
 }
