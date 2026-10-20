@@ -389,6 +389,10 @@ impl Needle {
         let db = self.library.connection()?;
         db.execute("DELETE FROM roots WHERE path=?", [&path])
             .map_err(|e| failed(e.into()))?;
+        // The songs are kept by the folder's real path.
+        let path = needle_core::database::canonical_root(&path);
+        db.execute("DELETE FROM roots WHERE path=?", [&path])
+            .map_err(|e| failed(e.into()))?;
         let prefix = format!("{}/", path.trim_end_matches('/'));
         db.execute(
             "DELETE FROM tracks WHERE substr(path,1,length(?1))=?1",

@@ -263,6 +263,7 @@ struct MoreButton: View {
         }
         .menuStyle(.borderlessButton)
         .menuIndicator(.hidden)
+        .accessibilityLabel("More")
         // A borderless menu draws its label in the tint, not the label's colour.
         .tint(looping ? store.colors.accent : store.colors.ink2)
         .fixedSize()
@@ -362,9 +363,11 @@ struct Transport: View {
             if !compact {
                 Button { store.shuffleView() } label: { Image(systemName: "shuffle") }
                     .help(store.route.isSongs ? "Shuffle this view" : "Shuffle up next")
+                    .accessibilityLabel("Shuffle")
             }
             Button { store.previous() } label: { Image(systemName: "backward.fill") }
                 .help("Previous · ⌘←")
+                .accessibilityLabel("Previous")
             Button { store.toggle() } label: {
                 if bare {
                     Image(systemName: playing ? "pause.fill" : "play.fill")
@@ -382,14 +385,18 @@ struct Transport: View {
                 }
             }
             .help(playing ? "Pause · Space" : "Play · Space")
+            .accessibilityLabel(playing ? "Pause" : "Play")
             Button { store.next() } label: { Image(systemName: "forward.fill") }
                 .help("Next · ⌘→")
+                .accessibilityLabel("Next")
             if !compact {
                 Button { store.cycleRepeat() } label: {
                     Image(systemName: repeatMode == "one" ? "repeat.1" : "repeat")
                         .foregroundStyle(repeatMode == "off" ? (light ? .white.opacity(0.8) : colors.ink2) : colors.accent)
                 }
                 .help(repeatMode == "off" ? "Repeat is off" : repeatMode == "all" ? "Repeating the queue" : "Repeating this track")
+                .accessibilityLabel("Repeat")
+                .accessibilityValue(repeatMode == "off" ? "Off" : repeatMode == "all" ? "All" : "One")
             }
         }
         .buttonStyle(.borderless)
@@ -521,6 +528,7 @@ struct VolumeControl: View {
             }
             .buttonStyle(.borderless)
             .help("Mute")
+            .accessibilityLabel(volume <= 0.001 ? "Unmute" : "Mute")
             if width > 0 {
                 ThinBar(value: Double(volume), tint: light ? .white : store.colors.ink2, label: "Volume",
                         track: light ? .white.opacity(0.25) : Color.primary.opacity(0.16)) { store.setVolume(Float($0)) }
@@ -624,6 +632,7 @@ struct PanelButton: View {
         }
         .buttonStyle(.borderless)
         .help(help)
+        .accessibilityLabel(help.components(separatedBy: " · ").first ?? help)
     }
 }
 

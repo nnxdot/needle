@@ -72,7 +72,10 @@ struct LyricsView: View {
                         }
                     }
                 }
-                Button("Write and time them") { store.big = false; store.navigate(.timing) }
+                // The timing page is in the main window: not offered in the mini player.
+                if kind != .mini {
+                    Button("Write and time them") { store.big = false; store.navigate(.timing) }
+                }
             }
             .controlSize(.small)
         }
@@ -355,9 +358,18 @@ struct TimingPage: View {
         guard let id = store.current?.id else { return }
         let u = units
         var result: [LyricLine] = []
+        // The song's own times, line for line, for the lines not tapped this time.
+        let before = store.lyrics.flatMap { $0.lines.count == lines.count ? $0.lines : nil }
         for (i, line) in lines.enumerated() {
             let mine = u.enumerated().filter { $0.element.line == i && $0.offset < stamps.count }
-            guard let first = mine.first else { continue }
+            guard let first = mine.first else {
+                guard let old = before?[i] else {
+                    store.fail("Tap every line before saving: lines without a time would be lost from the file.")
+                    return
+                }
+                result.append(old)
+                continue
+            }
             let wordTimes = words ? mine.map { Word(time: stamps[$0.offset], text: $0.element.text + " ") } : []
             result.append(LyricLine(time: stamps[first.offset], text: line, words: wordTimes))
         }

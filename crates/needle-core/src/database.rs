@@ -371,11 +371,24 @@ impl Library {
     pub fn roots(&self) -> Result<Vec<String>> {
         let db = self.connection()?;
         let mut statement = db.prepare("SELECT path FROM roots ORDER BY path")?;
-        Ok(statement
+        let all: Vec<String> = statement
             .query_map([], |r| r.get(0))?
-            .collect::<std::result::Result<_, _>>()?)
+            .collect::<std::result::Result<_, _>>()?;
+        // One folder kept under two names (an iPhone's /var and /private/var): the real one stays.
+        let mut kept = vec![];
+        for path in &all {
+            let real = canonical_root(path);
+            if real != *path && all.contains(&real) {
+                db.execute("DELETE FROM roots WHERE path=?", [path])?;
+            } else {
+                kept.push(path.clone());
+            }
+        }
+        Ok(kept)
     }
     pub fn add_root(&self, path: &str) -> Result<()> {
+        // By its real path, as the scan stores its songs: else one folder could be two.
+        let path = canonical_root(path);
         self.connection()?.execute("INSERT INTO roots VALUES (?,?) ON CONFLICT(path) DO UPDATE SET last_scan=excluded.last_scan", params![path,chrono::Utc::now().timestamp()])?;
         Ok(())
     }
@@ -585,6 +598,13 @@ impl Library {
         };
         self.save_playlist(&playlist)?;
         Ok(playlist)
+    }
+    /// Deletes a playlist's own picture, when it is Needle's copy (not a file of the person's).
+    pub fn forget_playlist_picture(&self, cover: &str) {
+        let folder = self.directory.join("artwork");
+        if Path::new(cover).parent() == Some(folder.as_path()) && cover.ends_with(".img") {
+            let _ = std::fs::remove_file(cover);
+        }
     }
     pub fn backup(&self, destination: &Path) -> Result<()> {
         self.connection()?.backup("main", destination, None)?;
@@ -844,4 +864,14 @@ mod tests {
             missing[0].path
         );
     }
+}
+
+/// A music folder's real path on Unix (links followed: an iPhone's /var is /private/var); as it
+/// is elsewhere, and when it cannot be read.
+pub fn canonical_root(path: &str) -> String {
+    #[cfg(unix)]
+    if let Ok(real) = std::fs::canonicalize(path) {
+        return real.to_string_lossy().into_owned();
+    }
+    path.to_string()
 }

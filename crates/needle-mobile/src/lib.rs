@@ -407,6 +407,7 @@ impl Needle {
             .library
             .album_tracks(&key)?
             .iter()
+            .filter(|t| !t.missing)
             .map(Song::from)
             .collect())
     }
@@ -437,7 +438,9 @@ impl Needle {
     pub fn playlists(&self) -> Result<Vec<Playlist>> {
         let mut out = vec![];
         for playlist in self.library.playlists()? {
-            let tracks = self.library.playlist_tracks(&playlist)?;
+            // As its page shows it: without songs whose files are gone.
+            let mut tracks = self.library.playlist_tracks(&playlist)?;
+            tracks.retain(|t| !t.missing);
             let mut mosaic: Vec<String> = vec![];
             if playlist.cover.is_none() {
                 for a in tracks.iter().filter_map(|t| t.artwork.clone()) {

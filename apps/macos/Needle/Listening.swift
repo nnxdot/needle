@@ -104,10 +104,14 @@ struct HistoryPage: View {
         }
         .task(id: store.libraryVersion) {
             generation += 1
-            items = []
-            finished = false
             loadingMore = false
-            await more()
+            // As many as were shown, at once, so the list stays where it was scrolled.
+            let shown = UInt32(max(200, items.count))
+            let from = generation
+            let page = await store.load { try $0.history(offset: 0, limit: shown) } ?? []
+            guard from == generation else { return }
+            items = page
+            finished = page.count < Int(shown)
         }
     }
 

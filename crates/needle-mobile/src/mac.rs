@@ -685,8 +685,9 @@ impl Needle {
             self.player.send(Command::Play(items));
             return Ok(count as u32);
         }
-        // Earlier songs stay in the list, so Repeat all comes back round to them.
-        let first = tracks.get(start).map(|t| t.id.clone());
+        // Earlier songs stay in the list, so Repeat all comes back round to them. A chosen song
+        // whose file is gone starts the list at the next one that is there.
+        let first = tracks.iter().skip(start).find(|t| !t.missing).map(|t| t.id.clone());
         tracks.retain(|t| !t.missing);
         let start = first
             .and_then(|id| tracks.iter().position(|t| t.id == id))
