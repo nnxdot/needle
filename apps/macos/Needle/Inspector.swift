@@ -3,26 +3,33 @@ import SwiftUI
 /// The side panel: the chosen song's details, the queue, or the lyrics.
 struct Inspector: View {
     private var store: Store { .shared }
+    @Namespace private var tabs
 
     var body: some View {
-        @Bindable var store = store
+        let colors = store.colors
         VStack(spacing: 0) {
-            HStack(spacing: 8) {
-                Picker("", selection: $store.panel) {
-                    ForEach(Store.Panel.allCases, id: \.self) { Text($0.rawValue).tag($0) }
+            // Soft tabs, the open one lit; the panel closes with the button that opened it.
+            HStack(spacing: 2) {
+                ForEach(Store.Panel.allCases, id: \.self) { panel in
+                    let on = store.panel == panel
+                    Button { withAnimation(.snappy(duration: 0.25)) { store.panel = panel } } label: {
+                        Text(panel.rawValue)
+                            .font(.callout.weight(.semibold))
+                            .foregroundStyle(on ? colors.ink : colors.ink2)
+                            .padding(.horizontal, 14)
+                            .padding(.vertical, 6)
+                            .background {
+                                if on { Capsule().fill(colors.ink.opacity(0.13)).matchedGeometryEffect(id: "tab", in: tabs) }
+                            }
+                            .contentShape(Capsule())
+                    }
+                    .buttonStyle(.plain)
                 }
-                .pickerStyle(.segmented)
-                .labelsHidden()
-                Button { store.set(["show_inspector": false]) } label: {
-                    Image(systemName: "xmark").font(.system(size: 11, weight: .bold))
-                }
-                .buttonBorderShape(.circle)
-                .glassButton()
-                .help("Close the panel")
             }
-            .padding(.horizontal, 14)
-            .padding(.top, 12)
-            .padding(.bottom, 8)
+            .padding(3)
+            .background(colors.ink.opacity(0.06), in: Capsule())
+            .padding(.top, 14)
+            .padding(.bottom, 10)
             Group {
                 switch store.panel {
                 case .details: Details()
@@ -33,8 +40,7 @@ struct Inspector: View {
             .frame(maxHeight: .infinity, alignment: .top)
             .transition(.opacity)
         }
-        // On glass (see MainWindow): the page shows through, a little tinted by its colour.
-        .background { store.colors.canvas.opacity(store.colors.dark ? 0.25 : 0.35) }
+        // On glass (see MainWindow): the page shows through it.
     }
 }
 

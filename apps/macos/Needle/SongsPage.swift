@@ -63,21 +63,26 @@ final class SongsModel {
 /// A page of songs: Songs, Favorites, an album, a playlist, a folder, a music server.
 struct SongsPage: View {
     private var store: Store { .shared }
+    @Environment(\.panelInset) private var panelInset
     let route: Route
     @State private var model = SongsModel()
 
     var body: some View {
         VStack(spacing: 0) {
             SongsHeader(route: route, model: model)
-            if case .folder(let path) = route { FolderStrip(path: path) }
-            if let error = model.error, !model.tracks.isEmpty {
-                Label("\(error) · showing the last results", systemImage: "exclamationmark.triangle")
-                    .font(.callout).foregroundStyle(store.colors.danger)
-                    .frame(maxWidth: .infinity, alignment: .leading).padding(.horizontal, 24).padding(.bottom, 6)
+            // An album's cover runs on under the side panel; its songs stop beside it.
+            VStack(spacing: 0) {
+                if case .folder(let path) = route { FolderStrip(path: path) }
+                if let error = model.error, !model.tracks.isEmpty {
+                    Label("\(error) · showing the last results", systemImage: "exclamationmark.triangle")
+                        .font(.callout).foregroundStyle(store.colors.danger)
+                        .frame(maxWidth: .infinity, alignment: .leading).padding(.horizontal, 24).padding(.bottom, 6)
+                }
+                if !store.search.isEmpty { ServerSongs() }
+                content
+                if model.total > SongsModel.pageSize { pager }
             }
-            if !store.search.isEmpty { ServerSongs() }
-            content
-            if model.total > SongsModel.pageSize { pager }
+            .padding(.trailing, panelInset)
         }
         .task(id: Key(route: route, search: store.search, sort: store.sortField, ascending: store.sortAscending,
                       offset: model.offset, version: store.libraryVersion)) {
@@ -148,6 +153,7 @@ struct SongsPage: View {
 /// The top of a song list: its cover and name, what it holds, and what to do with it.
 struct SongsHeader: View {
     private var store: Store { .shared }
+    @Environment(\.panelInset) private var panelInset
     let route: Route
     let model: SongsModel
     @State private var confirmDelete = false
@@ -180,6 +186,7 @@ struct SongsHeader: View {
         .padding(.horizontal, 28)
         .padding(.top, 30)
         .padding(.bottom, 22)
+        .padding(.trailing, panelInset)
         .background(alignment: .top) { HeaderBackdrop(path: album.artwork, seed: seed) }
         .task(id: album.artwork ?? seed) {
             let color = await Covers.pageColor(album.artwork, seed: seed)
