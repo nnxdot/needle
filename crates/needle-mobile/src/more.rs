@@ -237,7 +237,7 @@ impl Needle {
         Ok(listens
             .into_iter()
             .map(|l| HistoryItem {
-                song: tracks.iter().find(|t| t.id == l.track_id).map(Song::from),
+                song: tracks.iter().find(|t| t.id == l.track_id && !t.missing).map(Song::from),
                 title: l.title,
                 artist: l.artist,
                 album: l.album,

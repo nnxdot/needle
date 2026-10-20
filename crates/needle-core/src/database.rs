@@ -371,25 +371,25 @@ impl Library {
     pub fn roots(&self) -> Result<Vec<String>> {
         let db = self.connection()?;
         let mut statement = db.prepare("SELECT path FROM roots ORDER BY path")?;
-        let all: Vec<String> = statement
+        Ok(statement
             .query_map([], |r| r.get(0))?
-            .collect::<std::result::Result<_, _>>()?;
-        // One folder kept under two names (an iPhone's /var and /private/var): the real one stays.
-        let mut kept = vec![];
-        for path in &all {
-            let real = canonical_root(path);
-            if real != *path && all.contains(&real) {
-                db.execute("DELETE FROM roots WHERE path=?", [path])?;
-            } else {
-                kept.push(path.clone());
-            }
-        }
-        Ok(kept)
+            .collect::<std::result::Result<_, _>>()?)
     }
     pub fn add_root(&self, path: &str) -> Result<()> {
         // By its real path, as the scan stores its songs: else one folder could be two.
         let path = canonical_root(path);
-        self.connection()?.execute("INSERT INTO roots VALUES (?,?) ON CONFLICT(path) DO UPDATE SET last_scan=excluded.last_scan", params![path,chrono::Utc::now().timestamp()])?;
+        let db = self.connection()?;
+        db.execute("INSERT INTO roots VALUES (?,?) ON CONFLICT(path) DO UPDATE SET last_scan=excluded.last_scan", params![path,chrono::Utc::now().timestamp()])?;
+        // The same folder kept earlier under another name (an iPhone's /var for /private/var).
+        let mut statement = db.prepare("SELECT path FROM roots WHERE path != ?")?;
+        let others: Vec<String> = statement
+            .query_map([&path], |r| r.get(0))?
+            .collect::<std::result::Result<_, _>>()?;
+        for other in others {
+            if canonical_root(&other) == path {
+                db.execute("DELETE FROM roots WHERE path=?", [&other])?;
+            }
+        }
         Ok(())
     }
     pub fn settings(&self) -> Result<Settings> {
