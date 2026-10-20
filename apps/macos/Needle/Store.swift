@@ -128,6 +128,9 @@ final class Store {
         }
         version = core.version()
         settings = JSON.decode(NeedleSettings.self, try? core.settingsJson()) ?? NeedleSettings()
+        // The side panel opens when asked for (Lyrics, Queue, Details), as in Apple Music, not
+        // at every start.
+        if settings.showInspector { set(["show_inspector": false]) }
         refreshLook()
         core.startDesktop()
         reloadPlaylists()

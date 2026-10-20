@@ -13,7 +13,6 @@ struct MainWindow: View {
     /// (Following them as they are saved fed each squeeze of a column back into the split view,
     /// which then never settled, and AppKit stopped the app.)
     @State private var sidebarStart = CGFloat(Store.shared.settings.layout.sidebarWidth)
-    @State private var inspectorStart = CGFloat(Store.shared.settings.layout.inspectorWidth)
 
     var body: some View {
         @Bindable var store = store
@@ -157,17 +156,34 @@ struct MainWindow: View {
     private static let drop: Set<String> = []
     #endif
 
+    /// The side panel's width, when open.
+    static let panelWidth: CGFloat = 320
+
     @ViewBuilder
     private var detail: some View {
+        let open = store.settings.showInspector && !Self.drop.contains("panel")
         HStack(spacing: 0) {
             if rail { Rail() }
             page
+                // The page goes on under the panel's glass; its words and rows stop beside it.
+                .safeAreaPadding(.trailing, open ? Self.panelWidth + 20 : 0)
         }
-        .inspector(isPresented: Binding(get: { store.settings.showInspector }, set: { store.set(["show_inspector": $0]) })) {
-            Group { if Self.drop.contains("panel") { Color.clear } else { Inspector() } }
-                .inspectorColumnWidth(min: 240, ideal: inspectorStart, max: 340)
-                .background { WidthKeeper(key: "inspector_width", range: 240...340, saved: store.settings.layout.inspectorWidth) }
+        // The side panel: a pane of glass floating over the page's right side, as in Apple
+        // Music, not a column of its own.
+        .overlay(alignment: .trailing) {
+            if open {
+                Inspector()
+                    .frame(width: Self.panelWidth)
+                    .frame(maxHeight: .infinity)
+                    .clipShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
+                    .pane(RoundedRectangle(cornerRadius: 22, style: .continuous))
+                    .padding(.trailing, 10)
+                    .padding(.bottom, 10)
+                    .padding(.top, 4)
+                    .transition(.move(edge: .trailing).combined(with: .opacity))
+            }
         }
+        .animation(store.motion ? .smooth(duration: 0.3) : nil, value: open)
         .toolbar { toolbar }
         // The page's name stays the window's, but leaves the bar to the player, as in Apple Music.
         .toolbar(removing: store.settings.layout.playerOnTop ? .title : nil)

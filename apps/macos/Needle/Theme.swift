@@ -280,7 +280,7 @@ extension Store {
     /// music are on, or by the colour chosen when they are off. (Kept in `colors`, which
     /// changes only when they do.)
     func lookNow() -> Palette {
-        if settings.musicColors, let page = pageTint { return Palette.paged(HSL(page)) }
+        if settings.coverColors, let page = pageTint { return Palette.paged(HSL(page)) }
         let tint: HSL? = settings.musicColors ? coverTint.map(HSL.init) : Color(hex: settings.accentColor).map { HSL(NSColor($0)) }
         if let theme = customTheme { return Palette.custom(theme, tint: tint, ambient: settings.ambient) }
         return Palette.build(Palette.base(settings.theme), tint: tint, ambient: settings.ambient)
