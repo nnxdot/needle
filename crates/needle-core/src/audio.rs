@@ -159,6 +159,8 @@ pub enum Command {
     /// Play this track from its stem folder (with the live mix), or `None` to go back to the file.
     Stems(Option<(String, std::path::PathBuf)>),
     Shutdown,
+    /// Keeps what plays now, as at a shutdown, and plays on.
+    Persist,
 }
 
 #[derive(Clone)]
@@ -1309,6 +1311,14 @@ impl Worker {
     }
     fn handle(&mut self, command: Command) -> Result<bool> {
         match command {
+            Command::Persist => {
+                // Paused: what was heard counts now (the app may not come back to finish it).
+                if !self.playing {
+                    self.finish_listen();
+                }
+                self.saved_version = self.queue.version.wrapping_add(1);
+                self.save_session()?;
+            }
             Command::Shutdown => {
                 self.save_session()?;
                 self.close();
@@ -1775,7 +1785,8 @@ impl Worker {
         self.take_started();
         // Another song is playing (chosen, Previous, the queue begun again): its loop is not this one's.
         if self.loop_range.is_some()
-            && self.queue.active.as_ref().map(|i| i.track.id.as_str()) != self.loop_track.as_deref()
+            && let Some(active) = &self.queue.active
+            && Some(active.track.id.as_str()) != self.loop_track.as_deref()
         {
             self.loop_range = None;
             self.loop_track = None;
