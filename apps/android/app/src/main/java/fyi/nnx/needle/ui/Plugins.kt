@@ -303,7 +303,8 @@ fun PluginEffects() {
                         Text(effect.failure ?: "${effect.pluginName} · ${effect.description}", style = MaterialTheme.typography.bodyMedium, color = if (effect.failure != null) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant)
                     }
                     Switch(checked = effect.on, modifier = Modifier.named(effect.name), onCheckedChange = { on ->
-                        NeedleApp.instance.scope.launch { runCatching { core.setEffect(effect.plugin, effect.id, on) }; delay(300); refresh++ }
+                        // In order with the effect's other changes (the saves line), so none undoes another.
+                        NeedleApp.instance.scope.launch { withContext(NeedleApp.instance.saves) { runCatching { core.setEffect(effect.plugin, effect.id, on) } }; delay(300); refresh++ }
                     })
                 }
                 if (effect.on) {
@@ -320,7 +321,7 @@ fun PluginEffects() {
                                 value = value,
                                 onValueChange = { value = it },
                                 onValueChangeFinished = {
-                                    NeedleApp.instance.scope.launch { runCatching { core.setEffectParam(effect.plugin, effect.id, param.id, value) }; delay(300); refresh++ }
+                                    NeedleApp.instance.scope.launch { withContext(NeedleApp.instance.saves) { runCatching { core.setEffectParam(effect.plugin, effect.id, param.id, value) } }; delay(300); refresh++ }
                                 },
                                 valueRange = param.min..param.max,
                             )

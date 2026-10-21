@@ -36,6 +36,8 @@ import androidx.compose.runtime.setValue
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.semantics.clearAndSetSemantics
+import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
@@ -284,6 +286,11 @@ fun Figure(value: String, label: String, modifier: Modifier = Modifier) {
 @Composable
 private fun HourBars(hours: List<Double>) {
     val most = (hours.maxOrNull() ?: 0.0).coerceAtLeast(1.0)
+    // TalkBack hears what the bars show, not the hour marks under them.
+    val busiest = hours.indices.maxByOrNull { hours[it] }
+    Column(Modifier.clearAndSetSemantics {
+        contentDescription = if (busiest == null || hours[busiest] <= 0.0) "No plays by hour yet" else "Played most around $busiest:00"
+    }) {
     Row(
         Modifier.fillMaxWidth().height(96.dp).padding(horizontal = Edge),
         horizontalArrangement = Arrangement.spacedBy(3.dp),
@@ -304,6 +311,7 @@ private fun HourBars(hours: List<Double>) {
             Text(label, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             if (i < 4) Spacer(Modifier.weight(1f))
         }
+    }
     }
 }
 

@@ -90,11 +90,12 @@ val Edge = 20.dp
 
 /** The last answers pages loaded, a few of them, for a page that comes back (see [rememberLoaded]). */
 private object Loads {
-    private val kept = object : LinkedHashMap<List<Any?>, fyi.nnx.needle.LoadResult<*>>(32, 0.75f, true) {
-        override fun removeEldestEntry(eldest: MutableMap.MutableEntry<List<Any?>, fyi.nnx.needle.LoadResult<*>>?) = size > 24
+    /** Each answer with the library's version it was read at. */
+    private val kept = object : LinkedHashMap<List<Any?>, Pair<Int, fyi.nnx.needle.LoadResult<*>>>(32, 0.75f, true) {
+        override fun removeEldestEntry(eldest: MutableMap.MutableEntry<List<Any?>, Pair<Int, fyi.nnx.needle.LoadResult<*>>>?) = size > 24
     }
-    @Synchronized fun get(key: List<Any?>) = kept[key]
-    @Synchronized fun put(key: List<Any?>, value: fyi.nnx.needle.LoadResult<*>) { kept[key] = value }
+    @Synchronized fun get(key: List<Any?>, version: Int) = kept[key]?.takeIf { it.first == version }?.second
+    @Synchronized fun put(key: List<Any?>, version: Int, value: fyi.nnx.needle.LoadResult<*>) { kept[key] = version to value }
 }
 
 class LoadedState<T> internal constructor(private val result: fyi.nnx.needle.LoadResult<T>) : State<T?> {
@@ -118,18 +119,20 @@ fun <T> rememberLoaded(vararg keys: Any?, load: Needle.() -> T): LoadedState<T> 
     // comes back (Back) shows it at once and reads it again quietly, so its rows are there
     // to scroll back to where they were, rather than placeholders.
     val cacheKey = listOf<Any?>(load::class.java.name) + wanted
-    val seed = remember(cacheKey) { Loads.get(cacheKey) }
+    // Only from the library as it is now: after any change (a rename, a delete) it is read anew.
+    val seed = remember(cacheKey) { Loads.get(cacheKey, version) }
     val shown = remember { arrayOfNulls<List<Any?>>(1).also { if (seed != null) it[0] = wanted } }
     @Suppress("UNCHECKED_CAST")
     val result by produceState<fyi.nnx.needle.LoadResult<T>>(
         (seed as fyi.nnx.needle.LoadResult<T>?) ?: fyi.nnx.needle.LoadResult.Loading, version, attempt, *keys,
     ) {
         if (shown[0] != wanted || value !is fyi.nnx.needle.LoadResult.Ready) {
-            value = (Loads.get(cacheKey) as fyi.nnx.needle.LoadResult<T>?) ?: fyi.nnx.needle.LoadResult.Loading
+            value = (Loads.get(cacheKey, version) as fyi.nnx.needle.LoadResult<T>?) ?: fyi.nnx.needle.LoadResult.Loading
         }
         shown[0] = wanted
+        val asked = version
         value = withContext(Dispatchers.IO) { fyi.nnx.needle.loadAttempt { core.load() } }
-        if (value is fyi.nnx.needle.LoadResult.Ready) Loads.put(cacheKey, value)
+        if (value is fyi.nnx.needle.LoadResult.Ready) Loads.put(cacheKey, asked, value)
     }
     val failure = result as? fyi.nnx.needle.LoadResult.Failed
     if (result is fyi.nnx.needle.LoadResult.Ready) retried = false
@@ -192,7 +195,12 @@ fun MusicAccessNotice(modifier: Modifier = Modifier) {
     val lifecycle = androidx.lifecycle.compose.LocalLifecycleOwner.current.lifecycle
     var allowed by remember { mutableStateOf(hasMusicAccess(context)) }
     LaunchedEffect(lifecycle) {
-        lifecycle.repeatOnLifecycle(androidx.lifecycle.Lifecycle.State.RESUMED) { allowed = hasMusicAccess(context) }
+        lifecycle.repeatOnLifecycle(androidx.lifecycle.Lifecycle.State.RESUMED) {
+            val now = hasMusicAccess(context)
+            // Allowed in Android's own Settings: the folders are read now, not at the next start.
+            if (now && !allowed) runCatching { core.rescan() }
+            allowed = now
+        }
     }
     val ask = androidx.activity.compose.rememberLauncherForActivityResult(androidx.activity.result.contract.ActivityResultContracts.RequestPermission()) { granted ->
         allowed = granted

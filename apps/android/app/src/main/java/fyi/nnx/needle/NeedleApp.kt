@@ -119,6 +119,8 @@ class NeedleApp : Application() {
         // The Discord status, when this build can show it and Discord is on the phone.
         Discord.load(this)
         if (Discord.available && Discord.installed(this)) core.startDiscord()
+        // A USB DAC's bit-perfect mixer, followed as it comes and goes.
+        fyi.nnx.needle.ui.followUsbMixer(this)
         // A reading notice left from a run that was closed mid-read.
         ScanNotice.hide(this)
         registerActivityLifecycleCallbacks(object : ActivityLifecycleCallbacks {

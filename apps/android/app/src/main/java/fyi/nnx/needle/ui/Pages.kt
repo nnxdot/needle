@@ -225,7 +225,8 @@ fun DetailHeader(
                     // A full finger's height to tap, and a button to TalkBack.
                     modifier = Modifier
                         .then(if (onSub != null) Modifier.heightIn(min = 48.dp) else Modifier.padding(top = 2.dp))
-                        .clip(CircleShape)
+                        // Rounded, not a circle: a description of three lines keeps its corners.
+                        .clip(RoundedCornerShape(24.dp))
                         .then(if (onSub != null) Modifier.clickable(role = androidx.compose.ui.semantics.Role.Button, onClick = onSub) else Modifier)
                         .wrapContentHeight()
                         .padding(horizontal = 10.dp, vertical = 4.dp),
@@ -285,7 +286,7 @@ private fun WideDetailHeader(
                         modifier = Modifier
                             .then(if (onSub != null) Modifier.heightIn(min = 48.dp) else Modifier.padding(top = 4.dp))
                             .offset(x = (-10).dp)
-                            .clip(CircleShape)
+                            .clip(RoundedCornerShape(24.dp))
                             .then(if (onSub != null) Modifier.clickable(role = androidx.compose.ui.semantics.Role.Button, onClick = onSub) else Modifier)
                             .wrapContentHeight()
                             .padding(horizontal = 10.dp, vertical = 4.dp),
@@ -526,14 +527,17 @@ fun PlaylistScreen(route: Route.Playlist, open: (Route) -> Unit) {
     // A change on its way to the library: the list's places are the old ones until it is read
     // again, so no other change goes until then (or a moment, if it reads the same).
     var writing by remember { mutableStateOf(false) }
-    val scope = androidx.compose.runtime.rememberCoroutineScope()
     LaunchedEffect(d) { writing = false }
-    val written: (Unit) -> Unit = {
-        scope.launch {
-            delay(2000)
+    // Should the list not come back changed (it could not be read), the page goes back to the
+    // order it has, with its places, after a while: the two always agree.
+    LaunchedEffect(writing) {
+        if (writing) {
+            delay(10_000)
             writing = false
+            moved = null
         }
     }
+    val written: (Unit) -> Unit = {}
     // Put in order: each row gets a handle to drag it by.
     var arranging by remember { mutableStateOf(false) }
     val reorder = rememberReorder(list.size) { from, to ->
@@ -937,14 +941,20 @@ private fun HomeEmpty(scanning: Boolean, read: UInt, open: (Route) -> Unit) {
 
 // ---------- Search
 
+/** The last search and what it found (see [SearchScreen]). */
+private var lastSearch: Pair<String, List<Song>>? = null
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun SearchScreen(open: (Route) -> Unit) {
     var query by rememberSaveable { mutableStateOf("") }
     val keyboard = androidx.compose.ui.platform.LocalSoftwareKeyboardController.current
-    var songs by remember { mutableStateOf<List<Song>>(emptyList()) }
+    // Back on the page (from an album found), the last answer shows at once, so the list is
+    // there to scroll back to; it is asked again quietly.
+    val last = lastSearch?.takeIf { it.first == query }
+    var songs by remember { mutableStateOf(last?.second ?: emptyList()) }
     // What the songs shown were found for, so "Nothing found" waits for its own answer.
-    var searched by remember { mutableStateOf<String?>(null) }
+    var searched by remember { mutableStateOf(last?.first) }
     var server by remember { mutableStateOf<Pair<ULong, List<Song>>?>(null) }
     val genresLoad = rememberLoaded { genres() }
     val genres by genresLoad
@@ -953,6 +963,7 @@ fun SearchScreen(open: (Route) -> Unit) {
         delay(200)
         songs = if (query.isBlank()) emptyList() else withContext(Dispatchers.IO) { runCatching { core.search(query) }.getOrDefault(emptyList()) }
         searched = query
+        lastSearch = query to songs
         // Music servers that search (octo-fiesta) answer a moment later.
         server = null
         if (query.isNotBlank()) {

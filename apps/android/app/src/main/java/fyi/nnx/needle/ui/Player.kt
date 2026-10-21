@@ -182,7 +182,7 @@ private fun MiniPlayerBody(playing: Boolean, song: Song, onOpen: () -> Unit, col
                 translationX = shift
                 alpha = 1f - (kotlin.math.abs(shift) / 900f).coerceIn(0f, 0.5f)
             }
-            .pointerInput(song.id) {
+            .pointerInput(Unit) {
                 fun release() {
                     val from = drag
                     swiping = false
@@ -383,7 +383,8 @@ fun FullPlayer(onClose: () -> Unit, open: (Route) -> Unit) {
             hearting = true
             haptics(false)
             // Off the main thread: it writes to the library, which waits while a scan writes too.
-            hearts.launch {
+            // On the app's scope: the player may close before the library answers.
+            NeedleApp.instance.scope.launch(kotlinx.coroutines.Dispatchers.Main) {
                 withContext(kotlinx.coroutines.Dispatchers.IO) { runCatching { core.toggleFavorite(song.id) } }
                     .onSuccess { favorite = it; showMessage(if (it) "Added to favorites" else "Taken out of favorites") }
                     .onFailure { showMessage("Could not change favorites: ${it.message}") }
@@ -551,7 +552,7 @@ fun FullPlayer(onClose: () -> Unit, open: (Route) -> Unit) {
                             Icon(Icons.Rounded.Search, contentDescription = "Add songs", tint = Color.White.copy(alpha = 0.8f))
                         }
                         // Beside the song's name instead, wherever its name shows.
-                        if (!song.onComputer() && !wide && panel != Panel.Cover) FavoriteButton(favorite, toggleFavorite)
+                        if (!song.onComputer() && !wide && !short && panel != Panel.Cover) FavoriteButton(favorite, toggleFavorite)
                         if (!song.onComputer()) SongMenu(song, open)
                     }
                 }
@@ -864,6 +865,8 @@ private fun PlayerToolbar(
             Text(
                 if (loopStarted) "A…" else "A-B",
                 style = MaterialTheme.typography.labelLarge,
+                maxLines = 1,
+                softWrap = false,
                 modifier = Modifier.semantics { contentDescription = "A-B loop" },
             )
         }
@@ -1198,7 +1201,8 @@ private fun LyricsPanel(song: Song, position: () -> Double, time: () -> Unit) {
                         .fillMaxWidth()
                         .graphicsLayer { scaleX = grow; scaleY = grow; transformOrigin = TransformOrigin(0f, 0.5f) }
                         .clip(RoundedCornerShape(8.dp))
-                        .clickable { Controls.seek(line.time) }
+                        .clickable(onClickLabel = "Play from this line") { Controls.seek(line.time) }
+                        .semantics { if (i == now) stateDescription = "Sung now" }
                         .padding(vertical = 12.dp),
                 )
             }

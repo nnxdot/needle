@@ -70,6 +70,28 @@ private fun matchOutput(mixer: AudioMixerAttributes?) {
 }
 
 /**
+ * Needle's output follows the USB DAC's mixer from the start and wherever the app is, not only
+ * while Settings shows the switch: a DAC unplugged (or plugged back in) with bit-perfect on
+ * changes the format Needle opens in at once, and so does a start with it already on.
+ */
+fun followUsbMixer(context: Context) {
+    if (Build.VERSION.SDK_INT < 34) return
+    val audio = context.getSystemService(AudioManager::class.java) ?: return
+    fun check() {
+        val mixer = usbOutput(audio)?.let { device -> runCatching { audio.getPreferredMixerAttributes(MUSIC, device) }.getOrNull() }
+        matchOutput(mixer?.takeIf { it.mixerBehavior == AudioMixerAttributes.MIXER_BEHAVIOR_BIT_PERFECT })
+    }
+    check()
+    audio.registerAudioDeviceCallback(
+        object : android.media.AudioDeviceCallback() {
+            override fun onAudioDevicesAdded(devices: Array<out AudioDeviceInfo>) = check()
+            override fun onAudioDevicesRemoved(devices: Array<out AudioDeviceInfo>) = check()
+        },
+        android.os.Handler(android.os.Looper.getMainLooper()),
+    )
+}
+
+/**
  * Bit-perfect playback to a USB DAC (Android 14 and newer): Android stops mixing and hands
  * the DAC the music as it is, at its own rate. Other sounds are silent meanwhile.
  */
