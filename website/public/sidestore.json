@@ -49,6 +49,15 @@
             ],
             "versions": [
                 {
+                    "version": "1.7.1",
+                    "buildVersion": "1",
+                    "date": "2026-10-21",
+                    "localizedDescription": "Fixes for covers and crash reports.\n\n- Covers that are not square (a tall Blu-ray cover, a wide one) fill their tile, the same size as the rest.\n- With crash reports on, Needle also sends the crashes iOS tells it of. They tell what went wrong and where in the app, with no names and no files.",
+                    "downloadURL": "https://needle.nnx.fyi/download/Needle-1.7.1-ios.ipa",
+                    "size": 14375678,
+                    "minOSVersion": "26.0"
+                },
+                {
                     "version": "1.7.0",
                     "buildVersion": "1",
                     "date": "2026-10-20",
