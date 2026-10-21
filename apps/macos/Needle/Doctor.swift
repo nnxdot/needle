@@ -34,6 +34,8 @@ private struct DuplicatesTab: View {
     private var store: Store { .shared }
     @State private var sets: [DuplicateSet]?
     @State private var confirmAll = false
+    /// A merge is under way: the buttons wait for it.
+    @State private var merging = false
 
     var body: some View {
         Group {
@@ -46,7 +48,7 @@ private struct DuplicatesTab: View {
                             Text("\(sets.count == 1 ? "1 song is" : "\(sets.count) songs are") in your library more than once. Needle keeps the best copy of each; the others' plays, stars, and playlist places move to it, and their files go to the Trash.")
                                 .foregroundStyle(.secondary)
                             Spacer()
-                            Button("Merge all (\(sets.reduce(0) { $0 + $1.songs.count - 1 }))") { confirmAll = true }
+                            Button("Merge all (\(sets.reduce(0) { $0 + $1.songs.count - 1 }))") { confirmAll = true }.disabled(merging)
                         }
                         List(Array(sets.enumerated()), id: \.offset) { _, group in
                             VStack(alignment: .leading, spacing: 4) {
@@ -60,7 +62,7 @@ private struct DuplicatesTab: View {
                                         Text(group.paths[i]).font(.caption).foregroundStyle(.secondary).lineLimit(1).truncationMode(.middle).frame(maxWidth: 300)
                                     }
                                 }
-                                Button("Merge") { merge(group) }.controlSize(.small)
+                                Button("Merge") { merge(group) }.controlSize(.small).disabled(merging)
                             }
                             .padding(.vertical, 4)
                         }
@@ -74,8 +76,11 @@ private struct DuplicatesTab: View {
         .confirmationDialog("Merge every duplicate?", isPresented: $confirmAll) {
             // One after another: each changes the playlists the next one reads.
             Button("Merge all") {
+                guard !merging else { return }
+                merging = true
                 let all = sets ?? []
                 Task {
+                    defer { merging = false }
                     var (merged, stuck) = (0, 0)
                     for group in all {
                         let result = await self.merged(group, quiet: true)
@@ -90,7 +95,12 @@ private struct DuplicatesTab: View {
     }
 
     private func merge(_ group: DuplicateSet) {
-        Task { _ = await merged(group, quiet: false) }
+        guard !merging else { return }
+        merging = true
+        Task {
+            _ = await merged(group, quiet: false)
+            merging = false
+        }
     }
 
     /// Merges a group; how many copies went, and how many stayed (their files would not go to

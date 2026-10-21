@@ -739,7 +739,7 @@ struct ThemeEditor: View {
         Task {
             if let saved = await store.ask({ try $0.saveThemeJson(json: json) }) {
                 store.reloadThemes()
-                store.set(["theme": saved])
+                store.chooseTheme(saved, extras: store.themes.first { $0.id == saved })
                 store.notify("Saved \(name).")
                 dismiss()
             }

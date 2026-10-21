@@ -56,7 +56,7 @@ struct MainWindow: View {
                     .zIndex(3)
             }
             if store.settings.grain > 0.001 {
-                Grain(amount: Double(store.settings.grain)).zIndex(4).accessibilityHidden(true)
+                Grain(amount: min(max(Double(store.settings.grain), 0), 1)).zIndex(4).accessibilityHidden(true)
             }
         }
         .overlay(alignment: .bottom) { ToastView().padding(.bottom, store.big ? 0 : 110).zIndex(5) }
