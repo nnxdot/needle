@@ -380,7 +380,7 @@ enum Event {
     /// An artist page's top songs, wide picture, and logo (white, and in dark ink).
     ArtistTop(String, Vec<Track>),
     ArtistBanner(String, Option<String>),
-    ArtistLogo(String, Option<(String, Option<String>)>),
+    ArtistLogo(String, Option<artist::Logo>),
     ArtFetched,
     MediaKey(media_keys::Key),
     ImportProgress(String),
