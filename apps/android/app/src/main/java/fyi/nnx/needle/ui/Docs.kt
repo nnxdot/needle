@@ -48,6 +48,9 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.stateDescription
+import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.rotate
@@ -148,7 +151,11 @@ private fun ReleaseCard(release: Release, expanded: Boolean, newest: Boolean, on
     val turn by animateFloatAsState(if (expanded) 180f else 0f, label = "chevron")
     Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 6.dp)) {
         Row(
-            Modifier.fillMaxWidth().clip(RoundedCornerShape(20.dp)).clickable(onClick = onToggle).padding(horizontal = 8.dp, vertical = 10.dp),
+            Modifier.fillMaxWidth().clip(RoundedCornerShape(20.dp))
+                // One button that says whether it is open, rather than a lone arrow.
+                .clickable(role = androidx.compose.ui.semantics.Role.Button, onClick = onToggle)
+                .semantics { stateDescription = if (expanded) "Open" else "Closed" }
+                .padding(horizontal = 8.dp, vertical = 10.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Column(Modifier.weight(1f)) {
@@ -165,7 +172,7 @@ private fun ReleaseCard(release: Release, expanded: Boolean, newest: Boolean, on
                 }
                 release.tagline?.let { Text(it, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant) }
             }
-            Icon(Icons.Rounded.ExpandMore, contentDescription = if (expanded) "Fold" else "Open", modifier = Modifier.rotate(turn))
+            Icon(Icons.Rounded.ExpandMore, contentDescription = null, modifier = Modifier.rotate(turn))
         }
         AnimatedVisibility(expanded) {
             Column(verticalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.padding(top = 6.dp)) {
@@ -282,12 +289,12 @@ fun DocScreen(doc: Doc) {
     LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = 32.dp + LocalBottomInset.current)) {
         item { LargeTitle(doc.title) }
         if (title.isNotBlank()) {
-            item { Text(title, style = MaterialTheme.typography.displaySmall, modifier = Modifier.padding(horizontal = Edge, vertical = 4.dp)) }
+            item { Text(title, style = MaterialTheme.typography.displaySmall, modifier = Modifier.semantics { heading() }.padding(horizontal = Edge, vertical = 4.dp)) }
         }
         itemsIndexed(blocks) { _, block ->
             when (block) {
-                is DocBlock.Heading -> Text(block.text, style = MaterialTheme.typography.headlineSmall, modifier = Modifier.padding(start = Edge, end = Edge, top = 28.dp, bottom = 8.dp))
-                is DocBlock.Sub -> Text(block.text, style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.primary, modifier = Modifier.padding(start = Edge, end = Edge, top = 14.dp, bottom = 2.dp))
+                is DocBlock.Heading -> Text(block.text, style = MaterialTheme.typography.headlineSmall, modifier = Modifier.semantics { heading() }.padding(start = Edge, end = Edge, top = 28.dp, bottom = 8.dp))
+                is DocBlock.Sub -> Text(block.text, style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.primary, modifier = Modifier.semantics { heading() }.padding(start = Edge, end = Edge, top = 14.dp, bottom = 2.dp))
                 is DocBlock.Para -> Text(html(block.html), style = MaterialTheme.typography.bodyLarge, modifier = Modifier.padding(horizontal = Edge, vertical = 6.dp))
                 is DocBlock.Item -> Row(Modifier.padding(horizontal = Edge, vertical = 4.dp), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                     Box(Modifier.padding(top = 9.dp).size(5.dp).clip(CircleShape).background(MaterialTheme.colorScheme.primary))
@@ -310,7 +317,8 @@ private fun Question(question: String, answer: AnnotatedString) {
             .padding(horizontal = 16.dp, vertical = 4.dp)
             .clip(RoundedCornerShape(20.dp))
             .background(MaterialTheme.colorScheme.surfaceContainer)
-            .clickable { open = !open }
+            .clickable(role = androidx.compose.ui.semantics.Role.Button) { open = !open }
+            .semantics { stateDescription = if (open) "Open" else "Closed" }
             .padding(16.dp),
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {

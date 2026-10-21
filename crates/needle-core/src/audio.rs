@@ -244,8 +244,16 @@ pub struct StreamFormat {
 
 /// Sets the format the system output opens at (it applies when the output next opens).
 pub fn set_stream_format(format: Option<StreamFormat>) {
-    *STREAM_FORMAT.lock().unwrap_or_else(|e| e.into_inner()) = format;
+    let mut current = STREAM_FORMAT.lock().unwrap_or_else(|e| e.into_inner());
+    if *current != format {
+        // The output open now has the old format: it opens again at the next Configure.
+        FORMAT_CHANGED.store(true, std::sync::atomic::Ordering::SeqCst);
+    }
+    *current = format;
 }
+
+/// The stream format changed since the output last opened (see [`set_stream_format`]).
+static FORMAT_CHANGED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 
 /// Names of the connected output devices, enumerated afresh on each call.
 pub fn devices() -> Result<Vec<String>> {
@@ -656,6 +664,8 @@ trait OutputOpener {
 struct SystemOutput;
 impl OutputOpener for SystemOutput {
     fn open(&mut self, device: Option<&str>) -> Result<Option<OpenOutput>> {
+        // Whatever opens now (a speaker on the network takes no format), the change is met.
+        FORMAT_CHANGED.store(false, std::sync::atomic::Ordering::SeqCst);
         let group = device.and_then(crate::cast::Group::from_device_name);
         let speaker = device.and_then(crate::cast::Speaker::from_device_name);
         if group.is_some() || speaker.is_some() {
@@ -785,6 +795,22 @@ impl Worker {
             s.dsp = self.settings.dsp.clone();
         })?;
         Ok(())
+    }
+    /// Whether new settings change how the sound is opened: the output, its gain, the overlap
+    /// of songs, or the equalizer turning on or off (songs queued without it would not hear
+    /// it). Then the song is opened again where it was.
+    fn needs_reopen(&self, new: &Settings) -> bool {
+        let off = |d: &crate::dsp::Dsp| d.is_transparent() && !d.eq;
+        new.output_device != self.settings.output_device
+            || new.exclusive != self.settings.exclusive
+            || new.replay_gain != self.settings.replay_gain
+            || new.album_gain != self.settings.album_gain
+            || new.crossfade != self.settings.crossfade
+            || off(&new.dsp) != off(&self.settings.dsp)
+            // A bit-perfect USB mixer takes only its own format; a speaker on the network
+            // takes none, so a change made while casting does not open it again.
+            || (FORMAT_CHANGED.load(std::sync::atomic::Ordering::SeqCst)
+                && !new.output_device.as_deref().is_some_and(crate::cast::is_network))
     }
     /// Whether output is exclusive. That is WASAPI's, so elsewhere the setting (kept as it is,
     /// for when the library is opened on Windows again) is ignored.
@@ -1494,6 +1520,23 @@ impl Worker {
             Command::Configure(settings) if self.sink.is_none() => {
                 self.settings = *settings;
                 self.dsp.set(self.settings.dsp.clone());
+                self.persist_audio_settings()?;
+            }
+            // Nothing that changes how the sound is opened (a setting of the app, the equalizer's
+            // bands, the volume, autoplay): kept, and the song plays on without a break.
+            Command::Configure(settings) if !self.needs_reopen(&settings) => {
+                let volume = settings.volume != self.settings.volume;
+                self.settings = *settings;
+                self.dsp.set(self.settings.dsp.clone());
+                if volume {
+                    if let Some(sink) = &self.sink {
+                        sink.set_volume(if self.exclusive() {
+                            1.0
+                        } else {
+                            self.settings.volume
+                        });
+                    }
+                }
                 self.persist_audio_settings()?;
             }
             Command::Configure(settings) => {

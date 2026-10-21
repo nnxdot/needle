@@ -28,6 +28,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import coil3.request.transformations
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.blur
 import androidx.compose.ui.draw.clipToBounds
@@ -125,13 +126,18 @@ fun rememberCoverScheme(path: String?, forceDark: Boolean = false): ColorScheme?
     val theme = MaterialTheme.colorScheme
     val dark = forceDark || theme.background.luminance() < 0.5f
     val black = theme.background == Color.Black
-    var scheme by remember(path, dark, black) {
+    // The last cover's scheme stays while the next one's is found, so a new song blends from
+    // one cover's colours to the next instead of through the page's own.
+    var scheme by remember(dark, black) {
         mutableStateOf(path?.let { seeds.get(it) }?.let { coverScheme(it, dark, black) })
     }
     LaunchedEffect(path, dark, black) {
-        if (path == null || scheme != null) return@LaunchedEffect
-        val seed = coverSeed(context, path) ?: return@LaunchedEffect
-        scheme = withContext(Dispatchers.Default) { coverScheme(seed, dark, black) }
+        if (path == null) {
+            scheme = null
+            return@LaunchedEffect
+        }
+        val seed = seeds.get(path) ?: coverSeed(context, path)
+        scheme = seed?.let { withContext(Dispatchers.Default) { coverScheme(it, dark, black) } }
     }
     return scheme
 }
@@ -139,8 +145,12 @@ fun rememberCoverScheme(path: String?, forceDark: Boolean = false): ColorScheme?
 /** Everything inside takes the cover's colours: the page, the buttons, the menus. */
 @Composable
 fun CoverTheme(path: String?, dark: Boolean = false, content: @Composable () -> Unit) {
-    val target = rememberCoverScheme(path, dark) ?: MaterialTheme.colorScheme
-    MaterialTheme(colorScheme = animatedScheme(target), typography = MaterialTheme.typography, shapes = MaterialTheme.shapes, content = content)
+    // Without a cover, a dark place (the player) keeps a dark scheme even in the Day theme.
+    val target = rememberCoverScheme(path, dark)
+        ?: if (dark && MaterialTheme.colorScheme.background.luminance() > 0.5f) NeedleColors else MaterialTheme.colorScheme
+    MaterialTheme(colorScheme = animatedScheme(target), typography = MaterialTheme.typography, shapes = MaterialTheme.shapes) {
+        FocusShades(content)
+    }
 }
 
 /** A colour scheme that blends into the next one, rather than snapping. */
@@ -149,14 +159,25 @@ fun animatedScheme(target: ColorScheme): ColorScheme {
     var from by remember { mutableStateOf(target) }
     var to by remember { mutableStateOf(target) }
     val t = remember { Animatable(1f) }
+    // A page that has just opened takes its cover's colours at once: it is still sliding in,
+    // and a blend then would redraw all of it at every frame of the slide as well.
+    val born = remember { android.os.SystemClock.uptimeMillis() }
     LaunchedEffect(target) {
         if (target == to) return@LaunchedEffect
+        if (android.os.SystemClock.uptimeMillis() - born < 400) {
+            from = target
+            to = target
+            t.snapTo(1f)
+            return@LaunchedEffect
+        }
         from = blend(from, to, t.value)
         to = target
         t.snapTo(0f)
         t.animateTo(1f, tween(450))
     }
-    return if (t.value >= 1f) to else blend(from, to, t.value)
+    // In ten steps: every colour on screen is drawn again at each, so not at every frame.
+    val stepped by remember { androidx.compose.runtime.derivedStateOf { kotlin.math.round(t.value * 10f) / 10f } }
+    return if (stepped >= 1f) to else blend(from, to, stepped)
 }
 
 private fun blend(a: ColorScheme, b: ColorScheme, t: Float): ColorScheme = if (t >= 1f) b else b.copy(
@@ -199,29 +220,51 @@ private fun blend(a: ColorScheme, b: ColorScheme, t: Float): ColorScheme = if (t
  * `fade` lets it melt into the page at its foot.
  */
 @Composable
-fun CoverBackdrop(path: String?, modifier: Modifier = Modifier, dim: Float = 0.35f, fade: Boolean = true) {
+fun CoverBackdrop(path: String?, modifier: Modifier = Modifier, dim: Float = 0.35f, fade: Boolean = true, player: Boolean = false) {
     val page = MaterialTheme.colorScheme.background
     val app by fyi.nnx.needle.NeedleApp.instance.app.collectAsState()
-    val still = reduceMotion() || !app.movingBackdrop
+    // A page's backdrop rests while the player covers it: nobody sees it turn.
+    val still = reduceMotion() || !app.movingBackdrop || (!player && playerShowing.value)
     androidx.compose.foundation.layout.BoxWithConstraints(modifier.clipToBounds().background(page), contentAlignment = androidx.compose.ui.Alignment.Center) {
         if (path != null && Build.VERSION.SDK_INT >= 31) {
             // A square wider than the box's diagonal, so no corner shows as it turns.
             val side = kotlin.math.hypot(maxWidth.value, maxHeight.value).dp * 1.15f
-            val drift = rememberInfiniteTransition(label = "drift")
-            val turn by drift.animateFloat(0f, 360f, infiniteRepeatable(tween(90_000, easing = LinearEasing)), label = "turn")
+            // Drifting only when it moves at all: a still backdrop takes no frames.
+            val turn by if (!still) {
+                rememberInfiniteTransition(label = "drift").animateFloat(0f, 360f, infiniteRepeatable(tween(90_000, easing = LinearEasing)), label = "turn")
+            } else remember { androidx.compose.runtime.mutableFloatStateOf(0f) }
             AnimatedContent(path, transitionSpec = { fadeIn(tween(600)) togetherWith fadeOut(tween(600)) }, label = "backdrop") { art ->
+                // Blurred once, into a small picture, as it loads (BackdropBlur); each frame
+                // then only turns that picture. A blur at draw time would be worked out again
+                // at every frame of the turn, over a square bigger than the screen.
+                val context = androidx.compose.ui.platform.LocalContext.current
+                // Fixed for each cover: a header that grows or shrinks as the page scrolls would
+                // otherwise make a new blur (and a blink) at each change of size.
+                val radius = androidx.compose.runtime.remember(art, app.backdropBlur) {
+                    kotlin.math.round(app.backdropBlur.coerceIn(20f, 120f) / side.value * 100f) / 100f
+                }
+                // Where it had turned to: it rests there (the player over it), and turns on from it.
+                val last = androidx.compose.runtime.remember { FloatArray(1) }
+                val from = androidx.compose.runtime.remember(still) { last[0] }
+                val request = androidx.compose.runtime.remember(art, radius, context) {
+                    coil3.request.ImageRequest.Builder(context)
+                        .data(fileUri(art))
+                        .size(BackdropBlur.SIZE)
+                        .transformations(TrimBars(), BackdropBlur(radius))
+                        .build()
+                }
                 AsyncImage(
-                    model = coverRequest(fileUri(art)),
+                    model = request,
                     contentDescription = null,
                     contentScale = ContentScale.Crop,
                     modifier = Modifier
                         .requiredSize(side)
                         .graphicsLayer {
-                            val r = if (still) 0f else turn
+                            val r = if (still) last[0] else (from + turn) % 360f
+                            last[0] = r
                             rotationZ = r
                             translationX = if (still) 0f else kotlin.math.sin(Math.toRadians(r * 2.0)).toFloat() * size.width * 0.06f
-                        }
-                        .blur(app.backdropBlur.toInt().coerceIn(20, 120).dp),
+                        },
                 )
             }
             Box(Modifier.fillMaxSize().background(page.copy(alpha = dim)))
@@ -229,5 +272,64 @@ fun CoverBackdrop(path: String?, modifier: Modifier = Modifier, dim: Float = 0.3
             Box(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.6f)))
         }
         if (fade) Box(Modifier.fillMaxSize().background(Brush.verticalGradient(0.35f to Color.Transparent, 1f to page)))
+    }
+}
+
+/**
+ * A cover made small and blurred, once, for the backdrop: `radius` is the blur as a share of
+ * the picture's width. Three passes of a box blur, which together look like a soft (Gaussian)
+ * blur; on a picture this small it takes a moment, once per cover.
+ */
+class BackdropBlur(private val radius: Float) : coil3.transform.Transformation() {
+    override val cacheKey = "backdrop-blur-1-$radius"
+
+    override suspend fun transform(input: android.graphics.Bitmap, size: coil3.size.Size): android.graphics.Bitmap {
+        // The middle square, so a wide cover is cut, not squeezed.
+        val side = minOf(input.width, input.height)
+        val square = android.graphics.Bitmap.createBitmap(input, (input.width - side) / 2, (input.height - side) / 2, side, side)
+        val small = android.graphics.Bitmap.createScaledBitmap(square, SIZE, SIZE, true)
+            .copy(android.graphics.Bitmap.Config.ARGB_8888, true)
+        val r = (radius * SIZE).toInt().coerceIn(1, SIZE / 4)
+        val pixels = IntArray(SIZE * SIZE)
+        small.getPixels(pixels, 0, SIZE, 0, 0, SIZE, SIZE)
+        val spare = IntArray(SIZE * SIZE)
+        repeat(3) {
+            boxBlur(pixels, spare, r, horizontal = true)
+            boxBlur(spare, pixels, r, horizontal = false)
+        }
+        small.setPixels(pixels, 0, SIZE, 0, 0, SIZE, SIZE)
+        return small
+    }
+
+    /** One pass along rows or columns: each pixel the average of those within `r` of it. */
+    private fun boxBlur(from: IntArray, to: IntArray, r: Int, horizontal: Boolean) {
+        val n = SIZE
+        val span = 2 * r + 1
+        for (line in 0 until n) {
+            var a = 0; var red = 0; var green = 0; var blue = 0
+            fun at(i: Int): Int {
+                val k = i.coerceIn(0, n - 1)
+                return if (horizontal) from[line * n + k] else from[k * n + line]
+            }
+            for (i in -r..r) {
+                val p = at(i)
+                a += p ushr 24; red += (p shr 16) and 0xFF; green += (p shr 8) and 0xFF; blue += p and 0xFF
+            }
+            for (i in 0 until n) {
+                to[if (horizontal) line * n + i else i * n + line] =
+                    ((a / span) shl 24) or ((red / span) shl 16) or ((green / span) shl 8) or (blue / span)
+                val add = at(i + r + 1)
+                val drop = at(i - r)
+                a += (add ushr 24) - (drop ushr 24)
+                red += ((add shr 16) and 0xFF) - ((drop shr 16) and 0xFF)
+                green += ((add shr 8) and 0xFF) - ((drop shr 8) and 0xFF)
+                blue += (add and 0xFF) - (drop and 0xFF)
+            }
+        }
+    }
+
+    companion object {
+        /** The small picture's width and height, in pixels. */
+        const val SIZE = 128
     }
 }

@@ -6,6 +6,7 @@
 # LGPL 2.1 or later.
 #
 # Run in MSYS2 (make, diffutils) with ANDROID_NDK_HOME set, as the NDK's Windows path.
+# ABIS="armeabi-v7a" builds only those (all three by default).
 set -euo pipefail
 
 VERSION=7.1.1
@@ -23,10 +24,12 @@ if [ ! -f "$tarball" ]; then
 fi
 echo "$SHA256  $tarball" | sha256sum -c -
 
-for abi in arm64-v8a x86_64; do
+for abi in ${ABIS:-arm64-v8a x86_64 armeabi-v7a}; do
     case $abi in
         arm64-v8a) arch=aarch64; triple=aarch64-linux-android ;;
         x86_64) arch=x86_64; triple=x86_64-linux-android ;;
+        # 32-bit Arm, for TVs and older phones.
+        armeabi-v7a) arch=arm; triple=armv7a-linux-androideabi ;;
     esac
     rm -rf "$work/$abi"
     mkdir -p "$work/$abi"

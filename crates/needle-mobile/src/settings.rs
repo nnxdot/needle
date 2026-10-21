@@ -95,6 +95,8 @@ pub struct AppSettings {
     pub seek_style: String,
     /// The mini player takes the playing cover's colour, rather than the page's.
     pub mini_player_colored: bool,
+    /// The line of the lyrics playing shows under the mini player (made for tablets).
+    pub mini_player_lyrics: bool,
     /// The player's cover: "square", "round" (a turning record), or "shape" (Material's shapes).
     pub cover_shape: String,
     /// Font for titles: "flex" (Roboto Flex, narrow and heavy), "fraunces" (a soft serif, as
@@ -138,6 +140,7 @@ impl Default for AppSettings {
             backdrop_blur: 70.0,
             seek_style: "wave".into(),
             mini_player_colored: true,
+            mini_player_lyrics: false,
             cover_shape: "square".into(),
             title_font: "flex".into(),
             text_scale: 1.0,
@@ -313,7 +316,10 @@ impl Needle {
             .iter()
             .find(|p| p.name == name)
             .ok_or_else(|| NeedleError::Failed("That preset is gone".into()))?;
-        self.player.send(Command::Dsp(preset.apply(&s.dsp)));
+        let dsp = preset.apply(&s.dsp);
+        // Saved before the player hears it, as save_preset does, so the page reads it back at once.
+        self.library.update_settings(|s| s.dsp = dsp.clone())?;
+        self.player.send(Command::Dsp(dsp));
         Ok(())
     }
 
@@ -336,12 +342,10 @@ impl Needle {
         d.parametric = bands;
         d.preset = std::path::Path::new(&path)
             .file_stem()
-            .map(|s| {
-                s.to_string_lossy()
-                    .trim_start_matches("picked-")
-                    .to_string()
-            })
+            .map(|s| picked_name(&s.to_string_lossy()).to_string())
             .unwrap_or_else(|| "Correction".into());
+        // Saved before the player hears it, so the page reads it back at once.
+        self.library.update_settings(|s| s.dsp = d.clone())?;
         self.player.send(Command::Dsp(d));
         Ok(count)
     }
@@ -496,5 +500,25 @@ fn band(b: &dsp::ParamBand) -> EqBand {
         gain: b.gain,
         q: b.q,
         on: b.on,
+    }
+}
+
+/// The name a picked file had before the app copied it: copies are named `<uuid>-<name>`
+/// (and were `picked-<name>` once), so a preset is not named after the copy.
+fn picked_name(stem: &str) -> &str {
+    if stem.len() > 37 && stem.as_bytes()[36] == b'-' && uuid::Uuid::parse_str(&stem[..36]).is_ok() {
+        &stem[37..]
+    } else {
+        stem.trim_start_matches("picked-")
+    }
+}
+
+#[cfg(test)]
+mod picked_name_tests {
+    #[test]
+    fn copies_keep_their_own_name() {
+        assert_eq!(super::picked_name("3f2a1b4c-0d9e-4f8a-9b7c-123456789abc-ParametricEQ"), "ParametricEQ");
+        assert_eq!(super::picked_name("picked-Sennheiser HD 600"), "Sennheiser HD 600");
+        assert_eq!(super::picked_name("My EQ"), "My EQ");
     }
 }

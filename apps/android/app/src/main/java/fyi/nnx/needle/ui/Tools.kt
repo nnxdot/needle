@@ -69,6 +69,10 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
+import androidx.compose.foundation.selection.toggleable
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
@@ -100,7 +104,7 @@ import java.util.Date
  */
 
 private fun refresh() {
-    NeedleApp.instance.libraryVersion.value++
+    NeedleApp.instance.libraryChanged()
 }
 
 /** Runs `work` off the main thread, then `done` with its result (or says what went wrong). */
@@ -153,12 +157,14 @@ fun rememberFileAccess(songIds: List<String> = emptyList()): (then: () -> Unit) 
                         pending = then
                         legacy.launch(android.Manifest.permission.WRITE_EXTERNAL_STORAGE)
                     } else if (Build.VERSION.SDK_INT >= 30) {
-                        context.startActivity(
-                            Intent(AndroidSettings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION, Uri.parse("package:${context.packageName}"))
-                                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
-                        )
+                        val opened = tryOpen("page in Settings for this") {
+                            context.startActivity(
+                                Intent(AndroidSettings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION, Uri.parse("package:${context.packageName}"))
+                                    .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
+                            )
+                        }
                         // Android asks in its own settings; the person taps the button again after.
-                        showMessage("Turn on Needle, then come back and try again")
+                        if (opened) showMessage("Turn on Needle, then come back and try again")
                     } else {
                         showMessage("Android 10 does not allow editing these shared files by path. Open a copy with Needle to edit files in its own storage.")
                     }
@@ -180,6 +186,7 @@ fun rememberFileAccess(songIds: List<String> = emptyList()): (then: () -> Unit) 
  * Changes the tags of one song or many. With many, a field shows a value only when every
  * song has it; left as it is, each song keeps its own.
  */
+@OptIn(androidx.compose.material3.ExperimentalMaterial3ExpressiveApi::class)
 @Composable
 fun TagEditorDialog(ids: List<String>, onDone: () -> Unit) {
     var loaded by remember { mutableStateOf(false) }
@@ -231,7 +238,7 @@ fun TagEditorDialog(ids: List<String>, onDone: () -> Unit) {
         title = { Text(if (ids.size == 1) "Edit tags" else "Edit ${ids.size} songs") },
         text = {
             if (!loaded) {
-                CircularProgressIndicator()
+                androidx.compose.material3.LoadingIndicator()
                 return@AlertDialog
             }
             Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -252,7 +259,7 @@ fun TagEditorDialog(ids: List<String>, onDone: () -> Unit) {
                         placeholder = { if (ids.size > 1 && start[key].isNullOrEmpty()) Text("As each song has it") },
                         singleLine = true,
                         keyboardOptions = if (key == "year" || key == "track") KeyboardOptions(keyboardType = KeyboardType.Number) else KeyboardOptions.Default,
-                        modifier = Modifier.fillMaxWidth(),
+                        modifier = Modifier.remoteEscape().fillMaxWidth(),
                     )
                 }
                 Text(
@@ -300,10 +307,12 @@ fun TagEditorDialog(ids: List<String>, onDone: () -> Unit) {
 /** What a song is, from its sound (AcoustID); a match's names can be written into it. */
 @Composable
 private fun IdentifyDialog(id: String, onDone: (changed: Boolean) -> Unit) {
+    var applying by remember { mutableStateOf(false) }
     var key by remember { mutableStateOf("") }
     var hasKey by remember { mutableStateOf(core.hasAcoustidKey()) }
     var matches by remember { mutableStateOf<List<SoundMatch>?>(null) }
-    var busy by remember { mutableStateOf(false) }
+    // Busy from the start when there is a key, so "No match found" never shows before the search.
+    var busy by remember { mutableStateOf(hasKey) }
     val access = rememberFileAccess(listOf(id))
     val context = LocalContext.current
     LaunchedEffect(hasKey) {
@@ -322,9 +331,9 @@ private fun IdentifyDialog(id: String, onDone: (changed: Boolean) -> Unit) {
                     !hasKey -> {
                         Text("Needle asks AcoustID, which needs a free application key.")
                         TextButton(onClick = {
-                            context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("https://acoustid.org/new-application")).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+                            tryOpen("web browser") { context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("https://acoustid.org/new-application")).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) }
                         }) { Text("Get a key at acoustid.org") }
-                        OutlinedTextField(key, { key = it }, label = { Text("Application key") }, singleLine = true, modifier = Modifier.fillMaxWidth())
+                        OutlinedTextField(key, { key = it }, label = { Text("Application key") }, singleLine = true, modifier = Modifier.remoteEscape().fillMaxWidth())
                     }
                     busy -> Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                         CircularProgressIndicator(Modifier.size(20.dp), strokeWidth = 2.dp)
@@ -333,8 +342,12 @@ private fun IdentifyDialog(id: String, onDone: (changed: Boolean) -> Unit) {
                     matches.isNullOrEmpty() -> Text("No match found.")
                     else -> matches!!.take(6).forEach { m ->
                         Row(
-                            Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).clickable {
-                                access { work({ core.applyMatch(id, m) }) { showMessage("Saved"); refresh(); onDone(true) } }
+                            // Once: a second tap would write the tags again.
+                            Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).clickable(enabled = !applying) {
+                                access {
+                                    applying = true
+                                    work({ core.applyMatch(id, m) }, { applying = false }) { showMessage("Saved"); refresh(); onDone(true) }
+                                }
                             }.padding(8.dp),
                             verticalAlignment = Alignment.CenterVertically,
                         ) {
@@ -399,6 +412,22 @@ fun FixLibraryScreen() {
     }
 }
 
+/**
+ * A long list a hundred at a time, with a button for the next: a big library's page opens at
+ * once instead of building thousands of rows first.
+ */
+@Composable
+private fun <T> Paged(list: List<T>, row: @Composable (T) -> Unit) {
+    // Kept as the list changes (a set merged away), so the page does not fold back to the top.
+    var shown by remember { mutableIntStateOf(100) }
+    list.take(shown).forEach { row(it) }
+    if (list.size > shown) {
+        TextButton(onClick = { shown += 100 }, modifier = Modifier.padding(horizontal = Edge)) {
+            Text("Show ${minOf(100, list.size - shown)} more")
+        }
+    }
+}
+
 @Composable
 private fun Explain(text: String) {
     Text(text, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(horizontal = Edge, vertical = 8.dp))
@@ -422,6 +451,7 @@ private fun Card(content: @Composable () -> Unit) {
 
 @Composable
 private fun Duplicates() {
+    var merging by remember { mutableStateOf(false) }
     val context = LocalContext.current
     var sets by remember { mutableStateOf<List<DuplicateSet>?>(null) }
     var round by remember { mutableIntStateOf(0) }
@@ -438,7 +468,7 @@ private fun Duplicates() {
             list == null -> Loading("Looking for songs that are here twice…")
             list.isEmpty() -> Explain("No duplicates. Nice and tidy.")
         }
-        list.orEmpty().forEach { set ->
+        Paged(list.orEmpty()) { set ->
             var keep by remember(set) { mutableIntStateOf(set.keep.toInt()) }
             Card {
                 set.songs.forEachIndexed { i, song ->
@@ -451,11 +481,15 @@ private fun Duplicates() {
                         if (i == keep) Text("Keep", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary)
                     }
                 }
-                FilledTonalButton(onClick = {
+                // Once: a second tap would merge songs already merged.
+                FilledTonalButton(enabled = !merging, onClick = {
                     val others = set.songs.filterIndexed { i, _ -> i != keep }
                     val paths = set.paths.filterIndexed { i, _ -> i != keep }
-                    work({ core.mergeDuplicates(set.songs[keep].id, others.map { it.id }) }) {
+                    merging = true
+                    work({ core.mergeDuplicates(set.songs[keep].id, others.map { it.id }) }, { merging = false }) {
                         showMessage("Kept one")
+                        // Gone from the list at once: it is not offered again while the rest is read.
+                        sets = sets?.filterNot { it == set }
                         refresh()
                         trash = paths
                         round++
@@ -506,7 +540,7 @@ private fun MissingCovers() {
                 modifier = Modifier.padding(horizontal = Edge),
             ) { Text(if (busy) "Looking online…" else "Find ${count(list.size, "cover")} online") }
         }
-        list.orEmpty().forEach { song ->
+        Paged(list.orEmpty()) { song ->
             Row(Modifier.fillMaxWidth().padding(horizontal = Edge, vertical = 6.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                 Cover(null, Modifier.size(44.dp), SmallCoverShape, seed = song.album + song.artist)
                 Column {
@@ -531,7 +565,7 @@ private fun AlbumProblems() {
             list == null -> Loading("Checking your albums…")
             list.isEmpty() -> Explain("Every album looks right.")
         }
-        list.orEmpty().forEach { p ->
+        Paged(list.orEmpty()) { p ->
             Card {
                 Text(p.album.ifBlank { "Unknown album" }, style = MaterialTheme.typography.titleMedium)
                 Text("${p.artist} · ${count(p.songIds.size, "song")}", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -545,6 +579,7 @@ private fun AlbumProblems() {
 
 @Composable
 private fun ReleaseDialog(album: AlbumProblem, onDone: (Boolean) -> Unit) {
+    var applying by remember { mutableStateOf(false) }
     var choices by remember { mutableStateOf<List<ReleaseChoice>?>(null) }
     val access = rememberFileAccess(album.songIds)
     LaunchedEffect(album) {
@@ -564,9 +599,10 @@ private fun ReleaseDialog(album: AlbumProblem, onDone: (Boolean) -> Unit) {
                 }
                 list.orEmpty().forEach { r ->
                     Row(
-                        Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).clickable {
+                        Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).clickable(enabled = !applying) {
                             access {
-                                work({ core.applyRelease(r.id) }) { report ->
+                                applying = true
+                                work({ core.applyRelease(r.id) }, { applying = false }) { report ->
                                     showMessage(if (report.failed.isEmpty()) "Tagged ${count(report.saved.toInt(), "song")}" else "Tagged ${report.saved}; ${report.failed.size} could not be changed")
                                     refresh()
                                     onDone(true)
@@ -657,9 +693,9 @@ fun ImportScreen() {
         item { LargeTitle("Import") }
         item { Explain("Bring in your plays, stars, and playlists from another player. Songs are matched to the music you already have.") }
         item {
-            ImportCard(Icons.Rounded.LibraryMusic, "iTunes, Apple Music, or MusicBee", "Their library XML file: plays, stars, and playlists") { itunes.launch(arrayOf("*/*")) }
-            ImportCard(Icons.Rounded.Album, "Spotify", "Your data download from Spotify (the zip): plays and playlists") { spotify.launch(arrayOf("*/*")) }
-            ImportCard(Icons.Rounded.PlaylistPlay, "A playlist file", "An .m3u or .m3u8 playlist") { playlist.launch(arrayOf("*/*")) }
+            ImportCard(Icons.Rounded.LibraryMusic, "iTunes, Apple Music, or MusicBee", "Their library XML file: plays, stars, and playlists") { tryOpen("file picker") { itunes.launch(arrayOf("*/*")) } }
+            ImportCard(Icons.Rounded.Album, "Spotify", "Your data download from Spotify (the zip): plays and playlists") { tryOpen("file picker") { spotify.launch(arrayOf("*/*")) } }
+            ImportCard(Icons.Rounded.PlaylistPlay, "A playlist file", "An .m3u or .m3u8 playlist") { tryOpen("file picker") { playlist.launch(arrayOf("*/*")) } }
             ImportCard(Icons.Rounded.History, "Last.fm or ListenBrainz", "Your listening history, by your user name") { history = "listenbrainz" }
         }
         if (busy) item { Loading("Bringing it in…") }
@@ -678,8 +714,8 @@ fun ImportScreen() {
                         FilterChip(service == "listenbrainz", { service = "listenbrainz" }, label = { Text("ListenBrainz") })
                         FilterChip(service == "lastfm", { service = "lastfm" }, label = { Text("Last.fm") })
                     }
-                    OutlinedTextField(user, { user = it }, label = { Text("User name") }, singleLine = true, modifier = Modifier.fillMaxWidth())
-                    if (service == "lastfm") OutlinedTextField(key, { key = it }, label = { Text("Last.fm API key") }, supportingText = { Text("From last.fm/api") }, singleLine = true, modifier = Modifier.fillMaxWidth())
+                    OutlinedTextField(user, { user = it }, label = { Text("User name") }, singleLine = true, modifier = Modifier.remoteEscape().fillMaxWidth())
+                    if (service == "lastfm") OutlinedTextField(key, { key = it }, label = { Text("Last.fm API key") }, supportingText = { Text("From last.fm/api") }, singleLine = true, modifier = Modifier.remoteEscape().fillMaxWidth())
                 }
             },
             confirmButton = {
@@ -737,6 +773,7 @@ fun ThemeEditorScreen(id: String?, back: () -> Unit) {
     var base by remember { mutableStateOf(existing?.base ?: "dark") }
     val colors = remember { mutableStateMapOf<String, String>().apply { existing?.colors?.let { putAll(it) } } }
     var picking by remember { mutableStateOf<String?>(null) }
+    var saving by remember { mutableStateOf(false) }
     val scheme = MaterialTheme.colorScheme
     val defaults = mapOf(
         "page" to scheme.background, "sidebar" to scheme.surfaceContainerLow, "card" to scheme.surfaceContainer,
@@ -748,7 +785,7 @@ fun ThemeEditorScreen(id: String?, back: () -> Unit) {
         item { LargeTitle(if (existing == null) "New theme" else "Edit theme") }
         item {
             Column(Modifier.padding(horizontal = Edge), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                OutlinedTextField(name, { name = it }, label = { Text("Name") }, singleLine = true, modifier = Modifier.fillMaxWidth())
+                OutlinedTextField(name, { name = it }, label = { Text("Name") }, singleLine = true, modifier = Modifier.remoteEscape().fillMaxWidth())
                 Text("Starts from", style = MaterialTheme.typography.titleSmall)
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     listOf("dark" to "Night", "midnight" to "Midnight", "light" to "Day").forEach { (b, label) ->
@@ -773,21 +810,24 @@ fun ThemeEditorScreen(id: String?, back: () -> Unit) {
                     Text(label, style = MaterialTheme.typography.bodyLarge)
                     Text(colors[slot] ?: "As the look it starts from", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
-                if (color != null) TextButton(onClick = { colors.remove(slot) }) { Text("Reset") }
+                if (color != null) TextButton(onClick = { colors.remove(slot) }, modifier = Modifier.semantics { contentDescription = "Reset $label" }) { Text("Reset") }
             }
         }
         item {
             Row(Modifier.padding(Edge), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                Button(onClick = {
-                    work({ core.saveTheme(id?.takeUnless { existing?.readOnly == true }, name, base, colors.toMap()) }) { saved ->
+                // Once: a second tap would make a second theme and go back two pages.
+                Button(enabled = !saving, onClick = {
+                    saving = true
+                    work({ core.saveTheme(id?.takeUnless { existing?.readOnly == true }, name, base, colors.toMap()) }, { saving = false }) { saved ->
                         NeedleApp.instance.themeVersion.value++
                         NeedleApp.instance.updateApp { it.copy(theme = saved) }
                         showMessage("Saved $name")
                         back()
                     }
                 }) { Text("Save and use it") }
-                if (existing != null && !existing.readOnly) TextButton(onClick = {
-                    work({ core.deleteTheme(existing.id) }) {
+                if (existing != null && !existing.readOnly) TextButton(enabled = !saving, onClick = {
+                    saving = true
+                    work({ core.deleteTheme(existing.id) }, { saving = false }) {
                         NeedleApp.instance.themeVersion.value++
                         NeedleApp.instance.updateApp { it.copy(theme = "night") }
                         showMessage("Deleted ${existing.name}")
@@ -811,25 +851,35 @@ private fun ColorDialog(start: Color, onDismiss: () -> Unit, onPick: (Color) -> 
     var h by remember { mutableStateOf(hsl[0]) }
     var s by remember { mutableStateOf(hsl[1]) }
     var l by remember { mutableStateOf(hsl[2]) }
-    val color = Color.hsl(h, s, l)
-    var typed by remember(color) { mutableStateOf(hexOf(color)) }
+    // A typed colour is kept as typed: through hue, colourfulness, and lightness it can come
+    // back a digit off. Moving a slider makes the colour the sliders' again.
+    var exact by remember { mutableStateOf<Color?>(null) }
+    val color = exact ?: Color.hsl(h, s, l)
+    // The box keeps what is typed in it; only a slider writes the colour's hex into it.
+    var typed by remember { mutableStateOf(hexOf(color)) }
+    fun slid() {
+        exact = null
+        typed = hexOf(Color.hsl(h, s, l))
+    }
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text("Colour") },
         text = {
-            Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            // Scrolled where the window is short (a phone on its side), so the hex box stays in reach.
+            Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                 Box(Modifier.fillMaxWidth().heightIn(min = 56.dp).clip(RoundedCornerShape(16.dp)).background(color))
-                Text("Hue"); Slider(h, { h = it }, valueRange = 0f..359f)
-                Text("Colourfulness"); Slider(s, { s = it })
-                Text("Lightness"); Slider(l, { l = it })
+                Text("Hue"); Slider(h, { h = it; slid() }, valueRange = 0f..359f, modifier = Modifier.named("Hue"))
+                Text("Colourfulness"); Slider(s, { s = it; slid() }, modifier = Modifier.named("Colourfulness"))
+                Text("Lightness"); Slider(l, { l = it; slid() }, modifier = Modifier.named("Lightness"))
                 OutlinedTextField(typed, { t ->
                     typed = t
                     colorOf(t.trim())?.let { c ->
+                        exact = c
                         val out = FloatArray(3)
                         androidx.core.graphics.ColorUtils.colorToHSL(c.toArgb(), out)
                         h = out[0]; s = out[1]; l = out[2]
                     }
-                }, singleLine = true, label = { Text("Hex") }, modifier = Modifier.fillMaxWidth())
+                }, singleLine = true, label = { Text("Hex") }, modifier = Modifier.remoteEscape().fillMaxWidth())
             }
         },
         confirmButton = { TextButton(onClick = { onPick(color) }) { Text("Use it") } },
@@ -847,11 +897,11 @@ fun SpeakersSheet(context: Context) {
     val chosen = remember { mutableStateMapOf<String, Boolean>() }
     val delays = remember { mutableStateMapOf<String, Int>() }
     var phone by remember { mutableStateOf(true) }
-    val scope = rememberCoroutineScope()
     LaunchedEffect(Unit) {
         // Finding speakers needs the phone to listen to the network's announcements.
-        val wifi = context.applicationContext.getSystemService(Context.WIFI_SERVICE) as WifiManager
-        val lock = wifi.createMulticastLock("needle-speakers").apply { setReferenceCounted(false); acquire() }
+        // A TV box on a cable may have no Wi-Fi at all: then the network is heard without it.
+        val wifi = context.applicationContext.getSystemService(Context.WIFI_SERVICE) as? WifiManager
+        val lock = wifi?.createMulticastLock("needle-speakers")?.apply { setReferenceCounted(false); acquire() }
         try {
             val found = withContext(Dispatchers.IO) { runCatching { core.speakers() }.getOrNull() }
             if (found != null) {
@@ -861,13 +911,16 @@ fun SpeakersSheet(context: Context) {
                 all = found.all
             } else all = emptyList()
         } finally {
-            lock.release()
+            lock?.release()
         }
     }
     fun apply() {
-        val ids = chosen.filterValues { it }.keys.toList()
+        // Only speakers found now: one not on the network has no row to turn it off by.
+        val found = all.orEmpty().map { it.id }.toSet()
+        val ids = chosen.filterValues { it }.keys.filter { it in found }
         val group = ids.size + (if (phone) 1 else 0) > 1
-        scope.launch(Dispatchers.IO) {
+        // On the app's scope: the sheet's own goes as the sheet closes, on the next line.
+        NeedleApp.instance.scope.launch(Dispatchers.IO) {
             runCatching { core.setSpeakers(ids, phone || ids.isEmpty(), if (group) delays.toMap() else emptyMap()) }
                 .onFailure { showMessage(it.message ?: "Could not play there") }
         }
@@ -881,10 +934,12 @@ fun SpeakersSheet(context: Context) {
         Ui.sheet.value = null
     }
     ModalBottomSheet(onDismissRequest = { Ui.sheet.value = null }) {
-        Column(Modifier.navigationBarsPadding().padding(bottom = 16.dp)) {
+        // Scrolled where it does not fit (many speakers, a short window), so Done stays in reach.
+        Column(Modifier.verticalScroll(rememberScrollState()).navigationBarsPadding().padding(bottom = 16.dp)) {
             Text("Play on", style = MaterialTheme.typography.titleLarge, modifier = Modifier.padding(horizontal = Edge, vertical = 8.dp))
             Text("Choose one, or several to play on all at once.", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(horizontal = Edge))
-            SpeakerRow(Icons.Rounded.PhoneAndroid, "This phone", null, phone) { phone = it }
+            // Not before the speakers in use are known: Done would put them all back to the phone.
+            SpeakerRow(Icons.Rounded.PhoneAndroid, "This phone", null, phone, enabled = all != null) { phone = it }
             val list = all
             if (list == null) Loading("Looking for speakers on your network…")
             list.orEmpty().forEach { o ->
@@ -901,19 +956,19 @@ fun SpeakersSheet(context: Context) {
                     val ms = delays[id] ?: 0
                     Column(Modifier.padding(horizontal = Edge)) {
                         Row { Text(label, Modifier.weight(1f)); Text("$ms ms", color = MaterialTheme.colorScheme.primary) }
-                        Slider(ms.toFloat(), { delays[id] = (it / 10).toInt() * 10 }, valueRange = 0f..1000f)
+                        Slider(ms.toFloat(), { delays[id] = (it / 10).toInt() * 10 }, valueRange = 0f..1000f, modifier = Modifier.named("$label delay", "$ms ms"))
                     }
                 }
             }
-            Button(onClick = ::apply, modifier = Modifier.padding(horizontal = Edge, vertical = 8.dp).fillMaxWidth()) { Text("Done") }
+            Button(onClick = ::apply, enabled = all != null, modifier = Modifier.padding(horizontal = Edge, vertical = 8.dp).fillMaxWidth()) { Text("Done") }
         }
     }
 }
 
 @Composable
-private fun SpeakerRow(icon: androidx.compose.ui.graphics.vector.ImageVector, name: String, kind: String?, on: Boolean, onChange: (Boolean) -> Unit) {
+private fun SpeakerRow(icon: androidx.compose.ui.graphics.vector.ImageVector, name: String, kind: String?, on: Boolean, enabled: Boolean = true, onChange: (Boolean) -> Unit) {
     Row(
-        Modifier.fillMaxWidth().clickable { onChange(!on) }.padding(horizontal = Edge, vertical = 8.dp),
+        Modifier.fillMaxWidth().toggleable(on, enabled = enabled, role = Role.Checkbox, onValueChange = onChange).padding(horizontal = Edge, vertical = 8.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(16.dp),
     ) {
@@ -922,6 +977,6 @@ private fun SpeakerRow(icon: androidx.compose.ui.graphics.vector.ImageVector, na
             Text(name, style = MaterialTheme.typography.bodyLarge)
             if (kind != null) Text(kind, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
-        Checkbox(on, onChange)
+        Checkbox(on, onCheckedChange = null, enabled = enabled)
     }
 }
