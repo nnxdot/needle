@@ -92,8 +92,15 @@ impl AppView {
         {
             Some(path) => {
                 let widest = if lyrics { w * 0.5 } else { w };
-                let (layer, side, tone) =
-                    super::now_playing::immersive_cover(&path, look.as_ref(), w, h, widest, p.dark);
+                let (layer, side, tone) = super::now_playing::immersive_cover(
+                    &path,
+                    look.as_ref(),
+                    w,
+                    h,
+                    widest,
+                    380.,
+                    p.dark,
+                );
                 (Some(layer), Some(side), Some(tone))
             }
             None => (None, None, None),
