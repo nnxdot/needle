@@ -32,7 +32,7 @@ struct SettingsWindow: View {
                 case "Library": LibrarySettings()
                 case "Appearance": AppearanceSettings()
                 case "Online services": ServicesSettings()
-                case "Discord": DiscordSettings()
+                case "Discord": DiscordSettingsView()
                 case "Stems": StemsSettings()
                 case "Plugins": PluginsSettings()
                 case "Your data": DataSettings()
@@ -767,7 +767,7 @@ struct ThemeEditor: View {
 
 // MARK: - Discord
 
-struct DiscordSettings: View {
+struct DiscordSettingsView: View {
     private var store: Store { .shared }
 
     var body: some View {
