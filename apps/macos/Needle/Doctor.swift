@@ -240,7 +240,8 @@ private struct TagsTab: View {
                 if problems.isEmpty {
                     done("Album tags look complete", "Every album has a year, track numbers, and an album artist where needed.")
                 } else {
-                    List(problems, id: \.album) { p in
+                    // Two albums can share a name: each by its own songs.
+                    List(problems, id: \.songIds) { p in
                         HStack {
                             VStack(alignment: .leading) {
                                 Text(p.album.isEmpty ? "Unknown album" : p.album).fontWeight(.medium)
