@@ -14,6 +14,7 @@ const known = {
   "Needle-Setup-1.6.3.exe": 53322082,
   "Needle-1.6.3-windows-x64.zip": 71228138,
   "Needle-1.6.4-macos.dmg": 53923494,
+  "Needle-1.7.0-macos.dmg": 52257872,
   "needle_1.6.3_amd64.deb": 52e6,
   "needle-1.6.3-1.x86_64.rpm": 71e6,
   "Needle-1.6.5-android-arm64-release.apk": 35645472,
