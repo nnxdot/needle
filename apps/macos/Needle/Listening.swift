@@ -78,14 +78,13 @@ struct HistoryPage: View {
                             }
                         }
                         HStack(alignment: .top, spacing: 20) {
-                            ranked("Top artists", s.topArtists) { r in store.navigate(.artist(r.title)) }
+                            // Artists' and albums' rows carry their name in `artist` and `album`
+                            // (only a song's row has a title).
+                            ranked("Top artists", s.topArtists) { r in store.navigate(.artist(r.artist)) }
                             ranked("Top albums", s.topAlbums) { r in
-                                // Its album's page, from a song of it.
-                                if let id = r.songId, let track = JSON.decode(Track.self, (try? store.core.trackJson(id: id)) ?? nil) {
-                                    store.navigate(track.albumRoute)
-                                } else {
-                                    store.notify("That album's files are gone.")
-                                }
+                                // Its album's page, by its name and artist (as an album artist or a song's).
+                                store.navigate(.album(album: r.album, artist: r.artist,
+                                                      query: "album = \(Rule.quote(r.album)) and (album_artist = \(Rule.quote(r.artist)) or artist = \(Rule.quote(r.artist)))"))
                             }
                             ranked("Top tracks", s.topSongs, play: nil)
                         }
@@ -193,6 +192,11 @@ struct HistoryPage: View {
         .pane(RoundedRectangle(cornerRadius: 16, style: .continuous))
     }
 
+    /// A ranked row's name: a song's title, else its album, else its artist.
+    private func name(_ r: Ranked) -> String {
+        !r.title.isEmpty ? r.title : !r.album.isEmpty ? r.album : r.artist
+    }
+
     @ViewBuilder
     private func ranked(_ title: String, _ list: [Ranked], play: ((Ranked) -> Void)?) -> some View {
         if !list.isEmpty {
@@ -203,8 +207,8 @@ struct HistoryPage: View {
                         Text("\(i + 1)").font(.callout.monospacedDigit()).foregroundStyle(.secondary).frame(width: 20)
                         Cover(path: r.artwork, seed: r.album + r.artist, side: 34, corner: 4)
                         VStack(alignment: .leading, spacing: 1) {
-                            Text(r.title).lineLimit(1)
-                            if r.artist != r.title && !r.artist.isEmpty { Text(r.artist).font(.caption).foregroundStyle(.secondary).lineLimit(1) }
+                            Text(name(r)).lineLimit(1)
+                            if r.artist != name(r) && !r.artist.isEmpty { Text(r.artist).font(.caption).foregroundStyle(.secondary).lineLimit(1) }
                         }
                         Spacer()
                         Text("\(r.plays)×").font(.caption).foregroundStyle(.secondary)
@@ -251,10 +255,10 @@ struct WrappedPage: View {
                     LazyVGrid(columns: [GridItem(.adaptive(minimum: 300), spacing: 16)], spacing: 16) {
                         card("Your \(w.year) in music", "You spent \(longTime(w.stats.seconds)) with music", "\(count(Int(w.stats.songs), "song")) by \(count(Int(w.stats.artists), "artist")).")
                         if let artist = w.stats.topArtists.first {
-                            card("Your artist of the year", artist.title, "\(count(Int(artist.plays), "play")), \(longTime(artist.seconds)).")
+                            card("Your artist of the year", artist.artist, "\(count(Int(artist.plays), "play")), \(longTime(artist.seconds)).")
                         }
                         if let album = w.stats.topAlbums.first {
-                            card("Albums you lived in", album.title, w.stats.topAlbums.dropFirst().prefix(2).map(\.title).joined(separator: ", "))
+                            card("Albums you lived in", album.album, w.stats.topAlbums.dropFirst().prefix(2).map(\.album).joined(separator: ", "))
                         }
                         if !w.newArtists.isEmpty {
                             card("New to you", w.newArtists.prefix(3).joined(separator: ", "), "Artists you first played in \(w.year).")
