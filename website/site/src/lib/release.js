@@ -24,6 +24,8 @@ const known = {
   "needle-1.7.1-1.x86_64.rpm": 70777181,
   "Needle-1.7.0-android-arm64-release.apk": 35846232,
   "Needle-1.7.0-android-x86_64-release.apk": 36649033,
+  "Needle-1.7.1-android-arm64-release.apk": 35928152,
+  "Needle-1.7.1-android-x86_64-release.apk": 36722761,
 };
 
 const readIfThere = (name) => (existsSync(join(root, "public", name)) ? read(name) : null);

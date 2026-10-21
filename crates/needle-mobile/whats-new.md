@@ -1,3 +1,15 @@
+# 1.7.1
+Artist pages with their picture and logo, an immersive player, and fixes.
+! **New artist pages.** An artist's page opens with a wide picture of them and their logo (with online lookups on, from fanart.tv), a large Play between Shuffle and Radio, their latest release in a box of its own, and their top songs as one group.
+- [player] **Immersive cover.** Turn on Settings › Appearance › Immersive cover and the player's cover fills its top (on a tablet or a TV, its left side) and fades into the cover's colour.
+- [video] **Moving covers.** Put a short video named cover.mp4 beside an album's songs, and it plays, silent and looping, in the immersive player. Turn it off with Moving covers.
+- [album] **Covers beside your songs.** Album covers kept as a picture beside the songs (such as cover.jpg) now show. On Android 13 and newer, Needle asks once to see pictures and videos: tap Allow in Settings › Library, or on an album with no cover.
+- Messages in the player now show at the top, not over its buttons, go after 2.5 seconds, and go at once when you tap or swipe them.
+- No wide gap above an artist's top songs.
+- Album and playlist titles fit on narrow phones.
+- You can add a fanart.tv key of your own in Settings › Library. Needle has its own key, so this is not needed.
+- On a TV, an artist's picture and logo stay in view while the remote is on the page's buttons.
+
 # 1.7.0
 A new look, tablets and TVs, louder music, and a smoother app.
 ! **A fresh Material look.** Needle now uses Material 3 Expressive throughout: songs, playlists, and settings sit in rounded groups, Shuffle and Play are one joined button group, Home shows your playlists and artists, and the filter buttons, tabs, and colours in Night and Day are clearer.
