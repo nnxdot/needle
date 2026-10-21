@@ -1,0 +1,59 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>CFBundleIconFile</key>
+	<string>Needle</string>
+	<key>ATSApplicationFontsPath</key>
+	<string>.</string>
+	<key>LSMinimumSystemVersion</key>
+	<string>15.0</string>
+	<key>NSLocalNetworkUsageDescription</key>
+	<string>Needle looks for Chromecast, AirPlay, and DLNA speakers on your network, and lets your phone control it when you turn on the phone remote.</string>
+	<key>NSBonjourServices</key>
+	<array>
+		<string>_googlecast._tcp</string>
+		<string>_airplay._tcp</string>
+		<string>_raop._tcp</string>
+	</array>
+	<key>CFBundleDocumentTypes</key>
+	<array>
+		<dict>
+			<key>CFBundleTypeName</key>
+			<string>Music</string>
+			<key>CFBundleTypeRole</key>
+			<string>Viewer</string>
+			<key>LSHandlerRank</key>
+			<string>Alternate</string>
+			<key>LSItemContentTypes</key>
+			<array>
+				<string>public.audio</string>
+				<string>public.mp3</string>
+				<string>public.mpeg-4-audio</string>
+				<string>org.xiph.flac</string>
+				<string>com.microsoft.waveform-audio</string>
+				<string>public.aiff-audio</string>
+			</array>
+		</dict>
+		<dict>
+			<key>CFBundleTypeName</key>
+			<string>Cue sheet, playlist, or theme</string>
+			<key>CFBundleTypeRole</key>
+			<string>Viewer</string>
+			<key>LSHandlerRank</key>
+			<string>Alternate</string>
+			<key>CFBundleTypeExtensions</key>
+			<array>
+				<string>cue</string>
+				<string>m3u</string>
+				<string>m3u8</string>
+				<string>opus</string>
+				<string>ogg</string>
+				<string>ape</string>
+				<string>wv</string>
+				<string>dsf</string>
+			</array>
+		</dict>
+	</array>
+</dict>
+</plist>

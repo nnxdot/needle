@@ -1,3 +1,24 @@
+# 1.7.1
+Fixes for a crash, covers, and crash reports.
+- Needle no longer quits at times when its colours change while the sidebar shows.
+- Covers that are not square (a tall Blu-ray cover, a wide one) fill their tile, the same size as the rest.
+- With crash reports on, Needle also sends the crashes macOS writes down, not only the ones Needle catches itself. They tell what went wrong and where in the app, with no names and no files.
+
+# 1.7.0
+Needle for Mac, made new as a Mac app, with album and artist pages after Apple Music.
+! **A Mac app, made new.** Needle is now built with the Mac's own tools: Liquid Glass throughout, the system's menus, sheets, and keyboard, and VoiceOver for every button and switch.
+- [albums] **Album and artist pages, after Apple Music.** The whole window takes an album's or artist's colours. Artist pages open on a wide photo of them, with their logo where fanart.tv has one, a large Play between round buttons, and Latest Release beside Top Songs.
+- [mini] **The player in the title bar.** A small screen in the bar shows the song, where it is, and the times, beside the controls.
+- [panel] **A side panel that floats.** Lyrics, the queue, and details open in a glass panel over the page, and close again.
+- [fullscreen] **An immersive big player.** The cover fills the side of the big player, and moving covers (a cover.mp4 beside the songs) play there.
+- Closing the window keeps the music playing; Quit (⌘Q) ends Needle.
+- Your music folders are read when Needle starts and when you plug in a drive.
+- Merging duplicates moves the extra copies to the Trash, where Put Back works.
+- Space and the arrow keys no longer act inside file pickers or dialogs.
+- Removing a music folder asks first.
+- A theme's film grain and font go back to your own when you choose another theme.
+- Many smaller fixes for lyrics timing, history, the volume, mute, and updates.
+
 # 1.6.4
 Needle on the Mac, in Liquid Glass.
 ! **Liquid Glass.** On macOS 26 and newer, the sidebar, the player, and the side panel float on Liquid Glass over your music's colours, and your songs scroll beneath the player's glass. Turn it off in Settings › Appearance.

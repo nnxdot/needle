@@ -1,4 +1,4 @@
-# Needle on phones (plan, not started)
+# Needle on phones
 
 Each app uses its own platform's design: **Material 3 Expressive**
 on Android, **Liquid Glass** (iOS 26) on iPhone.
@@ -99,12 +99,45 @@ on Android, **Liquid Glass** (iOS 26) on iPhone.
 
 ## iPhone
 
-- **UI:** SwiftUI with Liquid Glass: the tab bar, mini player, and buttons get the glass look
-  from the system.
-- **Core:** the same Rust core, called from Swift through UniFFI.
-- Same layout as Android, in Apple's style: tab bar with the mini player on it, lock screen and
-  Dynamic Island controls, CarPlay.
-- Limit: only music imported through the Files app, or streamed.
+Started on branch `ios`: `apps/ios`, built on a Mac with Xcode by `scripts/build-ios.sh`
+(`sim`, `device`, or `core`). It needs the Rust targets `aarch64-apple-ios` and
+`aarch64-apple-ios-sim`, and iOS 26 or newer.
+
+- **UI:** SwiftUI with Liquid Glass: the system tab bar with the mini player on it
+  (`tabViewBottomAccessory`), a tab bar that gets small on scrolling down, search on the tab bar,
+  and glass cards and buttons (`glassEffect`).
+- **Core:** the same Rust core, called from Swift through UniFFI: a static library in
+  `NeedleCore.xcframework`, with bindings in `Needle/Core` (both made by the script, not kept in
+  git).
+- **Screens:** Home (big cards, recently played and added, most played, playlists), Library
+  (playlists, artists, albums, songs a page at a time, genres, favourites, folders, history,
+  listening numbers, Wrapped), Sources (this iPhone, music servers through the plugins, Needle on a
+  computer), Search (rule hints, server results), and the full player with lyrics (karaoke, NetEase,
+  timing by tapping), the queue, the A-B loop, the sleep timer, and speakers.
+- **Settings:** Library, Playback, Sound (ten-band and parametric equalizer, presets, headphone
+  correction files, balance, crossfeed, plugin effects), Appearance (Night, Midnight, Day, own
+  themes and a theme editor, accent, cover colours), Scrobbling, Plugins, Sync, Fix my library
+  (duplicates, covers, MusicBrainz, AcoustID, tidying), Import, What's new
+  (`apps/ios/Needle/whats-new.md`), and About.
+- **Playback:** background audio, the lock screen and Control Center (Now Playing and remote
+  commands), pauses for calls and when headphones come out, AirPlay and Bluetooth speakers,
+  Chromecast and DLNA through the core. While the phone plays nothing, its player works the
+  computer's (Connect).
+- **Widgets** (`apps/ios/NeedleWidgets`): Now Playing, Recently Played, Playlists, My Radio, and
+  the week's listening, on the Home Screen and Lock Screen; Control Center buttons; a Live Activity
+  for the sleep timer and for a server's songs coming in. The app writes what they show to the
+  app group `group.fyi.nnx.needle` (`Shared/Snapshot.swift`); their buttons are audio intents,
+  which the system runs in the app. Siri and Shortcuts: play favourites, my radio, play or pause,
+  next.
+- **Files:** Needle's folder shows in the Files app (On My iPhone › Needle) and in Finder; music
+  can also be imported from Files, or opened from another app. The app's folder can move when it
+  is updated, so the library's paths are moved at start (`relocate` in
+  `crates/needle-mobile/src/ios.rs`).
+- Secrets (Last.fm, ListenBrainz) are kept in the iPhone Keychain.
+- Not on iPhone: CarPlay (Apple must grant it, with a paid account), Dolby files (FFmpeg runs as
+  its own program, which an iPhone app cannot start), bit-perfect USB output, and updating itself.
+- Signing: the project has no team. To put it on a phone, choose a team in Xcode (a free Apple ID
+  works for 7 days); nothing about the account goes into the repository.
 
 ## Live Activities and widgets
 
