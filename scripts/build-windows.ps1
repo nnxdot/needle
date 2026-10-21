@@ -4,6 +4,17 @@ $workspace = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
 $cargoCommand = Get-Command cargo -ErrorAction SilentlyContinue
 $cargoExecutable = if ($cargoCommand) { $cargoCommand.Source } else { Join-Path $env:USERPROFILE '.cargo\bin\cargo.exe' }
 if (-not (Test-Path -LiteralPath $cargoExecutable)) { throw 'Install Rust and the Visual Studio C++ build tools first.' }
+# Keys built into the app (Last.fm's, fanart.tv's for artists' logos), from a private file outside
+# the code, as the Mac and iPhone builds read it: lines such as `export NEEDLE_FANART_KEY=...`.
+# Without it, people add their own in Settings.
+$keys = Join-Path $env:USERPROFILE '.needle-keys'
+if (Test-Path -LiteralPath $keys) {
+    foreach ($line in Get-Content -LiteralPath $keys) {
+        if ($line -match '^\s*(?:export\s+)?(NEEDLE_[A-Z0-9_]+)=(.*)$') {
+            Set-Item -Path "Env:$($Matches[1])" -Value $Matches[2].Trim().Trim('"').Trim("'")
+        }
+    }
+}
 Push-Location -LiteralPath $workspace
 try {
     if (-not $SkipChecks) {
