@@ -1,5 +1,7 @@
 package fyi.nnx.needle.ui
 
+import androidx.compose.ui.draw.drawWithContent
+import androidx.compose.foundation.interaction.collectIsFocusedAsState
 import android.provider.Settings
 import androidx.compose.animation.AnimatedVisibilityScope
 import androidx.compose.animation.ExperimentalSharedTransitionApi
@@ -37,6 +39,8 @@ import androidx.compose.runtime.compositionLocalOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
+import androidx.lifecycle.compose.currentStateAsState
+import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.composed
 import androidx.compose.ui.draw.clip
@@ -52,13 +56,21 @@ import fyi.nnx.needle.NeedleApp
 
 /** Motion is off when Needle's own switch is, or when Android's "Remove animations" is on. */
 @Composable
-fun reduceMotion(): Boolean {
+fun reduceMotion(): Boolean = LocalReduceMotion.current
+
+/** Worked out once for the whole app ([ProvideReduceMotion]), not at every tile that asks. */
+val LocalReduceMotion = androidx.compose.runtime.compositionLocalOf { false }
+
+@Composable
+fun ProvideReduceMotion(content: @Composable () -> Unit) {
     val app by NeedleApp.instance.app.collectAsState()
     val context = LocalContext.current
-    val system = remember {
+    // Read again each time Needle comes back on screen: the switch may have changed meanwhile.
+    val lifecycle by androidx.lifecycle.compose.LocalLifecycleOwner.current.lifecycle.currentStateAsState()
+    val system = remember(lifecycle.isAtLeast(androidx.lifecycle.Lifecycle.State.RESUMED)) {
         Settings.Global.getFloat(context.contentResolver, Settings.Global.ANIMATOR_DURATION_SCALE, 1f) == 0f
     }
-    return app.reduceMotion || system
+    androidx.compose.runtime.CompositionLocalProvider(LocalReduceMotion provides (app.reduceMotion || system), content = content)
 }
 
 /** A short tap of the phone's vibration, when that is on (Settings › Appearance). */
@@ -73,38 +85,86 @@ fun rememberHaptics(): (strong: Boolean) -> Unit {
     }
 }
 
-/** Shrinks a little while pressed, and springs back, as covers do in Apple Music. */
+/**
+ * Shrinks a little while pressed, and springs back, as covers do in Apple Music. With a remote
+ * it grows a little and takes a ring while it has the focus, as on a TV's home screen.
+ */
 fun Modifier.pressScale(interaction: MutableInteractionSource, scale: Float = 0.96f): Modifier = composed {
     val pressed by interaction.collectIsPressedAsState()
+    val focused by interaction.collectIsFocusedAsState()
     val reduce = reduceMotion()
     val value by animateFloatAsState(
-        if (pressed && !reduce) scale else 1f,
+        when {
+            reduce -> 1f
+            pressed -> scale
+            focused -> 1.04f
+            else -> 1f
+        },
         spring(dampingRatio = 0.6f, stiffness = 600f),
         label = "press",
     )
-    graphicsLayer { scaleX = value; scaleY = value }
+    graphicsLayer { scaleX = value; scaleY = value }.focusRing(interaction)
+}
+
+/**
+ * A ring just outside what has a remote's focus, so its own corners do not cut it: for cards,
+ * and for Material's filled buttons, whose own focus only darkens them. [corner] is the
+ * thing's own corner; a pill or a circle keeps its shape.
+ */
+fun Modifier.focusRing(interaction: androidx.compose.foundation.interaction.InteractionSource, corner: Dp = 20.dp): Modifier = composed {
+    val focused by interaction.collectIsFocusedAsState()
+    val ring = MaterialTheme.colorScheme.onSurface
+    drawWithContent {
+        drawContent()
+        if (!focused) return@drawWithContent
+        val out = 5.dp.toPx()
+        drawRoundRect(
+            ring,
+            topLeft = androidx.compose.ui.geometry.Offset(-out, -out),
+            size = androidx.compose.ui.geometry.Size(size.width + out * 2, size.height + out * 2),
+            cornerRadius = androidx.compose.ui.geometry.CornerRadius(minOf(corner.toPx(), size.minDimension / 2) + out),
+            style = androidx.compose.ui.graphics.drawscope.Stroke(3.dp.toPx()),
+        )
+    }
 }
 
 /** Three bars that bounce while the song plays and rest while it is paused. */
 @Composable
 fun PlayingBars(playing: Boolean, modifier: Modifier = Modifier, color: Color = MaterialTheme.colorScheme.primary, height: Dp = 14.dp) {
-    val transition = rememberInfiniteTransition(label = "bars")
     val reduce = reduceMotion()
+    // Bouncing only while it plays: paused, nothing asks for frames.
+    val moving = playing && !reduce
+    val transition = if (moving) rememberInfiniteTransition(label = "bars") else null
     Row(modifier.size(width = 16.dp, height = height), horizontalArrangement = Arrangement.spacedBy(2.dp), verticalAlignment = Alignment.Bottom) {
         listOf(420, 310, 520).forEachIndexed { i, period ->
-            val bounce by transition.animateFloat(
-                initialValue = 0.25f,
-                targetValue = 1f,
-                animationSpec = infiniteRepeatable(tween(period, delayMillis = i * 60, easing = FastOutSlowInEasing), RepeatMode.Reverse),
-                label = "bar$i",
-            )
-            val level = if (playing && !reduce) bounce else listOf(0.45f, 0.8f, 0.6f)[i]
+            // Read where it is drawn: the bars move at every frame, the row is not redrawn.
+            val level: () -> Float = if (transition != null) {
+                val bounce = transition.animateFloat(
+                    initialValue = 0.25f,
+                    targetValue = 1f,
+                    animationSpec = infiniteRepeatable(tween(period, delayMillis = i * 60, easing = FastOutSlowInEasing), RepeatMode.Reverse),
+                    label = "bar$i",
+                )
+                val read: () -> Float = { bounce.value }
+                read
+            } else {
+                val rest = listOf(0.45f, 0.8f, 0.6f)[i]
+                val read: () -> Float = { rest }
+                read
+            }
             Box(
                 Modifier
                     .width(4.dp)
-                    .fillMaxHeight(level)
-                    .clip(RoundedCornerShape(1.dp))
-                    .background(color),
+                    .fillMaxHeight()
+                    .drawBehind {
+                        val h = size.height * level()
+                        drawRoundRect(
+                            color,
+                            topLeft = androidx.compose.ui.geometry.Offset(0f, size.height - h),
+                            size = androidx.compose.ui.geometry.Size(size.width, h),
+                            cornerRadius = androidx.compose.ui.geometry.CornerRadius(1.dp.toPx()),
+                        )
+                    },
             )
         }
     }

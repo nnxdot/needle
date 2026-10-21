@@ -23,6 +23,9 @@ on Android, **Liquid Glass** (iOS 26) on iPhone.
 - **Core:** the Needle Rust core, called from Kotlin through UniFFI.
 - **Playback:** Android's media service (Media3 `MediaSessionService`): lock screen and
   notification player, Bluetooth buttons, Android Auto, background play.
+- **TV:** the same app on Android TV and Google TV, in the TV's list of apps (`tv_banner`),
+  worked with a remote (apps/android/DESIGN.md › TV and keys). Many TVs run 32-bit Arm, so
+  there is a 32-bit APK beside the 64-bit one.
 
 ### Where the music comes from
 

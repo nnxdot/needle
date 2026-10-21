@@ -67,36 +67,44 @@ object Selection {
 /** Songs from a music server have ids that start with this. */
 fun Song.fromServer() = id.startsWith("src-")
 
-/** The bar over the tabs while songs are chosen. */
+/**
+ * The bar over the tabs while songs are chosen: Material 3 Expressive's floating toolbar, in
+ * its vibrant colours, with Play as its one filled button.
+ */
+@OptIn(androidx.compose.material3.ExperimentalMaterial3ExpressiveApi::class)
 @Composable
 fun SelectionBar() {
     val chosen by Selection.songs.collectAsState()
+    // What was chosen, kept while the bar slides away, so it does not read "0 songs" as it goes.
+    var shown by remember { mutableStateOf(chosen) }
+    if (chosen.isNotEmpty()) shown = chosen
     AnimatedVisibility(
         chosen.isNotEmpty(),
         enter = fadeIn() + slideInVertically { it },
         exit = fadeOut() + slideOutVertically { it },
     ) {
-        val ids = chosen.map { it.id }
+        val ids = shown.map { it.id }
         var more by remember { mutableStateOf(false) }
-        Surface(
-            color = MaterialTheme.colorScheme.primaryContainer,
-            contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
-            shape = RoundedCornerShape(28.dp),
-            shadowElevation = 8.dp,
-            modifier = Modifier.fillMaxWidth().padding(horizontal = 10.dp, vertical = 8.dp),
-        ) {
-            Row(Modifier.padding(horizontal = 6.dp, vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+        // Once only: the bar still takes taps while it slides away after one.
+        fun once(work: () -> Unit) {
+            if (Selection.active) {
+                Selection.clear()
+                work()
+            }
+        }
+        androidx.compose.foundation.layout.Box(Modifier.fillMaxWidth().padding(vertical = 8.dp), contentAlignment = Alignment.Center) {
+            androidx.compose.material3.HorizontalFloatingToolbar(
+                expanded = true,
+                colors = androidx.compose.material3.FloatingToolbarDefaults.vibrantFloatingToolbarColors(),
+            ) {
                 IconButton(onClick = Selection::clear) { Icon(Icons.Rounded.Close, contentDescription = "Stop choosing") }
-                Text(count(chosen.size, "song"), style = MaterialTheme.typography.titleMedium, modifier = Modifier.weight(1f))
-                IconButton(onClick = {
-                    core.play(ids, 0u)
-                    NeedleApp.instance.openPlayer.tryEmit(Unit)
-                    Selection.clear()
-                }) { Icon(Icons.Rounded.PlayArrow, contentDescription = "Play") }
-                IconButton(onClick = { core.playNext(ids); showMessage("Play next"); Selection.clear() }) {
+                // Gives way to the buttons where large text leaves no room.
+                Text(count(shown.size, "song"), style = MaterialTheme.typography.titleMedium, maxLines = 1, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis, modifier = Modifier.weight(1f, fill = false).align(Alignment.CenterVertically).padding(end = 8.dp))
+                androidx.compose.material3.FilledIconButton(onClick = { once { playSongs(ids) } }) { Icon(Icons.Rounded.PlayArrow, contentDescription = "Play") }
+                IconButton(onClick = { once { addToQueue(next = true) { ids } } }) {
                     Icon(Icons.Rounded.QueuePlayNext, contentDescription = "Play next")
                 }
-                IconButton(onClick = { Ui.sheet.value = Sheet.AddToPlaylist(ids); Selection.clear() }) {
+                IconButton(onClick = { once { Ui.sheet.value = Sheet.AddToPlaylist(ids) } }) {
                     Icon(Icons.AutoMirrored.Rounded.PlaylistAdd, contentDescription = "Add to a playlist")
                 }
                 IconButton(onClick = { more = true }) { Icon(Icons.Rounded.MoreVert, contentDescription = "More") }
@@ -104,27 +112,26 @@ fun SelectionBar() {
                     DropdownMenuItem(
                         text = { Text("Add to queue") },
                         leadingIcon = { Icon(Icons.AutoMirrored.Rounded.QueueMusic, null) },
-                        onClick = { more = false; core.enqueue(ids); showMessage("Added to the queue"); Selection.clear() },
+                        onClick = { more = false; once { addToQueue(next = false) { ids } } },
                     )
                     DropdownMenuItem(
                         text = { Text("New playlist from these") },
                         leadingIcon = { Icon(Icons.AutoMirrored.Rounded.PlaylistAdd, null) },
-                        onClick = { more = false; Ui.sheet.value = Sheet.NewPlaylist(ids); Selection.clear() },
+                        onClick = { more = false; once { Ui.sheet.value = Sheet.NewPlaylist(ids) } },
                     )
-                    val own = chosen.filterNot { it.fromServer() }
+                    val own = shown.filterNot { it.fromServer() }
                     if (own.isNotEmpty()) DropdownMenuItem(
                         text = { Text("Edit tags") },
                         leadingIcon = { Icon(Icons.Rounded.Edit, null) },
-                        onClick = { more = false; Ui.sheet.value = Sheet.EditTags(own.map { it.id }); Selection.clear() },
+                        onClick = { more = false; once { Ui.sheet.value = Sheet.EditTags(own.map { it.id }) } },
                     )
-                    val server = chosen.filter { it.fromServer() }
+                    val server = shown.filter { it.fromServer() }
                     if (server.isNotEmpty()) DropdownMenuItem(
                         text = { Text("Keep on this phone") },
                         leadingIcon = { Icon(Icons.Rounded.DownloadForOffline, null) },
                         onClick = {
                             more = false
-                            keepOffline(server.map { it.id }, true)
-                            Selection.clear()
+                            once { keepOffline(server.map { it.id }, true) }
                         },
                     )
                 }

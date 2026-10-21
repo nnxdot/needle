@@ -17,11 +17,12 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.imePadding
+import androidx.compose.foundation.layout.isImeVisible
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.only
 import androidx.compose.foundation.layout.statusBarsPadding
@@ -35,8 +36,6 @@ import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.ShortNavigationBar
 import androidx.compose.material3.ShortNavigationBarItem
-import androidx.compose.material3.NavigationRail
-import androidx.compose.material3.NavigationRailItem
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Scaffold
@@ -52,9 +51,12 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.foundation.focusGroup
+import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.onSizeChanged
-import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.dp
 import fyi.nnx.needle.NeedleApp
@@ -106,24 +108,41 @@ enum class Tab(val label: String, val icon: ImageVector, val root: Route) {
     Search("Search", Icons.Rounded.Search, Route.Search),
 }
 
-@OptIn(ExperimentalSharedTransitionApi::class, androidx.compose.material3.ExperimentalMaterial3ExpressiveApi::class)
+@OptIn(ExperimentalSharedTransitionApi::class, androidx.compose.material3.ExperimentalMaterial3ExpressiveApi::class, androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
 @Composable
 fun NeedleRoot() {
     var tab by rememberSaveable { mutableStateOf(Tab.Home) }
     // Each tab keeps its own pages, as in Apple Music.
     val stacks = remember { mutableStateMapOf<Tab, List<Route>>() }
     var playerOpen by rememberSaveable { mutableStateOf(false) }
-    val playback by NeedleApp.instance.playback.collectAsState()
+    // Only whether a song is there, and its cover: the whole playback changes five times a
+    // second as it plays, and would redraw every page with it.
+    val playbackState = NeedleApp.instance.playback.collectAsState()
+    val hasSong by remember { androidx.compose.runtime.derivedStateOf { playbackState.value?.current != null } }
+    val playingArt by remember { androidx.compose.runtime.derivedStateOf { playbackState.value?.current?.artwork } }
     val reduce = reduceMotion()
-    val stack = stacks[tab] ?: listOf(tab.root)
-    val open: (Route) -> Unit = { stacks[tab] = stack + it }
-    val hasSong = playback?.current != null
+    // The same list each time while the tab has only its first page, so what takes `open`
+    // is not redrawn for nothing.
+    val rootStack = remember(tab) { listOf(tab.root) }
+    val stack = stacks[tab] ?: rootStack
+    // A second tap while the page slides in (or OK pressed twice) does not open it twice.
+    val open: (Route) -> Unit = { if (stack.lastOrNull() != it) stacks[tab] = stack + it }
     val snackbar = remember { SnackbarHostState() }
     // How tall the mini player, the tabs, and the bar of chosen songs are together, so
     // messages show above them instead of over them.
     var barHeight by remember { mutableStateOf(0) }
-    // Tablets and unfolded phones get a rail of tabs at the side, as Material asks.
-    val wide = LocalConfiguration.current.screenWidthDp >= 600
+    // Tablets and unfolded phones get a side bar of tabs, playlists, and albums (SideBar.kt).
+    val wide = hasSideBar()
+    // What each page in a tab's stack had (its scroll, its filter, its search words) is kept
+    // while the page is under another, so Back finds it as it was; dropped once the page is.
+    val pageStates = androidx.compose.runtime.saveable.rememberSaveableStateHolder()
+    val kept = remember { HashSet<String>() }
+    androidx.compose.runtime.SideEffect {
+        val live = Tab.entries.flatMap { t -> (stacks[t] ?: listOf(t.root)).mapIndexed { i, r -> pageKey(t, i, r) } }.toSet()
+        (kept - live).forEach(pageStates::removeState)
+        kept.clear()
+        kept += live
+    }
     val chooseTab: (Tab) -> Unit = { t ->
         // Tapping the open tab again goes back to its first page.
         if (t == tab) stacks[t] = listOf(t.root) else tab = t
@@ -134,36 +153,71 @@ fun NeedleRoot() {
             if (NeedleApp.instance.app.value.openPlayerOnPlay) playerOpen = true
         }
     }
+    // Nothing playing (the computer went, or Needle came back without its song): the player is
+    // shut, so Back is not spent on it, and it does not open by itself with the next song.
+    LaunchedEffect(hasSong) { if (!hasSong) playerOpen = false }
     // Back first stops choosing songs, when some are chosen.
     val choosing by Selection.songs.collectAsState()
-    BackHandler(enabled = choosing.isNotEmpty()) { Selection.clear() }
-    BackHandler(enabled = choosing.isEmpty() && (playerOpen || stack.size > 1)) {
+    // Not while the player covers the bar of chosen songs: Back closes the player first.
+    BackHandler(enabled = choosing.isNotEmpty() && !playerOpen) { Selection.clear() }
+    BackHandler(enabled = playerOpen || (choosing.isEmpty() && stack.size > 1)) {
         if (playerOpen) playerOpen = false else stacks[tab] = stack.dropLast(1)
     }
 
     val app by NeedleApp.instance.app.collectAsState()
+    // The welcome guide, the first time Needle opens with no music yet.
+    val songsLoad = rememberLoaded { songCount() }
+    val songs by songsLoad
+    val again by Ui.welcome.collectAsState()
+    // Once begun, it stays until it is finished: the songs the first folder brings in would
+    // otherwise close it before its last step.
+    var guiding by rememberSaveable { mutableStateOf(false) }
+    if (!app.welcomed && songs == 0u) guiding = true
+    val welcoming = again || (guiding && !app.welcomed)
+    // With a remote (TvFocus.kt): the player and the guide hold the focus while they cover the
+    // app. A page opened from the page takes the focus, and so does the page under the player
+    // or the guide when it closes; otherwise Android would give it to the side bar's first
+    // button when what had it goes.
+    val covered = welcoming || (playerOpen && hasSong)
+    val keys = usingKeys()
+    val pageFocus = remember { androidx.compose.ui.focus.FocusRequester() }
+    var inPage by remember { mutableStateOf(false) }
+    var toPage by remember { androidx.compose.runtime.mutableIntStateOf(0) }
+    // When a key was last pressed: the page losing the focus with no key pressed is what had
+    // it going (a filter changing the page), not the remote moving on.
+    var lastKey by remember { androidx.compose.runtime.mutableLongStateOf(0L) }
+    LaunchedEffect(tab, stack.last()) { if (inPage) toPage++ }
+    LaunchedEffect(covered) { if (!covered) toPage++ }
+    LaunchedEffect(toPage, keys, covered) {
+        if (!keys || covered) return@LaunchedEffect
+        // After the page slides in, so the focus lands on the new page, not the old.
+        kotlinx.coroutines.delay(350)
+        // A page can take a moment to load its first buttons, the first time most.
+        repeat(60) {
+            // Something in the page has it already (its Play): asking the page again would
+            // move it back to the page's first button.
+            if (inPage) return@LaunchedEffect
+            if (runCatching { pageFocus.requestFocus() }.getOrDefault(false)) return@LaunchedEffect
+            kotlinx.coroutines.delay(50)
+        }
+    }
     // Settings › Appearance › Colours from what is playing: every page in the song's colours.
-    CoverTheme(if (app.ambientColors) playback?.current?.artwork else null) {
+    CoverTheme(if (app.ambientColors) playingArt else null) {
     SharedTransitionLayout(Modifier.fillMaxSize()) {
         CompositionLocalProvider(LocalShared provides this) {
-            Box(Modifier.fillMaxSize()) {
-                Row(Modifier.fillMaxSize()) {
-                if (wide) {
-                    NavigationRail(containerColor = MaterialTheme.colorScheme.surfaceContainerLow) {
-                        Spacer(Modifier.weight(1f))
-                        Tab.entries.forEach { t ->
-                            NavigationRailItem(
-                                selected = t == tab,
-                                onClick = { chooseTab(t) },
-                                icon = { Icon(t.icon, contentDescription = null) },
-                                label = { Text(t.label) },
-                            )
-                        }
-                        Spacer(Modifier.weight(1f))
-                    }
-                }
+            Box(Modifier.fillMaxSize().onPreviewKeyEvent { lastKey = android.os.SystemClock.uptimeMillis(); false }) {
+                // On tablets the side bar sits on a frame, and the pages in a rounded pane
+                // beside it, as Google's own apps on a tablet (Material's panes).
+                // The keyboard takes room from the pages, so a text box low on a page shows above it.
+                Row(Modifier.fillMaxSize().imePadding().focusCovered(covered).then(if (wide) Modifier.background(MaterialTheme.colorScheme.surfaceContainer) else Modifier)) {
+                if (wide) SideBar(tab, stack.last(), chooseTab, open)
+                // Pages lay out by the room they have (see Adaptive.kt).
+                androidx.compose.foundation.layout.BoxWithConstraints(Modifier.weight(1f).then(if (wide) Modifier.pane() else Modifier).focusRequester(pageFocus).onFocusChanged {
+                    if (inPage && !it.hasFocus && android.os.SystemClock.uptimeMillis() - lastKey > 250) toPage++
+                    inPage = it.hasFocus
+                }.focusGroup()) {
+                CompositionLocalProvider(LocalPageWidth provides maxWidth) {
                 Scaffold(
-                    modifier = Modifier.weight(1f),
                     containerColor = MaterialTheme.colorScheme.background,
                     // The top is left to each page: most keep clear of the status bar, and the
                     // album, artist, and playlist pages run their colour up under it.
@@ -172,9 +226,11 @@ fun NeedleRoot() {
                     ),
                     bottomBar = {
                         Column(Modifier.onSizeChanged { barHeight = it.height }) {
-                            SelectionBar()
+                            // While typing, the keyboard needs the room: the bars come back after.
+                            val typing = androidx.compose.foundation.layout.WindowInsets.isImeVisible
+                            if (!typing) SelectionBar()
                             AnimatedVisibility(
-                                visible = hasSong && !playerOpen,
+                                visible = hasSong && !playerOpen && !typing,
                                 enter = fadeIn(tween(200)) + slideInVertically(tween(250)) { it / 2 },
                                 exit = fadeOut(tween(150)),
                             ) {
@@ -182,14 +238,15 @@ fun NeedleRoot() {
                                     MiniPlayer(onOpen = { playerOpen = true })
                                 }
                             }
-                            if (!wide) {
+                            if (!wide && !typing) {
                                 // Material 3 Expressive's shorter bar.
                                 ShortNavigationBar(containerColor = MaterialTheme.colorScheme.surfaceContainerLow) {
                                     Tab.entries.forEach { t ->
                                         ShortNavigationBarItem(
                                             selected = t == tab,
                                             onClick = { chooseTab(t) },
-                                            icon = { Icon(t.icon, contentDescription = null) },
+                                            // The open tab's icon filled, the others outlined, as on the side bar.
+                                            icon = { Icon(if (t == tab) t.icon else t.outline, contentDescription = null) },
                                             label = { Text(t.label) },
                                         )
                                     }
@@ -227,6 +284,7 @@ fun NeedleRoot() {
                             LocalSharedScope provides pageTab.name,
                         ) {
                             val route = pages.last()
+                            pageStates.SaveableStateProvider(pageKey(pageTab, pages.lastIndex, route)) {
                             val fullBleed = route is Route.AlbumPage || route is Route.AlbumOf || route is Route.Artist || route is Route.Playlist
                             // The colour pages run on behind the mini player and the tabs; their
                             // lists leave room at the foot instead.
@@ -246,8 +304,11 @@ fun NeedleRoot() {
                                     }
                                 }
                             }
+                            }
                         }
                     }
+                }
+                }
                 }
                 }
                 AnimatedVisibility(
@@ -256,7 +317,9 @@ fun NeedleRoot() {
                     exit = if (reduce) fadeOut(tween(150)) else slideOutVertically(tween(300)) { it } + fadeOut(tween(250)),
                 ) {
                     CompositionLocalProvider(LocalAnimated provides this) {
-                        FullPlayer(onClose = { playerOpen = false }, open = { playerOpen = false; open(it) })
+                        Box(Modifier.focusLayer()) {
+                            FullPlayer(onClose = { playerOpen = false }, open = { playerOpen = false; open(it) })
+                        }
                     }
                 }
                 // Messages show above everything, the player too, and clear of the bars below.
@@ -265,15 +328,14 @@ fun NeedleRoot() {
                     snackbar,
                     Modifier
                         .align(androidx.compose.ui.Alignment.BottomCenter)
-                        .then(if (playerOpen || bars == 0.dp) Modifier.navigationBarsPadding() else Modifier)
-                        .padding(bottom = if (playerOpen) 16.dp else bars + 8.dp),
+                        // Above the keyboard while it is up, where it would otherwise hide.
+                        .imePadding()
+                        // On a tablet the bars sit in the pane, above the navigation bar and its margin.
+                        .then(if (playerOpen || bars == 0.dp || wide) Modifier.navigationBarsPadding() else Modifier)
+                        .padding(bottom = if (playerOpen) 16.dp else bars + 8.dp + if (wide) 12.dp else 0.dp),
                 )
                 Overlays(snackbar)
-                // The welcome guide, the first time Needle opens with no music yet.
-                val songsLoad = rememberLoaded { songCount() }
-                val songs by songsLoad
-                val again by Ui.welcome.collectAsState()
-                if (again || (!app.welcomed && songs == 0u)) WelcomeGuide(open)
+                if (welcoming) Box(Modifier.focusLayer()) { WelcomeGuide(open) }
             }
         }
     }
@@ -318,3 +380,6 @@ private fun Page(route: Route, open: (Route) -> Unit) {
         }
     }
 }
+
+/** A page's place in its tab's stack, the key its kept state is held under. */
+private fun pageKey(tab: Tab, index: Int, route: Route) = "${tab.name}/$index/$route"

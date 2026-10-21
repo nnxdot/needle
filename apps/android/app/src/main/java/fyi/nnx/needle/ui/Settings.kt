@@ -1,5 +1,12 @@
 package fyi.nnx.needle.ui
 
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.togetherWith
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.saveable.rememberSaveable
 import android.content.Intent
 import android.net.Uri
 import android.os.Build
@@ -89,6 +96,20 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
+import androidx.compose.foundation.focusable
+import androidx.compose.ui.input.key.key
+import androidx.compose.ui.input.key.onKeyEvent
+import androidx.compose.ui.input.key.type
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.progressBarRangeInfo
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.setProgress
+import androidx.compose.foundation.selection.selectable
+import androidx.compose.foundation.selection.toggleable
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.ui.graphics.luminance
+import androidx.compose.ui.unit.sp
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
@@ -135,34 +156,79 @@ private fun SettingsSection.route(): Route = when (this) {
 
 @Composable
 fun SettingsScreen(open: (Route) -> Unit) {
+    if (isTwoPane()) {
+        TwoPaneSettings(open)
+        return
+    }
     LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = 24.dp)) {
         item { LargeTitle("Settings") }
-        item {
-            // Discord only in builds that have Discord's library.
-            val sections = SettingsSection.entries.filter { it != SettingsSection.Discord || Discord.available }
-            Group {
-                sections.forEachIndexed { i, section ->
-                    Row(
-                        Modifier
-                            .fillMaxWidth()
-                            .clickable { open(section.route()) }
-                            .padding(horizontal = 16.dp, vertical = LocalRows.current.pad + 2.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(16.dp),
-                    ) {
-                        Box(
-                            Modifier.size(40.dp).clip(CircleShape).background(section.tint.copy(alpha = 0.18f)),
-                            contentAlignment = Alignment.Center,
-                        ) { Icon(section.icon, contentDescription = null, tint = section.tint) }
-                        Column(Modifier.weight(1f)) {
-                            Text(section.title, style = MaterialTheme.typography.titleMedium)
-                            Text(section.summary, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                        }
-                        Icon(Icons.AutoMirrored.Rounded.KeyboardArrowRight, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
+        item { SectionList(null) { open(it.route()) } }
+    }
+}
+
+/**
+ * Settings on a tablet, as Android's own Settings there: the sections in a list at the left, and
+ * the one chosen open beside it.
+ */
+@Composable
+private fun TwoPaneSettings(open: (Route) -> Unit) {
+    var chosen by rememberSaveable { mutableStateOf(SettingsSection.Library) }
+    Row(Modifier.fillMaxSize()) {
+        LazyColumn(Modifier.width(380.dp).fillMaxHeight(), contentPadding = PaddingValues(bottom = 24.dp)) {
+            item { LargeTitle("Settings") }
+            item { SectionList(chosen) { chosen = it } }
+        }
+        // The section is not a page of its own here, so it has no way back of its own.
+        Box(Modifier.weight(1f).fillMaxHeight()) {
+            CompositionLocalProvider(LocalCanGoBack provides false) {
+                AnimatedContent(chosen, transitionSpec = { fadeIn(tween(200)) togetherWith fadeOut(tween(120)) }, label = "section") { section ->
+                    when (section) {
+                        SettingsSection.Plugins -> PluginsScreen(open)
+                        SettingsSection.Computer -> ConnectScreen()
+                        SettingsSection.Sync -> SyncScreen()
+                        SettingsSection.WhatsNew -> WhatsNewScreen()
+                        else -> SettingsSectionScreen(section, open)
                     }
-                    if (i < sections.size - 1) Divider()
                 }
             }
+        }
+    }
+}
+
+/** The sections, each with its icon and what is in it; `chosen` is lit in two panes. */
+@Composable
+private fun SectionList(chosen: SettingsSection?, onChoose: (SettingsSection) -> Unit) {
+    // Discord only in builds that have Discord's library.
+    val sections = SettingsSection.entries.filter { it != SettingsSection.Discord || Discord.available }
+    // The tints are made for the dark pages; on a light page they are deepened to read.
+    val light = MaterialTheme.colorScheme.background.luminance() > 0.5f
+    Group {
+        sections.forEachIndexed { i, section ->
+            val tint = if (light) androidx.compose.ui.graphics.lerp(section.tint, Color.Black, 0.45f) else section.tint
+            Row(
+                Modifier
+                    .fillMaxWidth()
+                    .background(if (section == chosen) MaterialTheme.colorScheme.secondaryContainer else Color.Transparent)
+                    // Beside its page on a tablet, TalkBack says which section is open.
+                    .then(
+                        if (chosen != null) Modifier.selectable(section == chosen, role = Role.Tab) { onChoose(section) }
+                        else Modifier.clickable { onChoose(section) },
+                    )
+                    .padding(horizontal = 16.dp, vertical = LocalRows.current.pad + 2.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(16.dp),
+            ) {
+                Box(
+                    Modifier.size(42.dp).clip(iconShape()).background(tint.copy(alpha = 0.18f)),
+                    contentAlignment = Alignment.Center,
+                ) { Icon(section.icon, contentDescription = null, tint = tint) }
+                Column(Modifier.weight(1f)) {
+                    Text(section.title, style = MaterialTheme.typography.titleMedium)
+                    Text(section.summary, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+                if (chosen == null) Icon(Icons.AutoMirrored.Rounded.KeyboardArrowRight, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+            if (i < sections.size - 1) Divider()
         }
     }
 }
@@ -188,7 +254,10 @@ fun SettingsSectionScreen(section: SettingsSection, open: (Route) -> Unit) {
 
 // ---------- Building blocks
 
-/** Rows grouped on one rounded surface, as in Android's own Settings. */
+/**
+ * Rows grouped on one rounded surface, as in Android 16's own Settings: the group's ends are
+ * rounded, and its rows stand a hair apart (each [Divider] is a gap the page shows through).
+ */
 @Composable
 private fun Group(title: String? = null, footer: String? = null, content: @Composable () -> Unit) {
     Column(Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) {
@@ -204,7 +273,7 @@ private fun Group(title: String? = null, footer: String? = null, content: @Compo
             Modifier
                 .fillMaxWidth()
                 .clip(RoundedCornerShape(24.dp))
-                .background(MaterialTheme.colorScheme.surfaceContainer)
+                .background(groupColor())
                 .animateContentSize(),
         ) { content() }
         if (footer != null) {
@@ -218,17 +287,20 @@ private fun Group(title: String? = null, footer: String? = null, content: @Compo
     }
 }
 
+/** Between two rows of a [Group]: a gap of the page, rather than a line. */
 @Composable
-private fun Divider() = HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant, modifier = Modifier.padding(horizontal = 16.dp))
+private fun Divider() = Box(Modifier.fillMaxWidth().height(2.dp).background(MaterialTheme.colorScheme.background))
 
 @Composable
 private fun SwitchRow(title: String, summary: String?, checked: Boolean, enabled: Boolean = true, onChange: (Boolean) -> Unit) {
     val haptics = rememberHaptics()
     Row(
+        // The whole row is the one switch: one place to tap, one stop for a remote, and
+        // TalkBack says on or off.
         Modifier
             .fillMaxWidth()
             .heightIn(min = LocalRows.current.height + 4.dp)
-            .clickable(enabled = enabled) { haptics(false); onChange(!checked) }
+            .toggleable(checked, enabled = enabled, role = Role.Switch) { haptics(false); onChange(it) }
             .padding(horizontal = 16.dp, vertical = LocalRows.current.pad),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(16.dp),
@@ -237,7 +309,7 @@ private fun SwitchRow(title: String, summary: String?, checked: Boolean, enabled
             Text(title, style = MaterialTheme.typography.bodyLarge, color = if (enabled) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurfaceVariant)
             if (summary != null) Text(summary, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
-        Switch(checked = checked, enabled = enabled, onCheckedChange = { haptics(false); onChange(it) })
+        Switch(checked = checked, enabled = enabled, onCheckedChange = null)
     }
 }
 
@@ -259,13 +331,20 @@ private fun SliderRow(
             Text(shown, style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary)
         }
         if (summary != null) Text(summary, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-        Slider(value = value, onValueChange = onChange, onValueChangeFinished = onDone, valueRange = range, steps = steps, enabled = enabled)
+        Slider(value = value, onValueChange = onChange, onValueChangeFinished = onDone, valueRange = range, steps = steps, enabled = enabled, modifier = Modifier.named(title, shown))
     }
 }
 
-/** Runs a call to the core off the main thread. */
-private fun background(work: () -> Unit) {
-    NeedleApp.instance.scope.launch { runCatching { work() } }
+/**
+ * Runs a call to the core off the main thread, one at a time in order (settings saved the wrong
+ * way round would undo the newer), then `then` on the main thread; a failure says so.
+ */
+private fun background(then: () -> Unit = {}, work: () -> Unit) {
+    NeedleApp.instance.scope.launch(NeedleApp.instance.saves) {
+        runCatching { work() }
+            .onSuccess { withContext(Dispatchers.Main) { then() } }
+            .onFailure { showMessage(it.message ?: "That did not work") }
+    }
 }
 
 // ---------- Library
@@ -274,12 +353,18 @@ private fun background(work: () -> Unit) {
  * A folder chosen in Android's picker, as a path Needle can read ("primary:Music" is the
  * phone's own Music folder; other volumes, like an SD card, have their own id).
  */
-private fun treePath(uri: Uri): String? {
+internal fun treePath(uri: Uri): String? {
     val id = runCatching { DocumentsContract.getTreeDocumentId(uri) }.getOrNull() ?: return null
     val volume = id.substringBefore(':')
     val rest = id.substringAfter(':', "")
     val root = if (volume == "primary") Environment.getExternalStorageDirectory().path else "/storage/$volume"
-    return if (rest.isEmpty()) root else "$root/$rest"
+    val path = if (rest.isEmpty()) root else "$root/$rest"
+    // Other places in the picker (Downloads, cloud drives) are not folders Needle can read.
+    if (!File(path).isDirectory) {
+        showMessage("Needle can read folders on the phone or an SD card. Choose one there.")
+        return null
+    }
+    return path
 }
 
 @OptIn(ExperimentalMaterial3ExpressiveApi::class)
@@ -295,11 +380,12 @@ private fun LibrarySettings(open: (Route) -> Unit) {
     LaunchedEffect(Unit) { playback = withContext(Dispatchers.IO) { runCatching { core.playbackSettings() }.getOrNull() } }
     val pick = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocumentTree()) { uri ->
         val path = uri?.let(::treePath) ?: return@rememberLauncherForActivityResult
-        background { core.addFolder(path) }
-        NeedleApp.instance.libraryVersion.value++
+        // The lists are read again once the folder is in (a scan may hold it back a moment).
+        background(then = { NeedleApp.instance.libraryChanged() }) { core.addFolder(path) }
     }
     val music = File(Environment.getExternalStorageDirectory(), Environment.DIRECTORY_MUSIC).path
 
+    MusicAccessNotice(Modifier.padding(horizontal = 16.dp, vertical = 8.dp))
     Group("Music folders", footer = "Needle reads these folders, and reads them again each time it starts.") {
         folders.orEmpty().forEachIndexed { i, folder ->
             Row(
@@ -313,15 +399,15 @@ private fun LibrarySettings(open: (Route) -> Unit) {
                     Text(folder, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
                 IconButton(onClick = { removing = folder }) {
-                    Icon(Icons.Rounded.Delete, contentDescription = "Stop reading this folder", tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Icon(Icons.Rounded.Delete, contentDescription = "Stop reading ${folder.substringAfterLast('/').ifBlank { folder }}", tint = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
             }
             Divider()
         }
         Row(Modifier.fillMaxWidth().padding(16.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-            Button(onClick = { pick.launch(null) }) { Text("Add a folder") }
+            Button(onClick = { tryOpen("file picker") { pick.launch(null) } }) { Text("Add a folder") }
             if (folders?.contains(music) == false) {
-                FilledTonalButton(onClick = { background { core.addFolder(music) }; NeedleApp.instance.libraryVersion.value++ }) {
+                FilledTonalButton(onClick = { background(then = { NeedleApp.instance.libraryChanged() }) { core.addFolder(music) } }) {
                     Text("Use Music")
                 }
             }
@@ -359,7 +445,7 @@ private fun LibrarySettings(open: (Route) -> Unit) {
         LinkRow("Import", "Plays, stars, and playlists from iTunes, Spotify, Last.fm, and more") { open(Route.Import) }
         Divider()
         LinkRow("Back up the library", "Your songs' plays, stars, playlists, and settings, in one file") {
-            backup.launch("needle-library-${java.time.LocalDate.now()}.db")
+            tryOpen("file picker") { backup.launch("needle-library-${java.time.LocalDate.now()}.db") }
         }
     }
     playback?.let { p ->
@@ -378,7 +464,7 @@ private fun LibrarySettings(open: (Route) -> Unit) {
             text = { Text("Its songs leave your library. The files stay on your phone.") },
             confirmButton = {
                 TextButton(onClick = {
-                    background { core.removeFolder(folder); NeedleApp.instance.libraryVersion.value++ }
+                    background { core.removeFolder(folder); NeedleApp.instance.libraryChanged() }
                     removing = null
                 }) { Text("Stop reading") }
             },
@@ -438,7 +524,13 @@ private fun PlaybackSettingsPage() {
     }
     Group("When Up next ends", footer = "Needle plays songs that match this search, as you would type it in Search. Leave it empty to stop.") {
         var query by remember(s.autoplayQuery) { mutableStateOf(s.autoplayQuery) }
-        val problem = if (query.isNotBlank() && core.isRule(query)) core.checkRule(query) else null
+        // Checked off the main thread as it is typed.
+        val problem by androidx.compose.runtime.produceState<String?>(null, query) {
+            value = if (query.isBlank()) null else withContext(Dispatchers.IO) {
+                runCatching { if (core.isRule(query)) core.checkRule(query) else null }.getOrNull()
+            }
+        }
+        val keep = { if (query != s.autoplayQuery && problem == null) { save(s.copy(autoplayQuery = query.trim())); showMessage("Saved") } }
         OutlinedTextField(
             query, { query = it },
             label = { Text("Keep playing") },
@@ -447,9 +539,12 @@ private fun PlaybackSettingsPage() {
             isError = problem != null,
             supportingText = problem?.let { { Text(it) } },
             trailingIcon = {
-                if (query != s.autoplayQuery && problem == null) TextButton(onClick = { save(s.copy(autoplayQuery = query.trim())); showMessage("Saved") }) { Text("Save") }
+                if (query != s.autoplayQuery && problem == null) TextButton(onClick = keep) { Text("Save") }
             },
-            modifier = Modifier.fillMaxWidth().padding(16.dp),
+            // The keyboard's Done saves too: on a TV the Save beside the words is out of the remote's reach.
+            keyboardOptions = KeyboardOptions(imeAction = androidx.compose.ui.text.input.ImeAction.Done),
+            keyboardActions = androidx.compose.foundation.text.KeyboardActions(onDone = { keep() }),
+            modifier = Modifier.remoteEscape().fillMaxWidth().padding(16.dp),
         )
     }
     Group("Radio", footer = "Radio picks songs that sound alike, from how each one sounds. Measuring reads each song once, on this phone.") {
@@ -511,7 +606,7 @@ private fun SoundSettingsPage() {
                     items(mine) { name ->
                         FilterChip(
                             selected = s.preset == name,
-                            onClick = { background { core.usePreset(name) }; reload() },
+                            onClick = { background(then = { reload() }) { core.usePreset(name) } },
                             label = { Text(name) },
                             leadingIcon = { Icon(Icons.Rounded.Star, contentDescription = "Yours", modifier = Modifier.size(16.dp)) },
                         )
@@ -543,7 +638,7 @@ private fun SoundSettingsPage() {
                     TextButton(onClick = { naming = true }) { Text("Save as a preset") }
                     if (s.preset in mine) TextButton(onClick = { background { core.deletePreset(s.preset) }; mine = mine - s.preset }) { Text("Delete ${s.preset}") }
                 }
-                TextButton(onClick = { correction.launch(arrayOf("text/plain", "*/*")) }, modifier = Modifier.padding(start = 8.dp, bottom = 8.dp)) {
+                TextButton(onClick = { tryOpen("file picker") { correction.launch(arrayOf("text/plain", "*/*")) } }, modifier = Modifier.padding(start = 8.dp, bottom = 8.dp)) {
                     Text("Load a headphone correction…")
                 }
             }
@@ -554,7 +649,7 @@ private fun SoundSettingsPage() {
         AlertDialog(
             onDismissRequest = { naming = false },
             title = { Text("Save as a preset") },
-            text = { OutlinedTextField(name, { name = it }, label = { Text("Name") }, singleLine = true) },
+            text = { OutlinedTextField(name, { name = it }, label = { Text("Name") }, singleLine = true, modifier = Modifier.remoteEscape()) },
             confirmButton = {
                 TextButton(enabled = name.isNotBlank(), onClick = {
                     naming = false
@@ -594,26 +689,76 @@ private fun SoundSettingsPage() {
     PluginEffects()
 }
 
-/** Ten upright bars, dragged up and down, with a line through their tops. */
+/**
+ * Ten upright bars, dragged up and down, with a line through their tops. With a remote or keys,
+ * each bar takes the focus; OK takes hold of it, up and down then move it half a decibel, and
+ * OK or Back lets go. Not held, up and down move on through the page as anywhere else.
+ */
 @Composable
 private fun EqualizerBands(gains: List<Float>, frequencies: List<Float>, onChange: (List<Float>) -> Unit) {
     var live by remember(gains) { mutableStateOf(gains) }
     val haptics = rememberHaptics()
+    // A drag outlives the composition it began in: it saves through the latest settings.
+    val save by androidx.compose.runtime.rememberUpdatedState(onChange)
     Row(
         Modifier.fillMaxWidth().height(220.dp).padding(horizontal = 12.dp, vertical = 16.dp),
         horizontalArrangement = Arrangement.SpaceBetween,
     ) {
         live.forEachIndexed { i, gain ->
             Column(Modifier.weight(1f), horizontalAlignment = Alignment.CenterHorizontally) {
-                Text("%+.0f".format(gain), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                // Half steps show as such (+1.5); whole ones without a point (+2).
+                var held by remember { mutableStateOf(false) }
+                // Back lets go of a held band, before it would leave the page.
+                androidx.activity.compose.BackHandler(enabled = held) { held = false }
+                Text(
+                    if (gain % 1f == 0f) "%+.0f".format(gain) else "%+.1f".format(gain),
+                    style = MaterialTheme.typography.labelSmall,
+                    color = if (held) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 1,
+                    softWrap = false,
+                )
+                val focus = remember { androidx.compose.foundation.interaction.MutableInteractionSource() }
+                val nudge: (Float) -> Unit = { by ->
+                    live = live.toMutableList().also { it[i] = (it[i] + by).coerceIn(-12f, 12f) }
+                    save(live)
+                }
                 BoxWithConstraints(
                     Modifier
                         .weight(1f)
-                        .width(28.dp)
+                        // The band's whole share of the row to take hold of, not a thin strip.
+                        .fillMaxWidth()
                         .padding(vertical = 6.dp)
-                        .pointerInput(i) {
+                        .focusRing(focus, 14.dp)
+                        .onFocusChanged { if (!it.isFocused) held = false }
+                        .onKeyEvent {
+                            val down = it.type == androidx.compose.ui.input.key.KeyEventType.KeyDown
+                            when (it.key) {
+                                androidx.compose.ui.input.key.Key.DirectionCenter, androidx.compose.ui.input.key.Key.Enter, androidx.compose.ui.input.key.Key.NumPadEnter -> {
+                                    if (down) held = !held
+                                    true
+                                }
+                                androidx.compose.ui.input.key.Key.Back, androidx.compose.ui.input.key.Key.Escape -> {
+                                    if (!held) return@onKeyEvent false
+                                    if (down) held = false
+                                    true
+                                }
+                                androidx.compose.ui.input.key.Key.DirectionUp, androidx.compose.ui.input.key.Key.DirectionDown -> {
+                                    if (!held) return@onKeyEvent false
+                                    if (down) nudge(if (it.key == androidx.compose.ui.input.key.Key.DirectionUp) 0.5f else -0.5f)
+                                    true
+                                }
+                                else -> false
+                            }
+                        }
+                        .semantics {
+                            contentDescription = frequencies.getOrNull(i)?.let { f -> if (f >= 1000f) "${(f / 1000f).let { k -> if (k % 1f == 0f) k.toInt().toString() else k.toString() }} kHz" else "${f.toInt()} Hz" } ?: "Band ${i + 1}"
+                            progressBarRangeInfo = androidx.compose.ui.semantics.ProgressBarRangeInfo(live[i], -12f..12f, 48)
+                            setProgress { v -> nudge(((Math.round(v * 2) / 2f) - live[i])); true }
+                        }
+                        .focusable(interactionSource = focus)
+                        .pointerInput(i, gains) {
                             detectVerticalDragGestures(
-                                onDragEnd = { haptics(false); onChange(live) },
+                                onDragEnd = { haptics(false); save(live) },
                             ) { change, _ ->
                                 val y = change.position.y.coerceIn(0f, size.height.toFloat())
                                 val value = 12f - 24f * y / size.height
@@ -679,7 +824,7 @@ private fun AppearanceSettings(open: (Route) -> Unit) {
         Divider()
         Row(Modifier.padding(8.dp), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
             TextButton(onClick = { open(Route.ThemeEditor(null)) }) { Text("Make a theme") }
-            TextButton(onClick = { importTheme.launch(arrayOf("*/*")) }) { Text("Add a theme file") }
+            TextButton(onClick = { tryOpen("file picker") { importTheme.launch(arrayOf("*/*")) } }) { Text("Add a theme file") }
             if (themes.any { it.id == app.theme }) TextButton(onClick = { open(Route.ThemeEditor(app.theme)) }) { Text("Edit this one") }
         }
     }
@@ -725,28 +870,42 @@ private fun AppearanceSettings(open: (Route) -> Unit) {
             }
         }
     }
-    Group("Accent", footer = "Where no cover gives the colour: buttons, what is playing, and links.") {
+    // A theme of your own sets its accent itself, so these would do nothing while it is on.
+    val ownTheme = app.theme !in listOf("night", "midnight", "day", "light")
+    if (ownTheme) Group("Accent", footer = "Your theme sets its own accent. Choose Night, Midnight, or Day to pick one here.") {}
+    else Group("Accent", footer = "Where no cover gives the colour: buttons, what is playing, and links.") {
         val swatches = listOf(
             "" to Color(0xFFE2B46C), "#E5484D" to Color(0xFFE5484D), "#E93D82" to Color(0xFFE93D82),
             "#8E4EC6" to Color(0xFF8E4EC6), "#3E63DD" to Color(0xFF3E63DD), "#0090FF" to Color(0xFF0090FF),
             "#12A594" to Color(0xFF12A594), "#46A758" to Color(0xFF46A758), "#F76B15" to Color(0xFFF76B15),
         )
-        Row(
-            Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 16.dp),
-            horizontalArrangement = Arrangement.SpaceBetween,
+        // What TalkBack calls each one.
+        val names = listOf("Amber", "Red", "Pink", "Purple", "Blue", "Sky blue", "Teal", "Green", "Orange")
+        // Each a full finger's width to tap, onto a second line where the screen is narrow.
+        androidx.compose.foundation.layout.FlowRow(
+            Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 12.dp),
+            horizontalArrangement = Arrangement.spacedBy(4.dp),
         ) {
-            swatches.forEach { (id, color) ->
+            swatches.forEachIndexed { n, (id, color) ->
                 val chosen = app.accentColor.equals(id, ignoreCase = true)
                 Box(
                     Modifier
-                        .size(32.dp)
+                        .size(48.dp)
                         .clip(androidx.compose.foundation.shape.CircleShape)
-                        .background(color)
-                        .border(if (chosen) 3.dp else 0.dp, MaterialTheme.colorScheme.onSurface, androidx.compose.foundation.shape.CircleShape)
-                        .clickable { update { it.copy(accentColor = id) } },
+                        .selectable(chosen, role = Role.RadioButton) { update { it.copy(accentColor = id) } }
+                        .semantics { contentDescription = names[n] },
                     contentAlignment = Alignment.Center,
                 ) {
-                    if (chosen) Icon(androidx.compose.material.icons.Icons.Rounded.Check, contentDescription = "Chosen", tint = Color.White, modifier = Modifier.size(18.dp))
+                    Box(
+                        Modifier
+                            .size(36.dp)
+                            .clip(androidx.compose.foundation.shape.CircleShape)
+                            .background(color)
+                            .border(if (chosen) 3.dp else 0.dp, MaterialTheme.colorScheme.onSurface, androidx.compose.foundation.shape.CircleShape),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        if (chosen) Icon(androidx.compose.material.icons.Icons.Rounded.Check, contentDescription = null, tint = Color.White, modifier = Modifier.size(18.dp))
+                    }
                 }
             }
         }
@@ -863,6 +1022,8 @@ private fun AppearanceSettings(open: (Route) -> Unit) {
         SwitchRow("Follow the song", "The line playing is lit and stays in view", app.liveLyrics) { on -> update { it.copy(liveLyrics = on) } }
         Divider()
         SwitchRow("Keep the screen on", "While the lyrics show", app.keepScreenOnLyrics) { on -> update { it.copy(keepScreenOnLyrics = on) } }
+        Divider()
+        SwitchRow("Lyrics under the mini player", "The line playing, across the foot of the screen. Made for tablets", app.miniPlayerLyrics) { on -> update { it.copy(miniPlayerLyrics = on) } }
     }
 }
 
@@ -875,13 +1036,21 @@ private fun StyleTile(label: String, selected: Boolean, modifier: Modifier, onCl
             .clip(RoundedCornerShape(16.dp))
             .border(if (selected) 2.dp else 1.dp, border, RoundedCornerShape(16.dp))
             .background(if (selected) MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.35f) else Color.Transparent)
-            .clickable(onClick = onClick)
+            .selectable(selected, role = Role.RadioButton, onClick = onClick)
             .padding(12.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.spacedBy(10.dp),
     ) {
         Box(Modifier.fillMaxWidth().height(44.dp), contentAlignment = Alignment.Center) { preview() }
-        Text(label, style = MaterialTheme.typography.labelLarge, color = if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface)
+        // Smaller rather than broken mid-word, where large text leaves a tile too narrow.
+        Text(
+            label,
+            style = MaterialTheme.typography.labelLarge,
+            color = if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface,
+            maxLines = 1,
+            softWrap = false,
+            autoSize = androidx.compose.foundation.text.TextAutoSize.StepBased(minFontSize = 9.sp, maxFontSize = MaterialTheme.typography.labelLarge.fontSize),
+        )
     }
 }
 
@@ -922,15 +1091,17 @@ private fun ScrobblingSettings() {
             Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 if (!a.lastfmKeyBuiltIn) {
                     Text("This build needs your own Last.fm API account: create one at last.fm/api, then paste its key and secret.", color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    OutlinedTextField(key, { key = it }, label = { Text("API key") }, singleLine = true, modifier = Modifier.fillMaxWidth())
-                    OutlinedTextField(secret, { secret = it }, label = { Text("Shared secret") }, singleLine = true, visualTransformation = PasswordVisualTransformation(), modifier = Modifier.fillMaxWidth())
+                    OutlinedTextField(key, { key = it }, label = { Text("API key") }, singleLine = true, modifier = Modifier.remoteEscape().fillMaxWidth())
+                    OutlinedTextField(secret, { secret = it }, label = { Text("Shared secret") }, singleLine = true, visualTransformation = PasswordVisualTransformation(), modifier = Modifier.remoteEscape().fillMaxWidth())
                 }
                 if (!waitingForBrowser) {
                     Button(enabled = !busy, onClick = {
                         run {
                             val url = core.lastfmBegin(key, secret)
-                            context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
-                            waitingForBrowser = true
+                            // Without a browser there is no page to allow Needle on; say so plainly.
+                            if (tryOpen("web browser to sign in with") { context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) }) {
+                                waitingForBrowser = true
+                            }
                             null
                         }
                     }) { Text("Sign in with Last.fm") }
@@ -943,6 +1114,8 @@ private fun ScrobblingSettings() {
                             if (user.isBlank()) "Signed in to Last.fm." else "Signed in as $user."
                         }
                     }) { Text("I allowed it") }
+                    // The browser page was closed, or the key was wrong: ask for a new page.
+                    TextButton(enabled = !busy, onClick = { waitingForBrowser = false }) { Text("Start again") }
                 }
             }
         }
@@ -961,7 +1134,7 @@ private fun ScrobblingSettings() {
                     token, { token = it }, label = { Text("User token") }, singleLine = true,
                     visualTransformation = PasswordVisualTransformation(),
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
-                    modifier = Modifier.fillMaxWidth(),
+                    modifier = Modifier.remoteEscape().fillMaxWidth(),
                 )
                 Button(enabled = !busy && token.isNotBlank(), onClick = {
                     run { val user = core.listenbrainzSignIn(token.trim()); if (user.isBlank()) "Signed in to ListenBrainz." else "Signed in as $user." }
@@ -1053,7 +1226,18 @@ private fun <T> ChoiceRow(title: String, options: List<Pair<T, String>>, current
                     onClick = { onChange(value) },
                     shape = SegmentedButtonDefaults.itemShape(i, options.size),
                     icon = {},
-                ) { Text(label, maxLines = 1) }
+                ) {
+                    // Smaller rather than cut, where large text leaves a segment too narrow.
+                    Text(
+                        label,
+                        maxLines = 1,
+                        softWrap = false,
+                        autoSize = androidx.compose.foundation.text.TextAutoSize.StepBased(
+                            minFontSize = 9.sp,
+                            maxFontSize = MaterialTheme.typography.labelLarge.fontSize,
+                        ),
+                    )
+                }
             }
         }
     }
@@ -1064,7 +1248,7 @@ private fun <T> ChoiceRow(title: String, options: List<Pair<T, String>>, current
 @Composable
 private fun AboutPage(open: (Route) -> Unit) {
     val context = LocalContext.current
-    fun visit(url: String) = context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+    fun visit(url: String) = tryOpen("web browser") { context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) }
     val version = remember { runCatching { context.packageManager.getPackageInfo(context.packageName, 0).versionName }.getOrNull() ?: "" }
     Group {
         Column(Modifier.padding(16.dp)) {
@@ -1150,9 +1334,9 @@ private fun ParametricBands(bands: List<fyi.nnx.needle.core.EqBand>, onChange: (
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         modifier = Modifier.weight(1f),
                     )
-                    Switch(band.on, { set(i, band.copy(on = it), true) })
+                    Switch(band.on, { set(i, band.copy(on = it), true) }, Modifier.named("Band ${i + 1}"))
                     IconButton(onClick = { onChange(live.filterIndexed { j, _ -> j != i }) }) {
-                        Icon(Icons.Rounded.Delete, contentDescription = "Remove this band", tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Icon(Icons.Rounded.Delete, contentDescription = "Remove band ${i + 1}", tint = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
                 }
                 // Frequency on a log scale, as ears hear it.
@@ -1162,13 +1346,14 @@ private fun ParametricBands(bands: List<fyi.nnx.needle.core.EqBand>, onChange: (
                     { set(i, band.copy(frequency = Math.pow(10.0, it.toDouble()).toFloat()), false) },
                     valueRange = kotlin.math.log10(20f)..kotlin.math.log10(20000f),
                     onValueChangeFinished = { onChange(live) },
+                    modifier = Modifier.named("Band ${i + 1} frequency", "${band.frequency.toInt()} Hz"),
                 )
                 if (band.kind in listOf("peak", "lowshelf", "highshelf")) {
                     Text("Gain", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    Slider(band.gain, { set(i, band.copy(gain = it), false) }, valueRange = -12f..12f, onValueChangeFinished = { onChange(live) })
+                    Slider(band.gain, { set(i, band.copy(gain = it), false) }, valueRange = -12f..12f, onValueChangeFinished = { onChange(live) }, modifier = Modifier.named("Band ${i + 1} gain", "%+.1f dB".format(band.gain)))
                 }
                 Text("Width (Q)", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                Slider(band.q, { set(i, band.copy(q = it), false) }, valueRange = 0.2f..6f, onValueChangeFinished = { onChange(live) })
+                Slider(band.q, { set(i, band.copy(q = it), false) }, valueRange = 0.2f..6f, onValueChangeFinished = { onChange(live) }, modifier = Modifier.named("Band ${i + 1} width", "%.1f".format(band.q)))
             }
         }
         if (live.size < 20) TextButton(onClick = {

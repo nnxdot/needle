@@ -81,7 +81,7 @@ fun SyncScreen() {
         uri ?: return@rememberLauncherForActivityResult
         run {
             val report = withPickedFile(context, uri) { core.importSync(it, passphrase) }
-            NeedleApp.instance.libraryVersion.value++
+            NeedleApp.instance.libraryChanged()
             "Matched ${count(report.songsMatched.toInt(), "song")}, added ${count(report.listensAdded.toInt(), "listen")} and ${count(report.playlistsAdded.toInt(), "playlist")}" +
                 if (report.songsNotFound > 0u) ". ${count(report.songsNotFound.toInt(), "song")} not on this phone." else "."
         }
@@ -99,11 +99,11 @@ fun SyncScreen() {
                     visualTransformation = PasswordVisualTransformation(),
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
                     supportingText = { Text("At least 12 characters. Needle cannot open the file without it.") },
-                    modifier = Modifier.fillMaxWidth(),
+                    modifier = Modifier.remoteEscape().fillMaxWidth(),
                 )
                 Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                    Button(enabled = !busy && passphrase.length >= 12, onClick = { save.launch("library.needle") }) { Text("Save a sync file") }
-                    FilledTonalButton(enabled = !busy && passphrase.length >= 12, onClick = { read.launch(arrayOf("*/*")) }) { Text("Read one") }
+                    Button(enabled = !busy && passphrase.length >= 12, onClick = { tryOpen("file picker") { save.launch("library.needle") } }) { Text("Save a sync file") }
+                    FilledTonalButton(enabled = !busy && passphrase.length >= 12, onClick = { tryOpen("file picker") { read.launch(arrayOf("*/*")) } }) { Text("Read one") }
                 }
             }
         }
@@ -150,7 +150,7 @@ fun TimingScreen(songId: String) {
             }
             if (lines.isEmpty()) {
                 item {
-                    OutlinedTextField(text, { text = it }, label = { Text("Lyrics") }, minLines = 6, modifier = Modifier.fillMaxWidth().padding(Edge))
+                    OutlinedTextField(text, { text = it }, label = { Text("Lyrics") }, minLines = 6, modifier = Modifier.remoteEscape(lines = true).fillMaxWidth().padding(Edge))
                     TextButton(onClick = {
                         lines.addAll(text.lines().filter { it.isNotBlank() }.map { LyricLine(-1.0, it.trim(), emptyList()) })
                     }, modifier = Modifier.padding(horizontal = 12.dp)) { Text("Use these lines") }
@@ -176,7 +176,8 @@ fun TimingScreen(songId: String) {
             Button(
                 enabled = thisSong && next < lines.size,
                 onClick = {
-                    lines[next] = lines[next].copy(time = position)
+                    // Asked now, not taken from the last redraw, which can be a fifth of a second old.
+                    lines[next] = lines[next].copy(time = runCatching { core.playback().position }.getOrDefault(position))
                     next++
                 },
                 modifier = Modifier.weight(1f),
@@ -184,9 +185,10 @@ fun TimingScreen(songId: String) {
             FilledTonalButton(
                 enabled = lines.isNotEmpty() && lines.all { it.time >= 0 },
                 onClick = {
-                    runCatching { core.saveTimedLyrics(songId, lines.toList()) }
-                        .onSuccess { showMessage("Saved the timed lyrics") }
-                        .onFailure { showMessage(it.message ?: "Could not save them") }
+                    // The player's lyrics are read again once saved.
+                    libraryWrite({ core.saveTimedLyrics(songId, lines.toList()) }, { showMessage(it.message ?: "Could not save them") }) {
+                        showMessage("Saved the timed lyrics")
+                    }
                 },
             ) { Text("Save") }
         }
@@ -240,17 +242,22 @@ fun UpdatesRow() {
                         result.onSuccess { path ->
                             status = "Checked. Android asks you to install it."
                             // Android's installer takes it from here, and asks the person.
-                            val uri = FileProvider.getUriForFile(context, "${context.packageName}.files", File(path))
-                            context.startActivity(
-                                Intent(Intent.ACTION_VIEW).setDataAndType(uri, "application/vnd.android.package-archive")
-                                    .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_ACTIVITY_NEW_TASK),
-                            )
+                            val opened = runCatching {
+                                val uri = FileProvider.getUriForFile(context, "${context.packageName}.files", File(path))
+                                tryOpen("app installer") {
+                                    context.startActivity(
+                                        Intent(Intent.ACTION_VIEW).setDataAndType(uri, "application/vnd.android.package-archive")
+                                            .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_ACTIVITY_NEW_TASK),
+                                    )
+                                }
+                            }.getOrDefault(false)
+                            if (!opened) status = "This device cannot install it here. Get Needle from needle.nnx.fyi instead."
                         }.onFailure { status = "The update did not work: ${it.message}" }
                     }
                 }) { Text("Update to ${update.version}") }
             } else {
                 Button(onClick = {
-                    context.startActivity(Intent(Intent.ACTION_VIEW, android.net.Uri.parse(update.page.ifBlank { "https://needle.nnx.fyi" })).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+                    tryOpen("web browser") { context.startActivity(Intent(Intent.ACTION_VIEW, android.net.Uri.parse(update.page.ifBlank { "https://needle.nnx.fyi" })).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) }
                 }) { Text("Get Needle ${update.version}") }
             }
         }
