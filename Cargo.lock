@@ -4889,7 +4889,7 @@ dependencies = [
 
 [[package]]
 name = "needle"
-version = "1.7.0"
+version = "1.7.1"
 dependencies = [
  "anyhow",
  "chrono",
@@ -4920,7 +4920,7 @@ dependencies = [
 
 [[package]]
 name = "needle-core"
-version = "1.7.0"
+version = "1.7.1"
 dependencies = [
  "aes",
  "anyhow",
@@ -4973,13 +4973,14 @@ dependencies = [
 
 [[package]]
 name = "needle-mobile"
-version = "1.7.0"
+version = "1.7.1"
 dependencies = [
  "anyhow",
  "chrono",
  "jni",
  "ndk-context",
  "needle-core",
+ "rand 0.8.8",
  "reqwest",
  "serde",
  "serde_json",

@@ -39,23 +39,31 @@ pub struct RecordingMatch {
     pub release_id: Option<String>,
 }
 
-/// A MusicBrainz web-service GET that honours the one-request-per-second limit shared by all callers.
+/// A MusicBrainz web-service GET that honours the one-request-per-second limit shared by all
+/// callers. When MusicBrainz is busy (503), it is asked twice more, a little later each time.
 pub(crate) fn musicbrainz_get(path: &str, query: &[(&str, &str)]) -> Result<Value> {
-    let mut last = MB_LAST.lock().unwrap();
-    if let Some(time) = *last {
-        let elapsed = time.elapsed();
-        if elapsed < Duration::from_secs(1) {
-            std::thread::sleep(Duration::from_secs(1) - elapsed);
+    let mut last = MB_LAST.lock().unwrap_or_else(|e| e.into_inner());
+    let mut wait = Duration::from_secs(1);
+    for attempt in 0..3 {
+        if let Some(time) = *last {
+            let elapsed = time.elapsed();
+            if elapsed < wait {
+                std::thread::sleep(wait - elapsed);
+            }
         }
+        *last = Some(Instant::now());
+        let response = client()?
+            .get(format!("https://musicbrainz.org/ws/2/{path}"))
+            .query(query)
+            .query(&[("fmt", "json")])
+            .send()?;
+        if response.status() == reqwest::StatusCode::SERVICE_UNAVAILABLE && attempt < 2 {
+            wait = Duration::from_secs(2 << attempt);
+            continue;
+        }
+        return Ok(response.error_for_status()?.json()?);
     }
-    *last = Some(Instant::now());
-    Ok(client()?
-        .get(format!("https://musicbrainz.org/ws/2/{path}"))
-        .query(query)
-        .query(&[("fmt", "json")])
-        .send()?
-        .error_for_status()?
-        .json()?)
+    unreachable!("the last attempt returns")
 }
 
 pub fn musicbrainz_search(
@@ -495,6 +503,19 @@ pub fn listenbrainz_sign_out() -> Result<()> {
     clear_secret(SecretKind::ListenbrainzToken)?;
     clear_secret(SecretKind::ListenbrainzUser)
 }
+/// The effective fanart.tv key (environment, then the system's store, then the build's).
+pub fn fanart_key() -> Option<String> {
+    resolve(&SystemStore, &|name: &str| std::env::var(name).ok(), SecretKind::FanartKey)
+        .map(|(value, _)| value)
+        .filter(|k| !k.trim().is_empty())
+}
+
+/// Whether the fanart.tv key in use is one the person saved (not Needle's own, built in).
+pub fn fanart_key_is_own() -> bool {
+    resolve(&SystemStore, &|name: &str| std::env::var(name).ok(), SecretKind::FanartKey)
+        .is_some_and(|(_, source)| source != SecretSource::BuiltIn)
+}
+
 /// The effective AcoustID API key (environment, then Credential Manager).
 pub fn acoustid_key() -> Option<String> {
     Some(Credentials::load().acoustid_key).filter(|k| !k.is_empty())

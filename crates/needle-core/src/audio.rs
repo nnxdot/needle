@@ -159,6 +159,8 @@ pub enum Command {
     /// Play this track from its stem folder (with the live mix), or `None` to go back to the file.
     Stems(Option<(String, std::path::PathBuf)>),
     Shutdown,
+    /// Keeps what plays now, as at a shutdown, and plays on.
+    Persist,
 }
 
 #[derive(Clone)]
@@ -756,6 +758,8 @@ struct Worker {
     last_tick: Instant,
     playing: bool,
     loop_range: Option<(f64, f64)>,
+    /// The song the A–B loop belongs to: another song playing ends it.
+    loop_track: Option<String>,
     resume_position: f64,
     last_session_save: Instant,
     saved_version: u64,
@@ -871,6 +875,7 @@ impl Worker {
             last_tick: Instant::now(),
             playing: false,
             loop_range: None,
+            loop_track: None,
             resume_position,
             last_session_save: Instant::now(),
             saved_version,
@@ -1332,12 +1337,22 @@ impl Worker {
     }
     fn handle(&mut self, command: Command) -> Result<bool> {
         match command {
+            Command::Persist => {
+                // Paused: what was heard counts now (the app may not come back to finish it).
+                if !self.playing {
+                    self.finish_listen();
+                }
+                self.saved_version = self.queue.version.wrapping_add(1);
+                self.save_session()?;
+            }
             Command::Shutdown => {
                 self.save_session()?;
                 self.close();
                 return Ok(false);
             }
             Command::Play(items) => {
+                // A song chosen anew, even the one playing, starts without the old loop.
+                self.loop_range = None;
                 let items = self.queue.play_request(items);
                 self.play(items)?;
             }
@@ -1345,6 +1360,7 @@ impl Worker {
                 if index >= items.len() {
                     bail!("Nothing to play at position {}", index + 1)
                 }
+                self.loop_range = None;
                 let start = self.queue.play_request(items[index..].to_vec());
                 self.play(start)?;
                 self.queue.cycle = items;
@@ -1654,6 +1670,7 @@ impl Worker {
                     .map(|i| i.track.duration)
                     .unwrap_or(0.0);
                 self.loop_range = validate_loop(range, duration)?;
+                self.loop_track = self.queue.active.as_ref().map(|i| i.track.id.clone());
             }
         }
         Ok(true)
@@ -1796,6 +1813,14 @@ impl Worker {
             listen.listened_seconds += elapsed;
         }
         self.take_started();
+        // Another song is playing (chosen, Previous, the queue begun again): its loop is not this one's.
+        if self.loop_range.is_some()
+            && let Some(active) = &self.queue.active
+            && Some(active.track.id.as_str()) != self.loop_track.as_deref()
+        {
+            self.loop_range = None;
+            self.loop_track = None;
+        }
         if self.sink.is_some() {
             if self.playing
                 && let Some(a) = loop_restart(self.loop_range, self.position())

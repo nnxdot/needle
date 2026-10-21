@@ -25,6 +25,9 @@ mod app;
 mod audit_tests;
 mod connect;
 mod discord;
+mod ios;
+#[cfg(feature = "desktop")]
+mod mac;
 mod media;
 mod more;
 mod plugins;
@@ -156,6 +159,9 @@ pub struct Playlist {
     pub songs: u32,
     /// Up to four different covers of its songs, for a mosaic when it has no picture of its own.
     pub mosaic: Vec<String>,
+    /// Its own picture, chosen for it (`artwork` is this, or else a song's cover).
+    #[uniffi(default = None)]
+    pub picture: Option<String>,
 }
 
 #[derive(Clone, uniffi::Record)]
@@ -193,6 +199,11 @@ pub struct Playback {
     pub queue_version: u64,
     pub loading: bool,
     pub error: Option<String>,
+    /// The A-B loop the core plays, if any: its start and end, in seconds.
+    #[uniffi(default = None)]
+    pub loop_start: Option<f64>,
+    #[uniffi(default = None)]
+    pub loop_end: Option<f64>,
 }
 
 #[derive(Clone, Default, uniffi::Record)]
@@ -202,7 +213,21 @@ pub struct ScanStatus {
     pub imported: u32,
     pub current: String,
     pub error: Option<String>,
+    /// Scans finished since the app started: one too short to be seen running still counts.
+    #[uniffi(default = 0)]
+    pub finished: u64,
+    /// Scans since the app started that found something new, changed, or gone: lists load
+    /// again only after these.
+    #[uniffi(default = 0)]
+    pub changes: u64,
 }
+
+/// Folders removed while a scan may be reading them: the scan takes them out again after.
+pub(crate) static REMOVED_ROOTS: std::sync::Mutex<Vec<String>> = std::sync::Mutex::new(Vec::new());
+
+/// A scan asked for while one runs: it runs again when that one ends, so what changed in the
+/// meantime (songs just imported) is read.
+static SCAN_AGAIN: AtomicBool = AtomicBool::new(false);
 
 #[derive(uniffi::Object)]
 pub struct Needle {
@@ -282,6 +307,9 @@ impl Needle {
 
     /// Adds a music folder and reads it (in the background; see [`Needle::scan_status`]).
     pub fn add_folder(&self, path: String) -> Result<()> {
+        // Removed and added again while a scan runs: it stays.
+        let real = needle_core::database::canonical_root(&path);
+        REMOVED_ROOTS.lock().unwrap_or_else(|e| e.into_inner()).retain(|r| *r != path && *r != real);
         self.library.add_root(&path)?;
         self.rescan();
         Ok(())
@@ -290,6 +318,7 @@ impl Needle {
     /// Reads every music folder again, in the background, unless a scan runs already.
     pub fn rescan(&self) {
         if self.scanning.swap(true, Ordering::SeqCst) {
+            SCAN_AGAIN.store(true, Ordering::SeqCst);
             return;
         }
         let (library, status, scanning) = (
@@ -297,13 +326,30 @@ impl Needle {
             self.scan.clone(),
             self.scanning.clone(),
         );
-        *status.lock().unwrap() = ScanStatus {
-            running: true,
-            ..Default::default()
-        };
-        std::thread::spawn(move || {
+        {
+            let mut s = status.lock().unwrap_or_else(|e| e.into_inner());
+            *s = ScanStatus {
+                running: true,
+                finished: s.finished,
+                changes: s.changes,
+                ..Default::default()
+            };
+        }
+        std::thread::spawn(move || loop {
+            SCAN_AGAIN.store(false, Ordering::SeqCst);
             let mut error = None;
+            // Songs that are there: a file gone is kept, marked missing, so all rows would not change.
+            let present = || library.available_count("").unwrap_or(0);
+            let before = present();
+            let mut changed = false;
+            // The whole scan's counts, every folder's (progress comes only now and then).
+            let (mut scanned, mut imported) = (0usize, 0usize);
+            REMOVED_ROOTS.lock().unwrap_or_else(|e| e.into_inner()).clear();
             for root in library.roots().unwrap_or_default() {
+                // Not there now (a drive unplugged): passed over, its songs kept as they are.
+                if !std::path::Path::new(&root).exists() {
+                    continue;
+                }
                 let cancel = Arc::new(AtomicBool::new(false));
                 // A panic must not leave the scan "running" (and its notice up) for good.
                 let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
@@ -317,14 +363,44 @@ impl Needle {
                 match result {
                     Ok(Err(e)) => error = Some(format!("{e:#}")),
                     Err(_) => error = Some(format!("Needle stopped reading {root}")),
-                    Ok(Ok(_)) => {}
+                    Ok(Ok(done)) => {
+                        changed |= done.imported > 0;
+                        scanned += done.scanned;
+                        imported += done.imported;
+                    }
                 }
             }
+            // Removed while this scan read them: out again (the scan had put them back).
+            for gone in std::mem::take(&mut *REMOVED_ROOTS.lock().unwrap_or_else(|e| e.into_inner())) {
+                if let Ok(db) = library.connection() {
+                    let _ = db.execute("DELETE FROM roots WHERE path=?", [&gone]);
+                    let prefix = format!("{}/", gone.trim_end_matches('/'));
+                    let _ = db.execute("DELETE FROM tracks WHERE substr(path,1,length(?1))=?1", [&prefix]);
+                }
+            }
+            changed |= present() != before;
             let mut s = status.lock().unwrap_or_else(|e| e.into_inner());
-            s.running = false;
             s.current.clear();
             s.error = error;
+            s.scanned = scanned as u32;
+            s.imported = imported as u32;
+            s.finished += 1;
+            if changed {
+                s.changes += 1;
+            }
+            if SCAN_AGAIN.load(Ordering::SeqCst) {
+                // Asked for again meanwhile: once more, still running.
+                continue;
+            }
+            s.running = false;
+            drop(s);
             scanning.store(false, Ordering::SeqCst);
+            // Asked for between the look above and now (it saw a scan running): once more.
+            if SCAN_AGAIN.load(Ordering::SeqCst) && !scanning.swap(true, Ordering::SeqCst) {
+                status.lock().unwrap_or_else(|e| e.into_inner()).running = true;
+                continue;
+            }
+            break;
         });
     }
 
@@ -360,6 +436,7 @@ impl Needle {
             .library
             .album_tracks(&key)?
             .iter()
+            .filter(|t| !t.missing)
             .map(Song::from)
             .collect())
     }
@@ -390,7 +467,9 @@ impl Needle {
     pub fn playlists(&self) -> Result<Vec<Playlist>> {
         let mut out = vec![];
         for playlist in self.library.playlists()? {
-            let tracks = self.library.playlist_tracks(&playlist)?;
+            // As its page shows it: without songs whose files are gone.
+            let mut tracks = self.library.playlist_tracks(&playlist)?;
+            tracks.retain(|t| !t.missing);
             let mut mosaic: Vec<String> = vec![];
             if playlist.cover.is_none() {
                 for a in tracks.iter().filter_map(|t| t.artwork.clone()) {
@@ -404,6 +483,7 @@ impl Needle {
             }
             out.push(Playlist {
                 mosaic,
+                picture: playlist.cover.clone(),
                 artwork: playlist
                     .cover
                     .clone()
@@ -506,6 +586,17 @@ impl Needle {
     }
 
     /// An artist's most played songs.
+    /// All of an artist's songs, the most played first: what Play on their page plays.
+    pub fn artist_all_songs(&self, name: String) -> Result<Vec<Song>> {
+        Ok(self
+            .library
+            .top_tracks(&name, 100_000)?
+            .iter()
+            .filter(|t| !t.missing)
+            .map(Song::from)
+            .collect())
+    }
+
     pub fn artist_songs(&self, name: String) -> Result<Vec<Song>> {
         Ok(self
             .library
@@ -545,6 +636,16 @@ impl Needle {
             .map(Song::from)
             .collect())
     }
+    /// Every song a search finds (all, with an empty one), for Play and Shuffle.
+    pub fn search_song_ids(&self, query: String) -> Result<Vec<String>> {
+        Ok(self
+            .library
+            .available_page(&query, 0, 500_000)?
+            .into_iter()
+            .map(|t| t.id)
+            .collect())
+    }
+
     pub fn search_songs_count(&self, query: String) -> Result<u32> {
         Ok(self.library.available_count(&query)? as u32)
     }
@@ -588,6 +689,7 @@ impl Needle {
                     description: p.description,
                     songs: p.track_ids.len() as u32,
                     smart: p.query.is_some(),
+                    picture: p.cover.clone(),
                     artwork: art,
                     mosaic: vec![],
                 })
@@ -679,6 +781,8 @@ impl Needle {
             queue_version: state.queue_version,
             loading: state.loading,
             error: state.error.clone(),
+            loop_start: state.loop_range.map(|r| r.0),
+            loop_end: state.loop_range.map(|r| r.1),
         }
     }
 
@@ -707,6 +811,12 @@ impl Needle {
     /// Saves the session and stops playback, for when the app closes.
     pub fn shutdown(&self) {
         self.player.shutdown();
+    }
+
+    /// Keeps what plays now (the queue, the place, and what was heard of a paused song), for
+    /// when the phone ends the app in the background.
+    pub fn persist(&self) {
+        self.player.send(needle_core::audio::Command::Persist);
     }
 }
 
