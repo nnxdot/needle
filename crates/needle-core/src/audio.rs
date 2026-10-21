@@ -746,6 +746,8 @@ struct Worker {
     last_tick: Instant,
     playing: bool,
     loop_range: Option<(f64, f64)>,
+    /// The song the A–B loop belongs to: another song playing ends it.
+    loop_track: Option<String>,
     resume_position: f64,
     last_session_save: Instant,
     saved_version: u64,
@@ -845,6 +847,7 @@ impl Worker {
             last_tick: Instant::now(),
             playing: false,
             loop_range: None,
+            loop_track: None,
             resume_position,
             last_session_save: Instant::now(),
             saved_version,
@@ -1624,6 +1627,7 @@ impl Worker {
                     .map(|i| i.track.duration)
                     .unwrap_or(0.0);
                 self.loop_range = validate_loop(range, duration)?;
+                self.loop_track = self.queue.active.as_ref().map(|i| i.track.id.clone());
             }
         }
         Ok(true)
@@ -1766,6 +1770,13 @@ impl Worker {
             listen.listened_seconds += elapsed;
         }
         self.take_started();
+        // Another song is playing (chosen, Previous, the queue begun again): its loop is not this one's.
+        if self.loop_range.is_some()
+            && self.queue.active.as_ref().map(|i| i.track.id.as_str()) != self.loop_track.as_deref()
+        {
+            self.loop_range = None;
+            self.loop_track = None;
+        }
         if self.sink.is_some() {
             if self.playing
                 && let Some(a) = loop_restart(self.loop_range, self.position())
