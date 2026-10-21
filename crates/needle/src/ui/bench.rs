@@ -324,6 +324,25 @@ impl AppView {
             })
             .detach();
         }
+        // For screenshots: an artist's page, opened once the window is up.
+        if let Ok(name) = std::env::var("NEEDLE_SHOW_ARTIST") {
+            cx.spawn_in(window, async move |view, cx| {
+                cx.background_executor().timer(Duration::from_secs(2)).await;
+                let _ = view.update_in(cx, |v, window, cx| open(v, Page::Artist(name), window, cx));
+                // And scrolled down this far (NEEDLE_SHOW_SCROLL, in pixels), once it has drawn.
+                let down = std::env::var("NEEDLE_SHOW_SCROLL")
+                    .ok()
+                    .and_then(|s| s.parse::<f32>().ok());
+                if let Some(down) = down {
+                    cx.background_executor().timer(Duration::from_secs(2)).await;
+                    let _ = view.update(cx, |v, cx| {
+                        v.artist_scroll.set_offset(point(px(0.), px(-down)));
+                        cx.notify();
+                    });
+                }
+            })
+            .detach();
+        }
         if std::env::var_os("NEEDLE_BENCH").is_none() {
             return;
         }

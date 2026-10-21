@@ -1544,14 +1544,12 @@ impl Worker {
                 let volume = settings.volume != self.settings.volume;
                 self.settings = *settings;
                 self.dsp.set(self.settings.dsp.clone());
-                if volume {
-                    if let Some(sink) = &self.sink {
-                        sink.set_volume(if self.exclusive() {
-                            1.0
-                        } else {
-                            self.settings.volume
-                        });
-                    }
+                if volume && let Some(sink) = &self.sink {
+                    sink.set_volume(if self.exclusive() {
+                        1.0
+                    } else {
+                        self.settings.volume
+                    });
                 }
                 self.persist_audio_settings()?;
             }

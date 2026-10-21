@@ -503,9 +503,15 @@ impl AppView {
             .then(|| shown.and_then(|c| c.track.artwork))
             .flatten();
         let (path, height, strength) = match &self.page {
-            super::Page::Album { .. } | super::Page::Artist(_) if self.page_art().is_some() => {
-                (self.page_art(), 460., 1.45)
+            // The artist's picture is the top of their page, and scrolls with it: a glow that
+            // stays put would show as a band under it.
+            super::Page::Artist(name)
+                if self.page_art().is_some()
+                    || (self.artist_view.name == *name && self.artist_view.banner.is_some()) =>
+            {
+                return div().into_any_element();
             }
+            super::Page::Album { .. } if self.page_art().is_some() => (self.page_art(), 460., 1.45),
             super::Page::Artist(_) => (playing, 380., 1.),
             super::Page::Home => (playing, 440., 1.),
             _ => (playing, 300., 0.55),
