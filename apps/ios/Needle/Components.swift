@@ -285,7 +285,7 @@ struct SongMenu: View {
                 ForEach((0...5).reversed(), id: \.self) { stars in
                     Button {
                         let id = song.id
-                        store.run { try $0.rate(id: id, stars: UInt8(stars)) }
+                        store.rate(id, stars: stars)
                         store.message = stars == 0 ? "Stars taken off" : "Rated \(count(stars, "star"))"
                     } label: {
                         Text(stars == 0 ? "No stars" : String(repeating: "★", count: stars))
@@ -368,7 +368,7 @@ struct SongList: View {
         .themed()
         .environment(\.editMode, .constant(selecting ? .active : .inactive))
         .toolbar { SelectToolbar(selecting: $selecting, selected: $selected, songs: songs ?? []) }
-        .task(id: store.libraryVersion) { songs = await store.load(load) ?? [] }
+        .task(id: "\(store.libraryVersion)|\(store.ratingVersion)") { songs = await store.load(load) ?? [] }
         .overlay { if songs == nil { ProgressView() } }
     }
 }

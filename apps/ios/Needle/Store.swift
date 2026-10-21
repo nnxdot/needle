@@ -51,6 +51,19 @@ final class Store {
             UIAccessibility.post(notification: .announcement, argument: message)
         }
     }
+    /// Goes up when stars change (a rating, a favourite): the player's star and Favourites follow.
+    private(set) var ratingVersion = 0
+
+    /// Stars or a favourite were changed.
+    func ratingsChanged() { ratingVersion += 1 }
+
+    /// Rates a song, then lets what shows its stars know.
+    func rate(_ id: String, stars: Int) {
+        Task {
+            if await ask({ try $0.rate(id: id, stars: UInt8(stars)) }) != nil { ratingsChanged() }
+        }
+    }
+
     /// Goes up with each message.
     private(set) var messageCount = 0
     /// A plugin's question, answered with text.
@@ -173,6 +186,8 @@ final class Store {
         timer = Timer.scheduledTimer(withTimeInterval: 0.25, repeats: true) { [weak self] _ in
             MainActor.assumeIsolated { self?.tick() }
         }
+        // Also while a finger scrolls a list (the timer's own mode waits for it to stop).
+        if let timer { RunLoop.main.add(timer, forMode: .common) }
         followComputer()
         refreshPlugins()
         #if DEBUG
@@ -903,7 +918,11 @@ final class Store {
         let commands = MPRemoteCommandCenter.shared()
         let core = core
         commands.playCommand.addTarget { [weak self] _ in
-            MainActor.assumeIsolated { if self?.local?.playing != true { self?.activateAudio(); core.toggle() } }
+            MainActor.assumeIsolated {
+                guard let self, self.local?.current != nil, self.local?.playing != true else { return }
+                self.activateAudio()
+                core.toggle()
+            }
             return .success
         }
         commands.pauseCommand.addTarget { [weak self] _ in
