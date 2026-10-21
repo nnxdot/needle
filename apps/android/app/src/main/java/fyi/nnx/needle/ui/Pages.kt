@@ -450,6 +450,8 @@ private fun AlbumPage(album: Album, open: (Route) -> Unit) {
             if (songsLoad.loading) items(6) { SongPlaceholder() }
             // Its songs were given another album name (in their tags), or taken out.
             if (songs != null && list.isEmpty()) item { GoneNote("This album is no longer in your library.") }
+            // No cover found: it may be a picture in the album's folder that Needle may not see yet.
+            if (art == null && list.isNotEmpty()) item { FolderCoversAccess(Modifier.padding(horizontal = Edge, vertical = 8.dp)) }
             songList(list, playing, open, numbered = true)
             if (list.isNotEmpty()) {
                 item {
@@ -677,10 +679,14 @@ fun ArtistScreen(name: String, open: (Route) -> Unit) {
                         }
                     }
                 }
-                edgeToEdge(Edge) { SectionHeader("Top songs", Modifier.padding(top = 0.dp)) }
-                items(minOf(5, songs.size), span = { GridItemSpan(maxLineSpan) }) { i ->
+                // Close under the buttons: the grid's own gap is space enough above it.
+                edgeToEdge(Edge) { SectionHeader("Top songs", top = 0.dp) }
+                // The songs as one group, as in a song list, not apart by the grid's gap for covers.
+                edgeToEdge(Edge) {
+                Column {
+                repeat(minOf(5, songs.size)) { i ->
                     val song = songs[i]
-                    Row(Modifier.bleed(Edge).entrance(i), verticalAlignment = Alignment.CenterVertically) {
+                    Row(Modifier.entrance(i), verticalAlignment = Alignment.CenterVertically) {
                         // The rank, as charts show it.
                         Text(
                             "${i + 1}",
@@ -692,11 +698,14 @@ fun ArtistScreen(name: String, open: (Route) -> Unit) {
                         Box(Modifier.weight(1f)) { SongRow(song, playing == song.id, open, place = Place(i, minOf(5, songs.size))) { play(songs, i) } }
                     }
                 }
+                }
+                }
             }
-            if (top != null && albums != null && songs.isEmpty() && albums.orEmpty().isEmpty()) {
+            // Not for songs with no artist in their tags: their page is simply empty.
+            if (name.isNotBlank() && top != null && albums != null && songs.isEmpty() && albums.orEmpty().isEmpty()) {
                 edgeToEdge(Edge) { GoneNote("This artist is no longer in your library.") }
             }
-            if (albums.orEmpty().isNotEmpty()) edgeToEdge(Edge) { SectionHeader("Albums", Modifier.padding(top = 8.dp)) }
+            if (albums.orEmpty().isNotEmpty()) edgeToEdge(Edge) { SectionHeader("Albums", top = 12.dp) }
             // One list, read once: a reload that fails leaves it, not a null, to the rows.
             val albumList = albums.orEmpty()
             items(albumList.size) { i ->
