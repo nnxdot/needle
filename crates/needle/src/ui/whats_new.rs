@@ -1,6 +1,8 @@
 //! What's new: after an update, one large card shows once with what the new version brings.
-//! The notes live in `whats-new.md`, one `# version` section each, newest first. Each change
-//! is shown as large as it is:
+//! The notes live in `whats-new.md`, one `# version` section each, newest first. A section
+//! for some systems only names them: `# 1.7.1 [windows, linux]` (`macos` for the Mac app,
+//! which reads the same file); a section with none is for all. Each change is shown as large
+//! as it is:
 //!
 //! - `! **Title.** Text` a milestone, across the top in its own coloured panel;
 //! - `- [icon] **Title.** Text` a feature, with an icon (any glyph name; `[icon]` may be left out);
@@ -49,15 +51,43 @@ fn change(text: &str) -> Option<Change> {
     })
 }
 
-/// Every version in `text`, newest first.
+/// A section's heading, `1.7.1` or `1.7.1 [windows, linux]`: its version, and whether it is
+/// for `system` (as `std::env::consts::OS` names it).
+fn heading<'a>(text: &'a str, system: &str) -> (&'a str, bool) {
+    match text.split_once('[') {
+        Some((version, systems)) => (
+            version.trim(),
+            systems
+                .trim_end_matches(']')
+                .split(',')
+                .any(|s| s.trim().eq_ignore_ascii_case(system)),
+        ),
+        None => (text.trim(), true),
+    }
+}
+
+/// Every version in `text` for this system, newest first.
 fn parse(text: &str) -> Vec<Notes> {
+    parse_for(text, std::env::consts::OS)
+}
+
+fn parse_for(text: &str, system: &str) -> Vec<Notes> {
     let mut all: Vec<Notes> = Vec::new();
+    // In a section for other systems: its lines are passed over.
+    let mut other = false;
     for line in text.lines().map(str::trim) {
-        if let Some(version) = line.strip_prefix("# ") {
-            all.push(Notes {
-                version: version.trim().to_string(),
-                ..Default::default()
-            });
+        if let Some(head) = line.strip_prefix("# ") {
+            let (version, ours) = heading(head, system);
+            other = !ours;
+            if ours {
+                all.push(Notes {
+                    version: version.to_string(),
+                    ..Default::default()
+                });
+            }
+            continue;
+        }
+        if other {
             continue;
         }
         let Some(notes) = all.last_mut() else {
@@ -454,6 +484,27 @@ mod tests {
         // And for every update after.
         assert!(shows("1.5.0", true, "1.5.1"));
         assert!(shows("1.5.1", true, "1.6.0"));
+    }
+
+    #[test]
+    fn each_system_reads_its_own_sections() {
+        let text = "# 2.0.1 [windows, linux]\nFor the computer.\n\n# 2.0.1 [macos]\nFor the Mac.\n\n# 2.0.0\nFor all.";
+        let windows = super::parse_for(text, "windows");
+        assert_eq!(windows.len(), 2);
+        assert_eq!(
+            (windows[0].version.as_str(), windows[0].intro.as_str()),
+            ("2.0.1", "For the computer.")
+        );
+        assert_eq!(windows[1].intro, "For all.");
+        let mac = super::parse_for(text, "macos");
+        assert_eq!(
+            (mac[0].version.as_str(), mac[0].intro.as_str()),
+            ("2.0.1", "For the Mac.")
+        );
+        assert_eq!(
+            super::parse_for(text, "linux")[0].intro,
+            "For the computer."
+        );
     }
 
     #[test]

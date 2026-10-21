@@ -934,7 +934,7 @@ impl AppView {
                     .child(self.section_title("Artwork and lyrics", "Needle always uses covers, .lrc files, and lyrics tags found with your music.", cx))
                     .child(setting_row(
                         "Look things up online",
-                        "Finds missing album covers (MusicBrainz and the Cover Art Archive), artist photos (Wikimedia Commons), and lyrics (LRCLIB). Only artist, album, title, and length are sent.",
+                        "Finds missing album covers (MusicBrainz and the Cover Art Archive), artist photos (Wikimedia Commons), artists' wide pictures and logos (fanart.tv), and lyrics (LRCLIB). Only artist, album, title, and length are sent.",
                         Switch::new("online-media").checked(self.settings.online_media).on_click(cx.listener(|this, checked: &bool, _, cx| {
                             this.settings.online_media = *checked;
                             this.persist_settings();
