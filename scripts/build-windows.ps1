@@ -43,6 +43,8 @@ try {
     }
     Copy-Item -LiteralPath (Join-Path $workspace 'layouts') -Destination $package -Recurse -Force
     Copy-Item -LiteralPath (Join-Path $workspace 'third-party') -Destination $package -Recurse -Force
+    # Only Windows' own FFmpeg: the Mac's and Android's builds stay out of the Windows package.
+    Remove-Item -Recurse -Force -LiteralPath (Join-Path $package 'third-party\ffmpeg\android'), (Join-Path $package 'third-party\ffmpeg\needle-ffmpeg-macos') -ErrorAction SilentlyContinue
     Get-FileHash -Algorithm SHA256 -LiteralPath (Join-Path $package 'Needle.exe'),(Join-Path $package 'needle-cli.exe') | ForEach-Object { '{0}  {1}' -f $_.Hash, (Split-Path $_.Path -Leaf) } | Set-Content -LiteralPath (Join-Path $package 'SHA256SUMS.txt')
     $zip = Join-Path $workspace "dist\Needle-$version-windows-x64.zip"
     Compress-Archive -LiteralPath $package -DestinationPath $zip -Force
