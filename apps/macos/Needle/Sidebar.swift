@@ -87,11 +87,12 @@ struct Sidebar: View {
             }
         }
         .listStyle(.sidebar)
-        // The theme's accent, not an open page's: AppKit keeps a list's highlight colour from
-        // when it was made, so the list is made anew only when the theme's accent changes.
+        // The theme's accent, not an open page's. The list is never made anew for a colour:
+        // a list replaced while AppKit still drew its rows crashed Needle (SwiftUI's
+        // AGGraphGetAttributeSubgraph). AppKit keeps the highlight's colour from when the list
+        // was made, so a new accent shows there at the next start.
         .tint(store.playerAccent)
         .listItemTint(.fixed(store.playerAccent))
-        .id(store.playerAccent)
         .safeAreaInset(edge: .bottom, spacing: 0) { footer(rail: rail) }
     }
 

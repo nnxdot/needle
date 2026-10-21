@@ -1,3 +1,9 @@
+# 1.7.1
+Fixes for a crash, covers, and crash reports.
+- Needle no longer quits at times when its colours change while the sidebar shows.
+- Covers that are not square (a tall Blu-ray cover, a wide one) fill their tile, the same size as the rest.
+- With crash reports on, Needle also sends the crashes macOS writes down, not only the ones Needle catches itself. They tell what went wrong and where in the app, with no names and no files.
+
 # 1.7.0
 Needle for Mac, made new as a Mac app, with album and artist pages after Apple Music.
 ! **A Mac app, made new.** Needle is now built with the Mac's own tools: Liquid Glass throughout, the system's menus, sheets, and keyboard, and VoiceOver for every button and switch.

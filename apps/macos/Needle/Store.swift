@@ -961,7 +961,11 @@ final class Store {
     /// Sends crash reports kept from earlier runs, when that is on.
     func sendCrashReports() {
         let core = core
-        Task.detached { _ = core.sendCrashReports() }
+        Task.detached {
+            // The app's own crashes too (macOS writes those): the core's reporter sees only its own.
+            _ = core.collectSystemCrashes()
+            _ = core.sendCrashReports()
+        }
     }
 
     /// Once a day at most (or now, when asked), asks needle.nnx.fyi whether a newer Needle is out.
