@@ -71,6 +71,8 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.foundation.selection.toggleable
 import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
@@ -102,7 +104,7 @@ import java.util.Date
  */
 
 private fun refresh() {
-    NeedleApp.instance.libraryVersion.value++
+    NeedleApp.instance.libraryChanged()
 }
 
 /** Runs `work` off the main thread, then `done` with its result (or says what went wrong). */
@@ -808,7 +810,7 @@ fun ThemeEditorScreen(id: String?, back: () -> Unit) {
                     Text(label, style = MaterialTheme.typography.bodyLarge)
                     Text(colors[slot] ?: "As the look it starts from", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
-                if (color != null) TextButton(onClick = { colors.remove(slot) }) { Text("Reset") }
+                if (color != null) TextButton(onClick = { colors.remove(slot) }, modifier = Modifier.semantics { contentDescription = "Reset $label" }) { Text("Reset") }
             }
         }
         item {
@@ -853,7 +855,12 @@ private fun ColorDialog(start: Color, onDismiss: () -> Unit, onPick: (Color) -> 
     // back a digit off. Moving a slider makes the colour the sliders' again.
     var exact by remember { mutableStateOf<Color?>(null) }
     val color = exact ?: Color.hsl(h, s, l)
-    var typed by remember(color) { mutableStateOf(hexOf(color)) }
+    // The box keeps what is typed in it; only a slider writes the colour's hex into it.
+    var typed by remember { mutableStateOf(hexOf(color)) }
+    fun slid() {
+        exact = null
+        typed = hexOf(Color.hsl(h, s, l))
+    }
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text("Colour") },
@@ -861,9 +868,9 @@ private fun ColorDialog(start: Color, onDismiss: () -> Unit, onPick: (Color) -> 
             // Scrolled where the window is short (a phone on its side), so the hex box stays in reach.
             Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                 Box(Modifier.fillMaxWidth().heightIn(min = 56.dp).clip(RoundedCornerShape(16.dp)).background(color))
-                Text("Hue"); Slider(h, { h = it; exact = null }, valueRange = 0f..359f, modifier = Modifier.named("Hue"))
-                Text("Colourfulness"); Slider(s, { s = it; exact = null }, modifier = Modifier.named("Colourfulness"))
-                Text("Lightness"); Slider(l, { l = it; exact = null }, modifier = Modifier.named("Lightness"))
+                Text("Hue"); Slider(h, { h = it; slid() }, valueRange = 0f..359f, modifier = Modifier.named("Hue"))
+                Text("Colourfulness"); Slider(s, { s = it; slid() }, modifier = Modifier.named("Colourfulness"))
+                Text("Lightness"); Slider(l, { l = it; slid() }, modifier = Modifier.named("Lightness"))
                 OutlinedTextField(typed, { t ->
                     typed = t
                     colorOf(t.trim())?.let { c ->

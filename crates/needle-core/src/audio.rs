@@ -807,8 +807,10 @@ impl Worker {
             || new.album_gain != self.settings.album_gain
             || new.crossfade != self.settings.crossfade
             || off(&new.dsp) != off(&self.settings.dsp)
-            // A bit-perfect USB mixer takes only its own format.
-            || FORMAT_CHANGED.load(std::sync::atomic::Ordering::SeqCst)
+            // A bit-perfect USB mixer takes only its own format; a speaker on the network
+            // takes none, so a change made while casting does not open it again.
+            || (FORMAT_CHANGED.load(std::sync::atomic::Ordering::SeqCst)
+                && !new.output_device.as_deref().is_some_and(crate::cast::is_network))
     }
     /// Whether output is exclusive. That is WASAPI's, so elsewhere the setting (kept as it is,
     /// for when the library is opened on Windows again) is ignored.

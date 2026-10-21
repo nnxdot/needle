@@ -98,7 +98,7 @@ fun showMessage(text: String) {
 }
 
 private fun refreshLibrary() {
-    NeedleApp.instance.libraryVersion.value++
+    NeedleApp.instance.libraryChanged()
 }
 
 /** Messages, plugin questions, and the sheets, over whatever page shows. */
@@ -110,10 +110,15 @@ fun Overlays(snackbar: SnackbarHostState) {
     val questions = remember { androidx.compose.runtime.mutableStateListOf<Notice.Question>() }
     val sheet by Ui.sheet.collectAsState()
     // The newest message at once, in place of one still showing, rather than in a long line.
-    LaunchedEffect(Unit) {
-        Ui.messages.receiveAsFlow().collectLatest { (at, text) ->
-            // One held from long ago (a car's, an hour back) is no longer news.
-            if (android.os.SystemClock.uptimeMillis() - at < 30_000) snackbar.showSnackbar(text)
+    // Taken only while Needle is on screen, so one is never held in a stopped app and shown
+    // on its return, long after.
+    val shownLifecycle = androidx.lifecycle.compose.LocalLifecycleOwner.current.lifecycle
+    LaunchedEffect(shownLifecycle) {
+        shownLifecycle.repeatOnLifecycle(androidx.lifecycle.Lifecycle.State.STARTED) {
+            Ui.messages.receiveAsFlow().collectLatest { (at, text) ->
+                // One held from long ago (a car's, an hour back) is no longer news.
+                if (android.os.SystemClock.uptimeMillis() - at < 30_000) snackbar.showSnackbar(text)
+            }
         }
     }
     // What plugins ask of the app, read a few times a second while Needle is on screen.
@@ -282,7 +287,8 @@ private fun PlaylistDialog(editing: String?, ids: List<String>, smartAtFirst: Bo
                 OutlinedTextField(name, { name = it }, label = { Text("Name") }, singleLine = true, modifier = Modifier.remoteEscape().fillMaxWidth())
                 OutlinedTextField(description, { description = it }, label = { Text("Description (if you like)") }, modifier = Modifier.remoteEscape(lines = true).fillMaxWidth())
                 if (editing == null && ids.isEmpty()) {
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    // Onto a second line with large text, rather than squeezed.
+                    androidx.compose.foundation.layout.FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         FilterChip(selected = !smart, onClick = { smart = false }, label = { Text("Songs I pick") })
                         FilterChip(selected = smart, onClick = { smart = true }, label = { Text("Smart") })
                     }

@@ -43,6 +43,8 @@ internal class AudioFocus(private val context: Context) {
                 .build(),
         )
         .setOnAudioFocusChangeListener(::changed, Handler(Looper.getMainLooper()))
+        // During a call Android answers "later": Needle waits, then plays when the call ends.
+        .setAcceptsDelayedFocusGain(true)
         .build()
 
     private val unplugged = object : BroadcastReceiver() {
@@ -75,8 +77,19 @@ internal class AudioFocus(private val context: Context) {
                         // Android may say no (a call is on, or Needle is not yet in the
                         // foreground): asked again each second while it plays.
                         while (!held) {
-                            held = audio.requestAudioFocus(request) == AudioManager.AUDIOFOCUS_REQUEST_GRANTED
-                            if (!held) delay(1000)
+                            when (audio.requestAudioFocus(request)) {
+                                AudioManager.AUDIOFOCUS_REQUEST_GRANTED -> held = true
+                                // A call is on: paused, not played over it, and played again
+                                // when Android gives the audio (AUDIOFOCUS_GAIN below).
+                                AudioManager.AUDIOFOCUS_REQUEST_DELAYED -> {
+                                    held = true
+                                    if (playingHere()) {
+                                        pausedForOther = true
+                                        core().toggle()
+                                    }
+                                }
+                                else -> delay(1000)
+                            }
                         }
                     } else if (held && !pausedForOther) {
                         // Paused by the person: the audio goes back to the others.

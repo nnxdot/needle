@@ -297,17 +297,20 @@ fun PluginEffects() {
             }
             list.forEachIndexed { i, effect ->
                 if (i > 0) HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant, modifier = Modifier.padding(horizontal = 16.dp))
+                var shownOn by remember(effect.id, effect.on) { mutableStateOf(effect.on) }
                 Row(Modifier.fillMaxWidth().padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
                     Column(Modifier.weight(1f)) {
                         Text(effect.name, style = MaterialTheme.typography.bodyLarge)
                         Text(effect.failure ?: "${effect.pluginName} · ${effect.description}", style = MaterialTheme.typography.bodyMedium, color = if (effect.failure != null) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant)
                     }
-                    Switch(checked = effect.on, modifier = Modifier.named(effect.name), onCheckedChange = { on ->
+                    // Moves at once, rather than when the effect is read again a moment later.
+                    Switch(checked = shownOn, modifier = Modifier.named(effect.name), onCheckedChange = { on ->
+                        shownOn = on
                         // In order with the effect's other changes (the saves line), so none undoes another.
                         NeedleApp.instance.scope.launch { withContext(NeedleApp.instance.saves) { runCatching { core.setEffect(effect.plugin, effect.id, on) } }; delay(300); refresh++ }
                     })
                 }
-                if (effect.on) {
+                if (shownOn) {
                     effect.params.forEach { param ->
                         var value by remember(effect.id, param.id, param.value) { mutableStateOf(param.value) }
                         Column(Modifier.padding(horizontal = 16.dp)) {

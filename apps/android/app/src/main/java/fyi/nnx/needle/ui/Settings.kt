@@ -209,7 +209,11 @@ private fun SectionList(chosen: SettingsSection?, onChoose: (SettingsSection) ->
                 Modifier
                     .fillMaxWidth()
                     .background(if (section == chosen) MaterialTheme.colorScheme.secondaryContainer else Color.Transparent)
-                    .clickable { onChoose(section) }
+                    // Beside its page on a tablet, TalkBack says which section is open.
+                    .then(
+                        if (chosen != null) Modifier.selectable(section == chosen, role = Role.Tab) { onChoose(section) }
+                        else Modifier.clickable { onChoose(section) },
+                    )
                     .padding(horizontal = 16.dp, vertical = LocalRows.current.pad + 2.dp),
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(16.dp),
@@ -377,7 +381,7 @@ private fun LibrarySettings(open: (Route) -> Unit) {
     val pick = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocumentTree()) { uri ->
         val path = uri?.let(::treePath) ?: return@rememberLauncherForActivityResult
         // The lists are read again once the folder is in (a scan may hold it back a moment).
-        background(then = { NeedleApp.instance.libraryVersion.value++ }) { core.addFolder(path) }
+        background(then = { NeedleApp.instance.libraryChanged() }) { core.addFolder(path) }
     }
     val music = File(Environment.getExternalStorageDirectory(), Environment.DIRECTORY_MUSIC).path
 
@@ -403,7 +407,7 @@ private fun LibrarySettings(open: (Route) -> Unit) {
         Row(Modifier.fillMaxWidth().padding(16.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
             Button(onClick = { tryOpen("file picker") { pick.launch(null) } }) { Text("Add a folder") }
             if (folders?.contains(music) == false) {
-                FilledTonalButton(onClick = { background(then = { NeedleApp.instance.libraryVersion.value++ }) { core.addFolder(music) } }) {
+                FilledTonalButton(onClick = { background(then = { NeedleApp.instance.libraryChanged() }) { core.addFolder(music) } }) {
                     Text("Use Music")
                 }
             }
@@ -460,7 +464,7 @@ private fun LibrarySettings(open: (Route) -> Unit) {
             text = { Text("Its songs leave your library. The files stay on your phone.") },
             confirmButton = {
                 TextButton(onClick = {
-                    background { core.removeFolder(folder); NeedleApp.instance.libraryVersion.value++ }
+                    background { core.removeFolder(folder); NeedleApp.instance.libraryChanged() }
                     removing = null
                 }) { Text("Stop reading") }
             },
@@ -1038,7 +1042,15 @@ private fun StyleTile(label: String, selected: Boolean, modifier: Modifier, onCl
         verticalArrangement = Arrangement.spacedBy(10.dp),
     ) {
         Box(Modifier.fillMaxWidth().height(44.dp), contentAlignment = Alignment.Center) { preview() }
-        Text(label, style = MaterialTheme.typography.labelLarge, color = if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface)
+        // Smaller rather than broken mid-word, where large text leaves a tile too narrow.
+        Text(
+            label,
+            style = MaterialTheme.typography.labelLarge,
+            color = if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface,
+            maxLines = 1,
+            softWrap = false,
+            autoSize = androidx.compose.foundation.text.TextAutoSize.StepBased(minFontSize = 9.sp, maxFontSize = MaterialTheme.typography.labelLarge.fontSize),
+        )
     }
 }
 

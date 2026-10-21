@@ -92,10 +92,14 @@ val Edge = 20.dp
 private object Loads {
     /** Each answer with the library's version it was read at. */
     private val kept = object : LinkedHashMap<List<Any?>, Pair<Int, fyi.nnx.needle.LoadResult<*>>>(32, 0.75f, true) {
-        override fun removeEldestEntry(eldest: MutableMap.MutableEntry<List<Any?>, Pair<Int, fyi.nnx.needle.LoadResult<*>>>?) = size > 24
+        override fun removeEldestEntry(eldest: MutableMap.MutableEntry<List<Any?>, Pair<Int, fyi.nnx.needle.LoadResult<*>>>?) = size > 32
     }
     @Synchronized fun get(key: List<Any?>, version: Int) = kept[key]?.takeIf { it.first == version }?.second
-    @Synchronized fun put(key: List<Any?>, version: Int, value: fyi.nnx.needle.LoadResult<*>) { kept[key] = version to value }
+    @Synchronized fun put(key: List<Any?>, version: Int, value: fyi.nnx.needle.LoadResult<*>) {
+        // Answers from an older library are never used again: they go, and their memory with them.
+        kept.values.removeAll { it.first < version }
+        kept[key] = version to value
+    }
 }
 
 class LoadedState<T> internal constructor(private val result: fyi.nnx.needle.LoadResult<T>) : State<T?> {
@@ -106,7 +110,7 @@ class LoadedState<T> internal constructor(private val result: fyi.nnx.needle.Loa
 
 /** Loading, a completed value (including empty/null), and failure remain distinct. */
 @Composable
-fun <T> rememberLoaded(vararg keys: Any?, load: Needle.() -> T): LoadedState<T> {
+fun <T> rememberLoaded(vararg keys: Any?, cache: Boolean = true, load: Needle.() -> T): LoadedState<T> {
     val version by NeedleApp.instance.libraryVersion.collectAsState()
     var attempt by remember(*keys) { mutableStateOf(0) }
     // Back on the failure card: first it tries again, then (still failing) it leaves the page.
@@ -120,19 +124,21 @@ fun <T> rememberLoaded(vararg keys: Any?, load: Needle.() -> T): LoadedState<T> 
     // to scroll back to where they were, rather than placeholders.
     val cacheKey = listOf<Any?>(load::class.java.name) + wanted
     // Only from the library as it is now: after any change (a rename, a delete) it is read anew.
-    val seed = remember(cacheKey) { Loads.get(cacheKey, version) }
+    // Not for a tile's small answer (an artist's photo), of which a grid has dozens: they
+    // would push out the page's own list, which is what Back needs.
+    val seed = remember(cacheKey) { if (cache) Loads.get(cacheKey, version) else null }
     val shown = remember { arrayOfNulls<List<Any?>>(1).also { if (seed != null) it[0] = wanted } }
     @Suppress("UNCHECKED_CAST")
     val result by produceState<fyi.nnx.needle.LoadResult<T>>(
         (seed as fyi.nnx.needle.LoadResult<T>?) ?: fyi.nnx.needle.LoadResult.Loading, version, attempt, *keys,
     ) {
         if (shown[0] != wanted || value !is fyi.nnx.needle.LoadResult.Ready) {
-            value = (Loads.get(cacheKey, version) as fyi.nnx.needle.LoadResult<T>?) ?: fyi.nnx.needle.LoadResult.Loading
+            value = (if (cache) Loads.get(cacheKey, version) as fyi.nnx.needle.LoadResult<T>? else null) ?: fyi.nnx.needle.LoadResult.Loading
         }
         shown[0] = wanted
         val asked = version
         value = withContext(Dispatchers.IO) { fyi.nnx.needle.loadAttempt { core.load() } }
-        if (value is fyi.nnx.needle.LoadResult.Ready) Loads.put(cacheKey, asked, value)
+        if (cache && value is fyi.nnx.needle.LoadResult.Ready) Loads.put(cacheKey, asked, value)
     }
     val failure = result as? fyi.nnx.needle.LoadResult.Failed
     if (result is fyi.nnx.needle.LoadResult.Ready) retried = false
@@ -202,10 +208,13 @@ fun MusicAccessNotice(modifier: Modifier = Modifier) {
             allowed = now
         }
     }
+    // When Android was asked: an answer at once means it no longer shows its question (asked
+    // too often), and only then does its Settings page open. A plain "Don't allow" is left be.
+    var askedAt by remember { androidx.compose.runtime.mutableLongStateOf(0L) }
     val ask = androidx.activity.compose.rememberLauncherForActivityResult(androidx.activity.result.contract.ActivityResultContracts.RequestPermission()) { granted ->
         allowed = granted
         if (granted) runCatching { core.rescan() }
-        else tryOpen("page in Settings for Needle") {
+        else if (android.os.SystemClock.uptimeMillis() - askedAt < 500) tryOpen("page in Settings for Needle") {
             context.startActivity(
                 android.content.Intent(android.provider.Settings.ACTION_APPLICATION_DETAILS_SETTINGS, android.net.Uri.parse("package:${context.packageName}"))
                     .addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK),
@@ -224,6 +233,7 @@ fun MusicAccessNotice(modifier: Modifier = Modifier) {
             color = MaterialTheme.colorScheme.onErrorContainer,
         )
         androidx.compose.material3.Button(onClick = {
+            askedAt = android.os.SystemClock.uptimeMillis()
             ask.launch(if (android.os.Build.VERSION.SDK_INT >= 33) android.Manifest.permission.READ_MEDIA_AUDIO else android.Manifest.permission.READ_EXTERNAL_STORAGE)
         }) { Text("Allow") }
     }
@@ -241,7 +251,7 @@ fun <T> libraryWrite(
 ) {
     NeedleApp.instance.scope.launch(Dispatchers.Main) {
         withContext(Dispatchers.IO) { runCatching(work) }.onSuccess(done).onFailure(failed)
-        NeedleApp.instance.libraryVersion.value++
+        NeedleApp.instance.libraryChanged()
     }
 }
 

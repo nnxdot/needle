@@ -145,7 +145,7 @@ fun WrappedScreen(year: Int?, open: (Route) -> Unit) {
                         .clip(RoundedCornerShape(36.dp))
                         .background(Brush.linearGradient(listOf(top, bottom)))
                         // A tap moves on, as in a story.
-                        .clickable { scope.launch { pager.animateScrollToPage((page + 1).coerceAtMost(pages.size - 1)) } }
+                        .clickable(onClickLabel = "Next card") { scope.launch { pager.animateScrollToPage((page + 1).coerceAtMost(pages.size - 1)) } }
                         .padding(28.dp),
                 ) {
                     // Centred where the card has room; scrolled where it has not (a TV, a phone
@@ -261,7 +261,7 @@ private fun Artists(w: Wrapped, open: (Route) -> Unit) {
         Spacer(Modifier.height(20.dp))
         w.stats.topArtists.take(5).forEachIndexed { i, a ->
             // Their photo, or else a cover of theirs.
-            val photoLoad = rememberLoaded(a.artist) { artistPhoto(a.artist) ?: artistAlbums(a.artist).firstNotNullOfOrNull { it.artwork } }
+            val photoLoad = rememberLoaded(a.artist, cache = false) { artistPhoto(a.artist) ?: artistAlbums(a.artist).firstNotNullOfOrNull { it.artwork } }
             val photo by photoLoad
             Row(
                 Modifier.fillMaxWidth().clip(RoundedCornerShape(16.dp)).clickable { open(Route.Artist(a.artist)) }.padding(vertical = 8.dp),

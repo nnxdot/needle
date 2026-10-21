@@ -102,7 +102,7 @@ class MainActivity : ComponentActivity() {
             if (song == null) {
                 showMessage("Needle could not open that. It may not be a music file Needle can play.")
             } else {
-                app.libraryVersion.value++
+                app.libraryChanged()
                 app.openPlayer.tryEmit(Unit)
             }
         }

@@ -48,6 +48,9 @@ import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.selection.toggleable
 import androidx.compose.ui.semantics.Role
 import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.layout.windowInsetsPadding
+import androidx.compose.foundation.layout.only
+import androidx.compose.foundation.layout.displayCutout
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.vector.ImageVector
@@ -85,7 +88,10 @@ fun WelcomeGuide(open: (Route) -> Unit) {
     ) {
     Box(
         Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background).clickable(enabled = false) {}
-            .statusBarsPadding().navigationBarsPadding().padding(24.dp),
+            .statusBarsPadding().navigationBarsPadding()
+            // Clear of a camera cut-out at the side too, on a phone turned sideways.
+            .windowInsetsPadding(androidx.compose.foundation.layout.WindowInsets.displayCutout.only(androidx.compose.foundation.layout.WindowInsetsSides.Horizontal))
+            .padding(24.dp),
     ) {
         AnimatedContent(step, transitionSpec = {
             (slideInHorizontally { it / 4 } + fadeIn()) togetherWith (slideOutHorizontally { -it / 4 } + fadeOut())
@@ -130,7 +136,8 @@ fun WelcomeGuide(open: (Route) -> Unit) {
                     else -> {
                         Text("Make it yours", style = MaterialTheme.typography.headlineMedium)
                         Text("Everything here, and much more, is in Settings › Appearance.", style = MaterialTheme.typography.bodyLarge, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(top = 8.dp, bottom = 20.dp))
-                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        // Onto a second line with large text, rather than squeezed.
+                        androidx.compose.foundation.layout.FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                             listOf("night" to "Night", "midnight" to "Midnight", "day" to "Day").forEach { (id, label) ->
                                 FilterChip(app.theme == id, { NeedleApp.instance.updateApp { it.copy(theme = id) } }, label = { Text(label) })
                             }

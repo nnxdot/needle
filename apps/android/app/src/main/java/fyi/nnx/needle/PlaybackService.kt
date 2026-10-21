@@ -101,8 +101,8 @@ private class Library(private val core: Needle) : MediaLibraryService.MediaLibra
      * Songs as a car lists them. Each says where it was listed (`parent`), so a song picked from
      * an album or a playlist plays on into the rest of it (see [onSetMediaItems]).
      */
-    private fun songs(list: List<Song>, parent: String? = null): List<MediaItem> =
-        list.map { songItem(it, if (parent == null) "song:${it.id}" else "song:${it.id}$IN$parent") }
+    private fun songs(list: List<Song>, parent: String? = null, covers: Boolean = true): List<MediaItem> =
+        list.map { songItem(it, if (parent == null) "song:${it.id}" else "song:${it.id}$IN$parent", queued = !covers) }
 
     /**
      * The songs listed under `parent`, from the start, for a song picked there to play on. Read a
@@ -195,7 +195,8 @@ private class Library(private val core: Needle) : MediaLibraryService.MediaLibra
         val all = runCatching { parent?.let(::songsIn) }.getOrNull()
         val at = all?.indexOfFirst { it.id == songId(one!!) } ?: -1
         if (all != null && at >= 0) {
-            MediaSession.MediaItemsWithStartPosition(songs(all, parent).toMutableList(), at, startPositionMs)
+            // Only to be played: no covers looked up for thousands of songs.
+            MediaSession.MediaItemsWithStartPosition(songs(all, parent, covers = false).toMutableList(), at, startPositionMs)
         } else {
             val items = mediaItems.flatMap { item ->
                 val query = item.requestMetadata.searchQuery
@@ -462,6 +463,7 @@ private class NeedlePlayer(looper: Looper, private val core: Needle) : SimpleBas
 
     override fun handleRelease(): ListenableFuture<*> {
         handler.removeCallbacks(tick)
+        coverReady = null
         return Futures.immediateVoidFuture()
     }
 }

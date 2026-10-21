@@ -306,7 +306,7 @@ internal fun Pinned(
 /** An artist: the photo (or a cover of theirs) in the artists' arch, the name under it. */
 @Composable
 internal fun ArtistTile(artist: fyi.nnx.needle.core.Artist, modifier: Modifier, open: (Route) -> Unit) {
-    val photoLoad = rememberLoaded(artist.name) { artistPhoto(artist.name) }
+    val photoLoad = rememberLoaded(artist.name, cache = false) { artistPhoto(artist.name) }
     val photo by photoLoad
     val interaction = remember { MutableInteractionSource() }
     Column(
@@ -381,9 +381,11 @@ private fun Playlists(open: (Route) -> Unit, scroll: Modifier) {
                 Text("New playlist")
             }
         }
-        val count = playlists.orEmpty().size
-        items(count, key = { playlists!![it].id }) { i ->
-            val playlist = playlists!![i]
+        // One list, read once: a reload that fails leaves it, not a null, to the rows.
+        val list = playlists.orEmpty()
+        val count = list.size
+        items(count, key = { list[it].id }) { i ->
+            val playlist = list[i]
             Row(
                 Modifier.fillMaxWidth().segment(Place(i, count), groupColor()).clickable { open(Route.Playlist(playlist.id, playlist.name)) }
                     .heightIn(min = LocalRows.current.height + 12.dp).padding(horizontal = 12.dp, vertical = 8.dp),

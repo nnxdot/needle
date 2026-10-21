@@ -99,9 +99,10 @@ private val Glass = ColorProvider(Color(0x26FFFFFF))
 private val DarkIcon = ColorProvider(Color(0xFF1A1714))
 
 /** Refreshes the widgets, when what plays changes. */
-suspend fun updateWidgets(context: Context) {
+/** The widgets drawn again: the Recently added one only when asked (it shows no playing). */
+suspend fun updateWidgets(context: Context, recent: Boolean = true) {
     runCatching { NowPlayingWidget().updateAll(context) }
-    runCatching { RecentWidget().updateAll(context) }
+    if (recent) runCatching { RecentWidget().updateAll(context) }
 }
 
 // ---------- Now playing
@@ -350,7 +351,7 @@ class Toggle : ActionCallback {
         // after a start the app has not yet heard of the song it brought back, paused.
         // A library that cannot answer (busy, or broken) leaves the press undone; it does not close Needle.
         runCatching {
-            if (!NeedleApp.instance.remoteShown.value && core.playback().current == null) core.play(core.songs().shuffled().take(200).map { it.id }, 0u)
+            if (!NeedleApp.instance.remoteShown.value && core.playback().current == null) core.play(core.searchSongsPage("shuffle limit 200", 0u, 200u).map { it.id }, 0u)
             else fyi.nnx.needle.ui.Controls.toggle()
         }
         withService(context)

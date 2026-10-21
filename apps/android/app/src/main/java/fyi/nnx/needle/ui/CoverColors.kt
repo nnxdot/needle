@@ -238,7 +238,11 @@ fun CoverBackdrop(path: String?, modifier: Modifier = Modifier, dim: Float = 0.3
                 // then only turns that picture. A blur at draw time would be worked out again
                 // at every frame of the turn, over a square bigger than the screen.
                 val context = androidx.compose.ui.platform.LocalContext.current
-                val radius = app.backdropBlur.coerceIn(20f, 120f) / side.value
+                // Fixed for each cover: a header that grows or shrinks as the page scrolls would
+                // otherwise make a new blur (and a blink) at each change of size.
+                val radius = androidx.compose.runtime.remember(art, app.backdropBlur) {
+                    kotlin.math.round(app.backdropBlur.coerceIn(20f, 120f) / side.value * 100f) / 100f
+                }
                 // Where it had turned to: it rests there (the player over it), and turns on from it.
                 val last = androidx.compose.runtime.remember { FloatArray(1) }
                 val from = androidx.compose.runtime.remember(still) { last[0] }
