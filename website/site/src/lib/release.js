@@ -16,6 +16,7 @@ const known = {
   "Needle-1.6.4-macos.dmg": 53923494,
   "Needle-1.7.0-macos.dmg": 52257872,
   "Needle-1.7.1-macos.dmg": 52262448,
+  "Needle-1.7.2-macos.dmg": 52242993,
   "needle_1.6.3_amd64.deb": 52e6,
   "needle-1.6.3-1.x86_64.rpm": 71e6,
   "Needle-Setup-1.7.1.exe": 52241335,
