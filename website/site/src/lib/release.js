@@ -15,8 +15,8 @@ const known = {
   "Needle-1.6.4-macos.dmg": 53923494,
   "needle_1.6.3_amd64.deb": 52e6,
   "needle-1.6.3-1.x86_64.rpm": 71e6,
-  "Needle-1.6.5-android-arm64-release.apk": 35645472,
-  "Needle-1.6.5-android-x86_64-release.apk": 36472849,
+  "Needle-1.7.0-android-arm64-release.apk": 35846232,
+  "Needle-1.7.0-android-x86_64-release.apk": 36649033,
 };
 
 const readIfThere = (name) => (existsSync(join(root, "public", name)) ? read(name) : null);

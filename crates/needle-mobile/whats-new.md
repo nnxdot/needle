@@ -1,3 +1,22 @@
+# 1.7.0
+A new look, tablets and TVs, louder music, and a smoother app.
+! **A fresh Material look.** Needle now uses Material 3 Expressive throughout: songs, playlists, and settings sit in rounded groups, Shuffle and Play are one joined button group, Home shows your playlists and artists, and the filter buttons, tabs, and colours in Night and Day are clearer.
+- [sound] **Full volume.** Needle played about 4 dB quieter than other players, because it kept its own volume at 65% under the phone's. It now plays at full level, and your phone's volume buttons set how loud it is.
+- [panel] **Made for tablets.** On a tablet or an unfolded phone, a side bar holds your tabs, playlists, and recent albums, with pages in a rounded pane beside it. Phones turned sideways and split screens get layouts that fit.
+- [fullscreen] **Android TV.** Needle is in your TV's apps and works with a remote: a ring shows where you are, the arrows move the seek bar ten seconds, and the search box opens the keyboard. A 32-bit version is there for older TV boxes.
+- [player] **Smoother playing.** The player, the moving cover behind it, lyrics, and song lists do much less work while music plays, so scrolling and animations stutter less.
+- [car] **Better in the car.** A song picked in an album, a playlist, or Favorites plays on into the rest of it, and album covers kept beside your songs show in Android Auto.
+- Needle pauses for calls and other apps and plays again after, does not play over a call, and pauses when headphones come out.
+- Presses from a headset, the notification, a car, or a widget show at once.
+- Back brings you to the page as you left it, with its scroll, filter, and search.
+- Changing a setting no longer makes a short break in the music.
+- Next works from the notification and Bluetooth on the last song and with Repeat One.
+- Bit-perfect USB follows your DAC as you plug it in or out, wherever you are in the app.
+- Many buttons now do their job once when tapped twice: saving a playlist, adding to the queue, saving Wrapped, and more.
+- TalkBack reads headings, the song playing, the seek bar's time, and the names of more buttons; text fits better at large sizes.
+- Send crash reports now stays off when you turn it off.
+- Fixed crashes on devices with no browser or file picker, in the widgets, from a car's queue buttons, and while reading folders on Android 16.
+
 # 1.6.5
 Your music on your Discord profile.
 - [discord] **Discord status.** With the Discord app on your phone, your Discord profile shows what you're playing: the song, the artist, the album, the cover, and a time bar, as on the computer. There is nothing to sign in to. Turn it off, or choose what the card shows, in Settings › Discord.
