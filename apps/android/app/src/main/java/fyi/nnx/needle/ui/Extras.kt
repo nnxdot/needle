@@ -81,7 +81,7 @@ fun SyncScreen() {
         uri ?: return@rememberLauncherForActivityResult
         run {
             val report = withPickedFile(context, uri) { core.importSync(it, passphrase) }
-            NeedleApp.instance.libraryVersion.value++
+            NeedleApp.instance.libraryChanged()
             "Matched ${count(report.songsMatched.toInt(), "song")}, added ${count(report.listensAdded.toInt(), "listen")} and ${count(report.playlistsAdded.toInt(), "playlist")}" +
                 if (report.songsNotFound > 0u) ". ${count(report.songsNotFound.toInt(), "song")} not on this phone." else "."
         }

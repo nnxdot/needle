@@ -83,6 +83,8 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.foundation.layout.wrapContentHeight
 import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
@@ -214,7 +216,7 @@ fun DetailHeader(
                 textAlign = TextAlign.Center,
                 maxLines = 2,
                 overflow = TextOverflow.Ellipsis,
-                modifier = Modifier.padding(top = 24.dp),
+                modifier = Modifier.padding(top = 24.dp).semantics { heading() },
             )
             if (sub != null) {
                 Text(
@@ -277,6 +279,7 @@ private fun WideDetailHeader(
                     style = MaterialTheme.typography.displayMedium.copy(fontFamily = titleFamily(0.3f + squeeze * 0.7f)),
                     maxLines = 3,
                     overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.semantics { heading() },
                 )
                 if (sub != null) {
                     Text(
@@ -422,7 +425,7 @@ private fun AlbumPage(album: Album, open: (Route) -> Unit) {
             val found = withContext(Dispatchers.IO) {
                 runCatching { if (core.playbackSettings().onlineMedia) core.fetchCover(first.id) else 0u }.getOrDefault(0u)
             }
-            if (found > 0u) NeedleApp.instance.libraryVersion.value++
+            if (found > 0u) NeedleApp.instance.libraryChanged()
         }
     }
     val art = album.artwork ?: list.firstNotNullOfOrNull { it.artwork }
@@ -510,7 +513,7 @@ fun PlaylistScreen(route: Route.Playlist, open: (Route) -> Unit) {
     val context = androidx.compose.ui.platform.LocalContext.current
     val picture = androidx.activity.compose.rememberLauncherForActivityResult(androidx.activity.result.contract.ActivityResultContracts.OpenDocument()) { uri ->
         pickedFile(context, uri, { core.setPlaylistPicture(route.id, it) }) {
-            NeedleApp.instance.libraryVersion.value++
+            NeedleApp.instance.libraryChanged()
         }
     }
     val export = androidx.activity.compose.rememberLauncherForActivityResult(androidx.activity.result.contract.ActivityResultContracts.CreateDocument("audio/x-mpegurl")) { uri ->
@@ -623,7 +626,7 @@ fun PlaylistScreen(route: Route.Playlist, open: (Route) -> Unit) {
                                 Selection.clear()
                                 back?.onBackPressedDispatcher?.onBackPressed()
                                 delay(400)
-                                NeedleApp.instance.libraryVersion.value++
+                                NeedleApp.instance.libraryChanged()
                                 showMessage("Deleted ${d.name}")
                             }
                             .onFailure { showMessage("Could not delete it: ${it.message}") }
@@ -694,8 +697,10 @@ fun ArtistScreen(name: String, open: (Route) -> Unit) {
                 edgeToEdge(Edge) { GoneNote("This artist is no longer in your library.") }
             }
             if (albums.orEmpty().isNotEmpty()) edgeToEdge(Edge) { SectionHeader("Albums", Modifier.padding(top = 8.dp)) }
-            items(albums.orEmpty().size) { i ->
-                val album = albums!![i]
+            // One list, read once: a reload that fails leaves it, not a null, to the rows.
+            val albumList = albums.orEmpty()
+            items(albumList.size) { i ->
+                val album = albumList[i]
                 AlbumTile(album, Modifier.entrance(i + 5), open) { open(Route.AlbumPage(album)) }
             }
         }

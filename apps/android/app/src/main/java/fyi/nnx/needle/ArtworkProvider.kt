@@ -43,6 +43,9 @@ class ArtworkProvider : ContentProvider() {
         private val copying = java.util.Collections.synchronizedSet(HashSet<String>())
         private val failed = java.util.Collections.synchronizedSet(HashSet<String>())
 
+        /** One copy at a time: a car's list of a thousand albums would decode them all at once. */
+        private val copier = kotlinx.coroutines.Dispatchers.IO.limitedParallelism(1)
+
         /**
          * A cover others can open. One beside the songs (an album folder's cover.jpg) is outside
          * Needle's own files, so a small copy of it is made in the artwork folder, off the main
@@ -64,7 +67,7 @@ class ArtworkProvider : ContentProvider() {
             if (copy.isFile) return Uri.parse("content://${app.packageName}.artwork/${copy.name}")
             // A cover that could not be read is not tried again this run, at each list.
             if (copy.name !in failed && copying.add(copy.name)) {
-                app.scope.launch(kotlinx.coroutines.Dispatchers.IO) {
+                app.scope.launch(copier) {
                     if (runCatching { shrink(file, copy) }.getOrDefault(false) != true) failed += copy.name
                     copying.remove(copy.name)
                 }

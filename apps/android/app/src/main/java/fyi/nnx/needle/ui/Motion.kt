@@ -40,6 +40,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.lifecycle.compose.currentStateAsState
+import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.composed
 import androidx.compose.ui.draw.clip
@@ -136,20 +137,34 @@ fun PlayingBars(playing: Boolean, modifier: Modifier = Modifier, color: Color = 
     val transition = if (moving) rememberInfiniteTransition(label = "bars") else null
     Row(modifier.size(width = 16.dp, height = height), horizontalArrangement = Arrangement.spacedBy(2.dp), verticalAlignment = Alignment.Bottom) {
         listOf(420, 310, 520).forEachIndexed { i, period ->
-            val level = if (transition != null) {
-                transition.animateFloat(
+            // Read where it is drawn: the bars move at every frame, the row is not redrawn.
+            val level: () -> Float = if (transition != null) {
+                val bounce = transition.animateFloat(
                     initialValue = 0.25f,
                     targetValue = 1f,
                     animationSpec = infiniteRepeatable(tween(period, delayMillis = i * 60, easing = FastOutSlowInEasing), RepeatMode.Reverse),
                     label = "bar$i",
-                ).value
-            } else listOf(0.45f, 0.8f, 0.6f)[i]
+                )
+                val read: () -> Float = { bounce.value }
+                read
+            } else {
+                val rest = listOf(0.45f, 0.8f, 0.6f)[i]
+                val read: () -> Float = { rest }
+                read
+            }
             Box(
                 Modifier
                     .width(4.dp)
-                    .fillMaxHeight(level)
-                    .clip(RoundedCornerShape(1.dp))
-                    .background(color),
+                    .fillMaxHeight()
+                    .drawBehind {
+                        val h = size.height * level()
+                        drawRoundRect(
+                            color,
+                            topLeft = androidx.compose.ui.geometry.Offset(0f, size.height - h),
+                            size = androidx.compose.ui.geometry.Size(size.width, h),
+                            cornerRadius = androidx.compose.ui.geometry.CornerRadius(1.dp.toPx()),
+                        )
+                    },
             )
         }
     }

@@ -99,6 +99,10 @@ import androidx.compose.foundation.layout.RowScope
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.wrapContentHeight
+import androidx.compose.foundation.layout.windowInsetsPadding
+import androidx.compose.foundation.layout.only
+import androidx.compose.ui.unit.sp
+import androidx.compose.foundation.layout.displayCutout
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.blur
 import androidx.compose.ui.draw.clip
@@ -329,12 +333,13 @@ internal fun coverColor(path: String?): Color {
 /** Behind the player: the cover itself, blurred and darkened, as in Apple Music. */
 @Composable
 private fun PlayerBackdrop(song: Song, reading: Boolean = false) {
-    val glow = coverColor(song.artwork)
     Box(Modifier.fillMaxSize().background(Color(0xFF0F0E0D))) {
         val app by NeedleApp.instance.app.collectAsState()
         if (app.coverBackdrop && Build.VERSION.SDK_INT >= 31 && song.artwork != null) {
             CoverBackdrop(song.artwork, Modifier.fillMaxSize(), dim = 0.3f, player = true)
         } else {
+            // The cover's colour only here, where it shows: it blends at each song change.
+            val glow = coverColor(song.artwork)
             Box(Modifier.fillMaxSize().background(Brush.verticalGradient(listOf(glow, Color(0xFF0F0E0D)))))
         }
         // Darker while lyrics or Up next show: their small white words sit over the bright
@@ -389,7 +394,7 @@ fun FullPlayer(onClose: () -> Unit, open: (Route) -> Unit) {
                     .onSuccess { favorite = it; showMessage(if (it) "Added to favorites" else "Taken out of favorites") }
                     .onFailure { showMessage("Could not change favorites: ${it.message}") }
                 hearting = false
-                NeedleApp.instance.libraryVersion.value++
+                NeedleApp.instance.libraryChanged()
             }
         }
     }
@@ -452,7 +457,8 @@ fun FullPlayer(onClose: () -> Unit, open: (Route) -> Unit) {
     ) {
         PlayerBackdrop(song, reading = panel != Panel.Cover)
         CompositionLocalProvider(LocalContentColor provides Color.White) {
-            BoxWithConstraints(Modifier.fillMaxSize().statusBarsPadding().navigationBarsPadding().padding(horizontal = 28.dp)) {
+            // Clear of a camera cut-out at the side too, on a phone turned sideways.
+            BoxWithConstraints(Modifier.fillMaxSize().statusBarsPadding().navigationBarsPadding().windowInsetsPadding(androidx.compose.foundation.layout.WindowInsets.displayCutout.only(androidx.compose.foundation.layout.WindowInsetsSides.Horizontal)).padding(horizontal = 28.dp)) {
             // A tablet (or a phone) on its side: the cover, the lyrics, or what is up next at the
             // left, and the song and its controls at the right, rather than one tall column.
             // A short window (a phone's pop-up or split screen) too: the side by side layout
@@ -814,8 +820,8 @@ private fun PlayerSearch(computer: Boolean, onDismiss: () -> Unit) {
                             Text(song.title, style = MaterialTheme.typography.bodyLarge, maxLines = 1, overflow = TextOverflow.Ellipsis)
                             Text(song.artist, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
                         }
-                        IconButton(onClick = { act(song, "next") }) { Icon(Icons.Rounded.QueuePlayNext, contentDescription = "Play next") }
-                        IconButton(onClick = { act(song, "end") }) { Icon(Icons.AutoMirrored.Rounded.QueueMusic, contentDescription = "Add to the queue") }
+                        IconButton(onClick = { act(song, "next") }) { Icon(Icons.Rounded.QueuePlayNext, contentDescription = "Play ${song.title} next") }
+                        IconButton(onClick = { act(song, "end") }) { Icon(Icons.AutoMirrored.Rounded.QueueMusic, contentDescription = "Add ${song.title} to the queue") }
                     }
                 }
             }
@@ -867,6 +873,8 @@ private fun PlayerToolbar(
                 style = MaterialTheme.typography.labelLarge,
                 maxLines = 1,
                 softWrap = false,
+                // Smaller rather than cut, at the largest text sizes.
+                autoSize = androidx.compose.foundation.text.TextAutoSize.StepBased(minFontSize = 8.sp, maxFontSize = MaterialTheme.typography.labelLarge.fontSize),
                 modifier = Modifier.semantics { contentDescription = "A-B loop" },
             )
         }
@@ -1217,7 +1225,8 @@ private fun UpNextPanel(version: ULong) {
     // one is in: no blank moment, and the list keeps its place as songs are moved or taken out.
     var songs by remember { mutableStateOf<List<Song>?>(null) }
     LaunchedEffect(version) {
-        withContext(Dispatchers.IO) { runCatching { Controls.upNext() }.getOrNull() }?.let { songs = it }
+        // The first 200: a whole library queued would be thousands of songs read at each change.
+        withContext(Dispatchers.IO) { runCatching { Controls.upNextFirst(200) }.getOrNull() }?.let { songs = it }
     }
     val list = songs.orEmpty()
     val onComputer = list.firstOrNull()?.onComputer() == true

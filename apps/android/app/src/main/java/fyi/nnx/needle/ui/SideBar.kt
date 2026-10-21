@@ -97,7 +97,7 @@ fun SideBar(tab: Tab, page: Route, onTab: (Tab) -> Unit, open: (Route) -> Unit) 
     val inSettings = page == Route.Settings || page is Route.SettingsPage
     val tabs: @Composable () -> Unit = {
         Tab.entries.forEach { t ->
-            SideItem(t.label, null, t == tab, words, CircleShape, onClick = { onTab(t) }) {
+            SideItem(t.label, null, t == tab, words, CircleShape, tab = true, onClick = { onTab(t) }) {
                 Icon(if (t == tab) t.icon else t.outline, contentDescription = null)
             }
         }
@@ -198,6 +198,8 @@ private fun SideItem(
     words: Float,
     shape: Shape = RoundedCornerShape(16.dp),
     modifier: Modifier = Modifier,
+    /** A tab to TalkBack; the playlists, albums, and Settings are buttons. */
+    tab: Boolean = false,
     onClick: () -> Unit,
     lead: @Composable () -> Unit,
 ) {
@@ -209,8 +211,8 @@ private fun SideItem(
             .fillMaxWidth()
             .clip(shape)
             .background(fill)
-            // TalkBack says which one is open, as it does for tabs.
-            .selectable(selected, role = androidx.compose.ui.semantics.Role.Tab, onClick = onClick)
+            // TalkBack says which one is open.
+            .selectable(selected, role = if (tab) androidx.compose.ui.semantics.Role.Tab else androidx.compose.ui.semantics.Role.Button, onClick = onClick)
             .heightIn(min = 56.dp)
             .padding(horizontal = 12.dp, vertical = 4.dp)
             .then(if (words == 0f) Modifier.semantics { contentDescription = label } else Modifier),

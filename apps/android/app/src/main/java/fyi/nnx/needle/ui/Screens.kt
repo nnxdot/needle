@@ -133,7 +133,9 @@ fun ArtistsScreen(open: (Route) -> Unit) {
             verticalArrangement = Arrangement.spacedBy(LocalRows.current.grid),
             modifier = Modifier.fillMaxSize().padding(padding).then(scroll),
         ) {
-            items(artists.orEmpty().size, key = { artists!![it].name }) { i -> ArtistTile(artists!![i], Modifier, open) }
+            // One list, read once: a reload that fails leaves it, not a null, to the tiles.
+            val list = artists.orEmpty()
+            items(list.size, key = { list[it].name }) { i -> ArtistTile(list[i], Modifier, open) }
         }
     }
 }

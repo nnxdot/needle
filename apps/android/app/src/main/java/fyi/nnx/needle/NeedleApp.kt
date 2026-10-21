@@ -9,6 +9,7 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
@@ -78,6 +79,9 @@ class NeedleApp : Application() {
 
     /** Changes whenever the library may have changed (a scan finished), so lists load again. */
     val libraryVersion = MutableStateFlow(0)
+
+    /** The library changed: pages read it again. Safe from any thread (none is lost). */
+    fun libraryChanged() = libraryVersion.update { it + 1 }
     val themeVersion = MutableStateFlow(0)
 
     private val _app = MutableStateFlow(
@@ -149,13 +153,13 @@ class NeedleApp : Application() {
                 val now = playback.current?.id to playback.playing
                 if (now != shown) {
                     shown = now
-                    launch { updateWidgets(this@NeedleApp) }
+                    launch { updateWidgets(this@NeedleApp, recent = false) }
                 }
                 val scan = core.scanStatus()
                 _scan.value = scan
                 if (scan.running) ScanNotice.show(this@NeedleApp, scan)
                 if (wasScanning && !scan.running) {
-                    libraryVersion.value++
+                    libraryChanged()
                     ScanNotice.hide(this@NeedleApp)
                     launch { updateWidgets(this@NeedleApp) }
                 }
@@ -203,7 +207,7 @@ class NeedleApp : Application() {
             scope.launch(Dispatchers.IO) {
                 delay(500)
                 while (runCatching { core.scanStatus().running }.getOrDefault(false)) delay(500)
-                libraryVersion.value++
+                libraryChanged()
             }
         }
     }
