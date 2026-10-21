@@ -186,6 +186,7 @@ struct ServerView: View {
     @State private var item: PluginItem?
     @State private var fields: [String: String] = [:]
     @State private var kept: [UInt64] = []
+    @State private var signingIn = false
 
     var body: some View {
         Form {
@@ -221,9 +222,21 @@ struct ServerView: View {
                                     .keyboardType(.URL)
                             }
                         }
-                        Button("Sign in") { store.core.sourceSignIn(plugin: plugin, fields: fields) }
+                        if signingIn {
+                            HStack(spacing: 10) { ProgressView(); Text("Signing in…") }
+                                // The server's answer (signed in, or an error) ends the wait.
+                                .onChange(of: source.signedIn) { _, _ in signingIn = false }
+                                .onChange(of: source.error) { _, _ in signingIn = false }
+                        } else {
+                            Button("Sign in") {
+                                signingIn = true
+                                store.core.sourceSignIn(plugin: plugin, fields: fields)
+                                // The server's answer ends the wait; a minute at most.
+                                Task { try? await Task.sleep(for: .seconds(60)); signingIn = false }
+                            }
+                        }
                     }
-                    if let error = source.error { Text(error).foregroundStyle(.red) }
+                    if !signingIn, let error = source.error { Text(error).foregroundStyle(.red) }
                 } header: {
                     Text(source.name)
                 } footer: {

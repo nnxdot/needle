@@ -290,6 +290,7 @@ struct SongMenu: View {
                     } label: {
                         Text(stars == 0 ? "No stars" : String(repeating: "★", count: stars))
                     }
+                    .accessibilityLabel(stars == 0 ? "No stars" : count(stars, "star"))
                 }
             } label: {
                 Label("Rate", systemImage: "star")

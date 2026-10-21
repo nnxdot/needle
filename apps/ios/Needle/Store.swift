@@ -54,6 +54,26 @@ final class Store {
     /// Goes up when stars change (a rating, a favourite): the player's star and Favourites follow.
     private(set) var ratingVersion = 0
 
+    /// Goes up when a song's own lyrics are saved or taken off: the lyrics shown follow.
+    private(set) var lyricsVersion = 0
+
+    func lyricsChanged() { lyricsVersion += 1 }
+
+    /// Takes a song out of Up Next, at once on the screen too (the queue is read again a moment
+    /// later, and a second swipe meanwhile used the old places).
+    func removeUpNext(at rows: IndexSet) {
+        rows.sorted(by: >).forEach { core.removeUpNext(index: UInt32($0)) }
+        upNext.remove(atOffsets: rows)
+    }
+
+    /// Moves a song in Up Next, at once on the screen too.
+    func moveUpNext(from: IndexSet, to: Int) {
+        guard let first = from.first else { return }
+        // The core moves to a place in the list as it is after taking the song out.
+        core.moveUpNext(from: UInt32(first), to: UInt32(to > first ? to - 1 : to))
+        upNext.move(fromOffsets: from, toOffset: to)
+    }
+
     /// Stars or a favourite were changed.
     func ratingsChanged() { ratingVersion += 1 }
 
@@ -644,8 +664,9 @@ final class Store {
         sleepActivity = nil
         guard let minutes else { sleepEnds = nil; sleepSong = nil; message = "Sleep timer off"; return }
         if minutes == 0 {
+            guard let song = local?.current?.id else { message = "Nothing is playing to end"; return }
             sleepEnds = .distantFuture
-            sleepSong = local?.current?.id
+            sleepSong = song
             message = "Music pauses after this song"
         } else {
             sleepEnds = Date().addingTimeInterval(TimeInterval(minutes * 60))
