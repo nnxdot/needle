@@ -58,7 +58,14 @@ struct NowPlayingView: View {
     @State private var pane = Pane.cover
     @State private var favorite = false
     @State private var favoriteTaps = 0
-    @State private var loop: [Double] = []
+    /// A loop just set, shown until the core plays it (a moment later).
+    @State private var pendingLoop: [Double]?
+
+    /// The A-B loop the core plays: it ends it itself (another song, the song chosen again).
+    private var loop: [Double] {
+        if let start = store.playback?.loopStart, let end = store.playback?.loopEnd { return [start, end] }
+        return pendingLoop ?? []
+    }
     @State private var swipe: CGFloat = 0
 
     enum Pane { case cover, lyrics, queue }
@@ -129,10 +136,11 @@ struct NowPlayingView: View {
         }
         .animation(reduceMotion ? nil : .spring(response: 0.45, dampingFraction: 0.85), value: pane)
         .task(id: song?.id) {
-            favorite = false
-            loop = await store.load { $0.loopRange() } ?? []
-            await readFavorite()
+            pendingLoop = nil
+            // The new song's star at once, with no empty star between.
+            await readFavorite(reset: true)
         }
+        .onChange(of: store.playback?.loopStart) { _, _ in pendingLoop = nil }
         // Stars changed elsewhere (the Rate menu): read again, with no blink.
         .task(id: store.ratingVersion) { await readFavorite() }
         .onChange(of: song == nil) { _, gone in if gone { dismiss() } }
@@ -200,7 +208,7 @@ struct NowPlayingView: View {
             Button("Start here (\(clock(at)))") { setLoop(at, loop.count == 2 ? max(loop[1], at + 1) : min(song.duration, at + 30)) }
             if loop.count == 2 {
                 Button("End here (\(clock(at)))") { setLoop(loop[0], max(loop[0] + 1, at)) }
-                Button("Stop repeating", role: .destructive) { store.core.setLoop(start: nil, end: nil); loop = [] }
+                Button("Stop repeating", role: .destructive) { store.core.setLoop(start: nil, end: nil); pendingLoop = nil }
             }
         } label: {
             Label(loop.count == 2 ? "Repeating \(clock(loop[0]))–\(clock(loop[1]))" : "Repeat a part", systemImage: "repeat")
@@ -211,7 +219,7 @@ struct NowPlayingView: View {
     private func setLoop(_ start: Double, _ end: Double) {
         guard end > start else { return }
         store.core.setLoop(start: start, end: end)
-        loop = [start, end]
+        pendingLoop = [start, end]
     }
 
     private func cover(_ song: Song?, seed: String) -> some View {
@@ -270,8 +278,11 @@ struct NowPlayingView: View {
             }
     }
 
-    private func readFavorite() async {
-        guard let id = store.playback?.current?.id, store.playback?.current?.onComputer == false else { return }
+    private func readFavorite(reset: Bool = false) async {
+        guard let id = store.playback?.current?.id, store.playback?.current?.onComputer == false else {
+            if reset { favorite = false }
+            return
+        }
         let found = await store.load { $0.isFavorite(id: id) } ?? false
         if !Task.isCancelled, store.playback?.current?.id == id, found != favorite { favorite = found }
     }
