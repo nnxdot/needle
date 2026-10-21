@@ -57,6 +57,7 @@ struct NowPlayingView: View {
     @Environment(\.accessibilityReduceMotion) private var systemReduceMotion
     @State private var pane = Pane.cover
     @State private var favorite = false
+    @State private var favoriteTaps = 0
     @State private var loop: [Double] = []
     @State private var swipe: CGFloat = 0
 
@@ -127,13 +128,13 @@ struct NowPlayingView: View {
             .padding(.bottom, 8)
         }
         .animation(reduceMotion ? nil : .spring(response: 0.45, dampingFraction: 0.85), value: pane)
-        .task(id: "\(song?.id ?? "")|\(store.ratingVersion)") {
+        .task(id: song?.id) {
             favorite = false
             loop = await store.load { $0.loopRange() } ?? []
-            guard let id = song?.id, !(song?.onComputer ?? true) else { return }
-            let found = await store.load { $0.isFavorite(id: id) } ?? false
-            if !Task.isCancelled { favorite = found }
+            await readFavorite()
         }
+        // Stars changed elsewhere (the Rate menu): read again, with no blink.
+        .task(id: store.ratingVersion) { await readFavorite() }
         .onChange(of: song == nil) { _, gone in if gone { dismiss() } }
         .onChange(of: pane) { _, now in
             UIApplication.shared.isIdleTimerDisabled = now == .lyrics && app.keepScreenOnLyrics
@@ -269,10 +270,17 @@ struct NowPlayingView: View {
             }
     }
 
+    private func readFavorite() async {
+        guard let id = store.playback?.current?.id, store.playback?.current?.onComputer == false else { return }
+        let found = await store.load { $0.isFavorite(id: id) } ?? false
+        if !Task.isCancelled, store.playback?.current?.id == id, found != favorite { favorite = found }
+    }
+
     private func favoriteButton(_ song: Song?) -> some View {
         Button {
             guard let id = song?.id else { return }
             favorite.toggle()
+            if favorite { favoriteTaps += 1 }
             Task {
                 if let now = await store.ask({ try $0.toggleFavorite(id: id) }) {
                     if song?.id == store.playback?.current?.id { favorite = now }
@@ -291,7 +299,8 @@ struct NowPlayingView: View {
         }
         .buttonStyle(.plain)
         .accessibilityLabel(favorite ? "Unfavourite" : "Favourite")
-        .sensoryFeedback(.success, trigger: favorite) { _, now in now && store.app.haptics }
+        // Only for a tap: not when the star is read for a song that is a favourite.
+        .sensoryFeedback(.success, trigger: favoriteTaps) { _, _ in store.app.haptics }
     }
 
     /// The song, small, above the lyrics or the queue.
@@ -355,6 +364,8 @@ struct NowPlayingView: View {
                 .contentTransition(.symbolEffect(.replace))
         }
         .buttonStyle(.plain)
+        .accessibilityLabel(which == .lyrics ? "Lyrics" : "Up Next")
+        .accessibilityAddTraits(on ? .isSelected : [])
     }
 }
 
@@ -792,7 +803,7 @@ struct LyricsPane: View {
             }
         }
         .frame(maxHeight: .infinity)
-        .task(id: song?.id) { await load() }
+        .task(id: "\(song?.id ?? "")|\(store.lyricsVersion)") { await load() }
     }
 
     private func load() async {
@@ -887,6 +898,7 @@ struct QueuePane: View {
                 }
                 .buttonStyle(.plain)
                 .accessibilityLabel("Repeat")
+                .accessibilityValue(store.playback?.repeat == .one ? "One" : store.playback?.repeat == .all ? "All" : "Off")
             }
             VStack(alignment: .leading, spacing: 2) {
                 Text(store.onComputer ? "Up Next on Your Computer" : "Continue Playing").font(.headline)
@@ -929,14 +941,8 @@ private struct QueueList: View {
                         .listRowSeparator(.hidden)
                         .listRowInsets(EdgeInsets(top: 6, leading: 0, bottom: 6, trailing: 0))
                     }
-                    .onDelete(perform: store.onComputer ? nil : { rows in
-                        rows.sorted(by: >).forEach { store.core.removeUpNext(index: UInt32($0)) }
-                    })
-                    .onMove(perform: store.onComputer ? nil : { from, to in
-                        guard let first = from.first else { return }
-                        // The core moves to a place in the list as it is after taking the song out.
-                        store.core.moveUpNext(from: UInt32(first), to: UInt32(to > first ? to - 1 : to))
-                    })
+                    .onDelete(perform: store.onComputer ? nil : { rows in store.removeUpNext(at: rows) })
+                    .onMove(perform: store.onComputer ? nil : { from, to in store.moveUpNext(from: from, to: to) })
                 }
                 .listStyle(.plain)
                 .scrollContentBackground(.hidden)
@@ -1120,6 +1126,7 @@ struct TimingView: View {
                     let (id, timed) = (song.id, lines.sorted { $0.time < $1.time })
                     Task {
                         if await store.ask({ try $0.saveTimedLyrics(id: id, lines: timed) }) != nil {
+                            store.lyricsChanged()
                             store.message = "Saved the timed lyrics"
                             dismiss()
                         }
@@ -1139,6 +1146,7 @@ struct TimingView: View {
                 Menu {
                     Button("Forget my timing", role: .destructive) {
                         store.core.deleteTimedLyrics(id: song.id)
+                        store.lyricsChanged()
                         store.message = "Timing taken off"
                         dismiss()
                     }

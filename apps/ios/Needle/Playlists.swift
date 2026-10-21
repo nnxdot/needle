@@ -124,7 +124,8 @@ struct PlaylistView: View {
         } message: {
             Text("The songs stay in your library.")
         }
-        .task(id: store.libraryVersion) { await reload() }
+        // Stars too: a smart playlist's rule can be by them.
+        .task(id: "\(store.libraryVersion)|\(store.ratingVersion)") { await reload() }
     }
 
     private func reload() async {

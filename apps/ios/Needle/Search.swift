@@ -51,7 +51,7 @@ struct SearchView: View {
         .themed()
         .searchable(text: $query, prompt: "Songs, albums, artists")
         .task(id: store.libraryVersion) { genres = await store.load { try $0.genres() } ?? [] }
-        .task(id: query) {
+        .task(id: "\(query)|\(store.ratingVersion)") {
             let words = query.trimmingCharacters(in: .whitespaces)
             let typed = query
             hints = await store.load { $0.suggest(input: typed, cursor: UInt32(typed.utf16.count)) } ?? []
