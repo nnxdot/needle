@@ -156,19 +156,23 @@ struct Artwork: View {
     @State private var image: NSImage?
 
     var body: some View {
-        ZStack {
-            if let image {
-                Image(nsImage: image).resizable().interpolation(.high).scaledToFill()
-            } else {
-                Placeholder(seed: seed)
+        // The space the page gives sets the size, never the picture: a cover that is not square
+        // fills it, its edges cut off, instead of growing past it.
+        Color.clear
+            .overlay {
+                if let image {
+                    Image(nsImage: image).resizable().interpolation(.high).scaledToFill()
+                } else {
+                    Placeholder(seed: seed)
+                }
             }
-        }
-        .clipped()
-        .task(id: path) {
-            guard let path else { image = nil; return }
-            if let hit = Covers.cached(path, size: size) { image = hit; return }
-            image = await Covers.load(path, size: size)
-        }
+            .clipped()
+            .task(id: path) {
+                guard let path else { image = nil; return }
+                if let hit = Covers.cached(path, size: size) { image = hit; return }
+                let found = await Covers.load(path, size: size)
+                if !Task.isCancelled { image = found }
+            }
     }
 }
 
