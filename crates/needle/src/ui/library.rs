@@ -62,6 +62,8 @@ pub struct Group {
     pub artwork: Option<String>,
     pub seed: String,
     pub tracks: usize,
+    /// An album's year (0 when unknown, and for artists).
+    pub year: i64,
     pub page: Page,
 }
 
@@ -82,6 +84,7 @@ pub fn album_groups(albums: Vec<AlbumSummary>) -> Vec<Group> {
             artwork: album.artwork,
             seed: format!("{}{}", album.album, album.artist),
             tracks: album.tracks,
+            year: album.year,
             page: Page::Album {
                 album: album.album,
                 artist: album.artist,
@@ -108,6 +111,7 @@ pub fn artist_groups(artists: Vec<ArtistSummary>) -> Vec<Group> {
             artwork: artist.artwork,
             seed: artist.name.clone(),
             tracks: artist.tracks,
+            year: 0,
             page: Page::Artist(artist.name),
         })
         .collect()
@@ -142,6 +146,7 @@ impl AppView {
                 self.onboarding(cx).into_any_element()
             }
             Page::Home => self.home_view(cx).into_any_element(),
+            Page::Artist(ref name) => self.artist_page(name, width, window, cx),
             _ => self.collection(width, window, cx).into_any_element(),
         };
         let page = div()
@@ -1329,7 +1334,13 @@ impl AppView {
         with_scrollbar(list, &self.grid_scroll)
     }
 
-    fn tile(&self, index: usize, size: f32, round: bool, cx: &mut Context<Self>) -> Stateful<Div> {
+    pub(super) fn tile(
+        &self,
+        index: usize,
+        size: f32,
+        round: bool,
+        cx: &mut Context<Self>,
+    ) -> Stateful<Div> {
         let group = &self.groups[index];
         let page = group.page.clone();
         div()

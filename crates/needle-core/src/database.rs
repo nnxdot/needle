@@ -627,6 +627,16 @@ impl Library {
     }
 }
 
+/// A music folder's real path on Unix (links followed: an iPhone's /var is /private/var); as it
+/// is elsewhere, and when it cannot be read.
+pub fn canonical_root(path: &str) -> String {
+    #[cfg(unix)]
+    if let Ok(real) = std::fs::canonicalize(path) {
+        return real.to_string_lossy().into_owned();
+    }
+    path.to_string()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -864,14 +874,4 @@ mod tests {
             missing[0].path
         );
     }
-}
-
-/// A music folder's real path on Unix (links followed: an iPhone's /var is /private/var); as it
-/// is elsewhere, and when it cannot be read.
-pub fn canonical_root(path: &str) -> String {
-    #[cfg(unix)]
-    if let Ok(real) = std::fs::canonicalize(path) {
-        return real.to_string_lossy().into_owned();
-    }
-    path.to_string()
 }

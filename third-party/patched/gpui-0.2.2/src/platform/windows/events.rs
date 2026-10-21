@@ -44,8 +44,16 @@ impl WindowsWindowInner {
             WM_MOVE => self.handle_move_msg(handle, lparam),
             WM_SIZE => self.handle_size_msg(wparam, lparam),
             WM_GETMINMAXINFO => self.handle_get_min_max_info_msg(lparam),
-            WM_ENTERSIZEMOVE | WM_ENTERMENULOOP => self.handle_size_move_loop(handle),
-            WM_EXITSIZEMOVE | WM_EXITMENULOOP => self.handle_size_move_loop_exit(handle),
+            WM_ENTERSIZEMOVE => {
+                self.plain_blur_while_moving(handle, true);
+                self.handle_size_move_loop(handle)
+            }
+            WM_EXITSIZEMOVE => {
+                self.plain_blur_while_moving(handle, false);
+                self.handle_size_move_loop_exit(handle)
+            }
+            WM_ENTERMENULOOP => self.handle_size_move_loop(handle),
+            WM_EXITMENULOOP => self.handle_size_move_loop_exit(handle),
             WM_TIMER => self.handle_timer_msg(handle, wparam),
             WM_NCCALCSIZE => self.handle_calc_client_size(handle, wparam, lparam),
             WM_DPICHANGED => self.handle_dpi_changed_msg(handle, wparam, lparam),
@@ -229,6 +237,15 @@ impl WindowsWindowInner {
             }
         }
         None
+    }
+
+    /// Windows 10: Acrylic through the accent policy makes a dragged or resized window lag
+    /// behind the mouse and jump, so while it moves it takes plain blur, and Acrylic again after.
+    fn plain_blur_while_moving(&self, handle: HWND, moving: bool) {
+        if matches!(self.windows_version, WindowsVersion::Win10) && self.acrylic.get() {
+            let state = if moving { ACCENT_BLUR } else { ACCENT_ACRYLIC };
+            set_window_composition_attribute(handle, Some((0, 0, 0, 0)), state);
+        }
     }
 
     fn handle_size_move_loop_exit(&self, handle: HWND) -> Option<isize> {

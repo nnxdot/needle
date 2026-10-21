@@ -1,4 +1,5 @@
 mod ambient;
+mod artist;
 mod assets;
 mod bench;
 mod chrome;
@@ -376,6 +377,10 @@ enum Event {
     Lyrics(String, Option<needle_core::media::Lyrics>),
     ArtistImage(String, Option<String>),
     ArtistImages(Vec<(String, Option<String>)>),
+    /// An artist page's top songs, wide picture, and logo (white, and in dark ink).
+    ArtistTop(String, Vec<Track>),
+    ArtistBanner(String, Option<String>),
+    ArtistLogo(String, Option<(String, Option<String>)>),
     ArtFetched,
     MediaKey(media_keys::Key),
     ImportProgress(String),
@@ -582,6 +587,8 @@ pub struct AppView {
     /// Whether the big (or full screen) lyrics and the side panel's were on screen.
     lyrics_shown: (bool, bool),
     artist_images: std::collections::HashMap<String, Option<String>>,
+    artist_view: artist::ArtistView,
+    artist_scroll: ScrollHandle,
     recent: Vec<Listen>,
     /// The tracks behind `recent`, for covers.
     recent_tracks: std::collections::HashMap<String, Track>,
@@ -1072,6 +1079,8 @@ impl AppView {
             lyric_glide_waits: 0,
             lyrics_shown: (false, false),
             artist_images: Default::default(),
+            artist_view: Default::default(),
+            artist_scroll: ScrollHandle::new(),
             recent: vec![],
             recent_tracks: Default::default(),
             last_item: None,
@@ -1485,6 +1494,16 @@ impl AppView {
                     self.artist_images.insert(name, path);
                 }
                 Event::ArtistImages(found) => self.artist_images.extend(found),
+                Event::ArtistTop(name, top) if name == self.artist_view.name => {
+                    self.artist_view.top = top
+                }
+                Event::ArtistBanner(name, path) if name == self.artist_view.name => {
+                    self.artist_view.banner = path
+                }
+                Event::ArtistLogo(name, logo) if name == self.artist_view.name => {
+                    self.artist_view.logo = logo
+                }
+                Event::ArtistTop(..) | Event::ArtistBanner(..) | Event::ArtistLogo(..) => {}
                 Event::MediaKey(key) => self.media_key(key, window, cx),
                 Event::Themes(generation, themes) => {
                     self.themes_found(generation, *themes, window, cx)
@@ -1864,6 +1883,7 @@ impl AppView {
             let name = name.clone();
             self.artist_images.remove(&name);
             self.request_artist_image(&name, true);
+            self.load_artist_view(&name);
         }
         if self.page == Page::Import {
             self.refresh_import_sources();
