@@ -49,6 +49,15 @@
             ],
             "versions": [
                 {
+                    "version": "1.7.0",
+                    "buildVersion": "1",
+                    "date": "2026-10-20",
+                    "localizedDescription": "Albums and artists after Apple Music, a player you can sink into, and a long list of fixes.\n\n- Album and artist pages after Apple Music: the cover across the top, pages in their own colours, and artist pages with a tall photo and their logo.\n- An immersive player: the cover fills the top, and moving covers play there.\n- Plain controls, a thin volume line, and Up Next after Apple Music.\n- Opening Needle no longer stops another app's sound.\n- Crash reports are your choice on the welcome screen.\n- Play on an artist's page plays all their songs.\n- Removing a music folder asks first.\n- Many fixes for lyrics, Discord, widgets, the sleep timer, and your music server.",
+                    "downloadURL": "https://needle.nnx.fyi/download/Needle-1.7.0-ios.ipa",
+                    "size": 14368795,
+                    "minOSVersion": "26.0"
+                },
+                {
                     "version": "1.6.5",
                     "buildVersion": "1",
                     "date": "2026-10-14",
