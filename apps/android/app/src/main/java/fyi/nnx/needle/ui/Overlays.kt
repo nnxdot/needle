@@ -117,7 +117,12 @@ fun Overlays(snackbar: SnackbarHostState) {
         shownLifecycle.repeatOnLifecycle(androidx.lifecycle.Lifecycle.State.STARTED) {
             Ui.messages.receiveAsFlow().collectLatest { (at, text) ->
                 // One held from long ago (a car's, an hour back) is no longer news.
-                if (android.os.SystemClock.uptimeMillis() - at < 30_000) snackbar.showSnackbar(text)
+                // Shown for a moment (about two and a half seconds), not Material's four.
+                if (android.os.SystemClock.uptimeMillis() - at < 30_000) {
+                    kotlinx.coroutines.withTimeoutOrNull(2500) {
+                        snackbar.showSnackbar(text, duration = androidx.compose.material3.SnackbarDuration.Indefinite)
+                    }
+                }
             }
         }
     }
