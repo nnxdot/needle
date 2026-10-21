@@ -820,6 +820,16 @@ impl AppView {
                     ))
                     .when(!self.settings.music_colors && self.accent_choice_applies(cx), |el| el.child(self.accent_settings(cx)))
                     .child(setting_row(
+                        "Immersive cover",
+                        "In the big player and full screen, the cover fills the left side of the window from top to bottom and fades into its colors, as in Apple Music.",
+                        Switch::new("immersive-cover").checked(self.settings.immersive_cover).on_click(cx.listener(|this, checked: &bool, _, cx| {
+                            this.settings.immersive_cover = *checked;
+                            this.persist_settings();
+                            cx.notify();
+                        })),
+                        cx,
+                    ))
+                    .child(setting_row(
                         "Reduce motion",
                         if motion::system_allows_animation() {
                             "Turns off fades, slides, and other animations."

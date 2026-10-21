@@ -343,6 +343,17 @@ impl AppView {
             })
             .detach();
         }
+        // For screenshots: the big player, once the window is up.
+        if std::env::var_os("NEEDLE_SHOW_BIG").is_some() {
+            cx.spawn_in(window, async move |view, cx| {
+                cx.background_executor().timer(Duration::from_secs(3)).await;
+                let _ = view.update(cx, |v, cx| {
+                    v.big = true;
+                    cx.notify();
+                });
+            })
+            .detach();
+        }
         if std::env::var_os("NEEDLE_BENCH").is_none() {
             return;
         }
