@@ -455,7 +455,17 @@ fun FullPlayer(onClose: () -> Unit, open: (Route) -> Unit) {
                 ) { _, dy -> pull += dy }
             },
     ) {
-        PlayerBackdrop(song, reading = panel != Panel.Cover)
+        // Settings › Appearance › Immersive cover: the cover is the player's top itself (or its
+        // left side on a wide screen); behind the lyrics and the queue, the blurred cover again.
+        val look by NeedleApp.instance.app.collectAsState()
+        val immersive = look.immersiveCover && panel == Panel.Cover
+        val screen = androidx.compose.ui.platform.LocalConfiguration.current
+        val wideScreen = (screen.screenWidthDp >= 600 || screen.screenHeightDp < 480) && screen.screenWidthDp > screen.screenHeightDp
+        val still = reduceMotion()
+        androidx.compose.animation.Crossfade(immersive, label = "immersive cover") { on ->
+            if (on) ImmersiveCover(song, animated = look.animatedCovers && !still, wide = wideScreen)
+            else PlayerBackdrop(song, reading = panel != Panel.Cover)
+        }
         CompositionLocalProvider(LocalContentColor provides Color.White) {
             // Clear of a camera cut-out at the side too, on a phone turned sideways.
             BoxWithConstraints(Modifier.fillMaxSize().statusBarsPadding().navigationBarsPadding().windowInsetsPadding(androidx.compose.foundation.layout.WindowInsets.displayCutout.only(androidx.compose.foundation.layout.WindowInsetsSides.Horizontal)).padding(horizontal = 28.dp)) {
@@ -470,7 +480,9 @@ fun FullPlayer(onClose: () -> Unit, open: (Route) -> Unit) {
             // The cover, or in its place the lyrics or what is up next.
             val stage: @Composable () -> Unit = {
                 when (panel) {
-                    Panel.Cover -> PlayerCover(song, playing, haptics)
+                    // Immersive, the cover is behind: here only the room for it, which still
+                    // skips when swiped sideways.
+                    Panel.Cover -> if (immersive) SwipeSpace(look.swipeCover, haptics) else PlayerCover(song, playing, haptics)
                     Panel.Lyrics -> LyricsPanel(song, position) { open(Route.Timing(song.id)) }
                     Panel.UpNext -> UpNextPanel(queueVersion)
                 }
@@ -1343,4 +1355,26 @@ private fun PlayPauseIcon(playing: Boolean, size: Dp) {
 private fun AtPosition(content: @Composable (Double) -> Unit) {
     val playback by NeedleApp.instance.playback.collectAsState()
     content(playback?.position ?: 0.0)
+}
+
+/** The immersive cover's room in the player: swiped sideways, it skips, as the cover does. */
+@Composable
+private fun SwipeSpace(swipe: Boolean, haptics: (Boolean) -> Unit) {
+    var drag by remember { mutableFloatStateOf(0f) }
+    Box(
+        Modifier.fillMaxSize().then(
+            if (!swipe) Modifier else Modifier.pointerInput(Unit) {
+                detectHorizontalDragGestures(
+                    onDragEnd = {
+                        when {
+                            drag < -160f -> { haptics(false); Controls.next() }
+                            drag > 160f -> { haptics(false); Controls.previous() }
+                        }
+                        drag = 0f
+                    },
+                    onDragCancel = { drag = 0f },
+                ) { _, dx -> drag += dx }
+            },
+        ),
+    )
 }

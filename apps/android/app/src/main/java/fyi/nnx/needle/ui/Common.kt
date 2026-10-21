@@ -191,6 +191,71 @@ fun hasMusicAccess(context: android.content.Context): Boolean {
 }
 
 /**
+ * Whether Needle may see the pictures beside the songs (an album folder's cover.jpg). Android 12
+ * and older give that with music; Android 13 and newer ask about pictures on their own.
+ */
+fun hasCoverAccess(context: android.content.Context): Boolean {
+    if (android.os.Build.VERSION.SDK_INT < 33) return true
+    if (android.os.Environment.isExternalStorageManager()) return true
+    // Pictures, and videos for moving covers (cover.mp4): Android asks about both at once.
+    return coverPermissions.all {
+        androidx.core.content.ContextCompat.checkSelfPermission(context, it) == android.content.pm.PackageManager.PERMISSION_GRANTED
+    }
+}
+
+/** What Android 13 and newer ask about for covers beside the songs: pictures and videos. */
+private val coverPermissions = arrayOf(android.Manifest.permission.READ_MEDIA_IMAGES, android.Manifest.permission.READ_MEDIA_VIDEO)
+
+/**
+ * Settings › Library, on Android 13 and newer until it is allowed: a way to let Needle see the
+ * covers kept beside the songs. Albums whose cover is only such a picture show none without it.
+ */
+@Composable
+fun FolderCoversAccess(modifier: Modifier = Modifier) {
+    if (android.os.Build.VERSION.SDK_INT < 33) return
+    val context = androidx.compose.ui.platform.LocalContext.current
+    var allowed by remember { mutableStateOf(hasCoverAccess(context)) }
+    // Checked again when Needle comes back (from Android's Settings): the folders are read
+    // again then, so the covers show without a restart.
+    val lifecycle = androidx.lifecycle.compose.LocalLifecycleOwner.current.lifecycle
+    LaunchedEffect(lifecycle) {
+        lifecycle.repeatOnLifecycle(androidx.lifecycle.Lifecycle.State.RESUMED) {
+            val now = hasCoverAccess(context)
+            if (now && !allowed) runCatching { core.rescan() }
+            allowed = now
+        }
+    }
+    var askedAt by remember { androidx.compose.runtime.mutableLongStateOf(0L) }
+    val ask = androidx.activity.compose.rememberLauncherForActivityResult(androidx.activity.result.contract.ActivityResultContracts.RequestMultiplePermissions()) { _ ->
+        allowed = hasCoverAccess(context)
+        if (allowed) runCatching { core.rescan() }
+        // An answer at once: Android no longer shows its question, so its Settings page opens.
+        else if (android.os.SystemClock.uptimeMillis() - askedAt < 500) tryOpen("page in Settings for Needle") {
+            context.startActivity(
+                android.content.Intent(android.provider.Settings.ACTION_APPLICATION_DETAILS_SETTINGS, android.net.Uri.parse("package:${context.packageName}"))
+                    .addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK),
+            )
+        }
+    }
+    if (allowed) return
+    Column(
+        modifier.fillMaxWidth().clip(CoverShape).background(MaterialTheme.colorScheme.secondaryContainer).padding(16.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        Text("Covers beside your songs", style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.onSecondaryContainer)
+        Text(
+            "Some albums keep their cover in their folder: a picture (cover.jpg) or a short video that moves (cover.mp4). Android asks about pictures and videos apart from music, so Needle needs your yes to show them. It reads only the covers in your music folders.",
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSecondaryContainer,
+        )
+        androidx.compose.material3.Button(onClick = {
+            askedAt = android.os.SystemClock.uptimeMillis()
+            ask.launch(coverPermissions)
+        }) { Text("Allow") }
+    }
+}
+
+/**
  * Said where the library is empty because Needle may not read music: Android's question again,
  * or (asked too often already, when Android no longer asks) its page for Needle in Settings.
  */
@@ -357,7 +422,7 @@ private fun seedHash(seed: String): Long =
 fun seedColor(seed: String): Color = Color.hsl((seedHash(seed) % 360).toFloat(), 0.5f, 0.4f)
 
 @Composable
-private fun MadeUpCover(seed: String) {
+internal fun MadeUpCover(seed: String) {
     val hash = seedHash(seed)
     val h1 = (hash % 360).toFloat()
     val h2 = (h1 + 21.6f + ((hash shr 9) % 12) * 3.6f) % 360f
@@ -410,12 +475,12 @@ fun LargeTitle(text: String, modifier: Modifier = Modifier, action: @Composable 
 /** A section's title; with `onMore`, a chevron leads to the whole list. */
 @OptIn(androidx.compose.material3.ExperimentalMaterial3ExpressiveApi::class)
 @Composable
-fun SectionHeader(text: String, modifier: Modifier = Modifier, onMore: (() -> Unit)? = null) {
+fun SectionHeader(text: String, modifier: Modifier = Modifier, top: Dp = 28.dp, onMore: (() -> Unit)? = null) {
     Row(
         modifier
             .fillMaxWidth()
             .then(if (onMore != null) Modifier.clickable(onClick = onMore) else Modifier)
-            .padding(start = Edge, end = 12.dp, top = 28.dp, bottom = 12.dp),
+            .padding(start = Edge, end = 12.dp, top = top, bottom = 12.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Text(text, style = MaterialTheme.typography.titleLargeEmphasized, modifier = Modifier.semantics { heading() })
