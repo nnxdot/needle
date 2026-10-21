@@ -614,17 +614,37 @@ impl Library {
         copy.execute("DELETE FROM settings WHERE key='android.pc'", [])?;
         // Nor the key of this computer's own phone remote: the copy's remote is off.
         let saved: Option<String> = copy
-            .query_row("SELECT value FROM settings WHERE key='settings'", [], |r| r.get(0))
+            .query_row("SELECT value FROM settings WHERE key='settings'", [], |r| {
+                r.get(0)
+            })
             .optional()?;
-        if let Some(mut settings) = saved.and_then(|s| serde_json::from_str::<serde_json::Value>(&s).ok()) {
+        if let Some(mut settings) =
+            saved.and_then(|s| serde_json::from_str::<serde_json::Value>(&s).ok())
+        {
             if let Some(map) = settings.as_object_mut() {
-                map.insert("remote_key".into(), serde_json::Value::String(String::new()));
+                map.insert(
+                    "remote_key".into(),
+                    serde_json::Value::String(String::new()),
+                );
                 map.insert("remote".into(), serde_json::Value::Bool(false));
             }
-            copy.execute("UPDATE settings SET value=? WHERE key='settings'", [settings.to_string()])?;
+            copy.execute(
+                "UPDATE settings SET value=? WHERE key='settings'",
+                [settings.to_string()],
+            )?;
         }
         Ok(())
     }
+}
+
+/// A music folder's real path on Unix (links followed: an iPhone's /var is /private/var); as it
+/// is elsewhere, and when it cannot be read.
+pub fn canonical_root(path: &str) -> String {
+    #[cfg(unix)]
+    if let Ok(real) = std::fs::canonicalize(path) {
+        return real.to_string_lossy().into_owned();
+    }
+    path.to_string()
 }
 
 #[cfg(test)]
@@ -864,14 +884,4 @@ mod tests {
             missing[0].path
         );
     }
-}
-
-/// A music folder's real path on Unix (links followed: an iPhone's /var is /private/var); as it
-/// is elsewhere, and when it cannot be read.
-pub fn canonical_root(path: &str) -> String {
-    #[cfg(unix)]
-    if let Ok(real) = std::fs::canonicalize(path) {
-        return real.to_string_lossy().into_owned();
-    }
-    path.to_string()
 }

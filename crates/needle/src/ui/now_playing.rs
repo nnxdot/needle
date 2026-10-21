@@ -9,6 +9,97 @@ use needle_core::{
     model::format_duration,
 };
 
+/// The immersive cover, as the Mac's and Apple Music's: the cover fills the window's left side
+/// from top to foot and fades, to its right and at its foot, into a tone of its own colour.
+/// `foot` is how tall the words and controls over its foot are: the tone is solid behind all of
+/// them, so no cover makes them hard to read, and the cover fades in above.
+/// Gives the layer, how wide the cover is, and the tone (which the rest of the player takes).
+pub(super) fn immersive_cover(
+    path: &str,
+    look: Option<&super::ambient::Look>,
+    w: f32,
+    h: f32,
+    widest: f32,
+    foot: f32,
+    dark: bool,
+) -> (AnyElement, f32, Hsla) {
+    let side = h.min(w * 0.62).min(widest).max(1.);
+    let tone = match look.map(|l| l.vivid) {
+        Some(c) if dark => hsla(c.h, (c.s * 0.8).min(0.5), 0.15, 1.),
+        Some(c) => hsla(c.h, (c.s * 0.7).min(0.45), 0.88, 1.),
+        None if dark => hsla(0., 0., 0.1, 1.),
+        None => hsla(0., 0., 0.92, 1.),
+    };
+    let file = super::thumbs::for_size(path, side).unwrap_or_else(|| path.into());
+    let layer = div()
+        .absolute()
+        .left_0()
+        .top_0()
+        .w(px(side))
+        .h(px(h))
+        .overflow_hidden()
+        .child(
+            img(file)
+                .absolute()
+                .inset_0()
+                .size_full()
+                .object_fit(ObjectFit::Cover),
+        )
+        // Into the tone to its right...
+        .child(
+            div()
+                .absolute()
+                .top_0()
+                .bottom_0()
+                .right_0()
+                .w(px(side * 0.45))
+                .bg(linear_gradient(
+                    90.,
+                    linear_color_stop(tone.opacity(0.), 0.),
+                    linear_color_stop(tone, 1.),
+                )),
+        )
+        // ...and solid behind the words and controls at its foot.
+        .child(
+            div()
+                .absolute()
+                .left_0()
+                .right_0()
+                .bottom_0()
+                .h(px(foot.min(h)))
+                .bg(tone),
+        )
+        .child(
+            div()
+                .absolute()
+                .left_0()
+                .right_0()
+                .bottom(px(foot.min(h) - 1.))
+                .h(px((h * 0.42).max(200.)))
+                .bg(linear_gradient(
+                    180.,
+                    linear_color_stop(tone.opacity(0.), 0.),
+                    linear_color_stop(tone, 1.),
+                )),
+        )
+        // At its top, so the buttons over it read.
+        .child(
+            div()
+                .absolute()
+                .left_0()
+                .right_0()
+                .top_0()
+                .h(px(140.))
+                .bg(linear_gradient(
+                    180.,
+                    linear_color_stop(tone.opacity(0.8), 0.),
+                    linear_color_stop(tone.opacity(0.), 1.),
+                )),
+        )
+        .into_any_element();
+    (layer, side, tone)
+}
+
 #[derive(Clone, Copy, PartialEq)]
 pub enum Side {
     Lyrics,
@@ -59,7 +150,18 @@ impl AppView {
         let repeat = self.playback.repeat;
         let left_w = if side == Side::None { w } else { w - 440. };
         let art = (h - 440.).min(left_w - 120.).clamp(140., 520.);
+        // Settings > Appearance > Immersive cover, for a song with a cover of its own.
+        let immersive = self
+            .settings
+            .immersive_cover
+            .then(|| current.as_ref().and_then(|c| c.track.artwork.clone()))
+            .flatten()
+            .map(|path| immersive_cover(&path, look.as_ref(), w, h, left_w - 40., 340., p.dark));
+        let column = immersive
+            .as_ref()
+            .map_or(art.max(420.), |(_, side, _)| (side - 96.).clamp(300., 480.));
         let top = match tint {
+            _ if let Some((_, _, tone)) = &immersive => *tone,
             Some(c) if p.dark => hsla(c.h, (c.s * 0.8).min(0.45), 0.2, 1.),
             Some(c) => hsla(c.h, (c.s * 0.7).min(0.4), 0.86, 1.),
             None => p.raised,
@@ -96,7 +198,12 @@ impl AppView {
         } else {
             look.as_ref().map_or(1., |l| l.strength(p.dark))
         };
-        let backdrop = look.and_then(|l| l.blur).map(|blur| {
+        let cover_side = immersive.as_ref().map(|(_, side, _)| *side);
+        let (cover_layer, plain) = match immersive {
+            Some((layer, _, _)) => (Some(layer), false),
+            None => (None, true),
+        };
+        let backdrop = look.and_then(|l| l.blur).filter(|_| plain).map(|blur| {
             img(blur)
                 .absolute()
                 .top(px(-h * 0.1))
@@ -124,23 +231,26 @@ impl AppView {
             .flex()
             .flex_col()
             .children(backdrop)
+            .children(cover_layer)
             // Vignette: darken toward the edges and fade into the page at the bottom, so the
             // controls always sit on a calm surface.
-            .child(div().absolute().inset_0().bg(linear_gradient(
-                180.,
-                linear_color_stop(p.canvas.opacity(0.25), 0.),
-                linear_color_stop(p.canvas.opacity(0.8), 1.),
-            )))
-            .child(div().absolute().inset_0().bg(linear_gradient(
-                90.,
-                linear_color_stop(p.canvas.opacity(0.45), 0.),
-                linear_color_stop(p.canvas.opacity(0.), 0.3),
-            )))
-            .child(div().absolute().inset_0().bg(linear_gradient(
-                270.,
-                linear_color_stop(p.canvas.opacity(0.45), 0.),
-                linear_color_stop(p.canvas.opacity(0.), 0.3),
-            )))
+            .when(plain, |el| {
+                el.child(div().absolute().inset_0().bg(linear_gradient(
+                    180.,
+                    linear_color_stop(p.canvas.opacity(0.25), 0.),
+                    linear_color_stop(p.canvas.opacity(0.8), 1.),
+                )))
+                .child(div().absolute().inset_0().bg(linear_gradient(
+                    90.,
+                    linear_color_stop(p.canvas.opacity(0.45), 0.),
+                    linear_color_stop(p.canvas.opacity(0.), 0.3),
+                )))
+                .child(div().absolute().inset_0().bg(linear_gradient(
+                    270.,
+                    linear_color_stop(p.canvas.opacity(0.45), 0.),
+                    linear_color_stop(p.canvas.opacity(0.), 0.3),
+                )))
+            })
             .child(
                 div()
                     .h(px(56.))
@@ -219,32 +329,41 @@ impl AppView {
                     .flex()
                     .child(
                         div()
-                            .flex_1()
                             .min_w_0()
                             .flex()
                             .flex_col()
                             .items_center()
-                            .justify_center()
                             .gap_5()
-                            .px_12()
                             .pb_8()
-                            .child(
-                                div()
-                                    .rounded(px(10.))
-                                    .shadow(vec![BoxShadow {
-                                        color: gpui::black().opacity(if p.dark {
-                                            0.55
-                                        } else {
-                                            // Softer on light backgrounds, where the shadow's
-                                            // steps would show.
-                                            0.14
-                                        }),
-                                        offset: point(px(0.), px(18.)),
-                                        blur_radius: px(48.),
-                                        spread_radius: px(-6.),
-                                    }])
-                                    .child(artwork(current.as_ref().map(|i| &i.track), art, cx)),
-                            )
+                            // Immersive: the cover is the window's side itself, and the words
+                            // and controls sit over its foot.
+                            .map(|el| match cover_side {
+                                Some(side) => el.w(px(side)).flex_shrink_0().justify_end().pb_12(),
+                                None => el.flex_1().justify_center().px_12(),
+                            })
+                            .when(cover_side.is_none(), |el| {
+                                el.child(
+                                    div()
+                                        .rounded(px(10.))
+                                        .shadow(vec![BoxShadow {
+                                            color: gpui::black().opacity(if p.dark {
+                                                0.55
+                                            } else {
+                                                // Softer on light backgrounds, where the shadow's
+                                                // steps would show.
+                                                0.14
+                                            }),
+                                            offset: point(px(0.), px(18.)),
+                                            blur_radius: px(48.),
+                                            spread_radius: px(-6.),
+                                        }])
+                                        .child(artwork(
+                                            current.as_ref().map(|i| &i.track),
+                                            art,
+                                            cx,
+                                        )),
+                                )
+                            })
                             .child(match &current {
                                 None => div()
                                     .flex()
@@ -258,7 +377,7 @@ impl AppView {
                                     let (artist, album) =
                                         (Page::Artist(track.artist.clone()), album_page(&track));
                                     div()
-                                        .w(px(art.max(420.)))
+                                        .w(px(column))
                                         .flex()
                                         .flex_col()
                                         .items_center()
@@ -315,7 +434,7 @@ impl AppView {
                             })
                             .child(
                                 div()
-                                    .w(px(art.max(420.)))
+                                    .w(px(column))
                                     .flex()
                                     .items_center()
                                     .gap_3()
@@ -439,6 +558,8 @@ impl AppView {
                                     .child(glyph("volume").size(px(16.)).text_color(p.ink_2)),
                             ),
                     )
+                    // The tone beside the cover, up to the side panel.
+                    .when(cover_side.is_some(), |el| el.child(div().flex_1()))
                     .when(side != Side::None, |el| {
                         el.child(
                             div()
@@ -478,10 +599,12 @@ impl AppView {
                     }),
             );
         motion::animate(player, ("big-tint", tint_serial), 900, cx, move |el, t| {
+            let tone = motion::mix(from, to, t);
+            // Immersive: all of it the cover's tone.
             el.bg(linear_gradient(
                 180.,
-                linear_color_stop(motion::mix(from, to, t), 0.),
-                linear_color_stop(canvas, 0.85),
+                linear_color_stop(tone, 0.),
+                linear_color_stop(if plain { canvas } else { tone }, 0.85),
             ))
         })
     }

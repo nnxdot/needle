@@ -505,15 +505,23 @@ pub fn listenbrainz_sign_out() -> Result<()> {
 }
 /// The effective fanart.tv key (environment, then the system's store, then the build's).
 pub fn fanart_key() -> Option<String> {
-    resolve(&SystemStore, &|name: &str| std::env::var(name).ok(), SecretKind::FanartKey)
-        .map(|(value, _)| value)
-        .filter(|k| !k.trim().is_empty())
+    resolve(
+        &SystemStore,
+        &|name: &str| std::env::var(name).ok(),
+        SecretKind::FanartKey,
+    )
+    .map(|(value, _)| value)
+    .filter(|k| !k.trim().is_empty())
 }
 
 /// Whether the fanart.tv key in use is one the person saved (not Needle's own, built in).
 pub fn fanart_key_is_own() -> bool {
-    resolve(&SystemStore, &|name: &str| std::env::var(name).ok(), SecretKind::FanartKey)
-        .is_some_and(|(_, source)| source != SecretSource::BuiltIn)
+    resolve(
+        &SystemStore,
+        &|name: &str| std::env::var(name).ok(),
+        SecretKind::FanartKey,
+    )
+    .is_some_and(|(_, source)| source != SecretSource::BuiltIn)
 }
 
 /// The effective AcoustID API key (environment, then Credential Manager).

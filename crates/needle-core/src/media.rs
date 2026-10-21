@@ -515,7 +515,10 @@ fn download_image(url: &str, destination: &Path) -> Result<()> {
     }
     // Each picture its own part file: an artist's photo, logo, and wide picture are fetched at
     // the same time, and one shared part file mixed them up.
-    let kind = destination.extension().and_then(|e| e.to_str()).unwrap_or("img");
+    let kind = destination
+        .extension()
+        .and_then(|e| e.to_str())
+        .unwrap_or("img");
     let partial = destination.with_extension(format!("{kind}.part"));
     std::fs::write(&partial, bytes)?;
     std::fs::rename(partial, destination)?;
@@ -569,7 +572,12 @@ fn musicbrainz_artist_kept(library: &Library, name: &str) -> Result<Option<Strin
         return Ok(hit);
     }
     let found = musicbrainz_artist(name)?;
-    remember(library, &key, &found, if found.is_some() { WEEK * 13 } else { WEEK })?;
+    remember(
+        library,
+        &key,
+        &found,
+        if found.is_some() { WEEK * 13 } else { WEEK },
+    )?;
     Ok(found)
 }
 
@@ -608,13 +616,25 @@ pub fn animated_cover(library: &Library, track: &Track) -> Option<PathBuf> {
     let folder = Path::new(track.file_path()).parent()?;
     let names = ["cover", "animated", "folder", "front", "album", "motion"];
     let kinds = ["mp4", "m4v", "mov"];
-    let video = std::fs::read_dir(folder).ok()?.flatten().map(|e| e.path()).find(|p| {
-        let stem = p.file_stem().and_then(|s| s.to_str()).unwrap_or_default().to_lowercase();
-        let kind = p.extension().and_then(|s| s.to_str()).unwrap_or_default().to_lowercase();
-        // A moving cover is a short loop, not a whole music video.
-        let small = std::fs::metadata(p).is_ok_and(|m| m.len() <= 60 * 1024 * 1024);
-        names.contains(&stem.as_str()) && kinds.contains(&kind.as_str()) && small
-    })?;
+    let video = std::fs::read_dir(folder)
+        .ok()?
+        .flatten()
+        .map(|e| e.path())
+        .find(|p| {
+            let stem = p
+                .file_stem()
+                .and_then(|s| s.to_str())
+                .unwrap_or_default()
+                .to_lowercase();
+            let kind = p
+                .extension()
+                .and_then(|s| s.to_str())
+                .unwrap_or_default()
+                .to_lowercase();
+            // A moving cover is a short loop, not a whole music video.
+            let small = std::fs::metadata(p).is_ok_and(|m| m.len() <= 60 * 1024 * 1024);
+            names.contains(&stem.as_str()) && kinds.contains(&kind.as_str()) && small
+        })?;
     // Only a folder of one album: in a folder of many (an iPhone's own, say) one cover.mp4
     // would be every song's.
     let inside = format!("{}/", folder.to_string_lossy());
@@ -639,7 +659,9 @@ static FANART: std::sync::Mutex<()> = std::sync::Mutex::new(());
 /// Forgets fanart.tv's kept answers, so a new key (or none) is asked with at once: a refused
 /// key's "nothing" was kept a day.
 pub fn forget_fanart(library: &Library) -> Result<()> {
-    library.connection()?.execute("DELETE FROM cache WHERE key LIKE 'fanart:%'", [])?;
+    library
+        .connection()?
+        .execute("DELETE FROM cache WHERE key LIKE 'fanart:%'", [])?;
     Ok(())
 }
 
@@ -762,10 +784,18 @@ pub fn artist_banner(library: &Library, name: &str, online: bool) -> Result<Opti
 /// The most liked of fanart.tv's pictures of one kind; in English or with no language first.
 fn best_of(data: &Value, kind: &str) -> Option<String> {
     let mut found: Vec<&Value> = data[kind].as_array().into_iter().flatten().collect();
-    let likes = |v: &Value| v["likes"].as_str().and_then(|n| n.parse::<i64>().ok()).unwrap_or(0);
+    let likes = |v: &Value| {
+        v["likes"]
+            .as_str()
+            .and_then(|n| n.parse::<i64>().ok())
+            .unwrap_or(0)
+    };
     let english = |v: &Value| matches!(v["lang"].as_str(), Some("en" | "" | "00") | None);
     found.sort_by_key(|v| (!english(v), -likes(v)));
-    found.first().and_then(|v| v["url"].as_str()).map(String::from)
+    found
+        .first()
+        .and_then(|v| v["url"].as_str())
+        .map(String::from)
 }
 
 /// The logo to show from fanart.tv's answer: the high-definition ones first.
