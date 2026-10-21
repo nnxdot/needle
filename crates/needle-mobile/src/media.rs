@@ -349,6 +349,22 @@ impl Needle {
         Ok(())
     }
 
+    /// Mac: macOS's own reports of Needle's crashes (in the app, not only in the core), kept to
+    /// be sent, when crash reports are on. Returns how many were new.
+    pub fn collect_system_crashes(&self) -> u32 {
+        #[cfg(target_os = "macos")]
+        if self.crash_reports() {
+            return needle_core::logfile::collect_mac_crashes(&self.library.directory) as u32;
+        }
+        0
+    }
+
+    /// iPhone: a crash the system reported (through MetricKit), kept to be sent, when crash
+    /// reports are on.
+    pub fn keep_crash_report(&self, text: String) -> bool {
+        self.crash_reports() && needle_core::logfile::keep_report(&self.library.directory, &text)
+    }
+
     /// Sends crash reports waiting from earlier runs, when that is on; returns how many.
     pub fn send_crash_reports(&self) -> u32 {
         let on = self.crash_reports();
