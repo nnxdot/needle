@@ -21,6 +21,8 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.material.icons.automirrored.rounded.QueueMusic
 import androidx.compose.material.icons.rounded.AutoAwesome
+import androidx.compose.material.icons.rounded.Album
+import androidx.compose.material.icons.rounded.Movie
 import androidx.compose.material.icons.rounded.Build
 import androidx.compose.material.icons.rounded.Computer
 import androidx.compose.material.icons.rounded.DirectionsCar
@@ -95,6 +97,8 @@ private fun noteIcon(name: String): ImageVector = when (name) {
     "sound" -> Icons.Rounded.GraphicEq
     "sync" -> Icons.Rounded.Sync
     "discord" -> Icons.Rounded.Forum
+    "video" -> Icons.Rounded.Movie
+    "album" -> Icons.Rounded.Album
     else -> Icons.Rounded.AutoAwesome
 }
 

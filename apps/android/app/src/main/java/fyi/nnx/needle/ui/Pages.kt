@@ -85,6 +85,7 @@ import androidx.compose.foundation.layout.wrapContentHeight
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.heading
+import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
@@ -450,6 +451,8 @@ private fun AlbumPage(album: Album, open: (Route) -> Unit) {
             if (songsLoad.loading) items(6) { SongPlaceholder() }
             // Its songs were given another album name (in their tags), or taken out.
             if (songs != null && list.isEmpty()) item { GoneNote("This album is no longer in your library.") }
+            // No cover found: it may be a picture in the album's folder that Needle may not see yet.
+            if (art == null && list.isNotEmpty()) item { FolderCoversAccess(Modifier.padding(horizontal = Edge, vertical = 8.dp)) }
             songList(list, playing, open, numbered = true)
             if (list.isNotEmpty()) {
                 item {
@@ -652,13 +655,23 @@ fun ArtistScreen(name: String, open: (Route) -> Unit) {
     val top by topLoad
     val photoLoad = rememberLoaded(name) { artistPhoto(name) }
     val photo by photoLoad
+    // Songs without an artist: nothing to look up online for them.
+    val real = name.isNotBlank() && name != "Unknown artist"
+    // From fanart.tv (with online lookups on): a wide picture of them, and their logo.
+    val bannerLoad = rememberLoaded(name, "banner") { if (real) artistBanner(name) else null }
+    val banner by bannerLoad
+    val logoLoad = rememberLoaded(name, "logo") { if (real) artistLogo(name) else null }
+    val logo by logoLoad
     val playing = playingId()
     val songs = top.orEmpty()
     val state = rememberLazyGridState()
-    val art = photo ?: albums?.firstNotNullOfOrNull { it.artwork }
+    val art = banner ?: photo ?: albums?.firstNotNullOfOrNull { it.artwork }
     val shown = name.ifBlank { "Unknown artist" }
+    // The newest album with a year, for its own box under the buttons.
+    val latest = albums?.filter { it.year > 0 }?.maxWithOrNull(compareBy({ it.year }, { it.title }))
     DetailFrame(art, shown, { state.headerScroll() }, null) {
         // Two covers across on a phone, more on a tablet; the rows and the photo run to the edges.
+        KeepTop(state) {
         LazyVerticalGrid(
             columns = gridColumns(180.dp),
             state = state,
@@ -667,20 +680,28 @@ fun ArtistScreen(name: String, open: (Route) -> Unit) {
             verticalArrangement = Arrangement.spacedBy(LocalRows.current.grid),
             modifier = Modifier.fillMaxSize(),
         ) {
-            edgeToEdge(Edge) { ArtistHero(art, shown, albums?.size, songs.size, { state.headerScroll() }) }
-            if (songs.isNotEmpty()) {
-                edgeToEdge(Edge) {
-                    PlayRow(songs) {
-                        RoundAction(Icons.Rounded.Radio, "Artist radio") {
+            edgeToEdge(Edge) {
+                ArtistHero(art, logo, shown, albums?.size, songs.size, { state.headerScroll() }) {
+                    if (songs.isNotEmpty()) ArtistButtons(
+                        onShuffle = { play(songs.shuffled(), 0) },
+                        onPlay = { play(songs, 0) },
+                        onRadio = {
                             showMessage("Starting radio from $name…")
                             NeedleApp.instance.scope.launch { runCatching { core.startArtistRadio(name) }.onFailure { showMessage(it.message ?: "Could not start the radio") } }
-                        }
-                    }
+                        },
+                    )
                 }
-                edgeToEdge(Edge) { SectionHeader("Top songs", Modifier.padding(top = 0.dp)) }
-                items(minOf(5, songs.size), span = { GridItemSpan(maxLineSpan) }) { i ->
+            }
+            if (latest != null) edgeToEdge(Edge) { LatestRelease(latest, open) }
+            if (songs.isNotEmpty()) {
+                // The title and the songs as one group, as in a song list, not apart by the grid's
+                // gap for covers; the grid's own gap above is space enough.
+                edgeToEdge(Edge) {
+                Column {
+                SectionHeader("Top songs", top = 0.dp)
+                repeat(minOf(5, songs.size)) { i ->
                     val song = songs[i]
-                    Row(Modifier.bleed(Edge).entrance(i), verticalAlignment = Alignment.CenterVertically) {
+                    Row(Modifier.entrance(i), verticalAlignment = Alignment.CenterVertically) {
                         // The rank, as charts show it.
                         Text(
                             "${i + 1}",
@@ -692,11 +713,14 @@ fun ArtistScreen(name: String, open: (Route) -> Unit) {
                         Box(Modifier.weight(1f)) { SongRow(song, playing == song.id, open, place = Place(i, minOf(5, songs.size))) { play(songs, i) } }
                     }
                 }
+                }
+                }
             }
-            if (top != null && albums != null && songs.isEmpty() && albums.orEmpty().isEmpty()) {
+            // Not for songs with no artist in their tags: their page is simply empty.
+            if (name.isNotBlank() && top != null && albums != null && songs.isEmpty() && albums.orEmpty().isEmpty()) {
                 edgeToEdge(Edge) { GoneNote("This artist is no longer in your library.") }
             }
-            if (albums.orEmpty().isNotEmpty()) edgeToEdge(Edge) { SectionHeader("Albums", Modifier.padding(top = 8.dp)) }
+            if (albums.orEmpty().isNotEmpty()) edgeToEdge(Edge) { SectionHeader("Albums", top = 12.dp) }
             // One list, read once: a reload that fails leaves it, not a null, to the rows.
             val albumList = albums.orEmpty()
             items(albumList.size) { i ->
@@ -704,16 +728,22 @@ fun ArtistScreen(name: String, open: (Route) -> Unit) {
                 AlbumTile(album, Modifier.entrance(i + 5), open) { open(Route.AlbumPage(album)) }
             }
         }
+        }
     }
 }
 
+/**
+ * An artist's top, after Apple Music's (and Needle's on the Mac and iPhone): their wide picture
+ * (or photo, or a cover of theirs) tall across the top, fading into the page; their logo (or
+ * name) in the middle near its foot, and under it the page's buttons.
+ */
 @Composable
-private fun ArtistHero(art: String?, name: String, albums: Int?, songs: Int, scrolled: () -> Float) {
+private fun ArtistHero(art: String?, logo: String?, name: String, albums: Int?, songs: Int, scrolled: () -> Float, buttons: @Composable () -> Unit) {
     val density = androidx.compose.ui.platform.LocalDensity.current
     val squeeze by remember { derivedStateOf { (scrolled() / with(density) { 240.dp.toPx() }).coerceIn(0f, 1f) } }
     val page = MaterialTheme.colorScheme.background
-    // On a tablet a photo the width of the screen would be taller than the screen: a band instead.
-    Box(Modifier.fillMaxWidth().aspectRatio(if (isWide()) 2.4f else 0.9f).clipToBounds()) {
+    // On a tablet a picture the width of the screen would be taller than the screen: a band instead.
+    Box(Modifier.fillMaxWidth().aspectRatio(if (isWide()) 2.1f else 0.72f).clipToBounds()) {
         Cover(
             art,
             Modifier.fillMaxSize().graphicsLayer {
@@ -727,15 +757,90 @@ private fun ArtistHero(art: String?, name: String, albums: Int?, songs: Int, scr
             // No photo: the made-up cover in the artist's own colours, as their tiles have.
             seed = name,
         )
-        Box(Modifier.fillMaxSize().background(Brush.verticalGradient(0f to Color.Black.copy(alpha = 0.35f), 0.25f to Color.Transparent, 0.6f to Color.Transparent, 1f to page)))
-        Column(Modifier.align(Alignment.BottomStart).padding(horizontal = Edge, vertical = 8.dp)) {
-            Text(
-                name,
-                style = MaterialTheme.typography.displayMedium.copy(fontFamily = titleFamily(0.5f + squeeze * 0.5f)),
-                maxLines = 2,
-                overflow = TextOverflow.Ellipsis,
-            )
+        Box(Modifier.fillMaxSize().background(Brush.verticalGradient(0f to Color.Black.copy(alpha = 0.35f), 0.2f to Color.Transparent, 0.45f to Color.Transparent, 0.75f to page.copy(alpha = 0.75f), 1f to page)))
+        Column(
+            Modifier.align(Alignment.BottomCenter).fillMaxWidth().padding(horizontal = Edge, vertical = 4.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.spacedBy(10.dp),
+        ) {
+            if (logo != null) {
+                // Their own logo, as Apple Music shows it. Logos are mostly white: on a light
+                // page, the logo takes the page's ink.
+                val light = page.luminance() > 0.5f
+                coil3.compose.AsyncImage(
+                    model = fileUri(logo),
+                    contentDescription = name,
+                    contentScale = androidx.compose.ui.layout.ContentScale.Fit,
+                    colorFilter = if (light) androidx.compose.ui.graphics.ColorFilter.tint(MaterialTheme.colorScheme.onBackground) else null,
+                    modifier = Modifier.widthIn(max = 300.dp).heightIn(max = 120.dp).fillMaxWidth(),
+                )
+            } else {
+                Text(
+                    name,
+                    style = MaterialTheme.typography.displayMedium.copy(fontFamily = titleFamily(0.5f + squeeze * 0.5f)),
+                    textAlign = TextAlign.Center,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.semantics { heading() },
+                )
+            }
             MetaLine(listOfNotNull("Artist", albums?.let { count(it, "album") }, songs.takeIf { it > 0 }?.let { count(it, "top song") }))
+            buttons()
+        }
+    }
+}
+
+/** A large round Play between round Shuffle and Radio, as on Needle for the Mac and iPhone. */
+@OptIn(androidx.compose.material3.ExperimentalMaterial3ExpressiveApi::class)
+@Composable
+private fun ArtistButtons(onShuffle: () -> Unit, onPlay: () -> Unit, onRadio: () -> Unit) {
+    Row(
+        Modifier.padding(top = 6.dp, bottom = 4.dp),
+        horizontalArrangement = Arrangement.spacedBy(24.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        androidx.compose.material3.FilledTonalIconButton(onClick = onShuffle, modifier = Modifier.size(56.dp)) {
+            Icon(Icons.Rounded.Shuffle, contentDescription = "Shuffle")
+        }
+        androidx.compose.material3.FilledIconButton(
+            onClick = onPlay,
+            shapes = androidx.compose.material3.IconButtonDefaults.shapes(),
+            modifier = Modifier.size(80.dp).firstFocus(),
+        ) {
+            Icon(Icons.Rounded.PlayArrow, contentDescription = "Play", modifier = Modifier.size(40.dp))
+        }
+        androidx.compose.material3.FilledTonalIconButton(onClick = onRadio, modifier = Modifier.size(56.dp)) {
+            Icon(Icons.Rounded.Radio, contentDescription = "Artist radio")
+        }
+    }
+}
+
+/** Their newest album in a box of its own: its cover, year, name, and a Play. */
+@Composable
+private fun LatestRelease(album: Album, open: (Route) -> Unit) {
+    Column(Modifier.padding(horizontal = Edge)) {
+        Text("Latest release", style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(bottom = 8.dp))
+        Row(
+            Modifier
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(24.dp))
+                .background(MaterialTheme.colorScheme.surfaceContainer)
+                .clickable(onClickLabel = "Open ${album.title}") { open(Route.AlbumPage(album)) }
+                .padding(12.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(14.dp),
+        ) {
+            Cover(album.artwork, Modifier.size(84.dp), SmallCoverShape, seed = album.title + album.artist)
+            Column(Modifier.weight(1f)) {
+                Text("${album.year}", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Text(album.title.ifBlank { "Unknown album" }, style = MaterialTheme.typography.titleMedium, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                Text(count(album.songs.toInt(), "song"), style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+            androidx.compose.material3.FilledTonalIconButton(onClick = {
+                NeedleApp.instance.scope.launch(kotlinx.coroutines.Dispatchers.IO) {
+                    runCatching { core.albumSongs(album.key).map { it.id } }.getOrNull()?.let { playSongs(it) }
+                }
+            }) { Icon(Icons.Rounded.PlayArrow, contentDescription = "Play ${album.title}") }
         }
     }
 }

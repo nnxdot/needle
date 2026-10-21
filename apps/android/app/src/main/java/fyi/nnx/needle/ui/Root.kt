@@ -50,6 +50,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
+import androidx.compose.foundation.clickable
 import androidx.compose.ui.Modifier
 import androidx.compose.foundation.focusGroup
 import androidx.compose.ui.focus.focusRequester
@@ -326,14 +327,31 @@ fun NeedleRoot() {
                 val bars = with(LocalDensity.current) { barHeight.toDp() }
                 SnackbarHost(
                     snackbar,
-                    Modifier
-                        .align(androidx.compose.ui.Alignment.BottomCenter)
-                        // Above the keyboard while it is up, where it would otherwise hide.
-                        .imePadding()
-                        // On a tablet the bars sit in the pane, above the navigation bar and its margin.
-                        .then(if (playerOpen || bars == 0.dp || wide) Modifier.navigationBarsPadding() else Modifier)
-                        .padding(bottom = if (playerOpen) 16.dp else bars + 8.dp + if (wide) 12.dp else 0.dp),
-                )
+                    // Over the player, at the top: at the foot it would cover the player's buttons.
+                    if (playerOpen && hasSong) {
+                        Modifier.align(androidx.compose.ui.Alignment.TopCenter).statusBarsPadding().padding(top = 56.dp)
+                    } else {
+                        Modifier
+                            .align(androidx.compose.ui.Alignment.BottomCenter)
+                            // Above the keyboard while it is up, where it would otherwise hide.
+                            .imePadding()
+                            // On a tablet the bars sit in the pane, above the navigation bar and its margin.
+                            .then(if (bars == 0.dp || wide) Modifier.navigationBarsPadding() else Modifier)
+                            .padding(bottom = bars + 8.dp + if (wide) 12.dp else 0.dp)
+                    },
+                ) { data ->
+                    // A tap or a swipe sends it away at once.
+                    val swipe = androidx.compose.material3.rememberSwipeToDismissBoxState()
+                    LaunchedEffect(swipe.currentValue) {
+                        if (swipe.currentValue != androidx.compose.material3.SwipeToDismissBoxValue.Settled) data.dismiss()
+                    }
+                    androidx.compose.material3.SwipeToDismissBox(swipe, backgroundContent = {}) {
+                        androidx.compose.material3.Snackbar(
+                            data,
+                            modifier = Modifier.clickable(onClickLabel = "Dismiss") { data.dismiss() },
+                        )
+                    }
+                }
                 Overlays(snackbar)
                 if (welcoming) Box(Modifier.focusLayer()) { WelcomeGuide(open) }
             }
