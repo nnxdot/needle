@@ -1,10 +1,10 @@
 {
     "html_url": "https://needle.nnx.fyi/",
-    "tag_name": "v1.6.4",
+    "tag_name": "v1.7.0",
     "assets": [
         {
-            "name": "Needle-1.6.4-macos.dmg",
-            "browser_download_url": "https://needle.nnx.fyi/download/Needle-1.6.4-macos.dmg"
+            "name": "Needle-1.7.0-macos.dmg",
+            "browser_download_url": "https://needle.nnx.fyi/download/Needle-1.7.0-macos.dmg"
         },
         {
             "name": "SHA256SUMS.txt",

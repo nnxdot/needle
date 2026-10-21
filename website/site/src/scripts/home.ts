@@ -14,16 +14,17 @@ const $ = <T extends Element = HTMLElement>(sel: string, root: ParentNode = docu
 const $$ = <T extends Element = HTMLElement>(sel: string, root: ParentNode = document) => [...root.querySelectorAll<T>(sel)];
 
 /* ---------- which device is this? */
-type Platform = "windows" | "mac" | "linux" | "android";
+type Platform = "windows" | "mac" | "linux" | "android" | "iphone";
 function detect(): Platform {
   const ua = navigator.userAgent;
   const hint = (navigator as Navigator & { userAgentData?: { platform?: string } }).userAgentData?.platform ?? "";
   if (/android/i.test(ua) || /android/i.test(hint)) return "android";
+  if (/iphone|ipod/i.test(ua)) return "iphone";
   if (/mac|iphone|ipad|ipod/i.test(ua) || /macos/i.test(hint)) return "mac";
   if (/linux|cros|x11/i.test(ua) || /linux|chrome os/i.test(hint)) return "linux";
   return "windows";
 }
-const names: Record<Platform, string> = { windows: "Windows", mac: "Mac", linux: "Linux", android: "Android" };
+const names: Record<Platform, string> = { windows: "Windows", mac: "Mac", linux: "Linux", android: "Android", iphone: "iPhone" };
 const platform = detect();
 const osLabel = $("[data-os-label]");
 if (osLabel) osLabel.textContent = `Download for ${names[platform]}`;
