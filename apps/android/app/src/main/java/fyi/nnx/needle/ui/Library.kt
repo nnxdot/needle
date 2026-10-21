@@ -58,6 +58,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.ui.unit.sp
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.vector.ImageVector
@@ -296,7 +297,16 @@ internal fun Pinned(
     ) {
         ShapedIcon(icon, 44, container = accent, content = androidx.compose.material3.contentColorFor(accent))
         Column {
-            Text(title, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold, color = text)
+            // Smaller rather than broken mid-word on a narrow phone.
+            Text(
+                title,
+                style = MaterialTheme.typography.titleSmall,
+                fontWeight = FontWeight.Bold,
+                color = text,
+                maxLines = 1,
+                softWrap = false,
+                autoSize = androidx.compose.foundation.text.TextAutoSize.StepBased(minFontSize = 10.sp, maxFontSize = MaterialTheme.typography.titleSmall.fontSize),
+            )
             // Two lines on a narrow phone, so the words are not cut short.
             Text(detail ?: " ", style = MaterialTheme.typography.bodySmall, color = text.copy(alpha = 0.75f), maxLines = 2, overflow = TextOverflow.Ellipsis)
         }
