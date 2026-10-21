@@ -123,8 +123,10 @@ pub struct AppSettings {
     pub welcomed: bool,
     /// The player's cover fills its top, edge to edge, fading into the cover's colour, as
     /// Apple Music's does; off, it is a card over a blur of it.
+    #[uniffi(default = true)]
     pub immersive_cover: bool,
     /// Moving covers (a video beside the songs, such as cover.mp4) play in the player.
+    #[uniffi(default = true)]
     pub animated_covers: bool,
 }
 
