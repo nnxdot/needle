@@ -450,11 +450,15 @@ private fun LibrarySettings(open: (Route) -> Unit) {
         }
     }
     playback?.let { p ->
-        Group("Online", footer = "When a song has no lyrics of its own, Needle asks LRCLIB for them with the song's title, artist, album, and length. Nothing else is sent.") {
-            SwitchRow("Look up lyrics online", "From LRCLIB, for songs without their own", p.onlineMedia) {
+        Group("Online", footer = "When a song has no lyrics of its own, Needle asks LRCLIB for them with the song's title, artist, album, and length. For an artist's page, Needle asks MusicBrainz for the artist's ID by name, and sends fanart.tv only that ID. Nothing else is sent.") {
+            SwitchRow("Look up lyrics and artists online", "Lyrics from LRCLIB; artists' pictures and logos from fanart.tv", p.onlineMedia) {
                 val next = p.copy(onlineMedia = it)
                 playback = next
                 background { core.setPlaybackSettings(next) }
+            }
+            if (p.onlineMedia) {
+                Divider()
+                FanartKeyRow()
             }
         }
     }
@@ -922,8 +926,17 @@ private fun AppearanceSettings(open: (Route) -> Unit) {
             SwitchRow("Colours from your wallpaper", "Instead of Needle's amber, where no cover gives the colour", app.wallpaperColors) { on -> update { it.copy(wallpaperColors = on) } }
         }
     }
+    Group("Player cover") {
+        SwitchRow("Immersive cover", "The cover fills the top of the player, edge to edge, as in Apple Music", app.immersiveCover) { on -> update { it.copy(immersiveCover = on) } }
+        Divider()
+        SwitchRow("Moving covers", "A video beside the songs, such as cover.mp4, plays as the cover", app.animatedCovers) { on -> update { it.copy(animatedCovers = on) } }
+    }
     Group("Backdrop", footer = if (Build.VERSION.SDK_INT >= 31) null else "Android 12 or newer blurs the cover; this phone shows its colour instead.") {
-        SwitchRow("Cover behind the player", "The playing cover, blurred, fills the player", app.coverBackdrop) { on -> update { it.copy(coverBackdrop = on) } }
+        SwitchRow(
+            "Cover behind the player",
+            if (app.immersiveCover) "Behind the lyrics and the queue, the playing cover, blurred" else "The playing cover, blurred, fills the player",
+            app.coverBackdrop,
+        ) { on -> update { it.copy(coverBackdrop = on) } }
         Divider()
         SwitchRow("Moving backdrop", "The blurred cover turns slowly behind pages and the player", app.movingBackdrop) { on -> update { it.copy(movingBackdrop = on) } }
         Divider()
@@ -1360,5 +1373,46 @@ private fun ParametricBands(bands: List<fyi.nnx.needle.core.EqBand>, onChange: (
         if (live.size < 20) TextButton(onClick = {
             onChange(live + fyi.nnx.needle.core.EqBand(kind = "peak", frequency = 1000f, gain = 0f, q = 1f, on = true))
         }) { Text("Add a band") }
+    }
+}
+
+/**
+ * fanart.tv's key, for artists' logos and wide pictures: Needle has one of its own, and a key of
+ * the person's own (saved in Needle's private storage) is used instead when set.
+ */
+@Composable
+private fun FanartKeyRow() {
+    var own by remember { mutableStateOf<Boolean?>(null) }
+    LaunchedEffect(Unit) { own = withContext(Dispatchers.IO) { runCatching { core.hasOwnFanartKey() }.getOrDefault(false) } }
+    var key by remember { mutableStateOf("") }
+    Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Text("Your own fanart.tv key", style = MaterialTheme.typography.bodyLarge)
+        Text(
+            if (own == true) "Saved. Needle uses it for artists' pictures and logos." else "Not needed: Needle has a key of its own. A key of yours comes from fanart.tv, under your account.",
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        if (own == true) {
+            TextButton(onClick = {
+                own = false
+                background { core.setFanartKey("") }
+            }) { Text("Remove your key") }
+        } else if (own == false) {
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                OutlinedTextField(
+                    key, { key = it },
+                    label = { Text("fanart.tv key") },
+                    singleLine = true,
+                    visualTransformation = PasswordVisualTransformation(),
+                    modifier = Modifier.remoteEscape().weight(1f),
+                )
+                TextButton(enabled = key.isNotBlank(), onClick = {
+                    val saved = key.trim()
+                    key = ""
+                    own = true
+                    background { core.setFanartKey(saved) }
+                }) { Text("Save") }
+            }
+        }
     }
 }

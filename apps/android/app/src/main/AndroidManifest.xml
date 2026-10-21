@@ -12,8 +12,10 @@
         tools:ignore="ScopedStorage" />
     <!-- Reading music files on the phone. -->
     <uses-permission android:name="android.permission.READ_MEDIA_AUDIO" />
-    <!-- Covers kept beside the songs (cover.jpg): Android 13 and newer ask about pictures apart. -->
+    <!-- Covers kept beside the songs (cover.jpg, and moving ones such as cover.mp4): Android 13
+         and newer ask about pictures and videos apart from music. -->
     <uses-permission android:name="android.permission.READ_MEDIA_IMAGES" />
+    <uses-permission android:name="android.permission.READ_MEDIA_VIDEO" />
     <uses-permission
         android:name="android.permission.READ_EXTERNAL_STORAGE"
         android:maxSdkVersion="32" />

@@ -197,8 +197,14 @@ fun hasMusicAccess(context: android.content.Context): Boolean {
 fun hasCoverAccess(context: android.content.Context): Boolean {
     if (android.os.Build.VERSION.SDK_INT < 33) return true
     if (android.os.Environment.isExternalStorageManager()) return true
-    return androidx.core.content.ContextCompat.checkSelfPermission(context, android.Manifest.permission.READ_MEDIA_IMAGES) == android.content.pm.PackageManager.PERMISSION_GRANTED
+    // Pictures, and videos for moving covers (cover.mp4): Android asks about both at once.
+    return coverPermissions.all {
+        androidx.core.content.ContextCompat.checkSelfPermission(context, it) == android.content.pm.PackageManager.PERMISSION_GRANTED
+    }
 }
+
+/** What Android 13 and newer ask about for covers beside the songs: pictures and videos. */
+private val coverPermissions = arrayOf(android.Manifest.permission.READ_MEDIA_IMAGES, android.Manifest.permission.READ_MEDIA_VIDEO)
 
 /**
  * Settings › Library, on Android 13 and newer until it is allowed: a way to let Needle see the
@@ -220,7 +226,7 @@ fun FolderCoversAccess(modifier: Modifier = Modifier) {
         }
     }
     var askedAt by remember { androidx.compose.runtime.mutableLongStateOf(0L) }
-    val ask = androidx.activity.compose.rememberLauncherForActivityResult(androidx.activity.result.contract.ActivityResultContracts.RequestPermission()) { granted ->
+    val ask = androidx.activity.compose.rememberLauncherForActivityResult(androidx.activity.result.contract.ActivityResultContracts.RequestMultiplePermissions()) { _ ->
         allowed = hasCoverAccess(context)
         if (allowed) runCatching { core.rescan() }
         // An answer at once: Android no longer shows its question, so its Settings page opens.
@@ -238,13 +244,13 @@ fun FolderCoversAccess(modifier: Modifier = Modifier) {
     ) {
         Text("Covers beside your songs", style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.onSecondaryContainer)
         Text(
-            "Some albums keep their cover as a picture in their folder (cover.jpg). Android asks about pictures apart from music, so Needle needs your yes to show them. It reads only the pictures in your music folders.",
+            "Some albums keep their cover in their folder: a picture (cover.jpg) or a short video that moves (cover.mp4). Android asks about pictures and videos apart from music, so Needle needs your yes to show them. It reads only the covers in your music folders.",
             style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.onSecondaryContainer,
         )
         androidx.compose.material3.Button(onClick = {
             askedAt = android.os.SystemClock.uptimeMillis()
-            ask.launch(android.Manifest.permission.READ_MEDIA_IMAGES)
+            ask.launch(coverPermissions)
         }) { Text("Allow") }
     }
 }
@@ -416,7 +422,7 @@ private fun seedHash(seed: String): Long =
 fun seedColor(seed: String): Color = Color.hsl((seedHash(seed) % 360).toFloat(), 0.5f, 0.4f)
 
 @Composable
-private fun MadeUpCover(seed: String) {
+internal fun MadeUpCover(seed: String) {
     val hash = seedHash(seed)
     val h1 = (hash % 360).toFloat()
     val h2 = (h1 + 21.6f + ((hash shr 9) % 12) * 3.6f) % 360f
