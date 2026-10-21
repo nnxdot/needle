@@ -43,6 +43,14 @@ import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.selection.toggleable
+import androidx.compose.ui.semantics.Role
+import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.layout.windowInsetsPadding
+import androidx.compose.foundation.layout.only
+import androidx.compose.foundation.layout.displayCutout
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.vector.ImageVector
@@ -68,8 +76,8 @@ fun WelcomeGuide(open: (Route) -> Unit) {
         NeedleApp.instance.updateApp { it.copy(welcomed = true) }
     }
     val pick = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocumentTree()) { uri ->
-        val path = uri?.let(::folderPath) ?: return@rememberLauncherForActivityResult
-        NeedleApp.instance.scope.launch(Dispatchers.IO) { runCatching { core.addFolder(path) } }
+        val path = uri?.let(::treePath) ?: return@rememberLauncherForActivityResult
+        NeedleApp.instance.scope.launch(Dispatchers.IO) { runCatching { core.addFolder(path) }.onFailure { showMessage(it.message ?: "Could not add that folder") } }
         step = 2
     }
     androidx.activity.compose.BackHandler { if (step > 0) step-- else finish() }
@@ -80,12 +88,22 @@ fun WelcomeGuide(open: (Route) -> Unit) {
     ) {
     Box(
         Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background).clickable(enabled = false) {}
-            .statusBarsPadding().navigationBarsPadding().padding(24.dp),
+            .statusBarsPadding().navigationBarsPadding()
+            // Clear of a camera cut-out at the side too, on a phone turned sideways.
+            .windowInsetsPadding(androidx.compose.foundation.layout.WindowInsets.displayCutout.only(androidx.compose.foundation.layout.WindowInsetsSides.Horizontal))
+            .padding(24.dp),
     ) {
         AnimatedContent(step, transitionSpec = {
             (slideInHorizontally { it / 4 } + fadeIn()) togetherWith (slideOutHorizontally { -it / 4 } + fadeOut())
         }, label = "welcome") { page ->
-            Column(Modifier.fillMaxSize(), verticalArrangement = Arrangement.Center) {
+            // Centred where there is room; scrolled where there is not (a TV, a phone on its side,
+            // large text), so every choice stays in reach. Room at the foot for the dots.
+            // A phone's width at most, in the middle, on a tablet or a TV.
+            androidx.compose.foundation.layout.BoxWithConstraints(Modifier.fillMaxSize().padding(bottom = 24.dp), contentAlignment = Alignment.TopCenter) {
+            Column(
+                Modifier.widthIn(max = 560.dp).fillMaxWidth().heightIn(min = maxHeight).verticalScroll(androidx.compose.foundation.rememberScrollState()),
+                verticalArrangement = Arrangement.Center,
+            ) {
                 when (page) {
                     0 -> {
                         Image(painterResource(R.drawable.needle_logo), contentDescription = null, modifier = Modifier.size(96.dp).clip(RoundedCornerShape(24.dp)))
@@ -98,7 +116,8 @@ fun WelcomeGuide(open: (Route) -> Unit) {
                             modifier = Modifier.padding(top = 12.dp),
                         )
                         Spacer(Modifier.height(32.dp))
-                        Button(onClick = { step = 1 }, modifier = Modifier.fillMaxWidth()) { Text("Start") }
+                        val start = androidx.compose.runtime.remember { androidx.compose.foundation.interaction.MutableInteractionSource() }
+                        Button(onClick = { step = 1 }, interactionSource = start, modifier = Modifier.fillMaxWidth()) { Text("Start") }
                         TextButton(onClick = ::finish, modifier = Modifier.fillMaxWidth()) { Text("Skip the guide") }
                     }
                     1 -> {
@@ -106,10 +125,10 @@ fun WelcomeGuide(open: (Route) -> Unit) {
                         Text("You can add more places later, in Settings.", style = MaterialTheme.typography.bodyLarge, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(top = 8.dp, bottom = 20.dp))
                         val music = File(android.os.Environment.getExternalStorageDirectory(), android.os.Environment.DIRECTORY_MUSIC).path
                         Choice(Icons.Rounded.LibraryMusic, "In this phone's Music folder", "The usual place for music files") {
-                            NeedleApp.instance.scope.launch(Dispatchers.IO) { runCatching { core.addFolder(music) } }
+                            NeedleApp.instance.scope.launch(Dispatchers.IO) { runCatching { core.addFolder(music) }.onFailure { showMessage(it.message ?: "Could not add that folder") } }
                             step = 2
                         }
-                        Choice(Icons.Rounded.Folder, "In another folder", "On the phone or an SD card") { pick.launch(null) }
+                        Choice(Icons.Rounded.Folder, "In another folder", "On the phone or an SD card") { tryOpen("file picker") { pick.launch(null) } }
                         Choice(Icons.Rounded.Dns, "On my Navidrome or Subsonic server", "Streamed, with your plays and stars") { finish(); open(Route.Plugins) }
                         Choice(Icons.Rounded.Computer, "On my computer, in Needle", "Control it from here, or play its music here") { finish(); open(Route.Connect) }
                         TextButton(onClick = { step = 2 }, modifier = Modifier.fillMaxWidth().padding(top = 8.dp)) { Text("Skip for now") }
@@ -117,22 +136,30 @@ fun WelcomeGuide(open: (Route) -> Unit) {
                     else -> {
                         Text("Make it yours", style = MaterialTheme.typography.headlineMedium)
                         Text("Everything here, and much more, is in Settings › Appearance.", style = MaterialTheme.typography.bodyLarge, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(top = 8.dp, bottom = 20.dp))
-                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        // Onto a second line with large text, rather than squeezed.
+                        androidx.compose.foundation.layout.FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                             listOf("night" to "Night", "midnight" to "Midnight", "day" to "Day").forEach { (id, label) ->
                                 FilterChip(app.theme == id, { NeedleApp.instance.updateApp { it.copy(theme = id) } }, label = { Text(label) })
                             }
                         }
-                        Row(Modifier.fillMaxWidth().padding(vertical = 16.dp), verticalAlignment = Alignment.CenterVertically) {
+                        // The whole row is the one switch, named by its words.
+                        Row(
+                            Modifier.fillMaxWidth()
+                                .toggleable(app.ambientColors, role = Role.Switch) { on -> NeedleApp.instance.updateApp { it.copy(ambientColors = on) } }
+                                .padding(vertical = 16.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
                             Column(Modifier.weight(1f)) {
                                 Text("Colours from what's playing", style = MaterialTheme.typography.bodyLarge)
                                 Text("The whole app takes the song's colours", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
                             }
-                            Switch(app.ambientColors, { on -> NeedleApp.instance.updateApp { it.copy(ambientColors = on) } })
+                            Switch(app.ambientColors, onCheckedChange = null)
                         }
                         Spacer(Modifier.height(20.dp))
                         Button(onClick = ::finish, modifier = Modifier.fillMaxWidth()) { Text("Start listening") }
                     }
                 }
+            }
             }
         }
         // Where you are in the guide.
@@ -160,11 +187,3 @@ private fun Choice(icon: ImageVector, title: String, detail: String, onClick: ()
     }
 }
 
-/** A folder chosen in Android's picker, as a path Needle can read. */
-private fun folderPath(uri: android.net.Uri): String? {
-    val id = runCatching { android.provider.DocumentsContract.getTreeDocumentId(uri) }.getOrNull() ?: return null
-    val volume = id.substringBefore(':')
-    val rest = id.substringAfter(':', "")
-    val root = if (volume == "primary") android.os.Environment.getExternalStorageDirectory().path else "/storage/$volume"
-    return if (rest.isEmpty()) root else "$root/$rest"
-}

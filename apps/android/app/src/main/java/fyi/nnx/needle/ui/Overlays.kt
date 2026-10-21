@@ -42,6 +42,9 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
+import kotlinx.coroutines.flow.collectLatest
+import androidx.lifecycle.repeatOnLifecycle
+import kotlinx.coroutines.flow.receiveAsFlow
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
@@ -60,7 +63,11 @@ import kotlinx.coroutines.ensureActive
 
 /** What floats over the screens: a sheet or a dialog at a time, and short messages. */
 object Ui {
-    val messages = MutableSharedFlow<String>(extraBufferCapacity = 8)
+    /**
+     * Short messages, with when each was said. Held while no screen shows them (Needle started
+     * by a car, a widget, or a voice search), and shown when one opens, if still fresh.
+     */
+    val messages = kotlinx.coroutines.channels.Channel<Pair<Long, String>>(16, kotlinx.coroutines.channels.BufferOverflow.DROP_OLDEST)
     val sheet = MutableStateFlow<Sheet?>(null)
     /** The welcome guide, asked for again from Settings › About. */
     val welcome = MutableStateFlow(false)
@@ -74,12 +81,24 @@ sealed interface Sheet {
     data class EditTags(val ids: List<String>) : Sheet
 }
 
+/**
+ * Opens one of Android's own screens (a browser, the file picker, a settings page). A device
+ * without it, as many TVs are, says so instead of closing Needle.
+ */
+fun tryOpen(what: String, open: () -> Unit): Boolean = try {
+    open()
+    true
+} catch (_: android.content.ActivityNotFoundException) {
+    showMessage("This device has no $what")
+    false
+}
+
 fun showMessage(text: String) {
-    Ui.messages.tryEmit(text)
+    Ui.messages.trySend(android.os.SystemClock.uptimeMillis() to text)
 }
 
 private fun refreshLibrary() {
-    NeedleApp.instance.libraryVersion.value++
+    NeedleApp.instance.libraryChanged()
 }
 
 /** Messages, plugin questions, and the sheets, over whatever page shows. */
@@ -87,24 +106,39 @@ private fun refreshLibrary() {
 @Composable
 fun Overlays(snackbar: SnackbarHostState) {
     val context = LocalContext.current
-    var question by remember { mutableStateOf<Notice.Question?>(null) }
+    // Questions in a line: one at a time, each answered, none lost to the next.
+    val questions = remember { androidx.compose.runtime.mutableStateListOf<Notice.Question>() }
     val sheet by Ui.sheet.collectAsState()
-    LaunchedEffect(Unit) { Ui.messages.collect { snackbar.showSnackbar(it) } }
-    // What plugins ask of the app, read a few times a second.
-    LaunchedEffect(Unit) {
+    // The newest message at once, in place of one still showing, rather than in a long line.
+    // Taken only while Needle is on screen, so one is never held in a stopped app and shown
+    // on its return, long after.
+    val shownLifecycle = androidx.lifecycle.compose.LocalLifecycleOwner.current.lifecycle
+    LaunchedEffect(shownLifecycle) {
+        shownLifecycle.repeatOnLifecycle(androidx.lifecycle.Lifecycle.State.STARTED) {
+            Ui.messages.receiveAsFlow().collectLatest { (at, text) ->
+                // One held from long ago (a car's, an hour back) is no longer news.
+                if (android.os.SystemClock.uptimeMillis() - at < 30_000) snackbar.showSnackbar(text)
+            }
+        }
+    }
+    // What plugins ask of the app, read a few times a second while Needle is on screen.
+    val lifecycle = androidx.lifecycle.compose.LocalLifecycleOwner.current.lifecycle
+    LaunchedEffect(lifecycle) {
+        lifecycle.repeatOnLifecycle(androidx.lifecycle.Lifecycle.State.STARTED) {
         while (true) {
             val notices = withContext(Dispatchers.IO) { runCatching { core.takeNotices() }.getOrDefault(emptyList()) }
             for (notice in notices) {
                 when (notice) {
                     is Notice.Message -> showMessage(notice.text)
                     is Notice.LibraryChanged -> refreshLibrary()
-                    is Notice.Question -> question = notice
+                    is Notice.Question -> questions += notice
                 }
             }
             delay(700)
         }
+        }
     }
-    question?.let { q -> PluginQuestion(q) { question = null } }
+    questions.firstOrNull()?.let { q -> androidx.compose.runtime.key(q.id) { PluginQuestion(q) { questions.remove(q) } } }
     when (val s = sheet) {
         is Sheet.AddToPlaylist -> AddToPlaylistSheet(s.ids)
         is Sheet.NewPlaylist -> PlaylistDialog(null, s.ids, s.smart)
@@ -127,11 +161,22 @@ private fun PluginQuestion(q: Notice.Question, done: () -> Unit) {
                 // The plugin resumes asynchronously and reads this path after answer returns.
                 core.answer(q.id, null, path)
                 done()
-            }, { error -> showMessage(error.message ?: "Could not read that file") }, {})
+            }, { error ->
+                showMessage(error.message ?: "Could not read that file")
+                // The plugin hears "no file" rather than waiting.
+                core.answer(q.id, null, null)
+                done()
+            }, {})
         }
     }
     if (q.file) {
-        LaunchedEffect(q.id) { pick.launch(arrayOf("*/*")) }
+        LaunchedEffect(q.id) {
+            // Without a file picker, the plugin hears "no file" rather than waiting for ever.
+            if (!tryOpen("file picker") { pick.launch(arrayOf("*/*")) }) {
+                core.answer(q.id, null, null)
+                done()
+            }
+        }
         return
     }
     AlertDialog(
@@ -141,7 +186,7 @@ private fun PluginQuestion(q: Notice.Question, done: () -> Unit) {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Text("${q.plugin} asks", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 if (q.prompt.isNotBlank()) Text(q.prompt)
-                OutlinedTextField(text, { text = it }, singleLine = true, modifier = Modifier.fillMaxWidth())
+                OutlinedTextField(text, { text = it }, singleLine = true, modifier = Modifier.remoteEscape().fillMaxWidth())
             }
         },
         confirmButton = { TextButton(onClick = { core.answer(q.id, text, null); done() }) { Text("OK") } },
@@ -196,9 +241,10 @@ private fun AddToPlaylistSheet(ids: List<String>) {
                 items(playlists.orEmpty().filter { !it.smart }, key = { it.id }) { playlist ->
                     Row(
                         Modifier.fillMaxWidth().clickable {
-                            runCatching { core.addToPlaylist(playlist.id, ids) }
-                                .onSuccess { showMessage("Added to ${playlist.name}"); refreshLibrary() }
-                                .onFailure { showMessage(it.message ?: "Could not add it") }
+                            libraryWrite({ core.addToPlaylist(playlist.id, ids) }, { showMessage(it.message ?: "Could not add it") }) {
+                                showMessage("Added to ${playlist.name}")
+                                refreshLibrary()
+                            }
                             Ui.sheet.value = null
                         }.padding(horizontal = Edge, vertical = 8.dp),
                         verticalAlignment = Alignment.CenterVertically,
@@ -221,21 +267,28 @@ private fun AddToPlaylistSheet(ids: List<String>) {
 private fun PlaylistDialog(editing: String?, ids: List<String>, smartAtFirst: Boolean) {
     val detailLoad = rememberLoaded(editing) { editing?.let { playlistDetail(it) } }
     val detail by detailLoad
-    var name by remember(detail) { mutableStateOf(detail?.name ?: "") }
-    var description by remember(detail) { mutableStateOf(detail?.description ?: "") }
-    var smart by remember(detail) { mutableStateOf(detail?.rule != null || (editing == null && smartAtFirst)) }
-    var rule by remember(detail) { mutableStateOf(detail?.rule ?: "") }
-    val problem = if (smart && rule.isNotBlank()) core.checkRule(rule) else null
+    // Filled in once the playlist has loaded, then left to the person: a scan that reloads the
+    // library while they type does not put the old words back.
+    var name by remember(detail?.id) { mutableStateOf(detail?.name ?: "") }
+    var description by remember(detail?.id) { mutableStateOf(detail?.description ?: "") }
+    var smart by remember(detail?.id) { mutableStateOf(detail?.rule != null || (editing == null && smartAtFirst)) }
+    var rule by remember(detail?.id) { mutableStateOf(detail?.rule ?: "") }
+    var saving by remember { mutableStateOf(false) }
+    // Checked off the main thread as the rule is typed.
+    val problem by androidx.compose.runtime.produceState<String?>(null, smart, rule) {
+        value = if (smart && rule.isNotBlank()) withContext(kotlinx.coroutines.Dispatchers.IO) { runCatching { core.checkRule(rule) }.getOrNull() } else null
+    }
     val close = { Ui.sheet.value = null }
     AlertDialog(
         onDismissRequest = close,
         title = { Text(if (editing == null) "New playlist" else "Edit playlist") },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                OutlinedTextField(name, { name = it }, label = { Text("Name") }, singleLine = true, modifier = Modifier.fillMaxWidth())
-                OutlinedTextField(description, { description = it }, label = { Text("Description (if you like)") }, modifier = Modifier.fillMaxWidth())
+                OutlinedTextField(name, { name = it }, label = { Text("Name") }, singleLine = true, modifier = Modifier.remoteEscape().fillMaxWidth())
+                OutlinedTextField(description, { description = it }, label = { Text("Description (if you like)") }, modifier = Modifier.remoteEscape(lines = true).fillMaxWidth())
                 if (editing == null && ids.isEmpty()) {
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    // Onto a second line with large text, rather than squeezed.
+                    androidx.compose.foundation.layout.FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         FilterChip(selected = !smart, onClick = { smart = false }, label = { Text("Songs I pick") })
                         FilterChip(selected = smart, onClick = { smart = true }, label = { Text("Smart") })
                     }
@@ -247,26 +300,28 @@ private fun PlaylistDialog(editing: String?, ids: List<String>, smartAtFirst: Bo
                         placeholder = { Text("rating >= 4 and genre = \"Pop\"") },
                         isError = problem != null,
                         supportingText = { Text(problem ?: "Songs that match this rule, as you would type it in search.") },
-                        modifier = Modifier.fillMaxWidth(),
+                        modifier = Modifier.remoteEscape(lines = true).fillMaxWidth(),
                     )
                 }
             }
         },
         confirmButton = {
             TextButton(
-                enabled = name.isNotBlank() && (!smart || (rule.isNotBlank() && problem == null)),
+                // Once only: a second tap while it saves would make the playlist twice.
+                enabled = !saving && name.isNotBlank() && (!smart || (rule.isNotBlank() && problem == null)),
                 onClick = {
-                    runCatching {
+                    saving = true
+                    libraryWrite({
                         if (editing == null) {
                             core.createPlaylist(name, description, ids, if (smart) rule else null)
                         } else {
                             core.editPlaylist(editing, name, description, if (smart) rule else null)
                         }
-                    }.onSuccess {
+                    }, { saving = false; showMessage(it.message ?: "Could not save it") }) {
                         showMessage(if (editing == null) "Made $name" else "Saved")
                         refreshLibrary()
                         close()
-                    }.onFailure { showMessage(it.message ?: "Could not save it") }
+                    }
                 },
             ) { Text(if (editing == null) "Make it" else "Save") }
         },

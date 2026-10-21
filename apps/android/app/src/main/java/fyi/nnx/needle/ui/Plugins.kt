@@ -37,6 +37,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
+import androidx.lifecycle.repeatOnLifecycle
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.text.input.KeyboardType
@@ -52,14 +53,17 @@ import kotlinx.coroutines.withContext
 import java.text.DateFormat
 import java.util.Date
 
-/** Reads the plugins again every second while `watch` holds, as they load and sync. */
+/** Reads the plugins again every second while Needle is on screen, as they load and sync. */
 @Composable
 private fun rememberPlugins(): List<PluginItem>? {
     var list by remember { mutableStateOf<List<PluginItem>?>(null) }
-    LaunchedEffect(Unit) {
-        while (true) {
-            list = withContext(Dispatchers.IO) { runCatching { core.plugins() }.getOrNull() }
-            delay(1000)
+    val lifecycle = androidx.lifecycle.compose.LocalLifecycleOwner.current.lifecycle
+    LaunchedEffect(lifecycle) {
+        lifecycle.repeatOnLifecycle(androidx.lifecycle.Lifecycle.State.STARTED) {
+            while (true) {
+                list = withContext(Dispatchers.IO) { runCatching { core.plugins() }.getOrNull() }
+                delay(1000)
+            }
         }
     }
     return list
@@ -110,7 +114,7 @@ fun PluginsScreen(open: (Route) -> Unit) {
                             maxLines = 2,
                         )
                     }
-                    Switch(checked = plugin.enabled, onCheckedChange = { core.setPluginEnabled(plugin.id, it) })
+                    SoonSwitch(plugin.enabled, plugin.name) { core.setPluginEnabled(plugin.id, it) }
                     Icon(Icons.AutoMirrored.Rounded.KeyboardArrowRight, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
                 HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant, modifier = Modifier.padding(start = Edge))
@@ -142,7 +146,7 @@ fun PluginScreen(id: String) {
             Section(title = "Turned on") {
                 Row(Modifier.fillMaxWidth().padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
                     Text(if (plugin.enabled) "On" else "Off", style = MaterialTheme.typography.bodyLarge, modifier = Modifier.weight(1f))
-                    Switch(checked = plugin.enabled, onCheckedChange = { core.setPluginEnabled(plugin.id, it) })
+                    SoonSwitch(plugin.enabled, plugin.name) { core.setPluginEnabled(plugin.id, it) }
                 }
             }
         }
@@ -193,10 +197,22 @@ fun PluginScreen(id: String) {
                                     singleLine = true,
                                     visualTransformation = if (field.secret) PasswordVisualTransformation() else androidx.compose.ui.text.input.VisualTransformation.None,
                                     keyboardOptions = KeyboardOptions(keyboardType = if (field.secret) KeyboardType.Password else KeyboardType.Uri),
-                                    modifier = Modifier.fillMaxWidth(),
+                                    modifier = Modifier.remoteEscape().fillMaxWidth(),
                                 )
                             }
-                            Button(onClick = { core.sourceSignIn(plugin.id, fields.toMap()) }) { Text("Sign in") }
+                            // Once, for a few seconds: a server can take that long to answer.
+                            var signingIn by remember { mutableStateOf(false) }
+                            LaunchedEffect(signingIn) {
+                                if (signingIn) {
+                                    delay(5000)
+                                    signingIn = false
+                                }
+                            }
+                            Button(enabled = !signingIn, onClick = {
+                                signingIn = true
+                                val sent = fields.toMap()
+                                NeedleApp.instance.scope.launch(Dispatchers.IO) { runCatching { core.sourceSignIn(plugin.id, sent) } }
+                            }) { Text(if (signingIn) "Signing in…" else "Sign in") }
                         }
                         source.error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
                     }
@@ -207,7 +223,7 @@ fun PluginScreen(id: String) {
                                 Text(switch.label, style = MaterialTheme.typography.bodyLarge)
                                 if (switch.detail.isNotBlank()) Text(switch.detail, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
                             }
-                            Switch(checked = switch.on, onCheckedChange = { core.sourceSwitch(plugin.id, switch.id, it) })
+                            SoonSwitch(switch.on, switch.label) { core.sourceSwitch(plugin.id, switch.id, it) }
                         }
                     }
                 }
@@ -281,16 +297,20 @@ fun PluginEffects() {
             }
             list.forEachIndexed { i, effect ->
                 if (i > 0) HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant, modifier = Modifier.padding(horizontal = 16.dp))
+                var shownOn by remember(effect.id, effect.on) { mutableStateOf(effect.on) }
                 Row(Modifier.fillMaxWidth().padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
                     Column(Modifier.weight(1f)) {
                         Text(effect.name, style = MaterialTheme.typography.bodyLarge)
                         Text(effect.failure ?: "${effect.pluginName} · ${effect.description}", style = MaterialTheme.typography.bodyMedium, color = if (effect.failure != null) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant)
                     }
-                    Switch(checked = effect.on, onCheckedChange = { on ->
-                        NeedleApp.instance.scope.launch { runCatching { core.setEffect(effect.plugin, effect.id, on) }; delay(300); refresh++ }
+                    // Moves at once, rather than when the effect is read again a moment later.
+                    Switch(checked = shownOn, modifier = Modifier.named(effect.name), onCheckedChange = { on ->
+                        shownOn = on
+                        // In order with the effect's other changes (the saves line), so none undoes another.
+                        NeedleApp.instance.scope.launch { withContext(NeedleApp.instance.saves) { runCatching { core.setEffect(effect.plugin, effect.id, on) } }; delay(300); refresh++ }
                     })
                 }
-                if (effect.on) {
+                if (shownOn) {
                     effect.params.forEach { param ->
                         var value by remember(effect.id, param.id, param.value) { mutableStateOf(param.value) }
                         Column(Modifier.padding(horizontal = 16.dp)) {
@@ -298,11 +318,13 @@ fun PluginEffects() {
                                 Text(param.name, style = MaterialTheme.typography.bodyMedium, modifier = Modifier.weight(1f))
                                 Text(if (value == param.value) param.shown else "%.2f".format(value), style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary)
                             }
-                            Slider(
+                            // A plugin's range the wrong way round (or empty) gets no slider, only its value.
+                            if (param.max > param.min) Slider(
+                                modifier = Modifier.named(param.name, if (value == param.value) param.shown else "%.2f".format(value)),
                                 value = value,
                                 onValueChange = { value = it },
                                 onValueChangeFinished = {
-                                    NeedleApp.instance.scope.launch { runCatching { core.setEffectParam(effect.plugin, effect.id, param.id, value) }; delay(300); refresh++ }
+                                    NeedleApp.instance.scope.launch { withContext(NeedleApp.instance.saves) { runCatching { core.setEffectParam(effect.plugin, effect.id, param.id, value) } }; delay(300); refresh++ }
                                 },
                                 valueRange = param.min..param.max,
                             )
@@ -312,4 +334,19 @@ fun PluginEffects() {
             }
         }
     }
+}
+
+/**
+ * A switch for what a plugin turns on a moment later (the list is read once a second): it moves
+ * at once, then follows the plugin's answer, or goes back if none comes.
+ */
+@Composable
+private fun SoonSwitch(on: Boolean, name: String, change: (Boolean) -> Unit) {
+    var asked by remember(on) { mutableStateOf<Boolean?>(null) }
+    LaunchedEffect(asked) {
+        if (asked == null) return@LaunchedEffect
+        kotlinx.coroutines.delay(3000)
+        asked = null
+    }
+    Switch(checked = asked ?: on, onCheckedChange = { asked = it; change(it) }, modifier = Modifier.named(name))
 }

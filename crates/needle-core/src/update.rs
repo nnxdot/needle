@@ -39,7 +39,8 @@ pub enum Package {
     Rpm,
     /// macOS, Apple silicon: `Needle-<version>-macos.dmg`, holding `Needle.app`.
     MacApp,
-    /// Android: `Needle-<version>-android.apk`, which Android's installer puts in.
+    /// Android: `Needle-<version>-android.apk` (64-bit Arm and x86-64), which Android's
+    /// installer puts in; on a 32-bit phone or TV, `Needle-<version>-android-armv7-release.apk`.
     AndroidApk,
 }
 
@@ -64,6 +65,9 @@ impl Package {
                     && name.ends_with(&format!(".{arch}.rpm"))
             }
             Self::MacApp => arch == "aarch64" && name == format!("needle-{version}-macos.dmg"),
+            Self::AndroidApk if arch == "arm" => {
+                name == format!("needle-{version}-android-armv7-release.apk")
+            }
             Self::AndroidApk => name == format!("needle-{version}-android.apk"),
         }
     }
@@ -547,6 +551,7 @@ mod tests {
                 {"name":"needle-1.5.0-1.x86_64.rpm","browser_download_url":"https://d/rpm"},
                 {"name":"Needle-1.5.0-macos.dmg","browser_download_url":"https://d/dmg"},
                 {"name":"Needle-1.5.0-android.apk","browser_download_url":"https://d/apk"},
+                {"name":"Needle-1.5.0-android-armv7-release.apk","browser_download_url":"https://d/apk-32"},
                 {"name":"SHA256SUMS.txt","browser_download_url":"https://d/sums"}]}"#,
         )
         .unwrap();
@@ -584,10 +589,18 @@ mod tests {
             pick(Some(Package::MacApp), "x86_64"),
             Some((None, String::new()))
         );
-        // One Android app for every processor.
+        // One Android app for 64-bit processors, and its own for 32-bit Arm (TVs, mostly).
         assert_eq!(
             pick(Some(Package::AndroidApk), "aarch64"),
             Some((Some(Package::AndroidApk), "https://d/apk".into()))
+        );
+        assert_eq!(
+            pick(Some(Package::AndroidApk), "x86_64"),
+            Some((Some(Package::AndroidApk), "https://d/apk".into()))
+        );
+        assert_eq!(
+            pick(Some(Package::AndroidApk), "arm"),
+            Some((Some(Package::AndroidApk), "https://d/apk-32".into()))
         );
         // An older or unrelated package in the release is never taken.
         let odd: Value = serde_json::from_str(

@@ -57,8 +57,13 @@ class TrimBars : Transformation() {
 
 /** A cover to load, with any bands around the picture trimmed (see [trimBars]). */
 @Composable
-fun coverRequest(model: Any?): coil3.request.ImageRequest =
-    coil3.request.ImageRequest.Builder(androidx.compose.ui.platform.LocalContext.current)
-        .data(model)
-        .transformations(TrimBars())
-        .build()
+fun coverRequest(model: Any?): coil3.request.ImageRequest {
+    val context = androidx.compose.ui.platform.LocalContext.current
+    // The same request while the cover is the same, so a redraw does not ask Coil again.
+    return androidx.compose.runtime.remember(model, context) {
+        coil3.request.ImageRequest.Builder(context)
+            .data(model)
+            .transformations(TrimBars())
+            .build()
+    }
+}
