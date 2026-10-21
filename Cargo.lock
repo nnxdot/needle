@@ -4980,6 +4980,7 @@ dependencies = [
  "jni",
  "ndk-context",
  "needle-core",
+ "rand 0.8.8",
  "reqwest",
  "serde",
  "serde_json",

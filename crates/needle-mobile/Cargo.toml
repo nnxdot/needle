@@ -14,11 +14,16 @@ crate-type = ["cdylib", "lib"]
 name = "uniffi-bindgen"
 path = "uniffi-bindgen.rs"
 
+[features]
+# The Mac app's own parts (src/mac.rs), with stems.
+desktop = ["needle-core/stems"]
+
 [dependencies]
 anyhow = "1"
 # No stems: ONNX Runtime has no prebuilt library for Android.
 needle-core = { path = "../needle-core", default-features = false }
 chrono = "0.4"
+rand = "0.8"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 toml = "0.9"

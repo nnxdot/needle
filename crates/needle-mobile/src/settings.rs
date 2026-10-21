@@ -121,6 +121,11 @@ pub struct AppSettings {
     pub swipe_cover: bool,
     /// The welcome guide was seen (or skipped).
     pub welcomed: bool,
+    /// The player's cover fills its top, edge to edge, fading into the cover's colour, as
+    /// Apple Music's does; off, it is a card over a blur of it.
+    pub immersive_cover: bool,
+    /// Moving covers (a video beside the songs, such as cover.mp4) play in the player.
+    pub animated_covers: bool,
 }
 
 impl Default for AppSettings {
@@ -152,6 +157,8 @@ impl Default for AppSettings {
             volume_slider: false,
             swipe_cover: true,
             welcomed: false,
+            immersive_cover: true,
+            animated_covers: true,
         }
     }
 }
@@ -386,6 +393,12 @@ impl Needle {
         let db = self.library.connection()?;
         db.execute("DELETE FROM roots WHERE path=?", [&path])
             .map_err(|e| failed(e.into()))?;
+        // The songs are kept by the folder's real path.
+        let path = needle_core::database::canonical_root(&path);
+        db.execute("DELETE FROM roots WHERE path=?", [&path])
+            .map_err(|e| failed(e.into()))?;
+        // A scan running now must not bring it back.
+        crate::REMOVED_ROOTS.lock().unwrap_or_else(|e| e.into_inner()).push(path.clone());
         let prefix = format!("{}/", path.trim_end_matches('/'));
         db.execute(
             "DELETE FROM tracks WHERE substr(path,1,length(?1))=?1",

@@ -209,6 +209,9 @@ pub(crate) fn from_json(
 /// Ask needle.nnx.fyi whether a newer Needle is out. Sends nothing but the request itself.
 /// On macOS and Android a release for that system alone is asked about first.
 pub fn check(current: &str) -> Result<Option<Release>> {
+    #[cfg(target_os = "ios")]
+    return check_iphone(current);
+    #[allow(unreachable_code)]
     let own = if cfg!(target_os = "macos") {
         Some(LATEST_MACOS)
     } else if cfg!(target_os = "android") {
@@ -222,6 +225,32 @@ pub fn check(current: &str) -> Result<Option<Release>> {
         return Ok(Some(release));
     }
     check_at(LATEST, current)
+}
+
+/// The iPhone's newest build, from the SideStore source that lists it (the computer's releases
+/// are not the phone's).
+pub const LATEST_IPHONE: &str = "https://needle.nnx.fyi/sidestore.json";
+
+#[cfg_attr(not(target_os = "ios"), allow(dead_code))]
+fn check_iphone(current: &str) -> Result<Option<Release>> {
+    let source: Value = crate::integrations::client()?
+        .get(LATEST_IPHONE)
+        .send()?
+        .error_for_status()?
+        .json()?;
+    let app = &source["apps"][0];
+    let version = app["versions"][0]["version"]
+        .as_str()
+        .or_else(|| app["version"].as_str())
+        .unwrap_or_default();
+    Ok((!version.is_empty() && newer(current, version)).then(|| Release {
+        version: version.trim_start_matches('v').to_string(),
+        page: "https://needle.nnx.fyi/#download".into(),
+        package: None,
+        installer: String::new(),
+        installer_url: String::new(),
+        checksums_url: None,
+    }))
 }
 
 fn check_at(url: &str, current: &str) -> Result<Option<Release>> {
@@ -501,6 +530,10 @@ fn replace_bundle(image: &Path, bundle: &Path) -> Result<()> {
         let _ = std::fs::remove_dir_all(&fresh);
         return Err(error.context("Could not copy the new Needle"));
     }
+    if let Err(error) = check_signer(&fresh) {
+        let _ = std::fs::remove_dir_all(&fresh);
+        return Err(error);
+    }
     // The two are swapped in one step, so an update stopped at any moment leaves a Needle.app
     // that opens. A running program is not disturbed when its folder moves.
     if let Err(error) = swap(&fresh, &bundle) {
@@ -510,6 +543,30 @@ fn replace_bundle(image: &Path, bundle: &Path) -> Result<()> {
     // The old copy is where the new one was.
     let _ = std::fs::remove_dir_all(&fresh);
     let _ = std::fs::remove_dir(&mount);
+    Ok(())
+}
+
+/// Checks that the new Needle.app is signed with the same key as this one (builds signed with
+/// Needle's own key carry its certificate's SHA-1, set at build time in `NEEDLE_MAC_SIGNER`;
+/// builds signed ad hoc have none and skip the check). A matching checksum alone only shows
+/// the download is the file published.
+#[cfg(target_os = "macos")]
+fn check_signer(app: &Path) -> Result<()> {
+    let Some(pin) = option_env!("NEEDLE_MAC_SIGNER").map(str::trim).filter(|p| !p.is_empty()) else {
+        return Ok(());
+    };
+    let codesign = system_tool("codesign").context("codesign is missing")?;
+    let requirement = format!("-R=identifier \"fyi.nnx.Needle\" and certificate leaf = H\"{pin}\"");
+    let status = std::process::Command::new(codesign)
+        .args(["--verify", "--deep", "--strict", &requirement])
+        .arg(app)
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .status()
+        .context("Could not start codesign")?;
+    if !status.success() {
+        bail!("The update is not signed by Needle, so it was not installed.");
+    }
     Ok(())
 }
 

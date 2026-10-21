@@ -350,6 +350,29 @@ pub fn lyrics(
     if let Some(local) = local_lyrics(track) {
         return Ok(Some(local));
     }
+    // A music server's song: the server's own lyrics. It is the person's own server, so it
+    // is asked even with online lookups off.
+    if let (Some(host), Some((owner, id))) = (plugins, track.source()) {
+        // Kept a day, so opening the lyrics again does not ask the server again.
+        let key = format!("server-lyrics:{owner}:{id}");
+        let found = match cached::<Option<Lyrics>>(library, &key)? {
+            Some(hit) => hit,
+            None => match host.source_lyrics(owner, &id) {
+                Ok(found) => {
+                    let found = found.and_then(from_plugin);
+                    remember(library, &key, &found, 86400)?;
+                    found
+                }
+                Err(problem) => {
+                    crate::logfile::warn(format!("Lyrics from {owner}: {problem:#}"));
+                    None
+                }
+            },
+        };
+        if found.is_some() {
+            return Ok(found);
+        }
+    }
     if !online || track.title.is_empty() || track.artist.is_empty() {
         return Ok(None);
     }
@@ -412,21 +435,7 @@ fn plugin_lyrics(
             return Ok(None);
         }
     };
-    let found = found.and_then(|found| {
-        if found.instrumental {
-            return Some(Lyrics {
-                lines: vec![],
-                plain: String::new(),
-                instrumental: true,
-                source: LyricsSource::Plugin,
-                provider: found.provider,
-            });
-        }
-        Lyrics::from_text(&found.text, LyricsSource::Plugin).map(|mut l| {
-            l.provider = found.provider;
-            l
-        })
-    });
+    let found = found.and_then(from_plugin);
     remember(
         library,
         &key,
@@ -434,6 +443,23 @@ fn plugin_lyrics(
         if found.is_some() { 30 * 86400 } else { 86400 },
     )?;
     Ok(found)
+}
+
+/// A plugin's lyrics, as Needle shows them.
+fn from_plugin(found: crate::plugins::PluginLyrics) -> Option<Lyrics> {
+    if found.instrumental {
+        return Some(Lyrics {
+            lines: vec![],
+            plain: String::new(),
+            instrumental: true,
+            source: LyricsSource::Plugin,
+            provider: found.provider,
+        });
+    }
+    Lyrics::from_text(&found.text, LyricsSource::Plugin).map(|mut l| {
+        l.provider = found.provider;
+        l
+    })
 }
 
 /// LRCLIB's lyrics for `track`, kept a month (a week when it has none).
@@ -487,7 +513,10 @@ fn download_image(url: &str, destination: &Path) -> Result<()> {
     if let Some(parent) = destination.parent() {
         std::fs::create_dir_all(parent)?;
     }
-    let partial = destination.with_extension("part");
+    // Each picture its own part file: an artist's photo, logo, and wide picture are fetched at
+    // the same time, and one shared part file mixed them up.
+    let kind = destination.extension().and_then(|e| e.to_str()).unwrap_or("img");
+    let partial = destination.with_extension(format!("{kind}.part"));
     std::fs::write(&partial, bytes)?;
     std::fs::rename(partial, destination)?;
     Ok(())
@@ -517,7 +546,7 @@ pub fn artist_image(library: &Library, name: &str, online: bool) -> Result<Optio
     if cached::<bool>(library, &key)?.is_some() {
         return Ok(None);
     }
-    let url = find_artist_image(name)?;
+    let url = find_artist_image(library, name)?;
     match url {
         Some(url) => {
             download_image(&url, &file)?;
@@ -530,26 +559,240 @@ pub fn artist_image(library: &Library, name: &str, online: bool) -> Result<Optio
     }
 }
 
-fn find_artist_image(name: &str) -> Result<Option<String>> {
+/// The artist's MusicBrainz id, kept three months (a week when none matched).
+fn musicbrainz_artist_kept(library: &Library, name: &str) -> Result<Option<String>> {
+    // One search for an artist even when the photo, logo, and picture ask at once.
+    static ONE: std::sync::Mutex<()> = std::sync::Mutex::new(());
+    let _one = ONE.lock().unwrap_or_else(|e| e.into_inner());
+    let key = format!("mb-artist:{}", name.to_lowercase());
+    if let Some(hit) = cached::<Option<String>>(library, &key)? {
+        return Ok(hit);
+    }
+    let found = musicbrainz_artist(name)?;
+    remember(library, &key, &found, if found.is_some() { WEEK * 13 } else { WEEK })?;
+    Ok(found)
+}
+
+/// The artist's MusicBrainz id: a close match by name, or by one of their other names (a
+/// group's name in Hangul, say).
+fn musicbrainz_artist(name: &str) -> Result<Option<String>> {
     let query = format!(
         "artist:\"{}\"",
         name.replace('\\', "\\\\").replace('"', "\\\"")
     );
     let search = musicbrainz_get("artist/", &[("query", query.as_str()), ("limit", "3")])?;
-    let Some(artist) = search["artists"]
+    let same = |n: &str| n.to_lowercase() == name.to_lowercase();
+    Ok(search["artists"]
         .as_array()
         .into_iter()
         .flatten()
         .find(|a| {
             a["score"].as_i64().unwrap_or(0) >= 90
-                && a["name"]
-                    .as_str()
-                    .is_some_and(|n| n.eq_ignore_ascii_case(name))
+                && (a["name"].as_str().is_some_and(same)
+                    || a["aliases"]
+                        .as_array()
+                        .into_iter()
+                        .flatten()
+                        .any(|alias| alias["name"].as_str().is_some_and(same)))
         })
-    else {
+        .and_then(|a| a["id"].as_str())
+        .map(String::from))
+}
+
+/// A moving cover beside a song's file: a short video, such as `cover.mp4` or `animated.mov`,
+/// as some downloads of Apple Music's moving covers are saved.
+pub fn animated_cover(library: &Library, track: &Track) -> Option<PathBuf> {
+    if track.source().is_some() || track.path.starts_with("http") {
+        return None;
+    }
+    let folder = Path::new(track.file_path()).parent()?;
+    let names = ["cover", "animated", "folder", "front", "album", "motion"];
+    let kinds = ["mp4", "m4v", "mov"];
+    let video = std::fs::read_dir(folder).ok()?.flatten().map(|e| e.path()).find(|p| {
+        let stem = p.file_stem().and_then(|s| s.to_str()).unwrap_or_default().to_lowercase();
+        let kind = p.extension().and_then(|s| s.to_str()).unwrap_or_default().to_lowercase();
+        // A moving cover is a short loop, not a whole music video.
+        let small = std::fs::metadata(p).is_ok_and(|m| m.len() <= 60 * 1024 * 1024);
+        names.contains(&stem.as_str()) && kinds.contains(&kind.as_str()) && small
+    })?;
+    // Only a folder of one album: in a folder of many (an iPhone's own, say) one cover.mp4
+    // would be every song's.
+    let inside = format!("{}/", folder.to_string_lossy());
+    let length = inside.chars().count() as i64;
+    let albums: i64 = library
+        .connection()
+        .ok()?
+        .query_row(
+            "SELECT COUNT(DISTINCT album COLLATE NOCASE) FROM tracks
+             WHERE substr(path, 1, ?2) = ?1 AND instr(substr(path, ?2 + 1), '/') = 0 AND album != ''",
+            params![inside, length],
+            |r| r.get(0),
+        )
+        .ok()?;
+    (albums <= 1).then_some(video)
+}
+
+/// One fanart.tv lookup at a time: an artist page asks for the logo and the picture together,
+/// and the second then finds the first's answer kept.
+static FANART: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+/// Forgets fanart.tv's kept answers, so a new key (or none) is asked with at once: a refused
+/// key's "nothing" was kept a day.
+pub fn forget_fanart(library: &Library) -> Result<()> {
+    library.connection()?.execute("DELETE FROM cache WHERE key LIKE 'fanart:%'", [])?;
+    Ok(())
+}
+
+/// A web error without its address: fanart.tv's carries the key.
+fn without_address(error: reqwest::Error) -> anyhow::Error {
+    anyhow::anyhow!("{}", error.without_url())
+}
+
+fn fanart_kept(name: &str) -> String {
+    format!("fanart:{}", name.to_lowercase())
+}
+
+/// What fanart.tv has for an artist, when online lookups are on and there is a fanart.tv key:
+/// its answer, kept a month (nothing, also kept a month, when it does not know the artist; a
+/// day when it refused the key).
+fn fanart(library: &Library, name: &str, online: bool) -> Result<Option<Value>> {
+    let Some(key) = online.then(crate::integrations::fanart_key).flatten() else {
         return Ok(None);
     };
-    let id = artist["id"].as_str().unwrap_or_default();
+    let remembered = fanart_kept(name);
+    if let Some(hit) = cached::<Value>(library, &remembered)? {
+        return Ok((!hit.is_null()).then_some(hit));
+    }
+    let _one = FANART.lock().unwrap_or_else(|e| e.into_inner());
+    // Asked by another page while this one waited.
+    if let Some(hit) = cached::<Value>(library, &remembered)? {
+        return Ok((!hit.is_null()).then_some(hit));
+    }
+    let found = match musicbrainz_artist_kept(library, name)? {
+        Some(id) => {
+            let response = client()?
+                .get(format!("https://webservice.fanart.tv/v3/music/{id}"))
+                .query(&[("api_key", key.as_str())])
+                .send()
+                .map_err(without_address)?;
+            match response.status().as_u16() {
+                404 => Value::Null,
+                status @ (401 | 403) => {
+                    remember(library, &remembered, &Value::Null, 86400)?;
+                    bail!("fanart.tv refused the key ({status})");
+                }
+                _ => response
+                    .error_for_status()
+                    .map_err(without_address)?
+                    .json()
+                    .map_err(without_address)?,
+            }
+        }
+        None => Value::Null,
+    };
+    crate::logfile::info(format!(
+        "fanart.tv for {name}: {}",
+        if found.is_null() { "nothing" } else { "found" }
+    ));
+    remember(library, &remembered, &found, WEEK * 4)?;
+    Ok((!found.is_null()).then_some(found))
+}
+
+/// One of fanart.tv's pictures of an artist, chosen by `pick`, kept beside their photo.
+fn fanart_picture(
+    library: &Library,
+    name: &str,
+    online: bool,
+    kind: &str,
+    pick: fn(&Value) -> Option<String>,
+) -> Result<Option<PathBuf>> {
+    if name.trim().is_empty() {
+        return Ok(None);
+    }
+    let file = library
+        .directory
+        .join("artwork")
+        .join("artists")
+        .join(format!(
+            "{}.{kind}",
+            blake3::hash(name.to_lowercase().as_bytes()).to_hex()
+        ));
+    let kept = file.is_file();
+    // The one kept, while fanart.tv's answer is fresh, or when it cannot be asked again; with a
+    // new answer (each month) the choice is made again, so a newer picture comes in.
+    let fresh = cached::<Value>(library, &fanart_kept(name))?.is_some();
+    if kept && (fresh || !online || crate::integrations::fanart_key().is_none()) {
+        return Ok(Some(file));
+    }
+    let data = match fanart(library, name, online) {
+        Ok(data) => data,
+        Err(problem) if kept => {
+            crate::logfile::warn(format!("fanart.tv for {name}: {problem:#}"));
+            return Ok(Some(file));
+        }
+        Err(problem) => return Err(problem),
+    };
+    let Some(url) = data.as_ref().and_then(pick) else {
+        return Ok(kept.then_some(file));
+    };
+    // fanart.tv's answers can give its pictures as http://: the same, over https.
+    let url = match url.strip_prefix("http://assets.fanart.tv/") {
+        Some(rest) => format!("https://assets.fanart.tv/{rest}"),
+        None => url,
+    };
+    // Only fanart.tv's own pictures are fetched.
+    if !url.starts_with("https://assets.fanart.tv/") {
+        bail!("fanart.tv gave a picture from elsewhere");
+    }
+    download_image(&url, &file)?;
+    Ok(Some(file))
+}
+
+/// An artist's logo, with a clear background, from fanart.tv.
+pub fn artist_logo(library: &Library, name: &str, online: bool) -> Result<Option<PathBuf>> {
+    fanart_picture(library, name, online, "logo", best_logo)
+}
+
+/// A wide picture of an artist, for the top of their page, from fanart.tv: its newest
+/// background, or else its newest photo. Looked at again each month, with fanart.tv's answer.
+pub fn artist_banner(library: &Library, name: &str, online: bool) -> Result<Option<PathBuf>> {
+    fanart_picture(library, name, online, "wide", best_banner)
+}
+
+/// The most liked of fanart.tv's pictures of one kind; in English or with no language first.
+fn best_of(data: &Value, kind: &str) -> Option<String> {
+    let mut found: Vec<&Value> = data[kind].as_array().into_iter().flatten().collect();
+    let likes = |v: &Value| v["likes"].as_str().and_then(|n| n.parse::<i64>().ok()).unwrap_or(0);
+    let english = |v: &Value| matches!(v["lang"].as_str(), Some("en" | "" | "00") | None);
+    found.sort_by_key(|v| (!english(v), -likes(v)));
+    found.first().and_then(|v| v["url"].as_str()).map(String::from)
+}
+
+/// The logo to show from fanart.tv's answer: the high-definition ones first.
+fn best_logo(data: &Value) -> Option<String> {
+    best_of(data, "hdmusiclogo").or_else(|| best_of(data, "musiclogo"))
+}
+
+/// The newest of fanart.tv's pictures of one kind (its "added" is "2024-05-01 12:00:00").
+fn newest_of(data: &Value, kind: &str) -> Option<String> {
+    data[kind]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .max_by_key(|v| v["added"].as_str().unwrap_or_default().to_string())
+        .and_then(|v| v["url"].as_str())
+        .map(String::from)
+}
+
+/// The picture for the top of the page: the newest wide background, then the newest photo.
+fn best_banner(data: &Value) -> Option<String> {
+    newest_of(data, "artistbackground").or_else(|| newest_of(data, "artistthumb"))
+}
+
+fn find_artist_image(library: &Library, name: &str) -> Result<Option<String>> {
+    let Some(id) = musicbrainz_artist_kept(library, name)? else {
+        return Ok(None);
+    };
     let detail = musicbrainz_get(&format!("artist/{id}"), &[("inc", "url-rels")])?;
     let relations = detail["relations"].as_array().cloned().unwrap_or_default();
     let url = |kind: &str| {
@@ -662,6 +905,37 @@ pub fn fetch_album_art(library: &Library, track: &Track) -> Result<usize> {
 
 #[cfg(test)]
 mod tests {
+
+    #[test]
+    fn the_best_logo_is_high_definition_english_and_liked() {
+        let data = serde_json::json!({
+            "musiclogo": [{ "url": "old", "lang": "en", "likes": "50" }],
+            "hdmusiclogo": [
+                { "url": "korean", "lang": "ko", "likes": "40" },
+                { "url": "few", "lang": "en", "likes": "2" },
+                { "url": "liked", "lang": "en", "likes": "9" },
+            ],
+        });
+        assert_eq!(super::best_logo(&data).as_deref(), Some("liked"));
+        let only_old = serde_json::json!({ "musiclogo": [{ "url": "old", "likes": "1" }] });
+        assert_eq!(super::best_logo(&only_old).as_deref(), Some("old"));
+        assert_eq!(super::best_logo(&serde_json::json!({})), None);
+    }
+
+    #[test]
+    fn the_banner_is_the_newest_background_then_photo() {
+        let both = serde_json::json!({
+            "artistthumb": [{ "url": "photo", "added": "2026-01-01 10:00:00" }],
+            "artistbackground": [
+                { "url": "old", "likes": "40", "added": "2022-10-01 16:06:54" },
+                { "url": "new", "likes": "1", "added": "2025-04-11 09:12:00" },
+                { "url": "middle", "likes": "9", "added": "2024-02-02 08:00:00" },
+            ],
+        });
+        assert_eq!(super::best_banner(&both).as_deref(), Some("new"));
+        let photo = serde_json::json!({ "artistthumb": [{ "url": "photo", "added": "2023-01-01 00:00:00" }] });
+        assert_eq!(super::best_banner(&photo).as_deref(), Some("photo"));
+    }
     use super::*;
 
     #[test]
