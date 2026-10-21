@@ -226,11 +226,29 @@ struct WhatsNew: View {
     @Environment(\.dismiss) private var dismiss
     let notes: Notes
 
+    /// The notes as words: the lead line and the items as bullets, without the file's marks
+    /// ("! " for the lead, "[icon] " for an item's picture on the desktop).
+    private var shown: String {
+        let lines = notes.text.components(separatedBy: "\n")
+        return lines.enumerated().map { i, raw -> String in
+            var line = raw
+            let lead = line.hasPrefix("! ")
+            let item = line.hasPrefix("- ")
+            if lead || item { line = String(line.dropFirst(2)) }
+            if line.hasPrefix("["), let end = line.firstIndex(of: "]") {
+                line = String(line[line.index(after: end)...]).trimmingCharacters(in: .whitespaces)
+            }
+            // The first line and the lead stand alone; the items are bullets.
+            if i == 0 || lead { return line + "\n" }
+            return item ? "•  " + line : line
+        }.joined(separator: "\n")
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
             Text("What's new in Needle \(notes.version)").font(store.display(26))
             ScrollView {
-                Text((try? AttributedString(markdown: notes.text, options: .init(interpretedSyntax: .inlineOnlyPreservingWhitespace))) ?? AttributedString(notes.text))
+                Text((try? AttributedString(markdown: shown, options: .init(interpretedSyntax: .inlineOnlyPreservingWhitespace))) ?? AttributedString(shown))
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .textSelection(.enabled)
             }
