@@ -671,6 +671,7 @@ fun ArtistScreen(name: String, open: (Route) -> Unit) {
     val latest = albums?.filter { it.year > 0 }?.maxWithOrNull(compareBy({ it.year }, { it.title }))
     DetailFrame(art, shown, { state.headerScroll() }, null) {
         // Two covers across on a phone, more on a tablet; the rows and the photo run to the edges.
+        KeepTop(state) {
         LazyVerticalGrid(
             columns = gridColumns(180.dp),
             state = state,
@@ -726,6 +727,7 @@ fun ArtistScreen(name: String, open: (Route) -> Unit) {
                 val album = albumList[i]
                 AlbumTile(album, Modifier.entrance(i + 5), open) { open(Route.AlbumPage(album)) }
             }
+        }
         }
     }
 }

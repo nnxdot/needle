@@ -101,6 +101,31 @@ fun Modifier.firstFocus(): Modifier {
 }
 
 /**
+ * On a TV, Android scrolls what takes the focus to a third of the way down the page. Under a
+ * tall top (an artist's picture) that cuts the top off for its own buttons: what fits on the
+ * page's first screen is shown with the page at its top instead. [state] is the page's grid.
+ */
+@OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
+@Composable
+fun KeepTop(state: androidx.compose.foundation.lazy.grid.LazyGridState, content: @Composable () -> Unit) {
+    if (!isTv()) return content()
+    val pivot = androidx.compose.foundation.gestures.LocalBringIntoViewSpec.current
+    val spec = remember(pivot, state) {
+        object : androidx.compose.foundation.gestures.BringIntoViewSpec {
+            override fun calculateScrollDistance(offset: Float, size: Float, containerSize: Float): Float {
+                if (state.firstVisibleItemIndex == 0) {
+                    val scrolled = state.firstVisibleItemScrollOffset
+                    val top = offset + scrolled
+                    if (top >= 0f && top + size <= containerSize) return -scrolled.toFloat()
+                }
+                return pivot.calculateScrollDistance(offset, size, containerSize)
+            }
+        }
+    }
+    androidx.compose.runtime.CompositionLocalProvider(androidx.compose.foundation.gestures.LocalBringIntoViewSpec provides spec, content = content)
+}
+
+/**
  * A text box for a remote and keys. Up and down move on to what is above or below, where the
  * text box itself would keep them; left and right still move along the text. A box of
  * [lines] keeps up and down for its lines where there is a keyboard, so it escapes on a TV only.
