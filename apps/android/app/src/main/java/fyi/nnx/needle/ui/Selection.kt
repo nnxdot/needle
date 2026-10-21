@@ -98,7 +98,8 @@ fun SelectionBar() {
                 colors = androidx.compose.material3.FloatingToolbarDefaults.vibrantFloatingToolbarColors(),
             ) {
                 IconButton(onClick = Selection::clear) { Icon(Icons.Rounded.Close, contentDescription = "Stop choosing") }
-                Text(count(shown.size, "song"), style = MaterialTheme.typography.titleMedium, maxLines = 1, softWrap = false, modifier = Modifier.align(Alignment.CenterVertically).padding(end = 8.dp))
+                // Gives way to the buttons where large text leaves no room.
+                Text(count(shown.size, "song"), style = MaterialTheme.typography.titleMedium, maxLines = 1, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis, modifier = Modifier.weight(1f, fill = false).align(Alignment.CenterVertically).padding(end = 8.dp))
                 androidx.compose.material3.FilledIconButton(onClick = { once { playSongs(ids) } }) { Icon(Icons.Rounded.PlayArrow, contentDescription = "Play") }
                 IconButton(onClick = { once { addToQueue(next = true) { ids } } }) {
                     Icon(Icons.Rounded.QueuePlayNext, contentDescription = "Play next")

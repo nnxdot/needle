@@ -70,6 +70,12 @@ private const val RECENT = "recent"
 private const val PLAYLISTS = "playlists"
 private const val FAVORITES = "favorites"
 
+/** Between a song's id and where a car listed it, in the ids the car is given. */
+private const val IN = "\u001Fin:"
+
+/** The song a car's id names ("song:<id>", maybe with where it was listed), or `null`. */
+private fun songId(mediaId: String): String? = mediaId.substringAfter("song:", "").substringBefore(IN).ifBlank { null }
+
 /** The library as a car shows it: shelves, then albums and playlists, then songs. */
 @UnstableApi
 private class Library(private val core: Needle) : MediaLibraryService.MediaLibrarySession.Callback {
@@ -91,7 +97,20 @@ private class Library(private val core: Needle) : MediaLibraryService.MediaLibra
 
     private fun album(a: Album) = folder("album:${a.key}", a.title.ifBlank { "Unknown album" }, a.artist, a.artwork)
 
-    private fun songs(list: List<Song>): List<MediaItem> = list.map { songItem(it, "song:${it.id}") }
+    /**
+     * Songs as a car lists them. Each says where it was listed (`parent`), so a song picked from
+     * an album or a playlist plays on into the rest of it (see [onSetMediaItems]).
+     */
+    private fun songs(list: List<Song>, parent: String? = null): List<MediaItem> =
+        list.map { songItem(it, if (parent == null) "song:${it.id}" else "song:${it.id}$IN$parent") }
+
+    /** The songs listed under `parent`, from the start, for a song picked there to play on. */
+    private fun songsIn(parent: String): List<Song>? = when {
+        parent == FAVORITES -> core.searchSongsPage("rating >= 4 order by title", 0u, 2000u)
+        parent.startsWith("album:") -> core.albumSongsPage(parent.removePrefix("album:"), 0u, 2000u)
+        parent.startsWith("playlist:") -> core.playlistSongsPage(parent.removePrefix("playlist:"), 0u, 2000u)
+        else -> null
+    }
 
     override fun onGetLibraryRoot(
         session: MediaLibraryService.MediaLibrarySession,
@@ -127,9 +146,9 @@ private class Library(private val core: Needle) : MediaLibraryService.MediaLibra
                     parentId == RECENT -> core.home().added.drop(offset.toLong().coerceAtMost(20).toInt()).take(pageSize).map(::album)
                     parentId == ALBUMS -> core.albumsPage(offset, size).map(::album)
                     parentId == PLAYLISTS -> core.playlistsPage(offset, size).map { folder("playlist:${it.id}", it.name, null, it.artwork) }
-                    parentId == FAVORITES -> songs(core.searchSongsPage("rating >= 4 order by title", offset, size))
-                    parentId.startsWith("album:") -> songs(core.albumSongsPage(parentId.removePrefix("album:"), offset, size))
-                    parentId.startsWith("playlist:") -> songs(core.playlistSongsPage(parentId.removePrefix("playlist:"), offset, size))
+                    parentId == FAVORITES -> songs(core.searchSongsPage("rating >= 4 order by title", offset, size), parentId)
+                    parentId.startsWith("album:") -> songs(core.albumSongsPage(parentId.removePrefix("album:"), offset, size), parentId)
+                    parentId.startsWith("playlist:") -> songs(core.playlistSongsPage(parentId.removePrefix("playlist:"), offset, size), parentId)
                     else -> emptyList()
                 }
             LibraryResult.ofItemList(ImmutableList.copyOf(items), params)
@@ -146,6 +165,32 @@ private class Library(private val core: Needle) : MediaLibraryService.MediaLibra
             val query = item.requestMetadata.searchQuery
             if (query == null) listOf(item) else songs(core.searchSongsPage(query, 0u, 300u))
         }.toMutableList()
+    }
+
+    /**
+     * The car picked one song in an album, a playlist, or Favorites: the whole list plays,
+     * from that song, as tapping a song in Needle does. Anything else plays as it was named.
+     */
+    override fun onSetMediaItems(
+        mediaSession: MediaSession,
+        controller: MediaSession.ControllerInfo,
+        mediaItems: MutableList<MediaItem>,
+        startIndex: Int,
+        startPositionMs: Long,
+    ): ListenableFuture<MediaSession.MediaItemsWithStartPosition> = executor.submit<MediaSession.MediaItemsWithStartPosition> {
+        val one = mediaItems.singleOrNull()?.mediaId
+        val parent = one?.substringAfter(IN, "")?.ifBlank { null }
+        val all = runCatching { parent?.let(::songsIn) }.getOrNull()
+        val at = all?.indexOfFirst { it.id == songId(one!!) } ?: -1
+        if (all != null && at >= 0) {
+            MediaSession.MediaItemsWithStartPosition(songs(all, parent).toMutableList(), at, startPositionMs)
+        } else {
+            val items = mediaItems.flatMap { item ->
+                val query = item.requestMetadata.searchQuery
+                if (query == null) listOf(item) else songs(core.searchSongsPage(query, 0u, 300u))
+            }
+            MediaSession.MediaItemsWithStartPosition(items.toMutableList(), startIndex, startPositionMs)
+        }
     }
 
     override fun onSearch(
@@ -181,22 +226,43 @@ private class Library(private val core: Needle) : MediaLibraryService.MediaLibra
 }
 
 /** The playing cover as a small picture, made once per cover. */
-private var coverBytes: Pair<String, ByteArray?>? = null
+@Volatile private var coverBytes: Pair<String, ByteArray?>? = null
 
+/** Covers are made here, never on the main thread: a big one takes a while on a TV box. */
+private val coverMaker = java.util.concurrent.Executors.newSingleThreadExecutor()
+private val coverWanted = java.util.concurrent.atomic.AtomicReference<String?>(null)
+
+/** Told when a playing cover is made, so the song is handed to Android again with it. */
+@Volatile var coverReady: (() -> Unit)? = null
+
+/** The playing cover, small; `null` until it is made (the song is then sent again with it). */
 private fun coverData(path: String?): ByteArray? {
     path ?: return null
     coverBytes?.let { (p, bytes) -> if (p == path) return bytes }
-    val bytes = runCatching {
-        val bounds = android.graphics.BitmapFactory.Options().apply { inJustDecodeBounds = true }
-        android.graphics.BitmapFactory.decodeFile(path, bounds)
-        val step = maxOf(1, minOf(bounds.outWidth, bounds.outHeight) / 512)
-        val bitmap = android.graphics.BitmapFactory.decodeFile(path, android.graphics.BitmapFactory.Options().apply { inSampleSize = step })
-            ?.let { fyi.nnx.needle.ui.trimBars(it) } ?: return@runCatching null
-        java.io.ByteArrayOutputStream().also { bitmap.compress(android.graphics.Bitmap.CompressFormat.JPEG, 88, it) }.toByteArray()
-    }.getOrNull()
-    coverBytes = path to bytes
-    return bytes
+    if (coverWanted.getAndSet(path) != path) coverMaker.execute {
+        if (coverWanted.get() != path) return@execute
+        coverBytes = path to makeCover(path)
+        coverReady?.invoke()
+    }
+    return null
 }
+
+/** About 512 pixels on its short side: enough for a lock screen, small to send to a watch. */
+private fun makeCover(path: String): ByteArray? = runCatching {
+    val bounds = android.graphics.BitmapFactory.Options().apply { inJustDecodeBounds = true }
+    android.graphics.BitmapFactory.decodeFile(path, bounds)
+    val short = minOf(bounds.outWidth, bounds.outHeight)
+    var step = 1
+    while (short / (step * 2) >= 512) step *= 2
+    var bitmap = android.graphics.BitmapFactory.decodeFile(path, android.graphics.BitmapFactory.Options().apply { inSampleSize = step })
+        ?.let { fyi.nnx.needle.ui.trimBars(it) } ?: return@runCatching null
+    val side = minOf(bitmap.width, bitmap.height)
+    if (side > 600) {
+        val k = 512f / side
+        bitmap = android.graphics.Bitmap.createScaledBitmap(bitmap, (bitmap.width * k).toInt(), (bitmap.height * k).toInt(), true)
+    }
+    java.io.ByteArrayOutputStream().also { bitmap.compress(android.graphics.Bitmap.CompressFormat.JPEG, 88, it) }.toByteArray()
+}.getOrNull()
 
 /**
  * A song for Android. The one playing carries its cover as a picture, so the lock screen and
@@ -242,6 +308,8 @@ private class NeedlePlayer(looper: Looper, private val core: Needle) : SimpleBas
 
     init {
         handler.post(tick)
+        // A playing cover made: the song is made again with it, and Android told.
+        coverReady = { handler.post { playlistKey = null; invalidateState() } }
     }
 
     private var playlist: List<MediaItemData> = emptyList()
@@ -338,14 +406,18 @@ private class NeedlePlayer(looper: Looper, private val core: Needle) : SimpleBas
     private fun afterCore(): ListenableFuture<*> {
         val done = com.google.common.util.concurrent.SettableFuture.create<Any?>()
         handler.postDelayed({ done.set(null) }, 150)
+        // The app's own view of the player follows at once too (audio focus, the widgets).
+        NeedleApp.instance.wake()
         return done
     }
 
     /** Songs chosen in Android Auto (or another browser): Needle plays them. */
     override fun handleSetMediaItems(mediaItems: MutableList<MediaItem>, startIndex: Int, startPositionMs: Long): ListenableFuture<*> {
-        val ids = mediaItems.mapNotNull { it.mediaId.substringAfter("song:", "").ifBlank { null } }
+        val ids = mediaItems.mapNotNull { songId(it.mediaId) }
         if (ids.isNotEmpty()) {
-            core.play(ids, startIndex.coerceAtLeast(0).toUInt())
+            // A library that cannot answer says so in the app; it does not close Needle.
+            runCatching { core.play(ids, startIndex.coerceAtLeast(0).toUInt()) }
+                .onFailure { fyi.nnx.needle.ui.showMessage(it.message ?: "Could not play these songs") }
             startedAt = android.os.SystemClock.uptimeMillis()
             if (startPositionMs > 0) core.seek(startPositionMs / 1000.0)
         }
@@ -356,8 +428,8 @@ private class NeedlePlayer(looper: Looper, private val core: Needle) : SimpleBas
     // Media3's own versions do, or a car's queue button would close Needle. Added songs go up
     // next; removing and moving the songs Android shows is not Needle's way, so it does nothing.
     override fun handleAddMediaItems(index: Int, mediaItems: MutableList<MediaItem>): ListenableFuture<*> {
-        val ids = mediaItems.mapNotNull { it.mediaId.substringAfter("song:", "").ifBlank { null } }
-        if (ids.isNotEmpty()) core.enqueue(ids)
+        val ids = mediaItems.mapNotNull { songId(it.mediaId) }
+        if (ids.isNotEmpty()) runCatching { core.enqueue(ids) }.onFailure { fyi.nnx.needle.ui.showMessage(it.message ?: "Could not add these songs") }
         return Futures.immediateVoidFuture()
     }
 

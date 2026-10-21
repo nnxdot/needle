@@ -88,6 +88,15 @@ val SmallCoverShape = RoundedCornerShape(6.dp)
 /** Space from the screen edge to content. */
 val Edge = 20.dp
 
+/** The last answers pages loaded, a few of them, for a page that comes back (see [rememberLoaded]). */
+private object Loads {
+    private val kept = object : LinkedHashMap<List<Any?>, fyi.nnx.needle.LoadResult<*>>(32, 0.75f, true) {
+        override fun removeEldestEntry(eldest: MutableMap.MutableEntry<List<Any?>, fyi.nnx.needle.LoadResult<*>>?) = size > 24
+    }
+    @Synchronized fun get(key: List<Any?>) = kept[key]
+    @Synchronized fun put(key: List<Any?>, value: fyi.nnx.needle.LoadResult<*>) { kept[key] = value }
+}
+
 class LoadedState<T> internal constructor(private val result: fyi.nnx.needle.LoadResult<T>) : State<T?> {
     override val value: T? get() = (result as? fyi.nnx.needle.LoadResult.Ready)?.data
     val loading: Boolean get() = result is fyi.nnx.needle.LoadResult.Loading
@@ -104,12 +113,23 @@ fun <T> rememberLoaded(vararg keys: Any?, load: Needle.() -> T): LoadedState<T> 
     val back = androidx.activity.compose.LocalOnBackPressedDispatcherOwner.current
     // A change in the library (a heart, a scan) reloads quietly: what shows stays until the new
     // answer comes. New keys (another album, another song) are other data, so they show loading.
-    val shown = remember { arrayOfNulls<List<Any?>>(1) }
     val wanted = keys.toList()
-    val result by produceState<fyi.nnx.needle.LoadResult<T>>(fyi.nnx.needle.LoadResult.Loading, version, attempt, *keys) {
-        if (shown[0] != wanted || value !is fyi.nnx.needle.LoadResult.Ready) value = fyi.nnx.needle.LoadResult.Loading
+    // What this load gave last time (the same call in the code, the same keys): a page that
+    // comes back (Back) shows it at once and reads it again quietly, so its rows are there
+    // to scroll back to where they were, rather than placeholders.
+    val cacheKey = listOf<Any?>(load::class.java.name) + wanted
+    val seed = remember(cacheKey) { Loads.get(cacheKey) }
+    val shown = remember { arrayOfNulls<List<Any?>>(1).also { if (seed != null) it[0] = wanted } }
+    @Suppress("UNCHECKED_CAST")
+    val result by produceState<fyi.nnx.needle.LoadResult<T>>(
+        (seed as fyi.nnx.needle.LoadResult<T>?) ?: fyi.nnx.needle.LoadResult.Loading, version, attempt, *keys,
+    ) {
+        if (shown[0] != wanted || value !is fyi.nnx.needle.LoadResult.Ready) {
+            value = (Loads.get(cacheKey) as fyi.nnx.needle.LoadResult<T>?) ?: fyi.nnx.needle.LoadResult.Loading
+        }
         shown[0] = wanted
         value = withContext(Dispatchers.IO) { fyi.nnx.needle.loadAttempt { core.load() } }
+        if (value is fyi.nnx.needle.LoadResult.Ready) Loads.put(cacheKey, value)
     }
     val failure = result as? fyi.nnx.needle.LoadResult.Failed
     if (result is fyi.nnx.needle.LoadResult.Ready) retried = false

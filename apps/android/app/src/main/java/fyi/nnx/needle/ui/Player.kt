@@ -97,6 +97,8 @@ import androidx.compose.ui.semantics.progressBarRangeInfo
 import androidx.compose.ui.semantics.setProgress
 import androidx.compose.foundation.layout.RowScope
 import androidx.compose.runtime.derivedStateOf
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.wrapContentHeight
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.blur
 import androidx.compose.ui.draw.clip
@@ -163,7 +165,10 @@ private fun MiniPlayerBody(playing: Boolean, song: Song, onOpen: () -> Unit, col
     val haptics = rememberHaptics()
     // Swiped sideways, it skips: left for the next song, right for the one before.
     var drag by remember { mutableFloatStateOf(0f) }
-    val shift by animateFloatAsState(drag, spring(dampingRatio = 0.7f, stiffness = 500f), label = "mini swipe")
+    // Read only where it is drawn (graphicsLayer): the bar is not redrawn at each move.
+    var swiping by remember { mutableStateOf(false) }
+    val back = remember { androidx.compose.animation.core.Animatable(0f) }
+    val swipes = androidx.compose.runtime.rememberCoroutineScope()
     Surface(
         color = if (colored) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceContainerHigh,
         contentColor = if (colored) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurface,
@@ -172,21 +177,35 @@ private fun MiniPlayerBody(playing: Boolean, song: Song, onOpen: () -> Unit, col
         modifier = Modifier
             .fillMaxWidth()
             .padding(horizontal = 10.dp, vertical = 8.dp)
-            .graphicsLayer { translationX = shift; alpha = 1f - (kotlin.math.abs(shift) / 900f).coerceIn(0f, 0.5f) }
+            .graphicsLayer {
+                val shift = if (swiping) drag else back.value
+                translationX = shift
+                alpha = 1f - (kotlin.math.abs(shift) / 900f).coerceIn(0f, 0.5f)
+            }
             .pointerInput(song.id) {
+                fun release() {
+                    val from = drag
+                    swiping = false
+                    drag = 0f
+                    swipes.launch {
+                        back.snapTo(from)
+                        back.animateTo(0f, spring(dampingRatio = 0.7f, stiffness = 500f))
+                    }
+                }
                 detectHorizontalDragGestures(
+                    onDragStart = { swiping = true },
                     onDragEnd = {
                         when {
                             drag < -160f -> { haptics(false); Controls.next() }
                             drag > 160f -> { haptics(false); Controls.previous() }
                         }
-                        drag = 0f
+                        release()
                     },
-                    onDragCancel = { drag = 0f },
+                    onDragCancel = { release() },
                 ) { _, dx -> drag += dx }
             }
             .clip(RoundedCornerShape(20.dp))
-            .clickable(onClick = onOpen),
+            .clickable(onClickLabel = "Open the player", onClick = onOpen),
     ) {
         Box {
             Column {
@@ -314,7 +333,7 @@ private fun PlayerBackdrop(song: Song, reading: Boolean = false) {
     Box(Modifier.fillMaxSize().background(Color(0xFF0F0E0D))) {
         val app by NeedleApp.instance.app.collectAsState()
         if (app.coverBackdrop && Build.VERSION.SDK_INT >= 31 && song.artwork != null) {
-            CoverBackdrop(song.artwork, Modifier.fillMaxSize(), dim = 0.3f)
+            CoverBackdrop(song.artwork, Modifier.fillMaxSize(), dim = 0.3f, player = true)
         } else {
             Box(Modifier.fillMaxSize().background(Brush.verticalGradient(listOf(glow, Color(0xFF0F0E0D)))))
         }
@@ -349,20 +368,28 @@ fun FullPlayer(onClose: () -> Unit, open: (Route) -> Unit) {
     val haptics = rememberHaptics()
     // Read again when the library changes, so stars given from the song's menu show here.
     val version by NeedleApp.instance.libraryVersion.collectAsState()
-    var favorite by remember(song.id, version) { mutableStateOf(song.rating >= 4) }
+    // Kept through a change in the library (it would go back to the song's old rating for a
+    // moment), and read again then.
+    var favorite by remember(song.id) { mutableStateOf(song.rating >= 4) }
+    var hearting by remember { mutableStateOf(false) }
     // The library's own answer, read off the main thread.
     LaunchedEffect(song.id, version) {
         withContext(kotlinx.coroutines.Dispatchers.IO) { runCatching { core.isFavorite(song.id) }.getOrNull() }?.let { favorite = it }
     }
     val hearts = androidx.compose.runtime.rememberCoroutineScope()
     val toggleFavorite: () -> Unit = {
-        haptics(false)
-        // Off the main thread: it writes to the library, which waits while a scan writes too.
-        hearts.launch {
-            withContext(kotlinx.coroutines.Dispatchers.IO) { runCatching { core.toggleFavorite(song.id) } }
-                .onSuccess { favorite = it; showMessage(if (it) "Added to favorites" else "Taken out of favorites") }
-                .onFailure { showMessage("Could not change favorites: ${it.message}") }
-            NeedleApp.instance.libraryVersion.value++
+        // One at a time: two taps at once would each read the old state, and the second undo nothing.
+        if (!hearting) {
+            hearting = true
+            haptics(false)
+            // Off the main thread: it writes to the library, which waits while a scan writes too.
+            hearts.launch {
+                withContext(kotlinx.coroutines.Dispatchers.IO) { runCatching { core.toggleFavorite(song.id) } }
+                    .onSuccess { favorite = it; showMessage(if (it) "Added to favorites" else "Taken out of favorites") }
+                    .onFailure { showMessage("Could not change favorites: ${it.message}") }
+                hearting = false
+                NeedleApp.instance.libraryVersion.value++
+            }
         }
     }
     // The A-B loop: the first tap marks A, the second B, the third lets go.
@@ -383,8 +410,18 @@ fun FullPlayer(onClose: () -> Unit, open: (Route) -> Unit) {
     var searching by remember { mutableStateOf(false) }
     var dragging by remember { mutableStateOf(false) }
     // Let go short of closing, the player springs back up; closed, it is ready again at the top.
-    val shown by animateFloatAsState(if (dragging) pull else 0f, if (dragging) androidx.compose.animation.core.snap() else spring(dampingRatio = 0.8f, stiffness = 400f), label = "pull")
+    // Read only where it is drawn (graphicsLayer): the player is not redrawn at each move.
+    val shown = remember { androidx.compose.animation.core.Animatable(0f) }
     val closer = androidx.compose.runtime.rememberCoroutineScope()
+    val springBack: () -> Unit = {
+        val from = pull
+        dragging = false
+        pull = 0f
+        closer.launch {
+            shown.snapTo(from)
+            shown.animateTo(0f, spring(dampingRatio = 0.8f, stiffness = 400f))
+        }
+    }
     androidx.compose.runtime.DisposableEffect(Unit) {
         playerShowing.value = true
         onDispose { playerShowing.value = false }
@@ -394,7 +431,7 @@ fun FullPlayer(onClose: () -> Unit, open: (Route) -> Unit) {
     Box(
         Modifier
             .fillMaxSize()
-            .graphicsLayer { translationY = (if (dragging) pull else shown).coerceAtLeast(0f) }
+            .graphicsLayer { translationY = (if (dragging) pull else shown.value).coerceAtLeast(0f) }
             .clickable(enabled = false) {}
             .pointerInput(Unit) {
                 detectVerticalDragGestures(
@@ -405,11 +442,10 @@ fun FullPlayer(onClose: () -> Unit, open: (Route) -> Unit) {
                             // Kept where it was while it slides away, then back at the top.
                             closer.launch { kotlinx.coroutines.delay(500); dragging = false; pull = 0f }
                         } else {
-                            dragging = false
-                            pull = 0f
+                            springBack()
                         }
                     },
-                    onDragCancel = { dragging = false; pull = 0f },
+                    onDragCancel = { springBack() },
                 ) { _, dy -> pull += dy }
             },
     ) {
@@ -422,12 +458,13 @@ fun FullPlayer(onClose: () -> Unit, open: (Route) -> Unit) {
             // scrolls, where the tall column would push the controls off the foot.
             val wide = (maxWidth >= 600.dp || maxHeight < 480.dp) && maxWidth > maxHeight
             val roomy = maxHeight >= 560.dp
+            val short = maxHeight < 480.dp
             val side = (maxWidth * 0.46f).coerceAtMost(520.dp)
             // The cover, or in its place the lyrics or what is up next.
             val stage: @Composable () -> Unit = {
                 when (panel) {
                     Panel.Cover -> PlayerCover(song, playing, haptics)
-                    Panel.Lyrics -> AtPosition { at -> LyricsPanel(song, at) { open(Route.Timing(song.id)) } }
+                    Panel.Lyrics -> LyricsPanel(song, position) { open(Route.Timing(song.id)) }
                     Panel.UpNext -> UpNextPanel(queueVersion)
                 }
             }
@@ -448,7 +485,12 @@ fun FullPlayer(onClose: () -> Unit, open: (Route) -> Unit) {
                             color = Color.White.copy(alpha = 0.7f),
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis,
-                            modifier = Modifier.clip(RoundedCornerShape(6.dp)).clickable(enabled = !song.onComputer()) { open(Route.Artist(song.artist)) },
+                            // A full finger's height to tap, and a button to TalkBack.
+                            modifier = Modifier
+                                .then(if (song.onComputer()) Modifier else Modifier.heightIn(min = 48.dp))
+                                .clip(RoundedCornerShape(6.dp))
+                                .clickable(enabled = !song.onComputer(), role = androidx.compose.ui.semantics.Role.Button, onClickLabel = "Go to artist") { open(Route.Artist(song.artist)) }
+                                .wrapContentHeight(Alignment.CenterVertically),
                         )
                         if (song.onComputer()) OnComputerChip(Modifier.padding(top = 8.dp))
                     }
@@ -528,6 +570,14 @@ fun FullPlayer(onClose: () -> Unit, open: (Route) -> Unit) {
                                 controls()
                             }
                         }
+                    }
+                } else if (short) {
+                    // A short window standing up (a phone's split screen): no room for the cover,
+                    // so the song and its controls, scrolled where even they do not fit.
+                    Column(Modifier.weight(1f).fillMaxWidth().verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.Center) {
+                        if (panel != Panel.Cover) Box(Modifier.fillMaxWidth().height(240.dp)) { stage() }
+                        name()
+                        controls()
                     }
                 } else {
                     // On a tablet standing up, no wider than a large phone's player.
@@ -650,7 +700,9 @@ private fun VolumeRow(computer: Boolean) {
     val context = androidx.compose.ui.platform.LocalContext.current
     val audio = remember { context.getSystemService(android.content.Context.AUDIO_SERVICE) as android.media.AudioManager }
     val stream = android.media.AudioManager.STREAM_MUSIC
-    val playback by NeedleApp.instance.playback.collectAsState()
+    // Only the computer's volume, not the whole playback, which changes at every tick.
+    val playbackState = NeedleApp.instance.playback.collectAsState()
+    val pcVolume by remember { androidx.compose.runtime.derivedStateOf { playbackState.value?.volume ?: 1f } }
     var held by remember { mutableStateOf<Float?>(null) }
     // The phone's volume can change by its buttons, so it is read again every half second.
     var phone by remember { mutableFloatStateOf(audio.getStreamVolume(stream).toFloat() / audio.getStreamMaxVolume(stream)) }
@@ -660,7 +712,7 @@ private fun VolumeRow(computer: Boolean) {
             kotlinx.coroutines.delay(500)
         }
     }
-    val value = held ?: if (computer) playback?.volume ?: 1f else phone
+    val value = held ?: if (computer) pcVolume else phone
     Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth().padding(bottom = 10.dp)) {
         Icon(Icons.AutoMirrored.Rounded.VolumeDown, contentDescription = null, tint = Color.White.copy(alpha = 0.7f))
         androidx.compose.material3.Slider(
@@ -1012,12 +1064,12 @@ private fun SeekBar(position: Double, duration: Double, playing: Boolean) {
     val focus = remember { androidx.compose.foundation.interaction.MutableInteractionSource() }
     val focused by focus.collectIsFocusedAsState()
     val thickness by animateDpAsState(if (held != null || focused) 10.dp else 5.dp, label = "seek thickness")
-    Column(Modifier.padding(top = 2.dp)) {
+    Column {
         Box(
             Modifier
                 .fillMaxWidth()
                 // A full finger's height to take hold of; the line itself stays thin.
-                .height(44.dp)
+                .height(48.dp)
                 .onKeyEvent {
                     val step = when (it.key) {
                         Key.DirectionLeft -> -10.0
@@ -1065,7 +1117,7 @@ private fun SeekBar(position: Double, duration: Double, playing: Boolean) {
 }
 
 @Composable
-private fun LyricsPanel(song: Song, position: Double, time: () -> Unit) {
+private fun LyricsPanel(song: Song, position: () -> Double, time: () -> Unit) {
     // Looked up again after NetEase is added.
     var retry by remember(song.id) { androidx.compose.runtime.mutableIntStateOf(0) }
     var askingNetEase by remember(song.id) { mutableStateOf(false) }
@@ -1077,7 +1129,9 @@ private fun LyricsPanel(song: Song, position: Double, time: () -> Unit) {
     val lyrics by lyricsLoad
     val lines = lyrics?.lines.orEmpty()
     val state = rememberLazyListState()
-    val now = lines.indexOfLast { it.time <= position + 0.2 }
+    // The line sung now, changing only when the line does: the lines are not all redrawn at
+    // every tick of the position. Only the line sung, word by word, reads the position itself.
+    val now by remember(lines) { androidx.compose.runtime.derivedStateOf { lines.indexOfLast { it.time <= position() + 0.2 } } }
     val app by NeedleApp.instance.app.collectAsState()
     LaunchedEffect(now, app.liveLyrics) {
         if (app.liveLyrics && now >= 0) state.animateScrollToItem((now - 1).coerceAtLeast(0))
@@ -1126,9 +1180,10 @@ private fun LyricsPanel(song: Song, position: Double, time: () -> Unit) {
                 val grow by animateFloatAsState(if (i == now && app.liveLyrics) 1f else 0.94f, spring(dampingRatio = 0.7f, stiffness = 300f), label = "line size")
                 // Karaoke: the words sung so far are lit, the rest wait.
                 val sung = if (i == now && line.words.isNotEmpty() && app.liveLyrics) {
+                    val at = position()
                     androidx.compose.ui.text.buildAnnotatedString {
                         line.words.forEach { word ->
-                            withStyle(androidx.compose.ui.text.SpanStyle(color = if (word.time <= position) Color.White else Color.White.copy(alpha = 0.4f))) {
+                            withStyle(androidx.compose.ui.text.SpanStyle(color = if (word.time <= at) Color.White else Color.White.copy(alpha = 0.4f))) {
                                 append(word.text)
                             }
                         }

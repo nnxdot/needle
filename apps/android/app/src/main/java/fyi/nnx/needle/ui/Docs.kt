@@ -50,6 +50,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.stateDescription
+import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.rotate
@@ -288,12 +289,12 @@ fun DocScreen(doc: Doc) {
     LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = 32.dp + LocalBottomInset.current)) {
         item { LargeTitle(doc.title) }
         if (title.isNotBlank()) {
-            item { Text(title, style = MaterialTheme.typography.displaySmall, modifier = Modifier.padding(horizontal = Edge, vertical = 4.dp)) }
+            item { Text(title, style = MaterialTheme.typography.displaySmall, modifier = Modifier.semantics { heading() }.padding(horizontal = Edge, vertical = 4.dp)) }
         }
         itemsIndexed(blocks) { _, block ->
             when (block) {
-                is DocBlock.Heading -> Text(block.text, style = MaterialTheme.typography.headlineSmall, modifier = Modifier.padding(start = Edge, end = Edge, top = 28.dp, bottom = 8.dp))
-                is DocBlock.Sub -> Text(block.text, style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.primary, modifier = Modifier.padding(start = Edge, end = Edge, top = 14.dp, bottom = 2.dp))
+                is DocBlock.Heading -> Text(block.text, style = MaterialTheme.typography.headlineSmall, modifier = Modifier.semantics { heading() }.padding(start = Edge, end = Edge, top = 28.dp, bottom = 8.dp))
+                is DocBlock.Sub -> Text(block.text, style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.primary, modifier = Modifier.semantics { heading() }.padding(start = Edge, end = Edge, top = 14.dp, bottom = 2.dp))
                 is DocBlock.Para -> Text(html(block.html), style = MaterialTheme.typography.bodyLarge, modifier = Modifier.padding(horizontal = Edge, vertical = 6.dp))
                 is DocBlock.Item -> Row(Modifier.padding(horizontal = Edge, vertical = 4.dp), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                     Box(Modifier.padding(top = 9.dp).size(5.dp).clip(CircleShape).background(MaterialTheme.colorScheme.primary))

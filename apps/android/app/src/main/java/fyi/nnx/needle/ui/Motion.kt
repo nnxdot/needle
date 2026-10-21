@@ -55,7 +55,13 @@ import fyi.nnx.needle.NeedleApp
 
 /** Motion is off when Needle's own switch is, or when Android's "Remove animations" is on. */
 @Composable
-fun reduceMotion(): Boolean {
+fun reduceMotion(): Boolean = LocalReduceMotion.current
+
+/** Worked out once for the whole app ([ProvideReduceMotion]), not at every tile that asks. */
+val LocalReduceMotion = androidx.compose.runtime.compositionLocalOf { false }
+
+@Composable
+fun ProvideReduceMotion(content: @Composable () -> Unit) {
     val app by NeedleApp.instance.app.collectAsState()
     val context = LocalContext.current
     // Read again each time Needle comes back on screen: the switch may have changed meanwhile.
@@ -63,7 +69,7 @@ fun reduceMotion(): Boolean {
     val system = remember(lifecycle.isAtLeast(androidx.lifecycle.Lifecycle.State.RESUMED)) {
         Settings.Global.getFloat(context.contentResolver, Settings.Global.ANIMATOR_DURATION_SCALE, 1f) == 0f
     }
-    return app.reduceMotion || system
+    androidx.compose.runtime.CompositionLocalProvider(LocalReduceMotion provides (app.reduceMotion || system), content = content)
 }
 
 /** A short tap of the phone's vibration, when that is on (Settings › Appearance). */

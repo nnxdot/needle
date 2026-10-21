@@ -45,6 +45,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.runtime.remember
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
@@ -73,6 +74,8 @@ fun WrappedScreen(year: Int?, open: (Route) -> Unit) {
     val years by yearsLoad
     var chosen by rememberSaveable { mutableStateOf(year) }
     val shown = chosen ?: years?.firstOrNull()
+    // The years saved as a playlist, kept on this page (its cards come and go as they are swiped).
+    var savedYears by androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf(listOf<String>()) }
     val wrappedLoad = rememberLoaded(shown) { shown?.let { wrapped(it) } }
     val wrapped by wrappedLoad
     val w = wrapped
@@ -98,7 +101,7 @@ fun WrappedScreen(year: Int?, open: (Route) -> Unit) {
         if (w.topSongs.size > 1) ({ TopFive(w) }) else null,
         if (w.stats.topArtists.isNotEmpty()) ({ Artists(w, open) }) else null,
         { Habits(w) },
-        { Keep(w) },
+        { Keep(w, "${w.year}" in savedYears) { savedYears = savedYears + "${w.year}" } },
     )
     val pager = rememberPagerState { pages.size }
     val scope = rememberCoroutineScope()
@@ -120,8 +123,9 @@ fun WrappedScreen(year: Int?, open: (Route) -> Unit) {
                 }
             }
             if ((years?.size ?: 0) > 1) {
-                Row(Modifier.padding(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    years.orEmpty().take(4).forEach { y ->
+                // Every year, along a row that scrolls.
+                Row(Modifier.horizontalScroll(androidx.compose.foundation.rememberScrollState()).padding(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    years.orEmpty().forEach { y ->
                         FilterChip(selected = y == shown, onClick = { chosen = y; scope.launch { pager.scrollToPage(0) } }, label = { Text(y.toString()) })
                     }
                 }
@@ -301,7 +305,7 @@ private fun Habits(w: Wrapped) {
 }
 
 @Composable
-private fun Keep(w: Wrapped) {
+private fun Keep(w: Wrapped, saved: Boolean, onSaved: () -> Unit) {
     Column(Modifier.fillMaxSize(), verticalArrangement = Arrangement.Center, horizontalAlignment = Alignment.CenterHorizontally) {
         Big("${w.year}", 96)
         Small("That was your year.")
@@ -309,13 +313,13 @@ private fun Keep(w: Wrapped) {
         Button(onClick = { playTop(w) }, colors = ButtonDefaults.buttonColors(containerColor = Color.White, contentColor = Color.Black)) { Text("Play your top songs") }
         Spacer(Modifier.height(8.dp))
         // Once: a second tap would make a second playlist of the same songs.
-        var saved by remember { mutableStateOf(false) }
-        FilledTonalButton(enabled = !saved, onClick = {
-            saved = true
+        var saving by remember { mutableStateOf(false) }
+        FilledTonalButton(enabled = !saved && !saving, onClick = {
+            saving = true
             libraryWrite(
                 { core.createPlaylist("Top songs of ${w.year}", "Your most played songs of ${w.year}.", w.topSongs.map { it.id }, null) },
-                { saved = false; showMessage("Could not save it: ${it.message}") },
-            ) { showMessage("Saved as a playlist") }
+                { saving = false; showMessage("Could not save it: ${it.message}") },
+            ) { saving = false; onSaved(); showMessage("Saved as a playlist") }
         }) { Text(if (saved) "Saved as a playlist" else "Save them as a playlist") }
     }
 }
