@@ -424,9 +424,12 @@ final class Store {
     func chooseTheme(_ mode: String, extras theme: ThemeFile?) {
         var patch: [String: Any] = ["theme": mode]
         if let theme, theme.grain != nil || theme.font != nil {
-            if settings.themeExtrasBefore == nil { patch["theme_extras_before"] = [settings.grain, settings.displayFont] as [Any] }
-            if let grain = theme.grain { patch["grain"] = grain }
-            if let font = theme.font { patch["display_font"] = font }
+            // The person's own, kept from before the first theme with extras.
+            let own = settings.themeExtrasBefore.map { ($0.grain, $0.font) } ?? (settings.grain, settings.displayFont)
+            if settings.themeExtrasBefore == nil { patch["theme_extras_before"] = [own.0, own.1] as [Any] }
+            // What this theme does not name is the person's own, not the last theme's.
+            patch["grain"] = theme.grain.map { min(max($0, 0), 1) } ?? Double(own.0)
+            patch["display_font"] = theme.font ?? own.1
         } else if let before = settings.themeExtrasBefore {
             patch["grain"] = before.grain
             patch["display_font"] = before.font

@@ -79,7 +79,14 @@ struct HistoryPage: View {
                         }
                         HStack(alignment: .top, spacing: 20) {
                             ranked("Top artists", s.topArtists) { r in store.navigate(.artist(r.title)) }
-                            ranked("Top albums", s.topAlbums, play: nil)
+                            ranked("Top albums", s.topAlbums) { r in
+                                // Its album's page, from a song of it.
+                                if let id = r.songId, let track = JSON.decode(Track.self, (try? store.core.trackJson(id: id)) ?? nil) {
+                                    store.navigate(track.albumRoute)
+                                } else {
+                                    store.notify("That album's files are gone.")
+                                }
+                            }
                             ranked("Top tracks", s.topSongs, play: nil)
                         }
                     }
@@ -206,6 +213,8 @@ struct HistoryPage: View {
                     .onTapGesture(count: 2) {
                         if let play { play(r) } else if let id = r.songId {
                             store.run { _ = try $0.playSongs(ids: [id], start: 0, reason: "One of your most played") }
+                        } else {
+                            store.notify("That song's file is gone.")
                         }
                     }
                 }

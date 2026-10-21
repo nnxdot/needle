@@ -359,6 +359,7 @@ extension View {
 
 /// Film grain over the window: a still tile of noise.
 struct Grain: View {
+    /// 0 to 1 (held there: a theme file can say more).
     let amount: Double
     private static let tile: NSImage = {
         let side = 128

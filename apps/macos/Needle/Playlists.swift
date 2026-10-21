@@ -19,6 +19,9 @@ struct PlaylistEditor: View {
     @State private var picture: String?
     @State private var clearPicture = false
 
+    /// Saving now: a second click waits.
+    @State private var saving = false
+
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
             Text(playlist.id.isEmpty ? "New playlist" : "Edit playlist").font(.title2.weight(.semibold))
@@ -66,7 +69,7 @@ struct PlaylistEditor: View {
                 Button(playlist.id.isEmpty ? "Make playlist" : "Save") { save() }
                     .buttonStyle(.borderedProminent)
                     .keyboardShortcut(.defaultAction)
-                    .disabled(name.trimmingCharacters(in: .whitespaces).isEmpty)
+                    .disabled(name.trimmingCharacters(in: .whitespaces).isEmpty || saving)
             }
         }
         .padding(22)
@@ -168,6 +171,8 @@ struct PlaylistEditor: View {
     }
 
     private func save() {
+        guard !saving else { return }
+        saving = true
         var next = playlist
         next.name = name
         next.description = description
@@ -186,11 +191,11 @@ struct PlaylistEditor: View {
         }
         let encoder = JSONEncoder()
         encoder.keyEncodingStrategy = .convertToSnakeCase
-        guard let data = try? encoder.encode(next) else { return }
+        guard let data = try? encoder.encode(next) else { saving = false; return }
         let json = String(decoding: data, as: UTF8.self)
         let (picture, clear, isNew, title) = (picture, clearPicture, playlist.id.isEmpty, name)
         Task {
-            guard let id = await store.ask({ try $0.savePlaylistJson(json: json) }) else { return }
+            guard let id = await store.ask({ try $0.savePlaylistJson(json: json) }) else { saving = false; return }
             if picture != nil || clear {
                 _ = await store.ask { try $0.setPlaylistPicture(id: id, path: picture) }
             }

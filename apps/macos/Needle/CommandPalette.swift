@@ -207,6 +207,7 @@ struct CommandPalette: View {
     private func nextLook() {
         let looks = Palette.bases.map(\.0) + store.themes.map(\.id)
         let now = looks.firstIndex(of: store.settings.theme) ?? 0
-        store.set(["theme": looks[(now + 1) % looks.count]])
+        let next = looks[(now + 1) % looks.count]
+        store.chooseTheme(next, extras: store.themes.first { $0.id == next })
     }
 }
