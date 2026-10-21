@@ -257,6 +257,127 @@ pub fn prepare(text: &str) -> String {
     report
 }
 
+/// Keeps a crash report the system made (the app's own crash, not only the core's), to be
+/// sent as the core's are: cleaned of paths and names when it is sent.
+pub fn keep_report(data: &Path, text: &str) -> bool {
+    let folder = crash_folder(data);
+    let _ = fs::create_dir_all(&folder);
+    let stamp = chrono::Local::now().format("%Y%m%d-%H%M%S-%3f");
+    for serial in 0..8 {
+        let name = format!("crash-{stamp}-system-{serial}.txt");
+        if let Ok(mut file) = OpenOptions::new().write(true).create_new(true).open(folder.join(name)) {
+            return file.write_all(text.as_bytes()).is_ok();
+        }
+    }
+    false
+}
+
+/// A macOS crash report (`.ips`) as Needle sends it: what went wrong and where, in the
+/// crashed thread, and nothing else (no Mac's identifiers, no paths, no other programs).
+pub fn from_ips(ips: &str) -> Option<String> {
+    let (head, body) = ips.split_once('\n')?;
+    let head: serde_json::Value = serde_json::from_str(head).ok()?;
+    let body: serde_json::Value = serde_json::from_str(body).ok()?;
+    if head["bundleID"].as_str() != Some("fyi.nnx.Needle") {
+        return None;
+    }
+    let text = |v: &serde_json::Value| v.as_str().unwrap_or_default().to_string();
+    let images = body["usedImages"].as_array().cloned().unwrap_or_default();
+    let frame = |f: &serde_json::Value| -> String {
+        let image = f["imageIndex"]
+            .as_u64()
+            .and_then(|i| images.get(i as usize))
+            .map(|i| text(&i["name"]))
+            .filter(|n| !n.is_empty())
+            .unwrap_or_else(|| "?".into());
+        match f["symbol"].as_str() {
+            Some(symbol) => format!("{image}  {symbol} + {}", f["symbolLocation"].as_u64().unwrap_or(0)),
+            None => format!("{image}  + 0x{:x}", f["imageOffset"].as_u64().unwrap_or(0)),
+        }
+    };
+    let mut out = format!(
+        "Needle {} on macos {} (the system's report)\nmacOS {}\n",
+        text(&head["app_version"]),
+        std::env::consts::ARCH,
+        text(&head["os_version"]),
+    );
+    let exception = &body["exception"];
+    out.push_str(&format!(
+        "Exception: {} {} {}\n",
+        text(&exception["type"]),
+        text(&exception["signal"]),
+        text(&exception["subtype"]),
+    ));
+    if let Some(indicator) = body["termination"]["indicator"].as_str() {
+        out.push_str(&format!("Termination: {indicator}\n"));
+    }
+    // What the app said as it stopped (a Swift fatal error, an exception's reason).
+    if let Some(said) = body["asi"].as_object() {
+        for lines in said.values().filter_map(|v| v.as_array()) {
+            for line in lines.iter().filter_map(|l| l.as_str()).take(6) {
+                out.push_str(&format!("Message: {line}\n"));
+            }
+        }
+    }
+    let threads = body["threads"].as_array().cloned().unwrap_or_default();
+    let crashed = body["faultingThread"].as_u64().unwrap_or(0) as usize;
+    if let Some(thread) = threads.get(crashed) {
+        out.push_str(&format!("\nThread {crashed} {} crashed:\n", text(&thread["queue"])));
+        for (i, f) in thread["frames"].as_array().into_iter().flatten().take(60).enumerate() {
+            out.push_str(&format!("{i:>3}  {}\n", frame(f)));
+        }
+    }
+    if let Some(frames) = body["lastExceptionBacktrace"].as_array() {
+        out.push_str("\nLast exception backtrace:\n");
+        for (i, f) in frames.iter().take(40).enumerate() {
+            out.push_str(&format!("{i:>3}  {}\n", frame(f)));
+        }
+    }
+    Some(out)
+}
+
+/// macOS's own reports of Needle's crashes from the last two weeks, each kept once to be
+/// sent (see [`keep_report`]). Returns how many were new.
+#[cfg(target_os = "macos")]
+pub fn collect_mac_crashes(data: &Path) -> usize {
+    let Some(home) = std::env::var_os("HOME") else { return 0 };
+    let reports = PathBuf::from(home).join("Library/Logs/DiagnosticReports");
+    let seen_file = crash_folder(data).join("system-seen.txt");
+    let mut seen: Vec<String> = fs::read_to_string(&seen_file)
+        .unwrap_or_default()
+        .lines()
+        .map(str::to_string)
+        .collect();
+    let mut new = 0;
+    for entry in fs::read_dir(&reports).into_iter().flatten().flatten() {
+        let name = entry.file_name().to_string_lossy().to_string();
+        if !(name.starts_with("Needle-") && name.ends_with(".ips")) || seen.contains(&name) {
+            continue;
+        }
+        let recent = entry
+            .metadata()
+            .and_then(|m| m.modified())
+            .ok()
+            .and_then(|t| SystemTime::now().duration_since(t).ok())
+            .is_some_and(|age| age < std::time::Duration::from_secs(14 * 86_400));
+        if recent
+            && let Ok(ips) = fs::read_to_string(entry.path())
+            && let Some(report) = from_ips(&ips)
+            && keep_report(data, &report)
+        {
+            new += 1;
+        }
+        seen.push(name);
+    }
+    // The names only, so each report is kept once; the list stays short.
+    let keep = seen.len().saturating_sub(200);
+    let _ = fs::write(&seen_file, seen[keep..].join("\n"));
+    if new > 0 {
+        info(format!("Kept {new} crash reports from macOS"));
+    }
+    new
+}
+
 /// Send waiting crash reports when `send` is true; delete sent ones and ones older than
 /// 30 days. Returns how many were sent.
 pub fn send_pending(data: &Path, send: bool) -> usize {
@@ -328,6 +449,33 @@ pub fn recent(data: &Path, lines: usize) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_macos_report_keeps_what_went_wrong_and_where_only() {
+        let head = r#"{"app_name":"Needle","app_version":"1.7.0","bundleID":"fyi.nnx.Needle","os_version":"macOS 26.1 (25B78)","name":"Needle"}"#;
+        let body = r#"{"crashReporterKey":"SECRET-KEY","modelCode":"Mac16,12","userID":501,
+            "procPath":"/Users/someone/Applications/Needle.app/Contents/MacOS/Needle",
+            "exception":{"type":"EXC_BREAKPOINT","signal":"SIGTRAP"},
+            "termination":{"indicator":"Trace/BPT trap: 5"},
+            "asi":{"libswiftCore.dylib":["Needle/Store.swift:120: Fatal error: Index out of range"]},
+            "faultingThread":0,
+            "threads":[{"queue":"com.apple.main-thread","frames":[
+                {"imageIndex":1,"imageOffset":4096,"symbol":"Store.tick()","symbolLocation":44},
+                {"imageIndex":0,"imageOffset":8192}]}],
+            "usedImages":[{"name":"Needle","path":"/Users/someone/Applications/Needle.app/Contents/MacOS/Needle"},
+                {"name":"libswiftCore.dylib","path":"/usr/lib/swift/libswiftCore.dylib"}]}"#;
+        let report = from_ips(&format!("{head}\n{body}")).unwrap();
+        assert!(report.starts_with("Needle 1.7.0 on macos"));
+        assert!(report.contains("EXC_BREAKPOINT SIGTRAP"));
+        assert!(report.contains("Fatal error: Index out of range"));
+        assert!(report.contains("libswiftCore.dylib  Store.tick() + 44"));
+        assert!(report.contains("Needle  + 0x2000"));
+        for private in ["SECRET-KEY", "Mac16,12", "someone", "501"] {
+            assert!(!report.contains(private), "{private} in {report}");
+        }
+        // Another program's report is not Needle's.
+        assert!(from_ips(&format!("{}\n{body}", head.replace("fyi.nnx.Needle", "com.other.App"))).is_none());
+    }
 
     #[test]
     fn scrubbing_removes_paths_and_names_but_keeps_source_places() {
