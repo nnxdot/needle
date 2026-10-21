@@ -222,13 +222,15 @@ pub fn scrub(text: &str) -> String {
     out
 }
 
-/// Crash reports waiting to be sent, oldest first.
+/// Crash reports waiting to be sent, oldest first: only the `crash-*.txt` files, never the
+/// list of macOS reports already kept, which lives in the same folder.
 pub fn pending(data: &Path) -> Vec<PathBuf> {
     let mut files: Vec<PathBuf> = fs::read_dir(crash_folder(data))
         .map(|entries| {
             entries
                 .filter_map(|e| e.ok().map(|e| e.path()))
                 .filter(|p| p.extension().is_some_and(|e| e == "txt"))
+                .filter(|p| p.file_name().and_then(|n| n.to_str()).is_some_and(|n| n.starts_with("crash-")))
                 .collect()
         })
         .unwrap_or_default();
@@ -342,12 +344,15 @@ pub fn from_ips(ips: &str) -> Option<String> {
 pub fn collect_mac_crashes(data: &Path) -> usize {
     let Some(home) = std::env::var_os("HOME") else { return 0 };
     let reports = PathBuf::from(home).join("Library/Logs/DiagnosticReports");
-    let seen_file = crash_folder(data).join("system-seen.txt");
-    let mut seen: Vec<String> = fs::read_to_string(&seen_file)
-        .unwrap_or_default()
-        .lines()
-        .map(str::to_string)
+    // Not a .txt: 1.7.1 kept this list as system-seen.txt, which was sent as a crash report
+    // and then deleted, so every report was kept and sent again at the next start.
+    let seen_file = crash_folder(data).join("system-seen.list");
+    let old_file = crash_folder(data).join("system-seen.txt");
+    let mut seen: Vec<String> = [&seen_file, &old_file]
+        .iter()
+        .flat_map(|f| fs::read_to_string(f).unwrap_or_default().lines().map(str::to_string).collect::<Vec<_>>())
         .collect();
+    let _ = fs::remove_file(&old_file);
     let mut new = 0;
     for entry in fs::read_dir(&reports).into_iter().flatten().flatten() {
         let name = entry.file_name().to_string_lossy().to_string();
@@ -531,6 +536,10 @@ mod tests {
         assert_eq!(pending(dir.path()).len(), 1);
         // With reports off, a new report stays until it is 30 days old.
         assert_eq!(send_pending(dir.path(), false), 0);
+        assert_eq!(pending(dir.path()).len(), 1);
+        // The list of macOS reports already kept is never a report.
+        fs::write(crash_folder(dir.path()).join("system-seen.list"), "Needle-1.ips").unwrap();
+        fs::write(crash_folder(dir.path()).join("system-seen.txt"), "Needle-1.ips").unwrap();
         assert_eq!(pending(dir.path()).len(), 1);
         let long = "a".repeat(MAX_REPORT * 2);
         assert!(prepare(&long).len() <= MAX_REPORT + 4);
