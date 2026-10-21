@@ -46,6 +46,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.runtime.remember
 import androidx.compose.foundation.horizontalScroll
+import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
@@ -76,6 +77,9 @@ fun WrappedScreen(year: Int?, open: (Route) -> Unit) {
     val shown = chosen ?: years?.firstOrNull()
     // The years saved as a playlist, kept on this page (its cards come and go as they are swiped).
     var savedYears by androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf(listOf<String>()) }
+    // A year saved on an earlier visit has its playlist already.
+    val playlistsLoad = rememberLoaded { playlists() }
+    val playlistNames = playlistsLoad.value.orEmpty().map { it.name }.toSet()
     val wrappedLoad = rememberLoaded(shown) { shown?.let { wrapped(it) } }
     val wrapped by wrappedLoad
     val w = wrapped
@@ -101,7 +105,7 @@ fun WrappedScreen(year: Int?, open: (Route) -> Unit) {
         if (w.topSongs.size > 1) ({ TopFive(w) }) else null,
         if (w.stats.topArtists.isNotEmpty()) ({ Artists(w, open) }) else null,
         { Habits(w) },
-        { Keep(w, "${w.year}" in savedYears) { savedYears = savedYears + "${w.year}" } },
+        { Keep(w, "${w.year}" in savedYears || "Top songs of ${w.year}" in playlistNames) { savedYears = savedYears + "${w.year}" } },
     )
     val pager = rememberPagerState { pages.size }
     val scope = rememberCoroutineScope()
@@ -292,7 +296,8 @@ private fun Habits(w: Wrapped) {
         Spacer(Modifier.height(24.dp))
         // The day's hours as bars, the busiest lit.
         val most = (w.stats.hours.maxOrNull() ?: 0.0).coerceAtLeast(1.0)
-        Row(Modifier.fillMaxWidth().height(90.dp), horizontalArrangement = Arrangement.spacedBy(3.dp), verticalAlignment = Alignment.Bottom) {
+        // The words above say it for TalkBack.
+        Row(Modifier.fillMaxWidth().height(90.dp).clearAndSetSemantics {}, horizontalArrangement = Arrangement.spacedBy(3.dp), verticalAlignment = Alignment.Bottom) {
             w.stats.hours.forEach { h ->
                 Box(Modifier.weight(1f).fillMaxHeight((h / most).toFloat().coerceIn(0.04f, 1f)).clip(RoundedCornerShape(3.dp)).background(Color.White.copy(alpha = if (h == most) 1f else 0.4f)))
             }

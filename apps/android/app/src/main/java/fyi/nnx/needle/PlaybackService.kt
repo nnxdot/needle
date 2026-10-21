@@ -104,12 +104,24 @@ private class Library(private val core: Needle) : MediaLibraryService.MediaLibra
     private fun songs(list: List<Song>, parent: String? = null): List<MediaItem> =
         list.map { songItem(it, if (parent == null) "song:${it.id}" else "song:${it.id}$IN$parent") }
 
-    /** The songs listed under `parent`, from the start, for a song picked there to play on. */
-    private fun songsIn(parent: String): List<Song>? = when {
-        parent == FAVORITES -> core.searchSongsPage("rating >= 4 order by title", 0u, 2000u)
-        parent.startsWith("album:") -> core.albumSongsPage(parent.removePrefix("album:"), 0u, 2000u)
-        parent.startsWith("playlist:") -> core.playlistSongsPage(parent.removePrefix("playlist:"), 0u, 2000u)
-        else -> null
+    /**
+     * The songs listed under `parent`, from the start, for a song picked there to play on. Read a
+     * page (the core gives at most 1000) at a time, up to 5000 songs.
+     */
+    private fun songsIn(parent: String): List<Song>? {
+        val page: (UInt) -> List<Song> = when {
+            parent == FAVORITES -> { at -> core.searchSongsPage("rating >= 4 order by title", at, 1000u) }
+            parent.startsWith("album:") -> { at -> core.albumSongsPage(parent.removePrefix("album:"), at, 1000u) }
+            parent.startsWith("playlist:") -> { at -> core.playlistSongsPage(parent.removePrefix("playlist:"), at, 1000u) }
+            else -> return null
+        }
+        val all = ArrayList<Song>()
+        while (all.size < 5000) {
+            val next = page(all.size.toUInt())
+            all += next
+            if (next.size < 1000) break
+        }
+        return all
     }
 
     override fun onGetLibraryRoot(

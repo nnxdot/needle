@@ -239,11 +239,14 @@ fun CoverBackdrop(path: String?, modifier: Modifier = Modifier, dim: Float = 0.3
                 // at every frame of the turn, over a square bigger than the screen.
                 val context = androidx.compose.ui.platform.LocalContext.current
                 val radius = app.backdropBlur.coerceIn(20f, 120f) / side.value
+                // Where it had turned to: it rests there (the player over it), and turns on from it.
+                val last = androidx.compose.runtime.remember { FloatArray(1) }
+                val from = androidx.compose.runtime.remember(still) { last[0] }
                 val request = androidx.compose.runtime.remember(art, radius, context) {
                     coil3.request.ImageRequest.Builder(context)
                         .data(fileUri(art))
                         .size(BackdropBlur.SIZE)
-                        .transformations(BackdropBlur(radius))
+                        .transformations(TrimBars(), BackdropBlur(radius))
                         .build()
                 }
                 AsyncImage(
@@ -253,7 +256,8 @@ fun CoverBackdrop(path: String?, modifier: Modifier = Modifier, dim: Float = 0.3
                     modifier = Modifier
                         .requiredSize(side)
                         .graphicsLayer {
-                            val r = if (still) 0f else turn
+                            val r = if (still) last[0] else (from + turn) % 360f
+                            last[0] = r
                             rotationZ = r
                             translationX = if (still) 0f else kotlin.math.sin(Math.toRadians(r * 2.0)).toFloat() * size.width * 0.06f
                         },
@@ -276,7 +280,10 @@ class BackdropBlur(private val radius: Float) : coil3.transform.Transformation()
     override val cacheKey = "backdrop-blur-1-$radius"
 
     override suspend fun transform(input: android.graphics.Bitmap, size: coil3.size.Size): android.graphics.Bitmap {
-        val small = android.graphics.Bitmap.createScaledBitmap(input, SIZE, SIZE, true)
+        // The middle square, so a wide cover is cut, not squeezed.
+        val side = minOf(input.width, input.height)
+        val square = android.graphics.Bitmap.createBitmap(input, (input.width - side) / 2, (input.height - side) / 2, side, side)
+        val small = android.graphics.Bitmap.createScaledBitmap(square, SIZE, SIZE, true)
             .copy(android.graphics.Bitmap.Config.ARGB_8888, true)
         val r = (radius * SIZE).toInt().coerceIn(1, SIZE / 4)
         val pixels = IntArray(SIZE * SIZE)

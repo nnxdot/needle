@@ -395,7 +395,7 @@ private fun LibrarySettings(open: (Route) -> Unit) {
                     Text(folder, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
                 IconButton(onClick = { removing = folder }) {
-                    Icon(Icons.Rounded.Delete, contentDescription = "Stop reading this folder", tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Icon(Icons.Rounded.Delete, contentDescription = "Stop reading ${folder.substringAfterLast('/').ifBlank { folder }}", tint = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
             }
             Divider()
@@ -1324,7 +1324,7 @@ private fun ParametricBands(bands: List<fyi.nnx.needle.core.EqBand>, onChange: (
                     )
                     Switch(band.on, { set(i, band.copy(on = it), true) }, Modifier.named("Band ${i + 1}"))
                     IconButton(onClick = { onChange(live.filterIndexed { j, _ -> j != i }) }) {
-                        Icon(Icons.Rounded.Delete, contentDescription = "Remove this band", tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Icon(Icons.Rounded.Delete, contentDescription = "Remove band ${i + 1}", tint = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
                 }
                 // Frequency on a log scale, as ears hear it.
@@ -1334,14 +1334,14 @@ private fun ParametricBands(bands: List<fyi.nnx.needle.core.EqBand>, onChange: (
                     { set(i, band.copy(frequency = Math.pow(10.0, it.toDouble()).toFloat()), false) },
                     valueRange = kotlin.math.log10(20f)..kotlin.math.log10(20000f),
                     onValueChangeFinished = { onChange(live) },
-                    modifier = Modifier.named("Frequency", "${band.frequency.toInt()} Hz"),
+                    modifier = Modifier.named("Band ${i + 1} frequency", "${band.frequency.toInt()} Hz"),
                 )
                 if (band.kind in listOf("peak", "lowshelf", "highshelf")) {
                     Text("Gain", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    Slider(band.gain, { set(i, band.copy(gain = it), false) }, valueRange = -12f..12f, onValueChangeFinished = { onChange(live) }, modifier = Modifier.named("Gain", "%+.1f dB".format(band.gain)))
+                    Slider(band.gain, { set(i, band.copy(gain = it), false) }, valueRange = -12f..12f, onValueChangeFinished = { onChange(live) }, modifier = Modifier.named("Band ${i + 1} gain", "%+.1f dB".format(band.gain)))
                 }
                 Text("Width (Q)", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                Slider(band.q, { set(i, band.copy(q = it), false) }, valueRange = 0.2f..6f, onValueChangeFinished = { onChange(live) }, modifier = Modifier.named("Width", "%.1f".format(band.q)))
+                Slider(band.q, { set(i, band.copy(q = it), false) }, valueRange = 0.2f..6f, onValueChangeFinished = { onChange(live) }, modifier = Modifier.named("Band ${i + 1} width", "%.1f".format(band.q)))
             }
         }
         if (live.size < 20) TextButton(onClick = {

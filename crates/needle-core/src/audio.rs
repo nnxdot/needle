@@ -664,6 +664,8 @@ trait OutputOpener {
 struct SystemOutput;
 impl OutputOpener for SystemOutput {
     fn open(&mut self, device: Option<&str>) -> Result<Option<OpenOutput>> {
+        // Whatever opens now (a speaker on the network takes no format), the change is met.
+        FORMAT_CHANGED.store(false, std::sync::atomic::Ordering::SeqCst);
         let group = device.and_then(crate::cast::Group::from_device_name);
         let speaker = device.and_then(crate::cast::Speaker::from_device_name);
         if group.is_some() || speaker.is_some() {
@@ -699,7 +701,6 @@ impl OutputOpener for SystemOutput {
         let failure = Arc::new(Mutex::new(None));
         let slot = failure.clone();
         let mut builder = OutputStreamBuilder::from_device(device)?;
-        FORMAT_CHANGED.store(false, std::sync::atomic::Ordering::SeqCst);
         if let Some(format) = *STREAM_FORMAT.lock().unwrap_or_else(|e| e.into_inner()) {
             builder = builder
                 .with_channels(2)

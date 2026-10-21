@@ -348,8 +348,11 @@ class Toggle : ActionCallback {
         val core = NeedleApp.instance.core
         // Nothing to go on with: shuffle the whole library. Asked of the core itself: just
         // after a start the app has not yet heard of the song it brought back, paused.
-        if (!NeedleApp.instance.remoteShown.value && core.playback().current == null) core.play(core.songs().shuffled().take(200).map { it.id }, 0u)
-        else fyi.nnx.needle.ui.Controls.toggle()
+        // A library that cannot answer (busy, or broken) leaves the press undone; it does not close Needle.
+        runCatching {
+            if (!NeedleApp.instance.remoteShown.value && core.playback().current == null) core.play(core.songs().shuffled().take(200).map { it.id }, 0u)
+            else fyi.nnx.needle.ui.Controls.toggle()
+        }
         withService(context)
         // The app looks at the player at once, and the widget then shows the press.
         NeedleApp.instance.wake()
@@ -432,7 +435,8 @@ class PlayAlbum : ActionCallback {
     override suspend fun onAction(context: Context, glanceId: GlanceId, parameters: ActionParameters) {
         val key = parameters[AlbumKey] ?: return
         val core = NeedleApp.instance.core
-        core.play(core.albumSongs(key).map { it.id }, 0u)
+        // A library that cannot answer leaves the press undone; it does not close Needle.
+        runCatching { core.play(core.albumSongs(key).map { it.id }, 0u) }
         withService(context)
         // The app looks at the player at once, and the widget then shows the press.
         NeedleApp.instance.wake()

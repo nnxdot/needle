@@ -130,17 +130,20 @@ fun Modifier.focusRing(interaction: androidx.compose.foundation.interaction.Inte
 /** Three bars that bounce while the song plays and rest while it is paused. */
 @Composable
 fun PlayingBars(playing: Boolean, modifier: Modifier = Modifier, color: Color = MaterialTheme.colorScheme.primary, height: Dp = 14.dp) {
-    val transition = rememberInfiniteTransition(label = "bars")
     val reduce = reduceMotion()
+    // Bouncing only while it plays: paused, nothing asks for frames.
+    val moving = playing && !reduce
+    val transition = if (moving) rememberInfiniteTransition(label = "bars") else null
     Row(modifier.size(width = 16.dp, height = height), horizontalArrangement = Arrangement.spacedBy(2.dp), verticalAlignment = Alignment.Bottom) {
         listOf(420, 310, 520).forEachIndexed { i, period ->
-            val bounce by transition.animateFloat(
-                initialValue = 0.25f,
-                targetValue = 1f,
-                animationSpec = infiniteRepeatable(tween(period, delayMillis = i * 60, easing = FastOutSlowInEasing), RepeatMode.Reverse),
-                label = "bar$i",
-            )
-            val level = if (playing && !reduce) bounce else listOf(0.45f, 0.8f, 0.6f)[i]
+            val level = if (transition != null) {
+                transition.animateFloat(
+                    initialValue = 0.25f,
+                    targetValue = 1f,
+                    animationSpec = infiniteRepeatable(tween(period, delayMillis = i * 60, easing = FastOutSlowInEasing), RepeatMode.Reverse),
+                    label = "bar$i",
+                ).value
+            } else listOf(0.45f, 0.8f, 0.6f)[i]
             Box(
                 Modifier
                     .width(4.dp)

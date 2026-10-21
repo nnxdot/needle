@@ -416,7 +416,8 @@ fun FixLibraryScreen() {
  */
 @Composable
 private fun <T> Paged(list: List<T>, row: @Composable (T) -> Unit) {
-    var shown by remember(list) { mutableIntStateOf(100) }
+    // Kept as the list changes (a set merged away), so the page does not fold back to the top.
+    var shown by remember { mutableIntStateOf(100) }
     list.take(shown).forEach { row(it) }
     if (list.size > shown) {
         TextButton(onClick = { shown += 100 }, modifier = Modifier.padding(horizontal = Edge)) {

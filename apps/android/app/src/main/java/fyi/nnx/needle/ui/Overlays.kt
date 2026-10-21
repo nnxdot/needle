@@ -44,6 +44,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import kotlinx.coroutines.flow.collectLatest
 import androidx.lifecycle.repeatOnLifecycle
+import kotlinx.coroutines.flow.receiveAsFlow
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
@@ -62,7 +63,11 @@ import kotlinx.coroutines.ensureActive
 
 /** What floats over the screens: a sheet or a dialog at a time, and short messages. */
 object Ui {
-    val messages = MutableSharedFlow<String>(extraBufferCapacity = 8)
+    /**
+     * Short messages, with when each was said. Held while no screen shows them (Needle started
+     * by a car, a widget, or a voice search), and shown when one opens, if still fresh.
+     */
+    val messages = kotlinx.coroutines.channels.Channel<Pair<Long, String>>(16, kotlinx.coroutines.channels.BufferOverflow.DROP_OLDEST)
     val sheet = MutableStateFlow<Sheet?>(null)
     /** The welcome guide, asked for again from Settings › About. */
     val welcome = MutableStateFlow(false)
@@ -89,7 +94,7 @@ fun tryOpen(what: String, open: () -> Unit): Boolean = try {
 }
 
 fun showMessage(text: String) {
-    Ui.messages.tryEmit(text)
+    Ui.messages.trySend(android.os.SystemClock.uptimeMillis() to text)
 }
 
 private fun refreshLibrary() {
@@ -105,7 +110,12 @@ fun Overlays(snackbar: SnackbarHostState) {
     val questions = remember { androidx.compose.runtime.mutableStateListOf<Notice.Question>() }
     val sheet by Ui.sheet.collectAsState()
     // The newest message at once, in place of one still showing, rather than in a long line.
-    LaunchedEffect(Unit) { Ui.messages.collectLatest { snackbar.showSnackbar(it) } }
+    LaunchedEffect(Unit) {
+        Ui.messages.receiveAsFlow().collectLatest { (at, text) ->
+            // One held from long ago (a car's, an hour back) is no longer news.
+            if (android.os.SystemClock.uptimeMillis() - at < 30_000) snackbar.showSnackbar(text)
+        }
+    }
     // What plugins ask of the app, read a few times a second while Needle is on screen.
     val lifecycle = androidx.lifecycle.compose.LocalLifecycleOwner.current.lifecycle
     LaunchedEffect(lifecycle) {
