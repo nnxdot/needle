@@ -12,6 +12,11 @@ if [ ! -x "$CARGO_HOME/bin/cargo" ]; then
   curl -sSf https://sh.rustup.rs | sh -s -- -y --profile minimal --no-modify-path >/dev/null
 fi
 export PATH="$CARGO_HOME/bin:$PATH"
+# The keys built into the app: from build-linux.sh, or this computer's own file when run here.
+if [ -f "$HOME/.needle-keys" ]; then
+  # shellcheck disable=SC1091
+  . "$HOME/.needle-keys"
+fi
 cd /src
 cargo build --release --locked -p needle --bins
 strip "$CARGO_TARGET_DIR/release/needle-desktop" "$CARGO_TARGET_DIR/release/needle"
