@@ -11,6 +11,8 @@ use needle_core::{
 
 /// The immersive cover, as the Mac's and Apple Music's: the cover fills the window's left side
 /// from top to foot and fades, to its right and at its foot, into a tone of its own colour.
+/// `foot` is how tall the words and controls over its foot are: the tone is solid behind all of
+/// them, so no cover makes them hard to read, and the cover fades in above.
 /// Gives the layer, how wide the cover is, and the tone (which the rest of the player takes).
 pub(super) fn immersive_cover(
     path: &str,
@@ -18,6 +20,7 @@ pub(super) fn immersive_cover(
     w: f32,
     h: f32,
     widest: f32,
+    foot: f32,
     dark: bool,
 ) -> (AnyElement, f32, Hsla) {
     let side = h.min(w * 0.62).min(widest).max(1.);
@@ -56,31 +59,40 @@ pub(super) fn immersive_cover(
                     linear_color_stop(tone, 1.),
                 )),
         )
-        // ...and solid at its foot, so the cover's own words never show under the controls.
+        // ...and solid behind the words and controls at its foot.
         .child(
             div()
                 .absolute()
                 .left_0()
                 .right_0()
                 .bottom_0()
-                .h(px(h * 0.55))
+                .h(px(foot.min(h)))
+                .bg(tone),
+        )
+        .child(
+            div()
+                .absolute()
+                .left_0()
+                .right_0()
+                .bottom(px(foot.min(h) - 1.))
+                .h(px((h * 0.42).max(200.)))
                 .bg(linear_gradient(
                     180.,
                     linear_color_stop(tone.opacity(0.), 0.),
-                    linear_color_stop(tone, 0.8),
+                    linear_color_stop(tone, 1.),
                 )),
         )
-        // A little at its top, so the buttons over it read.
+        // At its top, so the buttons over it read.
         .child(
             div()
                 .absolute()
                 .left_0()
                 .right_0()
                 .top_0()
-                .h(px(110.))
+                .h(px(140.))
                 .bg(linear_gradient(
                     180.,
-                    linear_color_stop(tone.opacity(0.55), 0.),
+                    linear_color_stop(tone.opacity(0.8), 0.),
                     linear_color_stop(tone.opacity(0.), 1.),
                 )),
         )
@@ -144,7 +156,7 @@ impl AppView {
             .immersive_cover
             .then(|| current.as_ref().and_then(|c| c.track.artwork.clone()))
             .flatten()
-            .map(|path| immersive_cover(&path, look.as_ref(), w, h, left_w - 40., p.dark));
+            .map(|path| immersive_cover(&path, look.as_ref(), w, h, left_w - 40., 340., p.dark));
         let column = immersive
             .as_ref()
             .map_or(art.max(420.), |(_, side, _)| (side - 96.).clamp(300., 480.));
