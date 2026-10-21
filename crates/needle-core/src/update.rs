@@ -243,14 +243,16 @@ fn check_iphone(current: &str) -> Result<Option<Release>> {
         .as_str()
         .or_else(|| app["version"].as_str())
         .unwrap_or_default();
-    Ok((!version.is_empty() && newer(current, version)).then(|| Release {
-        version: version.trim_start_matches('v').to_string(),
-        page: "https://needle.nnx.fyi/#download".into(),
-        package: None,
-        installer: String::new(),
-        installer_url: String::new(),
-        checksums_url: None,
-    }))
+    Ok(
+        (!version.is_empty() && newer(current, version)).then(|| Release {
+            version: version.trim_start_matches('v').to_string(),
+            page: "https://needle.nnx.fyi/#download".into(),
+            package: None,
+            installer: String::new(),
+            installer_url: String::new(),
+            checksums_url: None,
+        }),
+    )
 }
 
 fn check_at(url: &str, current: &str) -> Result<Option<Release>> {
@@ -552,7 +554,10 @@ fn replace_bundle(image: &Path, bundle: &Path) -> Result<()> {
 /// the download is the file published.
 #[cfg(target_os = "macos")]
 fn check_signer(app: &Path) -> Result<()> {
-    let Some(pin) = option_env!("NEEDLE_MAC_SIGNER").map(str::trim).filter(|p| !p.is_empty()) else {
+    let Some(pin) = option_env!("NEEDLE_MAC_SIGNER")
+        .map(str::trim)
+        .filter(|p| !p.is_empty())
+    else {
         return Ok(());
     };
     let codesign = system_tool("codesign").context("codesign is missing")?;

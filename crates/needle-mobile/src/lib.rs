@@ -309,7 +309,10 @@ impl Needle {
     pub fn add_folder(&self, path: String) -> Result<()> {
         // Removed and added again while a scan runs: it stays.
         let real = needle_core::database::canonical_root(&path);
-        REMOVED_ROOTS.lock().unwrap_or_else(|e| e.into_inner()).retain(|r| *r != path && *r != real);
+        REMOVED_ROOTS
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .retain(|r| *r != path && *r != real);
         self.library.add_root(&path)?;
         self.rescan();
         Ok(())
@@ -335,72 +338,82 @@ impl Needle {
                 ..Default::default()
             };
         }
-        std::thread::spawn(move || loop {
-            SCAN_AGAIN.store(false, Ordering::SeqCst);
-            let mut error = None;
-            // Songs that are there: a file gone is kept, marked missing, so all rows would not change.
-            let present = || library.available_count("").unwrap_or(0);
-            let before = present();
-            let mut changed = false;
-            // The whole scan's counts, every folder's (progress comes only now and then).
-            let (mut scanned, mut imported) = (0usize, 0usize);
-            REMOVED_ROOTS.lock().unwrap_or_else(|e| e.into_inner()).clear();
-            for root in library.roots().unwrap_or_default() {
-                // Not there now (a drive unplugged): passed over, its songs kept as they are.
-                if !std::path::Path::new(&root).exists() {
-                    continue;
-                }
-                let cancel = Arc::new(AtomicBool::new(false));
-                // A panic must not leave the scan "running" (and its notice up) for good.
-                let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-                    scan::import(&library, &PathBuf::from(&root), cancel, |p| {
-                        let mut s = status.lock().unwrap_or_else(|e| e.into_inner());
-                        s.scanned = p.scanned as u32;
-                        s.imported = p.imported as u32;
-                        s.current = p.current.clone();
-                    })
-                }));
-                match result {
-                    Ok(Err(e)) => error = Some(format!("{e:#}")),
-                    Err(_) => error = Some(format!("Needle stopped reading {root}")),
-                    Ok(Ok(done)) => {
-                        changed |= done.imported > 0;
-                        scanned += done.scanned;
-                        imported += done.imported;
+        std::thread::spawn(move || {
+            loop {
+                SCAN_AGAIN.store(false, Ordering::SeqCst);
+                let mut error = None;
+                // Songs that are there: a file gone is kept, marked missing, so all rows would not change.
+                let present = || library.available_count("").unwrap_or(0);
+                let before = present();
+                let mut changed = false;
+                // The whole scan's counts, every folder's (progress comes only now and then).
+                let (mut scanned, mut imported) = (0usize, 0usize);
+                REMOVED_ROOTS
+                    .lock()
+                    .unwrap_or_else(|e| e.into_inner())
+                    .clear();
+                for root in library.roots().unwrap_or_default() {
+                    // Not there now (a drive unplugged): passed over, its songs kept as they are.
+                    if !std::path::Path::new(&root).exists() {
+                        continue;
+                    }
+                    let cancel = Arc::new(AtomicBool::new(false));
+                    // A panic must not leave the scan "running" (and its notice up) for good.
+                    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                        scan::import(&library, &PathBuf::from(&root), cancel, |p| {
+                            let mut s = status.lock().unwrap_or_else(|e| e.into_inner());
+                            s.scanned = p.scanned as u32;
+                            s.imported = p.imported as u32;
+                            s.current = p.current.clone();
+                        })
+                    }));
+                    match result {
+                        Ok(Err(e)) => error = Some(format!("{e:#}")),
+                        Err(_) => error = Some(format!("Needle stopped reading {root}")),
+                        Ok(Ok(done)) => {
+                            changed |= done.imported > 0;
+                            scanned += done.scanned;
+                            imported += done.imported;
+                        }
                     }
                 }
-            }
-            // Removed while this scan read them: out again (the scan had put them back).
-            for gone in std::mem::take(&mut *REMOVED_ROOTS.lock().unwrap_or_else(|e| e.into_inner())) {
-                if let Ok(db) = library.connection() {
-                    let _ = db.execute("DELETE FROM roots WHERE path=?", [&gone]);
-                    let prefix = format!("{}/", gone.trim_end_matches('/'));
-                    let _ = db.execute("DELETE FROM tracks WHERE substr(path,1,length(?1))=?1", [&prefix]);
+                // Removed while this scan read them: out again (the scan had put them back).
+                for gone in
+                    std::mem::take(&mut *REMOVED_ROOTS.lock().unwrap_or_else(|e| e.into_inner()))
+                {
+                    if let Ok(db) = library.connection() {
+                        let _ = db.execute("DELETE FROM roots WHERE path=?", [&gone]);
+                        let prefix = format!("{}/", gone.trim_end_matches('/'));
+                        let _ = db.execute(
+                            "DELETE FROM tracks WHERE substr(path,1,length(?1))=?1",
+                            [&prefix],
+                        );
+                    }
                 }
+                changed |= present() != before;
+                let mut s = status.lock().unwrap_or_else(|e| e.into_inner());
+                s.current.clear();
+                s.error = error;
+                s.scanned = scanned as u32;
+                s.imported = imported as u32;
+                s.finished += 1;
+                if changed {
+                    s.changes += 1;
+                }
+                if SCAN_AGAIN.load(Ordering::SeqCst) {
+                    // Asked for again meanwhile: once more, still running.
+                    continue;
+                }
+                s.running = false;
+                drop(s);
+                scanning.store(false, Ordering::SeqCst);
+                // Asked for between the look above and now (it saw a scan running): once more.
+                if SCAN_AGAIN.load(Ordering::SeqCst) && !scanning.swap(true, Ordering::SeqCst) {
+                    status.lock().unwrap_or_else(|e| e.into_inner()).running = true;
+                    continue;
+                }
+                break;
             }
-            changed |= present() != before;
-            let mut s = status.lock().unwrap_or_else(|e| e.into_inner());
-            s.current.clear();
-            s.error = error;
-            s.scanned = scanned as u32;
-            s.imported = imported as u32;
-            s.finished += 1;
-            if changed {
-                s.changes += 1;
-            }
-            if SCAN_AGAIN.load(Ordering::SeqCst) {
-                // Asked for again meanwhile: once more, still running.
-                continue;
-            }
-            s.running = false;
-            drop(s);
-            scanning.store(false, Ordering::SeqCst);
-            // Asked for between the look above and now (it saw a scan running): once more.
-            if SCAN_AGAIN.load(Ordering::SeqCst) && !scanning.swap(true, Ordering::SeqCst) {
-                status.lock().unwrap_or_else(|e| e.into_inner()).running = true;
-                continue;
-            }
-            break;
         });
     }
 

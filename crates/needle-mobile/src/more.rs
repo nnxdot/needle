@@ -110,7 +110,11 @@ fn stats(s: needle_core::history::HistoryStats, library: &needle_core::database:
         }
         let quote = query::quote;
         let rule = if !t.album.is_empty() {
-            format!("album = {} and artist = {}", quote(&t.album), quote(&t.artist))
+            format!(
+                "album = {} and artist = {}",
+                quote(&t.album),
+                quote(&t.artist)
+            )
         } else if !t.artist.is_empty() {
             format!("artist = {}", quote(&t.artist))
         } else {
@@ -260,7 +264,10 @@ impl Needle {
         Ok(listens
             .into_iter()
             .map(|l| HistoryItem {
-                song: tracks.iter().find(|t| t.id == l.track_id && !t.missing).map(Song::from),
+                song: tracks
+                    .iter()
+                    .find(|t| t.id == l.track_id && !t.missing)
+                    .map(Song::from),
                 title: l.title,
                 artist: l.artist,
                 album: l.album,
@@ -424,7 +431,12 @@ impl Needle {
     }
 
     pub fn delete_playlist(&self, id: String) -> Result<()> {
-        let cover = self.library.playlists()?.into_iter().find(|p| p.id == id).and_then(|p| p.cover);
+        let cover = self
+            .library
+            .playlists()?
+            .into_iter()
+            .find(|p| p.id == id)
+            .and_then(|p| p.cover);
         self.library.delete_playlist(&id)?;
         // Its own picture goes with it.
         if let Some(cover) = cover {
@@ -445,10 +457,14 @@ impl Needle {
     /// Plays a station that sounds like this song: it first, then songs that flow from it.
     pub fn start_radio(&self, id: String) -> Result<()> {
         let Some(track) = self.library.track(&id)? else {
-            return Err(NeedleError::Failed("That song is not in the library".into()));
+            return Err(NeedleError::Failed(
+                "That song is not in the library".into(),
+            ));
         };
         if track.missing {
-            return Err(NeedleError::Failed("That song's file is gone, so it cannot start a radio".into()));
+            return Err(NeedleError::Failed(
+                "That song's file is gone, so it cannot start a radio".into(),
+            ));
         }
         let (library, player) = (self.library.clone(), self.player.clone());
         let notices = self.plugin_state.clone();
@@ -470,11 +486,13 @@ impl Needle {
                 }
                 Err(e) => {
                     log(true, &format!("Radio: {e:#}"));
-                    notices.notices.lock().unwrap_or_else(|e| e.into_inner()).push_back(
-                        crate::plugins::Notice::Message {
+                    notices
+                        .notices
+                        .lock()
+                        .unwrap_or_else(|e| e.into_inner())
+                        .push_back(crate::plugins::Notice::Message {
                             text: "Needle could not make a radio from this song.".into(),
-                        },
-                    );
+                        });
                 }
             }
         });

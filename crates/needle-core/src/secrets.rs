@@ -242,7 +242,10 @@ mod keychain {
                 Ok(()) => mark_own(account),
                 Err(error) => {
                     // The value is kept in memory and saved again on the next read.
-                    UNSAVED.lock().unwrap_or_else(|p| p.into_inner()).insert(account.to_string());
+                    UNSAVED
+                        .lock()
+                        .unwrap_or_else(|p| p.into_inner())
+                        .insert(account.to_string());
                     eprintln!("{STORE_NAME} could not save {account} again: {error}");
                 }
             }
@@ -256,7 +259,10 @@ mod keychain {
         save_own(&entry(account)?, value)
             .map_err(|e| anyhow!("{STORE_NAME} could not save {account}: {e}"))?;
         mark_own(account);
-        cache.insert(account.to_string(), Ok(Some(value.to_string()).filter(|v| !v.is_empty())));
+        cache.insert(
+            account.to_string(),
+            Ok(Some(value.to_string()).filter(|v| !v.is_empty())),
+        );
         Ok(())
     }
 

@@ -2409,7 +2409,10 @@ pub const EXAMPLE_FILES: &[(&str, &str, &str)] = &[(
 /// Scripts of the Navidrome / Subsonic plugin from before bundled plugins kept a record
 /// (SHA-256). A copy that still matches one exactly was never edited, so it is updated.
 const EARLIER_EXAMPLES: &[(&str, &str)] = &[
-    ("subsonic", "fc69ff1803c8c06ddb36a9f849aca1d561cd29adabbcbd7de77ee100d6371acc"),
+    (
+        "subsonic",
+        "fc69ff1803c8c06ddb36a9f849aca1d561cd29adabbcbd7de77ee100d6371acc",
+    ),
     (
         "subsonic",
         "6d850964abfedd0a27cf8cf365b1e88524c54b0d301e3d8644849172ee7e7e70",
@@ -3263,7 +3266,10 @@ mod tests {
             .unwrap()
             .unwrap();
         assert_eq!(found.lines.len(), 2);
-        assert_eq!((found.lines[1].time, found.lines[1].text.as_str()), (62.75, "Hi"));
+        assert_eq!(
+            (found.lines[1].time, found.lines[1].text.as_str()),
+            (62.75, "Hi")
+        );
     }
 
     /// A server that finds nothing for an empty search (Ampache) is listed album by album.
