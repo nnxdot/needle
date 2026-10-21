@@ -410,7 +410,8 @@ fn follow_status(player: needle_core::audio::Player, library: Library) {
             if state.loading {
                 continue;
             }
-            let presence = presence.get_or_insert_with(|| discord::Presence::start(DISCORD_APP.into()));
+            let presence =
+                presence.get_or_insert_with(|| discord::Presence::start(DISCORD_APP.into()));
             let now = chrono::Utc::now().timestamp();
             if state.playing {
                 idle_since = None;
@@ -687,7 +688,11 @@ impl Needle {
         }
         // Earlier songs stay in the list, so Repeat all comes back round to them. A chosen song
         // whose file is gone starts the list at the next one that is there.
-        let first = tracks.iter().skip(start).find(|t| !t.missing).map(|t| t.id.clone());
+        let first = tracks
+            .iter()
+            .skip(start)
+            .find(|t| !t.missing)
+            .map(|t| t.id.clone());
         tracks.retain(|t| !t.missing);
         let start = first
             .and_then(|id| tracks.iter().position(|t| t.id == id))
@@ -748,7 +753,9 @@ impl Needle {
             let refresh = DESK.refresh_playing.swap(false, Ordering::Relaxed);
             match (&id, playing.as_ref()) {
                 (Some(id), Some((known, _))) if known == id && !refresh => {}
-                (Some(id), _) => *playing = Some((id.clone(), self.library.track(id).ok().flatten())),
+                (Some(id), _) => {
+                    *playing = Some((id.clone(), self.library.track(id).ok().flatten()))
+                }
                 (None, _) => *playing = None,
             }
             playing.as_ref().and_then(|(_, track)| track.clone())
@@ -769,7 +776,11 @@ impl Needle {
             bit_depth: track.map_or(0, |t| t.bit_depth),
             bitrate: track.map_or(0, |t| t.bitrate),
             channels: track.map_or(0, |t| t.channels),
-            reason: s.current.as_ref().map(|c| c.reason.clone()).unwrap_or_default(),
+            reason: s
+                .current
+                .as_ref()
+                .map(|c| c.reason.clone())
+                .unwrap_or_default(),
             streamed: track.is_some_and(|t| t.is_streamed()),
             missing: track.is_some_and(|t| t.missing),
             playing: s.playing,
@@ -821,7 +832,12 @@ impl Needle {
 
     /// Seconds of music up next.
     pub fn queue_seconds(&self) -> f64 {
-        self.player.state().queue.iter().map(|q| q.track.duration).sum()
+        self.player
+            .state()
+            .queue
+            .iter()
+            .map(|q| q.track.duration)
+            .sum()
     }
 
     pub fn clear_queue(&self) {
@@ -884,7 +900,8 @@ impl Needle {
             "crossfade",
             "autoplay_query",
         ]) {
-            self.player.send(Command::Configure(Box::new(saved.clone())));
+            self.player
+                .send(Command::Configure(Box::new(saved.clone())));
         } else if has(&["dsp"]) {
             self.player.send(Command::Dsp(saved.dsp.clone()));
         }
@@ -895,10 +912,12 @@ impl Needle {
             self.apply_remote();
         }
         if has(&["sound_analysis"]) {
-            DESK.measuring
-                .store(saved.sound_analysis, Ordering::SeqCst);
+            DESK.measuring.store(saved.sound_analysis, Ordering::SeqCst);
         }
-        if keys.iter().any(|k| k.starts_with("discord") || k.ends_with("_enabled")) {
+        if keys
+            .iter()
+            .any(|k| k.starts_with("discord") || k.ends_with("_enabled"))
+        {
             DESK.discord_refresh.store(true, Ordering::SeqCst);
         }
         Ok(())
@@ -935,7 +954,8 @@ impl Needle {
                 })
                 .collect()
         };
-        std::fs::write(&path, format_parametric(dsp.preamp_db, &bands)).map_err(anyhow::Error::from)?;
+        std::fs::write(&path, format_parametric(dsp.preamp_db, &bands))
+            .map_err(anyhow::Error::from)?;
         Ok(())
     }
 
@@ -1053,11 +1073,16 @@ impl Needle {
             return Err(failed("A smart playlist picks its own songs"));
         }
         // Only songs in the library: any text dropped on a playlist is not a song.
-        let known: std::collections::HashSet<String> =
-            self.library.tracks_by_ids(&ids)?.into_iter().map(|t| t.id).collect();
+        let known: std::collections::HashSet<String> = self
+            .library
+            .tracks_by_ids(&ids)?
+            .into_iter()
+            .map(|t| t.id)
+            .collect();
         let mut new: Vec<String> = vec![];
         for song in ids {
-            if known.contains(&song) && !playlist.track_ids.contains(&song) && !new.contains(&song) {
+            if known.contains(&song) && !playlist.track_ids.contains(&song) && !new.contains(&song)
+            {
                 new.push(song);
             }
         }
@@ -1091,8 +1116,12 @@ impl Needle {
             .collect();
         let mut adding = if moving.is_empty() {
             // New to the list: only songs in the library.
-            let known: std::collections::HashSet<String> =
-                self.library.tracks_by_ids(&ids)?.into_iter().map(|t| t.id).collect();
+            let known: std::collections::HashSet<String> = self
+                .library
+                .tracks_by_ids(&ids)?
+                .into_iter()
+                .map(|t| t.id)
+                .collect();
             ids.into_iter().filter(|id| known.contains(id)).collect()
         } else {
             moving
@@ -1163,7 +1192,9 @@ impl Needle {
     /// Plays this song, then songs that sound like it. Returns how many.
     pub fn radio_from(&self, id: String) -> Result<u32> {
         let track = self.mac_track(&id)?;
-        let station = self.library.radio(std::slice::from_ref(&track), STATION - 1)?;
+        let station = self
+            .library
+            .radio(std::slice::from_ref(&track), STATION - 1)?;
         if station.is_empty() {
             return Err(failed(
                 "Not enough songs are measured yet to make a station. Needle measures them in the background; try again soon.",
@@ -1210,7 +1241,10 @@ impl Needle {
     /// The song being split, if any: cheap, for the window to follow often (`stems_info` also
     /// adds up every split song's files).
     pub fn stems_job(&self) -> Option<StemJob> {
-        DESK.stems_job.lock().unwrap_or_else(|p| p.into_inner()).clone()
+        DESK.stems_job
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .clone()
     }
 
     pub fn stems_info(&self, id: String) -> StemsInfo {
@@ -1328,11 +1362,8 @@ impl Needle {
                 }]));
             }
         }
-        self.player.send(Command::Stems(if on {
-            dir.map(|d| (id, d))
-        } else {
-            None
-        }));
+        self.player
+            .send(Command::Stems(if on { dir.map(|d| (id, d)) } else { None }));
         Ok(())
     }
 
@@ -1369,9 +1400,12 @@ impl Needle {
 
     /// Writes tags (a JSON `TagEdit`: only the fields given change) into the songs' files.
     /// Each file is backed up first and its sound checked after.
-    pub fn write_tags_json(&self, ids: Vec<String>, edit: String) -> Result<crate::tools::TagReport> {
-        let edit: scan::TagEdit =
-            serde_json::from_str(&edit).map_err(|e| failed(e.to_string()))?;
+    pub fn write_tags_json(
+        &self,
+        ids: Vec<String>,
+        edit: String,
+    ) -> Result<crate::tools::TagReport> {
+        let edit: scan::TagEdit = serde_json::from_str(&edit).map_err(|e| failed(e.to_string()))?;
         let cancel = Arc::new(AtomicBool::new(false));
         *DESK.tags_cancel.lock().unwrap() = cancel.clone();
         let report = scan::write_tags_batch(&self.library, &ids, &edit, cancel, |p| {
@@ -1388,13 +1422,7 @@ impl Needle {
             failed: report
                 .failed
                 .into_iter()
-                .map(|f| {
-                    format!(
-                        "{}: {}",
-                        f.path.trim_start_matches("\\\\?\\"),
-                        f.error
-                    )
-                })
+                .map(|f| format!("{}: {}", f.path.trim_start_matches("\\\\?\\"), f.error))
                 .collect(),
         })
     }
@@ -1470,7 +1498,9 @@ impl Needle {
             .filter(|a| a.artwork.is_none())
         {
             if let Some(track) = self.library.album_tracks(&album.key)?.into_iter().next() {
-                found += media::fetch_album_art(&self.library, &track).unwrap_or(0).min(1);
+                found += media::fetch_album_art(&self.library, &track)
+                    .unwrap_or(0)
+                    .min(1);
             }
         }
         Ok(found as u32)
@@ -1492,7 +1522,11 @@ impl Needle {
 
     /// Saves lyrics timed in the timing editor as a `.lrc` file beside the song. Returns its
     /// name.
-    pub fn save_lyrics_file(&self, id: String, lines: Vec<crate::media::LyricLine>) -> Result<String> {
+    pub fn save_lyrics_file(
+        &self,
+        id: String,
+        lines: Vec<crate::media::LyricLine>,
+    ) -> Result<String> {
         let track = self.mac_track(&id)?;
         if track.cue.is_some() {
             return Err(failed(
@@ -1560,7 +1594,8 @@ impl Needle {
         group.delays.retain(|_, ms| *ms != 0);
         let device = group.device_name();
         self.save_settings_with(|s| s.output_device = Some(device))?;
-        self.player.send(Command::SpeakerDelays(group.delays.clone()));
+        self.player
+            .send(Command::SpeakerDelays(group.delays.clone()));
         Ok(())
     }
 
@@ -1655,7 +1690,11 @@ impl Needle {
     }
 
     pub fn lastfm_pending(&self) -> Option<String> {
-        DESK.lastfm.lock().unwrap().as_ref().map(|p| p.auth_url.clone())
+        DESK.lastfm
+            .lock()
+            .unwrap()
+            .as_ref()
+            .map(|p| p.auth_url.clone())
     }
 
     pub fn lastfm_cancel(&self) {
@@ -1732,7 +1771,10 @@ impl Needle {
                 continue;
             };
             let text = full.to_string_lossy().to_string();
-            if full.extension().is_some_and(|e| e.eq_ignore_ascii_case("cue")) {
+            if full
+                .extension()
+                .is_some_and(|e| e.eq_ignore_ascii_case("cue"))
+            {
                 let _ = needle_core::cue::import_sheet(&self.library, &full);
                 let mut tracks = self
                     .library
@@ -1866,7 +1908,8 @@ impl Needle {
                         t.iter()
                             .filter_map(|(k, v)| {
                                 let v = v.as_str()?;
-                                v.starts_with('#').then(|| (k.clone(), Value::String(v.into())))
+                                v.starts_with('#')
+                                    .then(|| (k.clone(), Value::String(v.into())))
                             })
                             .collect()
                     })
@@ -1989,8 +2032,20 @@ impl Needle {
     pub fn desktop_whats_new(&self) -> Vec<crate::media::Notes> {
         let mut notes = vec![];
         for section in NOTES.split("\n# ").map(|s| s.trim_start_matches("# ")) {
-            let (version, text) = section.split_once('\n').unwrap_or((section, ""));
-            if !version.trim().is_empty() {
+            let (head, text) = section.split_once('\n').unwrap_or((section, ""));
+            // `# 1.7.1 [windows, linux]` is for those systems only; a section without names
+            // is for all.
+            let (version, ours) = match head.split_once('[') {
+                Some((version, systems)) => (
+                    version,
+                    systems
+                        .trim_end_matches(']')
+                        .split(',')
+                        .any(|s| s.trim().eq_ignore_ascii_case("macos")),
+                ),
+                None => (head, true),
+            };
+            if ours && !version.trim().is_empty() {
                 notes.push(crate::media::Notes {
                     version: version.trim().to_string(),
                     text: text.trim().to_string(),
@@ -2032,7 +2087,9 @@ impl Needle {
 /// Puts a playlist's own songs in the order a page's column sort asks for (`… order by year
 /// desc`): its query picks no songs, so the library's search cannot sort them.
 fn sort_by_query(tracks: &mut [Track], query: &str) {
-    let Some((_, order)) = query.rsplit_once("order by ") else { return };
+    let Some((_, order)) = query.rsplit_once("order by ") else {
+        return;
+    };
     let mut words = order.split_whitespace();
     let Some(field) = words.next() else { return };
     let descending = words.next().is_some_and(|w| w.eq_ignore_ascii_case("desc"));

@@ -83,6 +83,28 @@ impl AppView {
         let repeat = self.playback.repeat;
         let look = self.now_look();
         let lyrics = self.immersive_lyrics && self.has_lyrics() && w >= 900.;
+        // Settings > Appearance > Immersive cover, for a song with a cover of its own.
+        let (cover_layer, cover_side, tone) = match self
+            .settings
+            .immersive_cover
+            .then(|| current.as_ref().and_then(|c| c.track.artwork.clone()))
+            .flatten()
+        {
+            Some(path) => {
+                let widest = if lyrics { w * 0.5 } else { w };
+                let (layer, side, tone) = super::now_playing::immersive_cover(
+                    &path,
+                    look.as_ref(),
+                    w,
+                    h,
+                    widest,
+                    380.,
+                    p.dark,
+                );
+                (Some(layer), Some(side), Some(tone))
+            }
+            None => (None, None, None),
+        };
 
         // The controls rest out of sight while the music plays and the pointer is still.
         let shown = !playing || self.immersive_moved.elapsed() < IDLE;
@@ -120,29 +142,34 @@ impl AppView {
             (h * 0.5).min(w * 0.4)
         }
         .clamp(180., 620.);
-        let column_w = art.max(360.);
+        let column_w = cover_side.map_or(art.max(360.), |side| (side - 96.).clamp(300., 480.));
 
         // The blurred cover, larger than the screen, drifting slowly.
-        let backdrop = look.as_ref().and_then(|l| l.blur.clone()).map(|blur| {
-            motion::slow_repeat(
-                img(blur)
-                    .absolute()
-                    .w(px(w * 1.5))
-                    .h(px(h * 1.5))
-                    .object_fit(ObjectFit::Cover),
-                40_000,
-                0.5,
-                cx,
-                move |el, t| {
-                    el.left(px(-w * (0.1 + 0.15 * t)))
-                        .top(px(-h * (0.2 - 0.12 * t)))
-                },
-            )
-        });
-        let tint = look
+        let backdrop = look
             .as_ref()
-            .map(|l| hsla(l.vivid.h, (l.vivid.s * 0.8).min(0.5), 0.18, 1.))
-            .unwrap_or(p.canvas);
+            .and_then(|l| l.blur.clone())
+            .filter(|_| cover_side.is_none())
+            .map(|blur| {
+                motion::slow_repeat(
+                    img(blur)
+                        .absolute()
+                        .w(px(w * 1.5))
+                        .h(px(h * 1.5))
+                        .object_fit(ObjectFit::Cover),
+                    40_000,
+                    0.5,
+                    cx,
+                    move |el, t| {
+                        el.left(px(-w * (0.1 + 0.15 * t)))
+                            .top(px(-h * (0.2 - 0.12 * t)))
+                    },
+                )
+            });
+        let tint = tone.unwrap_or_else(|| {
+            look.as_ref()
+                .map(|l| hsla(l.vivid.h, (l.vivid.s * 0.8).min(0.5), 0.18, 1.))
+                .unwrap_or(p.canvas)
+        });
 
         let now = match &current {
             None => div()
@@ -326,21 +353,26 @@ impl AppView {
             .child(artwork(current.as_ref().map(|i| &i.track), art, cx));
 
         let left = div()
-            .w(px(left_w))
             .h_full()
             .flex_shrink_0()
             .flex()
             .flex_col()
-            .justify_center()
-            .when(lyrics, |el| el.items_end().pr(px(w * 0.05)))
-            .when(!lyrics, |el| el.items_center())
+            // Immersive: the words and controls over the cover's foot.
+            .map(|el| match cover_side {
+                Some(side) => el.w(px(side)).justify_end().items_center().pb(px(64.)),
+                None => el
+                    .w(px(left_w))
+                    .justify_center()
+                    .when(lyrics, |el| el.items_end().pr(px(w * 0.05)))
+                    .when(!lyrics, |el| el.items_center()),
+            })
             .child(
                 div()
                     .flex()
                     .flex_col()
-                    .when(!lyrics, |el| el.items_center())
+                    .when(!lyrics || cover_side.is_some(), |el| el.items_center())
                     .gap_6()
-                    .child(cover)
+                    .when(cover_side.is_none(), |el| el.child(cover))
                     .child(now)
                     .child(fade(controls, "imm-controls", cx)),
             );
@@ -357,18 +389,20 @@ impl AppView {
                 cx.notify();
             }))
             .children(backdrop)
+            .children(cover_layer)
             // Calm the backdrop so text stays readable over any cover.
-            .child(
-                div()
-                    .absolute()
-                    .inset_0()
-                    .bg(p.canvas.opacity(if p.dark { 0.42 } else { 0.5 })),
-            )
-            .child(div().absolute().inset_0().bg(linear_gradient(
-                180.,
-                linear_color_stop(p.canvas.opacity(0.), 0.55),
-                linear_color_stop(p.canvas.opacity(0.55), 1.),
-            )))
+            .when(cover_side.is_none(), |el| {
+                el.child(div().absolute().inset_0().bg(p.canvas.opacity(if p.dark {
+                    0.42
+                } else {
+                    0.5
+                })))
+                .child(div().absolute().inset_0().bg(linear_gradient(
+                    180.,
+                    linear_color_stop(p.canvas.opacity(0.), 0.55),
+                    linear_color_stop(p.canvas.opacity(0.55), 1.),
+                )))
+            })
             .child(
                 div()
                     .absolute()

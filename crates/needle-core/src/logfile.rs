@@ -265,7 +265,11 @@ pub fn keep_report(data: &Path, text: &str) -> bool {
     let stamp = chrono::Local::now().format("%Y%m%d-%H%M%S-%3f");
     for serial in 0..8 {
         let name = format!("crash-{stamp}-system-{serial}.txt");
-        if let Ok(mut file) = OpenOptions::new().write(true).create_new(true).open(folder.join(name)) {
+        if let Ok(mut file) = OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(folder.join(name))
+        {
             return file.write_all(text.as_bytes()).is_ok();
         }
     }
@@ -291,7 +295,10 @@ pub fn from_ips(ips: &str) -> Option<String> {
             .filter(|n| !n.is_empty())
             .unwrap_or_else(|| "?".into());
         match f["symbol"].as_str() {
-            Some(symbol) => format!("{image}  {symbol} + {}", f["symbolLocation"].as_u64().unwrap_or(0)),
+            Some(symbol) => format!(
+                "{image}  {symbol} + {}",
+                f["symbolLocation"].as_u64().unwrap_or(0)
+            ),
             None => format!("{image}  + 0x{:x}", f["imageOffset"].as_u64().unwrap_or(0)),
         }
     };
@@ -322,8 +329,17 @@ pub fn from_ips(ips: &str) -> Option<String> {
     let threads = body["threads"].as_array().cloned().unwrap_or_default();
     let crashed = body["faultingThread"].as_u64().unwrap_or(0) as usize;
     if let Some(thread) = threads.get(crashed) {
-        out.push_str(&format!("\nThread {crashed} {} crashed:\n", text(&thread["queue"])));
-        for (i, f) in thread["frames"].as_array().into_iter().flatten().take(60).enumerate() {
+        out.push_str(&format!(
+            "\nThread {crashed} {} crashed:\n",
+            text(&thread["queue"])
+        ));
+        for (i, f) in thread["frames"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .take(60)
+            .enumerate()
+        {
             out.push_str(&format!("{i:>3}  {}\n", frame(f)));
         }
     }
@@ -340,7 +356,9 @@ pub fn from_ips(ips: &str) -> Option<String> {
 /// sent (see [`keep_report`]). Returns how many were new.
 #[cfg(target_os = "macos")]
 pub fn collect_mac_crashes(data: &Path) -> usize {
-    let Some(home) = std::env::var_os("HOME") else { return 0 };
+    let Some(home) = std::env::var_os("HOME") else {
+        return 0;
+    };
     let reports = PathBuf::from(home).join("Library/Logs/DiagnosticReports");
     let seen_file = crash_folder(data).join("system-seen.txt");
     let mut seen: Vec<String> = fs::read_to_string(&seen_file)
@@ -474,7 +492,13 @@ mod tests {
             assert!(!report.contains(private), "{private} in {report}");
         }
         // Another program's report is not Needle's.
-        assert!(from_ips(&format!("{}\n{body}", head.replace("fyi.nnx.Needle", "com.other.App"))).is_none());
+        assert!(
+            from_ips(&format!(
+                "{}\n{body}",
+                head.replace("fyi.nnx.Needle", "com.other.App")
+            ))
+            .is_none()
+        );
     }
 
     #[test]

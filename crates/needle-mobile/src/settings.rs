@@ -400,7 +400,10 @@ impl Needle {
         db.execute("DELETE FROM roots WHERE path=?", [&path])
             .map_err(|e| failed(e.into()))?;
         // A scan running now must not bring it back.
-        crate::REMOVED_ROOTS.lock().unwrap_or_else(|e| e.into_inner()).push(path.clone());
+        crate::REMOVED_ROOTS
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .push(path.clone());
         let prefix = format!("{}/", path.trim_end_matches('/'));
         db.execute(
             "DELETE FROM tracks WHERE substr(path,1,length(?1))=?1",
@@ -521,7 +524,8 @@ fn band(b: &dsp::ParamBand) -> EqBand {
 /// The name a picked file had before the app copied it: copies are named `<uuid>-<name>`
 /// (and were `picked-<name>` once), so a preset is not named after the copy.
 fn picked_name(stem: &str) -> &str {
-    if stem.len() > 37 && stem.as_bytes()[36] == b'-' && uuid::Uuid::parse_str(&stem[..36]).is_ok() {
+    if stem.len() > 37 && stem.as_bytes()[36] == b'-' && uuid::Uuid::parse_str(&stem[..36]).is_ok()
+    {
         &stem[37..]
     } else {
         stem.trim_start_matches("picked-")
@@ -532,8 +536,14 @@ fn picked_name(stem: &str) -> &str {
 mod picked_name_tests {
     #[test]
     fn copies_keep_their_own_name() {
-        assert_eq!(super::picked_name("3f2a1b4c-0d9e-4f8a-9b7c-123456789abc-ParametricEQ"), "ParametricEQ");
-        assert_eq!(super::picked_name("picked-Sennheiser HD 600"), "Sennheiser HD 600");
+        assert_eq!(
+            super::picked_name("3f2a1b4c-0d9e-4f8a-9b7c-123456789abc-ParametricEQ"),
+            "ParametricEQ"
+        );
+        assert_eq!(
+            super::picked_name("picked-Sennheiser HD 600"),
+            "Sennheiser HD 600"
+        );
         assert_eq!(super::picked_name("My EQ"), "My EQ");
     }
 }
