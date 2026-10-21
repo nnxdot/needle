@@ -226,9 +226,18 @@ struct WhatsNew: View {
     @Environment(\.dismiss) private var dismiss
     let notes: Notes
 
+    /// This release and the ones before it back to its x.y.0: a fix release keeps the big
+    /// changes it follows in sight.
+    private var releases: [Notes] {
+        func minor(_ version: String) -> String { version.split(separator: ".").prefix(2).joined(separator: ".") }
+        let all = store.core.desktopWhatsNew()
+        guard let start = all.firstIndex(where: { $0.version == notes.version }) else { return [notes] }
+        return Array(all[start...].prefix { minor($0.version) == minor(notes.version) })
+    }
+
     /// The notes as words: the lead line and the items as bullets, without the file's marks
     /// ("! " for the lead, "[icon] " for an item's picture on the desktop).
-    private var shown: String {
+    private func shown(_ notes: Notes) -> String {
         let lines = notes.text.components(separatedBy: "\n")
         return lines.enumerated().map { i, raw -> String in
             var line = raw
@@ -248,9 +257,18 @@ struct WhatsNew: View {
         VStack(alignment: .leading, spacing: 14) {
             Text("What's new in Needle \(notes.version)").font(store.display(26))
             ScrollView {
-                Text((try? AttributedString(markdown: shown, options: .init(interpretedSyntax: .inlineOnlyPreservingWhitespace))) ?? AttributedString(shown))
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .textSelection(.enabled)
+                VStack(alignment: .leading, spacing: 18) {
+                    let releases = releases
+                    ForEach(releases) { release in
+                        VStack(alignment: .leading, spacing: 8) {
+                            if releases.count > 1 { Text(release.version).font(.title3.weight(.semibold)) }
+                            let text = shown(release)
+                            Text((try? AttributedString(markdown: text, options: .init(interpretedSyntax: .inlineOnlyPreservingWhitespace))) ?? AttributedString(text))
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                                .textSelection(.enabled)
+                        }
+                    }
+                }
             }
             HStack {
                 Link("Full release notes", destination: URL(string: "https://needle.nnx.fyi/changelog")!)
