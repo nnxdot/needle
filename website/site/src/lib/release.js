@@ -18,6 +18,10 @@ const known = {
   "Needle-1.7.1-macos.dmg": 52262448,
   "needle_1.6.3_amd64.deb": 52e6,
   "needle-1.6.3-1.x86_64.rpm": 71e6,
+  "Needle-Setup-1.7.1.exe": 52241335,
+  "Needle-1.7.1-windows-x64.zip": 69413385,
+  "needle_1.7.1_amd64.deb": 52146992,
+  "needle-1.7.1-1.x86_64.rpm": 70777181,
   "Needle-1.7.0-android-arm64-release.apk": 35846232,
   "Needle-1.7.0-android-x86_64-release.apk": 36649033,
 };
