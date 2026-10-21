@@ -386,6 +386,7 @@ private fun LibrarySettings(open: (Route) -> Unit) {
     val music = File(Environment.getExternalStorageDirectory(), Environment.DIRECTORY_MUSIC).path
 
     MusicAccessNotice(Modifier.padding(horizontal = 16.dp, vertical = 8.dp))
+    FolderCoversAccess(Modifier.padding(horizontal = 16.dp, vertical = 8.dp))
     Group("Music folders", footer = "Needle reads these folders, and reads them again each time it starts.") {
         folders.orEmpty().forEachIndexed { i, folder ->
             Row(
