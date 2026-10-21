@@ -197,6 +197,11 @@ pub struct Playback {
     pub queue_version: u64,
     pub loading: bool,
     pub error: Option<String>,
+    /// The A-B loop the core plays, if any: its start and end, in seconds.
+    #[uniffi(default = None)]
+    pub loop_start: Option<f64>,
+    #[uniffi(default = None)]
+    pub loop_end: Option<f64>,
 }
 
 #[derive(Clone, Default, uniffi::Record)]
@@ -770,6 +775,8 @@ impl Needle {
             queue_version: state.queue_version,
             loading: state.loading,
             error: state.error.clone(),
+            loop_start: state.loop_range.map(|r| r.0),
+            loop_end: state.loop_range.map(|r| r.1),
         }
     }
 
@@ -786,6 +793,12 @@ impl Needle {
     /// Saves the session and stops playback, for when the app closes.
     pub fn shutdown(&self) {
         self.player.shutdown();
+    }
+
+    /// Keeps what plays now (the queue, the place, and what was heard of a paused song), for
+    /// when the phone ends the app in the background.
+    pub fn persist(&self) {
+        self.player.send(needle_core::audio::Command::Persist);
     }
 }
 
