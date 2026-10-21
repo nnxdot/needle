@@ -176,6 +176,60 @@ impl Needle {
         }
     }
 
+    /// An artist's logo (a picture with a clear background) from fanart.tv, when online
+    /// lookups are on and a fanart.tv key is set; kept once found.
+    pub fn artist_logo(&self, name: String) -> Option<String> {
+        let online = self.library.settings().is_ok_and(|s| s.online_media);
+        match media::artist_logo(&self.library, &name, online) {
+            Ok(path) => path.map(|p| p.to_string_lossy().to_string()),
+            Err(e) => {
+                needle_core::logfile::warn(format!("Artist logo for {name}: {e:#}"));
+                None
+            }
+        }
+    }
+
+    /// A song's moving cover: a video beside its file (cover.mp4, animated.mov, and so on).
+    pub fn animated_cover(&self, id: String) -> Option<String> {
+        let track = self.library.track(&id).ok().flatten()?;
+        media::animated_cover(&self.library, &track).map(|p| p.to_string_lossy().to_string())
+    }
+
+    /// A wide picture of an artist for the top of their page, from fanart.tv (as for logos).
+    pub fn artist_banner(&self, name: String) -> Option<String> {
+        let online = self.library.settings().is_ok_and(|s| s.online_media);
+        match media::artist_banner(&self.library, &name, online) {
+            Ok(path) => path.map(|p| p.to_string_lossy().to_string()),
+            Err(e) => {
+                needle_core::logfile::warn(format!("Artist picture for {name}: {e:#}"));
+                None
+            }
+        }
+    }
+
+    /// Whether a fanart.tv key is set, for artists' logos.
+    pub fn has_fanart_key(&self) -> bool {
+        needle_core::integrations::fanart_key().is_some()
+    }
+
+    /// Whether the fanart.tv key in use is the person's own (saved here), not Needle's.
+    pub fn has_own_fanart_key(&self) -> bool {
+        needle_core::integrations::fanart_key_is_own()
+    }
+
+    /// Keeps a fanart.tv key in the system's store; an empty one removes it.
+    pub fn set_fanart_key(&self, key: String) -> Result<()> {
+        use needle_core::integrations::{SecretKind, clear_secret, save_secret};
+        if key.trim().is_empty() {
+            clear_secret(SecretKind::FanartKey)?;
+        } else {
+            save_secret(SecretKind::FanartKey, key.trim())?;
+        }
+        // What the last key was given (or refused) is asked again with this one.
+        media::forget_fanart(&self.library)?;
+        Ok(())
+    }
+
     /// Looks up a missing cover online (Cover Art Archive) for a song's album. Returns how
     /// many songs got it.
     pub fn fetch_cover(&self, id: String) -> Result<u32> {
@@ -216,8 +270,13 @@ impl Needle {
     /// The phone's output opens at this rate and format (for a bit-perfect USB DAC, whose
     /// mixer takes only its own format), or as Android likes when `rate` is 0. The output
     /// opens again at once if it plays on the phone.
-    pub fn set_usb_format(&self, rate: u32, float: bool) -> Result<()> {
-        let format = (rate > 0).then_some(needle_core::audio::StreamFormat { rate, float });
+    /// (`floating` rather than `float`: the C header of the iPhone's bindings cannot name a
+    /// parameter after a C type.)
+    pub fn set_usb_format(&self, rate: u32, floating: bool) -> Result<()> {
+        let format = (rate > 0).then_some(needle_core::audio::StreamFormat {
+            rate,
+            float: floating,
+        });
         needle_core::audio::set_stream_format(format);
         let settings = self.library.settings()?;
         if !settings

@@ -1,12 +1,12 @@
 //! Account secrets live in the operating system's credential store, never in the library database.
-#[cfg_attr(target_os = "android", allow(unused_imports))]
+#[cfg_attr(any(target_os = "android", target_os = "macos"), allow(unused_imports))]
 use anyhow::{Result, bail};
 use std::{collections::HashMap, sync::Mutex};
 
 /// Windows Credential Manager entries appear as `<account>.nnx.Needle`; on Linux the
 /// Secret Service item has the service `nnx.Needle` and the account as its user.
 #[cfg_attr(
-    not(any(windows, target_os = "linux", target_os = "macos")),
+    not(any(windows, target_os = "linux", target_vendor = "apple")),
     allow(dead_code)
 )]
 pub const SERVICE_NAME: &str = "nnx.Needle";
@@ -16,6 +16,8 @@ pub const STORE_NAME: &str = if cfg!(windows) {
     "Windows Credential Manager"
 } else if cfg!(target_os = "macos") {
     "the macOS Keychain"
+} else if cfg!(target_os = "ios") {
+    "the iPhone Keychain"
 } else if cfg!(target_os = "android") {
     "Needle's private app storage"
 } else {
@@ -32,9 +34,11 @@ pub enum SecretKind {
     ListenbrainzToken,
     ListenbrainzUser,
     AcoustidKey,
+    /// fanart.tv's key, for artists' logos.
+    FanartKey,
 }
 impl SecretKind {
-    pub const ALL: [SecretKind; 7] = [
+    pub const ALL: [SecretKind; 8] = [
         Self::LastfmApiKey,
         Self::LastfmSecret,
         Self::LastfmSession,
@@ -42,6 +46,7 @@ impl SecretKind {
         Self::ListenbrainzToken,
         Self::ListenbrainzUser,
         Self::AcoustidKey,
+        Self::FanartKey,
     ];
     pub fn account(self) -> &'static str {
         match self {
@@ -52,6 +57,7 @@ impl SecretKind {
             Self::ListenbrainzToken => "listenbrainz-token",
             Self::ListenbrainzUser => "listenbrainz-user",
             Self::AcoustidKey => "acoustid-key",
+            Self::FanartKey => "fanart-key",
         }
     }
     /// Environment variables override stored values when set and nonempty.
@@ -62,6 +68,7 @@ impl SecretKind {
             Self::LastfmSession => Some("NEEDLE_LASTFM_SESSION"),
             Self::ListenbrainzToken => Some("NEEDLE_LISTENBRAINZ_TOKEN"),
             Self::AcoustidKey => Some("NEEDLE_ACOUSTID_API_KEY"),
+            Self::FanartKey => Some("NEEDLE_FANART_KEY"),
             Self::LastfmUser | Self::ListenbrainzUser => None,
         }
     }
@@ -70,6 +77,7 @@ impl SecretKind {
         match self {
             Self::LastfmApiKey => option_env!("NEEDLE_LASTFM_API_KEY"),
             Self::LastfmSecret => option_env!("NEEDLE_LASTFM_SECRET"),
+            Self::FanartKey => option_env!("NEEDLE_FANART_KEY"),
             _ => None,
         }
         .filter(|s| !s.trim().is_empty())
@@ -86,16 +94,22 @@ pub trait SecretStore: Send + Sync {
 /// Windows Credential Manager, or on Linux the Secret Service (GNOME Keyring, KWallet). Other
 /// platforms report that no secure store is available.
 pub struct SystemStore;
-#[cfg(any(windows, target_os = "linux", target_os = "macos"))]
+#[cfg(any(windows, target_os = "linux", target_vendor = "apple"))]
 impl SystemStore {
+    #[cfg_attr(target_os = "macos", allow(dead_code))]
     fn entry(kind: SecretKind) -> Result<keyring::Entry> {
         keyring::Entry::new(SERVICE_NAME, kind.account())
             .map_err(|e| anyhow::anyhow!("{STORE_NAME}: {e}"))
     }
 }
-#[cfg(any(windows, target_os = "linux", target_os = "macos"))]
+#[cfg(any(windows, target_os = "linux", target_vendor = "apple"))]
 impl SecretStore for SystemStore {
     fn get(&self, kind: SecretKind) -> Result<Option<String>> {
+        #[cfg(target_os = "macos")]
+        {
+            keychain::get(kind.account())
+        }
+        #[cfg(not(target_os = "macos"))]
         match Self::entry(kind)?.get_password() {
             Ok(value) => Ok(Some(value).filter(|v| !v.is_empty())),
             Err(keyring::Error::NoEntry) => Ok(None),
@@ -103,16 +117,165 @@ impl SecretStore for SystemStore {
         }
     }
     fn set(&self, kind: SecretKind, value: &str) -> Result<()> {
+        #[cfg(target_os = "macos")]
+        {
+            keychain::set(kind.account(), value)
+        }
+        #[cfg(not(target_os = "macos"))]
         Self::entry(kind)?
             .set_password(value)
             .map_err(|e| anyhow::anyhow!("{STORE_NAME} could not save {}: {e}", kind.account()))
     }
     fn delete(&self, kind: SecretKind) -> Result<()> {
+        #[cfg(target_os = "macos")]
+        {
+            keychain::delete(kind.account())
+        }
+        #[cfg(not(target_os = "macos"))]
         match Self::entry(kind)?.delete_credential() {
             Ok(()) | Err(keyring::Error::NoEntry) => Ok(()),
             Err(e) => bail!("{STORE_NAME} could not remove {}: {e}", kind.account()),
         }
     }
+}
+
+/// The Mac Keychain asks the person before an app reads an item another app made, and a
+/// build signed another way counts as another app. So each item is read once per run and
+/// kept in memory, and an item made earlier is saved again by this app (once; the list of
+/// items saved again, names only, is kept in the library folder), which makes it this app's
+/// own: the Keychain does not ask about it again.
+#[cfg(target_os = "macos")]
+mod keychain {
+    use super::{SERVICE_NAME, STORE_NAME};
+    use anyhow::{Result, anyhow};
+    use std::{
+        collections::{HashMap, HashSet},
+        path::PathBuf,
+        sync::{LazyLock, Mutex, OnceLock},
+    };
+
+    type Cache = HashMap<String, Result<Option<String>, String>>;
+    static CACHE: LazyLock<Mutex<Cache>> = LazyLock::new(Default::default);
+    /// Items deleted to be saved again whose new copy could not be saved: their value is only
+    /// in memory, so saving is tried again on each read.
+    static UNSAVED: LazyLock<Mutex<HashSet<String>>> = LazyLock::new(Default::default);
+    static FOLDER: OnceLock<PathBuf> = OnceLock::new();
+
+    pub fn set_folder(folder: PathBuf) {
+        let _ = FOLDER.set(folder);
+    }
+
+    fn list() -> Option<PathBuf> {
+        FOLDER.get().map(|f| f.join("keychain-own.txt"))
+    }
+
+    fn own() -> HashSet<String> {
+        list()
+            .and_then(|f| std::fs::read_to_string(f).ok())
+            .map(|text| text.lines().map(str::to_string).collect())
+            .unwrap_or_default()
+    }
+
+    fn mark_own(account: &str) {
+        let Some(path) = list() else { return };
+        let mut all = own();
+        if all.insert(account.to_string()) {
+            let mut lines: Vec<_> = all.into_iter().collect();
+            lines.sort();
+            let _ = std::fs::write(path, lines.join("\n") + "\n");
+        }
+    }
+
+    fn entry(account: &str) -> Result<keyring::Entry> {
+        keyring::Entry::new(SERVICE_NAME, account).map_err(|e| anyhow!("{STORE_NAME}: {e}"))
+    }
+
+    /// Saves `value` as a new item of this app's own (an item's owner stays the app that made
+    /// it, whoever changes its value).
+    fn save_own(entry: &keyring::Entry, value: &str) -> keyring::Result<()> {
+        match entry.delete_credential() {
+            Ok(()) | Err(keyring::Error::NoEntry) => {}
+            Err(e) => return Err(e),
+        }
+        let mut result = entry.set_password(value);
+        for _ in 0..3 {
+            if result.is_ok() {
+                break;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(100));
+            result = entry.set_password(value);
+        }
+        result
+    }
+
+    /// Saves again an item whose earlier save failed, while its value is still known.
+    fn retry_unsaved(account: &str, known: &Result<Option<String>, String>) {
+        let mut unsaved = UNSAVED.lock().unwrap_or_else(|p| p.into_inner());
+        if !unsaved.contains(account) {
+            return;
+        }
+        if let (Ok(Some(value)), Ok(entry)) = (known, entry(account))
+            && save_own(&entry, value).is_ok()
+        {
+            unsaved.remove(account);
+            mark_own(account);
+        }
+    }
+
+    pub fn get(account: &str) -> Result<Option<String>> {
+        let mut cache = CACHE.lock().unwrap_or_else(|p| p.into_inner());
+        if let Some(known) = cache.get(account) {
+            retry_unsaved(account, known);
+            return known.clone().map_err(|e| anyhow!(e));
+        }
+        let entry = entry(account)?;
+        let found = match entry.get_password() {
+            Ok(value) => Ok(Some(value).filter(|v| !v.is_empty())),
+            Err(keyring::Error::NoEntry) => Ok(None),
+            Err(e) => Err(format!("{STORE_NAME} could not read {account}: {e}")),
+        };
+        if let Ok(Some(value)) = &found
+            && FOLDER.get().is_some()
+            && !own().contains(account)
+        {
+            match save_own(&entry, value) {
+                Ok(()) => mark_own(account),
+                Err(error) => {
+                    // The value is kept in memory and saved again on the next read.
+                    UNSAVED.lock().unwrap_or_else(|p| p.into_inner()).insert(account.to_string());
+                    eprintln!("{STORE_NAME} could not save {account} again: {error}");
+                }
+            }
+        }
+        cache.insert(account.to_string(), found.clone());
+        found.map_err(|e| anyhow!(e))
+    }
+
+    pub fn set(account: &str, value: &str) -> Result<()> {
+        let mut cache = CACHE.lock().unwrap_or_else(|p| p.into_inner());
+        save_own(&entry(account)?, value)
+            .map_err(|e| anyhow!("{STORE_NAME} could not save {account}: {e}"))?;
+        mark_own(account);
+        cache.insert(account.to_string(), Ok(Some(value.to_string()).filter(|v| !v.is_empty())));
+        Ok(())
+    }
+
+    pub fn delete(account: &str) -> Result<()> {
+        let mut cache = CACHE.lock().unwrap_or_else(|p| p.into_inner());
+        match entry(account)?.delete_credential() {
+            Ok(()) | Err(keyring::Error::NoEntry) => {}
+            Err(e) => return Err(anyhow!("{STORE_NAME} could not remove {account}: {e}")),
+        }
+        cache.insert(account.to_string(), Ok(None));
+        Ok(())
+    }
+}
+
+/// The Mac: the library folder, where the names of the Keychain items this app has made its
+/// own are listed (see `keychain`).
+#[cfg(target_os = "macos")]
+pub fn set_keychain_folder(folder: std::path::PathBuf) {
+    keychain::set_folder(folder);
 }
 #[cfg(target_os = "android")]
 impl SecretStore for SystemStore {
@@ -190,7 +353,7 @@ pub fn set_android_folder(folder: std::path::PathBuf) {
 #[cfg(not(any(
     windows,
     target_os = "linux",
-    target_os = "macos",
+    target_vendor = "apple",
     target_os = "android"
 )))]
 impl SecretStore for SystemStore {
@@ -240,7 +403,7 @@ pub mod plugin {
         not(test),
         not(windows),
         not(target_os = "linux"),
-        not(target_os = "macos"),
+        not(target_vendor = "apple"),
         not(target_os = "android")
     ))]
     fn memory() -> &'static std::sync::Mutex<std::collections::HashMap<String, String>> {
@@ -266,7 +429,13 @@ pub mod plugin {
     }
 
     pub fn get(plugin: &str, key: &str) -> Result<Option<String>> {
-        #[cfg(all(any(windows, target_os = "linux", target_os = "macos"), not(test)))]
+        #[cfg(all(target_os = "macos", not(test)))]
+        return super::keychain::get(&account(plugin, key));
+        #[cfg(all(
+            any(windows, target_os = "linux", target_vendor = "apple"),
+            not(target_os = "macos"),
+            not(test)
+        ))]
         {
             let entry = keyring::Entry::new(super::SERVICE_NAME, &account(plugin, key))
                 .map_err(|e| anyhow::anyhow!("{}: {e}", super::STORE_NAME))?;
@@ -285,7 +454,7 @@ pub mod plugin {
             not(any(
                 windows,
                 target_os = "linux",
-                target_os = "macos",
+                target_vendor = "apple",
                 target_os = "android"
             ))
         ))]
@@ -293,7 +462,13 @@ pub mod plugin {
     }
 
     pub fn set(plugin: &str, key: &str, value: &str) -> Result<()> {
-        #[cfg(all(any(windows, target_os = "linux", target_os = "macos"), not(test)))]
+        #[cfg(all(target_os = "macos", not(test)))]
+        return super::keychain::set(&account(plugin, key), value);
+        #[cfg(all(
+            any(windows, target_os = "linux", target_vendor = "apple"),
+            not(target_os = "macos"),
+            not(test)
+        ))]
         {
             keyring::Entry::new(super::SERVICE_NAME, &account(plugin, key))
                 .and_then(|e| e.set_password(value))
@@ -308,7 +483,7 @@ pub mod plugin {
             not(any(
                 windows,
                 target_os = "linux",
-                target_os = "macos",
+                target_vendor = "apple",
                 target_os = "android"
             ))
         ))]
@@ -322,7 +497,13 @@ pub mod plugin {
     }
 
     pub fn delete(plugin: &str, key: &str) -> Result<()> {
-        #[cfg(all(any(windows, target_os = "linux", target_os = "macos"), not(test)))]
+        #[cfg(all(target_os = "macos", not(test)))]
+        return super::keychain::delete(&account(plugin, key));
+        #[cfg(all(
+            any(windows, target_os = "linux", target_vendor = "apple"),
+            not(target_os = "macos"),
+            not(test)
+        ))]
         {
             let entry = keyring::Entry::new(super::SERVICE_NAME, &account(plugin, key))
                 .map_err(|e| anyhow::anyhow!("{}: {e}", super::STORE_NAME))?;
@@ -341,7 +522,7 @@ pub mod plugin {
             not(any(
                 windows,
                 target_os = "linux",
-                target_os = "macos",
+                target_vendor = "apple",
                 target_os = "android"
             ))
         ))]

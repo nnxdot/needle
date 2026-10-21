@@ -376,7 +376,20 @@ impl Library {
             .collect::<std::result::Result<_, _>>()?)
     }
     pub fn add_root(&self, path: &str) -> Result<()> {
-        self.connection()?.execute("INSERT INTO roots VALUES (?,?) ON CONFLICT(path) DO UPDATE SET last_scan=excluded.last_scan", params![path,chrono::Utc::now().timestamp()])?;
+        // By its real path, as the scan stores its songs: else one folder could be two.
+        let path = canonical_root(path);
+        let db = self.connection()?;
+        db.execute("INSERT INTO roots VALUES (?,?) ON CONFLICT(path) DO UPDATE SET last_scan=excluded.last_scan", params![path,chrono::Utc::now().timestamp()])?;
+        // The same folder kept earlier under another name (an iPhone's /var for /private/var).
+        let mut statement = db.prepare("SELECT path FROM roots WHERE path != ?")?;
+        let others: Vec<String> = statement
+            .query_map([&path], |r| r.get(0))?
+            .collect::<std::result::Result<_, _>>()?;
+        for other in others {
+            if canonical_root(&other) == path {
+                db.execute("DELETE FROM roots WHERE path=?", [&other])?;
+            }
+        }
         Ok(())
     }
     pub fn settings(&self) -> Result<Settings> {
@@ -586,8 +599,30 @@ impl Library {
         self.save_playlist(&playlist)?;
         Ok(playlist)
     }
+    /// Deletes a playlist's own picture, when it is Needle's copy (not a file of the person's).
+    pub fn forget_playlist_picture(&self, cover: &str) {
+        let folder = self.directory.join("artwork");
+        if Path::new(cover).parent() == Some(folder.as_path()) && cover.ends_with(".img") {
+            let _ = std::fs::remove_file(cover);
+        }
+    }
     pub fn backup(&self, destination: &Path) -> Result<()> {
         self.connection()?.backup("main", destination, None)?;
+        // The link to Needle on the computer opens its remote: it stays on this device, not
+        // in a file that may be shared.
+        let copy = rusqlite::Connection::open(destination)?;
+        copy.execute("DELETE FROM settings WHERE key='android.pc'", [])?;
+        // Nor the key of this computer's own phone remote: the copy's remote is off.
+        let saved: Option<String> = copy
+            .query_row("SELECT value FROM settings WHERE key='settings'", [], |r| r.get(0))
+            .optional()?;
+        if let Some(mut settings) = saved.and_then(|s| serde_json::from_str::<serde_json::Value>(&s).ok()) {
+            if let Some(map) = settings.as_object_mut() {
+                map.insert("remote_key".into(), serde_json::Value::String(String::new()));
+                map.insert("remote".into(), serde_json::Value::Bool(false));
+            }
+            copy.execute("UPDATE settings SET value=? WHERE key='settings'", [settings.to_string()])?;
+        }
         Ok(())
     }
 }
@@ -829,4 +864,14 @@ mod tests {
             missing[0].path
         );
     }
+}
+
+/// A music folder's real path on Unix (links followed: an iPhone's /var is /private/var); as it
+/// is elsewhere, and when it cannot be read.
+pub fn canonical_root(path: &str) -> String {
+    #[cfg(unix)]
+    if let Ok(real) = std::fs::canonicalize(path) {
+        return real.to_string_lossy().into_owned();
+    }
+    path.to_string()
 }
