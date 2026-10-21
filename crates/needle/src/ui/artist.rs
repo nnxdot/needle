@@ -23,8 +23,16 @@ pub(super) struct ArtistView {
     pub top: Vec<Track>,
     /// A wide picture of them from fanart.tv.
     pub banner: Option<String>,
-    /// Their logo from fanart.tv, as it comes (mostly white), and in dark ink for light themes.
-    pub logo: Option<(String, Option<String>)>,
+    pub logo: Option<Logo>,
+}
+
+/// An artist's logo from fanart.tv, its clear edges cut off: as it comes (mostly white), and in
+/// dark ink for light themes; with its size, so the page draws it whole in the room it has.
+#[derive(Clone)]
+pub(super) struct Logo {
+    pub white: String,
+    pub ink: String,
+    pub size: (u32, u32),
 }
 
 fn plural(n: usize, one: &str, many: &str) -> String {
@@ -40,23 +48,48 @@ fn placeholder(name: &str) -> bool {
     name.trim().is_empty() || name == "Unknown artist"
 }
 
-/// The logo in dark ink, its shape kept, beside it (`<logo>.ink.png`): fanart.tv's logos are
-/// mostly white and do not show on a light page.
-fn ink_copy(logo: &Path) -> Option<PathBuf> {
-    let target = PathBuf::from(format!("{}.ink.png", logo.display()));
+/// The logo with its clear edges cut off (`<logo>.white.png`), and the same in dark ink
+/// (`<logo>.ink.png`): fanart.tv's logos are mostly white and do not show on a light page.
+/// Made again when fanart.tv's logo is newer.
+fn prepare_logo(logo: &Path) -> Option<Logo> {
+    let white = PathBuf::from(format!("{}.white.png", logo.display()));
+    let ink = PathBuf::from(format!("{}.ink.png", logo.display()));
     let modified = |p: &Path| std::fs::metadata(p).and_then(|m| m.modified()).ok();
-    if modified(&target).is_some() && modified(&target) >= modified(logo) {
-        return Some(target);
+    let fresh = |p: &Path| modified(p).is_some() && modified(p) >= modified(logo);
+    let done = |size| Logo {
+        white: white.to_string_lossy().into(),
+        ink: ink.to_string_lossy().into(),
+        size,
+    };
+    if fresh(&white) && fresh(&ink) {
+        return image::image_dimensions(&white).ok().map(done);
     }
     let bytes = std::fs::read(logo).ok()?;
-    let mut picture = image::load_from_memory(&bytes).ok()?.to_rgba8();
-    for pixel in picture.pixels_mut() {
+    let picture = image::load_from_memory(&bytes).ok()?.to_rgba8();
+    // The smallest box around what can be seen.
+    let (mut left, mut top, mut right, mut bottom) = (u32::MAX, u32::MAX, 0, 0);
+    for (x, y, pixel) in picture.enumerate_pixels() {
+        if pixel.0[3] > 8 {
+            (left, top) = (left.min(x), top.min(y));
+            (right, bottom) = (right.max(x), bottom.max(y));
+        }
+    }
+    if left > right {
+        return None;
+    }
+    let mut trimmed =
+        image::imageops::crop_imm(&picture, left, top, right - left + 1, bottom - top + 1)
+            .to_image();
+    trimmed
+        .save_with_format(&white, image::ImageFormat::Png)
+        .ok()?;
+    for pixel in trimmed.pixels_mut() {
         pixel.0[..3].copy_from_slice(&[28, 28, 30]);
     }
-    picture
-        .save_with_format(&target, image::ImageFormat::Png)
+    trimmed
+        .save_with_format(&ink, image::ImageFormat::Png)
         .ok()?;
-    Some(target)
+    Some(done(trimmed.dimensions()))
 }
 
 impl AppView {
@@ -106,10 +139,7 @@ impl AppView {
                 })
                 .ok()
                 .flatten()
-                .map(|path| {
-                    let ink = ink_copy(&path).map(|p| p.to_string_lossy().into());
-                    (path.to_string_lossy().into(), ink)
-                });
+                .and_then(|path| prepare_logo(&path));
             let _ = sender.send(Event::ArtistLogo(who, logo));
         });
     }
@@ -172,9 +202,7 @@ impl AppView {
         let picture = view
             .and_then(|v| v.banner.clone())
             .or_else(|| self.artist_images.get(name).cloned().flatten());
-        let logo = view
-            .and_then(|v| v.logo.clone())
-            .and_then(|(white, ink)| if p.dark { Some(white) } else { ink });
+        let logo = view.and_then(|v| v.logo.clone());
         let albums = self.groups.len();
         let tracks: usize = self.groups.iter().map(|g| g.tracks).sum();
         let can_play = !self.groups.is_empty();
@@ -228,15 +256,17 @@ impl AppView {
                     .items_center()
                     .gap_4()
                     .child(match logo {
-                        Some(path) => div()
-                            .w(px((width - 64.).clamp(200., 440.)))
-                            .h(px(130.))
-                            .child(
-                                img(PathBuf::from(path))
-                                    .size_full()
-                                    .object_fit(ObjectFit::Contain),
-                            )
-                            .into_any_element(),
+                        // Drawn at its own shape, as large as fits: wide logos to the width,
+                        // tall ones to the height.
+                        Some(logo) => {
+                            let (w, h) = (logo.size.0.max(1) as f32, logo.size.1.max(1) as f32);
+                            let scale = ((width - 64.).clamp(200., 440.) / w).min(130. / h);
+                            img(PathBuf::from(if p.dark { logo.white } else { logo.ink }))
+                                .w(px(w * scale))
+                                .h(px(h * scale))
+                                .flex_shrink_0()
+                                .into_any_element()
+                        }
                         None => display(
                             if name.is_empty() {
                                 "Unknown artist"
