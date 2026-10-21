@@ -2,6 +2,7 @@ import ActivityKit
 import AVFoundation
 import CryptoKit
 import MediaPlayer
+import MetricKit
 import Observation
 import SwiftUI
 import UIKit
@@ -186,6 +187,8 @@ final class Store {
             }
             // Only once the welcome screen has let the person choose.
             if welcomed { _ = core.sendCrashReports() }
+            // The app's own crashes (not only the core's): the system tells of them after.
+            await MainActor.run { CrashWatcher.shared.start(core) }
             _ = core.reconnectPc()
             // Discord's status, when this build has Discord's library (it waits, unlinked).
             core.startDiscord()
@@ -999,4 +1002,61 @@ final class Store {
     }
 
     func shutdown() { core.shutdown() }
+}
+
+/// Crashes the system reports (through MetricKit, at the next start): the app's own, which the
+/// core's reporter does not see. Each is kept and sent as the core's are, when crash reports
+/// are on: what went wrong, and where in the crashed thread (no names, no files).
+final class CrashWatcher: NSObject, MXMetricManagerSubscriber {
+    static let shared = CrashWatcher()
+    nonisolated(unsafe) private var core: Needle?
+
+    func start(_ core: Needle) {
+        guard self.core == nil else { return }
+        self.core = core
+        MXMetricManager.shared.add(self)
+    }
+
+    func didReceive(_ payloads: [MXDiagnosticPayload]) {
+        guard let core else { return }
+        var kept = false
+        for payload in payloads {
+            for crash in payload.crashDiagnostics ?? [] where core.keepCrashReport(text: Self.text(crash)) {
+                kept = true
+            }
+        }
+        if kept { _ = core.sendCrashReports() }
+    }
+
+    /// The crash as Needle sends it.
+    static func text(_ crash: MXCrashDiagnostic) -> String {
+        let version = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "?"
+        let meta = crash.metaData
+        var out = "Needle \(version) on ios \(meta.platformArchitecture) (the system's report, build \(meta.applicationBuildVersion))\n"
+        out += "iOS \(meta.osVersion)\n"
+        out += "Exception: \(crash.exceptionType?.stringValue ?? "?") code \(crash.exceptionCode?.stringValue ?? "?") signal \(crash.signal?.stringValue ?? "?")\n"
+        if let reason = crash.terminationReason { out += "Termination: \(reason)\n" }
+        if #available(iOS 17, *), let reason = crash.exceptionReason {
+            out += "Message: \(reason.className): \(reason.composedMessage)\n"
+        }
+        guard let tree = try? JSONSerialization.jsonObject(with: crash.callStackTree.jsonRepresentation()) as? [String: Any],
+              let stacks = tree["callStacks"] as? [[String: Any]] else { return out }
+        let crashed = stacks.first { ($0["threadAttributed"] as? Bool) == true } ?? stacks.first
+        var lines: [String] = []
+        var builds: [String: String] = [:]
+        func walk(_ frames: [[String: Any]]) {
+            for frame in frames where lines.count < 60 {
+                let binary = frame["binaryName"] as? String ?? "?"
+                let offset = (frame["offsetIntoBinaryTextSegment"] as? NSNumber)?.uint64Value ?? 0
+                lines.append(String(format: "%3d  %@  + 0x%llx", lines.count, binary, offset))
+                if let uuid = frame["binaryUUID"] as? String { builds[binary] = uuid }
+                if let sub = frame["subFrames"] as? [[String: Any]] { walk(sub) }
+            }
+        }
+        walk(crashed?["callStackRootFrames"] as? [[String: Any]] ?? [])
+        out += "\nCrashed thread:\n" + lines.joined(separator: "\n") + "\n"
+        // Which build of each part, to find the names of the places later.
+        if let needle = builds["Needle"] { out += "\nNeedle build \(needle)\n" }
+        return out
+    }
 }

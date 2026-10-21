@@ -55,14 +55,17 @@ struct Artwork: View {
     @State private var image: UIImage?
 
     var body: some View {
-        ZStack {
-            if let image {
-                Image(uiImage: image).resizable().scaledToFill()
-            } else {
-                Placeholder(seed: seed)
+        // The space the page gives sets the size, never the picture: a cover that is not square
+        // (a Blu-ray's, say) fills it, its edges cut off, instead of making its tile taller.
+        Color.clear
+            .overlay {
+                if let image {
+                    Image(uiImage: image).resizable().scaledToFill()
+                } else {
+                    Placeholder(seed: seed)
+                }
             }
-        }
-        .clipped()
+            .clipped()
         .task(id: path) {
             guard let path else { image = nil; return }
             if let hit = Covers.cached(path, size: size) { image = hit; return }
