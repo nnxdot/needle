@@ -485,6 +485,8 @@ private fun Duplicates() {
                     merging = true
                     work({ core.mergeDuplicates(set.songs[keep].id, others.map { it.id }) }, { merging = false }) {
                         showMessage("Kept one")
+                        // Gone from the list at once: it is not offered again while the rest is read.
+                        sets = sets?.filterNot { it == set }
                         refresh()
                         trash = paths
                         round++

@@ -182,6 +182,9 @@ class NeedleApp : Application() {
             val on = runCatching { core.playbackSettings().checkUpdates }.getOrDefault(false)
             if (on && now - last > 24 * 3600 * 1000L) {
                 delay(8000)
+                // Started without a screen (a widget, a car): the news waits for one, as a
+                // message with nobody to see it would be lost, and not asked again for a day.
+                while (visible == 0) delay(5000)
                 runCatching { core.checkUpdate() }.onSuccess { found ->
                     prefs.edit().putLong("lastUpdateCheck", now).apply()
                     if (found != null) fyi.nnx.needle.ui.showMessage("Needle ${found.version} is out. Get it in Settings › About.")
@@ -191,7 +194,16 @@ class NeedleApp : Application() {
         // Crash reports from earlier runs, when that is on.
         scope.launch { runCatching { core.sendCrashReports() } }
         // Read the music folders again at start, for songs added since.
-        if (core.folders().isNotEmpty()) core.rescan()
+        if (core.folders().isNotEmpty()) {
+            core.rescan()
+            // A quick scan can begin and end between two looks of the loop above: the lists are
+            // read again once it has ended, whatever the loop saw.
+            scope.launch(Dispatchers.IO) {
+                delay(500)
+                while (runCatching { core.scanStatus().running }.getOrDefault(false)) delay(500)
+                libraryVersion.value++
+            }
+        }
     }
 
     companion object {

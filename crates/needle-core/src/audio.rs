@@ -244,8 +244,16 @@ pub struct StreamFormat {
 
 /// Sets the format the system output opens at (it applies when the output next opens).
 pub fn set_stream_format(format: Option<StreamFormat>) {
-    *STREAM_FORMAT.lock().unwrap_or_else(|e| e.into_inner()) = format;
+    let mut current = STREAM_FORMAT.lock().unwrap_or_else(|e| e.into_inner());
+    if *current != format {
+        // The output open now has the old format: it opens again at the next Configure.
+        FORMAT_CHANGED.store(true, std::sync::atomic::Ordering::SeqCst);
+    }
+    *current = format;
 }
+
+/// The stream format changed since the output last opened (see [`set_stream_format`]).
+static FORMAT_CHANGED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 
 /// Names of the connected output devices, enumerated afresh on each call.
 pub fn devices() -> Result<Vec<String>> {
@@ -691,6 +699,7 @@ impl OutputOpener for SystemOutput {
         let failure = Arc::new(Mutex::new(None));
         let slot = failure.clone();
         let mut builder = OutputStreamBuilder::from_device(device)?;
+        FORMAT_CHANGED.store(false, std::sync::atomic::Ordering::SeqCst);
         if let Some(format) = *STREAM_FORMAT.lock().unwrap_or_else(|e| e.into_inner()) {
             builder = builder
                 .with_channels(2)
@@ -797,6 +806,8 @@ impl Worker {
             || new.album_gain != self.settings.album_gain
             || new.crossfade != self.settings.crossfade
             || off(&new.dsp) != off(&self.settings.dsp)
+            // A bit-perfect USB mixer takes only its own format.
+            || FORMAT_CHANGED.load(std::sync::atomic::Ordering::SeqCst)
     }
     /// Whether output is exclusive. That is WASAPI's, so elsewhere the setting (kept as it is,
     /// for when the library is opened on Windows again) is ignored.

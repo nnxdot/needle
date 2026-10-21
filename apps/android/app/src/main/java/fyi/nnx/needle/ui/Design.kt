@@ -222,7 +222,7 @@ fun SongSheet(song: Song, open: ((Route) -> Unit)?, remove: (() -> Unit)?, onDis
                 MenuRow(Icons.Rounded.Radio, "Start radio") {
                     act {
                         showMessage("Starting radio from ${song.title}…")
-                        NeedleApp.instance.scope.launch { runCatching { core.startRadio(song.id) } }
+                        NeedleApp.instance.scope.launch { runCatching { core.startRadio(song.id) }.onFailure { showMessage(it.message ?: "Could not start the radio") } }
                     }
                 }
             }

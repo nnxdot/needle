@@ -205,6 +205,7 @@ fun NeedleTheme(content: @Composable () -> Unit) {
             isAppearanceLightNavigationBars = lightPage
         }
     }
+    ProvideReduceMotion {
     MaterialExpressiveTheme(
         colorScheme = colors,
         motionScheme = if (reduceMotion()) MotionScheme.standard() else MotionScheme.expressive(),
@@ -224,6 +225,7 @@ fun NeedleTheme(content: @Composable () -> Unit) {
                 }
             }
         }
+    }
     }
 }
 

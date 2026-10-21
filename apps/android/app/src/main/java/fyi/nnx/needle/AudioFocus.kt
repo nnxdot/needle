@@ -47,7 +47,10 @@ internal class AudioFocus(private val context: Context) {
 
     private val unplugged = object : BroadcastReceiver() {
         override fun onReceive(context: Context, intent: Intent) {
-            if (intent.action == AudioManager.ACTION_AUDIO_BECOMING_NOISY && playingHere()) core().toggle()
+            if (intent.action == AudioManager.ACTION_AUDIO_BECOMING_NOISY && playingHere()) {
+                core().toggle()
+                NeedleApp.instance.wake()
+            }
         }
     }
 
@@ -85,6 +88,7 @@ internal class AudioFocus(private val context: Context) {
     }
 
     private fun changed(change: Int) {
+        NeedleApp.instance.wake()
         when (change) {
             AudioManager.AUDIOFOCUS_LOSS -> {
                 held = false

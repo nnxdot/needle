@@ -15,7 +15,11 @@ import kotlinx.coroutines.launch
  * and only the cover pictures in Needle's artwork folder, nothing else.
  */
 class ArtworkProvider : ContentProvider() {
-    override fun onCreate() = true
+    override fun onCreate(): Boolean {
+        // A copy cut off by a closed app (see [shrink]) is never used: it goes.
+        runCatching { folder().listFiles { f -> f.name.startsWith(".folder-") && f.name.endsWith(".part") }?.forEach { it.delete() } }
+        return true
+    }
 
     private fun folder() = File(context!!.filesDir, "needle/artwork").canonicalFile
 
@@ -37,6 +41,7 @@ class ArtworkProvider : ContentProvider() {
     companion object {
         /** Covers beside the songs being copied now, so each is copied once. */
         private val copying = java.util.Collections.synchronizedSet(HashSet<String>())
+        private val failed = java.util.Collections.synchronizedSet(HashSet<String>())
 
         /**
          * A cover others can open. One beside the songs (an album folder's cover.jpg) is outside
@@ -57,9 +62,10 @@ class ArtworkProvider : ContentProvider() {
                 .joinToString("") { "%02x".format(it) }
             val copy = File(folderFile, "folder-$digest.jpg")
             if (copy.isFile) return Uri.parse("content://${app.packageName}.artwork/${copy.name}")
-            if (copying.add(copy.name)) {
+            // A cover that could not be read is not tried again this run, at each list.
+            if (copy.name !in failed && copying.add(copy.name)) {
                 app.scope.launch(kotlinx.coroutines.Dispatchers.IO) {
-                    runCatching { shrink(file, copy) }
+                    if (runCatching { shrink(file, copy) }.getOrDefault(false) != true) failed += copy.name
                     copying.remove(copy.name)
                 }
             }
@@ -67,18 +73,20 @@ class ArtworkProvider : ContentProvider() {
         }
 
         /** A copy of a cover at most about 512 pixels across, written whole or not at all. */
-        private fun shrink(from: File, to: File) {
+        private fun shrink(from: File, to: File): Boolean {
             val bounds = android.graphics.BitmapFactory.Options().apply { inJustDecodeBounds = true }
             android.graphics.BitmapFactory.decodeFile(from.path, bounds)
             var sample = 1
             while (maxOf(bounds.outWidth, bounds.outHeight) / (sample * 2) >= 512) sample *= 2
             val bitmap = android.graphics.BitmapFactory.decodeFile(from.path, android.graphics.BitmapFactory.Options().apply { inSampleSize = sample })
-                ?: return
+                ?: return false
             to.parentFile?.mkdirs()
             val part = File(to.parentFile, ".${to.name}.part")
-            part.outputStream().use { bitmap.compress(android.graphics.Bitmap.CompressFormat.JPEG, 90, it) }
+            val written = part.outputStream().use { bitmap.compress(android.graphics.Bitmap.CompressFormat.JPEG, 90, it) }
             bitmap.recycle()
-            if (!part.renameTo(to)) part.delete()
+            if (written && part.renameTo(to)) return true
+            part.delete()
+            return false
         }
     }
 }

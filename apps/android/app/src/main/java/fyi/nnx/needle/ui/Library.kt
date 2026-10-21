@@ -56,6 +56,8 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.vector.ImageVector
@@ -255,10 +257,11 @@ private fun Overview(open: (Route) -> Unit, scroll: Modifier) {
     val favorites by favoritesLoad
     AlbumGrid(albums?.let { sorted(it, Sort.Recent).take(24) }, open, scroll, albumsLoad.loading) {
         span {
-            Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+            // The two the same height, when one's words take two lines.
+            Row(Modifier.height(androidx.compose.foundation.layout.IntrinsicSize.Min), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                 val colors = MaterialTheme.colorScheme
-                Pinned(Icons.Rounded.Favorite, "Favorites", favorites?.let { count(it, "song") }, Modifier.weight(1f), colors.tertiaryContainer, colors.tertiary) { open(Route.Favorites) }
-                Pinned(Icons.Rounded.History, "History", "What you played", Modifier.weight(1f)) { open(Route.History) }
+                Pinned(Icons.Rounded.Favorite, "Favorites", favorites?.let { count(it, "song") }, Modifier.weight(1f).fillMaxHeight(), colors.tertiaryContainer, colors.tertiary) { open(Route.Favorites) }
+                Pinned(Icons.Rounded.History, "History", "What you played", Modifier.weight(1f).fillMaxHeight()) { open(Route.History) }
             }
         }
         span { Text("Recently added", style = MaterialTheme.typography.titleLargeEmphasized, modifier = Modifier.padding(top = 12.dp)) }

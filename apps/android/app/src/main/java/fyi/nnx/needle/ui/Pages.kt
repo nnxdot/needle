@@ -81,6 +81,8 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
+import androidx.compose.foundation.layout.wrapContentHeight
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
@@ -220,10 +222,12 @@ fun DetailHeader(
                     style = MaterialTheme.typography.titleMedium,
                     color = MaterialTheme.colorScheme.primary,
                     textAlign = TextAlign.Center,
+                    // A full finger's height to tap, and a button to TalkBack.
                     modifier = Modifier
-                        .padding(top = 2.dp)
+                        .then(if (onSub != null) Modifier.heightIn(min = 48.dp) else Modifier.padding(top = 2.dp))
                         .clip(CircleShape)
-                        .then(if (onSub != null) Modifier.clickable(onClick = onSub) else Modifier)
+                        .then(if (onSub != null) Modifier.clickable(role = androidx.compose.ui.semantics.Role.Button, onClick = onSub) else Modifier)
+                        .wrapContentHeight()
                         .padding(horizontal = 10.dp, vertical = 4.dp),
                 )
             }
@@ -279,10 +283,11 @@ private fun WideDetailHeader(
                         style = MaterialTheme.typography.titleLarge,
                         color = MaterialTheme.colorScheme.primary,
                         modifier = Modifier
-                            .padding(top = 4.dp)
+                            .then(if (onSub != null) Modifier.heightIn(min = 48.dp) else Modifier.padding(top = 4.dp))
                             .offset(x = (-10).dp)
                             .clip(CircleShape)
-                            .then(if (onSub != null) Modifier.clickable(onClick = onSub) else Modifier)
+                            .then(if (onSub != null) Modifier.clickable(role = androidx.compose.ui.semantics.Role.Button, onClick = onSub) else Modifier)
+                            .wrapContentHeight()
                             .padding(horizontal = 10.dp, vertical = 4.dp),
                     )
                 }
@@ -497,7 +502,10 @@ fun PlaylistScreen(route: Route.Playlist, open: (Route) -> Unit) {
     var deleting by remember { mutableStateOf(false) }
     var menu by remember { mutableStateOf(false) }
     val d = detail
-    val list = d?.songs.orEmpty()
+    // A song dragged to a new place stays there until the list is read again, rather than
+    // going back to its old place for a moment.
+    var moved by remember(d) { mutableStateOf<List<Song>?>(null) }
+    val list = moved ?: d?.songs.orEmpty()
     val context = androidx.compose.ui.platform.LocalContext.current
     val picture = androidx.activity.compose.rememberLauncherForActivityResult(androidx.activity.result.contract.ActivityResultContracts.OpenDocument()) { uri ->
         pickedFile(context, uri, { core.setPlaylistPicture(route.id, it) }) {
@@ -533,7 +541,8 @@ fun PlaylistScreen(route: Route.Playlist, open: (Route) -> Unit) {
         // One change at a time: until the list is read again, its places are the old ones.
         if (!writing && from in positions.indices && to in positions.indices) {
             writing = true
-            libraryWrite({ core.moveInPlaylist(route.id, positions[from], positions[to]) }, { writing = false; showMessage(it.message ?: "Could not reorder it") }, written)
+            moved = list.toMutableList().apply { if (from in indices && to in indices) add(to, removeAt(from)) }
+            libraryWrite({ core.moveInPlaylist(route.id, positions[from], positions[to]) }, { writing = false; moved = null; showMessage(it.message ?: "Could not reorder it") }, written)
         }
     }
     val art = summary?.artwork ?: list.firstNotNullOfOrNull { it.artwork }
@@ -756,9 +765,10 @@ fun HomeScreen(open: (Route) -> Unit) {
             }
             item {
                 val colors = MaterialTheme.colorScheme
-                Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp).padding(top = 20.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                    Pinned(Icons.Rounded.AutoAwesome, "Your year", "Told back", Modifier.weight(1f), colors.tertiaryContainer, colors.tertiary) { open(Route.Wrapped(null)) }
-                    Pinned(Icons.Rounded.Computer, "Computer", "Play from there", Modifier.weight(1f), colors.secondaryContainer, colors.secondary) { open(Route.Connect) }
+                // The two the same height, when one's words take two lines.
+                Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp).padding(top = 20.dp).height(androidx.compose.foundation.layout.IntrinsicSize.Min), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                    Pinned(Icons.Rounded.AutoAwesome, "Your year", "Told back", Modifier.weight(1f).fillMaxHeight(), colors.tertiaryContainer, colors.tertiary) { open(Route.Wrapped(null)) }
+                    Pinned(Icons.Rounded.Computer, "Computer", "Play from there", Modifier.weight(1f).fillMaxHeight(), colors.secondaryContainer, colors.secondary) { open(Route.Connect) }
                 }
             }
             if (h.recent.isNotEmpty()) shelf("Recently added", h.added, open, Route.RecentlyAdded)

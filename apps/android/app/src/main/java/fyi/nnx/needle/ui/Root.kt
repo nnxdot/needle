@@ -115,12 +115,18 @@ fun NeedleRoot() {
     // Each tab keeps its own pages, as in Apple Music.
     val stacks = remember { mutableStateMapOf<Tab, List<Route>>() }
     var playerOpen by rememberSaveable { mutableStateOf(false) }
-    val playback by NeedleApp.instance.playback.collectAsState()
+    // Only whether a song is there, and its cover: the whole playback changes five times a
+    // second as it plays, and would redraw every page with it.
+    val playbackState = NeedleApp.instance.playback.collectAsState()
+    val hasSong by remember { androidx.compose.runtime.derivedStateOf { playbackState.value?.current != null } }
+    val playingArt by remember { androidx.compose.runtime.derivedStateOf { playbackState.value?.current?.artwork } }
     val reduce = reduceMotion()
-    val stack = stacks[tab] ?: listOf(tab.root)
+    // The same list each time while the tab has only its first page, so what takes `open`
+    // is not redrawn for nothing.
+    val rootStack = remember(tab) { listOf(tab.root) }
+    val stack = stacks[tab] ?: rootStack
     // A second tap while the page slides in (or OK pressed twice) does not open it twice.
     val open: (Route) -> Unit = { if (stack.lastOrNull() != it) stacks[tab] = stack + it }
-    val hasSong = playback?.current != null
     val snackbar = remember { SnackbarHostState() }
     // How tall the mini player, the tabs, and the bar of chosen songs are together, so
     // messages show above them instead of over them.
@@ -152,8 +158,9 @@ fun NeedleRoot() {
     LaunchedEffect(hasSong) { if (!hasSong) playerOpen = false }
     // Back first stops choosing songs, when some are chosen.
     val choosing by Selection.songs.collectAsState()
-    BackHandler(enabled = choosing.isNotEmpty()) { Selection.clear() }
-    BackHandler(enabled = choosing.isEmpty() && (playerOpen || stack.size > 1)) {
+    // Not while the player covers the bar of chosen songs: Back closes the player first.
+    BackHandler(enabled = choosing.isNotEmpty() && !playerOpen) { Selection.clear() }
+    BackHandler(enabled = playerOpen || (choosing.isEmpty() && stack.size > 1)) {
         if (playerOpen) playerOpen = false else stacks[tab] = stack.dropLast(1)
     }
 
@@ -195,7 +202,7 @@ fun NeedleRoot() {
         }
     }
     // Settings › Appearance › Colours from what is playing: every page in the song's colours.
-    CoverTheme(if (app.ambientColors) playback?.current?.artwork else null) {
+    CoverTheme(if (app.ambientColors) playingArt else null) {
     SharedTransitionLayout(Modifier.fillMaxSize()) {
         CompositionLocalProvider(LocalShared provides this) {
             Box(Modifier.fillMaxSize().onPreviewKeyEvent { lastKey = android.os.SystemClock.uptimeMillis(); false }) {

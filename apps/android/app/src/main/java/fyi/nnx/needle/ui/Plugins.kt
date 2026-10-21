@@ -200,7 +200,19 @@ fun PluginScreen(id: String) {
                                     modifier = Modifier.remoteEscape().fillMaxWidth(),
                                 )
                             }
-                            Button(onClick = { core.sourceSignIn(plugin.id, fields.toMap()) }) { Text("Sign in") }
+                            // Once, for a few seconds: a server can take that long to answer.
+                            var signingIn by remember { mutableStateOf(false) }
+                            LaunchedEffect(signingIn) {
+                                if (signingIn) {
+                                    delay(5000)
+                                    signingIn = false
+                                }
+                            }
+                            Button(enabled = !signingIn, onClick = {
+                                signingIn = true
+                                val sent = fields.toMap()
+                                NeedleApp.instance.scope.launch(Dispatchers.IO) { runCatching { core.sourceSignIn(plugin.id, sent) } }
+                            }) { Text(if (signingIn) "Signing in…" else "Sign in") }
                         }
                         source.error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
                     }

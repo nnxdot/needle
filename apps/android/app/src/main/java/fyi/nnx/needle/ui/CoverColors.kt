@@ -28,6 +28,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import coil3.request.transformations
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.blur
 import androidx.compose.ui.draw.clipToBounds
@@ -158,14 +159,25 @@ fun animatedScheme(target: ColorScheme): ColorScheme {
     var from by remember { mutableStateOf(target) }
     var to by remember { mutableStateOf(target) }
     val t = remember { Animatable(1f) }
+    // A page that has just opened takes its cover's colours at once: it is still sliding in,
+    // and a blend then would redraw all of it at every frame of the slide as well.
+    val born = remember { android.os.SystemClock.uptimeMillis() }
     LaunchedEffect(target) {
         if (target == to) return@LaunchedEffect
+        if (android.os.SystemClock.uptimeMillis() - born < 400) {
+            from = target
+            to = target
+            t.snapTo(1f)
+            return@LaunchedEffect
+        }
         from = blend(from, to, t.value)
         to = target
         t.snapTo(0f)
         t.animateTo(1f, tween(450))
     }
-    return if (t.value >= 1f) to else blend(from, to, t.value)
+    // In ten steps: every colour on screen is drawn again at each, so not at every frame.
+    val stepped by remember { androidx.compose.runtime.derivedStateOf { kotlin.math.round(t.value * 10f) / 10f } }
+    return if (stepped >= 1f) to else blend(from, to, stepped)
 }
 
 private fun blend(a: ColorScheme, b: ColorScheme, t: Float): ColorScheme = if (t >= 1f) b else b.copy(
@@ -208,10 +220,11 @@ private fun blend(a: ColorScheme, b: ColorScheme, t: Float): ColorScheme = if (t
  * `fade` lets it melt into the page at its foot.
  */
 @Composable
-fun CoverBackdrop(path: String?, modifier: Modifier = Modifier, dim: Float = 0.35f, fade: Boolean = true) {
+fun CoverBackdrop(path: String?, modifier: Modifier = Modifier, dim: Float = 0.35f, fade: Boolean = true, player: Boolean = false) {
     val page = MaterialTheme.colorScheme.background
     val app by fyi.nnx.needle.NeedleApp.instance.app.collectAsState()
-    val still = reduceMotion() || !app.movingBackdrop
+    // A page's backdrop rests while the player covers it: nobody sees it turn.
+    val still = reduceMotion() || !app.movingBackdrop || (!player && playerShowing.value)
     androidx.compose.foundation.layout.BoxWithConstraints(modifier.clipToBounds().background(page), contentAlignment = androidx.compose.ui.Alignment.Center) {
         if (path != null && Build.VERSION.SDK_INT >= 31) {
             // A square wider than the box's diagonal, so no corner shows as it turns.
@@ -221,24 +234,29 @@ fun CoverBackdrop(path: String?, modifier: Modifier = Modifier, dim: Float = 0.3
                 rememberInfiniteTransition(label = "drift").animateFloat(0f, 360f, infiniteRepeatable(tween(90_000, easing = LinearEasing)), label = "turn")
             } else remember { androidx.compose.runtime.mutableFloatStateOf(0f) }
             AnimatedContent(path, transitionSpec = { fadeIn(tween(600)) togetherWith fadeOut(tween(600)) }, label = "backdrop") { art ->
-                // Blurred small, then made big: a blur looks the same at an eighth of the size,
-                // and the phone blurs 64 times fewer pixels (a whole screen's, it was, at times
-                // each frame), so the pages and the player scroll and turn smoothly over it.
-                val shrink = 8f
+                // Blurred once, into a small picture, as it loads (BackdropBlur); each frame
+                // then only turns that picture. A blur at draw time would be worked out again
+                // at every frame of the turn, over a square bigger than the screen.
+                val context = androidx.compose.ui.platform.LocalContext.current
+                val radius = app.backdropBlur.coerceIn(20f, 120f) / side.value
+                val request = androidx.compose.runtime.remember(art, radius, context) {
+                    coil3.request.ImageRequest.Builder(context)
+                        .data(fileUri(art))
+                        .size(BackdropBlur.SIZE)
+                        .transformations(BackdropBlur(radius))
+                        .build()
+                }
                 AsyncImage(
-                    model = coverRequest(fileUri(art)),
+                    model = request,
                     contentDescription = null,
                     contentScale = ContentScale.Crop,
                     modifier = Modifier
-                        .requiredSize(side / shrink)
+                        .requiredSize(side)
                         .graphicsLayer {
                             val r = if (still) 0f else turn
-                            scaleX = shrink
-                            scaleY = shrink
                             rotationZ = r
-                            translationX = if (still) 0f else kotlin.math.sin(Math.toRadians(r * 2.0)).toFloat() * size.width * shrink * 0.06f
-                        }
-                        .blur((app.backdropBlur.coerceIn(20f, 120f) / shrink).dp),
+                            translationX = if (still) 0f else kotlin.math.sin(Math.toRadians(r * 2.0)).toFloat() * size.width * 0.06f
+                        },
                 )
             }
             Box(Modifier.fillMaxSize().background(page.copy(alpha = dim)))
@@ -246,5 +264,61 @@ fun CoverBackdrop(path: String?, modifier: Modifier = Modifier, dim: Float = 0.3
             Box(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.6f)))
         }
         if (fade) Box(Modifier.fillMaxSize().background(Brush.verticalGradient(0.35f to Color.Transparent, 1f to page)))
+    }
+}
+
+/**
+ * A cover made small and blurred, once, for the backdrop: `radius` is the blur as a share of
+ * the picture's width. Three passes of a box blur, which together look like a soft (Gaussian)
+ * blur; on a picture this small it takes a moment, once per cover.
+ */
+class BackdropBlur(private val radius: Float) : coil3.transform.Transformation() {
+    override val cacheKey = "backdrop-blur-1-$radius"
+
+    override suspend fun transform(input: android.graphics.Bitmap, size: coil3.size.Size): android.graphics.Bitmap {
+        val small = android.graphics.Bitmap.createScaledBitmap(input, SIZE, SIZE, true)
+            .copy(android.graphics.Bitmap.Config.ARGB_8888, true)
+        val r = (radius * SIZE).toInt().coerceIn(1, SIZE / 4)
+        val pixels = IntArray(SIZE * SIZE)
+        small.getPixels(pixels, 0, SIZE, 0, 0, SIZE, SIZE)
+        val spare = IntArray(SIZE * SIZE)
+        repeat(3) {
+            boxBlur(pixels, spare, r, horizontal = true)
+            boxBlur(spare, pixels, r, horizontal = false)
+        }
+        small.setPixels(pixels, 0, SIZE, 0, 0, SIZE, SIZE)
+        return small
+    }
+
+    /** One pass along rows or columns: each pixel the average of those within `r` of it. */
+    private fun boxBlur(from: IntArray, to: IntArray, r: Int, horizontal: Boolean) {
+        val n = SIZE
+        val span = 2 * r + 1
+        for (line in 0 until n) {
+            var a = 0; var red = 0; var green = 0; var blue = 0
+            fun at(i: Int): Int {
+                val k = i.coerceIn(0, n - 1)
+                return if (horizontal) from[line * n + k] else from[k * n + line]
+            }
+            for (i in -r..r) {
+                val p = at(i)
+                a += p ushr 24; red += (p shr 16) and 0xFF; green += (p shr 8) and 0xFF; blue += p and 0xFF
+            }
+            for (i in 0 until n) {
+                to[if (horizontal) line * n + i else i * n + line] =
+                    ((a / span) shl 24) or ((red / span) shl 16) or ((green / span) shl 8) or (blue / span)
+                val add = at(i + r + 1)
+                val drop = at(i - r)
+                a += (add ushr 24) - (drop ushr 24)
+                red += ((add shr 16) and 0xFF) - ((drop shr 16) and 0xFF)
+                green += ((add shr 8) and 0xFF) - ((drop shr 8) and 0xFF)
+                blue += (add and 0xFF) - (drop and 0xFF)
+            }
+        }
+    }
+
+    companion object {
+        /** The small picture's width and height, in pixels. */
+        const val SIZE = 128
     }
 }
