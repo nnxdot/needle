@@ -9,6 +9,13 @@ set -euo pipefail
 here="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$here"
 kind="${1:-debug}"
+# Keys built into the app (Last.fm's, and fanart.tv's for artists' logos and pictures), from a
+# private file outside the code, as for the Mac: lines such as `export NEEDLE_FANART_KEY=...`.
+# Without it, people add their own in Settings.
+if [ -f "$HOME/.needle-keys" ]; then
+    # shellcheck disable=SC1091
+    . "$HOME/.needle-keys"
+fi
 app="$here/apps/android/app"
 # On Windows (Git Bash), give the tools Windows paths: with MSYS_NO_PATHCONV set, a path like
 # /c/Users/... would otherwise be read as C:\c\Users\...
