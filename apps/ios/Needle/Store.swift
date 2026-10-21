@@ -861,7 +861,7 @@ final class Store {
             snapshot.playlists = lists
             snapshot.weekSeconds = week?.seconds ?? 0
             snapshot.weekSongs = Int(week?.songs ?? 0)
-            snapshot.topArtist = week?.topArtists.first?.title
+            snapshot.topArtist = week?.topArtists.first.map(\.artist).flatMap { $0.isEmpty ? nil : $0 }
         }
         // The song as it is now: it may have changed while the library was read.
         if let current = local?.current?.id, current != now?.current?.id {

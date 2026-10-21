@@ -14,6 +14,9 @@ struct NeedleApp: App {
         .onChange(of: phase) { _, now in
             // Songs added in the Files app or from a computer while Needle was away.
             if now == .active { store.rescan() }
+            // The phone may end the app while it is away: the queue, the place, and what was
+            // heard of a paused song are kept now.
+            if now == .background { store.core.persist() }
         }
     }
 }

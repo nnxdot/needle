@@ -187,6 +187,27 @@ struct ServerView: View {
     @State private var fields: [String: String] = [:]
     @State private var kept: [UInt64] = []
     @State private var signingIn = false
+    @State private var waiting: Task<Void, Never>?
+
+    /// Signs in, and waits for the server's answer: signed in, or an error (even the same one
+    /// as before), or a minute at most.
+    private func signIn() {
+        guard let before = item?.source else { return }
+        signingIn = true
+        store.core.sourceSignIn(plugin: plugin, fields: fields)
+        waiting?.cancel()
+        waiting = Task {
+            let sent = Date()
+            while !Task.isCancelled, Date().timeIntervalSince(sent) < 60 {
+                try? await Task.sleep(for: .milliseconds(500))
+                let now = await store.load { core in core.plugins().first { $0.id == plugin }?.source } ?? nil
+                guard let now else { break }
+                // Signed in, a new error, or the same error after the server had time to answer.
+                if now.signedIn || now.error != before.error || (now.error != nil && Date().timeIntervalSince(sent) > 3) { break }
+            }
+            if !Task.isCancelled { signingIn = false }
+        }
+    }
 
     var body: some View {
         Form {
@@ -224,16 +245,8 @@ struct ServerView: View {
                         }
                         if signingIn {
                             HStack(spacing: 10) { ProgressView(); Text("Signing in…") }
-                                // The server's answer (signed in, or an error) ends the wait.
-                                .onChange(of: source.signedIn) { _, _ in signingIn = false }
-                                .onChange(of: source.error) { _, _ in signingIn = false }
                         } else {
-                            Button("Sign in") {
-                                signingIn = true
-                                store.core.sourceSignIn(plugin: plugin, fields: fields)
-                                // The server's answer ends the wait; a minute at most.
-                                Task { try? await Task.sleep(for: .seconds(60)); signingIn = false }
-                            }
+                            Button("Sign in") { signIn() }
                         }
                     }
                     if !signingIn, let error = source.error { Text(error).foregroundStyle(.red) }
