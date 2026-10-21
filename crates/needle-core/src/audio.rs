@@ -1315,6 +1315,8 @@ impl Worker {
                 return Ok(false);
             }
             Command::Play(items) => {
+                // A song chosen anew, even the one playing, starts without the old loop.
+                self.loop_range = None;
                 let items = self.queue.play_request(items);
                 self.play(items)?;
             }
@@ -1322,6 +1324,7 @@ impl Worker {
                 if index >= items.len() {
                     bail!("Nothing to play at position {}", index + 1)
                 }
+                self.loop_range = None;
                 let start = self.queue.play_request(items[index..].to_vec());
                 self.play(start)?;
                 self.queue.cycle = items;

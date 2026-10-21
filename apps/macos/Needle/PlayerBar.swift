@@ -245,7 +245,8 @@ struct MoreButton: View {
     let all: Bool
 
     var body: some View {
-        let looping = store.playback?.loopStart != nil || store.loopStart != nil
+        // Looping only once the core loops (with only point A set, the next step is point B).
+        let looping = store.playback?.loopStart != nil
         Menu {
             if let p = store.playback, p.hasSong, let c = store.current {
                 Button(SignalPath.describe(p, c).0) { openSettings() }

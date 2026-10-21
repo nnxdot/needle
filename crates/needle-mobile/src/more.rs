@@ -103,10 +103,29 @@ fn stats(s: needle_core::history::HistoryStats, library: &needle_core::database:
     let present = |id: Option<String>| {
         id.filter(|id| library.track(id).ok().flatten().is_some_and(|t| !t.missing))
     };
+    // An artist's or album's row has no song: a cover of one of theirs.
+    let cover_of = |t: &needle_core::history::HistoryTop| -> Option<String> {
+        if t.track_id.is_some() {
+            return artwork(&t.track_id);
+        }
+        let quote = query::quote;
+        let rule = if !t.album.is_empty() {
+            format!("album = {} and artist = {}", quote(&t.album), quote(&t.artist))
+        } else if !t.artist.is_empty() {
+            format!("artist = {}", quote(&t.artist))
+        } else {
+            return None;
+        };
+        library
+            .available_page(&rule, 0, 20)
+            .ok()?
+            .into_iter()
+            .find_map(|t| t.artwork)
+    };
     let ranked = |list: Vec<needle_core::history::HistoryTop>| {
         list.into_iter()
             .map(|t| Ranked {
-                artwork: artwork(&t.track_id),
+                artwork: cover_of(&t),
                 title: t.title,
                 artist: t.artist,
                 album: t.album,

@@ -172,6 +172,9 @@ struct HistoryPage: View {
         .contentShape(Rectangle())
         .onTapGesture(count: 2) { if let song = item.song { store.play([song.asTrack], reason: "Played again from your history") } }
         .contextMenu { if let song = item.song { SongMenu(tracks: [song.fullTrack]) } }
+        .accessibilityElement(children: .combine)
+        .accessibilityAddTraits(item.song == nil ? [] : .isButton)
+        .accessibilityAction { if let song = item.song { store.play([song.asTrack], reason: "Played again from your history") } }
     }
 
     private func when(_ seconds: Int64) -> String {
@@ -190,6 +193,15 @@ struct HistoryPage: View {
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(14)
         .pane(RoundedRectangle(cornerRadius: 16, style: .continuous))
+    }
+
+    /// A ranked row opened: its page, or its song played.
+    private func open(_ r: Ranked, _ play: ((Ranked) -> Void)?) {
+        if let play { play(r) } else if let id = r.songId {
+            store.run { _ = try $0.playSongs(ids: [id], start: 0, reason: "One of your most played") }
+        } else {
+            store.notify("That song's file is gone.")
+        }
     }
 
     /// A ranked row's name: a song's title, else its album, else its artist.
@@ -214,13 +226,10 @@ struct HistoryPage: View {
                         Text("\(r.plays)×").font(.caption).foregroundStyle(.secondary)
                     }
                     .contentShape(Rectangle())
-                    .onTapGesture(count: 2) {
-                        if let play { play(r) } else if let id = r.songId {
-                            store.run { _ = try $0.playSongs(ids: [id], start: 0, reason: "One of your most played") }
-                        } else {
-                            store.notify("That song's file is gone.")
-                        }
-                    }
+                    .onTapGesture(count: 2) { open(r, play) }
+                    .accessibilityElement(children: .combine)
+                    .accessibilityAddTraits(.isButton)
+                    .accessibilityAction { open(r, play) }
                 }
             }
             .frame(maxWidth: .infinity, alignment: .topLeading)

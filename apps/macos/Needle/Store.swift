@@ -223,6 +223,8 @@ final class Store {
         let before = playback
         playback = now
         if now.playing != isPlaying { isPlaying = now.playing }
+        // A point A set on the last song is not this one's.
+        if now.current != before?.current, loopStart != nil { loopStart = nil }
         if now.error != lastError {
             lastError = now.error
             if let error = now.error { fail(error) }
@@ -611,7 +613,9 @@ final class Store {
             let plain = base.components(separatedBy: " order by ").first ?? base
             rule = "(\(plain)) and (title contains \(q) or artist contains \(q) or album contains \(q))"
         }
-        if let (field, ascending) = sort, !rule.contains("shuffle"), !rule.contains(" limit ") {
+        // Words of the rule, not names in it: an album called "Harlem Shuffle" can be sorted.
+        let words = rule.replacingOccurrences(of: #""(?:[^"\\]|\\.)*""#, with: "\"\"", options: .regularExpression)
+        if let (field, ascending) = sort, !words.contains("shuffle"), !words.contains(" limit ") {
             if let range = rule.range(of: " order by ") { rule = String(rule[..<range.lowerBound]) }
             let direction = ascending ? "asc" : "desc"
             if rule.trimmingCharacters(in: .whitespaces).isEmpty {
