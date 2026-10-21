@@ -304,7 +304,10 @@ struct SelectionActions: ToolbarContent {
                 Button("Add to a playlist", systemImage: "music.note.list") { store.sheet = .addToPlaylist(songs) }
                 Button("Favourite", systemImage: "star") {
                     let ids = songs.map(\.id)
-                    store.run { core in for id in ids where !core.isFavorite(id: id) { _ = try core.toggleFavorite(id: id) } }
+                    Task {
+                        _ = await store.ask { core in for id in ids where !core.isFavorite(id: id) { _ = try core.toggleFavorite(id: id) } }
+                        store.ratingsChanged()
+                    }
                     store.message = "Added to Favourites"
                 }
                 if songs.contains(where: \.fromServer) {

@@ -127,7 +127,7 @@ struct NowPlayingView: View {
             .padding(.bottom, 8)
         }
         .animation(reduceMotion ? nil : .spring(response: 0.45, dampingFraction: 0.85), value: pane)
-        .task(id: song?.id) {
+        .task(id: "\(song?.id ?? "")|\(store.ratingVersion)") {
             favorite = false
             loop = await store.load { $0.loopRange() } ?? []
             guard let id = song?.id, !(song?.onComputer ?? true) else { return }
@@ -276,6 +276,7 @@ struct NowPlayingView: View {
             Task {
                 if let now = await store.ask({ try $0.toggleFavorite(id: id) }) {
                     if song?.id == store.playback?.current?.id { favorite = now }
+                    store.ratingsChanged()
                 } else {
                     favorite.toggle()
                 }
