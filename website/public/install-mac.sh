@@ -32,7 +32,7 @@ image=$(curl -fsSL "$site/latest.json" | sed -n 's/.*"name"[^"]*"\(Needle-[0-9][
 version=${image#Needle-}
 version=${version%-macos.dmg}
 
-say "Downloading Needle $version…"
+say "Downloading Needle ${version}…"
 curl -fL --progress-bar -o "$work/$image" "$site/download/$image" || fail "the download did not work."
 curl -fsSL -o "$work/SHA256SUMS.txt" "$site/download/SHA256SUMS.txt" || fail "could not get the checksum list."
 expected=$(awk -v name="$image" '$2 == name || $2 == "*" name { print tolower($1) }' "$work/SHA256SUMS.txt")
