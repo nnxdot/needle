@@ -538,8 +538,17 @@ impl AppView {
                 self.wrapped_section("Albums you lived in", cx).child(
                     div()
                         .id("wrapped-albums")
+                        .flex()
                         .overflow_x_scroll()
-                        .child(div().flex().items_end().gap_5().children(covers)),
+                        // As wide as its covers, so it can scroll.
+                        .child(
+                            div()
+                                .flex_none()
+                                .flex()
+                                .items_end()
+                                .gap_5()
+                                .children(covers),
+                        ),
                 ),
             );
         }
