@@ -589,6 +589,8 @@ pub struct AppView {
     artist_images: std::collections::HashMap<String, Option<String>>,
     artist_view: artist::ArtistView,
     artist_scroll: ScrollHandle,
+    /// Where each Home row is scrolled to, for its arrows.
+    shelf_scrolls: Vec<ScrollHandle>,
     recent: Vec<Listen>,
     /// The tracks behind `recent`, for covers.
     recent_tracks: std::collections::HashMap<String, Track>,
@@ -1081,6 +1083,8 @@ impl AppView {
             artist_images: Default::default(),
             artist_view: Default::default(),
             artist_scroll: ScrollHandle::new(),
+            // One for each of Home's rows (it has five at most).
+            shelf_scrolls: (0..5).map(|_| ScrollHandle::new()).collect(),
             recent: vec![],
             recent_tracks: Default::default(),
             last_item: None,

@@ -211,9 +211,11 @@ impl AppView {
             div()
                 .id("folder-strip")
                 .flex_shrink_0()
+                .flex()
                 .overflow_x_scroll()
                 .pb_4()
-                .child(div().px_6().flex().gap_4().children(tiles)),
+                // As wide as its tiles (wider than the window), so it can scroll.
+                .child(div().flex_none().px_6().flex().gap_4().children(tiles)),
         )
     }
 }
