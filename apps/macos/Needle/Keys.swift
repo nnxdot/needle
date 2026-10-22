@@ -2,12 +2,17 @@ import AppKit
 
 /// Keys that work anywhere in Needle's windows except while typing: Space plays or pauses,
 /// ← and → seek 10 seconds, Esc closes the big player, and the mouse's side buttons go back
-/// and forward.
+/// and forward. A click outside the search field, or Esc in it, ends its focus (its text
+/// stays), so the keys come back to the app.
 @MainActor
 enum Keys {
     static func install(_ store: @escaping () -> Store?) -> Any? {
-        NSEvent.addLocalMonitorForEvents(matching: [.keyDown, .otherMouseDown, .scrollWheel]) { event in
+        NSEvent.addLocalMonitorForEvents(matching: [.keyDown, .otherMouseDown, .scrollWheel, .leftMouseDown, .rightMouseDown]) { event in
             guard let store = store() else { return event }
+            if event.type == .leftMouseDown || event.type == .rightMouseDown {
+                leaveSearch(after: event)
+                return event
+            }
             if event.type == .scrollWheel {
                 return VolumeWheel.handle(event, store: store) ? nil : event
             }
@@ -44,6 +49,8 @@ enum Keys {
                 return nil
             case 53: // Esc
                 if store.palette { store.palette = false; return nil }
+                // In the search field: leave it, its text kept (a second Esc clears the search).
+                if searchEditor(window) != nil { window.makeFirstResponder(nil); return nil }
                 if store.immersive { store.setImmersive(false); return nil }
                 if store.big { store.big = false; return nil }
                 if !typing, !store.search.isEmpty { store.search = ""; return nil }
@@ -51,6 +58,23 @@ enum Keys {
             default:
                 return event
             }
+        }
+    }
+
+    /// The search field's editor, while the search field has the focus.
+    static func searchEditor(_ window: NSWindow?) -> NSTextView? {
+        guard let editor = window?.firstResponder as? NSTextView, editor.delegate is NSSearchField else { return nil }
+        return editor
+    }
+
+    /// A click outside the search field ends its focus. SwiftUI's pages, rows, and tiles do not
+    /// take the focus when clicked, so the field kept it (its ring, and every key typed) until
+    /// something else did. After the click: what it focused (a list, a field) keeps that.
+    private static func leaveSearch(after event: NSEvent) {
+        guard let window = event.window, let field = searchEditor(window)?.delegate as? NSSearchField,
+              !field.convert(field.bounds, to: nil).contains(event.locationInWindow) else { return }
+        DispatchQueue.main.async {
+            if searchEditor(window) != nil { window.makeFirstResponder(nil) }
         }
     }
 

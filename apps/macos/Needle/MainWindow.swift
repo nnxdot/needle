@@ -42,7 +42,14 @@ struct MainWindow: View {
             .onChange(of: store.search) { _, text in findSuggestions(text) }
             .onChange(of: store.focusSearch) { _, _ in
                 // With the sidebar folded away, its search field is too: the palette searches.
-                if store.settings.layout.searchHidden || store.settings.layout.sidebarHidden { store.palette = true } else { searchFocused = true }
+                if store.settings.layout.searchHidden || store.settings.layout.sidebarHidden {
+                    store.palette = true
+                } else {
+                    // Off, then on: after a click away (see `Keys`) the focus state may still
+                    // read as on, and setting it on again would do nothing.
+                    searchFocused = false
+                    DispatchQueue.main.async { searchFocused = true }
+                }
             }
             // The big and full screen players cover the sidebar, but not its search field's focus:
             // AppKit drew the field's ring over the cover, and keys went into the hidden field
