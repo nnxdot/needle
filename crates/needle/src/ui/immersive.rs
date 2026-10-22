@@ -100,6 +100,7 @@ impl AppView {
                     widest,
                     380.,
                     p.dark,
+                    !lyrics,
                 );
                 (Some(layer), Some(side), Some(tone))
             }
