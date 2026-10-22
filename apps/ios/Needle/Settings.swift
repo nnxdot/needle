@@ -523,6 +523,7 @@ struct AppearanceView: View {
             }
             Section("Player") {
                 toggle("Immersive cover", "The cover fills the top of the player, edge to edge, as in Apple Music.", \.immersiveCover)
+                toggle("Mark server songs", "Songs from your music server show a small server icon beside their artist.", \.serverMark)
                 toggle("Moving covers", "A video beside the songs, such as cover.mp4, plays as the cover.", \.animatedCovers)
                 toggle("Cover behind the player", app.immersiveCover ? "Behind the lyrics and the queue, the playing cover, blurred." : "The player's background is the playing cover, blurred.", \.coverBackdrop)
                 if app.coverBackdrop {
