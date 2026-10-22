@@ -1,5 +1,5 @@
 use super::{
-    AppView, BIG_BAR, BIG_MS, Page, album_page, motion, pal,
+    AppView, BIG_MS, Page, album_page, motion, pal,
     widgets::{artwork, faint, glyph, icon_button, meta, quality},
 };
 use gpui::{prelude::*, *};
@@ -111,7 +111,17 @@ pub enum Side {
 impl AppView {
     /// Grow the big player out of the cover in the bottom-left corner, or shrink it back.
     /// The player keeps its full size inside a growing clip, so nothing re-flows mid-way.
-    pub(super) fn big_reveal(&self, player: AnyElement, w: f32, h: f32, cx: &App) -> AnyElement {
+    /// The big player growing from the player bar's cover (or shrinking back), in a space `w`
+    /// by `h`. The player itself is `lift` taller and starts that far above the space (under the
+    /// title bar), so it is drawn the same as once it is open, when it runs under the title bar.
+    pub(super) fn big_reveal(
+        &self,
+        player: AnyElement,
+        w: f32,
+        h: f32,
+        lift: f32,
+        cx: &App,
+    ) -> AnyElement {
         let closing = !self.big;
         let canvas = pal(cx).canvas;
         // Where the cover sits in the player bar, measured from the body's edges.
@@ -119,11 +129,11 @@ impl AppView {
         let edge = move |t: f32, i: usize| art[i] * (1. - if closing { 1. - t } else { t });
         let serial = self.big_serial;
         let inner = motion::animate(
-            div().absolute().w(px(w)).h(px(h)).child(player),
+            div().absolute().w(px(w)).h(px(h + lift)).child(player),
             ("big-inner", serial),
             BIG_MS,
             cx,
-            move |el, t| el.left(px(-edge(t, 0))).top(px(-edge(t, 1))),
+            move |el, t| el.left(px(-edge(t, 0))).top(px(-edge(t, 1) - lift)),
         );
         let clip = div().absolute().overflow_hidden().bg(canvas).child(inner);
         motion::animate(clip, ("big-reveal", serial), BIG_MS, cx, move |el, t| {
@@ -234,8 +244,9 @@ impl AppView {
                     linear_color_stop(p.canvas.opacity(0.), 0.3),
                 )))
             })
-            // Room for the title bar, which carries the player's own buttons while it is open.
-            .child(div().h(px(BIG_BAR)).flex_shrink_0())
+            // It runs under the title bar (which carries its buttons once it is open): room for
+            // that.
+            .child(div().h(px(self.title_height(window))).flex_shrink_0())
             .child(
                 div()
                     .flex_1()
