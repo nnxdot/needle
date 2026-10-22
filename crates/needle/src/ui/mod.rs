@@ -1637,6 +1637,7 @@ impl AppView {
         if motion::take_slow_loops() {
             events = true;
         }
+        thumbs::set_scale(window.scale_factor());
         if thumbs::made() != self.thumbs_seen {
             self.thumbs_seen = thumbs::made();
             events = true;
