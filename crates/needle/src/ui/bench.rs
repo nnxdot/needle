@@ -343,6 +343,21 @@ impl AppView {
             })
             .detach();
         }
+        // For screenshots: a page, once the window is up (NEEDLE_SHOW_PAGE: "songs", or
+        // "settings:2" for a tab of Settings).
+        if let Ok(page) = std::env::var("NEEDLE_SHOW_PAGE") {
+            cx.spawn_in(window, async move |view, cx| {
+                cx.background_executor().timer(Duration::from_secs(2)).await;
+                let _ = view.update_in(cx, |v, window, cx| match page.split_once(':') {
+                    Some(("settings", tab)) => {
+                        v.settings_tab = tab.parse().unwrap_or(0);
+                        open(v, Page::Settings, window, cx)
+                    }
+                    _ => open(v, Page::Songs, window, cx),
+                });
+            })
+            .detach();
+        }
         // For screenshots: the big player, once the window is up.
         if std::env::var_os("NEEDLE_SHOW_BIG").is_some() {
             cx.spawn_in(window, async move |view, cx| {

@@ -1070,7 +1070,8 @@ impl AppView {
             .is_some_and(|i| i.track.id == track.id);
         let favorite = track.rating >= 4;
         let id = track.id.clone();
-        let streamed = track.is_streamed();
+        // A song from a music server, marked with a small server icon (Settings › Appearance).
+        let streamed = track.is_streamed() && self.settings.server_mark;
         // The artist line, where a server song's icon goes; an album's own songs may not have it.
         let artist_line =
             !album_view || track.artist != track.album_artist && !track.album_artist.is_empty();
@@ -1203,7 +1204,6 @@ impl AppView {
                                 .gap_1()
                                 .text_size(px(12.))
                                 .text_color(p.ink_2)
-                                // A song from a music server, played from there.
                                 .when(streamed, |el| {
                                     el.child(
                                         glyph("server")
