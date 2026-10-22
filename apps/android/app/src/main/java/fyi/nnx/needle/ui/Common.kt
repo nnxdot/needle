@@ -661,8 +661,10 @@ fun SongRow(
                 )
                 if (!number) {
                     Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                        // A song on a music server (Navidrome, Subsonic), not on the phone.
-                        if (song.fromServer()) {
+                        // A song on a music server (Navidrome, Subsonic), not on the phone, while
+                        // Settings › Appearance › Mark server songs is on. Only a server song's row
+                        // reads the setting.
+                        if (song.fromServer() && NeedleApp.instance.app.collectAsState().value.serverMark) {
                             Icon(
                                 Icons.Rounded.Dns,
                                 contentDescription = "On your music server",
