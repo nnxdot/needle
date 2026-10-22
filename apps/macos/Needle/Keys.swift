@@ -10,7 +10,7 @@ enum Keys {
         NSEvent.addLocalMonitorForEvents(matching: [.keyDown, .otherMouseDown, .scrollWheel, .leftMouseDown, .rightMouseDown]) { event in
             guard let store = store() else { return event }
             if event.type == .leftMouseDown || event.type == .rightMouseDown {
-                leaveSearch(after: event)
+                leaveSearch(after: event, store: store)
                 return event
             }
             if event.type == .scrollWheel {
@@ -50,7 +50,7 @@ enum Keys {
             case 53: // Esc
                 if store.palette { store.palette = false; return nil }
                 // In the search field: leave it, its text kept (a second Esc clears the search).
-                if searchEditor(window) != nil { window.makeFirstResponder(nil); return nil }
+                if searchEditor(window) != nil { leave(window, store: store); return nil }
                 if store.immersive { store.setImmersive(false); return nil }
                 if store.big { store.big = false; return nil }
                 if !typing, !store.search.isEmpty { store.search = ""; return nil }
@@ -70,12 +70,19 @@ enum Keys {
     /// A click outside the search field ends its focus. SwiftUI's pages, rows, and tiles do not
     /// take the focus when clicked, so the field kept it (its ring, and every key typed) until
     /// something else did. After the click: what it focused (a list, a field) keeps that.
-    private static func leaveSearch(after event: NSEvent) {
+    private static func leaveSearch(after event: NSEvent, store: Store) {
         guard let window = event.window, let field = searchEditor(window)?.delegate as? NSSearchField,
               !field.convert(field.bounds, to: nil).contains(event.locationInWindow) else { return }
         DispatchQueue.main.async {
-            if searchEditor(window) != nil { window.makeFirstResponder(nil) }
+            if searchEditor(window) != nil { leave(window, store: store) }
         }
+    }
+
+    /// Out of the search field: SwiftUI's focus for it off too, or SwiftUI gave the field the
+    /// focus back a moment later.
+    private static func leave(_ window: NSWindow, store: Store) {
+        store.leaveSearch += 1
+        window.makeFirstResponder(nil)
     }
 
     /// Lists and tables use ← and → themselves (to open and close rows).

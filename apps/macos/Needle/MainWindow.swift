@@ -40,6 +40,7 @@ struct MainWindow: View {
             // In full screen the toolbar shows only while the pointer is at the top.
             .windowToolbarFullScreenVisibility(.onHover)
             .onChange(of: store.search) { _, text in findSuggestions(text) }
+            .onChange(of: store.leaveSearch) { _, _ in searchFocused = false }
             .onChange(of: store.focusSearch) { _, _ in
                 // With the sidebar folded away, its search field is too: the palette searches.
                 if store.settings.layout.searchHidden || store.settings.layout.sidebarHidden {
