@@ -271,7 +271,7 @@ struct TitleCell: View {
                     .fontWeight(.medium)
                     .foregroundStyle(playing ? colors.accent : track.missing ? colors.ink3 : colors.ink)
                     .lineLimit(1)
-                if track.streamed {
+                if track.streamed && store.settings.serverMark {
                     Image(systemName: "server.rack")
                         .font(.caption2)
                         .foregroundStyle(colors.ink3)

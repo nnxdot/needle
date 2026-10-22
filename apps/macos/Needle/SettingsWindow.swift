@@ -494,6 +494,9 @@ struct AppearanceSettings: View {
             SettingRow(title: "Immersive cover", detail: "In the big player, the cover fills its side of the window edge to edge and fades into its colors, as in Apple Music.") {
                 SettingSwitch(key: "immersive_cover", on: s.immersiveCover)
             }
+            SettingRow(title: "Mark server songs", detail: "Songs from your music server show a small server icon beside their title.") {
+                SettingSwitch(key: "server_mark", on: s.serverMark)
+            }
             SettingRow(title: "Moving covers", detail: "A video beside the songs, such as cover.mp4, plays as the cover in the big player.") {
                 SettingSwitch(key: "animated_covers", on: s.animatedCovers)
             }
