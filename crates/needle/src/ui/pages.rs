@@ -832,6 +832,16 @@ impl AppView {
                         cx,
                     ))
                     .child(setting_row(
+                        "Mark server songs",
+                        "Songs from your music server show a small server icon beside their artist.",
+                        Switch::new("server-mark").checked(self.settings.server_mark).on_click(cx.listener(|this, checked: &bool, _, cx| {
+                            this.settings.server_mark = *checked;
+                            this.persist_settings();
+                            cx.notify();
+                        })),
+                        cx,
+                    ))
+                    .child(setting_row(
                         "Reduce motion",
                         if motion::system_allows_animation() {
                             "Turns off fades, slides, and other animations."
