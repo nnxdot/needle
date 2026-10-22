@@ -220,9 +220,11 @@ struct MainWindow: View {
             // more room than the window had set the split view fighting over the columns until
             // AppKit stopped the app.
             .frame(minWidth: 360, idealWidth: 360, maxWidth: .infinity, minHeight: 300, idealHeight: 300, maxHeight: .infinity)
-            // Clipped at the sides and foot, not at the top: an album's or artist's picture goes
-            // on under the bar's glass.
-            .clipShape(OpenAtTop())
+            // Clipped at the sides only: an album's or artist's picture goes on under the title
+            // bar's glass, and the page runs on under the floating player (the inset below only
+            // leaves its last row room to scroll out from under it). Clipped at the foot too, the
+            // page stopped in a hard line above the player, which sat in a flat band.
+            .clipShape(OpenAtTopAndFoot())
             // The player floats over the foot of the page, which slides under it (or sits in
             // the title bar; see `toolbar`).
             .safeAreaInset(edge: .bottom, spacing: 0) {
@@ -246,10 +248,10 @@ struct MainWindow: View {
             }
     }
 
-    /// The page's box, and the bar above it.
-    private struct OpenAtTop: Shape {
+    /// The page's box, the bar above it, and the player below it.
+    private struct OpenAtTopAndFoot: Shape {
         func path(in rect: CGRect) -> Path {
-            Path(CGRect(x: rect.minX, y: rect.minY - 160, width: rect.width, height: rect.height + 160))
+            Path(CGRect(x: rect.minX, y: rect.minY - 160, width: rect.width, height: rect.height + 160 + 240))
         }
     }
 
