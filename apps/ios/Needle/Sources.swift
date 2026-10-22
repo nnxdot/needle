@@ -1,8 +1,8 @@
 import SwiftUI
 import UniformTypeIdentifiers
 
-/// Where the music comes from: this iPhone, music servers (Navidrome, Subsonic, through
-/// Needle's plugins), and Needle on a computer.
+/// Where the music comes from: this iPhone, music servers (Navidrome and other Subsonic
+/// servers, built into Needle, then any a plugin adds), and Needle on a computer.
 struct SourcesView: View {
     @Environment(Store.self) private var store
     @State private var songs: UInt32 = 0
@@ -18,17 +18,7 @@ struct SourcesView: View {
                 Text("Music servers").font(.title3.bold()).padding(.top, 14).padding(.horizontal, 4)
                 if servers.isEmpty {
                     Card {
-                        VStack(alignment: .leading, spacing: 10) {
-                            Text("Navidrome and Subsonic servers come through Needle's plugins.").foregroundStyle(.secondary)
-                            Button("Add Needle's plugins") {
-                                Task {
-                                    let added = await store.load { try $0.installBundledPlugins() } ?? 0
-                                    store.message = added > 0 ? "Added \(count(Int(added), "plugin"))" : "Needle's plugins are all here"
-                                    await reload()
-                                }
-                            }
-                            .buttonStyle(.glass)
-                        }
+                        Text("Needle is getting ready to sign in to music servers.").foregroundStyle(.secondary)
                     }
                 }
                 ForEach(servers, id: \.id) { plugin in
@@ -125,7 +115,8 @@ struct SourcesView: View {
 
     private func reload() async {
         songs = await store.load { try $0.songCount() } ?? 0
-        servers = await store.load { $0.plugins().filter { $0.source != nil } } ?? []
+        // Needle's own server first, then any a plugin adds.
+        servers = await store.load { $0.plugins().filter { $0.source != nil }.sorted { $0.builtIn && !$1.builtIn } } ?? []
         pcConnected = await store.load { $0.pcConnected() } ?? false
         // The Store already asks the computer: its answer, not another request.
         pc = pcConnected ? store.pc : nil
@@ -265,10 +256,13 @@ struct ServerView: View {
                         }
                     }
                 }
-                Section("About") {
-                    LabeledContent("Plugin", value: "\(item.name) \(item.version)")
-                    if !item.author.isEmpty { LabeledContent("By", value: item.author) }
-                    ForEach(item.permissions, id: \.self) { Text("• \($0)").font(.footnote) }
+                // Needle's own server is part of Needle, not a plugin.
+                if !item.builtIn {
+                    Section("About") {
+                        LabeledContent("Plugin", value: "\(item.name) \(item.version)")
+                        if !item.author.isEmpty { LabeledContent("By", value: item.author) }
+                        ForEach(item.permissions, id: \.self) { Text("• \($0)").font(.footnote) }
+                    }
                 }
             }
         }

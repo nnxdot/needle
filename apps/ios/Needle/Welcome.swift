@@ -22,7 +22,7 @@ struct WelcomeView: View {
                         .font(.title3).foregroundStyle(.secondary)
                     VStack(spacing: 12) {
                         choice("folder.badge.plus", "Import from Files", "Songs on this iPhone or in iCloud Drive.") { importing = true }
-                        choice("server.rack", "Connect a music server", "Navidrome or Subsonic.") { finish(.sources, .plugins) }
+                        choice("server.rack", "Connect a music server", "Navidrome or Subsonic.") { finish(.sources, .server("subsonic")) }
                         choice("laptopcomputer", "Connect your computer", "Play its music here, and move what plays.") { finish(.sources, .computer) }
                     }
                     .padding(.top, 8)
