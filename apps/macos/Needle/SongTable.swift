@@ -271,6 +271,13 @@ struct TitleCell: View {
                     .fontWeight(.medium)
                     .foregroundStyle(playing ? colors.accent : track.missing ? colors.ink3 : colors.ink)
                     .lineLimit(1)
+                if track.streamed {
+                    Image(systemName: "server.rack")
+                        .font(.caption2)
+                        .foregroundStyle(colors.ink3)
+                        .help("From your music server")
+                        .accessibilityLabel("From your music server")
+                }
                 if track.missing {
                     Text("Missing file").font(.caption2).padding(.horizontal, 5).padding(.vertical, 1)
                         .background(colors.danger.opacity(0.14), in: RoundedRectangle(cornerRadius: 3))

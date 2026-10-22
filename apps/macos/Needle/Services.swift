@@ -259,26 +259,40 @@ struct ServicesSettings: View {
     }
 }
 
-/// Settings › Plugins: music servers to sign in to, and every plugin with what it may do.
+/// Settings › Library › Music servers: Needle's own (Navidrome and other Subsonic servers),
+/// then any a plugin adds. No plugin to add or turn on first.
+struct MusicServersSection: View {
+    private var store: Store { .shared }
+
+    var body: some View {
+        let servers = store.plugins.filter { $0.source != nil && ($0.builtIn || $0.enabled) }
+            .sorted { $0.builtIn && !$1.builtIn }
+        Section {
+            if servers.isEmpty {
+                Text("Needle is getting ready to sign in to music servers.").foregroundStyle(.secondary)
+            }
+            ForEach(servers, id: \.id) { plugin in SourceCard(plugin: plugin) }
+        } header: {
+            GroupHeader(title: "Music servers", detail: "Navidrome, Airsonic, Gonic, and other Subsonic servers. Your server's songs show with your own and play straight away.")
+        }
+        .task { store.reloadPlugins() }
+    }
+}
+
+/// Settings › Plugins: every plugin with what it may do. Parts built into Needle (its music
+/// servers) are not plugins here.
 struct PluginsSettings: View {
     private var store: Store { .shared }
     @State private var updates: [PluginUpdate] = []
 
     var body: some View {
-        let sources = store.plugins.filter { $0.source != nil && $0.enabled }
-        if !sources.isEmpty {
-            Section {
-                ForEach(sources, id: \.id) { plugin in SourceCard(plugin: plugin) }
-            } header: {
-                GroupHeader(title: "Music servers", detail: "Navidrome, Airsonic, Gonic, and other Subsonic servers. Your server's songs show with your own and play straight away.")
-            }
-        }
+        let plugins = store.plugins.filter { !$0.builtIn }
         Section {
-            if store.plugins.isEmpty {
+            if plugins.isEmpty {
                 Text("No plugins yet. Add the examples, or put a plugin folder in the plugins folder and press Reload.")
                     .foregroundStyle(.secondary)
             }
-            ForEach(store.plugins, id: \.id) { plugin in
+            ForEach(plugins, id: \.id) { plugin in
                 PluginCard(plugin: plugin, update: updates.first { $0.id == plugin.id }?.update) {
                     updates = JSON.decode([PluginUpdate].self, store.core.pluginUpdatesJson(), plain: true) ?? []
                 }
@@ -305,9 +319,7 @@ struct PluginsSettings: View {
                 }
             }
         } header: {
-            GroupHeader(title: "Plugins", detail: sources.isEmpty
-                ? "Add features with small scripts. To play music from your Navidrome, Airsonic, or Gonic server, add the example plugins and turn on Subsonic."
-                : "Add features with small scripts. Each plugin lists what it may do.")
+            GroupHeader(title: "Plugins", detail: "Add features with small scripts. Each plugin lists what it may do. Music servers are in Settings › Library.")
         } footer: {
             Text("Plugins are Rhai scripts in their own folders. Nothing runs until you turn it on. Learn to write one at needle.nnx.fyi/plugins.")
                 .font(.caption).foregroundStyle(.secondary)

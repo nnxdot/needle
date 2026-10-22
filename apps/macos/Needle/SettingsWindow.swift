@@ -337,6 +337,7 @@ struct LibrarySettings: View {
         } header: {
             GroupHeader(title: "Music folders", detail: "Needle watches these folders. It moves or removes files only when you ask, in Fix my library.")
         }
+        MusicServersSection()
         Section {
             SettingRow(title: "Measure songs for radio", detail: measuredText) {
                 SettingSwitch(key: "sound_analysis", on: s.soundAnalysis)
