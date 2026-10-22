@@ -48,8 +48,11 @@ impl AppView {
             (width - corner - 32. - 36. - if narrow { 44. } else { 96. } - 170.).clamp(140., 520.);
         // The sidebar corner, back button, search, and palette button; or, as in Apple Music,
         // the player (Settings › Appearance).
-        // Over the big player, which has its own controls, the usual bar (back and search).
-        let content = if self.settings.layout.player_on_top && !self.big {
+        // Over the big player, its own buttons: one bar, with the player showing through.
+        let over_big = self.big && !self.big_moving;
+        let content = if over_big {
+            self.big_bar(cx)
+        } else if self.settings.layout.player_on_top && !self.big {
             self.top_player(corner, hidden, width, cx)
         } else {
             div()
@@ -97,18 +100,22 @@ impl AppView {
                 .h(px(48.))
                 .flex_shrink_0()
                 .flex()
-                .bg(p.back)
+                .when(!over_big, |el| el.bg(p.back))
                 .child(content)
                 .into_any_element();
         }
         TitleBar::new()
-            .h(px(if self.settings.layout.player_on_top {
+            .h(px(if self.settings.layout.player_on_top && !over_big {
                 60.
             } else {
-                48.
+                super::BIG_BAR
             }))
             .pl_0()
-            .bg(p.back)
+            .bg(if over_big {
+                transparent_black()
+            } else {
+                p.back
+            })
             .border_b_0()
             // A thin strip that is not a drag area, so Windows offers top-edge resizing.
             .when(!window.is_maximized(), |el| {
