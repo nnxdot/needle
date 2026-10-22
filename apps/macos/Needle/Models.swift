@@ -221,6 +221,7 @@ struct NeedleSettings: Decodable, Equatable {
     var onlineMedia = false
     var coverColors = true
     var immersiveCover = true
+    var serverMark = true
     var animatedCovers = true
     var soundAnalysis = true
     var checkUpdates = true
