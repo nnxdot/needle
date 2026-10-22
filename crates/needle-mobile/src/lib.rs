@@ -260,6 +260,9 @@ impl Needle {
         log(false, &format!("starting in {data_dir}"));
         #[cfg(target_os = "android")]
         needle_core::set_android_folder(PathBuf::from(&data_dir));
+        // A test copy's library with a secrets.json keeps its secrets there (see needle-core).
+        #[cfg(not(target_os = "android"))]
+        needle_core::set_secrets_folder(PathBuf::from(&data_dir));
         let library = Library::open(PathBuf::from(data_dir))?;
         // On a phone the phone's own volume is the one volume: Needle's (the desktop's slider,
         // 65% to start) stays at full, or Needle would play quieter than other apps at the same

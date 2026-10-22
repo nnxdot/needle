@@ -20,6 +20,8 @@ fn main() {
         return;
     }
     needle_core::logfile::init(&directory);
+    // A test copy's library with a secrets.json keeps its secrets there (see needle-core).
+    needle_core::set_secrets_folder(directory.clone());
     let files = options.files;
     let result =
         needle_core::database::Library::open(directory).and_then(|library| ui::run(library, files));
