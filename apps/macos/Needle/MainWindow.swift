@@ -44,6 +44,17 @@ struct MainWindow: View {
                 // With the sidebar folded away, its search field is too: the palette searches.
                 if store.settings.layout.searchHidden || store.settings.layout.sidebarHidden { store.palette = true } else { searchFocused = true }
             }
+            // The big and full screen players cover the sidebar, but not its search field's focus:
+            // AppKit drew the field's ring over the cover, and keys went into the hidden field
+            // instead of playing and pausing. They take the focus from the field when they open.
+            .onChange(of: store.big || store.immersive) { _, covered in
+                guard covered else { return }
+                searchFocused = false
+                // Only a search field's editor: a field being typed in Settings stays as it is.
+                for window in NSApp.windows where (window.firstResponder as? NSTextView)?.delegate is NSSearchField {
+                    window.makeFirstResponder(nil)
+                }
+            }
 
             if store.big || store.immersive {
                 BigPlayer()
