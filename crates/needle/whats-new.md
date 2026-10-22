@@ -1,3 +1,9 @@
+# 1.7.2 [macos]
+A fix for a crash.
+- Needle no longer quits when you leave an album's or artist's page while its colours are still coming in, or just as a new song's colours come in.
+- An album's or artist's colours now show at once; only the window's background fades into them.
+- Each crash report is sent once, not again at every start.
+
 # 1.7.1 [windows, linux]
 Artist pages made new, an immersive big player, and Last.fm in one click.
 ! **Artist pages, made new.** An artist's page opens on a wide photo of them that fades into the page, with their logo where fanart.tv has one, and a large Play between Shuffle, Radio, and Blend. Their latest release sits beside their top songs, over their albums. Turn on Look things up online in Settings › Artwork and lyrics for the photos and logos.
@@ -10,12 +16,6 @@ Artist pages made new, an immersive big player, and Last.fm in one click.
 - In Fix my library, a copy that cannot go to the Recycle Bin is kept, and the other copies are still merged.
 - A library backup leaves out the key of your phone remote.
 - Radio from a song that is no longer in your library says so.
-
-# 1.7.2 [macos]
-A fix for a crash.
-- Needle no longer quits when you leave an album's or artist's page while its colours are still coming in, or just as a new song's colours come in.
-- An album's or artist's colours now show at once; only the window's background fades into them.
-- Each crash report is sent once, not again at every start.
 
 # 1.7.1 [macos]
 Fixes for a crash, covers, and crash reports.
