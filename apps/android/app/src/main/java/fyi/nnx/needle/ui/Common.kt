@@ -1,5 +1,6 @@
 package fyi.nnx.needle.ui
 
+import androidx.compose.material.icons.rounded.Dns
 import android.net.Uri
 import androidx.compose.foundation.background
 import androidx.compose.foundation.ExperimentalFoundationApi
@@ -659,13 +660,24 @@ fun SongRow(
                     overflow = TextOverflow.Ellipsis,
                 )
                 if (!number) {
-                    Text(
-                        song.artist,
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                    )
+                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                        // A song on a music server (Navidrome, Subsonic), not on the phone.
+                        if (song.fromServer()) {
+                            Icon(
+                                Icons.Rounded.Dns,
+                                contentDescription = "On your music server",
+                                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier.size(14.dp),
+                            )
+                        }
+                        Text(
+                            song.artist,
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                    }
                 }
             }
             when {

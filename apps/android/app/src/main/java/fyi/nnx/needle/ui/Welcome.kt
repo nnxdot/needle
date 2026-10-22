@@ -129,7 +129,7 @@ fun WelcomeGuide(open: (Route) -> Unit) {
                             step = 2
                         }
                         Choice(Icons.Rounded.Folder, "In another folder", "On the phone or an SD card") { tryOpen("file picker") { pick.launch(null) } }
-                        Choice(Icons.Rounded.Dns, "On my Navidrome or Subsonic server", "Streamed, with your plays and stars") { finish(); open(Route.Plugins) }
+                        Choice(Icons.Rounded.Dns, "On my Navidrome or Subsonic server", "Streamed, with your plays and stars") { finish(); open(Route.SettingsPage(SettingsSection.Servers)) }
                         Choice(Icons.Rounded.Computer, "On my computer, in Needle", "Control it from here, or play its music here") { finish(); open(Route.Connect) }
                         TextButton(onClick = { step = 2 }, modifier = Modifier.fillMaxWidth().padding(top = 8.dp)) { Text("Skip for now") }
                     }

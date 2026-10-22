@@ -71,12 +71,13 @@ private fun rememberPlugins(): List<PluginItem>? {
 
 @Composable
 fun PluginsScreen(open: (Route) -> Unit) {
-    val plugins = rememberPlugins()
+    // What is built into Needle (its music servers) is not a plugin to the user: it has its own place.
+    val plugins = rememberPlugins()?.filter { !it.builtIn }
     LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = 32.dp)) {
         item { LargeTitle("Plugins") }
         item {
             Text(
-                "Plugins add music servers (Navidrome, Subsonic), lyrics from NetEase, sound effects, and commands. They run inside Needle, with only the permissions they list.",
+                "Plugins add lyrics from NetEase, sound effects, and commands. They run inside Needle, with only the permissions they list. Music servers (Navidrome, Subsonic) are in Settings › Music servers.",
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.padding(horizontal = Edge, vertical = 4.dp),
@@ -128,7 +129,6 @@ fun PluginsScreen(open: (Route) -> Unit) {
 fun PluginScreen(id: String) {
     val plugins = rememberPlugins()
     val plugin = plugins?.firstOrNull { it.id == id } ?: return
-    val fields = remember(id) { mutableStateMapOf<String, String>() }
     LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = 32.dp)) {
         item { LargeTitle(plugin.name) }
         item {
@@ -159,76 +159,7 @@ fun PluginScreen(id: String) {
                 }
             }
         }
-        plugin.source?.let { source ->
-            item {
-                Section(title = source.name) {
-                    Column(Modifier.padding(16.dp).animateContentSize(), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                        if (source.signedIn) {
-                            Text("Signed in · ${count(source.songs.toInt(), "song")}", style = MaterialTheme.typography.bodyLarge)
-                            source.syncedAt?.let {
-                                Text(
-                                    "Songs brought in ${DateFormat.getDateTimeInstance(DateFormat.MEDIUM, DateFormat.SHORT).format(Date(it * 1000))}",
-                                    style = MaterialTheme.typography.bodyMedium,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                )
-                            }
-                            if (source.syncing) {
-                                // The server sends its list in pages; the count grows as they come.
-                                Text(
-                                    if (source.received > 0u) "Bringing in the song list… ${count(source.received.toInt(), "song")} so far" else "Asking the server for its songs…",
-                                    color = MaterialTheme.colorScheme.primary,
-                                )
-                                androidx.compose.material3.LinearWavyProgressIndicator(modifier = Modifier.fillMaxWidth())
-                            } else if (source.coversLeft > 0u) {
-                                Text("Bringing in covers… ${count(source.coversLeft.toInt(), "cover")} to go", color = MaterialTheme.colorScheme.primary)
-                                androidx.compose.material3.LinearWavyProgressIndicator(modifier = Modifier.fillMaxWidth())
-                            }
-                            Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                                FilledTonalButton(enabled = !source.syncing, onClick = { core.sourceSync(plugin.id) }) { Text("Bring in songs again") }
-                                TextButton(onClick = { core.sourceSignOut(plugin.id) }) { Text("Sign out") }
-                            }
-                        } else {
-                            source.fields.forEach { field ->
-                                OutlinedTextField(
-                                    value = fields[field.id] ?: "",
-                                    onValueChange = { fields[field.id] = it },
-                                    label = { Text(field.label) },
-                                    placeholder = { Text(field.placeholder) },
-                                    singleLine = true,
-                                    visualTransformation = if (field.secret) PasswordVisualTransformation() else androidx.compose.ui.text.input.VisualTransformation.None,
-                                    keyboardOptions = KeyboardOptions(keyboardType = if (field.secret) KeyboardType.Password else KeyboardType.Uri),
-                                    modifier = Modifier.remoteEscape().fillMaxWidth(),
-                                )
-                            }
-                            // Once, for a few seconds: a server can take that long to answer.
-                            var signingIn by remember { mutableStateOf(false) }
-                            LaunchedEffect(signingIn) {
-                                if (signingIn) {
-                                    delay(5000)
-                                    signingIn = false
-                                }
-                            }
-                            Button(enabled = !signingIn, onClick = {
-                                signingIn = true
-                                val sent = fields.toMap()
-                                NeedleApp.instance.scope.launch(Dispatchers.IO) { runCatching { core.sourceSignIn(plugin.id, sent) } }
-                            }) { Text(if (signingIn) "Signing in…" else "Sign in") }
-                        }
-                        source.error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
-                    }
-                    source.switches.forEach { switch ->
-                        HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant, modifier = Modifier.padding(horizontal = 16.dp))
-                        Row(Modifier.fillMaxWidth().padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
-                            Column(Modifier.weight(1f)) {
-                                Text(switch.label, style = MaterialTheme.typography.bodyLarge)
-                                if (switch.detail.isNotBlank()) Text(switch.detail, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                            }
-                            SoonSwitch(switch.on, switch.label) { core.sourceSwitch(plugin.id, switch.id, it) }
-                        }
-                    }
-                }
-            }
-        }
+        if (plugin.source != null) item { ServerSection(plugin) }
         val standalone = plugin.commands.filter { !it.forSongs }
         if (standalone.isNotEmpty() && plugin.enabled) {
             item {
@@ -266,6 +197,99 @@ fun PluginScreen(id: String) {
             }
         }
     }
+}
+
+/**
+ * A music server's sign-in, or once signed in, its songs and its switches: on the Music servers
+ * page for the servers built into Needle, and on a plugin's page for a plugin's own.
+ */
+@OptIn(androidx.compose.material3.ExperimentalMaterial3ExpressiveApi::class)
+@Composable
+private fun ServerSection(plugin: PluginItem) {
+    val source = plugin.source ?: return
+    val fields = remember(plugin.id) { mutableStateMapOf<String, String>() }
+    Section(title = source.name) {
+        Column(Modifier.padding(16.dp).animateContentSize(), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            if (source.signedIn) {
+                Text("Signed in · ${count(source.songs.toInt(), "song")}", style = MaterialTheme.typography.bodyLarge)
+                source.syncedAt?.let {
+                    Text(
+                        "Songs brought in ${DateFormat.getDateTimeInstance(DateFormat.MEDIUM, DateFormat.SHORT).format(Date(it * 1000))}",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+                if (source.syncing) {
+                    // The server sends its list in pages; the count grows as they come.
+                    Text(
+                        if (source.received > 0u) "Bringing in the song list… ${count(source.received.toInt(), "song")} so far" else "Asking the server for its songs…",
+                        color = MaterialTheme.colorScheme.primary,
+                    )
+                    androidx.compose.material3.LinearWavyProgressIndicator(modifier = Modifier.fillMaxWidth())
+                } else if (source.coversLeft > 0u) {
+                    Text("Bringing in covers… ${count(source.coversLeft.toInt(), "cover")} to go", color = MaterialTheme.colorScheme.primary)
+                    androidx.compose.material3.LinearWavyProgressIndicator(modifier = Modifier.fillMaxWidth())
+                }
+                Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                    FilledTonalButton(enabled = !source.syncing, onClick = { core.sourceSync(plugin.id) }) { Text("Bring in songs again") }
+                    TextButton(onClick = { core.sourceSignOut(plugin.id) }) { Text("Sign out") }
+                }
+            } else {
+                source.fields.forEach { field ->
+                    OutlinedTextField(
+                        value = fields[field.id] ?: "",
+                        onValueChange = { fields[field.id] = it },
+                        label = { Text(field.label) },
+                        placeholder = { Text(field.placeholder) },
+                        singleLine = true,
+                        visualTransformation = if (field.secret) PasswordVisualTransformation() else androidx.compose.ui.text.input.VisualTransformation.None,
+                        keyboardOptions = KeyboardOptions(keyboardType = if (field.secret) KeyboardType.Password else KeyboardType.Uri),
+                        modifier = Modifier.remoteEscape().fillMaxWidth(),
+                    )
+                }
+                // Once, for a few seconds: a server can take that long to answer.
+                var signingIn by remember { mutableStateOf(false) }
+                LaunchedEffect(signingIn) {
+                    if (signingIn) {
+                        delay(5000)
+                        signingIn = false
+                    }
+                }
+                Button(enabled = !signingIn, onClick = {
+                    signingIn = true
+                    val sent = fields.toMap()
+                    NeedleApp.instance.scope.launch(Dispatchers.IO) { runCatching { core.sourceSignIn(plugin.id, sent) } }
+                }) { Text(if (signingIn) "Signing in…" else "Sign in") }
+            }
+            source.error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
+        }
+        source.switches.forEach { switch ->
+            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant, modifier = Modifier.padding(horizontal = 16.dp))
+            Row(Modifier.fillMaxWidth().padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
+                Column(Modifier.weight(1f)) {
+                    Text(switch.label, style = MaterialTheme.typography.bodyLarge)
+                    if (switch.detail.isNotBlank()) Text(switch.detail, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+                SoonSwitch(switch.on, switch.label) { core.sourceSwitch(plugin.id, switch.id, it) }
+            }
+        }
+    }
+}
+
+/**
+ * Settings › Music servers: Navidrome and Subsonic, built into Needle. Signed in, the server's
+ * songs are in the library beside the phone's own.
+ */
+@Composable
+fun MusicServers() {
+    val servers = rememberPlugins()?.filter { it.builtIn && it.source != null } ?: return
+    Text(
+        "Play the music on your own Navidrome or Subsonic server. Needle brings in the server's list of songs, and plays them from the server, or from this phone once you keep them here.",
+        style = MaterialTheme.typography.bodyMedium,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+        modifier = Modifier.padding(horizontal = Edge, vertical = 4.dp),
+    )
+    servers.forEach { ServerSection(it) }
 }
 
 /** A titled group of rows on one rounded surface. */

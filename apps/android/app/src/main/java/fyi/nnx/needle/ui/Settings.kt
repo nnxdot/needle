@@ -1,5 +1,6 @@
 package fyi.nnx.needle.ui
 
+import androidx.compose.material.icons.rounded.Dns
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
@@ -133,12 +134,13 @@ import java.io.File
 
 enum class SettingsSection(val title: String, val summary: String, val icon: ImageVector, val tint: Color) {
     Library("Library", "Music folders and online lookups", Icons.Rounded.LibraryMusic, Color(0xFFE2B46C)),
+    Servers("Music servers", "Navidrome and Subsonic", Icons.Rounded.Dns, Color(0xFF8FC6E8)),
     Playback("Playback", "Crossfade and even loudness", Icons.Rounded.PlayCircle, Color(0xFF7FB8E8)),
     Sound("Sound", "Equalizer, balance, and headphones", Icons.Rounded.Equalizer, Color(0xFFB39DDB)),
     Appearance("Appearance", "Colours, motion, and lyrics", Icons.Rounded.Palette, Color(0xFFE8A07F)),
     Scrobbling("Scrobbling", "Last.fm and ListenBrainz", Icons.Rounded.GraphicEq, Color(0xFFD1706B)),
     Discord("Discord", "Show what you play on your profile", Icons.Rounded.Forum, Color(0xFF8C9EFF)),
-    Plugins("Plugins", "Music servers, NetEase lyrics, effects", Icons.Rounded.Extension, Color(0xFF7FC8B8)),
+    Plugins("Plugins", "NetEase lyrics, effects, and commands", Icons.Rounded.Extension, Color(0xFF7FC8B8)),
     Computer("Your computer", "Control Needle there, play its music here", Icons.Rounded.Computer, Color(0xFF9FB4E8)),
     Sync("Sync", "Move history, ratings, and playlists", Icons.Rounded.Sync, Color(0xFFE8C77F)),
     WhatsNew("What's new", "In this version of Needle", Icons.Rounded.NewReleases, Color(0xFFE89FC4)),
@@ -240,6 +242,7 @@ fun SettingsSectionScreen(section: SettingsSection, open: (Route) -> Unit) {
         item {
             when (section) {
                 SettingsSection.Library -> LibrarySettings(open)
+                SettingsSection.Servers -> MusicServers()
                 SettingsSection.Playback -> PlaybackSettingsPage()
                 SettingsSection.Sound -> SoundSettingsPage()
                 SettingsSection.Appearance -> AppearanceSettings(open)
