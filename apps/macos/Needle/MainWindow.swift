@@ -423,6 +423,9 @@ struct WindowBackground: View {
                 store.colors.canvas
             }
         }
+        // The one place new colours fade in: the page's and the cover's colours change at once
+        // everywhere else (see `Store.setPageTint`). Nothing here is a table.
+        .animation(store.motion ? .easeInOut(duration: 0.45) : nil, value: store.colors)
         .ignoresSafeArea()
     }
 }
