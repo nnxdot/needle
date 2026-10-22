@@ -11,6 +11,12 @@ Artist pages made new, an immersive big player, and Last.fm in one click.
 - A library backup leaves out the key of your phone remote.
 - Radio from a song that is no longer in your library says so.
 
+# 1.7.2 [macos]
+A fix for a crash.
+- Needle no longer quits when you leave an album's or artist's page while its colours are still coming in, or just as a new song's colours come in.
+- An album's or artist's colours now show at once; only the window's background fades into them.
+- Each crash report is sent once, not again at every start.
+
 # 1.7.1 [macos]
 Fixes for a crash, covers, and crash reports.
 - Needle no longer quits at times when its colours change while the sidebar shows.

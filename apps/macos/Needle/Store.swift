@@ -155,6 +155,9 @@ final class Store {
             MainActor.assumeIsolated { self?.tick() }
         }
         maybeWelcome()
+        #if DEBUG
+        Stress.startIfAsked()
+        #endif
         if settings.welcomed {
             checkForUpdate(force: false)
             // Folders changed while Needle was closed: the watcher sees only what comes after.
@@ -548,13 +551,17 @@ final class Store {
         big = false
         // A page without a colour of its own goes back to the theme's. From one album or
         // artist to another, the colour stays until the next one's is found: no flash between.
-        if pageTint != nil, !to.isPaged { withAnimation(motion ? .easeInOut(duration: 0.35) : nil) { pageTint = nil } }
+        // Never in an animation (see `setPageTint`).
+        if pageTint != nil, !to.isPaged { pageTint = nil }
     }
 
     /// An album or artist page's colour, once found; only while that page is still open.
+    /// The colours change at once, never in an animation: a page left while its song table's
+    /// colours were still animating crashed Needle (SwiftUI's AGGraphGetAttributeSubgraph, in
+    /// the table's rows). Only the window's background fades (`WindowBackground`).
     func setPageTint(_ color: NSColor?, for page: Route) {
         guard route == page, color != pageTint else { return }
-        withAnimation(motion ? .easeInOut(duration: 0.45) : nil) { pageTint = color }
+        pageTint = color
     }
 
     @ObservationIgnored private var searchQuiet = false
@@ -939,10 +946,11 @@ final class Store {
     // MARK: - The cover's colour
 
     private func findTint(_ path: String?) {
-        guard let path else { withAnimation(.easeInOut(duration: 0.8)) { coverTint = nil }; return }
+        // At once, as the page's colour (see `setPageTint`).
+        guard let path else { coverTint = nil; return }
         Task {
             let color = await Task.detached { Covers.vivid(path) }.value
-            if tintFor == path { withAnimation(.easeInOut(duration: 0.8)) { coverTint = color } }
+            if tintFor == path { coverTint = color }
         }
     }
 
