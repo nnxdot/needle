@@ -2307,6 +2307,8 @@ impl AppView {
             if let Some(track) = self.focused.as_mut().filter(|t| &t.id == id) {
                 track.rating = rating;
             }
+            // The player's copies too: the Details panel shows the playing song from them.
+            self.player.send(Command::Rated(id.clone(), rating));
         }
     }
 
