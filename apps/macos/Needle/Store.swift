@@ -95,6 +95,8 @@ final class Store {
     var mutedVolume: Float?
     /// A request to focus the search field.
     var focusSearch = 0
+    /// Out of the search field (a click away, or Esc): see `Keys`.
+    var leaveSearch = 0
 
     enum Panel: String, CaseIterable { case details = "Details", queue = "Queue", lyrics = "Lyrics" }
     enum BigSide: String, CaseIterable { case lyrics = "Lyrics", queue = "Up next", stems = "Stems" }
@@ -157,6 +159,7 @@ final class Store {
         maybeWelcome()
         #if DEBUG
         Stress.startIfAsked()
+        FocusTest.startIfAsked()
         #endif
         if settings.welcomed {
             checkForUpdate(force: false)
