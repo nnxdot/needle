@@ -934,6 +934,9 @@ private fun AppearanceSettings(open: (Route) -> Unit) {
         Divider()
         SwitchRow("Moving covers", "A video beside the songs, such as cover.mp4, plays as the cover", app.animatedCovers) { on -> update { it.copy(animatedCovers = on) } }
     }
+    Group("Song lists") {
+        SwitchRow("Mark server songs", "Songs from your music server show a small server icon beside their artist.", app.serverMark) { on -> update { it.copy(serverMark = on) } }
+    }
     Group("Backdrop", footer = if (Build.VERSION.SDK_INT >= 31) null else "Android 12 or newer blurs the cover; this phone shows its colour instead.") {
         SwitchRow(
             "Cover behind the player",
