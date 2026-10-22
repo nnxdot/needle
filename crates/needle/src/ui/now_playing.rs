@@ -13,7 +13,12 @@ use needle_core::{
 /// from top to foot and fades, to its right and at its foot, into a tone of its own colour.
 /// `foot` is how tall the words and controls over its foot are: the tone is solid behind all of
 /// them, so no cover makes them hard to read, and the cover fades in above.
-/// Gives the layer, how wide the cover is, and the tone (which the rest of the player takes).
+/// With a pane beside it (`alone` false), the cover is the window's left side, at most `widest`
+/// wide. Alone, it spans the window, and grows and shrinks with it; in a window much wider
+/// than tall it stops at 1.4 times the height, in the middle, fading into the tone each side.
+/// Gives the layer, how wide it is (the room for the words and controls over its foot), and
+/// the tone (which the rest of the player takes).
+#[allow(clippy::too_many_arguments)]
 pub(super) fn immersive_cover(
     path: &str,
     look: Option<&super::ambient::Look>,
@@ -22,15 +27,37 @@ pub(super) fn immersive_cover(
     widest: f32,
     foot: f32,
     dark: bool,
+    alone: bool,
 ) -> (AnyElement, f32, Hsla) {
-    let side = h.min(w * 0.62).min(widest).max(1.);
+    let (side, cover_w) = if alone {
+        (w.max(1.), w.min(h * 1.4).max(1.))
+    } else {
+        let side = h.min(w * 0.62).min(widest).max(1.);
+        (side, side)
+    };
+    let left = (side - cover_w) / 2.;
+    let fade = cover_w * 0.25;
     let tone = match look.map(|l| l.vivid) {
         Some(c) if dark => hsla(c.h, (c.s * 0.8).min(0.5), 0.15, 1.),
         Some(c) => hsla(c.h, (c.s * 0.7).min(0.45), 0.88, 1.),
         None if dark => hsla(0., 0., 0.1, 1.),
         None => hsla(0., 0., 0.92, 1.),
     };
-    let file = super::thumbs::for_size(path, side).unwrap_or_else(|| path.into());
+    // A square cover fills its box, so it is drawn as large as the box's longer edge.
+    let file = super::thumbs::for_size(path, cover_w.max(h)).unwrap_or_else(|| path.into());
+    let edge_fade = |at: f32, into_tone: bool| {
+        div()
+            .absolute()
+            .top_0()
+            .bottom_0()
+            .left(px(at))
+            .w(px(fade))
+            .bg(linear_gradient(
+                90.,
+                linear_color_stop(tone.opacity(if into_tone { 0. } else { 1. }), 0.),
+                linear_color_stop(tone.opacity(if into_tone { 1. } else { 0. }), 1.),
+            ))
+    };
     let layer = div()
         .absolute()
         .left_0()
@@ -38,27 +65,37 @@ pub(super) fn immersive_cover(
         .w(px(side))
         .h(px(h))
         .overflow_hidden()
+        .bg(tone)
         .child(
             img(file)
                 .absolute()
-                .inset_0()
-                .size_full()
+                .top_0()
+                .left(px(left))
+                .w(px(cover_w))
+                .h(px(h))
                 .object_fit(ObjectFit::Cover),
         )
-        // Into the tone to its right...
-        .child(
-            div()
-                .absolute()
-                .top_0()
-                .bottom_0()
-                .right_0()
-                .w(px(side * 0.45))
-                .bg(linear_gradient(
-                    90.,
-                    linear_color_stop(tone.opacity(0.), 0.),
-                    linear_color_stop(tone, 1.),
-                )),
-        )
+        // Beside a pane: into the tone to its right. Alone and narrower than the window: into
+        // the tone on both sides.
+        .when(!alone, |el| {
+            el.child(
+                div()
+                    .absolute()
+                    .top_0()
+                    .bottom_0()
+                    .right_0()
+                    .w(px(side * 0.45))
+                    .bg(linear_gradient(
+                        90.,
+                        linear_color_stop(tone.opacity(0.), 0.),
+                        linear_color_stop(tone, 1.),
+                    )),
+            )
+        })
+        .when(alone && cover_w < side, |el| {
+            el.child(edge_fade(left, false))
+                .child(edge_fade(left + cover_w - fade, true))
+        })
         // ...and solid behind the words and controls at its foot.
         .child(
             div()
@@ -166,7 +203,18 @@ impl AppView {
             .immersive_cover
             .then(|| current.as_ref().and_then(|c| c.track.artwork.clone()))
             .flatten()
-            .map(|path| immersive_cover(&path, look.as_ref(), w, h, left_w - 40., 340., p.dark));
+            .map(|path| {
+                immersive_cover(
+                    &path,
+                    look.as_ref(),
+                    w,
+                    h,
+                    left_w - 40.,
+                    340.,
+                    p.dark,
+                    side == Side::None,
+                )
+            });
         let column = immersive
             .as_ref()
             .map_or(art.max(420.), |(_, side, _)| (side - 96.).clamp(300., 480.));
