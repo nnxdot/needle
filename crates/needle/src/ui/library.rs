@@ -1070,6 +1070,10 @@ impl AppView {
             .is_some_and(|i| i.track.id == track.id);
         let favorite = track.rating >= 4;
         let id = track.id.clone();
+        let streamed = track.is_streamed();
+        // The artist line, where a server song's icon goes; an album's own songs may not have it.
+        let artist_line =
+            !album_view || track.artist != track.album_artist && !track.album_artist.is_empty();
         let height = self.settings.layout.row_height.clamp(32., 76.);
         // Compact rows hold one line: a small cover, then the title and artist side by side.
         let compact = height < 50.;
@@ -1168,6 +1172,14 @@ impl AppView {
                                     })
                                     .child(track.title.clone()),
                             )
+                            .when(streamed && !artist_line, |el| {
+                                el.child(
+                                    glyph("server")
+                                        .flex_shrink_0()
+                                        .size(px(11.))
+                                        .text_color(p.ink_3),
+                                )
+                            })
                             .when(track.missing, |el| {
                                 el.child(
                                     div()
@@ -1181,18 +1193,27 @@ impl AppView {
                                 )
                             }),
                     )
-                    .when(
-                        !album_view
-                            || track.artist != track.album_artist && !track.album_artist.is_empty(),
-                        |el| {
-                            el.child(
-                                div()
-                                    .min_w_0()
-                                    .flex_shrink()
-                                    .truncate()
-                                    .text_size(px(12.))
-                                    .text_color(p.ink_2)
-                                    .child(if show_album || album_view {
+                    .when(artist_line, |el| {
+                        el.child(
+                            div()
+                                .min_w_0()
+                                .flex_shrink()
+                                .flex()
+                                .items_center()
+                                .gap_1()
+                                .text_size(px(12.))
+                                .text_color(p.ink_2)
+                                // A song from a music server, played from there.
+                                .when(streamed, |el| {
+                                    el.child(
+                                        glyph("server")
+                                            .flex_shrink_0()
+                                            .size(px(11.))
+                                            .text_color(p.ink_3),
+                                    )
+                                })
+                                .child(div().min_w_0().truncate().child(
+                                    if show_album || album_view {
                                         track.display_artist().to_string()
                                     } else {
                                         format!(
@@ -1200,10 +1221,10 @@ impl AppView {
                                             track.display_artist(),
                                             track.display_album()
                                         )
-                                    }),
-                            )
-                        },
-                    ),
+                                    },
+                                )),
+                        )
+                    }),
             )
             .children(
                 columns

@@ -31,7 +31,7 @@ on Android, **Liquid Glass** (iOS 26) on iPhone.
 
 1. Files on the phone or SD card.
 2. The user's home Needle, streamed over the home network (builds on the phone remote).
-3. Navidrome / Subsonic servers, through the same plugin as desktop.
+3. Navidrome / Subsonic servers, built into the shared core as on desktop.
 
 ### Screens
 

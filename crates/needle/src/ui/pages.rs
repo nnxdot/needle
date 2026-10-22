@@ -685,6 +685,8 @@ impl AppView {
                                     .child(small_button("rescan", "Check for changes").ghost().disabled(self.scan.is_some()).on_click(cx.listener(|this, _, _, cx| this.rescan(cx)))),
                             ),
                     )
+                    .child(self.section_title("Music servers", "Navidrome, Airsonic, Gonic, and other Subsonic servers. Your server's songs show with your own and play straight away.", cx))
+                    .children(self.music_servers(cx))
                     .child(setting_row(
                         "Measure songs for radio",
                         &match self.measured {

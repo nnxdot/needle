@@ -122,6 +122,9 @@ pub struct PluginInfo {
     pub official: bool,
     /// Official, and its files exactly as Needle wrote them.
     pub verified: bool,
+    /// Part of Needle, not a script (Navidrome / Subsonic): always on, with no folder.
+    /// Settings show it with the music servers, not in the plugin list.
+    pub builtin: bool,
 }
 
 /// A music source a plugin brings: what to ask for to sign in, and how it is doing.
@@ -431,6 +434,8 @@ struct Loaded {
     ast: Option<AST>,
     scope: Scope<'static>,
     effects: Vec<Arc<crate::effects::EffectDef>>,
+    /// A source built into Needle, called in place of a script.
+    native: Option<crate::subsonic::Subsonic>,
 }
 
 /// Runs plugins on their own thread. Clone freely; all clones talk to the same thread.
@@ -1018,7 +1023,7 @@ fn refresh_source(plugin: &mut Loaded, library: &Library) {
     // Needle fetches the links a source gives it, so being one needs the network permission:
     // otherwise a plugin could send library data out inside a link.
     if !plugin.info.enabled
-        || !defines(plugin, "source")
+        || !(plugin.native.is_some() || defines(plugin, "source"))
         || !plugin
             .info
             .manifest
@@ -1104,6 +1109,14 @@ fn plain_error(error: &EvalAltResult) -> String {
 /// Call a source function: like `call`, but a failure (a wrong password, a server that is
 /// down) is returned as its plain message and does not mark the plugin as broken.
 fn call_source(plugin: &mut Loaded, name: &str, args: Vec<Dynamic>) -> Result<Dynamic, String> {
+    if let Some(native) = &plugin.native {
+        return call_native(native, name, &args).inspect_err(|message| {
+            crate::logfile::warn(format!(
+                "Source {} failed in {name}: {message}",
+                plugin.info.manifest.id
+            ))
+        });
+    }
     let Some(ast) = &plugin.ast else {
         return Ok(Dynamic::UNIT);
     };
@@ -1125,6 +1138,52 @@ fn call_source(plugin: &mut Loaded, name: &str, args: Vec<Dynamic>) -> Result<Dy
             ));
             message
         })
+}
+
+/// A built-in source's answer to what a source plugin's script is asked.
+fn call_native(
+    source: &crate::subsonic::Subsonic,
+    name: &str,
+    args: &[Dynamic],
+) -> Result<Dynamic, String> {
+    let text = |i: usize| args.get(i).map(|a| a.to_string()).unwrap_or_default();
+    let number = |i: usize| args.get(i).and_then(|a| a.as_int().ok()).unwrap_or(0);
+    let value = |v: serde_json::Value| rhai::serde::to_dynamic(v).map_err(|e| e.to_string());
+    let songs = |list: Vec<serde_json::Value>| value(serde_json::Value::Array(list));
+    match name {
+        "source" => value(source.about()),
+        "signed_in" => Ok(source.signed_in().into()),
+        "sign_in" => {
+            let fields = args
+                .first()
+                .and_then(|a| a.read_lock::<Map>().map(|m| m.clone()))
+                .unwrap_or_default()
+                .into_iter()
+                .map(|(k, v)| (k.to_string(), v.to_string()))
+                .collect();
+            source.sign_in(&fields).map(|()| Dynamic::UNIT)
+        }
+        "sign_out" => {
+            source.sign_out();
+            Ok(Dynamic::UNIT)
+        }
+        "songs" => source.songs(number(0)).and_then(songs),
+        "search" => source.search(&text(0)).and_then(songs),
+        "stream" => source.stream(&text(0)).map(Dynamic::from),
+        "playing" => source.playing(&text(0)).map(|()| Dynamic::UNIT),
+        "played" => source.played(&text(0), number(1)).map(|()| Dynamic::UNIT),
+        "rate" => source.rate(&text(0), number(1)).map(|()| Dynamic::UNIT),
+        "song_lyrics" => Ok(match source.lyrics(&text(0)) {
+            Some(crate::subsonic::Lyrics::Timed(text)) => {
+                Map::from_iter([("synced".into(), text.into())]).into()
+            }
+            Some(crate::subsonic::Lyrics::Plain(text)) => {
+                Map::from_iter([("plain".into(), text.into())]).into()
+            }
+            None => Dynamic::UNIT,
+        }),
+        _ => Ok(Dynamic::UNIT),
+    }
 }
 
 /// Call `name` if the plugin defines it; failures are recorded on the plugin, not raised.
@@ -1156,6 +1215,67 @@ fn call(plugin: &mut Loaded, name: &str, args: Vec<Dynamic>) -> Result<Dynamic, 
     }
 }
 
+/// Navidrome / Subsonic, built in: always on, so its sign-in shows with the music servers.
+fn built_in_subsonic(library: &Library) -> Loaded {
+    Loaded {
+        info: PluginInfo {
+            manifest: Manifest {
+                id: crate::subsonic::ID.into(),
+                name: crate::subsonic::NAME.into(),
+                version: env!("CARGO_PKG_VERSION").into(),
+                description: crate::subsonic::DESCRIPTION.into(),
+                author: "nnx".into(),
+                entry: String::new(),
+                permissions: [Permission::Network].into(),
+                opens: vec![],
+            },
+            folder: PathBuf::new(),
+            enabled: true,
+            error: None,
+            commands: vec![],
+            effects: vec![],
+            source: None,
+            lyrics: false,
+            update: None,
+            official: true,
+            verified: true,
+            builtin: true,
+        },
+        engine: Engine::new_raw(),
+        ast: None,
+        scope: Scope::new(),
+        effects: vec![],
+        native: Some(crate::subsonic::Subsonic::new(library.clone())),
+    }
+}
+
+/// Once: say that a Navidrome / Subsonic plugin someone changed or made is no longer used.
+/// The one Needle installed, unchanged, goes quietly: Needle does the same itself now.
+fn tell_plugin_replaced(
+    library: &Library,
+    actions: &Arc<dyn Fn(HostAction) + Send + Sync>,
+    dir: &Path,
+) {
+    const TOLD: &str = "subsonic_plugin_replaced";
+    let unchanged = dir.file_name() == Some(std::ffi::OsStr::new(crate::subsonic::ID))
+        && read_record(dir).is_none_or(|record| {
+            // Records from before they listed files: the plugin had these two.
+            let mut files: Vec<&str> = record.files.iter().map(String::as_str).collect();
+            if files.is_empty() {
+                files = vec!["plugin.toml", "main.rhai"];
+            }
+            fingerprint_files(dir, &files) == record.hash
+        });
+    if unchanged || library.get_json::<bool>(TOLD).ok().flatten() == Some(true) {
+        return;
+    }
+    let _ = library.set_json(TOLD, &true);
+    actions(HostAction::Notify(format!(
+        "Navidrome / Subsonic is built into Needle now, so your plugin in {} is no longer used.",
+        dir.display()
+    )));
+}
+
 /// Find, read, and (for enabled plugins) start every plugin folder.
 fn load_all(
     library: &Library,
@@ -1179,8 +1299,11 @@ fn load_all(
         })
         .unwrap_or_default();
     folders.sort();
-    let mut loaded = vec![];
-    let mut seen = BTreeSet::new();
+    // The sources built into Needle come first, and take their ids: a plugin folder with the
+    // same id (the Navidrome / Subsonic plugin they replace) is left on disk, unused, so an
+    // earlier version of Needle still finds it.
+    let mut loaded = vec![built_in_subsonic(library)];
+    let mut seen: BTreeSet<String> = loaded.iter().map(|l| l.info.manifest.id.clone()).collect();
     for dir in folders {
         let manifest = match read_manifest(&dir) {
             Ok(m) => m,
@@ -1212,16 +1335,21 @@ fn load_all(
                         update: None,
                         official: false,
                         verified: false,
+                        builtin: false,
                     },
                     engine: Engine::new_raw(),
                     ast: None,
                     scope: Scope::new(),
                     effects: vec![],
+                    native: None,
                 });
                 continue;
             }
         };
         if !seen.insert(manifest.id.clone()) {
+            if manifest.id == crate::subsonic::ID {
+                tell_plugin_replaced(library, actions, &dir);
+            }
             continue;
         }
         let is_enabled = enabled.contains(&manifest.id);
@@ -1246,11 +1374,13 @@ fn load_all(
                 official: is_official(&dir, &manifest.id),
                 verified: is_official(&dir, &manifest.id)
                     && unedited_version(&dir, &manifest.id).is_some(),
+                builtin: false,
             },
             engine,
             ast: None,
             scope: Scope::new(),
             effects: vec![],
+            native: None,
         };
         // A plugin that only brings themes (a `themes` folder) needs no script.
         if !dir.join(&manifest.entry).exists() && dir.join("themes").is_dir() {
@@ -2048,298 +2178,6 @@ fn lyrics(song) {
 }
 "#,
     ),
-    (
-        "subsonic",
-        r#"id = "subsonic"
-name = "Navidrome / Subsonic"
-version = "1.4.1"
-author = "nnx"
-description = "Plays the music on your Navidrome or other Subsonic server. Songs are listed with your own and streamed; plays and ratings are saved on the server. Experimental: with its switch on, it also searches the server as you type, which brings songs from octo-fiesta (a Subsonic proxy that fetches songs from streaming services)."
-permissions = ["network"]
-"#,
-        r#"// Your music server as a source: Navidrome, and other servers that speak the Subsonic API
-// (Airsonic-Advanced, Gonic, Ampache, LMS). Songs are listed in Needle and streamed from the
-// server; plays and ratings are saved on the server too.
-
-fn source() {
-    #{
-        name: "Navidrome / Subsonic",
-        fields: [
-            #{ id: "server", label: "Server address", placeholder: "https://music.example.com" },
-            #{ id: "username", label: "User name", placeholder: "" },
-            #{ id: "password", label: "Password", placeholder: "", secret: true },
-        ],
-        switches: [
-            #{
-                id: "search_server",
-                label: "Search the server as you type (experimental)",
-                detail: "For octo-fiesta: songs your server can fetch show above your search results, and play from there. Off by default.",
-            },
-        ]
-    }
-}
-
-// Songs on the server for a search, when the switch is on. Through octo-fiesta these include
-// songs from its streaming services, which it fetches when they are played.
-fn search(query) {
-    let words = query;
-    words.trim();
-    if setting("search_server") != true || words == "" {
-        return [];
-    }
-    let reply = ask("search3", #{ query: words, songCount: 25, artistCount: 0, albumCount: 0 });
-    let found = if reply.searchResult3 != () { reply.searchResult3.song } else { () };
-    if found == () {
-        return [];
-    }
-    to_songs(found)
-}
-
-fn signed_in() {
-    let server = setting("server");
-    server != () && server != "" && secret("password") != ()
-}
-
-// "music.example.com/" becomes "music.example.com".
-fn address(typed) {
-    let server = typed;
-    server.trim();
-    while server.ends_with("/") {
-        server.pop();
-    }
-    server
-}
-
-// The sign-in part of every request. The password itself is never sent: only a salted hash.
-fn auth() {
-    let password = secret("password");
-    if password == () {
-        throw "Sign in to your server first";
-    }
-    let salt = random_text(12);
-    `u=${url_encode(setting("username"))}&t=${md5(password + salt)}&s=${salt}&v=1.16.1&c=Needle&f=json`
-}
-
-fn link(method, params, auth) {
-    let url = `${setting("server")}/rest/${method}.view?${auth}`;
-    for key in params.keys() {
-        url += `&${key}=${url_encode(params[key].to_string())}`;
-    }
-    url
-}
-
-fn ask(method, params) {
-    let text = "";
-    try {
-        text = http_get(link(method, params, auth()));
-    } catch (error) {
-        // Something answered, but not a music server: often the port is missing.
-        if type_of(error) == "string" && error.contains("404") {
-            throw "No music server at this address. Check it, and the port: Navidrome uses :4533 unless it was changed";
-        }
-        throw error;
-    }
-    let answer = parse_json(text);
-    let reply = answer["subsonic-response"];
-    if reply == () {
-        throw "That address did not answer like a Subsonic server";
-    }
-    if reply.status != "ok" {
-        let message = if reply.error != () { reply.error.message } else { () };
-        throw if message != () { message } else { "The server refused the request" };
-    }
-    reply
-}
-
-fn sign_in(fields) {
-    let typed = address(fields.server);
-    if typed == "" {
-        throw "Type your server's address";
-    }
-    // Without http:// or https://, only the secure address is tried: the sign-in part of
-    // each request could be copied off a plain-http connection and used again.
-    let plain = typed.starts_with("http://");
-    let server = if plain || typed.starts_with("https://") { typed } else { "https://" + typed };
-    set_setting("server", server);
-    set_setting("username", fields.username);
-    set_setting("list_by", "");
-    set_secret("password", fields.password);
-    try {
-        ask("ping", #{});
-    } catch (error) {
-        sign_out();
-        if !plain && type_of(error) == "string" && error.contains("Could not connect") {
-            throw `${error} over https. If your server only uses plain http (Navidrome on :4533 often does), type http:// in front of the address. Plain http is not encrypted, so only use it at home or through a VPN.`;
-        }
-        throw error;
-    }
-}
-
-fn sign_out() {
-    set_setting("server", "");
-    delete_secret("password");
-}
-
-// The songs of a page, as Needle wants them.
-fn to_songs(found) {
-    // One sign-in for all the cover links of this page, so an album's songs share one link.
-    let cover_auth = auth();
-    let list = [];
-    for song in found {
-        list.push(#{
-            id: song.id,
-            title: song.title,
-            artist: song.artist,
-            album: song.album,
-            album_artist: song.displayAlbumArtist,
-            genre: song.genre,
-            year: song.year,
-            track: song.track,
-            disc: song.discNumber,
-            duration: song.duration,
-            format: song.suffix,
-            bitrate: song.bitRate,
-            sample_rate: song.samplingRate,
-            bit_depth: song.bitDepth,
-            channels: song.channelCount,
-            size: song.size,
-            musicbrainz_id: song.musicBrainzId,
-            // One cover per album: songs often carry their own copy of the same picture.
-            cover_id: if song.albumId != () { "album:" + song.albumId } else { song.coverArt },
-            cover: if song.coverArt != () {
-                link("getCoverArt", #{ id: song.coverArt, size: 600 }, cover_auth)
-            } else {
-                ""
-            },
-        });
-    }
-    list
-}
-
-// 250 songs a page, until a page comes back empty. Some servers (Ampache) find nothing for
-// an empty search; for those, 5 albums a page with their songs (short pages, so songs
-// waiting to play are not held up for long).
-fn songs(page) {
-    if setting("list_by") != "albums" {
-        let reply = ask("search3", #{
-            query: "", songCount: 250, songOffset: page * 250, artistCount: 0, albumCount: 0
-        });
-        let found = if reply.searchResult3 != () { reply.searchResult3.song } else { () };
-        if found != () && found.len() > 0 {
-            return to_songs(found);
-        }
-        if page > 0 {
-            return [];
-        }
-        set_setting("list_by", "albums");
-    }
-    let reply = ask("getAlbumList2", #{ type: "alphabeticalByName", size: 5, offset: page * 5 });
-    let albums = if reply.albumList2 != () { reply.albumList2.album } else { () };
-    if albums == () || albums.len() == 0 {
-        return [];
-    }
-    let found = [];
-    for album in albums {
-        let full = ask("getAlbum", #{ id: album.id });
-        if full.album != () && full.album.song != () {
-            for song in full.album.song {
-                found.push(song);
-            }
-        }
-    }
-    to_songs(found)
-}
-
-// The original file, not a smaller copy.
-fn stream(id) {
-    link("stream", #{ id: id, format: "raw" }, auth())
-}
-
-fn playing(id) {
-    ask("scrobble", #{ id: id, submission: false });
-}
-
-fn played(id, started_at) {
-    ask("scrobble", #{ id: id, time: started_at * 1000, submission: true });
-}
-
-fn rate(id, stars) {
-    ask("setRating", #{ id: id, rating: stars });
-}
-
-// "7" becomes "07".
-fn two(n) {
-    let text = n.to_string();
-    if text.len() < 2 { "0" + text } else { text }
-}
-
-// The server's lyrics for one of its songs (Navidrome reads them from the files and from
-// .lrc files beside them): timed ones when it has them. Only servers that speak OpenSubsonic
-// have lyrics by song; from others, none.
-fn song_lyrics(id) {
-    let reply = ();
-    try {
-        reply = ask("getLyricsBySongId", #{ id: id });
-    } catch {
-        return ();
-    }
-    let list = if reply.lyricsList != () { reply.lyricsList.structuredLyrics } else { () };
-    if list == () {
-        return ();
-    }
-    // The song's own words first, timed or not: a server can also list a translation or a
-    // romanization, which comes only when the song's own are missing.
-    let main = [];
-    let other = [];
-    for lyrics in list {
-        if lyrics.kind == () || lyrics.kind == "main" {
-            main.push(lyrics);
-        } else {
-            other.push(lyrics);
-        }
-    }
-    let found = pick_lyrics(main);
-    if found != () { found } else { pick_lyrics(other) }
-}
-
-// Timed lyrics from the list when it has them, else its plain ones.
-fn pick_lyrics(list) {
-    let plain = "";
-    for lyrics in list {
-        if lyrics.line == () {
-            continue;
-        }
-        if lyrics.synced == true {
-            let offset = if lyrics.offset != () { lyrics.offset } else { 0 };
-            let text = "";
-            for line in lyrics.line {
-                let ms = if line.start != () { line.start } else { 0 };
-                if type_of(ms) != "i64" {
-                    ms = ms.to_int();
-                }
-                // OpenSubsonic: a positive offset shows the lyrics sooner.
-                ms -= offset;
-                if ms < 0 {
-                    ms = 0;
-                }
-                let value = if line.value != () { line.value } else { "" };
-                text += `[${two(ms / 60000)}:${two((ms % 60000) / 1000)}.${two((ms % 1000) / 10)}]${value}` + "\n";
-            }
-            if text != "" {
-                return #{ synced: text };
-            }
-        } else if plain == "" {
-            for line in lyrics.line {
-                if line.value != () {
-                    plain += line.value + "\n";
-                }
-            }
-        }
-    }
-    if plain != "" { #{ plain: plain } } else { () }
-}
-"#,
-    ),
 ];
 
 /// Extra files for the example plugins: (folder, file name, contents).
@@ -2405,47 +2243,6 @@ pub const EXAMPLE_FILES: &[(&str, &str, &str)] = &[(
 )
 "#,
 )];
-
-/// Scripts of the Navidrome / Subsonic plugin from before bundled plugins kept a record
-/// (SHA-256). A copy that still matches one exactly was never edited, so it is updated.
-const EARLIER_EXAMPLES: &[(&str, &str)] = &[
-    (
-        "subsonic",
-        "fc69ff1803c8c06ddb36a9f849aca1d561cd29adabbcbd7de77ee100d6371acc",
-    ),
-    (
-        "subsonic",
-        "6d850964abfedd0a27cf8cf365b1e88524c54b0d301e3d8644849172ee7e7e70",
-    ),
-    (
-        "subsonic",
-        "62f1f6b31fb90aa09fd19f8aee0ee31b40437b696474135b3f121de2c812bebd",
-    ),
-    (
-        "subsonic",
-        "1c7ea98aca006966d667d45e3192de3ed661e9424896d9404fb60c3e7c9e1e5b",
-    ),
-    (
-        "subsonic",
-        "41f1421aee56cf12d4febbab87f2f6216d888fb7d563dfcfb133eb036307818f",
-    ),
-    (
-        "subsonic",
-        "57942e2acdcd0a0e376c59d7dc4dabc05c3c990394c10673a8e5c29207881862",
-    ),
-    (
-        "subsonic",
-        "6ed2b6a5b1f7c0d6018af622b35ccf394ab7dc083ae6c9ed9e895e9b1f22cce8",
-    ),
-    (
-        "subsonic",
-        "f66bd34adddf7ee5561fbe38c18ba3a14cb02ff8532b4b5f68921ab7426ce4b1",
-    ),
-    (
-        "subsonic",
-        "ae1bfab837a569a518d79b710ee56031663be2202dca5d33ae60f489190c8ce4",
-    ),
-];
 
 /// What Needle installed in a bundled plugin's folder, kept in `.bundled.json`: its
 /// version, a fingerprint of its files as written, and a newer version the person chose not
@@ -2610,10 +2407,6 @@ fn unedited_version(dir: &Path, name: &str) -> Option<String> {
     }
     // Installed before records were kept.
     let script = std::fs::read(dir.join("main.rhai")).ok()?;
-    let hash = {
-        use sha2::{Digest, Sha256};
-        format!("{:x}", Sha256::digest(&script))
-    };
     if fingerprint_on_disk(dir, name)
         == fingerprint(
             bundled_files(name)
@@ -2622,14 +2415,13 @@ fn unedited_version(dir: &Path, name: &str) -> Option<String> {
         )
     {
         Some(bundled_version(name))
-    } else if (EARLIER_EXAMPLES.contains(&(name, hash.as_str()))
-        || bundled_files(name)
-            .iter()
-            .any(|(file, contents)| *file == "main.rhai" && script == contents.as_bytes()))
+    } else if bundled_files(name)
+        .iter()
+        .any(|(file, contents)| *file == "main.rhai" && script == contents.as_bytes())
         // Updating writes plugin.toml too, so it must be unchanged as well.
         && manifest_unchanged(dir, name)
     {
-        // An earlier script, or this one with an earlier plugin.toml.
+        // This script with an earlier plugin.toml.
         Some("0".into())
     } else {
         None
@@ -2739,6 +2531,10 @@ mod tests {
             std::thread::sleep(Duration::from_millis(20));
         }
     }
+    /// The plugins from folders, without the sources built into Needle.
+    fn own(host: &PluginHost) -> Vec<PluginInfo> {
+        host.plugins().into_iter().filter(|p| !p.builtin).collect()
+    }
     fn setup() -> (
         tempfile::TempDir,
         Library,
@@ -2769,9 +2565,11 @@ mod tests {
     #[test]
     fn examples_load_disabled_then_run_when_enabled() {
         let (_dir, _library, host, seen) = setup();
-        let plugins = wait(|| Some(host.plugins()).filter(|p| p.len() == EXAMPLES.len()));
+        let plugins = wait(|| Some(host.plugins()).filter(|p| p.len() == EXAMPLES.len() + 1));
         assert!(
-            plugins.iter().all(|p| !p.enabled && p.error.is_none()),
+            plugins
+                .iter()
+                .all(|p| p.builtin == p.enabled && p.error.is_none()),
             "{plugins:?}"
         );
         assert!(
@@ -2989,8 +2787,7 @@ mod tests {
                 answers.lock().unwrap().push((generation, tracks));
             }
         });
-        wait(|| Some(host.plugins()).filter(|p| p.len() == EXAMPLES.len()));
-        host.send(PluginEvent::Enable("subsonic".into(), true));
+        wait(|| Some(host.plugins()).filter(|p| p.len() == EXAMPLES.len() + 1));
         let source = || {
             host.plugins()
                 .into_iter()
@@ -3056,8 +2853,7 @@ mod tests {
         let library = Library::open(dir.path()).unwrap();
         install_examples(&library).unwrap();
         let host = PluginHost::start(library.clone(), Arc::default(), |_| {});
-        wait(|| Some(host.plugins()).filter(|p| p.len() == EXAMPLES.len()));
-        host.send(PluginEvent::Enable("subsonic".into(), true));
+        wait(|| Some(host.plugins()).filter(|p| p.len() == EXAMPLES.len() + 1));
         let source = || {
             host.plugins()
                 .into_iter()
@@ -3232,8 +3028,7 @@ mod tests {
         let library = Library::open(dir.path()).unwrap();
         install_examples(&library).unwrap();
         let host = PluginHost::start(library.clone(), Arc::default(), |_| {});
-        wait(|| Some(host.plugins()).filter(|p| p.len() == EXAMPLES.len()));
-        host.send(PluginEvent::Enable("subsonic".into(), true));
+        wait(|| Some(host.plugins()).filter(|p| p.len() == EXAMPLES.len() + 1));
         let source = || {
             host.plugins()
                 .into_iter()
@@ -3280,8 +3075,7 @@ mod tests {
         let library = Library::open(dir.path()).unwrap();
         install_examples(&library).unwrap();
         let host = PluginHost::start(library.clone(), Arc::default(), |_| {});
-        wait(|| Some(host.plugins()).filter(|p| p.len() == EXAMPLES.len()));
-        host.send(PluginEvent::Enable("subsonic".into(), true));
+        wait(|| Some(host.plugins()).filter(|p| p.len() == EXAMPLES.len() + 1));
         let source = || {
             host.plugins()
                 .into_iter()
@@ -3318,8 +3112,7 @@ mod tests {
         let library = Library::open(dir.path()).unwrap();
         install_examples(&library).unwrap();
         let host = PluginHost::start(library.clone(), Arc::default(), |_| {});
-        wait(|| Some(host.plugins()).filter(|p| p.len() == EXAMPLES.len()));
-        host.send(PluginEvent::Enable("subsonic".into(), true));
+        wait(|| Some(host.plugins()).filter(|p| p.len() == EXAMPLES.len() + 1));
         let source = || {
             host.plugins()
                 .into_iter()
@@ -3341,52 +3134,110 @@ mod tests {
         assert_eq!(synced.songs, 250);
     }
 
+    /// Navidrome / Subsonic is built in: always there and on, without a plugin folder. The
+    /// plugin it replaces stays on disk, unused; one someone changed is mentioned, once.
+    #[test]
+    fn the_built_in_server_source_replaces_the_plugin() {
+        let dir = tempfile::tempdir().unwrap();
+        let library = Library::open(dir.path()).unwrap();
+        let old = dir.path().join("plugins").join("subsonic");
+        std::fs::create_dir_all(&old).unwrap();
+        std::fs::write(
+            old.join("plugin.toml"),
+            "id = \"subsonic\"
+name = \"Navidrome / Subsonic\"
+permissions = [\"network\"]
+",
+        )
+        .unwrap();
+        std::fs::write(old.join("main.rhai"), "fn source() { #{ name: \"Mine\" } }").unwrap();
+        let record = Bundled {
+            version: "1.4.1".into(),
+            hash: "what Needle wrote".into(),
+            ..Default::default()
+        };
+        std::fs::write(
+            old.join(BUNDLED_RECORD),
+            serde_json::to_string(&record).unwrap(),
+        )
+        .unwrap();
+        library
+            .set_json(ENABLED_KEY, &BTreeSet::from(["subsonic".to_string()]))
+            .unwrap();
+        let seen: Arc<Mutex<Vec<HostAction>>> = Arc::default();
+        let sink = seen.clone();
+        let host = PluginHost::start(library.clone(), Arc::default(), move |a| {
+            sink.lock().unwrap().push(a)
+        });
+        let plugins = wait(|| Some(host.plugins()).filter(|p| !p.is_empty()));
+        assert_eq!(plugins.len(), 1, "{plugins:?}");
+        let built_in = &plugins[0];
+        assert!(built_in.builtin && built_in.enabled);
+        let source = built_in.source.as_ref().unwrap();
+        assert_eq!(
+            (source.name.as_str(), source.signed_in),
+            (crate::subsonic::NAME, false)
+        );
+        // Turning it off does nothing: it is part of Needle.
+        host.send(PluginEvent::Enable("subsonic".into(), false));
+        host.send(PluginEvent::Reload);
+        // An answer comes after the events before it are done.
+        assert_eq!(host.source_lyrics("subsonic", "1").unwrap(), None);
+        let told = seen
+            .lock()
+            .unwrap()
+            .iter()
+            .filter(|a| matches!(a, HostAction::Notify(n) if n.contains("built into Needle")))
+            .count();
+        assert_eq!(told, 1, "said once");
+        let plugins = host.plugins();
+        assert!(plugins.len() == 1 && plugins[0].builtin && plugins[0].enabled);
+        assert!(old.join("main.rhai").is_file(), "the old plugin is kept");
+        assert!(!is_official(&old, "subsonic"));
+        assert!(!install_example(&library, "subsonic").unwrap());
+    }
+
     /// Unedited bundled plugins update to a newer version; changed ones are offered the
     /// update, which keeps the changes as `.mine`, or can be kept as they are.
     #[test]
     fn bundled_plugins_update_unless_changed() {
         let dir = tempfile::tempdir().unwrap();
         let folder = dir.path();
-        let plugin = folder.join("subsonic");
+        let plugin = folder.join("netease-lyrics");
         let read = |file: &str| std::fs::read_to_string(plugin.join(file)).unwrap();
-        let current = bundled_version("subsonic");
-
-        // Installed before records were kept, still as shipped: updated, and recorded.
-        std::fs::create_dir_all(&plugin).unwrap();
-        // The bundled plugin.toml as it was then: the same but for its version.
-        let old_manifest = bundled_files("subsonic")[0]
+        let current = bundled_version("netease-lyrics");
+        // The bundled plugin.toml as an earlier version had it: the same but for its version.
+        let old_manifest = bundled_files("netease-lyrics")[0]
             .1
-            .replace(&format!("version = \"{current}\""), "version = \"1.0.0\"");
+            .replace(&format!("version = \"{current}\""), "version = \"0.9.0\"");
+
+        // Before records were kept, with the current script but an older plugin.toml:
+        // updated, and recorded.
+        std::fs::create_dir_all(&plugin).unwrap();
         std::fs::write(plugin.join("plugin.toml"), &old_manifest).unwrap();
         std::fs::write(
             plugin.join("main.rhai"),
-            include_str!("../testdata/subsonic-1.0.1.rhai"),
+            bundled_files("netease-lyrics")[1].1,
         )
         .unwrap();
         assert_eq!(update_examples(folder), 1);
-        assert!(read("main.rhai").contains("Navidrome uses :4533"));
+        assert!(read("plugin.toml").contains(&current));
         assert_eq!(read_record(&plugin).unwrap().version, current);
         assert_eq!(update_examples(folder), 0, "already up to date");
-        assert_eq!(bundled_update(&plugin, "subsonic"), None);
-
-        // Before records, with the current script but an older plugin.toml: updated.
-        std::fs::remove_file(plugin.join(BUNDLED_RECORD)).unwrap();
-        std::fs::write(plugin.join("plugin.toml"), &old_manifest).unwrap();
-        assert_eq!(update_examples(folder), 1);
-        assert!(read("plugin.toml").contains(&current));
+        assert_eq!(bundled_update(&plugin, "netease-lyrics"), None);
 
         // Before records, with a plugin.toml someone changed (its name): left alone, since
         // updating would overwrite it.
         std::fs::remove_file(plugin.join(BUNDLED_RECORD)).unwrap();
-        let renamed = old_manifest.replace("Navidrome / Subsonic", "My server");
+        let renamed = old_manifest.replace("NetEase lyrics", "My lyrics");
         std::fs::write(plugin.join("plugin.toml"), &renamed).unwrap();
         assert_eq!(update_examples(folder), 0);
         assert_eq!(read("plugin.toml"), renamed);
-        write_bundled(&plugin, "subsonic", false).unwrap();
+        write_bundled(&plugin, "netease-lyrics", false).unwrap();
 
         // An older recorded version nobody changed: updated.
         let mut record = read_record(&plugin).unwrap();
-        record.version = "1.0.5".into();
+        record.version = "0.9.5".into();
         std::fs::write(
             plugin.join(BUNDLED_RECORD),
             serde_json::to_string(&record).unwrap(),
@@ -3401,7 +3252,7 @@ mod tests {
         )
         .unwrap();
         let mut record = read_record(&plugin).unwrap();
-        record.version = "1.0.5".into();
+        record.version = "0.9.5".into();
         std::fs::write(
             plugin.join(BUNDLED_RECORD),
             serde_json::to_string(&record).unwrap(),
@@ -3410,29 +3261,29 @@ mod tests {
         assert_eq!(update_examples(folder), 0);
         assert!(read("main.rhai").ends_with("// mine"));
         assert_eq!(
-            bundled_update(&plugin, "subsonic").as_deref(),
+            bundled_update(&plugin, "netease-lyrics").as_deref(),
             Some(current.as_str())
         );
 
         // Keeping it stops the offer for this version.
-        keep_changed_plugin(&plugin, "subsonic").unwrap();
-        assert_eq!(bundled_update(&plugin, "subsonic"), None);
+        keep_changed_plugin(&plugin, "netease-lyrics").unwrap();
+        assert_eq!(bundled_update(&plugin, "netease-lyrics"), None);
         assert!(read("main.rhai").ends_with("// mine"));
 
         // Official either way; verified only while unchanged.
-        assert!(is_official(&plugin, "subsonic"));
-        assert!(!is_official(&folder.join("copycat"), "subsonic"));
-        assert!(unedited_version(&plugin, "subsonic").is_none());
+        assert!(is_official(&plugin, "netease-lyrics"));
+        assert!(!is_official(&folder.join("copycat"), "netease-lyrics"));
+        assert!(unedited_version(&plugin, "netease-lyrics").is_none());
 
         // Taking it replaces the files and keeps the changed script as main.rhai.mine; a
         // second update keeps the first copy and adds another.
         std::fs::write(plugin.join("main.rhai.mine"), "first copy").unwrap();
-        take_bundled_update(&plugin, "subsonic").unwrap();
+        take_bundled_update(&plugin, "netease-lyrics").unwrap();
         assert!(!read("main.rhai").ends_with("// mine"));
         assert_eq!(read("main.rhai.mine"), "first copy");
         assert!(read("main.rhai.mine-2").ends_with("// mine"));
         assert_eq!(
-            unedited_version(&plugin, "subsonic").as_deref(),
+            unedited_version(&plugin, "netease-lyrics").as_deref(),
             Some(current.as_str())
         );
     }
@@ -3496,8 +3347,8 @@ fn on_file_dropped(file) {
             }
         });
         host.send(PluginEvent::Enable("converter".into(), true));
-        wait(|| host.plugins().into_iter().find(|p| p.enabled));
-        assert_eq!(host.plugins()[0].manifest.opens, ["json"]);
+        wait(|| own(&host).into_iter().find(|p| p.enabled));
+        assert_eq!(own(&host)[0].manifest.opens, ["json"]);
         host.send(PluginEvent::Run {
             plugin: "converter".into(),
             command: "name".into(),
@@ -3554,7 +3405,7 @@ fn on_file_dropped(file) {
         .unwrap();
         let host = PluginHost::start(library, Arc::default(), |_| {});
         host.send(PluginEvent::Enable("sneaky".into(), true));
-        let plugin = wait(|| host.plugins().into_iter().find(|p| p.enabled));
+        let plugin = wait(|| own(&host).into_iter().find(|p| p.enabled));
         assert!(plugin.source.is_none());
     }
 
@@ -3571,11 +3422,11 @@ fn on_file_dropped(file) {
         .unwrap();
         std::fs::write(folder.join("themes").join("mint.toml"), "name = \"Mint\"").unwrap();
         let host = PluginHost::start(library, Arc::default(), |_| {});
-        let plugins = wait(|| Some(host.plugins()).filter(|p| p.len() == 1));
+        let plugins = wait(|| Some(own(&host)).filter(|p| p.len() == 1));
         assert!(plugins[0].error.is_none(), "{:?}", plugins[0].error);
         host.send(PluginEvent::Enable("pastels".into(), true));
-        wait(|| host.plugins()[0].enabled.then_some(()));
-        assert!(host.plugins()[0].error.is_none());
+        wait(|| own(&host)[0].enabled.then_some(()));
+        assert!(own(&host)[0].error.is_none());
     }
 
     #[test]
@@ -3589,7 +3440,7 @@ fn on_file_dropped(file) {
         let host = PluginHost::start(library.clone(), registry.clone(), move |a| {
             sink.lock().unwrap().push(a)
         });
-        wait(|| Some(host.plugins()).filter(|p| p.len() == EXAMPLES.len()));
+        wait(|| Some(host.plugins()).filter(|p| p.len() == EXAMPLES.len() + 1));
         assert!(registry.all().is_empty());
         host.send(PluginEvent::Enable("studio-effects".into(), true));
         host.send(PluginEvent::Enable("bitcrusher".into(), true));
@@ -3758,7 +3609,7 @@ fn run(command, ids) {
         let host = PluginHost::start(library.clone(), Default::default(), move |a| {
             sink.lock().unwrap().push(a)
         });
-        let plugins = wait(|| Some(host.plugins()).filter(|p| p.len() == 2));
+        let plugins = wait(|| Some(own(&host)).filter(|p| p.len() == 2));
         assert!(plugins.iter().any(|p| {
             p.error
                 .as_deref()
