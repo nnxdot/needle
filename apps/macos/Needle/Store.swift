@@ -323,10 +323,10 @@ final class Store {
         themes = JSON.decode([ThemeFile].self, core.themesJson(), plain: true) ?? []
     }
 
-    /// Music servers signed in, for the sidebar: plugin id and name.
+    /// Music servers signed in, for searching them: plugin id and name.
     var servers: [(plugin: String, name: String)] {
         plugins.compactMap { p in
-            guard p.enabled, let source = p.source, source.signedIn else { return nil }
+            guard p.enabled || p.builtIn, let source = p.source, source.signedIn else { return nil }
             return (p.id, source.name)
         }
     }
