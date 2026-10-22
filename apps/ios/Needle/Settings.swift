@@ -20,7 +20,8 @@ struct SettingsView: View {
                 }
             }
             Section {
-                row("Plugins", "Music servers, NetEase lyrics, effects", "puzzlepiece.extension", .teal, .plugins)
+                row("Music server", "Navidrome and other Subsonic servers", "server.rack", .cyan, .server("subsonic"))
+                row("Plugins", "NetEase lyrics, effects, and commands", "puzzlepiece.extension", .teal, .plugins)
                 row("Your computer", "Control Needle there, play its music here", "laptopcomputer", .indigo, .computer)
                 row("Sync", "Move history, ratings, and playlists", "arrow.triangle.2.circlepath", .yellow, .sync)
                 row("Fix my library", "Tags, duplicates, covers, and files", "wrench.and.screwdriver", .green, .fixLibrary)
@@ -802,7 +803,7 @@ struct PluginsView: View {
                     Task { await reload() }
                 }
             } footer: {
-                Text("Plugins add music servers (Navidrome, Subsonic), lyrics from NetEase, sound effects, and commands. They run inside Needle, with only the permissions they list.")
+                Text("Plugins add lyrics from NetEase, sound effects, and commands. They run inside Needle, with only the permissions they list. Music servers are built into Needle: see Sources.")
             }
             Section {
                 ForEach(plugins ?? [], id: \.id) { plugin in
@@ -825,7 +826,8 @@ struct PluginsView: View {
     }
 
     private func reload() async {
-        plugins = await store.load { $0.plugins() }
+        // Parts built into Needle (its music server) are not plugins here.
+        plugins = await store.load { $0.plugins().filter { !$0.builtIn } }
     }
 }
 
