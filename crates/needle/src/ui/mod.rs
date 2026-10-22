@@ -3008,7 +3008,18 @@ impl Render for AppView {
                                 ),
                             )
                         } else {
-                            el.child(row.child(sheet)).children(foot)
+                            // Lyrics under the player: at the foot, under it; with the player in
+                            // the title bar, right under that.
+                            let lyrics = self.player_lyrics(cx);
+                            let (above, under) = if player_foot {
+                                (None, lyrics)
+                            } else {
+                                (lyrics, None)
+                            };
+                            el.children(above)
+                                .child(row.child(sheet))
+                                .children(foot)
+                                .children(under)
                         }
                     }),
             )
