@@ -227,12 +227,13 @@ struct MainWindow: View {
             // the title bar; see `toolbar`).
             .safeAreaInset(edge: .bottom, spacing: 0) {
                 if !store.settings.layout.playerOnTop && !Self.drop.contains("player") {
-                    VStack(spacing: 4) {
+                    // The strip takes about 12 pt more than the bar alone: no tall band under it.
+                    VStack(spacing: 2) {
                         PlayerBar()
                         // Lyrics under the player (Settings › Appearance): the line being sung.
                         if LyricStrip.shows { LyricStrip() }
                     }
-                    .padding(.horizontal, 20).padding(.bottom, LyricStrip.shows ? 8 : 14).padding(.top, 4)
+                    .padding(.horizontal, 20).padding(.bottom, LyricStrip.shows ? 4 : 14).padding(.top, 4)
                     // Clear of the side panel on pages that run under it.
                     .padding(.trailing, store.settings.showInspector && Self.runsUnder(store.route) ? Self.panelWidth + 20 : 0)
                 }
@@ -240,7 +241,7 @@ struct MainWindow: View {
             // With the player in the title bar, the line goes right under it, over the page.
             .overlay(alignment: .top) {
                 if store.settings.layout.playerOnTop && LyricStrip.shows {
-                    LyricStrip().padding(.horizontal, 20).padding(.top, 4)
+                    LyricStrip().padding(.horizontal, 20).padding(.top, 2)
                 }
             }
     }
