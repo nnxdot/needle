@@ -1107,7 +1107,12 @@ mod tests {
         let stop = || Arc::new(AtomicBool::new(false));
         import(&library, &music, stop(), |_| {}).unwrap();
         let path = music.join("song.wav").canonicalize().unwrap();
-        let song = |library: &Library| library.track_by_path(&path.to_string_lossy()).unwrap().unwrap();
+        let song = |library: &Library| {
+            library
+                .track_by_path(&path.to_string_lossy())
+                .unwrap()
+                .unwrap()
+        };
         assert_eq!(song(&library).artwork, None);
 
         // The cover arrives (or Android lets Needle see it): the song is read again for it.

@@ -368,19 +368,6 @@ impl AppView {
                             })
                             .collect::<Vec<_>>(),
                     )
-                    .children({
-                        let sources = self.signed_in_sources();
-                        (!sources.is_empty()).then(|| self.section("Servers", cx))
-                    })
-                    .children(self.signed_in_sources().into_iter().map(|(plugin, name)| {
-                        self.nav_item(
-                            SharedString::from(format!("nav-source-{plugin}")),
-                            name.clone(),
-                            "globe",
-                            Page::Source { plugin, name },
-                            cx,
-                        )
-                    }))
                     .child(if rail {
                         div()
                             .flex_shrink_0()

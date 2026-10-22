@@ -41,6 +41,7 @@ pub use secrets::set_android_folder;
 pub use secrets::set_keychain_folder;
 pub mod sources;
 pub mod stems;
+pub mod subsonic;
 pub mod sync;
 pub mod update;
 pub mod wrapped;
