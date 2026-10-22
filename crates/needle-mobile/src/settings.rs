@@ -128,6 +128,10 @@ pub struct AppSettings {
     /// Moving covers (a video beside the songs, such as cover.mp4) play in the player.
     #[uniffi(default = true)]
     pub animated_covers: bool,
+    /// Songs from a music server show a small server icon beside their artist (the same
+    /// choice as the computer's `server_mark`).
+    #[uniffi(default = true)]
+    pub server_mark: bool,
 }
 
 impl Default for AppSettings {
@@ -161,6 +165,7 @@ impl Default for AppSettings {
             welcomed: false,
             immersive_cover: true,
             animated_covers: true,
+            server_mark: true,
         }
     }
 }
