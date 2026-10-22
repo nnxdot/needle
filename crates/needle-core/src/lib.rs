@@ -36,9 +36,8 @@ mod secrets;
 /// Android: where the app keeps its secrets (see `secrets`).
 #[cfg(target_os = "android")]
 pub use secrets::set_android_folder;
-/// The Mac: where the app lists the Keychain items it has made its own (see `secrets`).
-#[cfg(target_os = "macos")]
-pub use secrets::set_keychain_folder;
+/// The library folder: a test copy's, with a `secrets.json` in it, keeps its secrets there.
+pub use secrets::set_secrets_folder;
 pub mod sources;
 pub mod stems;
 pub mod subsonic;

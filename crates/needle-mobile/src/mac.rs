@@ -369,7 +369,7 @@ fn follow_status(player: needle_core::audio::Player, library: Library) {
             std::thread::sleep(Duration::from_millis(1000));
             ticks += 1;
             let refresh = DESK.discord_refresh.swap(false, Ordering::SeqCst);
-            if refresh || ticks % 5 == 0 {
+            if refresh || ticks.is_multiple_of(5) {
                 settings = library.settings().unwrap_or(settings);
             }
             let state = player.state();
@@ -474,8 +474,6 @@ impl Needle {
         if DESK.started.swap(true, Ordering::SeqCst) {
             return;
         }
-        #[cfg(target_os = "macos")]
-        needle_core::set_keychain_folder(self.library.directory.clone());
         let settings = self.library.settings().unwrap_or_default();
         DESK.measuring
             .store(settings.sound_analysis, Ordering::SeqCst);

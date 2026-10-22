@@ -343,7 +343,7 @@ impl AppView {
             })
             .detach();
         }
-        // For screenshots: a page, once the window is up (NEEDLE_SHOW_PAGE: "songs", or
+        // For screenshots: a page, once the window is up (NEEDLE_SHOW_PAGE: "home", "songs", or
         // "settings:2" for a tab of Settings).
         if let Ok(page) = std::env::var("NEEDLE_SHOW_PAGE") {
             cx.spawn_in(window, async move |view, cx| {
@@ -353,6 +353,7 @@ impl AppView {
                         v.settings_tab = tab.parse().unwrap_or(0);
                         open(v, Page::Settings, window, cx)
                     }
+                    _ if page == "home" => open(v, Page::Home, window, cx),
                     _ => open(v, Page::Songs, window, cx),
                 });
             })
