@@ -358,12 +358,17 @@ impl AppView {
             })
             .detach();
         }
-        // For screenshots: the big player, once the window is up.
-        if std::env::var_os("NEEDLE_SHOW_BIG").is_some() {
+        // For screenshots: the big player, once the window is up ("moving": held as it is while
+        // it grows, over the page and under the usual title bar).
+        if let Ok(how) = std::env::var("NEEDLE_SHOW_BIG") {
             cx.spawn_in(window, async move |view, cx| {
                 cx.background_executor().timer(Duration::from_secs(3)).await;
                 let _ = view.update(cx, |v, cx| {
                     v.big = true;
+                    if how == "moving" {
+                        v.big_was = true;
+                        v.big_moving = true;
+                    }
                     cx.notify();
                 });
             })

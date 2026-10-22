@@ -11,7 +11,22 @@ use gpui_component::{
 };
 use needle_core::{audio::Command, audio::Repeat, model::format_duration};
 
+/// The height of the strip with the sung line under the player.
+const LYRIC_STRIP: f32 = 22.;
+
 impl AppView {
+    /// The title bar's height: taller with the player in it. Over the big player it keeps its
+    /// height, so the player's contents do not move when it opens.
+    pub(super) fn title_height(&self, window: &Window) -> f32 {
+        let server_frame =
+            cfg!(target_os = "linux") && matches!(window.window_decorations(), Decorations::Server);
+        if self.settings.layout.player_on_top && !server_frame {
+            60.
+        } else {
+            48.
+        }
+    }
+
     pub(super) fn title_bar(
         &self,
         sidebar: f32,
@@ -105,11 +120,7 @@ impl AppView {
                 .into_any_element();
         }
         TitleBar::new()
-            .h(px(if self.settings.layout.player_on_top && !over_big {
-                60.
-            } else {
-                super::BIG_BAR
-            }))
+            .h(px(self.title_height(window)))
             .pl_0()
             .bg(if over_big {
                 transparent_black()
@@ -655,7 +666,7 @@ impl AppView {
             .px_6()
             .text_center()
             .truncate()
-            .text_size(px(13.5))
+            .text_size(px(13.))
             .font_weight(FontWeight::MEDIUM)
             .text_color(if line.is_some() { p.ink } else { p.ink_3 })
             .child(line.unwrap_or("♪").to_string());
@@ -664,7 +675,7 @@ impl AppView {
         Some(
             div()
                 .id("player-lyrics")
-                .h(px(30.))
+                .h(px(LYRIC_STRIP))
                 .flex_shrink_0()
                 .flex()
                 .items_center()
@@ -682,12 +693,18 @@ impl AppView {
 
     pub(super) fn player_bar(&self, width: Pixels, cx: &mut Context<Self>) -> impl IntoElement {
         let p = pal(cx);
+        // With the sung line under it, the bar gives up the room under its controls.
+        let lyrics_under = !self.settings.layout.player_on_top && self.player_lyrics(cx).is_some();
         let current = self.playback.current.as_ref().map(|i| i.track.clone());
         let wide = width > px(1180.);
         let (path, path_detail, exclusive) = self.signal_path(cx);
         let floating = self.floating();
         div()
-            .h(px(if floating { 76. } else { 80. }))
+            .h(px(match (floating, lyrics_under) {
+                (true, _) => 76.,
+                (false, true) => 70.,
+                (false, false) => 80.,
+            }))
             .flex_shrink_0()
             .relative()
             // macOS: the player floats on its own pane of glass, clear of the window's edges, over
