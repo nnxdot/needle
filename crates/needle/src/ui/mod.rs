@@ -147,8 +147,6 @@ const PLAY_LIMIT: usize = 50_000;
 const PAGE_SIZE: usize = 1000;
 /// How long the big player takes to grow or shrink.
 const BIG_MS: u64 = 260;
-/// The title bar's height over the big player, which runs under it.
-const BIG_BAR: f32 = 48.;
 
 /// Collections that can be added to the sidebar (the + beside Collections): key, name, icon,
 /// and the rule for their songs.
@@ -2651,13 +2649,25 @@ impl Render for AppView {
                 .detach();
             }
         }
-        // The big player fills the window, under the title bar, which then carries its buttons.
+        // The big player grows over the page, under the usual title bar; once open, it fills the
+        // window under the title bar, which then carries its buttons. Its contents stay where
+        // they are as it moves from one to the other.
         let big_layer = (!self.immersive && (self.big || self.big_moving)).then(|| {
             let body = widgets::content_size(window);
-            let (w, h) = (f32::from(body.width), f32::from(body.height));
+            let bar = if self.big_moving {
+                self.title_height(window)
+            } else {
+                0.
+            };
+            let (w, h) = (f32::from(body.width), f32::from(body.height) - bar);
             let player = self.big_player(window, cx);
-            self.big_reveal(player, w, h, cx)
+            self.big_reveal(player, w, h, bar, cx)
         });
+        let (big_over_page, big_under_bar) = if self.big_moving {
+            (big_layer, None)
+        } else {
+            (None, big_layer)
+        };
         div()
             .id("needle-app")
             .key_context("Needle")
@@ -2894,7 +2904,7 @@ impl Render for AppView {
             // pointer consumes the mouse-down, and Windows then never starts a drag, resize, or
             // maximize from the title bar.
             .children(ambient_layer)
-            .children(big_layer)
+            .children(big_under_bar)
             .when(!self.immersive, |el| {
                 el.child(self.title_bar(sidebar, window, cx))
             })
@@ -3021,7 +3031,8 @@ impl Render for AppView {
                                 .children(foot)
                                 .children(under)
                         }
-                    }),
+                    })
+                    .children(big_over_page),
             )
             .children(grain)
             .children(self.toast(cx))
