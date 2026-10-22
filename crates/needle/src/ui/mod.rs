@@ -147,6 +147,8 @@ const PLAY_LIMIT: usize = 50_000;
 const PAGE_SIZE: usize = 1000;
 /// How long the big player takes to grow or shrink.
 const BIG_MS: u64 = 260;
+/// The title bar's height over the big player, which runs under it.
+const BIG_BAR: f32 = 48.;
 
 /// Collections that can be added to the sidebar (the + beside Collections): key, name, icon,
 /// and the rule for their songs.
@@ -1635,6 +1637,7 @@ impl AppView {
         if motion::take_slow_loops() {
             events = true;
         }
+        thumbs::set_scale(window.scale_factor());
         if thumbs::made() != self.thumbs_seen {
             self.thumbs_seen = thumbs::made();
             events = true;
@@ -2305,6 +2308,8 @@ impl AppView {
             if let Some(track) = self.focused.as_mut().filter(|t| &t.id == id) {
                 track.rating = rating;
             }
+            // The player's copies too: the Details panel shows the playing song from them.
+            self.player.send(Command::Rated(id.clone(), rating));
         }
     }
 
@@ -2646,9 +2651,10 @@ impl Render for AppView {
                 .detach();
             }
         }
-        let big_layer = (self.big || self.big_moving).then(|| {
+        // The big player fills the window, under the title bar, which then carries its buttons.
+        let big_layer = (!self.immersive && (self.big || self.big_moving)).then(|| {
             let body = widgets::content_size(window);
-            let (w, h) = (f32::from(body.width), f32::from(body.height) - 48.);
+            let (w, h) = (f32::from(body.width), f32::from(body.height));
             let player = self.big_player(window, cx);
             self.big_reveal(player, w, h, cx)
         });
@@ -2888,6 +2894,7 @@ impl Render for AppView {
             // pointer consumes the mouse-down, and Windows then never starts a drag, resize, or
             // maximize from the title bar.
             .children(ambient_layer)
+            .children(big_layer)
             .when(!self.immersive, |el| {
                 el.child(self.title_bar(sidebar, window, cx))
             })
@@ -3001,10 +3008,20 @@ impl Render for AppView {
                                 ),
                             )
                         } else {
-                            el.child(row.child(sheet)).children(foot)
+                            // Lyrics under the player: at the foot, under it; with the player in
+                            // the title bar, right under that.
+                            let lyrics = self.player_lyrics(cx);
+                            let (above, under) = if player_foot {
+                                (None, lyrics)
+                            } else {
+                                (lyrics, None)
+                            };
+                            el.children(above)
+                                .child(row.child(sheet))
+                                .children(foot)
+                                .children(under)
                         }
-                    })
-                    .when(!self.immersive, |el| el.children(big_layer)),
+                    }),
             )
             .children(grain)
             .children(self.toast(cx))
