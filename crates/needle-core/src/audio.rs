@@ -161,6 +161,9 @@ pub enum Command {
     Shutdown,
     /// Keeps what plays now, as at a shutdown, and plays on.
     Persist,
+    /// A song was rated (by its id): its copies in the queue, the playing one too, show the
+    /// new rating at once, not only after the song is queued again.
+    Rated(String, i64),
 }
 
 #[derive(Clone)]
@@ -413,6 +416,22 @@ impl Queue {
     }
     fn touch(&mut self) {
         self.version += 1;
+    }
+    /// Give every copy of a song in the queue this rating.
+    fn rate(&mut self, id: &str, stars: i64) {
+        for item in self
+            .active
+            .iter_mut()
+            .chain(self.pending.iter_mut())
+            .chain(self.staged.iter_mut())
+            .chain(self.previous.iter_mut())
+            .chain(self.cycle.iter_mut())
+            .chain(self.repeat_tail.iter_mut())
+            .filter(|item| item.track.id == id)
+        {
+            item.track.rating = stars;
+        }
+        self.touch();
     }
     /// Items after the current one, in playing order.
     fn tail(&self) -> Vec<QueueItem> {
@@ -1630,6 +1649,12 @@ impl Worker {
                     self.restart(items, position, was_playing)?;
                 }
             }
+            Command::Rated(id, stars) => {
+                if let Some(item) = self.loading.as_mut().filter(|i| i.track.id == id) {
+                    item.track.rating = stars;
+                }
+                self.queue.rate(&id, stars);
+            }
             Command::ClearQueue => {
                 self.queue.repeat_tail.clear();
                 self.queue.pending.clear();
@@ -2678,6 +2703,25 @@ mod tests {
         rig.until_active("mono44.opus");
         assert!(rig.state().error.is_none());
         rig.until("finished", |w| !w.playing);
+    }
+
+    /// A rating shows on the playing song and on its copies up next at once.
+    #[test]
+    fn a_rating_reaches_the_songs_in_the_queue() {
+        let mut rig = rig(FakeOpener::with(&[], Some("Speakers")), Settings::default());
+        let list = rig.items(&["first", "second", "first"]);
+        rig.run(Command::Play(list));
+        rig.until_active("first");
+        rig.run(Command::Rated("first".into(), 4));
+        rig.worker.tick().unwrap();
+        let state = rig.state();
+        assert_eq!(state.current.map(|c| c.track.rating), Some(4));
+        let ratings: Vec<(String, i64)> = state
+            .queue
+            .iter()
+            .map(|i| (i.track.id.clone(), i.track.rating))
+            .collect();
+        assert_eq!(ratings, [("second".into(), 0), ("first".into(), 4)]);
     }
 
     #[test]

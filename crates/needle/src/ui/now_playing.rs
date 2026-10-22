@@ -1,5 +1,5 @@
 use super::{
-    AppView, BIG_MS, Page, album_page, motion, pal,
+    AppView, BIG_BAR, BIG_MS, Page, album_page, motion, pal,
     widgets::{artwork, faint, glyph, icon_button, meta, quality},
 };
 use gpui::{prelude::*, *};
@@ -174,23 +174,6 @@ impl AppView {
         }
         let (from, to, tint_serial) = self.big_tint;
         let canvas = p.canvas;
-        let side_button = |id: &'static str,
-                           name: &'static str,
-                           tip: &'static str,
-                           which: Side,
-                           cx: &mut Context<Self>| {
-            let active = self.big_side == which;
-            icon_button(id, name, tip)
-                .when(active, |b| b.text_color(p.accent))
-                .on_click(cx.listener(move |this, _, _, cx| {
-                    this.big_side = if this.big_side == which {
-                        Side::None
-                    } else {
-                        which
-                    };
-                    cx.notify();
-                }))
-        };
         let ambient = self.ambient_look();
         // Ambient: the cover fills the whole screen at full strength.
         let fit = if ambient {
@@ -251,77 +234,8 @@ impl AppView {
                     linear_color_stop(p.canvas.opacity(0.), 0.3),
                 )))
             })
-            .child(
-                div()
-                    .h(px(56.))
-                    .px_4()
-                    .flex_shrink_0()
-                    .flex()
-                    .items_center()
-                    .gap_2()
-                    .child(
-                        div()
-                            // macOS Liquid Glass: a round pane of glass.
-                            .when(liquid, |el| el.p(px(3.)).rounded_full().glass())
-                            .child(
-                                icon_button("close-big", "chevron-down", "Close the player · Esc")
-                                    .on_click(cx.listener(|this, _, _, cx| {
-                                        this.big = false;
-                                        cx.notify();
-                                    })),
-                            ),
-                    )
-                    .child(
-                        div()
-                            .flex_1()
-                            .min_w_0()
-                            .text_center()
-                            .truncate()
-                            .text_size(px(12.))
-                            .text_color(p.ink_2)
-                            .child(
-                                current
-                                    .as_ref()
-                                    .map(|i| i.reason.clone())
-                                    .unwrap_or_default(),
-                            ),
-                    )
-                    .child(
-                        div()
-                            .flex()
-                            .items_center()
-                            .gap_1()
-                            // macOS Liquid Glass: the buttons on one capsule of glass.
-                            .when(liquid, |el| el.px(px(6.)).py(px(3.)).rounded_full().glass())
-                            .child(side_button(
-                                "big-lyrics",
-                                "lyrics",
-                                "Lyrics",
-                                Side::Lyrics,
-                                cx,
-                            ))
-                            .child(side_button(
-                                "big-queue",
-                                "queue",
-                                "Up next",
-                                Side::Queue,
-                                cx,
-                            ))
-                            .child(side_button("big-stems", "stems", "Stems", Side::Stems, cx))
-                            .child(
-                                icon_button("big-full", "fullscreen", "Full screen · F11")
-                                    .on_click(cx.listener(|this, _, window, cx| {
-                                        this.set_immersive(true, window, cx)
-                                    })),
-                            )
-                            .child(icon_button("big-mini", "mini", "Mini player").on_click(
-                                cx.listener(|this, _, window, cx| {
-                                    this.big = false;
-                                    this.open_mini(window, cx);
-                                }),
-                            )),
-                    ),
-            )
+            // Room for the title bar, which carries the player's own buttons while it is open.
+            .child(div().h(px(BIG_BAR)).flex_shrink_0())
             .child(
                 div()
                     .flex_1()
@@ -607,6 +521,108 @@ impl AppView {
                 linear_color_stop(if plain { canvas } else { tone }, 0.85),
             ))
         })
+    }
+
+    /// The big player's own buttons, in the title bar while it is open (one bar, not two):
+    /// close, why this song plays, and the side panes, full screen, and the mini player.
+    pub(super) fn big_bar(&self, cx: &mut Context<Self>) -> Div {
+        let liquid = super::glass::liquid_on(cx);
+        let p = pal(cx);
+        // The song the big player shows (it was drawn first, and noted it).
+        let current = self
+            .playback
+            .current
+            .clone()
+            .or_else(|| self.last_item.as_ref().map(|(item, _)| item.clone()));
+        let side_button = |id: &'static str,
+                           name: &'static str,
+                           tip: &'static str,
+                           which: Side,
+                           cx: &mut Context<Self>| {
+            let active = self.big_side == which;
+            icon_button(id, name, tip)
+                .when(active, |b| b.text_color(p.accent))
+                .on_click(cx.listener(move |this, _, _, cx| {
+                    this.big_side = if this.big_side == which {
+                        Side::None
+                    } else {
+                        which
+                    };
+                    cx.notify();
+                }))
+        };
+        div()
+            .flex_1()
+            .h_full()
+            .pl_4()
+            .pr_2()
+            .flex_shrink_0()
+            .flex()
+            .items_center()
+            .gap_2()
+            .child(
+                div()
+                    // macOS Liquid Glass: a round pane of glass.
+                    .when(liquid, |el| el.p(px(3.)).rounded_full().glass())
+                    .child(
+                        icon_button("close-big", "chevron-down", "Close the player · Esc")
+                            .on_click(cx.listener(|this, _, _, cx| {
+                                this.big = false;
+                                cx.notify();
+                            })),
+                    ),
+            )
+            .child(
+                div()
+                    .flex_1()
+                    .min_w_0()
+                    .text_center()
+                    .truncate()
+                    .text_size(px(12.))
+                    .text_color(p.ink_2)
+                    .child(
+                        current
+                            .as_ref()
+                            .map(|i| i.reason.clone())
+                            .unwrap_or_default(),
+                    ),
+            )
+            .child(
+                div()
+                    .flex()
+                    .items_center()
+                    .gap_1()
+                    // macOS Liquid Glass: the buttons on one capsule of glass.
+                    .when(liquid, |el| el.px(px(6.)).py(px(3.)).rounded_full().glass())
+                    .child(side_button(
+                        "big-lyrics",
+                        "lyrics",
+                        "Lyrics",
+                        Side::Lyrics,
+                        cx,
+                    ))
+                    .child(side_button(
+                        "big-queue",
+                        "queue",
+                        "Up next",
+                        Side::Queue,
+                        cx,
+                    ))
+                    .child(side_button("big-stems", "stems", "Stems", Side::Stems, cx))
+                    .child(
+                        icon_button("big-full", "fullscreen", "Full screen · F11").on_click(
+                            cx.listener(|this, _, window, cx| this.set_immersive(true, window, cx)),
+                        ),
+                    )
+                    .child(
+                        icon_button("big-mini", "mini", "Mini player").on_click(cx.listener(
+                            |this, _, window, cx| {
+                                this.big = false;
+                                this.open_mini(window, cx);
+                            },
+                        )),
+                    ),
+            )
     }
 
     /// The upcoming queue as a simple list, shared by the big and mini players.
