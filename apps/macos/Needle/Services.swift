@@ -428,6 +428,8 @@ private struct SourceCard: View {
     let plugin: PluginItem
     @State private var fields: [String: String] = [:]
     @State private var usage: [UInt64] = [0, 0]
+    /// Songs played lately, kept for a while to play again without the network: count, bytes.
+    @State private var cached: [UInt64] = [0, 0]
     /// The sign-in form, shown only after Sign in….
     @State private var signingIn = false
     /// The server's albums and artists, counted from its songs in the library.
@@ -444,7 +446,7 @@ private struct SourceCard: View {
             }
         }
         .padding(.vertical, 4)
-        .task { usage = store.core.keptUsage(plugin: plugin.id) }
+        .task { loadUsage() }
         .task(id: "\(source.songs)|\(source.syncing)") {
             guard source.signedIn else { return }
             let rule = store.core.sourceRule(plugin: plugin.id)
@@ -483,9 +485,17 @@ private struct SourceCard: View {
                 Stat(value: source.syncedAt.map { Date(timeIntervalSince1970: TimeInterval($0)).formatted(.relative(presentation: .named)) } ?? "Not yet",
                      label: "Updated", symbol: "clock")
             }
-            SettingRow(title: "Kept on this Mac", detail: "Songs stream as you play them; the last 2 GB played stay here.", icon: "arrow.down.circle") {
-                Text("\((usage.first ?? 0).formatted()) songs · \(ByteCountFormatter.string(fromByteCount: Int64(usage.last ?? 0), countStyle: .file))")
-                    .foregroundStyle(.secondary).monospacedDigit()
+            SettingRow(title: "Kept offline", detail: "Songs you chose to keep. They play without the network.", icon: "arrow.down.circle") {
+                HStack(spacing: 12) {
+                    Text(sizeText(usage)).foregroundStyle(.secondary).monospacedDigit()
+                    if (usage.first ?? 0) > 0 { Button("Stop Keeping All…") { stopKeeping() } }
+                }
+            }
+            SettingRow(title: "Played lately", detail: "They play again without the network, for a while.", icon: "clock.arrow.circlepath") {
+                HStack(spacing: 12) {
+                    Text(sizeText(cached)).foregroundStyle(.secondary).monospacedDigit()
+                    if (cached.first ?? 0) > 0 { Button("Free Space…") { freeSpace() } }
+                }
             }
             if source.coversLeft > 0 {
                 SettingRow(title: "Bringing in covers", detail: "\(source.coversLeft.formatted()) to go.", icon: "photo.on.rectangle") { ProgressView().controlSize(.small) }
@@ -577,6 +587,47 @@ private struct SourceCard: View {
                 store.reloadPlugins()
             }
             store.libraryChanged()
+        }
+    }
+
+    private func loadUsage() {
+        usage = store.core.keptUsage(plugin: plugin.id)
+        cached = store.core.streamCacheUsage(plugin: plugin.id)
+    }
+
+    private func sizeText(_ numbers: [UInt64]) -> String {
+        "\((numbers.first ?? 0).formatted()) songs · \(ByteCountFormatter.string(fromByteCount: Int64(numbers.last ?? 0), countStyle: .file))"
+    }
+
+    /// Asks first, in the Mac's own alert; true for the first button.
+    private func confirm(_ title: String, _ text: String, _ button: String) -> Bool {
+        let alert = NSAlert()
+        alert.messageText = title
+        alert.informativeText = text
+        alert.addButton(withTitle: button)
+        alert.addButton(withTitle: "Cancel")
+        alert.buttons.first?.hasDestructiveAction = true
+        alert.buttons.last?.keyEquivalent = "\u{1b}"
+        return alert.runModal() == .alertFirstButtonReturn
+    }
+
+    private func stopKeeping() {
+        guard confirm("Stop keeping \((usage.first ?? 0).formatted()) songs?",
+                      "They stay on this Mac until the space is needed, then they stream again.", "Stop Keeping All") else { return }
+        let id = plugin.id
+        Task {
+            if let n = await store.ask({ try $0.forgetKept(plugin: id) }) { store.notify("\(n.formatted()) songs no longer kept.") }
+            loadUsage()
+        }
+    }
+
+    private func freeSpace() {
+        guard confirm("Free \(ByteCountFormatter.string(fromByteCount: Int64(cached.last ?? 0), countStyle: .file))?",
+                      "These songs stream again the next time you play them. Songs you kept stay.", "Free Space") else { return }
+        let id = plugin.id
+        Task {
+            if let n = await store.ask({ try $0.clearStreamCache(plugin: id) }) { store.notify("Freed \(n.formatted()) songs.") }
+            loadUsage()
         }
     }
 }
