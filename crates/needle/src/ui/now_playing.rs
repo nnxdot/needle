@@ -344,11 +344,16 @@ impl AppView {
                                             blur_radius: px(48.),
                                             spread_radius: px(-6.),
                                         }])
-                                        .child(artwork(
-                                            current.as_ref().map(|i| &i.track),
-                                            art,
-                                            cx,
-                                        )),
+                                        // Settings › Appearance › Moving covers: the cover
+                                        // moves here too with Immersive cover off.
+                                        .child(match &moving {
+                                            Some(path) => {
+                                                super::widgets::moving_cover("big-cover", path, art)
+                                            }
+                                            None => {
+                                                artwork(current.as_ref().map(|i| &i.track), art, cx)
+                                            }
+                                        }),
                                 )
                             })
                             .child(match &current {
