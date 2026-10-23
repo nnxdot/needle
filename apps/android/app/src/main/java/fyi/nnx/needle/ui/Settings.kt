@@ -932,7 +932,7 @@ private fun AppearanceSettings(open: (Route) -> Unit) {
     Group("Player cover") {
         SwitchRow("Immersive cover", "The cover fills the top of the player, edge to edge, as in Apple Music", app.immersiveCover) { on -> update { it.copy(immersiveCover = on) } }
         Divider()
-        SwitchRow("Moving covers", "A video beside the songs, such as cover.mp4, plays as the cover", app.animatedCovers) { on -> update { it.copy(animatedCovers = on) } }
+        SwitchRow("Moving covers", "A video or an animated picture beside the songs, such as cover.mp4, cover.webp, or cover.gif, plays as the cover", app.animatedCovers) { on -> update { it.copy(animatedCovers = on) } }
     }
     Group("Song lists") {
         SwitchRow("Mark server songs", "Songs from your music server show a small server icon beside their artist.", app.serverMark) { on -> update { it.copy(serverMark = on) } }
