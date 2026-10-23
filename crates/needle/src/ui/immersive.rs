@@ -70,6 +70,30 @@ impl AppView {
                 && (!lyrics.lines.is_empty() || !lyrics.plain.trim().is_empty()))
     }
 
+    /// The song's moving cover, an animated WebP or GIF beside its file, looked up once per
+    /// song (Settings › Appearance › Moving covers). The computer plays no cover videos.
+    pub(super) fn moving_cover(&mut self, track: &needle_core::model::Track) -> Option<String> {
+        // With Reduce motion on (in Needle or in the system), the cover keeps still.
+        if !self.settings.animated_covers
+            || self.settings.reduce_motion
+            || !super::motion::system_allows_animation()
+        {
+            return None;
+        }
+        if self
+            .moving_cover
+            .as_ref()
+            .is_none_or(|(id, _)| *id != track.id)
+        {
+            let found = needle_core::media::animated_picture(&self.library, track)
+                .map(|p| p.to_string_lossy().to_string());
+            self.moving_cover = Some((track.id.clone(), found));
+        }
+        self.moving_cover
+            .as_ref()
+            .and_then(|(_, path)| path.clone())
+    }
+
     pub(super) fn immersive_view(
         &mut self,
         window: &mut Window,
@@ -84,16 +108,22 @@ impl AppView {
         let look = self.now_look();
         let lyrics = self.immersive_lyrics && self.has_lyrics() && w >= 900.;
         // Settings > Appearance > Immersive cover, for a song with a cover of its own.
+        let moving = current.as_ref().and_then(|c| self.moving_cover(&c.track));
         let (cover_layer, cover_side, tone) = match self
             .settings
             .immersive_cover
-            .then(|| current.as_ref().and_then(|c| c.track.artwork.clone()))
+            .then(|| {
+                moving
+                    .clone()
+                    .or_else(|| current.as_ref().and_then(|c| c.track.artwork.clone()))
+            })
             .flatten()
         {
             Some(path) => {
                 let widest = if lyrics { w * 0.5 } else { w };
                 let (layer, side, tone) = super::now_playing::immersive_cover(
                     &path,
+                    moving.is_some(),
                     look.as_ref(),
                     w,
                     h,

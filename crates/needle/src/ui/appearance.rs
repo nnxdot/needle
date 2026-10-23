@@ -684,6 +684,14 @@ impl AppView {
                 cx,
             ))
             .child(self.switch_row(
+                "moving-covers",
+                "Moving covers",
+                "An animated WebP or GIF cover beside the songs moves in the big player.",
+                s.animated_covers,
+                |this, on, _| this.settings.animated_covers = on,
+                cx,
+            ))
+            .child(self.switch_row(
                 "player-lyrics",
                 "Lyrics under the player",
                 "The line being sung, under the player.",

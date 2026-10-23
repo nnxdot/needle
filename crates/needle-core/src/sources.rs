@@ -565,8 +565,7 @@ pub fn clear_cache(plugin: &str) -> Result<usize> {
     let mut removed = 0;
     for entry in std::fs::read_dir(&folder).into_iter().flatten().flatten() {
         let path = entry.path();
-        let busy =
-            path.extension().is_some_and(|x| x == "part") || active.iter().any(|a| *a == path);
+        let busy = path.extension().is_some_and(|x| x == "part") || active.contains(&path);
         if !busy && path.is_file() && std::fs::remove_file(&path).is_ok() {
             removed += 1;
         }

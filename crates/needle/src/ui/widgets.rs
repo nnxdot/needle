@@ -306,6 +306,7 @@ pub fn row_icon(title: &str) -> Option<&'static str> {
         "Film grain" => "blank",
         "Window glass" | "See-through" | "Glass behind the page" | "Liquid Glass" => "panel",
         "Immersive cover" => "fullscreen",
+        "Moving covers" => "play",
         "Lyrics under the player" => "lyrics",
         "Mark server songs" => "server",
         "Reduce motion" => "pause",
