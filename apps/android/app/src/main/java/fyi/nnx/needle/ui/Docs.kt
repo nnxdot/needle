@@ -18,6 +18,7 @@ import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.NewReleases
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.material.icons.automirrored.rounded.QueueMusic
 import androidx.compose.material.icons.rounded.AutoAwesome
@@ -130,96 +131,98 @@ private fun parse(version: String, text: String): Release {
 }
 
 /**
- * What's new, told like a magazine: each version's name large, its lead story on a coloured
- * card, its features each with an icon in the Needle shape, and its smaller fixes folded away.
- * The newest version is open; older ones open with a tap.
+ * What's new, in the Settings style: the newest version open, each change a row with a small
+ * icon, a bold title, and one short line (More for the rest); older versions folded into one row
+ * each ("1.7.0 · 12 changes"), which opens in place. Every version's notes are here.
  */
 @Composable
 fun WhatsNewPage() {
-    val releases = remember { core.whatsNew().take(8).map { parse(it.version, it.text) } }
-    var open by rememberSaveable { mutableStateOf(releases.firstOrNull()?.version) }
+    val releases = remember { core.whatsNew().map { parse(it.version, it.text) } }
+    var open by rememberSaveable { mutableStateOf(setOf<String>()) }
     LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = 32.dp + LocalBottomInset.current)) {
         item { LargeTitle("What's new") }
-        releases.forEachIndexed { index, release ->
-            item(key = release.version) {
-                ReleaseCard(release, open == release.version, index == 0) {
-                    open = if (open == release.version) null else release.version
+        releases.firstOrNull()?.let { newest ->
+            item(key = newest.version) {
+                Column(Modifier.padding(horizontal = 24.dp, vertical = 4.dp)) {
+                    Text(newest.version, style = MaterialTheme.typography.headlineSmall, modifier = Modifier.semantics { heading() })
+                    newest.tagline?.let { Text(it, style = MaterialTheme.typography.bodyLarge) }
+                }
+                Group { Changes(newest) }
+            }
+        }
+        if (releases.size > 1) {
+            item(key = "earlier") {
+                Group("Earlier versions") {
+                    releases.drop(1).forEachIndexed { i, release ->
+                        if (i > 0) Divider()
+                        val expanded = release.version in open
+                        val turn by animateFloatAsState(if (expanded) 180f else 0f, label = "chevron")
+                        SettingRow(
+                            Icons.Rounded.NewReleases,
+                            release.version,
+                            release.tagline,
+                            Modifier
+                                .clickable(role = androidx.compose.ui.semantics.Role.Button) { open = if (expanded) open - release.version else open + release.version }
+                                .semantics { stateDescription = if (expanded) "Open" else "Closed" },
+                        ) {
+                            Text(count(release.lines.size, "change"), style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            Icon(Icons.Rounded.ExpandMore, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.rotate(turn))
+                        }
+                        AnimatedVisibility(expanded) { Column { Divider(); Changes(release) } }
+                    }
                 }
             }
         }
     }
 }
 
+/** A version's changes, each a row. */
 @Composable
-private fun ReleaseCard(release: Release, expanded: Boolean, newest: Boolean, onToggle: () -> Unit) {
-    val turn by animateFloatAsState(if (expanded) 180f else 0f, label = "chevron")
-    Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 6.dp)) {
-        Row(
-            Modifier.fillMaxWidth().clip(RoundedCornerShape(20.dp))
-                // One button that says whether it is open, rather than a lone arrow.
-                .clickable(role = androidx.compose.ui.semantics.Role.Button, onClick = onToggle)
-                .semantics { stateDescription = if (expanded) "Open" else "Closed" }
-                .padding(horizontal = 8.dp, vertical = 10.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Column(Modifier.weight(1f)) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text(release.version, style = MaterialTheme.typography.headlineMedium)
-                    if (newest) {
-                        Text(
-                            "Latest",
-                            style = MaterialTheme.typography.labelMedium,
-                            color = MaterialTheme.colorScheme.onPrimary,
-                            modifier = Modifier.padding(start = 10.dp).clip(CircleShape).background(MaterialTheme.colorScheme.primary).padding(horizontal = 8.dp, vertical = 2.dp),
-                        )
-                    }
-                }
-                release.tagline?.let { Text(it, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant) }
-            }
-            Icon(Icons.Rounded.ExpandMore, contentDescription = null, modifier = Modifier.rotate(turn))
+private fun Changes(release: Release) {
+    release.lines.forEachIndexed { i, line ->
+        if (i > 0) Divider()
+        when (line) {
+            is NoteLine.Lead -> ChangeRow(Icons.Rounded.AutoAwesome, line.title, line.text)
+            is NoteLine.Feature -> ChangeRow(line.icon, line.title, line.text)
+            is NoteLine.Fix -> ChangeRow(Icons.Rounded.Build, null, line.text)
         }
-        AnimatedVisibility(expanded) {
-            Column(verticalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.padding(top = 6.dp)) {
-                release.lines.filterIsInstance<NoteLine.Lead>().forEach { lead ->
-                    Column(
-                        Modifier.fillMaxWidth().clip(RoundedCornerShape(28.dp)).background(MaterialTheme.colorScheme.primaryContainer).padding(20.dp),
-                        verticalArrangement = Arrangement.spacedBy(8.dp),
-                    ) {
-                        ShapedIcon(Icons.Rounded.AutoAwesome, 44, MaterialTheme.colorScheme.primary, MaterialTheme.colorScheme.onPrimary)
-                        Text(lead.title, style = MaterialTheme.typography.headlineSmall, color = MaterialTheme.colorScheme.onPrimaryContainer)
-                        Text(lead.text, style = MaterialTheme.typography.bodyLarge, color = MaterialTheme.colorScheme.onPrimaryContainer)
-                    }
-                }
-                release.lines.filterIsInstance<NoteLine.Feature>().forEach { feature ->
-                    Row(
-                        Modifier.fillMaxWidth().clip(RoundedCornerShape(20.dp)).background(MaterialTheme.colorScheme.surfaceContainer).padding(16.dp),
-                        horizontalArrangement = Arrangement.spacedBy(14.dp),
-                    ) {
-                        ShapedIcon(feature.icon, 40)
-                        Column(Modifier.weight(1f)) {
-                            Text(feature.title, style = MaterialTheme.typography.titleMedium)
-                            Text(feature.text, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                        }
-                    }
-                }
-                val fixes = release.lines.filterIsInstance<NoteLine.Fix>()
-                if (fixes.isNotEmpty()) {
-                    Column(
-                        Modifier.fillMaxWidth().clip(RoundedCornerShape(20.dp)).background(MaterialTheme.colorScheme.surfaceContainerLow).padding(16.dp),
-                        verticalArrangement = Arrangement.spacedBy(8.dp),
-                    ) {
-                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                            Icon(Icons.Rounded.Build, contentDescription = null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(18.dp))
-                            Text("Fixes and smaller changes", style = MaterialTheme.typography.titleSmall)
-                        }
-                        fixes.forEach { fix ->
-                            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                                Box(Modifier.padding(top = 8.dp).size(5.dp).clip(CircleShape).background(MaterialTheme.colorScheme.onSurfaceVariant))
-                                Text(fix.text, style = MaterialTheme.typography.bodyMedium)
-                            }
-                        }
-                    }
-                }
+    }
+}
+
+/**
+ * One change: its icon, its title in bold, and its first sentence in plain text; More shows the
+ * rest, where there is more.
+ */
+@Composable
+private fun ChangeRow(icon: ImageVector, title: String?, text: String) {
+    var more by rememberSaveable(text) { mutableStateOf(false) }
+    val cut = Regex("""(?<=[.!?])\s""").find(text)?.range?.first
+    val short = if (cut != null && cut < text.length - 1) text.substring(0, cut) else text
+    // Closed: the first sentence, at most two lines; More when any of the note is not shown.
+    var clipped by remember(text) { mutableStateOf(false) }
+    val rest = text.length > short.length || clipped
+    Row(
+        Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = LocalRows.current.pad),
+        horizontalArrangement = Arrangement.spacedBy(16.dp),
+    ) {
+        SettingIcon(icon)
+        Column(Modifier.weight(1f)) {
+            if (title != null) Text(title, style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.SemiBold)
+            Text(
+                if (more) text else short,
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurface,
+                maxLines = if (more) Int.MAX_VALUE else 2,
+                overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
+                onTextLayout = { if (!more && it.hasVisualOverflow) clipped = true },
+            )
+            if (rest) {
+                Text(
+                    if (more) "Less" else "More",
+                    style = MaterialTheme.typography.labelLarge,
+                    color = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.padding(top = 4.dp).clip(RoundedCornerShape(8.dp)).clickable(role = androidx.compose.ui.semantics.Role.Button) { more = !more }.padding(vertical = 4.dp),
+                )
             }
         }
     }

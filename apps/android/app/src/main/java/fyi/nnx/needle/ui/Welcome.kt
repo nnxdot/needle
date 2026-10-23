@@ -27,6 +27,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Computer
+import androidx.compose.material.icons.rounded.AutoAwesome
 import androidx.compose.material.icons.rounded.Dns
 import androidx.compose.material.icons.rounded.Folder
 import androidx.compose.material.icons.rounded.LibraryMusic
@@ -136,24 +137,13 @@ fun WelcomeGuide(open: (Route) -> Unit) {
                     else -> {
                         Text("Make it yours", style = MaterialTheme.typography.headlineMedium)
                         Text("Everything here, and much more, is in Settings › Appearance.", style = MaterialTheme.typography.bodyLarge, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(top = 8.dp, bottom = 20.dp))
-                        // Onto a second line with large text, rather than squeezed.
-                        androidx.compose.foundation.layout.FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            listOf("night" to "Night", "midnight" to "Midnight", "day" to "Day").forEach { (id, label) ->
-                                FilterChip(app.theme == id, { NeedleApp.instance.updateApp { it.copy(theme = id) } }, label = { Text(label) })
+                        // Needle's looks as the cards of Settings › Appearance › Look.
+                        Column(Modifier.clip(RoundedCornerShape(24.dp)).background(groupColor())) {
+                            LookCards(BuiltInLooks, app.theme) { id -> NeedleApp.instance.updateApp { it.copy(theme = id) } }
+                            Divider()
+                            SwitchRow("Colours from what's playing", "The whole app takes the song's colours", app.ambientColors, icon = androidx.compose.material.icons.Icons.Rounded.AutoAwesome) { on ->
+                                NeedleApp.instance.updateApp { it.copy(ambientColors = on) }
                             }
-                        }
-                        // The whole row is the one switch, named by its words.
-                        Row(
-                            Modifier.fillMaxWidth()
-                                .toggleable(app.ambientColors, role = Role.Switch) { on -> NeedleApp.instance.updateApp { it.copy(ambientColors = on) } }
-                                .padding(vertical = 16.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                        ) {
-                            Column(Modifier.weight(1f)) {
-                                Text("Colours from what's playing", style = MaterialTheme.typography.bodyLarge)
-                                Text("The whole app takes the song's colours", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                            }
-                            Switch(app.ambientColors, onCheckedChange = null)
                         }
                         Spacer(Modifier.height(20.dp))
                         Button(onClick = ::finish, modifier = Modifier.fillMaxWidth()) { Text("Start listening") }

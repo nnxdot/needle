@@ -29,6 +29,7 @@ import androidx.compose.foundation.selection.toggleable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
+import androidx.compose.material.icons.rounded.Usb
 
 private val MUSIC: AudioAttributes = AudioAttributes.Builder()
     .setUsage(AudioAttributes.USAGE_MEDIA)
@@ -223,31 +224,25 @@ fun UsbBitPerfect() {
             }
             .onFailure { showMessage(it.message ?: "Android could not change the USB mixer") }
     }
-    Row(
-        Modifier
-            .fillMaxWidth()
-            .heightIn(min = 64.dp)
+    Column {
+        SettingRow(
+            androidx.compose.material.icons.Icons.Rounded.Usb,
+            "Bit-perfect USB",
+            when {
+                connected == null -> "Plug in a USB DAC for the exact sound"
+                offer == null -> "${connected.productName} cannot use it here"
+                else -> "${encodingName(offer.format.encoding)} at ${kHz(offer.format.sampleRate)} kHz; other sounds wait"
+            },
             // The whole row is the one switch, named by its words.
-            .toggleable(on, enabled = usable, role = androidx.compose.ui.semantics.Role.Switch) { setMixer(it) }
-            .padding(horizontal = 16.dp, vertical = 12.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(16.dp),
-    ) {
-        Column(Modifier.weight(1f)) {
-            Text("Bit-perfect USB", style = MaterialTheme.typography.bodyLarge, color = if (usable) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurfaceVariant)
-            Text(
-                when {
-                    connected == null -> "Plug in a USB DAC to send it the music exactly as it is"
-                    offer == null -> why.orEmpty()
-                    else -> "${connected.productName} gets the music exactly as it is, ${encodingName(offer.format.encoding)} at ${kHz(offer.format.sampleRate)} kHz; other sounds wait"
-                },
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
+            Modifier.toggleable(on, enabled = usable, role = androidx.compose.ui.semantics.Role.Switch) { setMixer(it) },
+            enabled = usable,
+        ) { Switch(checked = on, enabled = usable, onCheckedChange = null) }
+        // Why not, in full: what is missing, and that the DAC still plays as usual.
+        if (why != null) {
+            Text(why, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(start = 68.dp, end = 16.dp, bottom = 14.dp))
         }
-        Switch(checked = on, enabled = usable, onCheckedChange = null)
     }
-    HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant, modifier = Modifier.padding(horizontal = 16.dp))
+    Divider()
 }
 
 private fun toggle(audio: AudioManager, device: AudioDeviceInfo?, offer: AudioMixerAttributes?, on: Boolean): Boolean {
