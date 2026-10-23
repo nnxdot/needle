@@ -21,6 +21,7 @@ use needle_core::{
 #[allow(clippy::too_many_arguments)]
 pub(super) fn immersive_cover(
     path: &str,
+    moving: bool,
     look: Option<&super::ambient::Look>,
     w: f32,
     h: f32,
@@ -43,8 +44,13 @@ pub(super) fn immersive_cover(
         None if dark => hsla(0., 0., 0.1, 1.),
         None => hsla(0., 0., 0.92, 1.),
     };
-    // A square cover fills its box, so it is drawn as large as the box's longer edge.
-    let file = super::thumbs::for_size(path, cover_w.max(h)).unwrap_or_else(|| path.into());
+    // A square cover fills its box, so it is drawn as large as the box's longer edge. A
+    // moving picture is drawn as it is (a smaller copy would be a still one).
+    let file = if moving {
+        path.into()
+    } else {
+        super::thumbs::for_size(path, cover_w.max(h)).unwrap_or_else(|| path.into())
+    };
     let edge_fade = |at: f32, into_tone: bool| {
         div()
             .absolute()
@@ -68,6 +74,8 @@ pub(super) fn immersive_cover(
         .bg(tone)
         .child(
             img(file)
+                // GPUI steps through a moving picture's frames only for an image with an id.
+                .id("immersive-cover")
                 .absolute()
                 .top_0()
                 .left(px(left))
@@ -198,14 +206,20 @@ impl AppView {
         let left_w = if side == Side::None { w } else { w - 440. };
         let art = (h - 440.).min(left_w - 120.).clamp(140., 520.);
         // Settings > Appearance > Immersive cover, for a song with a cover of its own.
+        let moving = current.as_ref().and_then(|c| self.moving_cover(&c.track));
         let immersive = self
             .settings
             .immersive_cover
-            .then(|| current.as_ref().and_then(|c| c.track.artwork.clone()))
+            .then(|| {
+                moving
+                    .clone()
+                    .or_else(|| current.as_ref().and_then(|c| c.track.artwork.clone()))
+            })
             .flatten()
             .map(|path| {
                 immersive_cover(
                     &path,
+                    moving.is_some(),
                     look.as_ref(),
                     w,
                     h,

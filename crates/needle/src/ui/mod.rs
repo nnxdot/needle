@@ -553,6 +553,9 @@ pub struct AppView {
     immersive_moved: Instant,
     /// Whether its controls show, and a count of changes so each fades once.
     immersive_shown: bool,
+    /// The song whose moving cover was looked up, and the picture found (Settings ›
+    /// Appearance › Moving covers).
+    moving_cover: Option<(String, Option<String>)>,
     immersive_serial: u64,
     /// Whether it shows the lyrics beside the cover, when the song has them.
     immersive_lyrics: bool,
@@ -1063,6 +1066,7 @@ impl AppView {
             immersive: false,
             immersive_moved: Instant::now(),
             immersive_shown: true,
+            moving_cover: None,
             immersive_serial: 0,
             immersive_lyrics: true,
             immersive_waiting: false,
