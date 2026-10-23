@@ -1,6 +1,7 @@
 package fyi.nnx.needle
 
 import android.content.Context
+import kotlinx.coroutines.launch
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.graphics.Canvas
@@ -98,9 +99,10 @@ private val Glass = ColorProvider(Color(0x26FFFFFF))
 private val DarkIcon = ColorProvider(Color(0xFF1A1714))
 
 /** Refreshes the widgets, when what plays changes. */
-suspend fun updateWidgets(context: Context) {
+/** The widgets drawn again: the Recently added one only when asked (it shows no playing). */
+suspend fun updateWidgets(context: Context, recent: Boolean = true) {
     runCatching { NowPlayingWidget().updateAll(context) }
-    runCatching { RecentWidget().updateAll(context) }
+    if (recent) runCatching { RecentWidget().updateAll(context) }
 }
 
 // ---------- Now playing
@@ -247,14 +249,19 @@ private fun Strip(now: Now) {
         contentAlignment = Alignment.Center,
     ) {
         Row(GlanceModifier.fillMaxSize().padding(horizontal = 8.dp), verticalAlignment = Alignment.CenterVertically) {
-            CoverImage(now, cover, cover / 2)
-            Spacer(GlanceModifier.width(10.dp))
+            // Made narrow, it lets go of the cover, then of Previous: play and Next always fit.
+            if (size.width >= 230.dp) {
+                CoverImage(now, cover, cover / 2)
+                Spacer(GlanceModifier.width(10.dp))
+            } else Spacer(GlanceModifier.width(6.dp))
             Column(GlanceModifier.defaultWeight()) {
                 Text(now.song?.title ?: "Needle", maxLines = 1, style = TextStyle(color = White, fontSize = 14.sp, fontWeight = FontWeight.Bold))
                 Text(now.song?.artist ?: "Tap play for a shuffle", maxLines = 1, style = TextStyle(color = Soft, fontSize = 12.sp))
             }
-            Spacer(GlanceModifier.width(4.dp))
-            Round(R.drawable.ic_widget_previous, "Previous", actionRunCallback<Previous>(), 36.dp)
+            if (size.width >= 190.dp) {
+                Spacer(GlanceModifier.width(4.dp))
+                Round(R.drawable.ic_widget_previous, "Previous", actionRunCallback<Previous>(), 36.dp)
+            }
             Spacer(GlanceModifier.width(4.dp))
             PlayPill(now, 44.dp, 36.dp)
             Spacer(GlanceModifier.width(4.dp))
@@ -280,7 +287,8 @@ private fun Small(now: Now) {
 @Composable
 private fun Wide(now: Now) {
     val size = LocalSize.current
-    val side = minOf(size.height - 28.dp, size.width * 0.36f).coerceAtLeast(56.dp)
+    // The cover gives way so the buttons (120 dp at their smallest) always fit beside it.
+    val side = minOf(size.height - 28.dp, size.width * 0.36f, size.width - 42.dp - 120.dp).coerceAtLeast(48.dp)
     val room = size.width - 28.dp - side - 14.dp
     Backdrop(now) {
         Row(GlanceModifier.fillMaxSize().padding(14.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -317,12 +325,38 @@ private fun Large(now: Now) {
     }
 }
 
+/**
+ * A widget's button with Needle closed: the playback service starts too, by connecting to it
+ * for a moment, so the song has its notification, lock screen player, and Bluetooth buttons,
+ * and Android does not stop it. (A widget's tap may start it, where a background task may not.)
+ */
+private fun withService(context: Context) {
+    // The app's own context: a widget's is a receiver's, which may not connect to a service.
+    val app = context.applicationContext
+    NeedleApp.instance.scope.launch(kotlinx.coroutines.Dispatchers.Main) {
+        runCatching {
+            val token = androidx.media3.session.SessionToken(app, android.content.ComponentName(app, PlaybackService::class.java))
+            val connecting = androidx.media3.session.MediaController.Builder(app, token).buildAsync()
+            // Long enough for the service to see the song start and keep itself running.
+            kotlinx.coroutines.delay(5000)
+            androidx.media3.session.MediaController.releaseFuture(connecting)
+        }
+    }
+}
+
 class Toggle : ActionCallback {
     override suspend fun onAction(context: Context, glanceId: GlanceId, parameters: ActionParameters) {
         val core = NeedleApp.instance.core
-        // Nothing to go on with: shuffle the whole library.
-        if (NeedleApp.instance.playback.value?.current == null) core.play(core.songs().shuffled().take(200).map { it.id }, 0u)
-        else fyi.nnx.needle.ui.Controls.toggle()
+        // Nothing to go on with: shuffle the whole library. Asked of the core itself: just
+        // after a start the app has not yet heard of the song it brought back, paused.
+        // A library that cannot answer (busy, or broken) leaves the press undone; it does not close Needle.
+        runCatching {
+            if (!NeedleApp.instance.remoteShown.value && core.playback().current == null) core.play(core.searchSongsPage("shuffle limit 200", 0u, 200u).map { it.id }, 0u)
+            else fyi.nnx.needle.ui.Controls.toggle()
+        }
+        withService(context)
+        // The app looks at the player at once, and the widget then shows the press.
+        NeedleApp.instance.wake()
         updateWidgets(context)
     }
 }
@@ -330,6 +364,9 @@ class Toggle : ActionCallback {
 class Next : ActionCallback {
     override suspend fun onAction(context: Context, glanceId: GlanceId, parameters: ActionParameters) {
         fyi.nnx.needle.ui.Controls.next()
+        withService(context)
+        // The app looks at the player at once, and the widget then shows the press.
+        NeedleApp.instance.wake()
         updateWidgets(context)
     }
 }
@@ -337,6 +374,9 @@ class Next : ActionCallback {
 class Previous : ActionCallback {
     override suspend fun onAction(context: Context, glanceId: GlanceId, parameters: ActionParameters) {
         fyi.nnx.needle.ui.Controls.previous()
+        withService(context)
+        // The app looks at the player at once, and the widget then shows the press.
+        NeedleApp.instance.wake()
         updateWidgets(context)
     }
 }
@@ -396,7 +436,11 @@ class PlayAlbum : ActionCallback {
     override suspend fun onAction(context: Context, glanceId: GlanceId, parameters: ActionParameters) {
         val key = parameters[AlbumKey] ?: return
         val core = NeedleApp.instance.core
-        core.play(core.albumSongs(key).map { it.id }, 0u)
+        // A library that cannot answer leaves the press undone; it does not close Needle.
+        runCatching { core.play(core.albumSongs(key).map { it.id }, 0u) }
+        withService(context)
+        // The app looks at the player at once, and the widget then shows the press.
+        NeedleApp.instance.wake()
         updateWidgets(context)
     }
 }

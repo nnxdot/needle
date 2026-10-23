@@ -1,4 +1,5 @@
 mod ambient;
+mod artist;
 mod assets;
 mod bench;
 mod chrome;
@@ -376,6 +377,10 @@ enum Event {
     Lyrics(String, Option<needle_core::media::Lyrics>),
     ArtistImage(String, Option<String>),
     ArtistImages(Vec<(String, Option<String>)>),
+    /// An artist page's top songs, wide picture, and logo (white, and in dark ink).
+    ArtistTop(String, Vec<Track>),
+    ArtistBanner(String, Option<String>),
+    ArtistLogo(String, Option<artist::Logo>),
     ArtFetched,
     MediaKey(media_keys::Key),
     ImportProgress(String),
@@ -582,6 +587,10 @@ pub struct AppView {
     /// Whether the big (or full screen) lyrics and the side panel's were on screen.
     lyrics_shown: (bool, bool),
     artist_images: std::collections::HashMap<String, Option<String>>,
+    artist_view: artist::ArtistView,
+    artist_scroll: ScrollHandle,
+    /// Where each Home row is scrolled to, for its arrows.
+    shelf_scrolls: Vec<ScrollHandle>,
     recent: Vec<Listen>,
     /// The tracks behind `recent`, for covers.
     recent_tracks: std::collections::HashMap<String, Track>,
@@ -1072,6 +1081,10 @@ impl AppView {
             lyric_glide_waits: 0,
             lyrics_shown: (false, false),
             artist_images: Default::default(),
+            artist_view: Default::default(),
+            artist_scroll: ScrollHandle::new(),
+            // One for each of Home's rows (it has five at most).
+            shelf_scrolls: (0..5).map(|_| ScrollHandle::new()).collect(),
             recent: vec![],
             recent_tracks: Default::default(),
             last_item: None,
@@ -1485,6 +1498,16 @@ impl AppView {
                     self.artist_images.insert(name, path);
                 }
                 Event::ArtistImages(found) => self.artist_images.extend(found),
+                Event::ArtistTop(name, top) if name == self.artist_view.name => {
+                    self.artist_view.top = top
+                }
+                Event::ArtistBanner(name, path) if name == self.artist_view.name => {
+                    self.artist_view.banner = path
+                }
+                Event::ArtistLogo(name, logo) if name == self.artist_view.name => {
+                    self.artist_view.logo = logo
+                }
+                Event::ArtistTop(..) | Event::ArtistBanner(..) | Event::ArtistLogo(..) => {}
                 Event::MediaKey(key) => self.media_key(key, window, cx),
                 Event::Themes(generation, themes) => {
                     self.themes_found(generation, *themes, window, cx)
@@ -1616,6 +1639,7 @@ impl AppView {
         if motion::take_slow_loops() {
             events = true;
         }
+        thumbs::set_scale(window.scale_factor());
         if thumbs::made() != self.thumbs_seen {
             self.thumbs_seen = thumbs::made();
             events = true;
@@ -1864,6 +1888,7 @@ impl AppView {
             let name = name.clone();
             self.artist_images.remove(&name);
             self.request_artist_image(&name, true);
+            self.load_artist_view(&name);
         }
         if self.page == Page::Import {
             self.refresh_import_sources();
@@ -2285,6 +2310,8 @@ impl AppView {
             if let Some(track) = self.focused.as_mut().filter(|t| &t.id == id) {
                 track.rating = rating;
             }
+            // The player's copies too: the Details panel shows the playing song from them.
+            self.player.send(Command::Rated(id.clone(), rating));
         }
     }
 
@@ -2626,12 +2653,25 @@ impl Render for AppView {
                 .detach();
             }
         }
-        let big_layer = (self.big || self.big_moving).then(|| {
+        // The big player grows over the page, under the usual title bar; once open, it fills the
+        // window under the title bar, which then carries its buttons. Its contents stay where
+        // they are as it moves from one to the other.
+        let big_layer = (!self.immersive && (self.big || self.big_moving)).then(|| {
             let body = widgets::content_size(window);
-            let (w, h) = (f32::from(body.width), f32::from(body.height) - 48.);
+            let bar = if self.big_moving {
+                self.title_height(window)
+            } else {
+                0.
+            };
+            let (w, h) = (f32::from(body.width), f32::from(body.height) - bar);
             let player = self.big_player(window, cx);
-            self.big_reveal(player, w, h, cx)
+            self.big_reveal(player, w, h, bar, cx)
         });
+        let (big_over_page, big_under_bar) = if self.big_moving {
+            (big_layer, None)
+        } else {
+            (None, big_layer)
+        };
         div()
             .id("needle-app")
             .key_context("Needle")
@@ -2868,6 +2908,7 @@ impl Render for AppView {
             // pointer consumes the mouse-down, and Windows then never starts a drag, resize, or
             // maximize from the title bar.
             .children(ambient_layer)
+            .children(big_under_bar)
             .when(!self.immersive, |el| {
                 el.child(self.title_bar(sidebar, window, cx))
             })
@@ -2981,10 +3022,21 @@ impl Render for AppView {
                                 ),
                             )
                         } else {
-                            el.child(row.child(sheet)).children(foot)
+                            // Lyrics under the player: at the foot, under it; with the player in
+                            // the title bar, right under that.
+                            let lyrics = self.player_lyrics(cx);
+                            let (above, under) = if player_foot {
+                                (None, lyrics)
+                            } else {
+                                (lyrics, None)
+                            };
+                            el.children(above)
+                                .child(row.child(sheet))
+                                .children(foot)
+                                .children(under)
                         }
                     })
-                    .when(!self.immersive, |el| el.children(big_layer)),
+                    .children(big_over_page),
             )
             .children(grain)
             .children(self.toast(cx))

@@ -1,4 +1,38 @@
-# 1.6.4
+# 1.7.1 [windows, linux]
+Artist pages made new, an immersive big player, and Last.fm in one click.
+! **Artist pages, made new.** An artist's page opens on a wide photo of them that fades into the page, with their logo where fanart.tv has one, and a large Play between Shuffle, Radio, and Blend. Their latest release sits beside their top songs, over their albums. Turn on Look things up online in Settings › Artwork and lyrics for the photos and logos.
+- [fullscreen] **An immersive big player.** In the big player and in full screen, the cover fills the left side of the window from top to bottom and fades into its own colour. Turn it off in Settings › Appearance › Immersive cover.
+- [account] **Last.fm in one click.** Press Sign in with Last.fm in Settings › Listening services. You no longer need to make a Last.fm API account first.
+- [lyrics] **Lyrics from your music server.** Songs from Navidrome and other music servers show the lyrics the server has, also with online lookups off.
+- On Windows 10, the window no longer lags behind the mouse when you drag or resize it with Mica or Acrylic on.
+- Artist photos are found for more artists, also by their other names (a group's name in Hangul, say).
+- An A-B loop ends when another song plays, or when you start a song again.
+- In Fix my library, a copy that cannot go to the Recycle Bin is kept, and the other copies are still merged.
+- A library backup leaves out the key of your phone remote.
+- Radio from a song that is no longer in your library says so.
+
+# 1.7.1 [macos]
+Fixes for a crash, covers, and crash reports.
+- Needle no longer quits at times when its colours change while the sidebar shows.
+- Covers that are not square (a tall Blu-ray cover, a wide one) fill their tile, the same size as the rest.
+- With crash reports on, Needle also sends the crashes macOS writes down, not only the ones Needle catches itself. They tell what went wrong and where in the app, with no names and no files.
+
+# 1.7.0 [macos]
+Needle for Mac, made new as a Mac app, with album and artist pages after Apple Music.
+! **A Mac app, made new.** Needle is now built with the Mac's own tools: Liquid Glass throughout, the system's menus, sheets, and keyboard, and VoiceOver for every button and switch.
+- [albums] **Album and artist pages, after Apple Music.** The whole window takes an album's or artist's colours. Artist pages open on a wide photo of them, with their logo where fanart.tv has one, a large Play between round buttons, and Latest Release beside Top Songs.
+- [mini] **The player in the title bar.** A small screen in the bar shows the song, where it is, and the times, beside the controls.
+- [panel] **A side panel that floats.** Lyrics, the queue, and details open in a glass panel over the page, and close again.
+- [fullscreen] **An immersive big player.** The cover fills the side of the big player, and moving covers (a cover.mp4 beside the songs) play there.
+- Closing the window keeps the music playing; Quit (⌘Q) ends Needle.
+- Your music folders are read when Needle starts and when you plug in a drive.
+- Merging duplicates moves the extra copies to the Trash, where Put Back works.
+- Space and the arrow keys no longer act inside file pickers or dialogs.
+- Removing a music folder asks first.
+- A theme's film grain and font go back to your own when you choose another theme.
+- Many smaller fixes for lyrics timing, history, the volume, mute, and updates.
+
+# 1.6.4 [macos]
 Needle on the Mac, in Liquid Glass.
 ! **Liquid Glass.** On macOS 26 and newer, the sidebar, the player, and the side panel float on Liquid Glass over your music's colours, and your songs scroll beneath the player's glass. Turn it off in Settings › Appearance.
 - [menu] **The Mac's own menus.** Right-click a song, an album, an artist, or a playlist for the Mac's own menu, with its icons and submenus.

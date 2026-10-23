@@ -5,7 +5,15 @@
 # with: docker volume rm needle-linux-build
 set -euo pipefail
 here=$(cd "$(dirname "$0")/.." && pwd -W 2>/dev/null || pwd)
+# Keys built into the app (Last.fm's, fanart.tv's for artists' logos), from a private file outside
+# the code, as the Mac and iPhone builds read it: lines such as `export NEEDLE_FANART_KEY=...`.
+# Without it, people add their own in Settings. They go into the container by name only.
+if [ -f "$HOME/.needle-keys" ]; then
+  # shellcheck disable=SC1091
+  . "$HOME/.needle-keys"
+fi
 MSYS_NO_PATHCONV=1 docker run --rm \
+  -e NEEDLE_LASTFM_API_KEY -e NEEDLE_LASTFM_SECRET -e NEEDLE_FANART_KEY \
   -v "$here:/src" -v needle-linux-build:/build \
   -e CARGO_HOME=/build/cargo -e CARGO_TARGET_DIR=/build/target -e RUSTUP_HOME=/build/rustup \
   ubuntu:24.04 bash -c "bash /src/scripts/linux-compile.sh && bash /src/scripts/linux-package.sh"

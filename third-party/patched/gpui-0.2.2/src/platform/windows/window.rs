@@ -1,7 +1,7 @@
 #![deny(unsafe_op_in_unsafe_fn)]
 
 use std::{
-    cell::RefCell,
+    cell::{Cell, RefCell},
     num::NonZeroIsize,
     path::PathBuf,
     rc::{Rc, Weak},
@@ -74,6 +74,10 @@ pub(crate) struct WindowsWindowInner {
     pub(crate) validation_number: usize,
     pub(crate) main_receiver: flume::Receiver<Runnable>,
     pub(crate) platform_window_handle: HWND,
+    /// Acrylic is on through the accent policy (Windows 10's way): while the window is dragged
+    /// or resized it takes plain blur instead, since Acrylic there makes the window lag behind
+    /// the mouse and jump.
+    pub(crate) acrylic: Cell<bool>,
 }
 
 impl WindowsWindowState {
@@ -232,6 +236,7 @@ impl WindowsWindowInner {
             main_receiver: context.main_receiver.clone(),
             platform_window_handle: context.platform_window_handle,
             system_settings: RefCell::new(WindowsSystemSettings::new(context.display)),
+            acrylic: Cell::new(false),
         }))
     }
 
@@ -757,6 +762,14 @@ impl PlatformWindow for WindowsWindow {
 
     fn set_background_appearance(&self, background_appearance: WindowBackgroundAppearance) {
         let hwnd = self.0.hwnd;
+        let was = self.0.borderless_blur();
+        self.0
+            .acrylic
+            .set(background_appearance == WindowBackgroundAppearance::Blurred);
+        // Windows 10: Acrylic on or off changes whether the window has a border.
+        if self.0.borderless_blur() != was {
+            super::events::notify_frame_changed(hwnd);
+        }
 
         match background_appearance {
             WindowBackgroundAppearance::Opaque => {
@@ -770,7 +783,7 @@ impl PlatformWindow for WindowsWindow {
             WindowBackgroundAppearance::Blurred => {
                 // Enable acrylic blur
                 // ACCENT_ENABLE_ACRYLICBLURBEHIND
-                set_window_composition_attribute(hwnd, Some((0, 0, 0, 0)), 4);
+                set_window_composition_attribute(hwnd, Some((0, 0, 0, 0)), ACCENT_ACRYLIC);
             }
         }
     }
@@ -1316,7 +1329,11 @@ fn retrieve_window_placement(
     Ok(placement)
 }
 
-fn set_window_composition_attribute(hwnd: HWND, color: Option<Color>, state: u32) {
+/// Accent states for `set_window_composition_attribute`.
+pub(crate) const ACCENT_BLUR: u32 = 3;
+pub(crate) const ACCENT_ACRYLIC: u32 = 4;
+
+pub(crate) fn set_window_composition_attribute(hwnd: HWND, color: Option<Color>, state: u32) {
     let mut version = unsafe { std::mem::zeroed() };
     let status = unsafe { windows::Wdk::System::SystemServices::RtlGetVersion(&mut version) };
     if !status.is_ok() || version.dwBuildNumber < 17763 {

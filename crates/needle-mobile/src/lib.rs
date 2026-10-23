@@ -26,6 +26,8 @@ mod audit_tests;
 mod connect;
 mod discord;
 mod ios;
+#[cfg(feature = "desktop")]
+mod mac;
 mod media;
 mod more;
 mod plugins;
@@ -258,7 +260,14 @@ impl Needle {
         log(false, &format!("starting in {data_dir}"));
         #[cfg(target_os = "android")]
         needle_core::set_android_folder(PathBuf::from(&data_dir));
+        // A test copy's library with a secrets.json keeps its secrets there (see needle-core).
+        #[cfg(not(target_os = "android"))]
+        needle_core::set_secrets_folder(PathBuf::from(&data_dir));
         let library = Library::open(PathBuf::from(data_dir))?;
+        // On a phone the phone's own volume is the one volume: Needle's (the desktop's slider,
+        // 65% to start) stays at full, or Needle would play quieter than other apps at the same
+        // volume. Set before the player starts, so it opens at full.
+        let _ = library.update_settings(|s| s.volume = 1.0);
         let player = Player::new(library.clone());
         log(false, "player started");
         let plugin_state = Arc::new(plugins::PluginState::default());
@@ -303,7 +312,10 @@ impl Needle {
     pub fn add_folder(&self, path: String) -> Result<()> {
         // Removed and added again while a scan runs: it stays.
         let real = needle_core::database::canonical_root(&path);
-        REMOVED_ROOTS.lock().unwrap_or_else(|e| e.into_inner()).retain(|r| *r != path && *r != real);
+        REMOVED_ROOTS
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .retain(|r| *r != path && *r != real);
         self.library.add_root(&path)?;
         self.rescan();
         Ok(())
@@ -329,72 +341,82 @@ impl Needle {
                 ..Default::default()
             };
         }
-        std::thread::spawn(move || loop {
-            SCAN_AGAIN.store(false, Ordering::SeqCst);
-            let mut error = None;
-            // Songs that are there: a file gone is kept, marked missing, so all rows would not change.
-            let present = || library.available_count("").unwrap_or(0);
-            let before = present();
-            let mut changed = false;
-            // The whole scan's counts, every folder's (progress comes only now and then).
-            let (mut scanned, mut imported) = (0usize, 0usize);
-            REMOVED_ROOTS.lock().unwrap_or_else(|e| e.into_inner()).clear();
-            for root in library.roots().unwrap_or_default() {
-                // Not there now (a drive unplugged): passed over, its songs kept as they are.
-                if !std::path::Path::new(&root).exists() {
-                    continue;
-                }
-                let cancel = Arc::new(AtomicBool::new(false));
-                // A panic must not leave the scan "running" (and its notice up) for good.
-                let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-                    scan::import(&library, &PathBuf::from(&root), cancel, |p| {
-                        let mut s = status.lock().unwrap_or_else(|e| e.into_inner());
-                        s.scanned = p.scanned as u32;
-                        s.imported = p.imported as u32;
-                        s.current = p.current.clone();
-                    })
-                }));
-                match result {
-                    Ok(Err(e)) => error = Some(format!("{e:#}")),
-                    Err(_) => error = Some(format!("Needle stopped reading {root}")),
-                    Ok(Ok(done)) => {
-                        changed |= done.imported > 0;
-                        scanned += done.scanned;
-                        imported += done.imported;
+        std::thread::spawn(move || {
+            loop {
+                SCAN_AGAIN.store(false, Ordering::SeqCst);
+                let mut error = None;
+                // Songs that are there: a file gone is kept, marked missing, so all rows would not change.
+                let present = || library.available_count("").unwrap_or(0);
+                let before = present();
+                let mut changed = false;
+                // The whole scan's counts, every folder's (progress comes only now and then).
+                let (mut scanned, mut imported) = (0usize, 0usize);
+                REMOVED_ROOTS
+                    .lock()
+                    .unwrap_or_else(|e| e.into_inner())
+                    .clear();
+                for root in library.roots().unwrap_or_default() {
+                    // Not there now (a drive unplugged): passed over, its songs kept as they are.
+                    if !std::path::Path::new(&root).exists() {
+                        continue;
+                    }
+                    let cancel = Arc::new(AtomicBool::new(false));
+                    // A panic must not leave the scan "running" (and its notice up) for good.
+                    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                        scan::import(&library, &PathBuf::from(&root), cancel, |p| {
+                            let mut s = status.lock().unwrap_or_else(|e| e.into_inner());
+                            s.scanned = p.scanned as u32;
+                            s.imported = p.imported as u32;
+                            s.current = p.current.clone();
+                        })
+                    }));
+                    match result {
+                        Ok(Err(e)) => error = Some(format!("{e:#}")),
+                        Err(_) => error = Some(format!("Needle stopped reading {root}")),
+                        Ok(Ok(done)) => {
+                            changed |= done.imported > 0;
+                            scanned += done.scanned;
+                            imported += done.imported;
+                        }
                     }
                 }
-            }
-            // Removed while this scan read them: out again (the scan had put them back).
-            for gone in std::mem::take(&mut *REMOVED_ROOTS.lock().unwrap_or_else(|e| e.into_inner())) {
-                if let Ok(db) = library.connection() {
-                    let _ = db.execute("DELETE FROM roots WHERE path=?", [&gone]);
-                    let prefix = format!("{}/", gone.trim_end_matches('/'));
-                    let _ = db.execute("DELETE FROM tracks WHERE substr(path,1,length(?1))=?1", [&prefix]);
+                // Removed while this scan read them: out again (the scan had put them back).
+                for gone in
+                    std::mem::take(&mut *REMOVED_ROOTS.lock().unwrap_or_else(|e| e.into_inner()))
+                {
+                    if let Ok(db) = library.connection() {
+                        let _ = db.execute("DELETE FROM roots WHERE path=?", [&gone]);
+                        let prefix = format!("{}/", gone.trim_end_matches('/'));
+                        let _ = db.execute(
+                            "DELETE FROM tracks WHERE substr(path,1,length(?1))=?1",
+                            [&prefix],
+                        );
+                    }
                 }
+                changed |= present() != before;
+                let mut s = status.lock().unwrap_or_else(|e| e.into_inner());
+                s.current.clear();
+                s.error = error;
+                s.scanned = scanned as u32;
+                s.imported = imported as u32;
+                s.finished += 1;
+                if changed {
+                    s.changes += 1;
+                }
+                if SCAN_AGAIN.load(Ordering::SeqCst) {
+                    // Asked for again meanwhile: once more, still running.
+                    continue;
+                }
+                s.running = false;
+                drop(s);
+                scanning.store(false, Ordering::SeqCst);
+                // Asked for between the look above and now (it saw a scan running): once more.
+                if SCAN_AGAIN.load(Ordering::SeqCst) && !scanning.swap(true, Ordering::SeqCst) {
+                    status.lock().unwrap_or_else(|e| e.into_inner()).running = true;
+                    continue;
+                }
+                break;
             }
-            changed |= present() != before;
-            let mut s = status.lock().unwrap_or_else(|e| e.into_inner());
-            s.current.clear();
-            s.error = error;
-            s.scanned = scanned as u32;
-            s.imported = imported as u32;
-            s.finished += 1;
-            if changed {
-                s.changes += 1;
-            }
-            if SCAN_AGAIN.load(Ordering::SeqCst) {
-                // Asked for again meanwhile: once more, still running.
-                continue;
-            }
-            s.running = false;
-            drop(s);
-            scanning.store(false, Ordering::SeqCst);
-            // Asked for between the look above and now (it saw a scan running): once more.
-            if SCAN_AGAIN.load(Ordering::SeqCst) && !scanning.swap(true, Ordering::SeqCst) {
-                status.lock().unwrap_or_else(|e| e.into_inner()).running = true;
-                continue;
-            }
-            break;
         });
     }
 
@@ -786,6 +808,18 @@ impl Needle {
             .state()
             .queue
             .iter()
+            .map(|q| Song::from(&q.track))
+            .collect()
+    }
+
+    /// The first `count` songs up next: for Android's media session, which shows a few, where
+    /// the whole queue (a whole library, played from Songs) would be slow to hand over.
+    pub fn up_next_first(&self, count: u32) -> Vec<Song> {
+        self.player
+            .state()
+            .queue
+            .iter()
+            .take(count as usize)
             .map(|q| Song::from(&q.track))
             .collect()
     }

@@ -34,9 +34,14 @@ val NeedleColors = darkColorScheme(
     onPrimaryContainer = Color(0xFFF6DDB4),
     secondary = Color(0xFFD4BFA0),
     onSecondary = Color(0xFF2A2116),
-    secondaryContainer = Color(0xFF2E2A26),
+    // A warm tone a clear step above the page: the open tab, a lit row, a tile.
+    secondaryContainer = Color(0xFF3B3229),
     onSecondaryContainer = Color(0xFFE2B46C),
+    // A cool second accent, for tiles beside the warm ones (Material's tertiary roles).
     tertiary = Color(0xFFB9C7FF),
+    onTertiary = Color(0xFF1B2A55),
+    tertiaryContainer = Color(0xFF2F3754),
+    onTertiaryContainer = Color(0xFFDDE2FF),
     background = Color(0xFF141312),
     onBackground = Color(0xFFF1EFED),
     surface = Color(0xFF141312),
@@ -71,8 +76,14 @@ val DayColors = lightColorScheme(
     onPrimary = Color.White,
     primaryContainer = Color(0xFFF6DDB4),
     onPrimaryContainer = Color(0xFF2B1D07),
-    secondaryContainer = Color(0xFFEFE7DC),
-    onSecondaryContainer = Color(0xFF8A5A12),
+    secondary = Color(0xFF6F5B3E),
+    onSecondary = Color.White,
+    secondaryContainer = Color(0xFFF1E3CC),
+    onSecondaryContainer = Color(0xFF6B440A),
+    tertiary = Color(0xFF4A5A92),
+    onTertiary = Color.White,
+    tertiaryContainer = Color(0xFFDDE2FF),
+    onTertiaryContainer = Color(0xFF14204A),
     background = Color(0xFFFBFAF8),
     onBackground = Color(0xFF1C1B1A),
     surface = Color(0xFFFBFAF8),
@@ -93,6 +104,15 @@ private fun hex(text: String?): Color? = text?.trim()?.removePrefix("#")?.takeIf
     Color(("FF$it").toLong(16))
 }
 
+/** Black-ish or white text on `color`, whichever stands out more (WCAG contrast). */
+private fun readableOn(color: Color): Color {
+    val ink = Color(0xFF1C1B1A)
+    val l = color.luminance()
+    val onWhite = 1.05f / (l + 0.05f)
+    val onInk = (l + 0.05f) / (ink.luminance() + 0.05f)
+    return if (onInk >= onWhite) ink else Color.White
+}
+
 /** A desktop theme's colours on Android's colour roles. */
 fun ColorScheme.with(theme: ThemeInfo): ColorScheme {
     val c = theme.colors
@@ -103,7 +123,21 @@ fun ColorScheme.with(theme: ThemeInfo): ColorScheme {
     hex(c["card_hover"])?.let { s = s.copy(surfaceContainerHigh = it, surfaceContainerHighest = it) }
     hex(c["text"])?.let { s = s.copy(onSurface = it, onBackground = it) }
     hex(c["text_muted"])?.let { s = s.copy(onSurfaceVariant = it) }
-    hex(c["accent"])?.let { s = s.copy(primary = it, onSecondaryContainer = it) }
+    hex(c["accent"])?.let { accent ->
+        // The accent's own containers, made as a chosen accent's are, on the theme's page;
+        // Needle's amber-brown ones would sit oddly under a blue theme.
+        val dark = s.background.luminance() < 0.5f
+        val made = coverScheme(accent.toArgb(), dark = dark, black = s.background == Color.Black)
+        s = s.copy(
+            primary = accent, onSecondaryContainer = made.onSecondaryContainer,
+            // Without the theme's own text colour for it, whichever of black and white reads.
+            onPrimary = readableOn(accent),
+            primaryContainer = made.primaryContainer, onPrimaryContainer = made.onPrimaryContainer,
+            secondaryContainer = made.secondaryContainer,
+            tertiary = made.tertiary, onTertiary = made.onTertiary,
+            tertiaryContainer = made.tertiaryContainer, onTertiaryContainer = made.onTertiaryContainer,
+        )
+    }
     hex(c["accent_text"])?.let { s = s.copy(onPrimary = it) }
     hex(c["border"])?.let { s = s.copy(outline = it) }
     hex(c["border_soft"])?.let { s = s.copy(outlineVariant = it) }
@@ -140,7 +174,9 @@ fun NeedleTheme(content: @Composable () -> Unit) {
                 primary = made.primary, onPrimary = made.onPrimary,
                 primaryContainer = made.primaryContainer, onPrimaryContainer = made.onPrimaryContainer,
                 secondaryContainer = made.secondaryContainer, onSecondaryContainer = made.primary,
-                tertiary = made.tertiary, surfaceTint = made.surfaceTint,
+                tertiary = made.tertiary, onTertiary = made.onTertiary,
+                tertiaryContainer = made.tertiaryContainer, onTertiaryContainer = made.onTertiaryContainer,
+                surfaceTint = made.surfaceTint,
             )
         }
     }
@@ -169,6 +205,7 @@ fun NeedleTheme(content: @Composable () -> Unit) {
             isAppearanceLightNavigationBars = lightPage
         }
     }
+    ProvideReduceMotion {
     MaterialExpressiveTheme(
         colorScheme = colors,
         motionScheme = if (reduceMotion()) MotionScheme.standard() else MotionScheme.expressive(),
@@ -177,12 +214,18 @@ fun NeedleTheme(content: @Composable () -> Unit) {
         androidx.compose.runtime.CompositionLocalProvider(
             LocalTitleFont provides app.titleFont,
             LocalRows provides Rows.of(app.density),
+            // Links in text (Help, Privacy) open safely: a device with no browser or mail app
+            // (many TVs) says so instead of closing Needle.
+            androidx.compose.ui.platform.LocalUriHandler provides remember(context) { SafeLinks(context) },
         ) {
-            androidx.compose.foundation.layout.Box {
-                content()
-                if (app.grain > 0f) Grain(app.grain)
+            FocusShades {
+                androidx.compose.foundation.layout.Box {
+                    content()
+                    if (app.grain > 0f) Grain(app.grain)
+                }
             }
         }
+    }
     }
 }
 
@@ -208,5 +251,14 @@ private fun Grain(amount: Float) {
     }
     androidx.compose.foundation.Canvas(androidx.compose.ui.Modifier.fillMaxSize()) {
         drawRect(brush, alpha = (amount * 0.12f).coerceIn(0f, 0.12f), blendMode = androidx.compose.ui.graphics.BlendMode.Overlay)
+    }
+}
+
+/** Opens a link with the app Android picks for it, or says there is none. */
+private class SafeLinks(private val context: android.content.Context) : androidx.compose.ui.platform.UriHandler {
+    override fun openUri(uri: String) {
+        tryOpen("app for this link") {
+            context.startActivity(android.content.Intent(android.content.Intent.ACTION_VIEW, android.net.Uri.parse(uri)).addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK))
+        }
     }
 }

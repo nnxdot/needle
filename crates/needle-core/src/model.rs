@@ -180,6 +180,11 @@ pub struct Settings {
     pub immersive_cover: bool,
     /// Moving covers (a video beside the songs, such as cover.mp4) play in the big player.
     pub animated_covers: bool,
+    /// Songs from a music server show a small server icon beside their artist.
+    pub server_mark: bool,
+    /// The line of the lyrics being sung shows under the player (off by default; the phone
+    /// app's is `mini_player_lyrics`).
+    pub player_lyrics: bool,
     /// Measure each song's sound in the background, for radio.
     pub sound_analysis: bool,
     /// Ask needle.nnx.fyi once a day whether a newer Needle is out.
@@ -271,6 +276,8 @@ impl Default for Settings {
             cover_colors: true,
             immersive_cover: true,
             animated_covers: true,
+            server_mark: true,
+            player_lyrics: false,
             sound_analysis: true,
             check_updates: true,
             last_update_check: 0,

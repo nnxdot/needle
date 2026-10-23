@@ -256,7 +256,8 @@ mod sdk {
     #[cfg(target_os = "android")]
     const LIBRARY: &CStr = c"libdiscord_partner_sdk.so";
     #[cfg(target_os = "ios")]
-    const LIBRARY: &CStr = c"@executable_path/Frameworks/discord_partner_sdk.framework/discord_partner_sdk";
+    const LIBRARY: &CStr =
+        c"@executable_path/Frameworks/discord_partner_sdk.framework/discord_partner_sdk";
 
     /// Discord does not find Needle's logo by its name when the status comes from a phone, so
     /// it gets the logo's web link.
@@ -629,7 +630,9 @@ mod sdk {
                 }
                 Some(Err(why)) => {
                     if self.refused.as_ref() != Some(&why) {
-                        needle_core::logfile::warn(format!("Discord did not take the status: {why}"));
+                        needle_core::logfile::warn(format!(
+                            "Discord did not take the status: {why}"
+                        ));
                         self.refused = Some(why);
                     }
                     // Refused again and again: the connection is likely gone; make it anew.
@@ -683,7 +686,12 @@ mod sdk {
     type Code = Result<(String, String), String>;
 
     #[cfg(target_os = "ios")]
-    unsafe extern "C" fn authorized(result: *mut Object, code: Text, redirect: Text, slot: *mut c_void) {
+    unsafe extern "C" fn authorized(
+        result: *mut Object,
+        code: Text,
+        redirect: Text,
+        slot: *mut c_void,
+    ) {
         let Some(api) = api() else {
             return;
         };
@@ -713,7 +721,8 @@ mod sdk {
                     give(&tokens),
                 )
             };
-            let (access, refresh, lifetime) = match wait_for(api, &tokens, Duration::from_secs(30)) {
+            let (access, refresh, lifetime) = match wait_for(api, &tokens, Duration::from_secs(30))
+            {
                 Some(Ok(tokens)) => tokens,
                 Some(Err(why)) => {
                     // A refused key needs a new link; anything else (no internet) is tried
@@ -734,7 +743,10 @@ mod sdk {
             }
             // Discord's old key no longer works once it gave this one.
             if !account::save(&refresh) {
-                account::problem(Some("Needle could not keep Discord's key in the Keychain. Link your account again.".into()));
+                account::problem(Some(
+                    "Needle could not keep Discord's key in the Keychain. Link your account again."
+                        .into(),
+                ));
             }
             // An hour early, so it never runs out while connected.
             self.expires = std::time::SystemTime::now()
@@ -807,7 +819,9 @@ mod sdk {
     #[cfg(target_os = "ios")]
     fn linked(client_id: &str) -> Result<(), String> {
         let api = api().ok_or("This build of Needle has no Discord library")?;
-        let id: u64 = client_id.parse().map_err(|_| "Needle's Discord application is wrong")?;
+        let id: u64 = client_id
+            .parse()
+            .map_err(|_| "Needle's Discord application is wrong")?;
         let mut sdk = Sdk::new(api, id);
         let code: Slot<Code> = Slot::default();
         // SAFETY: objects made here and dropped here; Discord copies what it is given.

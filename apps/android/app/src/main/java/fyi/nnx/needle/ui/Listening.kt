@@ -35,6 +35,9 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.unit.sp
+import androidx.compose.ui.semantics.clearAndSetSemantics
+import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
@@ -48,10 +51,7 @@ import fyi.nnx.needle.core.Stats
 import java.text.DateFormat
 import java.util.Date
 
-private fun play(songs: List<Song>, start: Int = 0) {
-    core.play(songs.map { it.id }, start.toUInt())
-    fyi.nnx.needle.NeedleApp.instance.openPlayer.tryEmit(Unit)
-}
+private fun play(songs: List<Song>, start: Int = 0) = playSongs(songs.map { it.id }, start)
 
 /** "3 h 20 min", or "45 min". */
 fun hoursMinutes(seconds: Double): String {
@@ -77,8 +77,7 @@ fun RecentlyAddedScreen(open: (Route) -> Unit) {
 
 @Composable
 fun TitledSongs(title: String, songs: List<Song>?, open: (Route) -> Unit, empty: String = "", loading: Boolean = false) {
-    val playback by fyi.nnx.needle.NeedleApp.instance.playback.collectAsStateWithLifecycle()
-    val playing = playback?.current?.id
+    val playing = playingSongId()
     val list = songs.orEmpty()
     LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = 24.dp)) {
         item { LargeTitle(title) }
@@ -89,7 +88,7 @@ fun TitledSongs(title: String, songs: List<Song>?, open: (Route) -> Unit, empty:
             }
         }
         itemsIndexed(list, key = { i, s -> "$i-${s.id}" }) { i, song ->
-            SongRow(song, playing == song.id, open) { play(list, i) }
+            SongRow(song, playing == song.id, open, place = Place(i, list.size)) { play(list, i) }
         }
     }
 }
@@ -105,36 +104,48 @@ fun FoldersScreen(path: String?, open: (Route) -> Unit) {
     val subfolders by subfoldersLoad
     val songsLoad = rememberLoaded(path) { if (path == null) emptyList() else folderSongs(path) }
     val songs by songsLoad
-    val playback by fyi.nnx.needle.NeedleApp.instance.playback.collectAsStateWithLifecycle()
-    val playing = playback?.current?.id
+    val playing = playingSongId()
     val title = path?.substringAfterLast('/')?.ifBlank { path } ?: "Folders"
     // Every song in this folder and the folders in it, so a whole folder can be played.
     val here = songs.orEmpty()
     LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = 24.dp)) {
         item { LargeTitle(title) }
         if (path == null) {
-            items(roots.orEmpty()) { root ->
-                FolderRow(root.substringAfterLast('/').ifBlank { root }, root, null) { open(Route.Folder(root)) }
+            val list = roots.orEmpty()
+            items(list.size) { i ->
+                val root = list[i]
+                FolderRow(root.substringAfterLast('/').ifBlank { root }, root, null, Place(i, list.size)) { open(Route.Folder(root)) }
             }
         } else {
-            items(subfolders.orEmpty(), key = { it.path }) { folder ->
-                FolderRow(folder.name, count(folder.songs.toInt(), "song"), folder.artwork) { open(Route.Folder(folder.path)) }
+            val list = subfolders.orEmpty()
+            items(list.size, key = { list[it].path }) { i ->
+                val folder = list[i]
+                FolderRow(folder.name, count(folder.songs.toInt(), "song"), folder.artwork, Place(i, list.size)) { open(Route.Folder(folder.path)) }
             }
             if (here.isNotEmpty()) {
                 item { SectionHeader("Every song in here") }
                 itemsIndexed(here, key = { _, s -> s.id }) { i, song ->
-                    SongRow(song, playing == song.id, open) { play(here, i) }
+                    SongRow(song, playing == song.id, open, place = Place(i, here.size)) { play(here, i) }
                 }
             }
+        }
+        // Read, and nothing in it: say so rather than show a blank page.
+        val empty = if (path == null) roots?.isEmpty() == true else subfolders?.isEmpty() == true && songs?.isEmpty() == true
+        if (empty) item {
+            Text(
+                if (path == null) "No music folders yet. Add one in Settings, under Library." else "No songs in this folder.",
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(Edge),
+            )
         }
     }
 }
 
 @Composable
-private fun FolderRow(name: String, detail: String, artwork: String?, onClick: () -> Unit) {
-    Column(Modifier.fillMaxWidth().clickable(onClick = onClick)) {
+private fun FolderRow(name: String, detail: String, artwork: String?, place: Place, onClick: () -> Unit) {
+    Column(Modifier.fillMaxWidth().segment(place, groupColor()).clickable(onClick = onClick)) {
         Row(
-            Modifier.fillMaxWidth().heightIn(min = LocalRows.current.height + 4.dp).padding(horizontal = Edge, vertical = LocalRows.current.pad / 1.5f),
+            Modifier.fillMaxWidth().heightIn(min = LocalRows.current.height + 4.dp).padding(horizontal = 14.dp, vertical = LocalRows.current.pad / 1.5f),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(14.dp),
         ) {
@@ -150,7 +161,6 @@ private fun FolderRow(name: String, detail: String, artwork: String?, onClick: (
                 Text(detail, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
             }
         }
-        HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant, modifier = Modifier.padding(start = Edge + 62.dp))
     }
 }
 
@@ -212,7 +222,8 @@ private fun Numbers(open: (Route) -> Unit) {
     val stats by statsLoad
     LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = 24.dp)) {
         item {
-            Row(Modifier.padding(horizontal = Edge, vertical = 8.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            // Onto a second line with large text on a narrow phone, rather than squeezed.
+            androidx.compose.foundation.layout.FlowRow(Modifier.padding(horizontal = Edge, vertical = 8.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 listOf(7 to "Week", 30 to "Month", 365 to "Year", 0 to "All time").forEach { (days, label) ->
                     FilterChip(selected = span == days, onClick = { span = days }, label = { Text(label) })
                 }
@@ -259,7 +270,15 @@ fun androidx.compose.foundation.lazy.LazyListScope.statsItems(s: Stats, open: (R
 @Composable
 fun Figure(value: String, label: String, modifier: Modifier = Modifier) {
     Column(modifier.clip(RoundedCornerShape(20.dp)).background(MaterialTheme.colorScheme.surfaceContainer).padding(14.dp)) {
-        Text(value, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold, maxLines = 1)
+        // Smaller where three share a narrow row ("12 h 30 min"), rather than cut short.
+        Text(
+            value,
+            style = MaterialTheme.typography.titleLarge,
+            fontWeight = FontWeight.Bold,
+            maxLines = 1,
+            softWrap = false,
+            autoSize = androidx.compose.foundation.text.TextAutoSize.StepBased(minFontSize = 12.sp, maxFontSize = MaterialTheme.typography.titleLarge.fontSize),
+        )
         Text(label, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
     }
 }
@@ -267,6 +286,11 @@ fun Figure(value: String, label: String, modifier: Modifier = Modifier) {
 @Composable
 private fun HourBars(hours: List<Double>) {
     val most = (hours.maxOrNull() ?: 0.0).coerceAtLeast(1.0)
+    // TalkBack hears what the bars show, not the hour marks under them.
+    val busiest = hours.indices.maxByOrNull { hours[it] }
+    Column(Modifier.clearAndSetSemantics {
+        contentDescription = if (busiest == null || hours[busiest] <= 0.0) "No plays by hour yet" else "Played most around $busiest:00"
+    }) {
     Row(
         Modifier.fillMaxWidth().height(96.dp).padding(horizontal = Edge),
         horizontalArrangement = Arrangement.spacedBy(3.dp),
@@ -288,6 +312,7 @@ private fun HourBars(hours: List<Double>) {
             if (i < 4) Spacer(Modifier.weight(1f))
         }
     }
+    }
 }
 
 @Composable
@@ -296,7 +321,7 @@ private fun RankedRow(r: Ranked, onClick: (() -> Unit)? = null) {
         Modifier
             .fillMaxWidth()
             .clickable(enabled = onClick != null || r.songId != null) {
-                if (onClick != null) onClick() else r.songId?.let { core.play(listOf(it), 0u) }
+                if (onClick != null) onClick() else r.songId?.let { playSongs(listOf(it)) }
             }
             .padding(horizontal = Edge, vertical = 6.dp),
         verticalAlignment = Alignment.CenterVertically,

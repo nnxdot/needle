@@ -11,21 +11,49 @@ marks only what plays, the main action, and links.
 ## Structure
 
 - **Page:** a large title that shrinks as the page scrolls (Material's flexible top bar), actions
-  at its right. Every top-level page and every page opened from one has it.
-- **Content sits on the page**, not in cards. Cards (rounded 28 dp surfaces) are for groups of
-  settings and for the few tiles on Home.
-- **Lists:** 60 dp rows; cover 52 dp (12 dp corners); title and one line under it; the row's
-  menu at the right. Long press opens the same menu.
-- **Grids:** two covers across on phones, a title and one line under each.
+  at its right, and under the title a line of what the page holds (Home: songs and albums;
+  Library: albums, artists, playlists). The tabs' pages and the music pages opened from them
+  (Search, Albums, Artists, Songs, Genres, Playlists) have it. Settings, tools, documents, and
+  the listening pages (Folders, History, Favorites) have a large title that scrolls with their
+  list instead (`LargeTitle`), with the way back above it.
+- **Covers and tiles sit on the page.** Rows sit in groups (`segment` in Design.kt), as Android
+  16's own lists: one tone a step above the page (`groupColor`), the rows 2 dp apart, the group's
+  ends rounded 24 dp and the corners between rows 6 dp. No hairlines. The playing song's row
+  takes the secondary container, chosen songs the primary container. Settings' groups are the
+  same, their rows a gap of the page apart.
+- **Tiles** (Home, Library): each on its own tone, Material's secondary or tertiary container,
+  its icon's cookie in the tone's strong colour.
+- **Lists:** 60 dp rows; cover 48 dp; title and one line under it; the row's menu at the
+  right. Long press opens the same menu. Settings › Appearance › Density makes them 48 or 76 dp.
+- **Home:** the first shelf is Material's carousel (multi-browse from three covers; with fewer,
+  each keeps one card's width); then the tiles, recently added, your playlists, most played, and
+  the artists with the most songs.
+- **Grids:** two covers across on phones, a title and one line under each; on tablets as many as
+  fit (`gridColumns` in Adaptive.kt).
+- **Tablets** (pages 560 dp wide or more) use the room, never a phone's layout stretched: album
+  and playlist pages put the cover at the left with the name and buttons beside it; an artist's
+  photo is a wide band; the player on its side puts the cover (or the lyrics, or the queue) at the
+  left and the controls at the right; Settings shows its list and the chosen section side by side
+  from 840 dp.
+- **Side bar** on tablets, in place of the tabs at the foot (`SideBar.kt`): the tabs, your
+  playlists, the albums played last, and Settings at its foot, as Spotify's. It folds to icons and
+  covers; it starts open on screens 840 dp wide or more. It sits on a frame (`surfaceContainer`), and
+  the pages in a pane with 28 dp corners beside it (`Modifier.pane()`), as Google's apps on a
+  tablet. The open tab's icon is filled, the others outlined.
 - **Library** is one page with filter pills at the top (Playlists, Albums, Artists, Songs, and
   More), as Spotify and Apple Music do, not a list of places to go.
 
 ## Shapes (each means one thing)
 
-- Covers of albums, songs, and playlists: rounded squares, 12 dp (8 dp when small).
-- Artists: circles.
-- Icons in a shape: the scalloped "cookie", always the same one.
-- Buttons: pills; the main Play is the one large filled button.
+- Covers of albums, songs, and playlists: rounded squares, 8 dp (6 dp when small), so the
+  picture stays the picture.
+- Artists: Material's arch (`artistShape`), as a portrait's frame.
+- Icons in a shape: the scalloped "cookie", always the same one (Settings' sections too).
+- Buttons: pills; the main Play is the one large filled button. On a page, Shuffle, Play, and
+  the page's own button are one connected group (Material's button group): round at its ends,
+  small corners where they meet.
+- Waiting: Material's shape-changing loading indicator (pull to refresh, loading dialogs).
+- Choosing songs: Material's floating toolbar, in its vibrant colours, Play its one filled button.
 
 ## Colour
 
@@ -46,10 +74,23 @@ marks only what plays, the main action, and links.
 - Every page opened from another has a back button at its top left, besides the back gesture.
 - Covers fly between pages of one tab only; switching tabs cross-fades.
 
+## TV and keys
+
+- On Android TV the app is the tablet's: the side bar, the pane, the wide player. A remote
+  moves the focus (`TvFocus.kt`).
+- What has the focus shows plainly, from across a room: cards grow a little and take a ring in
+  the text colour (`pressScale`, `focusRing`); other buttons take a ring or a deeper shade.
+- The player and the welcome guide keep the focus while they are open (`focusLayer`). A page
+  opened from the page takes the focus; its Play first, where it has one (`firstFocus`).
+- Text boxes let the remote leave them up and down (`remoteEscape`); on a TV the search box
+  opens the keyboard only on OK (`RemoteTyping`).
+
 ## Type
 
 - Roboto Flex, one variable font. Text at its usual width; display and headline sizes narrow
   and heavy (`titleFamily`), as posters are. Big titles grow narrower as their page scrolls.
+- Section titles use the emphasized styles (`titleLargeEmphasized`): the title font, a step
+  heavier.
 
 ## Menus
 

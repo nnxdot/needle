@@ -9,9 +9,14 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import fyi.nnx.needle.ui.asPlayback
@@ -32,6 +37,29 @@ class NeedleApp : Application() {
      */
     val playback: StateFlow<Playback?> = _playback
 
+    /**
+     * The song playing, changing only when the song does: lists mark it without redrawing at
+     * every tick of the playing position.
+     */
+    val playingId: StateFlow<String?> = _playback
+        .map { it?.current?.id }
+        .distinctUntilChanged()
+        .stateIn(scope, SharingStarted.Eagerly, null)
+
+    /** Whether music plays (not paused), changing only when that does, as [playingId]. */
+    /** A press from outside the app (a widget): the loop below looks at once, and closely for a moment. */
+    private val wakeUp = kotlinx.coroutines.channels.Channel<Unit>(kotlinx.coroutines.channels.Channel.CONFLATED)
+    @Volatile private var wokeAt = 0L
+    fun wake() {
+        wokeAt = android.os.SystemClock.uptimeMillis()
+        wakeUp.trySend(Unit)
+    }
+
+    val isPlaying: StateFlow<Boolean> = _playback
+        .map { it?.playing == true }
+        .distinctUntilChanged()
+        .stateIn(scope, SharingStarted.Eagerly, false)
+
     private val _remote = MutableStateFlow<fyi.nnx.needle.core.PcState?>(null)
     /** What Needle on the computer plays, while the phone is connected to it. */
     val remote: StateFlow<fyi.nnx.needle.core.PcState?> = _remote
@@ -51,6 +79,9 @@ class NeedleApp : Application() {
 
     /** Changes whenever the library may have changed (a scan finished), so lists load again. */
     val libraryVersion = MutableStateFlow(0)
+
+    /** The library changed: pages read it again. Safe from any thread (none is lost). */
+    fun libraryChanged() = libraryVersion.update { it + 1 }
     val themeVersion = MutableStateFlow(0)
 
     private val _app = MutableStateFlow(
@@ -58,7 +89,7 @@ class NeedleApp : Application() {
             coverBackdrop = true, wallpaperColors = false, reduceMotion = false, liveLyrics = true,
             haptics = true, openPlayerOnPlay = false, keepScreenOnLyrics = false, theme = "night",
             coverColors = true, ambientColors = false, movingBackdrop = true, backdropBlur = 70f,
-            seekStyle = "wave", miniPlayerColored = true, coverShape = "square",
+            seekStyle = "wave", miniPlayerColored = true, miniPlayerLyrics = false, coverShape = "square",
             titleFont = "flex", textScale = 1f, density = "comfortable", accentColor = "", grain = 0f,
             controlStyle = "expressive", sideButtons = "skip", volumeSlider = false, swipeCover = true, welcomed = false,
         ),
@@ -69,10 +100,17 @@ class NeedleApp : Application() {
     /** Asks the screens to open the full player (when a song is chosen, if that is on). */
     val openPlayer = MutableSharedFlow<Unit>(extraBufferCapacity = 1)
 
+    /**
+     * Where settings are saved: one at a time, in the order they were made, so two quick
+     * changes cannot be written the wrong way round (the older last).
+     */
+    @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
+    val saves = kotlinx.coroutines.Dispatchers.IO.limitedParallelism(1)
+
     fun updateApp(change: (AppSettings) -> AppSettings) {
         val next = change(_app.value)
         _app.value = next
-        scope.launch { runCatching { core.setAppSettings(next) } }
+        scope.launch(saves) { runCatching { core.setAppSettings(next) } }
     }
 
     override fun onCreate() {
@@ -85,6 +123,8 @@ class NeedleApp : Application() {
         // The Discord status, when this build can show it and Discord is on the phone.
         Discord.load(this)
         if (Discord.available && Discord.installed(this)) core.startDiscord()
+        // A USB DAC's bit-perfect mixer, followed as it comes and goes.
+        fyi.nnx.needle.ui.followUsbMixer(this)
         // A reading notice left from a run that was closed mid-read.
         ScanNotice.hide(this)
         registerActivityLifecycleCallbacks(object : ActivityLifecycleCallbacks {
@@ -113,20 +153,22 @@ class NeedleApp : Application() {
                 val now = playback.current?.id to playback.playing
                 if (now != shown) {
                     shown = now
-                    launch { updateWidgets(this@NeedleApp) }
+                    launch { updateWidgets(this@NeedleApp, recent = false) }
                 }
                 val scan = core.scanStatus()
                 _scan.value = scan
                 if (scan.running) ScanNotice.show(this@NeedleApp, scan)
                 if (wasScanning && !scan.running) {
-                    libraryVersion.value++
+                    libraryChanged()
                     ScanNotice.hide(this@NeedleApp)
                     launch { updateWidgets(this@NeedleApp) }
                 }
                 wasScanning = scan.running
                 // Nothing to follow closely while Needle is out of sight and nothing plays.
-                val busy = visible > 0 || playback.playing || scan.running
-                delay(if (busy) 200 else 2000)
+                // Just after a widget's press too, so the widget shows it at once.
+                val busy = visible > 0 || playback.playing || scan.running ||
+                    android.os.SystemClock.uptimeMillis() - wokeAt < 2000
+                kotlinx.coroutines.withTimeoutOrNull(if (busy) 200L else 2000L) { wakeUp.receive() }
             }
         }
         // Needle on the computer, once a second while connected to it.
@@ -146,6 +188,9 @@ class NeedleApp : Application() {
             val on = runCatching { core.playbackSettings().checkUpdates }.getOrDefault(false)
             if (on && now - last > 24 * 3600 * 1000L) {
                 delay(8000)
+                // Started without a screen (a widget, a car): the news waits for one, as a
+                // message with nobody to see it would be lost, and not asked again for a day.
+                while (visible == 0) delay(5000)
                 runCatching { core.checkUpdate() }.onSuccess { found ->
                     prefs.edit().putLong("lastUpdateCheck", now).apply()
                     if (found != null) fyi.nnx.needle.ui.showMessage("Needle ${found.version} is out. Get it in Settings › About.")
@@ -155,7 +200,16 @@ class NeedleApp : Application() {
         // Crash reports from earlier runs, when that is on.
         scope.launch { runCatching { core.sendCrashReports() } }
         // Read the music folders again at start, for songs added since.
-        if (core.folders().isNotEmpty()) core.rescan()
+        if (core.folders().isNotEmpty()) {
+            core.rescan()
+            // A quick scan can begin and end between two looks of the loop above: the lists are
+            // read again once it has ended, whatever the loop saw.
+            scope.launch(Dispatchers.IO) {
+                delay(500)
+                while (runCatching { core.scanStatus().running }.getOrDefault(false)) delay(500)
+                libraryChanged()
+            }
+        }
     }
 
     companion object {

@@ -1,5 +1,6 @@
-//! Music sources in the app: signing in to a server (Settings › Plugins), its songs in the
-//! sidebar, and saving a streamed song as a file.
+//! Music sources in the app: signing in to a server (Settings › Library, or a source
+//! plugin's card), and saving a streamed song as a file. A server's songs show with the rest,
+//! marked with a small server icon.
 use super::{
     AppView, Page, pal,
     widgets::{count, faint, meta, small_button, strong},
@@ -11,10 +12,7 @@ use gpui_component::{
     input::{Input, InputState},
     switch::Switch,
 };
-use needle_core::plugins::{self, PluginEvent, PluginInfo};
-
-/// The plugin that connects Needle to Navidrome and other Subsonic servers.
-const SUBSONIC: &str = "subsonic";
+use needle_core::plugins::{PluginEvent, PluginInfo};
 
 /// "just now", "5 min ago", "3 h ago", "2 days ago".
 fn ago(seconds: i64) -> String {
@@ -27,19 +25,6 @@ fn ago(seconds: i64) -> String {
 }
 
 impl AppView {
-    /// Sources that are turned on and signed in, for the sidebar.
-    pub(super) fn signed_in_sources(&self) -> Vec<(String, String)> {
-        self.plugins
-            .plugins()
-            .into_iter()
-            .filter(|p| p.enabled)
-            .filter_map(|p| {
-                let source = p.source?;
-                (source.signed_in && source.songs > 0).then_some((p.manifest.id, source.name))
-            })
-            .collect()
-    }
-
     /// Make the text boxes of each sign-in form (called from the poll, which has a window).
     pub(super) fn ensure_source_inputs(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         for plugin in self.plugins.plugins() {
@@ -84,64 +69,19 @@ impl AppView {
         cx.notify();
     }
 
-    /// Install the Navidrome / Subsonic plugin if needed, and turn it on.
-    fn set_up_subsonic(&mut self, cx: &mut Context<Self>) {
-        // Only this plugin: the other examples stay out until someone asks for them.
-        if let Err(error) = plugins::install_example(&self.library, SUBSONIC) {
-            self.fail(format!("{error:#}"));
-            return;
-        }
-        self.plugins.send(PluginEvent::Reload);
+    /// Settings › Library › Music servers: the servers built into Needle, each with its
+    /// sign-in form or how it is doing.
+    pub(super) fn music_servers(&self, cx: &mut Context<Self>) -> Vec<AnyElement> {
         self.plugins
-            .send(PluginEvent::Enable(SUBSONIC.into(), true));
-        self.notify("Type your server's address and sign in below.");
-        cx.notify();
-    }
-
-    /// The card at the top of Settings › Plugins that sets up a music server in one click.
-    pub(super) fn music_server_card(&self, cx: &mut Context<Self>) -> Option<AnyElement> {
-        let ready = self
-            .plugins
             .plugins()
             .iter()
-            .any(|p| p.manifest.id == SUBSONIC && p.enabled);
-        if ready {
-            return None;
-        }
-        let p = pal(cx);
-        Some(
-            div()
-                .p_4()
-                .rounded(px(10.))
-                .border_1()
-                .border_color(p.accent.opacity(0.4))
-                .bg(p.accent_soft)
-                .flex()
-                .items_center()
-                .gap_4()
-                .child(
-                    div()
-                        .flex_1()
-                        .min_w_0()
-                        .flex()
-                        .flex_col()
-                        .gap_1()
-                        .child(strong("Play music from your server"))
-                        .child(
-                            meta("Navidrome, Airsonic, Gonic, and other Subsonic servers. Your server's songs show with your own and play straight away.", cx)
-                                .w_full(),
-                        ),
-                )
-                .child(
-                    small_button("subsonic-set-up", "Set up")
-                        .primary()
-                        .on_click(cx.listener(|this, _, _, cx| this.set_up_subsonic(cx))),
-                )
-                .into_any_element(),
-        )
+            .filter(|p| p.builtin)
+            .filter_map(|p| self.source_block(p, cx))
+            .collect()
     }
 
-    /// Sign-in form, or how the source is doing, inside its plugin's card.
+    /// Sign-in form, or how the source is doing: in Settings › Library for a server built into
+    /// Needle, and inside its plugin's card for one a plugin brings.
     pub(super) fn source_block(
         &self,
         plugin: &PluginInfo,

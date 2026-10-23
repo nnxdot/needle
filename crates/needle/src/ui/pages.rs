@@ -685,6 +685,8 @@ impl AppView {
                                     .child(small_button("rescan", "Check for changes").ghost().disabled(self.scan.is_some()).on_click(cx.listener(|this, _, _, cx| this.rescan(cx)))),
                             ),
                     )
+                    .child(self.section_title("Music servers", "Navidrome, Airsonic, Gonic, and other Subsonic servers. Your server's songs show with your own and play straight away.", cx))
+                    .children(self.music_servers(cx))
                     .child(setting_row(
                         "Measure songs for radio",
                         &match self.measured {
@@ -820,6 +822,36 @@ impl AppView {
                     ))
                     .when(!self.settings.music_colors && self.accent_choice_applies(cx), |el| el.child(self.accent_settings(cx)))
                     .child(setting_row(
+                        "Immersive cover",
+                        "In the big player and full screen, the cover fills the left side of the window from top to bottom and fades into its colors, as in Apple Music.",
+                        Switch::new("immersive-cover").checked(self.settings.immersive_cover).on_click(cx.listener(|this, checked: &bool, _, cx| {
+                            this.settings.immersive_cover = *checked;
+                            this.persist_settings();
+                            cx.notify();
+                        })),
+                        cx,
+                    ))
+                    .child(setting_row(
+                        "Lyrics under the player",
+                        "The line being sung, under the player.",
+                        Switch::new("player-lyrics").checked(self.settings.player_lyrics).on_click(cx.listener(|this, checked: &bool, _, cx| {
+                            this.settings.player_lyrics = *checked;
+                            this.persist_settings();
+                            cx.notify();
+                        })),
+                        cx,
+                    ))
+                    .child(setting_row(
+                        "Mark server songs",
+                        "Songs from your music server show a small server icon beside their artist.",
+                        Switch::new("server-mark").checked(self.settings.server_mark).on_click(cx.listener(|this, checked: &bool, _, cx| {
+                            this.settings.server_mark = *checked;
+                            this.persist_settings();
+                            cx.notify();
+                        })),
+                        cx,
+                    ))
+                    .child(setting_row(
                         "Reduce motion",
                         if motion::system_allows_animation() {
                             "Turns off fades, slides, and other animations."
@@ -924,7 +956,7 @@ impl AppView {
                     .child(self.section_title("Artwork and lyrics", "Needle always uses covers, .lrc files, and lyrics tags found with your music.", cx))
                     .child(setting_row(
                         "Look things up online",
-                        "Finds missing album covers (MusicBrainz and the Cover Art Archive), artist photos (Wikimedia Commons), and lyrics (LRCLIB). Only artist, album, title, and length are sent.",
+                        "Finds missing album covers (MusicBrainz and the Cover Art Archive), artist photos (Wikimedia Commons), artists' wide pictures and logos (fanart.tv), and lyrics (LRCLIB). Only artist, album, title, and length are sent.",
                         Switch::new("online-media").checked(self.settings.online_media).on_click(cx.listener(|this, checked: &bool, _, cx| {
                             this.settings.online_media = *checked;
                             this.persist_settings();

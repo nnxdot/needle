@@ -1,18 +1,22 @@
 {
     "html_url": "https://needle.nnx.fyi/",
-    "tag_name": "v1.6.5",
+    "tag_name": "v1.7.1",
     "assets": [
         {
-            "name": "Needle-1.6.5-android.apk",
-            "browser_download_url": "https://needle.nnx.fyi/download/Needle-1.6.5-android.apk"
+            "name": "Needle-1.7.1-android.apk",
+            "browser_download_url": "https://needle.nnx.fyi/download/Needle-1.7.1-android.apk"
         },
         {
-            "name": "Needle-1.6.5-android-arm64-release.apk",
-            "browser_download_url": "https://needle.nnx.fyi/download/Needle-1.6.5-android-arm64-release.apk"
+            "name": "Needle-1.7.1-android-arm64-release.apk",
+            "browser_download_url": "https://needle.nnx.fyi/download/Needle-1.7.1-android-arm64-release.apk"
         },
         {
-            "name": "Needle-1.6.5-android-x86_64-release.apk",
-            "browser_download_url": "https://needle.nnx.fyi/download/Needle-1.6.5-android-x86_64-release.apk"
+            "name": "Needle-1.7.1-android-x86_64-release.apk",
+            "browser_download_url": "https://needle.nnx.fyi/download/Needle-1.7.1-android-x86_64-release.apk"
+        },
+        {
+            "name": "Needle-1.7.1-android-armv7-release.apk",
+            "browser_download_url": "https://needle.nnx.fyi/download/Needle-1.7.1-android-armv7-release.apk"
         },
         {
             "name": "SHA256SUMS.txt",

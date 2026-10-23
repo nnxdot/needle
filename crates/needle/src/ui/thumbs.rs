@@ -1,6 +1,10 @@
 //! Small copies of covers for rows and tiles. GPUI decodes and uploads an image at its full
 //! size however small it is drawn, and covers can be 4000 pixels wide (a 68 MB texture), so a
 //! tile draws a copy made once, in the background, and kept in `artwork/thumbs`.
+//!
+//! The copies are also what keeps small covers smooth: GPUI draws a picture with plain
+//! bilinear filtering and no smaller versions of it, which looks smooth only when the picture
+//! is at most about 1.5 times the size it is drawn, in the screen's own pixels.
 
 use std::{
     collections::HashMap,
@@ -8,16 +12,17 @@ use std::{
     path::{Path, PathBuf},
     sync::{
         Mutex, OnceLock,
-        atomic::{AtomicU64, Ordering},
+        atomic::{AtomicU32, AtomicU64, Ordering},
         mpsc::{Sender, channel},
     },
 };
 
-/// A cover file up to this size is drawn as it is: a copy would save little.
-const SMALL_FILE: u64 = 400 * 1024;
-/// The edges of the copies, in pixels; a cover is drawn from the smallest that covers twice
-/// its size on screen (sharp on high-density screens). Larger covers draw the original.
-const EDGES: [u32; 2] = [256, 640];
+/// The edges of the copies, in pixels, each 1.5 times the last: a cover is drawn from the
+/// smallest that covers its size in the screen's pixels, so it is never shrunk more than 1.5
+/// times. Larger than all of them, the original is drawn.
+const EDGES: [u32; 9] = [48, 72, 108, 162, 243, 365, 548, 822, 1233];
+/// A cover is drawn as it is when it is at most this much larger than the copy would be.
+const CLOSE_ENOUGH: f32 = 1.5;
 
 enum Thumb {
     /// Draw this file.
@@ -84,13 +89,23 @@ pub fn made() -> u64 {
     MADE.load(Ordering::Relaxed)
 }
 
+/// The window's scale (screen pixels per point), as `f32` bits; 1 until it is set.
+static SCALE: AtomicU32 = AtomicU32::new(0x3f80_0000);
+
+/// The window's scale (screen pixels per point); set as it draws.
+pub fn set_scale(scale: f32) {
+    if scale.is_finite() && scale > 0. {
+        SCALE.store(scale.to_bits(), Ordering::Relaxed);
+    }
+}
+
 /// The file to draw for the cover at `path`, shown `size` points wide: a small copy when the
 /// cover is large, or the original. `None` while the copy is being made.
 pub fn for_size(path: &str, size: f32) -> Option<PathBuf> {
     let Some(thumbs) = THUMBS.get() else {
         return Some(PathBuf::from(path));
     };
-    let wanted = (size * 2.).ceil() as u32;
+    let wanted = (size * f32::from_bits(SCALE.load(Ordering::Relaxed))).ceil() as u32;
     let Some(&edge) = EDGES.iter().find(|&&e| e >= wanted) else {
         return Some(PathBuf::from(path));
     };
@@ -106,7 +121,14 @@ pub fn for_size(path: &str, size: f32) -> Option<PathBuf> {
         Some(Thumb::Failed(at)) if at.elapsed().as_secs() < 1 => return Some(PathBuf::from(path)),
         _ => {}
     }
-    if version.0 <= SMALL_FILE {
+    // Close to the size it is drawn: the original as it is. (Reading its size reads only the
+    // start of the file, once a session for each size it is drawn at.)
+    let close = image::ImageReader::open(path)
+        .ok()
+        .and_then(|r| r.with_guessed_format().ok())
+        .and_then(|r| r.into_dimensions().ok())
+        .is_some_and(|(w, h)| w.max(h) as f32 <= edge as f32 * CLOSE_ENOUGH);
+    if close {
         known.insert(key, Thumb::Ready(PathBuf::from(path)));
         return Some(PathBuf::from(path));
     }
@@ -154,7 +176,7 @@ fn make(path: &str, edge: u32, out: &Path) -> bool {
     // Written beside and then renamed, so a copy is never seen half written.
     let part = out.with_extension("part");
     let written = std::fs::File::create(&part).ok().is_some_and(|file| {
-        image::codecs::jpeg::JpegEncoder::new_with_quality(std::io::BufWriter::new(file), 85)
+        image::codecs::jpeg::JpegEncoder::new_with_quality(std::io::BufWriter::new(file), 90)
             .encode_image(&small)
             .is_ok()
     });
@@ -193,9 +215,9 @@ mod tests {
             for_size(&small_path, 100.),
             Some(PathBuf::from(small_path.as_ref()))
         );
-        // Shown big, the original is drawn.
+        // Shown larger than every copy, the original is drawn.
         assert_eq!(
-            for_size(&big_path, 500.),
+            for_size(&big_path, 1300.),
             Some(PathBuf::from(big_path.as_ref()))
         );
         // A tile waits for its copy, then draws it.
@@ -211,7 +233,8 @@ mod tests {
         assert!(made() >= 1);
         assert_ne!(copy, PathBuf::from(big_path.as_ref()));
         let decoded = image::open(&copy).unwrap();
-        assert!(decoded.width() <= 256 && decoded.height() <= 256);
+        // 100 points on a screen at scale 1: the 108 pixel copy.
+        assert!(decoded.width() <= 108 && decoded.height() <= 108);
         // Replacing the source at the same path must refresh during this session.
         let replacement = image::RgbImage::from_fn(1600, 1600, |_, _| {
             seed = seed.wrapping_mul(1_664_525).wrapping_add(1_013_904_223);
@@ -241,7 +264,7 @@ mod tests {
             std::fs::read(&copy).unwrap()
         );
         let refreshed_image = image::open(&refreshed).unwrap();
-        assert!(refreshed_image.width() <= 256 && refreshed_image.height() <= 256);
+        assert!(refreshed_image.width() <= 108 && refreshed_image.height() <= 108);
         // Removing the generated copy also recovers without restarting the app.
         std::fs::remove_file(&refreshed).unwrap();
         assert_eq!(for_size(&big_path, 100.), None);

@@ -56,7 +56,9 @@ class MainActivity : ComponentActivity() {
                 NeedleRoot()
             }
         }
-        if (savedInstanceState == null) openFrom(intent)
+        // Not again from Recents: a task reopened there brings back the file it was first
+        // opened with, which would play it (and copy it) once more.
+        if (savedInstanceState == null && intent.flags and Intent.FLAG_ACTIVITY_LAUNCHED_FROM_HISTORY == 0) openFrom(intent)
     }
 
     override fun onNewIntent(intent: Intent) {
@@ -100,7 +102,7 @@ class MainActivity : ComponentActivity() {
             if (song == null) {
                 showMessage("Needle could not open that. It may not be a music file Needle can play.")
             } else {
-                app.libraryVersion.value++
+                app.libraryChanged()
                 app.openPlayer.tryEmit(Unit)
             }
         }

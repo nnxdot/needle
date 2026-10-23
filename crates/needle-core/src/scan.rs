@@ -342,6 +342,9 @@ fn read_track(library: &Library, db: &rusqlite::Connection, path: &Path) -> Resu
             && t.file_size == metadata.len() as i64
             && !t.missing
             && t.metadata_version == 2
+            // A song with no cover is read again once a cover image sits beside it: one added
+            // since, or one Needle may only now see (Android asks for pictures separately).
+            && (t.artwork.is_some() || folder_cover(path.parent().unwrap_or(&path)).is_none())
     }) {
         return Ok(None);
     }
@@ -1082,6 +1085,45 @@ mod tests {
         assert_eq!(third.id, first.id);
         assert_eq!(third.rating, 4);
         assert_eq!(library.count().unwrap(), 1);
+    }
+
+    #[test]
+    fn a_cover_put_beside_a_song_later_is_found_on_the_next_scan() {
+        let dir = tempfile::tempdir().unwrap();
+        let music = dir.path().join("music");
+        fs::create_dir(&music).unwrap();
+        let spec = hound::WavSpec {
+            channels: 1,
+            sample_rate: 8000,
+            bits_per_sample: 16,
+            sample_format: hound::SampleFormat::Int,
+        };
+        let mut writer = hound::WavWriter::create(music.join("song.wav"), spec).unwrap();
+        for i in 0..800 {
+            writer.write_sample(i as i16).unwrap();
+        }
+        writer.finalize().unwrap();
+        let library = Library::open(dir.path().join("db")).unwrap();
+        let stop = || Arc::new(AtomicBool::new(false));
+        import(&library, &music, stop(), |_| {}).unwrap();
+        let path = music.join("song.wav").canonicalize().unwrap();
+        let song = |library: &Library| {
+            library
+                .track_by_path(&path.to_string_lossy())
+                .unwrap()
+                .unwrap()
+        };
+        assert_eq!(song(&library).artwork, None);
+
+        // The cover arrives (or Android lets Needle see it): the song is read again for it.
+        fs::write(music.join("cover.jpg"), b"x").unwrap();
+        let again = import(&library, &music, stop(), |_| {}).unwrap();
+        assert_eq!(again.imported, 1);
+        assert!(song(&library).artwork.unwrap().ends_with("cover.jpg"));
+
+        // Once it has it, the song is left alone.
+        let third = import(&library, &music, stop(), |_| {}).unwrap();
+        assert_eq!((third.imported, third.unchanged), (0, 1));
     }
 
     #[test]

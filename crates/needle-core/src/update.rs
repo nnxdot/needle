@@ -39,7 +39,8 @@ pub enum Package {
     Rpm,
     /// macOS, Apple silicon: `Needle-<version>-macos.dmg`, holding `Needle.app`.
     MacApp,
-    /// Android: `Needle-<version>-android.apk`, which Android's installer puts in.
+    /// Android: `Needle-<version>-android.apk` (64-bit Arm and x86-64), which Android's
+    /// installer puts in; on a 32-bit phone or TV, `Needle-<version>-android-armv7-release.apk`.
     AndroidApk,
 }
 
@@ -64,6 +65,9 @@ impl Package {
                     && name.ends_with(&format!(".{arch}.rpm"))
             }
             Self::MacApp => arch == "aarch64" && name == format!("needle-{version}-macos.dmg"),
+            Self::AndroidApk if arch == "arm" => {
+                name == format!("needle-{version}-android-armv7-release.apk")
+            }
             Self::AndroidApk => name == format!("needle-{version}-android.apk"),
         }
     }
@@ -239,14 +243,16 @@ fn check_iphone(current: &str) -> Result<Option<Release>> {
         .as_str()
         .or_else(|| app["version"].as_str())
         .unwrap_or_default();
-    Ok((!version.is_empty() && newer(current, version)).then(|| Release {
-        version: version.trim_start_matches('v').to_string(),
-        page: "https://needle.nnx.fyi/#download".into(),
-        package: None,
-        installer: String::new(),
-        installer_url: String::new(),
-        checksums_url: None,
-    }))
+    Ok(
+        (!version.is_empty() && newer(current, version)).then(|| Release {
+            version: version.trim_start_matches('v').to_string(),
+            page: "https://needle.nnx.fyi/#download".into(),
+            package: None,
+            installer: String::new(),
+            installer_url: String::new(),
+            checksums_url: None,
+        }),
+    )
 }
 
 fn check_at(url: &str, current: &str) -> Result<Option<Release>> {
@@ -526,6 +532,10 @@ fn replace_bundle(image: &Path, bundle: &Path) -> Result<()> {
         let _ = std::fs::remove_dir_all(&fresh);
         return Err(error.context("Could not copy the new Needle"));
     }
+    if let Err(error) = check_signer(&fresh) {
+        let _ = std::fs::remove_dir_all(&fresh);
+        return Err(error);
+    }
     // The two are swapped in one step, so an update stopped at any moment leaves a Needle.app
     // that opens. A running program is not disturbed when its folder moves.
     if let Err(error) = swap(&fresh, &bundle) {
@@ -535,6 +545,33 @@ fn replace_bundle(image: &Path, bundle: &Path) -> Result<()> {
     // The old copy is where the new one was.
     let _ = std::fs::remove_dir_all(&fresh);
     let _ = std::fs::remove_dir(&mount);
+    Ok(())
+}
+
+/// Checks that the new Needle.app is signed with the same key as this one (builds signed with
+/// Needle's own key carry its certificate's SHA-1, set at build time in `NEEDLE_MAC_SIGNER`;
+/// builds signed ad hoc have none and skip the check). A matching checksum alone only shows
+/// the download is the file published.
+#[cfg(target_os = "macos")]
+fn check_signer(app: &Path) -> Result<()> {
+    let Some(pin) = option_env!("NEEDLE_MAC_SIGNER")
+        .map(str::trim)
+        .filter(|p| !p.is_empty())
+    else {
+        return Ok(());
+    };
+    let codesign = system_tool("codesign").context("codesign is missing")?;
+    let requirement = format!("-R=identifier \"fyi.nnx.Needle\" and certificate leaf = H\"{pin}\"");
+    let status = std::process::Command::new(codesign)
+        .args(["--verify", "--deep", "--strict", &requirement])
+        .arg(app)
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .status()
+        .context("Could not start codesign")?;
+    if !status.success() {
+        bail!("The update is not signed by Needle, so it was not installed.");
+    }
     Ok(())
 }
 
@@ -576,6 +613,7 @@ mod tests {
                 {"name":"needle-1.5.0-1.x86_64.rpm","browser_download_url":"https://d/rpm"},
                 {"name":"Needle-1.5.0-macos.dmg","browser_download_url":"https://d/dmg"},
                 {"name":"Needle-1.5.0-android.apk","browser_download_url":"https://d/apk"},
+                {"name":"Needle-1.5.0-android-armv7-release.apk","browser_download_url":"https://d/apk-32"},
                 {"name":"SHA256SUMS.txt","browser_download_url":"https://d/sums"}]}"#,
         )
         .unwrap();
@@ -613,10 +651,18 @@ mod tests {
             pick(Some(Package::MacApp), "x86_64"),
             Some((None, String::new()))
         );
-        // One Android app for every processor.
+        // One Android app for 64-bit processors, and its own for 32-bit Arm (TVs, mostly).
         assert_eq!(
             pick(Some(Package::AndroidApk), "aarch64"),
             Some((Some(Package::AndroidApk), "https://d/apk".into()))
+        );
+        assert_eq!(
+            pick(Some(Package::AndroidApk), "x86_64"),
+            Some((Some(Package::AndroidApk), "https://d/apk".into()))
+        );
+        assert_eq!(
+            pick(Some(Package::AndroidApk), "arm"),
+            Some((Some(Package::AndroidApk), "https://d/apk-32".into()))
         );
         // An older or unrelated package in the release is never taken.
         let odd: Value = serde_json::from_str(

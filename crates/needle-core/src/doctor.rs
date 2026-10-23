@@ -260,15 +260,22 @@ pub fn recycle(path: &Path) -> Result<()> {
 /// Moves a file to the user's Trash (as a rename, or a copy when it is on another disk).
 #[cfg(target_os = "macos")]
 pub fn recycle(path: &Path) -> Result<()> {
-    let home = std::env::var_os("HOME").ok_or_else(|| anyhow::anyhow!("No home folder for the Trash"))?;
+    let home =
+        std::env::var_os("HOME").ok_or_else(|| anyhow::anyhow!("No home folder for the Trash"))?;
     let trash = std::path::PathBuf::from(home).join(".Trash");
     std::fs::create_dir_all(&trash)?;
     let name = path
         .file_name()
         .ok_or_else(|| anyhow::anyhow!("{} has no file name", path.display()))?;
     let mut target = trash.join(name);
-    let stem = path.file_stem().map(|s| s.to_string_lossy().to_string()).unwrap_or_default();
-    let extension = path.extension().map(|e| format!(".{}", e.to_string_lossy())).unwrap_or_default();
+    let stem = path
+        .file_stem()
+        .map(|s| s.to_string_lossy().to_string())
+        .unwrap_or_default();
+    let extension = path
+        .extension()
+        .map(|e| format!(".{}", e.to_string_lossy()))
+        .unwrap_or_default();
     let mut n = 2;
     while target.exists() {
         target = trash.join(format!("{stem} {n}{extension}"));
@@ -298,16 +305,27 @@ impl Library {
         others: &[Track],
         recycle_files: bool,
     ) -> Result<()> {
-        let others: Vec<&Track> = others.iter().filter(|t| t.id != keep.id).collect();
+        let mut others: Vec<&Track> = others.iter().filter(|t| t.id != keep.id).collect();
         if others.is_empty() {
             return Ok(());
         }
+        // Copies whose file could not go to the Trash stay as they are; the others (already
+        // in the Trash) are still merged, so the library does not point at trashed files.
+        let mut stuck = None;
         if recycle_files {
-            for other in &others {
-                if Path::new(&other.path).exists() {
-                    recycle(Path::new(&other.path))?;
+            others.retain(|other| {
+                let path = Path::new(&other.path);
+                match path.exists().then(|| recycle(path)) {
+                    Some(Err(error)) => {
+                        stuck.get_or_insert(error);
+                        false
+                    }
+                    _ => true,
                 }
-            }
+            });
+        }
+        if others.is_empty() {
+            return Err(stuck.expect("a copy was left out because it could not be trashed"));
         }
         let mut db = self.connection()?;
         let tx = db.transaction()?;
@@ -358,7 +376,12 @@ impl Library {
                 self.save_playlist(&playlist)?;
             }
         }
-        Ok(())
+        match stuck {
+            Some(error) => Err(error.context(
+                "Some copies could not go to the Trash and were kept; the others were merged",
+            )),
+            None => Ok(()),
+        }
     }
 
     /// Albums where no song has a cover: one song from each, to look up by.

@@ -62,6 +62,8 @@ pub struct Group {
     pub artwork: Option<String>,
     pub seed: String,
     pub tracks: usize,
+    /// An album's year (0 when unknown, and for artists).
+    pub year: i64,
     pub page: Page,
 }
 
@@ -82,6 +84,7 @@ pub fn album_groups(albums: Vec<AlbumSummary>) -> Vec<Group> {
             artwork: album.artwork,
             seed: format!("{}{}", album.album, album.artist),
             tracks: album.tracks,
+            year: album.year,
             page: Page::Album {
                 album: album.album,
                 artist: album.artist,
@@ -108,6 +111,7 @@ pub fn artist_groups(artists: Vec<ArtistSummary>) -> Vec<Group> {
             artwork: artist.artwork,
             seed: artist.name.clone(),
             tracks: artist.tracks,
+            year: 0,
             page: Page::Artist(artist.name),
         })
         .collect()
@@ -142,6 +146,7 @@ impl AppView {
                 self.onboarding(cx).into_any_element()
             }
             Page::Home => self.home_view(cx).into_any_element(),
+            Page::Artist(ref name) => self.artist_page(name, width, window, cx),
             _ => self.collection(width, window, cx).into_any_element(),
         };
         let page = div()
@@ -1065,6 +1070,11 @@ impl AppView {
             .is_some_and(|i| i.track.id == track.id);
         let favorite = track.rating >= 4;
         let id = track.id.clone();
+        // A song from a music server, marked with a small server icon (Settings › Appearance).
+        let streamed = track.is_streamed() && self.settings.server_mark;
+        // The artist line, where a server song's icon goes; an album's own songs may not have it.
+        let artist_line =
+            !album_view || track.artist != track.album_artist && !track.album_artist.is_empty();
         let height = self.settings.layout.row_height.clamp(32., 76.);
         // Compact rows hold one line: a small cover, then the title and artist side by side.
         let compact = height < 50.;
@@ -1163,6 +1173,14 @@ impl AppView {
                                     })
                                     .child(track.title.clone()),
                             )
+                            .when(streamed && !artist_line, |el| {
+                                el.child(
+                                    glyph("server")
+                                        .flex_shrink_0()
+                                        .size(px(11.))
+                                        .text_color(p.ink_3),
+                                )
+                            })
                             .when(track.missing, |el| {
                                 el.child(
                                     div()
@@ -1176,18 +1194,26 @@ impl AppView {
                                 )
                             }),
                     )
-                    .when(
-                        !album_view
-                            || track.artist != track.album_artist && !track.album_artist.is_empty(),
-                        |el| {
-                            el.child(
-                                div()
-                                    .min_w_0()
-                                    .flex_shrink()
-                                    .truncate()
-                                    .text_size(px(12.))
-                                    .text_color(p.ink_2)
-                                    .child(if show_album || album_view {
+                    .when(artist_line, |el| {
+                        el.child(
+                            div()
+                                .min_w_0()
+                                .flex_shrink()
+                                .flex()
+                                .items_center()
+                                .gap_1()
+                                .text_size(px(12.))
+                                .text_color(p.ink_2)
+                                .when(streamed, |el| {
+                                    el.child(
+                                        glyph("server")
+                                            .flex_shrink_0()
+                                            .size(px(11.))
+                                            .text_color(p.ink_3),
+                                    )
+                                })
+                                .child(div().min_w_0().truncate().child(
+                                    if show_album || album_view {
                                         track.display_artist().to_string()
                                     } else {
                                         format!(
@@ -1195,10 +1221,10 @@ impl AppView {
                                             track.display_artist(),
                                             track.display_album()
                                         )
-                                    }),
-                            )
-                        },
-                    ),
+                                    },
+                                )),
+                        )
+                    }),
             )
             .children(
                 columns
@@ -1329,7 +1355,13 @@ impl AppView {
         with_scrollbar(list, &self.grid_scroll)
     }
 
-    fn tile(&self, index: usize, size: f32, round: bool, cx: &mut Context<Self>) -> Stateful<Div> {
+    pub(super) fn tile(
+        &self,
+        index: usize,
+        size: f32,
+        round: bool,
+        cx: &mut Context<Self>,
+    ) -> Stateful<Div> {
         let group = &self.groups[index];
         let page = group.page.clone();
         div()
