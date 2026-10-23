@@ -455,10 +455,11 @@ private struct SourceCard: View {
         .task { loadUsage() }
         .task(id: "\(source.songs)|\(source.syncing)") {
             guard source.signedIn else { return }
-            let rule = store.core.sourceRule(plugin: plugin.id)
-            let albums = JSON.decode([AlbumSummary].self, await store.load { try $0.albumsJson(query: rule) })?.count
-            let artists = JSON.decode([ArtistSummary].self, await store.load { try $0.artistsJson(query: rule) })?.count
-            if let albums, let artists { counts = (albums, artists) }
+            // The core counts albums and artists with the server's rule, as the iPhone shows them.
+            let id = plugin.id
+            if let found = await store.load({ try $0.sourceStats(plugin: id) }), found.count == 2 {
+                counts = (Int(found[0]), Int(found[1]))
+            }
         }
         .confirmationDialog("Sign out of \(source.name)?", isPresented: $confirmSignOut) {
             Button("Sign Out", role: .destructive) { store.core.sourceSignOut(plugin: plugin.id); refresh() }

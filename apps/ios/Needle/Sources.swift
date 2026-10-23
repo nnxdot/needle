@@ -266,13 +266,10 @@ struct ServerView: View {
         }
         .task(id: "\(item?.source?.songs ?? 0)|\(item?.source?.syncing ?? false)") {
             guard item?.source?.signedIn == true else { return }
-            let found = await store.load { core -> [Int] in
-                let songs = try core.songs().filter { $0.id.hasPrefix("src-") }
-                // Albums by name: a song knows its own artist, not the album's, so counting name and
-                // artist counted an album once for each guest artist.
-                return [songs.count, Set(songs.map(\.album).filter { !$0.isEmpty }).count, Set(songs.map(\.artist)).count]
-            }
-            if let found, found.count == 3 { counts = (found[0], found[1], found[2]) }
+            // The core counts albums and artists with the server's rule, as the Mac shows them.
+            let id = plugin
+            let found = await store.load { try $0.sourceStats(plugin: id) }
+            if let found, found.count == 2 { counts = (Int(item?.source?.songs ?? 0), Int(found[0]), Int(found[1])) }
         }
     }
 
