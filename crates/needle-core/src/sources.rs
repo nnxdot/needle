@@ -200,6 +200,8 @@ pub struct Synced {
     pub updated: usize,
     /// Songs the server no longer has; they stay in the library, marked missing.
     pub gone: usize,
+    /// Songs the server no longer has that left the library (Refresh everything).
+    pub removed: usize,
     /// Tracks without a cover yet: the track, the link to fetch it from, and which cover it is
     /// (tracks with the same one share a download).
     pub covers: Vec<(String, String, String)>,
@@ -207,6 +209,15 @@ pub struct Synced {
 
 /// Bring the library in step with the full list of a source's songs.
 pub fn apply(library: &Library, plugin: &str, songs: &[Song]) -> Result<Synced> {
+    apply_with(library, plugin, songs, false)
+}
+
+/// `apply`, or with `full` ("Refresh everything"): every song's cover is fetched again (a
+/// cover changed on the server comes in), moving covers are looked for again, and songs the
+/// server no longer has leave the library instead of staying, marked missing. An empty list
+/// removes nothing (a server that lists nothing for a moment must not empty the library).
+pub fn apply_with(library: &Library, plugin: &str, songs: &[Song], full: bool) -> Result<Synced> {
+    let full = full && !songs.is_empty();
     let now = chrono::Utc::now().timestamp();
     let mut db = library.connection()?;
     let tx = db.transaction()?;
@@ -251,7 +262,10 @@ pub fn apply(library: &Library, plugin: &str, songs: &[Song]) -> Result<Synced> 
                 Library::upsert_on(&tx, &track)?;
             }
         }
-        if track.artwork.is_none() && !song.cover.is_empty() {
+        if full {
+            crate::media::forget_server_moving_cover(library, &track);
+        }
+        if (full || track.artwork.is_none()) && !song.cover.is_empty() {
             let key = if song.cover_id.is_empty() {
                 song.cover.clone()
             } else {
@@ -262,13 +276,31 @@ pub fn apply(library: &Library, plugin: &str, songs: &[Song]) -> Result<Synced> 
                 .push((track.id.clone(), song.cover.clone(), key));
         }
     }
+    let mut removed = std::collections::HashSet::new();
     for (id, old) in &existing {
-        if !seen.contains(id) && !old.missing {
+        if seen.contains(id) {
+            continue;
+        }
+        if full {
+            tx.execute("DELETE FROM tracks WHERE id=?", [id])?;
+            tx.execute("DELETE FROM features WHERE track_id=?", [id])?;
+            removed.insert(id.clone());
+        } else if !old.missing {
             tx.execute("UPDATE tracks SET missing=1 WHERE id=?", [id])?;
             synced.gone += 1;
         }
     }
     tx.commit()?;
+    synced.removed = removed.len();
+    // Playlists let go of the songs that left (listening history keeps them by name).
+    if !removed.is_empty() {
+        for mut playlist in library.playlists()? {
+            if playlist.track_ids.iter().any(|id| removed.contains(id)) {
+                playlist.track_ids.retain(|id| !removed.contains(id));
+                library.save_playlist(&playlist)?;
+            }
+        }
+    }
     library.set_json(&format!("source-synced:{plugin}"), &now)?;
     Ok(synced)
 }
@@ -1407,6 +1439,63 @@ mod tests {
         assert_eq!(forget(&library, "sub").unwrap(), 2);
         assert_eq!(status(&library, "other").0, 1);
         assert_eq!(library.search(&rule("other")).unwrap().len(), 1);
+    }
+
+    /// Refresh everything: every cover is asked for again, a song the server no longer has
+    /// leaves the library and its playlists (others keep their ratings), and an empty list
+    /// removes nothing.
+    #[test]
+    fn refresh_everything_fetches_all_covers_and_removes_lost_songs() {
+        let dir = tempfile::tempdir().unwrap();
+        let library = Library::open(dir.path()).unwrap();
+        let song = |id: &str| Song {
+            id: id.into(),
+            title: format!("Song {id}"),
+            artist: "A".into(),
+            cover: format!("http://server/cover/{id}"),
+            ..Default::default()
+        };
+        apply(&library, "sub", &[song("1"), song("2")]).unwrap();
+        let (one, two) = (track_id("sub", "1"), track_id("sub", "2"));
+        let conn = library.connection().unwrap();
+        conn.execute("UPDATE tracks SET rating=5 WHERE id=?", [&one])
+            .unwrap();
+        // Both have covers now: a plain sync asks for none again.
+        for id in [&one, &two] {
+            let mut track = library.track(id).unwrap().unwrap();
+            track.artwork = Some("cover.img".into());
+            library.upsert(&track).unwrap();
+        }
+        assert!(
+            apply(&library, "sub", &[song("1"), song("2")])
+                .unwrap()
+                .covers
+                .is_empty()
+        );
+        library
+            .save_playlist(&crate::model::Playlist {
+                id: "p".into(),
+                name: "Mix".into(),
+                track_ids: vec![one.clone(), two.clone()],
+                ..Default::default()
+            })
+            .unwrap();
+        // An empty answer takes nothing away, even when refreshing.
+        let empty = apply_with(&library, "sub", &[], true).unwrap();
+        assert_eq!(empty.removed, 0);
+        assert!(library.track(&two).unwrap().is_some());
+        // The server lost song 2.
+        let refreshed = apply_with(&library, "sub", &[song("1")], true).unwrap();
+        assert_eq!((refreshed.removed, refreshed.covers.len()), (1, 1));
+        assert!(library.track(&two).unwrap().is_none());
+        assert_eq!(library.track(&one).unwrap().unwrap().rating, 5);
+        let playlist = library
+            .playlists()
+            .unwrap()
+            .into_iter()
+            .find(|p| p.id == "p")
+            .unwrap();
+        assert_eq!(playlist.track_ids, vec![one]);
     }
 
     /// Server songs are not files here: they are never duplicates to recycle, files to move,

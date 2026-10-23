@@ -382,6 +382,13 @@ impl Needle {
         self.plugins.send(PluginEvent::SourceSync(plugin));
     }
 
+    /// Refresh everything: the whole list of songs, every cover again (moving ones too), and
+    /// songs no longer on the server leave the library. Plays and ratings of the songs that
+    /// stay are kept.
+    pub fn source_refresh(&self, plugin: String) {
+        self.plugins.send(PluginEvent::SourceRefresh(plugin));
+    }
+
     pub fn source_switch(&self, plugin: String, id: String, on: bool) {
         self.plugins
             .send(PluginEvent::SourceSwitch { plugin, id, on });

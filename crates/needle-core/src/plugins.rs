@@ -316,6 +316,9 @@ pub enum PluginEvent {
     },
     /// Fetch a source's whole list of songs again.
     SourceSync(String),
+    /// Refresh everything: the whole list, every cover again, and songs no longer on the
+    /// server leave the library (see `sources::apply_with`).
+    SourceRefresh(String),
     /// One page of a sync (sent by the plugin thread to itself, so streams are not held up).
     SourceSyncPage {
         plugin: String,
@@ -568,6 +571,8 @@ fn run(
     let mut loaded: Vec<Loaded> = vec![];
     // Songs of syncs under way, by plugin.
     let mut syncing: HashMap<String, Vec<crate::sources::Song>> = HashMap::new();
+    // Syncs asked for as Refresh everything.
+    let mut refreshing: std::collections::HashSet<String> = Default::default();
     // After loading: read each source's state, and sync the ones not synced lately.
     let start_sources =
         |loaded: &mut Vec<Loaded>, syncing: &HashMap<String, Vec<crate::sources::Song>>| {
@@ -861,6 +866,12 @@ fn run(
                 }
                 actions(HostAction::ServerSongs { generation, tracks });
             }
+            PluginEvent::SourceRefresh(plugin) => {
+                if !syncing.contains_key(&plugin) {
+                    refreshing.insert(plugin.clone());
+                }
+                let _ = tx.send(PluginEvent::SourceSync(plugin));
+            }
             PluginEvent::SourceSync(plugin) => {
                 if !syncing.contains_key(&plugin)
                     && let Some(target) = source_plugin(&mut loaded, &plugin)
@@ -927,9 +938,15 @@ fn run(
                     None if endless && !list.is_empty() => Err(format!(
                         "The plugin sent more than {MAX_SYNC_PAGES} pages; nothing was changed"
                     )),
-                    None => crate::sources::apply(&library, &plugin, &songs)
-                        .map_err(|e| format!("{e:#}")),
+                    None => crate::sources::apply_with(
+                        &library,
+                        &plugin,
+                        &songs,
+                        refreshing.remove(&plugin),
+                    )
+                    .map_err(|e| format!("{e:#}")),
                 };
+                refreshing.remove(&plugin);
                 if let Some(source) = &mut target.info.source {
                     source.syncing = false;
                     source.received = 0;
@@ -938,12 +955,20 @@ fn run(
                 refresh_source(target, &library);
                 match outcome {
                     Ok(synced) => {
-                        if synced.added + synced.gone > 0 {
+                        if synced.added + synced.gone + synced.removed > 0 {
                             actions(HostAction::Notify(format!(
-                                "{name}: {} new songs{}.",
+                                "{name}: {} new songs{}{}.",
                                 synced.added,
                                 if synced.gone > 0 {
                                     format!(", {} no longer on the server", synced.gone)
+                                } else {
+                                    String::new()
+                                },
+                                if synced.removed > 0 {
+                                    format!(
+                                        ", {} removed as no longer on the server",
+                                        synced.removed
+                                    )
                                 } else {
                                     String::new()
                                 }
