@@ -47,9 +47,9 @@ impl AppView {
             .child(setting_row(
                 if cfg!(target_os = "macos") { "Keep in the menu bar" } else { "Hide to tray" },
                 if cfg!(target_os = "macos") {
-                    "Puts Needle in the menu bar. Closing the window hides it there and the music plays on; click the icon to play, pause, skip, show Needle, or quit."
+                    "Closing the window keeps the music playing, from the menu bar."
                 } else {
-                    "Puts Needle in the notification area by the clock. Closing the window hides it there and the music plays on; click the icon to bring Needle back, or right-click it to play, pause, skip, or quit."
+                    "Closing the window keeps the music playing, from the notification area."
                 },
                 Switch::new("tray-on").checked(self.settings.tray).on_click(cx.listener(|this, checked: &bool, _, cx| {
                     this.settings.tray = *checked;
@@ -61,7 +61,7 @@ impl AppView {
             ))
             .child(setting_row(
                 "Phone remote",
-                "Control Needle from a phone's web browser on the same Wi-Fi. Nothing to install on the phone.",
+                "Control Needle from a phone's browser on the same Wi-Fi.",
                 Switch::new("remote-on").checked(self.settings.remote).on_click(cx.listener(|this, checked: &bool, _, cx| {
                     this.settings.remote = *checked;
                     this.persist_settings();

@@ -88,8 +88,30 @@ impl AppView {
         cx: &mut Context<Self>,
     ) -> Option<AnyElement> {
         let source = plugin.source.clone().filter(|_| plugin.enabled)?;
+        let builtin = plugin.builtin;
         let p = pal(cx);
         let id = plugin.manifest.id.clone();
+        // Not signed in: one card with a button; the form opens under it.
+        if plugin.builtin
+            && !source.signed_in
+            && source.error.is_none()
+            && !self.settings_open.contains("server-sign-in")
+        {
+            return Some(
+                super::widgets::setting_row(
+                    &source.name,
+                    "Not signed in. Your server's songs show with your own.",
+                    small_button("server-sign-in-open", "Sign in…")
+                        .primary()
+                        .on_click(cx.listener(|this, _, _, cx| {
+                            this.settings_open.insert("server-sign-in");
+                            cx.notify();
+                        })),
+                    cx,
+                )
+                .into_any_element(),
+            );
+        }
         let body = if source.signed_in {
             let status = if source.syncing {
                 "Getting the list of songs…".to_string()
@@ -240,13 +262,27 @@ impl AppView {
                 .child(strong(format!("Sign in to {}", source.name)))
                 .children(fields)
                 .child(
-                    div().flex().child(
-                        small_button(SharedString::from(format!("source-in-{id}")), "Sign in")
-                            .primary()
-                            .on_click(cx.listener(move |this, _, window, cx| {
-                                this.sign_in_source(&plugin, window, cx)
-                            })),
-                    ),
+                    div()
+                        .flex()
+                        .gap_2()
+                        .child(
+                            small_button(SharedString::from(format!("source-in-{id}")), "Sign in")
+                                .primary()
+                                .on_click(cx.listener(move |this, _, window, cx| {
+                                    this.sign_in_source(&plugin, window, cx)
+                                })),
+                        )
+                        // A form opened from Settings › Library's card closes again.
+                        .when(builtin, |el| {
+                            el.child(
+                                small_button("server-sign-in-close", "Cancel")
+                                    .ghost()
+                                    .on_click(cx.listener(|this, _, _, cx| {
+                                        this.settings_open.remove("server-sign-in");
+                                        cx.notify();
+                                    })),
+                            )
+                        }),
                 )
                 .child(
                     faint(
@@ -260,11 +296,7 @@ impl AppView {
                 )
         };
         Some(
-            div()
-                .mt_1()
-                .p_3()
-                .rounded(px(8.))
-                .bg(p.raised)
+            super::widgets::card(cx)
                 .flex()
                 .flex_col()
                 .gap_2()
