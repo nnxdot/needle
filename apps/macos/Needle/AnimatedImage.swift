@@ -93,3 +93,27 @@ struct AnimatedImage: View {
         }
     }
 }
+
+/// A moving cover over a still one (the big player's square cover): the song's video or animated
+/// picture, filling its frame, while `on`.
+struct MovingCoverLayer: View {
+    private var store: Store { .shared }
+    let songID: String?
+    let on: Bool
+    @State private var file: URL?
+
+    var body: some View {
+        ZStack {
+            if on, let file {
+                if AnimatedImage.isPicture(file) { AnimatedImage(url: file) } else { LoopingVideo(url: file) }
+            }
+        }
+        .allowsHitTesting(false)
+        .task(id: "\(songID ?? "")|\(on)") {
+            file = nil
+            guard on, let id = songID else { return }
+            let found = (await store.load { $0.animatedCover(id: id) } ?? nil).map(URL.init(fileURLWithPath:))
+            if !Task.isCancelled { file = found }
+        }
+    }
+}
