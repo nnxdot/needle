@@ -350,8 +350,12 @@ impl AppView {
                 cx.background_executor().timer(Duration::from_secs(2)).await;
                 let _ = view.update_in(cx, |v, window, cx| match page.split_once(':') {
                     Some(("settings", tab)) => {
+                        // "settings:3:900": Appearance, scrolled down 900 pixels.
+                        let (tab, down) = tab.split_once(':').unwrap_or((tab, "0"));
                         v.settings_tab = tab.parse().unwrap_or(0);
-                        open(v, Page::Settings, window, cx)
+                        open(v, Page::Settings, window, cx);
+                        let down: f32 = down.parse().unwrap_or(0.);
+                        v.settings_scroll.set_offset(point(px(0.), px(-down)));
                     }
                     _ if page == "home" => open(v, Page::Home, window, cx),
                     _ if page == "albums" => open(v, Page::Albums, window, cx),

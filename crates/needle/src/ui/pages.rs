@@ -1,5 +1,5 @@
 use super::{
-    AppView, Event, motion, pal,
+    AppView, Event, pal,
     widgets::{
         faint, glyph, heading, icon, meta, page_title, segmented, setting_row, small_button, strong,
     },
@@ -407,11 +407,6 @@ impl AppView {
         let p = pal(cx);
         let roots = self.library.roots().unwrap_or_default();
         let weak = cx.entity().downgrade();
-        let density = if self.settings.layout.row_height < 50. {
-            0
-        } else {
-            1
-        };
         let device = |id: SharedString,
                       name: String,
                       selected: bool,
@@ -513,6 +508,7 @@ impl AppView {
                             .on_click(cx.listener(move |this, _, _, cx| {
                                 // Switch sections in place; no page fade, so it doesn't look like a reload.
                                 this.settings_tab = i;
+                                this.settings_scroll.set_offset(point(px(0.), px(0.)));
                                 cx.notify();
                             }))
                     }),
@@ -523,6 +519,7 @@ impl AppView {
             .min_w_0()
             .h_full()
             .overflow_y_scroll()
+            .track_scroll(&self.settings_scroll)
             .pb(self.foot_room())
             .child(
                 div()
@@ -701,254 +698,9 @@ impl AppView {
                         cx,
                     ))
                     })
-                    // Appearance
+                    // Appearance: pictures of each choice (appearance.rs).
                     .when(tab == 3, |el| {
-                        let mut looks: Vec<(String, String, String)> = super::theme::Base::ALL
-                            .iter()
-                            .map(|(mode, name, about)| (mode.to_string(), name.to_string(), about.to_string()))
-                            .collect();
-                        if let Some(themes) = cx.try_global::<super::themes::Themes>() {
-                            looks.extend(themes.list.iter().map(|t| {
-                                let about = if t.read_only {
-                                    format!("From {}", t.id.split('/').next().unwrap_or_default())
-                                } else if !t.author.is_empty() {
-                                    format!("By {}", t.author)
-                                } else {
-                                    "Your theme".to_string()
-                                };
-                                (t.mode(), t.name.clone(), about)
-                            }));
-                        }
-                        // Four to a row (a wrapping row would grow too tall; see gpui notes).
-                        let theme_rows: Vec<AnyElement> = looks
-                            .chunks(4)
-                            .map(|row| {
-                                div()
-                                    .flex()
-                                    .gap_4()
-                                    .children(row.iter().map(|(mode, name, about)| {
-                                        self.theme_card(mode.clone(), name.clone(), about.clone(), cx).into_any_element()
-                                    }))
-                                    .into_any_element()
-                            })
-                            .collect();
-                        el
-                    .child(self.section_title("Appearance", "", cx))
-                    .child(
-                        div()
-                            .py_4()
-                            .flex()
-                            .flex_col()
-                            .gap_3()
-                            .border_b_1()
-                            .border_color(p.line_soft)
-                            .child(super::widgets::strong("Look"))
-                            .children(theme_rows)
-                            .child(self.theme_actions(cx))
-                            .children(self.theme_editor_view(cx)),
-                    )
-                    .child(setting_row(
-                        "Ambient background",
-                        "The cover that is playing (or your chosen color) fills the whole background, blurred, and fills the whole screen in the big player. Works with every look.",
-                        Switch::new("ambient").checked(self.ambient_look()).on_click(cx.listener(|this, checked: &bool, _, cx| {
-                            this.settings.ambient = *checked;
-                            if this.settings.theme == "ambient" {
-                                this.settings.theme = "dark".into();
-                            }
-                            this.persist_settings();
-                            cx.notify();
-                        })),
-                        cx,
-                    ))
-                    .children(self.glass_settings(cx))
-                    .child(setting_row(
-                        "Film grain",
-                        "A fine texture over the whole window. Off by default.",
-                        div()
-                            .w(px(220.))
-                            .flex()
-                            .items_center()
-                            .gap_3()
-                            .child(gpui_component::slider::Slider::new(&self.grain_slider).flex_1())
-                            .child(
-                                div()
-                                    .w(px(36.))
-                                    .text_right()
-                                    .text_size(px(12.))
-                                    .text_color(p.ink_2)
-                                    .child(if self.settings.grain <= 0.001 { "Off".to_string() } else { format!("{:.0}%", self.settings.grain * 100.) }),
-                            ),
-                        cx,
-                    ))
-                    .child(setting_row(
-                        "Compact sidebar",
-                        "Folding the sidebar (Ctrl+B) leaves a strip of page icons, as in Apple Music, instead of hiding it altogether. Off by default.",
-                        Switch::new("compact-sidebar").checked(self.settings.layout.compact_sidebar).on_click(cx.listener(|this, checked: &bool, _, cx| {
-                            this.settings.layout.compact_sidebar = *checked;
-                            this.persist_settings();
-                            cx.notify();
-                        })),
-                        cx,
-                    ))
-                    .child(setting_row(
-                        "Player in the top bar",
-                        "The play controls, the song playing, and the volume sit in the title bar, as in Apple Music, and the search field moves to the bottom. Off by default.",
-                        Switch::new("player-on-top").checked(self.settings.layout.player_on_top).on_click(cx.listener(|this, checked: &bool, _, cx| {
-                            this.settings.layout.player_on_top = *checked;
-                            this.persist_settings();
-                            cx.notify();
-                        })),
-                        cx,
-                    ))
-                    .child(setting_row(
-                        "Hide the search field",
-                        "Search from the command palette instead (Ctrl+K, or Ctrl+F). Off by default.",
-                        Switch::new("search-hidden").checked(self.settings.layout.search_hidden).on_click(cx.listener(|this, checked: &bool, _, cx| {
-                            this.settings.layout.search_hidden = *checked;
-                            this.persist_settings();
-                            cx.notify();
-                        })),
-                        cx,
-                    ))
-                    .child(setting_row(
-                        "Colors from the music",
-                        "Tint Needle with the colors of the cover that is playing, or of the album or artist you are looking at.",
-                        Switch::new("music-colors").checked(self.settings.music_colors).on_click(cx.listener(|this, checked: &bool, _, cx| {
-                            this.settings.music_colors = *checked;
-                            this.persist_settings();
-                            cx.notify();
-                        })),
-                        cx,
-                    ))
-                    .when(!self.settings.music_colors && self.accent_choice_applies(cx), |el| el.child(self.accent_settings(cx)))
-                    .child(setting_row(
-                        "Immersive cover",
-                        "In the big player and full screen, the cover fills the left side of the window from top to bottom and fades into its colors, as in Apple Music.",
-                        Switch::new("immersive-cover").checked(self.settings.immersive_cover).on_click(cx.listener(|this, checked: &bool, _, cx| {
-                            this.settings.immersive_cover = *checked;
-                            this.persist_settings();
-                            cx.notify();
-                        })),
-                        cx,
-                    ))
-                    .child(setting_row(
-                        "Lyrics under the player",
-                        "The line being sung, under the player.",
-                        Switch::new("player-lyrics").checked(self.settings.player_lyrics).on_click(cx.listener(|this, checked: &bool, _, cx| {
-                            this.settings.player_lyrics = *checked;
-                            this.persist_settings();
-                            cx.notify();
-                        })),
-                        cx,
-                    ))
-                    .child(setting_row(
-                        "Mark server songs",
-                        "Songs from your music server show a small server icon beside their artist.",
-                        Switch::new("server-mark").checked(self.settings.server_mark).on_click(cx.listener(|this, checked: &bool, _, cx| {
-                            this.settings.server_mark = *checked;
-                            this.persist_settings();
-                            cx.notify();
-                        })),
-                        cx,
-                    ))
-                    .child(setting_row(
-                        "Reduce motion",
-                        if motion::system_allows_animation() {
-                            "Turns off fades, slides, and other animations."
-                        } else {
-                            if cfg!(windows) {
-                                "Windows has animations turned off, so Needle keeps still too."
-                            } else {
-                                "Your system has animations turned off, so Needle keeps still too."
-                            }
-                        },
-                        Switch::new("reduce-motion").checked(self.settings.reduce_motion || !motion::system_allows_animation()).on_click(cx.listener(|this, checked: &bool, _, cx| {
-                            this.settings.reduce_motion = *checked;
-                            this.persist_settings();
-                            cx.set_global(motion::Motion { enabled: !*checked && motion::system_allows_animation() });
-                            cx.notify();
-                        })),
-                        cx,
-                    ))
-                    .child(self.section_title("Fonts", "", cx))
-                    .child(setting_row(
-                        "Titles",
-                        "The font for page titles, album and artist names, and the big player.",
-                        segmented(
-                            "display-font",
-                            &super::theme::DISPLAY_FONTS.map(|(_, label, _)| label),
-                            super::theme::DISPLAY_FONTS.iter().position(|(k, _, _)| *k == self.settings.display_font).unwrap_or(0),
-                            cx,
-                            {
-                                let weak = weak.clone();
-                                move |index, _, cx| {
-                                    let key = super::theme::DISPLAY_FONTS[index].0;
-                                    super::theme::set_display_font(key);
-                                    let _ = weak.update(cx, |this, cx| {
-                                        this.settings.display_font = key.into();
-                                        this.persist_settings();
-                                        cx.notify();
-                                    });
-                                }
-                            },
-                        ),
-                        cx,
-                    ))
-                    .child(setting_row(
-                        "Density",
-                        "Compact fits more tracks on screen.",
-                        segmented("density", &["Compact", "Comfortable"], density, cx, {
-                            let weak = weak.clone();
-                            move |index, _, cx| {
-                                let _ = weak.update(cx, |this, cx| {
-                                    this.settings.layout.row_height = if index == 0 { 36. } else { 58. };
-                                    this.persist_settings();
-                                    cx.notify();
-                                });
-                            }
-                        }),
-                        cx,
-                    ))
-                    .child(setting_row(
-                        "Layout file",
-                        "Share panel widths and row height as a small JSON file.",
-                        div()
-                            .flex()
-                            .gap_2()
-                            .child(small_button("import-layout", "Import").ghost().on_click(cx.listener(|this, _, _, cx| {
-                                if !this.can_pick(cx) {
-                                    return;
-                                }
-                                let sender = this.sender.clone();
-                                std::thread::spawn(move || {
-                                    if let Some(path) = rfd::FileDialog::new().add_filter("Needle layout", &["json"]).pick_file() {
-                                        let result = (|| -> Result<needle_core::model::Layout> {
-                                            let layout: needle_core::model::Layout = serde_json::from_slice(&std::fs::read(path)?)?;
-                                            layout.validate()?;
-                                            Ok(layout)
-                                        })();
-                                        let _ = sender.send(match result {
-                                            Ok(layout) => Event::Layout(layout),
-                                            Err(e) => Event::Error(e.to_string()),
-                                        });
-                                    }
-                                });
-                            })))
-                            .child(small_button("export-layout", "Export").ghost().on_click(cx.listener(|this, _, _, cx| {
-                                if !this.can_pick(cx) {
-                                    return;
-                                }
-                                let layout = this.settings.layout.clone();
-                                this.background(move || {
-                                    let Some(path) = rfd::FileDialog::new().set_file_name("needle-layout.json").save_file() else {
-                                        return Ok(String::new());
-                                    };
-                                    std::fs::write(path, serde_json::to_vec_pretty(&layout)?)?;
-                                    Ok("Layout exported.".into())
-                                });
-                            }))),
-                        cx,
-                    ))
+                        el.child(self.appearance_page((width - 189.).clamp(320., 720.) - 64., cx))
                     })
                     // Artwork and lyrics
                     .when(tab == 2, |el| {
@@ -1210,11 +962,12 @@ Recent log:
 impl AppView {
     /// A small picture of a base look, in today's colors (and with the ambient background when
     /// that is on), that switches to it when clicked.
-    fn theme_card(
+    pub(super) fn theme_card(
         &self,
         mode: String,
         name: String,
         about: String,
+        width: f32,
         cx: &mut Context<Self>,
     ) -> impl IntoElement {
         let p = pal(cx);
@@ -1267,15 +1020,17 @@ impl AppView {
         };
         div()
             .id(SharedString::from(format!("theme-{mode}")))
-            .w(px(172.))
+            .relative()
+            .w(px(width))
+            .flex_shrink_0()
             .flex()
             .flex_col()
             .gap(px(6.))
             .cursor_pointer()
             .child(
                 div()
-                    .w(px(172.))
-                    .h(px(108.))
+                    .w(px(width))
+                    .h(px((width * 0.63).round()))
                     .rounded(px(10.))
                     .border_2()
                     .border_color(if active { p.accent } else { p.line })
@@ -1336,6 +1091,24 @@ impl AppView {
                     .text_color(p.ink_3)
                     .child(about),
             )
+            .when(active, |el| {
+                // The check on the chosen look's corner, as on the other Appearance pictures.
+                el.child(
+                    div()
+                        .absolute()
+                        .top(px(-7.))
+                        .right(px(-7.))
+                        .size(px(22.))
+                        .rounded_full()
+                        .bg(p.accent)
+                        .border_2()
+                        .border_color(p.canvas)
+                        .flex()
+                        .items_center()
+                        .justify_center()
+                        .child(glyph("check").size(px(15.)).text_color(hsla(0., 0., 0.1, 1.))),
+                )
+            })
             .on_click(cx.listener(move |this, _, window, cx| {
                 this.choose_look(&mode, window, cx);
             }))
@@ -1345,7 +1118,7 @@ impl AppView {
 impl AppView {
     /// Window glass: which material, how see-through, and whether the page shows it too.
     /// The rows go straight into the Appearance column (a wrapper box would not stretch).
-    fn glass_settings(&self, cx: &mut Context<Self>) -> Vec<AnyElement> {
+    pub(super) fn glass_settings(&self, cx: &mut Context<Self>) -> Vec<AnyElement> {
         use super::glass::Material;
         // macOS: Liquid Glass, on or off.
         if cfg!(target_os = "macos") {
@@ -1764,7 +1537,7 @@ impl AppView {
 
 impl AppView {
     /// Swatches for the interface color, shown when colors from the music are off.
-    fn accent_settings(&self, cx: &mut Context<Self>) -> impl IntoElement {
+    pub(super) fn accent_settings(&self, cx: &mut Context<Self>) -> impl IntoElement {
         let p = pal(cx);
         setting_row(
             "Color",
