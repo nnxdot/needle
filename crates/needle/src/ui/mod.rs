@@ -556,6 +556,8 @@ pub struct AppView {
     /// The song whose moving cover was looked up, and the picture found (Settings ›
     /// Appearance › Moving covers).
     moving_cover: Option<(String, Option<String>)>,
+    /// Music server songs whose moving cover was asked for this time Needle runs.
+    moving_cover_asked: std::collections::HashSet<String>,
     immersive_serial: u64,
     /// Whether it shows the lyrics beside the cover, when the song has them.
     immersive_lyrics: bool,
@@ -1067,6 +1069,7 @@ impl AppView {
             immersive_moved: Instant::now(),
             immersive_shown: true,
             moving_cover: None,
+            moving_cover_asked: Default::default(),
             immersive_serial: 0,
             immersive_lyrics: true,
             immersive_waiting: false,

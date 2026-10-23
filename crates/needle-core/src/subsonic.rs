@@ -189,6 +189,14 @@ impl Subsonic {
         Ok(to_songs(&list(&reply["searchResult3"]["song"]), &session))
     }
 
+    /// A link to a song's cover as the server keeps it, not a smaller copy (a smaller copy of
+    /// a moving cover is a still one).
+    pub fn original_cover(&self, id: &str) -> Result<String, String> {
+        Ok(self
+            .session()?
+            .link("getCoverArt", &[("id", id.to_string())]))
+    }
+
     /// A link to the original file, not a smaller copy.
     pub fn stream(&self, id: &str) -> Result<String, String> {
         Ok(self.session()?.link(
