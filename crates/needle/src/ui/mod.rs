@@ -473,6 +473,8 @@ pub struct AppView {
     /// The song whose heart was just filled, and a counter that replays the pop.
     heart_pop: Option<(String, usize)>,
     settings_tab: usize,
+    /// Settings cards opened with their arrow (by id).
+    settings_open: std::collections::HashSet<&'static str>,
     palette: palette::PaletteState,
     /// Changes whenever the visible page (or settings section) changes, to replay its fade.
     page_serial: usize,
@@ -551,6 +553,9 @@ pub struct AppView {
     immersive_moved: Instant,
     /// Whether its controls show, and a count of changes so each fades once.
     immersive_shown: bool,
+    /// The song whose moving cover was looked up, and the picture found (Settings ›
+    /// Appearance › Moving covers).
+    moving_cover: Option<(String, Option<String>)>,
     immersive_serial: u64,
     /// Whether it shows the lyrics beside the cover, when the song has them.
     immersive_lyrics: bool,
@@ -994,6 +999,7 @@ impl AppView {
             menu_serial: 0,
             heart_pop: None,
             settings_tab: 0,
+            settings_open: Default::default(),
             speaker_timing: Default::default(),
             remote: None,
             welcome_step: None,
@@ -1060,6 +1066,7 @@ impl AppView {
             immersive: false,
             immersive_moved: Instant::now(),
             immersive_shown: true,
+            moving_cover: None,
             immersive_serial: 0,
             immersive_lyrics: true,
             immersive_waiting: false,
