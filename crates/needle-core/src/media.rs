@@ -702,6 +702,16 @@ pub fn fetch_server_moving_cover(library: &Library, track: &Track) -> Option<Pat
     }
 }
 
+/// Forget a music server song's album's moving cover, and that it was looked for, so it is
+/// asked for again (Refresh everything).
+pub fn forget_server_moving_cover(library: &Library, track: &Track) {
+    if let Some((base, _, _)) = server_moving_kept(library, track) {
+        for kind in ["webp", "gif", "still"] {
+            let _ = std::fs::remove_file(base.with_extension(kind));
+        }
+    }
+}
+
 /// A music server song's moving cover if it was fetched already, and whether it was looked
 /// for: `(picture, looked)`. Never waits for the network.
 pub fn server_moving_cover_kept(library: &Library, track: &Track) -> (Option<PathBuf>, bool) {
