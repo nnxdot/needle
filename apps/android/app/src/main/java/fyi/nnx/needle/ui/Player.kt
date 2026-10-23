@@ -211,48 +211,77 @@ private fun MiniPlayerBody(playing: Boolean, song: Song, onOpen: () -> Unit, col
             .clip(RoundedCornerShape(20.dp))
             .clickable(onClickLabel = "Open the player", onClick = onOpen),
     ) {
+        // The line being sung (Settings › Appearance › Lyrics in the mini player): on a wide
+        // bar, in the room between the song and the buttons; on a narrow one, in one line under.
+        val lines = if (lyrics) miniLyricLines(song) else emptyList()
+        val wide = isWide()
+        val inBar = wide && lines.isNotEmpty()
+        val under = !wide && lines.isNotEmpty()
+        val info: @Composable (Modifier) -> Unit = { modifier ->
+            Row(modifier, verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                Cover(song.artwork, Modifier.size(44.dp).sharedCover("now-${song.id}"), SmallCoverShape, seed = song.album + song.artist)
+                Column(Modifier.weight(1f)) {
+                    Text(song.title, style = MaterialTheme.typography.bodyLarge, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    Text(
+                        if (song.onComputer()) "On your computer · ${song.artist}" else song.artist,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = androidx.compose.material3.LocalContentColor.current.copy(alpha = 0.75f),
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                }
+            }
+        }
+        val buttons: @Composable () -> Unit = {
+            // A tablet's bar has room for the song before as well.
+            if (wide) {
+                IconButton(onClick = { Controls.previous() }) {
+                    Icon(Icons.Rounded.SkipPrevious, contentDescription = "Previous", modifier = Modifier.size(30.dp))
+                }
+            }
+            // Round while paused, a softer square while it plays.
+            androidx.compose.material3.FilledIconToggleButton(
+                checked = playing,
+                onCheckedChange = { haptics(false); Controls.toggle() },
+                shapes = androidx.compose.material3.IconButtonDefaults.toggleableShapes(),
+                colors = androidx.compose.material3.IconButtonDefaults.filledIconToggleButtonColors(
+                    containerColor = MaterialTheme.colorScheme.primary,
+                    contentColor = MaterialTheme.colorScheme.onPrimary,
+                    checkedContainerColor = MaterialTheme.colorScheme.primary,
+                    checkedContentColor = MaterialTheme.colorScheme.onPrimary,
+                ),
+                modifier = Modifier.playPauseSemantics(playing) { haptics(false); Controls.toggle() },
+            ) { PlayPauseIcon(playing, 26.dp) }
+            IconButton(onClick = { Controls.next() }) {
+                Icon(Icons.Rounded.SkipNext, contentDescription = "Next", modifier = Modifier.size(30.dp))
+            }
+        }
         Box {
             Column {
                 Row(
-                    Modifier.padding(start = 8.dp, end = 4.dp, top = 8.dp, bottom = 8.dp),
+                    Modifier.padding(start = 8.dp, end = 4.dp, top = 8.dp, bottom = if (under) 0.dp else 8.dp),
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(12.dp),
                 ) {
-                    Cover(song.artwork, Modifier.size(44.dp).sharedCover("now-${song.id}"), SmallCoverShape, seed = song.album + song.artist)
-                    Column(Modifier.weight(1f)) {
-                        Text(song.title, style = MaterialTheme.typography.bodyLarge, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                        Text(
-                            if (song.onComputer()) "On your computer · ${song.artist}" else song.artist,
-                            style = MaterialTheme.typography.bodySmall,
-                            color = androidx.compose.material3.LocalContentColor.current.copy(alpha = 0.75f),
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
-                        )
-                    }
-                    // A tablet's bar has room for the song before as well.
-                    if (isWide()) {
-                        IconButton(onClick = { Controls.previous() }) {
-                            Icon(Icons.Rounded.SkipPrevious, contentDescription = "Previous", modifier = Modifier.size(30.dp))
+                    if (inBar) {
+                        // The song and the buttons take the same room, so the line sits in the
+                        // middle of the bar.
+                        info(Modifier.weight(1f))
+                        Box(Modifier.weight(1.2f), contentAlignment = Alignment.Center) {
+                            AtPosition { at -> MiniLyrics(lines, at, big = true) }
                         }
-                    }
-                    // Round while paused, a softer square while it plays.
-                    androidx.compose.material3.FilledIconToggleButton(
-                        checked = playing,
-                        onCheckedChange = { haptics(false); Controls.toggle() },
-                        shapes = androidx.compose.material3.IconButtonDefaults.toggleableShapes(),
-                        colors = androidx.compose.material3.IconButtonDefaults.filledIconToggleButtonColors(
-                            containerColor = MaterialTheme.colorScheme.primary,
-                            contentColor = MaterialTheme.colorScheme.onPrimary,
-                            checkedContainerColor = MaterialTheme.colorScheme.primary,
-                            checkedContentColor = MaterialTheme.colorScheme.onPrimary,
-                        ),
-                        modifier = Modifier.playPauseSemantics(playing) { haptics(false); Controls.toggle() },
-                    ) { PlayPauseIcon(playing, 26.dp) }
-                    IconButton(onClick = { Controls.next() }) {
-                        Icon(Icons.Rounded.SkipNext, contentDescription = "Next", modifier = Modifier.size(30.dp))
+                        Row(
+                            Modifier.weight(1f),
+                            horizontalArrangement = Arrangement.spacedBy(12.dp, Alignment.End),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) { buttons() }
+                    } else {
+                        info(Modifier.weight(1f))
+                        buttons()
                     }
                 }
-                if (lyrics) AtPosition { at -> MiniLyrics(song, at, Modifier.padding(start = 16.dp, end = 16.dp, bottom = 16.dp)) }
+                // Close under the song, and clear of the progress wave at the foot.
+                if (under) AtPosition { at -> MiniLyrics(lines, at, big = false, Modifier.padding(start = 16.dp, end = 16.dp, bottom = 8.dp)) }
             }
             // Progress along the foot: a wave while it plays, flat while it rests (Android 16).
             val line = MaterialTheme.colorScheme.primary
@@ -267,12 +296,11 @@ private fun MiniPlayerBody(playing: Boolean, song: Song, onOpen: () -> Unit, col
 }
 
 /**
- * The line of the lyrics playing, under the mini player's song (Settings › Appearance › Lyrics):
- * on a tablet the bar is wide, and the words can be read from across the room. A song without
- * timed lyrics shows nothing here.
+ * The timed lines of the mini player's song, for its line of lyrics (Settings › Appearance ›
+ * Lyrics): none for a song without timed lyrics, and then nothing shows.
  */
 @Composable
-private fun MiniLyrics(song: Song, position: Double, modifier: Modifier = Modifier) {
+private fun miniLyricLines(song: Song): List<fyi.nnx.needle.core.LyricLine> {
     // Not rememberLoaded: a song without lyrics should not offer Retry over the page.
     // Read again when the library changes too (lyrics just timed or saved).
     val version by NeedleApp.instance.libraryVersion.collectAsState()
@@ -285,8 +313,15 @@ private fun MiniLyrics(song: Song, position: Double, modifier: Modifier = Modifi
             }.getOrNull()
         }
     }
-    val lines = lyrics?.lines.orEmpty()
-    if (lines.isEmpty()) return
+    return lyrics?.lines.orEmpty()
+}
+
+/**
+ * The line of the lyrics playing, in one line, cut with … when long: in the middle of a
+ * tablet's mini player ([big]), where it can be read from across the room, or under a phone's.
+ */
+@Composable
+private fun MiniLyrics(lines: List<fyi.nnx.needle.core.LyricLine>, position: Double, big: Boolean, modifier: Modifier = Modifier) {
     val now = lines.indexOfLast { it.time <= position + 0.2 }
     val line = lines.getOrNull(now)?.text?.ifBlank { null } ?: "♪"
     val reduce = reduceMotion()
@@ -301,10 +336,10 @@ private fun MiniLyrics(song: Song, position: Double, modifier: Modifier = Modifi
     ) { text ->
         Text(
             text,
-            style = MaterialTheme.typography.titleMedium,
+            style = if (big) MaterialTheme.typography.titleMedium else MaterialTheme.typography.bodyMedium,
             fontWeight = FontWeight.Bold,
             textAlign = androidx.compose.ui.text.style.TextAlign.Center,
-            maxLines = 2,
+            maxLines = 1,
             overflow = TextOverflow.Ellipsis,
             modifier = Modifier.fillMaxWidth(),
         )

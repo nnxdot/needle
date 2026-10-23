@@ -1043,7 +1043,7 @@ private fun AppearanceSettings(open: (Route) -> Unit) {
         Divider()
         SwitchRow("Keep the screen on", "While the lyrics show", app.keepScreenOnLyrics) { on -> update { it.copy(keepScreenOnLyrics = on) } }
         Divider()
-        SwitchRow("Lyrics under the mini player", "The line playing, across the foot of the screen. Made for tablets", app.miniPlayerLyrics) { on -> update { it.copy(miniPlayerLyrics = on) } }
+        SwitchRow("Lyrics in the mini player", "The line being sung: in the middle of the bar on a tablet, under the song on a phone", app.miniPlayerLyrics) { on -> update { it.copy(miniPlayerLyrics = on) } }
     }
 }
 
