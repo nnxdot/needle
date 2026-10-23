@@ -1091,24 +1091,6 @@ impl AppView {
                     .text_color(p.ink_3)
                     .child(about),
             )
-            .when(active, |el| {
-                // The check on the chosen look's corner, as on the other Appearance pictures.
-                el.child(
-                    div()
-                        .absolute()
-                        .top(px(-7.))
-                        .right(px(-7.))
-                        .size(px(22.))
-                        .rounded_full()
-                        .bg(p.accent)
-                        .border_2()
-                        .border_color(p.canvas)
-                        .flex()
-                        .items_center()
-                        .justify_center()
-                        .child(glyph("check").size(px(15.)).text_color(hsla(0., 0., 0.1, 1.))),
-                )
-            })
             .on_click(cx.listener(move |this, _, window, cx| {
                 this.choose_look(&mode, window, cx);
             }))
