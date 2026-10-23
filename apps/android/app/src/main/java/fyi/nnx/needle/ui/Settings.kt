@@ -1010,6 +1010,12 @@ private fun AppearanceSettings(open: (Route) -> Unit) {
         SwitchRow("Immersive cover", "Fills the top of the player, edge to edge", app.immersiveCover, icon = Icons.Rounded.Fullscreen) { on -> update { it.copy(immersiveCover = on) } }
         Divider()
         SwitchRow("Moving covers", "cover.mp4, .webp, or .gif beside the songs", app.animatedCovers, icon = Icons.Rounded.Movie) { on -> update { it.copy(animatedCovers = on) } }
+        // Depends on Moving covers: shown only while it is on, under it. Not on a TV (no mobile data).
+        if (app.animatedCovers && !isTv()) {
+            DependentRow {
+                SwitchRow("On mobile data", "Downloads moving covers without Wi-Fi.", app.movingCoversOnMobileData) { on -> update { it.copy(movingCoversOnMobileData = on) } }
+            }
+        }
         Divider()
         SwitchRow("Volume in the player", "A slider under the buttons", app.volumeSlider, icon = Icons.Rounded.VolumeUp) { on ->
             update { it.copy(volumeSlider = on) }

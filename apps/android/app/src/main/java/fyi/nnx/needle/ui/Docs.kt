@@ -220,7 +220,9 @@ private fun ChangeRow(icon: ImageVector, title: String?, text: String) {
                 Text(
                     if (more) "Less" else "More",
                     style = MaterialTheme.typography.labelLarge,
-                    color = MaterialTheme.colorScheme.primary,
+                    fontWeight = FontWeight.SemiBold,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    textDecoration = androidx.compose.ui.text.style.TextDecoration.Underline,
                     modifier = Modifier.padding(top = 4.dp).clip(RoundedCornerShape(8.dp)).clickable(role = androidx.compose.ui.semantics.Role.Button) { more = !more }.padding(vertical = 4.dp),
                 )
             }
