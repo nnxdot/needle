@@ -230,9 +230,29 @@ private fun ServerSection(plugin: PluginItem) {
                     Text("Bringing in covers… ${count(source.coversLeft.toInt(), "cover")} to go", color = MaterialTheme.colorScheme.primary)
                     androidx.compose.material3.LinearWavyProgressIndicator(modifier = Modifier.fillMaxWidth())
                 }
-                Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                // Wraps on a narrow phone rather than squeezing the buttons.
+                var askRefresh by remember { mutableStateOf(false) }
+                @OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
+                androidx.compose.foundation.layout.FlowRow(
+                    horizontalArrangement = Arrangement.spacedBy(12.dp),
+                    verticalArrangement = Arrangement.spacedBy(4.dp),
+                ) {
                     FilledTonalButton(enabled = !source.syncing, onClick = { core.sourceSync(plugin.id) }) { Text("Bring in songs again") }
+                    // The servers built into Needle can bring in everything afresh: every song and
+                    // cover, and songs no longer on the server leave the library.
+                    if (plugin.builtIn) TextButton(enabled = !source.syncing, onClick = { askRefresh = true }) { Text("Refresh everything") }
                     TextButton(onClick = { core.sourceSignOut(plugin.id) }) { Text("Sign out") }
+                }
+                if (askRefresh) {
+                    androidx.compose.material3.AlertDialog(
+                        onDismissRequest = { askRefresh = false },
+                        title = { Text("Refresh everything?") },
+                        text = { Text("Needle gets every song and cover again. Songs no longer on the server leave your library.") },
+                        confirmButton = {
+                            TextButton(onClick = { askRefresh = false; core.sourceRefresh(plugin.id) }) { Text("Refresh") }
+                        },
+                        dismissButton = { TextButton(onClick = { askRefresh = false }) { Text("Cancel") } },
+                    )
                 }
             } else {
                 source.fields.forEach { field ->
