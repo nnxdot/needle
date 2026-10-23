@@ -381,7 +381,11 @@ impl AppView {
                 blur_radius: px(64.),
                 spread_radius: px(-8.),
             }])
-            .child(artwork(current.as_ref().map(|i| &i.track), art, cx));
+            .child(match &moving {
+                // Settings › Appearance › Moving covers, with Immersive cover off.
+                Some(path) => super::widgets::moving_cover("full-cover", path, art),
+                None => artwork(current.as_ref().map(|i| &i.track), art, cx),
+            });
 
         let left = div()
             .h_full()
