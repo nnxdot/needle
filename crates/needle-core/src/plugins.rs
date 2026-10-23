@@ -2712,7 +2712,7 @@ mod tests {
                 } else if path.ends_with("/getCoverArt.view") {
                     // Song s1's album has a moving cover: the server gives it as it is when
                     // no size is asked for (a smaller copy is a still picture).
-                    if param("id") == "s1" && param("size").is_empty() {
+                    if param("id") == "1" && param("size").is_empty() {
                         let mut webp = b"RIFF    WEBPVP8X".to_vec();
                         webp.extend_from_slice(&[10, 0, 0, 0, 0x12, 0, 0, 0]);
                         webp.resize(500, 7);
@@ -2736,6 +2736,21 @@ mod tests {
                         _ => ok(r#","lyricsList":{}"#),
                     };
                     ("application/json", body.into_bytes())
+                } else if path.ends_with("/getSong.view") {
+                    // Songs s1 and s9 are on album 1 (with a moving cover); others on album 2.
+                    let album = if matches!(param("id").as_str(), "s1" | "s9") {
+                        "1"
+                    } else {
+                        "2"
+                    };
+                    (
+                        "application/json",
+                        ok(&format!(
+                            r#","song":{{"id":"{}","albumId":"{album}"}}"#,
+                            param("id")
+                        ))
+                        .into_bytes(),
+                    )
                 } else if path.ends_with("/getAlbumList2.view") {
                     let list = if param("offset") == "0" && param("size") == "5" {
                         r#"[{"id":"al-1","name":"WhyKiiiKiii - EP"}]"#
