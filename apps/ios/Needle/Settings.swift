@@ -8,11 +8,13 @@ struct SettingsView: View {
     /// This build has Discord's library.
     @State private var discord = false
     @State private var songs: UInt32?
+    /// What's new or About, opened from the card's buttons.
+    @State private var opened: Route?
 
     var body: some View {
         List {
             Section {
-                NavigationLink(value: Route.about) { header }
+                header
             }
             Section("Listening") {
                 row("Playback", "Crossfade and even loudness", "play.fill", .blue, .settingsPlayback)
@@ -25,15 +27,11 @@ struct SettingsView: View {
             Section("Look and feel") {
                 row("Appearance", "Themes, colours, the player, and lyrics", "paintpalette.fill", .pink, .settingsAppearance)
             }
-            Section {
+            Section("Your music") {
                 row("Sources", "This iPhone, your server, and your computer", "globe", .teal, .sources)
                 row("Library", "Music folders and online lookups", "music.note.house.fill", .orange, .settingsLibrary)
                 row("Music server", "Navidrome and other Subsonic servers", "server.rack", .cyan, .server("subsonic"))
                 row("Your computer", "Control Needle there, play its music here", "laptopcomputer", .indigo, .computer)
-            } header: {
-                Text("Your music")
-            } footer: {
-                Text("Where your songs come from, and how Needle reads them.")
             }
             Section("Tools") {
                 row("Fix my library", "Tags, duplicates, covers, and files", "wrench.and.screwdriver.fill", .green, .fixLibrary)
@@ -41,37 +39,55 @@ struct SettingsView: View {
                 row("Sync", "Move history, ratings, and playlists", "arrow.triangle.2.circlepath", .yellow, .sync)
                 row("Plugins", "NetEase lyrics, effects, and commands", "puzzlepiece.extension.fill", .teal, .plugins)
             }
-            Section {
-                row("What's new", "In this version of Needle", "sparkles", .pink, .whatsNew)
-                row("About", "Version, updates, and privacy", "info.circle.fill", .gray, .about)
-            }
         }
         .navigationTitle("Settings")
         .themed()
+        .navigationDestination(item: $opened) { route in
+            if route == .whatsNew { WhatsNewView() } else { AboutView() }
+        }
         .task {
             discord = await store.load { $0.discordAccount() }?.available ?? false
             songs = await store.load { try $0.songCount() }
         }
     }
 
-    /// Needle, its version, and the size of your library.
+    /// Needle, its version, and the size of your library, with What's new and About as two
+    /// buttons in the card (they were rows of their own at the foot).
     private var header: some View {
         let version = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? ""
-        return HStack(spacing: 14) {
-            Image(systemName: "music.note")
-                .font(.system(size: 28, weight: .bold))
-                .foregroundStyle(.white)
-                .frame(width: 60, height: 60)
-                .background(LinearGradient(colors: [store.colors.accent, store.colors.accent.opacity(0.6)], startPoint: .topLeading, endPoint: .bottomTrailing),
-                            in: .rect(cornerRadius: 14))
-            VStack(alignment: .leading, spacing: 2) {
-                Text("Needle").font(.title2.bold())
-                Text(songs.map { "\(count(Int($0), "song")) in your library" } ?? " ").font(.subheadline).foregroundStyle(.secondary)
-                Text("Version \(version)").font(.caption).foregroundStyle(.secondary)
+        return VStack(alignment: .leading, spacing: 14) {
+            HStack(spacing: 14) {
+                Image(systemName: "music.note")
+                    .font(.system(size: 28, weight: .bold))
+                    .foregroundStyle(.white)
+                    .frame(width: 60, height: 60)
+                    .background(LinearGradient(colors: [store.colors.accent, store.colors.accent.opacity(0.6)], startPoint: .topLeading, endPoint: .bottomTrailing),
+                                in: .rect(cornerRadius: 14))
+                    .accessibilityHidden(true)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Needle").font(.title2.bold())
+                    Text("Version \(version)").font(.subheadline).foregroundStyle(.secondary)
+                    if let songs {
+                        Text("\(count(Int(songs), "song")) in your library").font(.caption).foregroundStyle(.secondary)
+                    }
+                }
+                .accessibilityElement(children: .combine)
             }
+            // Two buttons in one row, each opening its own page (links in a list row would all
+            // open with a tap anywhere on it).
+            HStack(spacing: 10) {
+                Button { opened = .whatsNew } label: {
+                    Label("What's new", systemImage: "sparkles").frame(maxWidth: .infinity)
+                }
+                Button { opened = .about } label: {
+                    Label("About", systemImage: "info.circle").frame(maxWidth: .infinity)
+                }
+            }
+            .buttonStyle(.bordered)
+            .buttonBorderShape(.capsule)
+            .font(.subheadline.weight(.medium))
         }
         .padding(.vertical, 6)
-        .accessibilityElement(children: .combine)
     }
 
     private func row(_ title: String, _ detail: String, _ symbol: String, _ tint: Color, _ route: Route) -> some View {
