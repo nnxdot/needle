@@ -14,6 +14,11 @@ use needle_core::{audio::Command, audio::Repeat, model::format_duration};
 /// The height of the strip with the sung line under the player.
 const LYRIC_STRIP: f32 = 22.;
 
+/// The player bar's small round buttons on the right (loop, volume, sound, speakers, lyrics,
+/// mini player, queue): their icons are three quarters of this, about 20 px, so they read
+/// from across the room.
+const BAR_ICON: f32 = 26.;
+
 impl AppView {
     /// The title bar's height: taller with the player in it. Over the big player it keeps its
     /// height, so the player's contents do not move when it opens.
@@ -983,7 +988,7 @@ impl AppView {
         let looping = self.playback.loop_range.is_some();
         Button::new("ab-loop")
             .ghost()
-            .small()
+            .with_size(px(BAR_ICON))
             .icon(icon("loop"))
             .when(looping || self.loop_start.is_some(), |b| {
                 b.text_color(p.accent)
@@ -1027,7 +1032,7 @@ impl AppView {
     fn sound_button(&self, cx: &mut Context<Self>) -> Button {
         let p = pal(cx);
         icon_button("open-sound", "eq", "Equalizer and sound tools")
-            .small()
+            .with_size(px(BAR_ICON))
             .when(
                 self.settings.dsp.eq || !self.settings.dsp.is_transparent(),
                 |b| b.text_color(p.accent),
@@ -1047,7 +1052,7 @@ impl AppView {
                 None => "Play on another speaker".into(),
             },
         )
-        .small()
+        .with_size(px(BAR_ICON))
         .ml_1()
         .when(speaker.is_some(), |b| b.text_color(p.accent))
         .on_click(cx.listener(|this, _, window, cx| {
@@ -1059,7 +1064,7 @@ impl AppView {
     /// Opens the mini player.
     fn mini_button(&self, cx: &mut Context<Self>) -> Button {
         icon_button("open-mini", "mini", "Mini player · Ctrl+M")
-            .small()
+            .with_size(px(BAR_ICON))
             .ml_1()
             .on_click(cx.listener(|this, _, window, cx| this.open_mini(window, cx)))
     }
@@ -1189,7 +1194,7 @@ impl AppView {
                         "Mute"
                     },
                 )
-                .small()
+                .with_size(px(BAR_ICON))
                 .disabled(self.playback.exclusive)
                 .on_click(cx.listener(|this, _, window, cx| {
                     let restore = this.muted_volume.take();
@@ -1217,7 +1222,7 @@ impl AppView {
         let lyrics_open = self.settings.show_inspector && self.panel == Panel::Lyrics;
         Button::new("lyrics-toggle")
             .ghost()
-            .small()
+            .with_size(px(BAR_ICON))
             .ml_1()
             .icon(icon("lyrics"))
             .selected(lyrics_open)
@@ -1245,7 +1250,7 @@ impl AppView {
             .child(
                 Button::new("queue-toggle")
                     .ghost()
-                    .small()
+                    .with_size(px(BAR_ICON))
                     .ml_1()
                     .icon(icon("queue"))
                     .selected(queue_open)
