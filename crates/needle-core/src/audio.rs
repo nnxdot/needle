@@ -1972,7 +1972,9 @@ impl Worker {
         // A speaker plays a little behind; show where it is.
         let lag = self.network().map_or(0., |c| c.lag());
         let position = if self.loading.is_some() {
-            0.
+            // A song connecting starts at its start, or at the place a seek waits to reach
+            // (Play after a pause opens it again there).
+            self.pending_seek.map_or(0., |(target, _)| target)
         } else {
             (self.position() - lag).max(0.)
         };
