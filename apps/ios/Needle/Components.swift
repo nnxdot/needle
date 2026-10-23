@@ -243,7 +243,7 @@ struct SongRow: View {
                     Text(song.title).foregroundStyle(playing ? lit : AnyShapeStyle(.primary)).lineLimit(1)
                     if number == nil {
                         HStack(spacing: 4) {
-                            if song.fromServer { Image(systemName: "server.rack").font(.caption2) }
+                            if song.fromServer && store.app.serverMark { Image(systemName: "server.rack").font(.caption2) }
                             Text(song.artist).lineLimit(1)
                         }
                         .font(.subheadline).foregroundStyle(.secondary)
