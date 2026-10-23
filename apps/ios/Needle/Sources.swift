@@ -268,7 +268,9 @@ struct ServerView: View {
             guard item?.source?.signedIn == true else { return }
             let found = await store.load { core -> [Int] in
                 let songs = try core.songs().filter { $0.id.hasPrefix("src-") }
-                return [songs.count, Set(songs.map { $0.album + "\u{1}" + $0.artist }).count, Set(songs.map(\.artist)).count]
+                // Albums by name: a song knows its own artist, not the album's, so counting name and
+                // artist counted an album once for each guest artist.
+                return [songs.count, Set(songs.map(\.album).filter { !$0.isEmpty }).count, Set(songs.map(\.artist)).count]
             }
             if let found, found.count == 3 { counts = (found[0], found[1], found[2]) }
         }
