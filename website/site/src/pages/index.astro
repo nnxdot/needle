@@ -1,6 +1,5 @@
 ---
 import Base from "../layouts/Base.astro";
-import AppWindow from "../components/AppWindow.astro";
 import AppShot from "../components/AppShot.astro";
 import Logo from "../components/Logo.astro";
 import Icon from "../components/Icon.astro";
@@ -20,6 +19,7 @@ import lookDay from "../assets/shots/desktop/look-day.webp";
 import lookSakura from "../assets/shots/desktop/look-sakura.webp";
 import cardServer from "../assets/shots/desktop/card-server.webp";
 import cardYear from "../assets/shots/desktop/card-year.webp";
+import appMac from "../assets/shots/desktop/app-mac.webp";
 import { release } from "../lib/release.js";
 import { albums, byId, cover } from "../lib/albums.js";
 import "../styles/home.css";
@@ -400,7 +400,7 @@ const platforms = [
         <!-- Mac -->
         <div class="dl-panel" role="tabpanel" id="panel-mac" aria-labelledby="tab-mac" data-panel="mac" hidden>
           <div class="device device-laptop" aria-hidden="true">
-            <div class="screen"><AppWindow class="device-app" /></div>
+            <div class="screen"><AppShot class="device-app" label="Needle on a Mac." shots={[{ src: appMac, key: "mac" }]} /></div>
             <span class="base"></span>
           </div>
           <div class="dl-info">
