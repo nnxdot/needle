@@ -153,6 +153,9 @@
 //! [`supported_input_configs()`]: traits::DeviceTrait::supported_input_configs
 //! [`supported_output_configs()`]: traits::DeviceTrait::supported_output_configs
 
+// Needle: an outside library, patched only for Android 32-bit output (see NEEDLE.md); its
+// own old warnings are not Needle's to fix, and the release build treats warnings as errors.
+#![allow(warnings)]
 #![recursion_limit = "2048"]
 
 // Extern crate declarations with `#[macro_use]` must unfortunately be at crate root.
