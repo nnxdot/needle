@@ -994,12 +994,25 @@ struct SyncView: View {
 
 /// The iPhone app's release notes (whats-new.md, in the app).
 struct WhatsNewView: View {
+    private struct Change: Identifiable {
+        let id: String
+        let title: String
+        let text: String
+        /// The note's picture tag ([player], [lyrics], …), "!" for a release's main change, or "".
+        let tag: String
+    }
+
     private struct Release: Identifiable {
         let version: String
         var tagline: String?
-        var lines: [(title: String, text: String)] = []
+        var changes: [Change] = []
         var id: String { version }
     }
+
+    /// Notes opened to their full text (a tap on a change).
+    @State private var opened: Set<String> = []
+    /// Older releases opened from their folded row.
+    @State private var unfolded: Set<String> = []
 
     private var releases: [Release] {
         guard let url = Bundle.main.url(forResource: "whats-new", withExtension: "md"),
@@ -1011,13 +1024,18 @@ struct WhatsNewView: View {
             } else if !all.isEmpty {
                 var body = line
                 for prefix in ["! ", "- "] where body.hasPrefix(prefix) { body = String(body.dropFirst(prefix.count)) }
-                if body.hasPrefix("["), let end = body.firstIndex(of: "]") { body = String(body[body.index(after: end)...]).trimmingCharacters(in: .whitespaces) }
+                var tag = line.hasPrefix("! ") ? "!" : ""
+                if body.hasPrefix("["), let end = body.firstIndex(of: "]") {
+                    tag = String(body[body.index(after: body.startIndex)..<end])
+                    body = String(body[body.index(after: end)...]).trimmingCharacters(in: .whitespaces)
+                }
                 if line.hasPrefix("- ") || line.hasPrefix("! ") {
+                    let id = "\(all[all.count - 1].version)-\(all[all.count - 1].changes.count)"
                     if body.hasPrefix("**"), let close = body.range(of: "**", range: body.index(body.startIndex, offsetBy: 2)..<body.endIndex) {
                         let title = String(body[body.index(body.startIndex, offsetBy: 2)..<close.lowerBound]).trimmingCharacters(in: CharacterSet(charactersIn: "."))
-                        all[all.count - 1].lines.append((title, String(body[close.upperBound...]).trimmingCharacters(in: .whitespaces)))
+                        all[all.count - 1].changes.append(Change(id: id, title: title, text: String(body[close.upperBound...]).trimmingCharacters(in: .whitespaces), tag: tag))
                     } else {
-                        all[all.count - 1].lines.append(("", body))
+                        all[all.count - 1].changes.append(Change(id: id, title: "", text: body, tag: tag))
                     }
                 } else if all[all.count - 1].tagline == nil {
                     all[all.count - 1].tagline = body
@@ -1028,21 +1046,101 @@ struct WhatsNewView: View {
     }
 
     var body: some View {
-        List(releases) { release in
-            Section {
-                if let tagline = release.tagline { Text(tagline).font(.headline) }
-                ForEach(Array(release.lines.enumerated()), id: \.offset) { _, line in
-                    VStack(alignment: .leading, spacing: 2) {
-                        if !line.title.isEmpty { Text(line.title).font(.subheadline.bold()) }
-                        Text(line.text).font(.subheadline).foregroundStyle(line.title.isEmpty ? .secondary : .primary)
+        let releases = releases
+        List {
+            ForEach(Array(releases.enumerated()), id: \.element.id) { index, release in
+                if index == 0 || unfolded.contains(release.version) {
+                    Section {
+                        if let tagline = release.tagline { Text(tagline).font(.subheadline) }
+                        ForEach(release.changes) { change in row(change) }
+                        if index > 0 {
+                            Button("Fold \(release.version)") { withAnimation { _ = unfolded.remove(release.version) } }
+                                .font(.subheadline)
+                        }
+                    } header: {
+                        Text(release.version)
+                    }
+                } else {
+                    Section {
+                        Button {
+                            withAnimation { _ = unfolded.insert(release.version) }
+                        } label: {
+                            HStack(spacing: 12) {
+                                VStack(alignment: .leading, spacing: 2) {
+                                    Text("\(release.version) · \(count(release.changes.count, "change"))").font(.body.weight(.semibold))
+                                    if let tagline = release.tagline {
+                                        Text(tagline).font(.subheadline).foregroundStyle(.secondary).lineLimit(1)
+                                    }
+                                }
+                                Spacer()
+                                Image(systemName: "chevron.down").font(.footnote.weight(.bold)).foregroundStyle(.tertiary)
+                            }
+                        }
+                        .foregroundStyle(.primary)
+                        .accessibilityHint("Shows the changes in \(release.version)")
                     }
                 }
-            } header: {
-                Text(release.version)
             }
         }
         .navigationTitle("What's new")
         .themed()
+    }
+
+    /// A change: its icon, its title in bold, and one short line; a tap shows all of it.
+    private func row(_ change: Change) -> some View {
+        let open = opened.contains(change.id)
+        let (symbol, tint) = Self.icon(change)
+        return Button {
+            withAnimation(.snappy(duration: 0.2)) { if open { opened.remove(change.id) } else { opened.insert(change.id) } }
+        } label: {
+            HStack(alignment: .top, spacing: 12) {
+                Image(systemName: symbol).font(.system(size: 13, weight: .semibold)).foregroundStyle(.white)
+                    .frame(width: 28, height: 28)
+                    .background(tint.gradient, in: .rect(cornerRadius: 7))
+                    .accessibilityHidden(true)
+                VStack(alignment: .leading, spacing: 2) {
+                    if change.title.isEmpty {
+                        // A small change: its words in full weight, two lines until opened.
+                        Text(change.text).font(.subheadline).lineLimit(open ? nil : 2)
+                    } else {
+                        Text(change.title).font(.subheadline.weight(.semibold))
+                        Text(change.text).font(.subheadline).foregroundStyle(.secondary).lineLimit(open ? nil : 1)
+                    }
+                    if !open && Self.long(change) {
+                        Text("More").font(.caption.weight(.semibold)).foregroundStyle(.tint)
+                    }
+                }
+                Spacer(minLength: 0)
+            }
+            .padding(.vertical, 2)
+            .contentShape(.rect)
+        }
+        .foregroundStyle(.primary)
+        .accessibilityElement(children: .combine)
+    }
+
+    /// Whether a change has more to show than its folded lines.
+    private static func long(_ change: Change) -> Bool {
+        change.title.isEmpty ? change.text.count > 90 : change.text.count > 45
+    }
+
+    /// The icon for a change, from its tag; a star for a release's main change, a wrench for a fix.
+    private static func icon(_ change: Change) -> (String, Color) {
+        switch change.tag {
+        case "!": ("star.fill", .pink)
+        case "player": ("play.fill", .blue)
+        case "lyrics": ("quote.bubble.fill", .orange)
+        case "discord": ("bubble.left.and.text.bubble.right.fill", .indigo)
+        case "widget": ("square.grid.2x2.fill", .teal)
+        case "computer": ("laptopcomputer", .indigo)
+        case "sound": ("slider.vertical.3", .purple)
+        case "playlist": ("music.note.list", .green)
+        case "albums": ("square.stack.fill", .orange)
+        case "palette", "theme": ("paintbrush.fill", .pink)
+        case "server": ("server.rack", .cyan)
+        case "": change.title.isEmpty ? ("wrench.and.screwdriver.fill", .gray) : ("sparkles", .yellow)
+        default: ("sparkles", .yellow)
+        }
     }
 }
 

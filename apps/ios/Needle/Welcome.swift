@@ -1,6 +1,8 @@
 import SwiftUI
 
-/// The first start: what Needle is, and where the music can come from.
+/// The first start: what Needle is, and where the music can come from, in the Settings style:
+/// each choice a row with an icon square, a title, and one short line; Look around first as
+/// the one clear button; crash reports as a row with a switch.
 struct WelcomeView: View {
     @Environment(Store.self) private var store
     let open: (Place, Route?) -> Void
@@ -13,33 +15,56 @@ struct WelcomeView: View {
         ZStack {
             CoverBackdrop(path: nil, seed: "Needle", blur: 90, moving: !reduceMotion && !store.app.reduceMotion)
             ScrollView {
-                VStack(alignment: .leading, spacing: 18) {
-                    Image(uiImage: UIImage(named: "AppIcon") ?? UIImage())
-                        .resizable().frame(width: 76, height: 76).clipShape(.rect(cornerRadius: 18))
-                        .padding(.top, 60)
-                    Text("Welcome to Needle").font(.largeTitle.bold())
-                    Text("Your music, from this iPhone, your music server, and Needle on your computer. No account, and nothing leaves your phone unless you ask.")
-                        .font(.title3).foregroundStyle(.secondary)
-                    VStack(spacing: 12) {
-                        choice("folder.badge.plus", "Import from Files", "Songs on this iPhone or in iCloud Drive.") { importing = true }
-                        choice("server.rack", "Connect a music server", "Navidrome or Subsonic.") { finish(.home, .server("subsonic")) }
-                        choice("laptopcomputer", "Connect your computer", "Play its music here, and move what plays.") { finish(.home, .computer) }
-                    }
-                    .padding(.top, 8)
-                    Button("Look around first") { finish(.home, nil) }
-                        .frame(maxWidth: .infinity)
-                        .padding(.top, 8)
-                    Toggle(isOn: $crashReports) {
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text("Send crash reports").font(.subheadline.weight(.semibold))
-                            Text("If Needle stops by mistake, it sends what went wrong (no music, names, or files).")
-                                .font(.caption).foregroundStyle(.secondary)
+                VStack(alignment: .leading, spacing: 22) {
+                    VStack(alignment: .leading, spacing: 10) {
+                        Group {
+                            if let icon = UIImage(named: "AppIcon") {
+                                Image(uiImage: icon).resizable()
+                            } else {
+                                // The app's icon is not a picture the app can load: Needle's note, as in Settings.
+                                Image(systemName: "music.note").font(.system(size: 32, weight: .bold)).foregroundStyle(.white)
+                                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                                    .background(LinearGradient(colors: [store.colors.accent, store.colors.accent.opacity(0.6)], startPoint: .topLeading, endPoint: .bottomTrailing))
+                            }
                         }
+                        .frame(width: 72, height: 72).clipShape(.rect(cornerRadius: 17))
+                        .accessibilityHidden(true)
+                        Text("Welcome to Needle").font(.largeTitle.bold())
+                        Text("Your music, from this iPhone, your server, and your computer.")
+                            .font(.title3)
+                        Text("No account. Nothing leaves your phone unless you ask.")
+                            .font(.subheadline).foregroundStyle(.secondary)
                     }
-                    .padding(.top, 12)
+                    .padding(.top, 50)
+
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text("Where is your music?").font(.footnote.weight(.semibold)).foregroundStyle(.secondary)
+                            .textCase(.uppercase).padding(.leading, 16)
+                        VStack(spacing: 0) {
+                            choice("folder.fill", .orange, "Import from Files", "Songs on this iPhone or in iCloud Drive.") { importing = true }
+                            Divider().padding(.leading, 58)
+                            choice("server.rack", .cyan, "Connect a music server", "Navidrome or another Subsonic server.") { finish(.home, .server("subsonic")) }
+                            Divider().padding(.leading, 58)
+                            choice("laptopcomputer", .indigo, "Connect your computer", "Play its music here, and move what plays.") { finish(.home, .computer) }
+                        }
+                        .glassEffect(.regular, in: .rect(cornerRadius: 22))
+                    }
+
+                    Button { finish(.home, nil) } label: {
+                        Text("Look Around First").font(.headline).frame(maxWidth: .infinity).padding(.vertical, 6)
+                    }
+                    .buttonStyle(.glassProminent)
+
+                    Toggle(isOn: $crashReports) {
+                        SettingLabel(title: "Send crash reports", detail: "What went wrong. No music, names, or files.",
+                                     icon: "exclamationmark.triangle.fill", tint: .orange)
+                    }
+                    .padding(.horizontal, 16).padding(.vertical, 12)
+                    .glassEffect(.regular, in: .rect(cornerRadius: 22))
                     .onChange(of: crashReports) { _, on in store.run { try $0.setCrashReports(on: on) } }
                 }
-                .padding(24)
+                .padding(.horizontal, 20)
+                .padding(.bottom, 30)
             }
         }
         .preferredColorScheme(.dark)
@@ -49,20 +74,23 @@ struct WelcomeView: View {
         }
     }
 
-    private func choice(_ symbol: String, _ title: String, _ detail: String, action: @escaping () -> Void) -> some View {
+    /// A choice as a row: its icon square, its title, one short line, and an arrow.
+    private func choice(_ symbol: String, _ tint: Color, _ title: String, _ detail: String, action: @escaping () -> Void) -> some View {
         Button(action: action) {
             HStack(spacing: 14) {
-                Image(systemName: symbol).font(.title2).foregroundStyle(.tint).frame(width: 36)
+                Image(systemName: symbol).font(.system(size: 15, weight: .semibold)).foregroundStyle(.white)
+                    .frame(width: 30, height: 30)
+                    .background(tint.gradient, in: .rect(cornerRadius: 8))
+                    .accessibilityHidden(true)
                 VStack(alignment: .leading, spacing: 2) {
-                    Text(title).font(.headline)
-                    Text(detail).font(.subheadline).foregroundStyle(.secondary)
+                    Text(title).font(.body.weight(.semibold))
+                    Text(detail).font(.subheadline).foregroundStyle(.secondary).lineLimit(1)
                 }
-                Spacer()
-                Image(systemName: "chevron.right").foregroundStyle(.tertiary)
+                Spacer(minLength: 8)
+                Image(systemName: "chevron.right").font(.footnote.weight(.bold)).foregroundStyle(.tertiary)
             }
-            .padding(16)
-            .frame(maxWidth: .infinity)
-            .glassEffect(.regular.interactive(), in: .rect(cornerRadius: 22))
+            .padding(.horizontal, 14).padding(.vertical, 13)
+            .contentShape(.rect)
         }
         .buttonStyle(.plain)
     }
