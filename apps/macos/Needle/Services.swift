@@ -484,6 +484,13 @@ private struct SourceCard: View {
                 Button(source.syncing ? "Updating…" : "Update now") { store.core.sourceSync(plugin: plugin.id) }
                     .disabled(source.syncing)
                     .help("Ask the server for its songs again")
+                Button("Refresh everything…") {
+                    if confirm("Refresh everything?", "Needle gets every song and cover again. Songs no longer on the server leave your library.", "Refresh") {
+                        store.core.sourceRefresh(plugin: plugin.id)
+                    }
+                }
+                .disabled(source.syncing)
+                .help("Every song and cover again, moving covers too. Songs no longer on the server leave the library; Update now keeps them, marked missing.")
             }
             HStack(spacing: 10) {
                 Stat(value: source.songs.formatted(), label: "Songs", symbol: "music.note")
