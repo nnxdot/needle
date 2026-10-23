@@ -3,6 +3,7 @@ import AVFoundation
 import CryptoKit
 import MediaPlayer
 import MetricKit
+import Network
 import Observation
 import SwiftUI
 import UIKit
@@ -57,6 +58,10 @@ final class Store {
 
     /// Goes up when a song's own lyrics are saved or taken off: the lyrics shown follow.
     private(set) var lyricsVersion = 0
+    /// On mobile data (or another costly network): moving covers not yet here are not
+    /// downloaded, unless Settings › Appearance › On mobile data is on.
+    private(set) var onMobileData = false
+    private let network = NWPathMonitor()
 
     func lyricsChanged() { lyricsVersion += 1 }
 
@@ -206,6 +211,11 @@ final class Store {
             }
             #endif
         }
+        network.pathUpdateHandler = { [weak self] path in
+            let costly = path.isExpensive || path.usesInterfaceType(.cellular)
+            Task { @MainActor in if self?.onMobileData != costly { self?.onMobileData = costly } }
+        }
+        network.start(queue: DispatchQueue(label: "needle.network"))
         timer = Timer.scheduledTimer(withTimeInterval: 0.25, repeats: true) { [weak self] _ in
             MainActor.assumeIsolated { self?.tick() }
         }
@@ -1058,5 +1068,15 @@ final class CrashWatcher: NSObject, MXMetricManagerSubscriber {
         // Which build of each part, to find the names of the places later.
         if let needle = builds["Needle"] { out += "\nNeedle build \(needle)\n" }
         return out
+    }
+}
+
+extension Store {
+    /// A song's moving cover: on mobile data with "On mobile data" off, only one already
+    /// here (nothing is downloaded); otherwise the core may fetch it from the server.
+    func movingCover(_ id: String) async -> URL? {
+        let keptOnly = onMobileData && !app.movingCoversOnMobileData
+        let path = await load { keptOnly ? $0.animatedCoverKept(id: id) : $0.animatedCover(id: id) } ?? nil
+        return path.map(URL.init(fileURLWithPath:))
     }
 }

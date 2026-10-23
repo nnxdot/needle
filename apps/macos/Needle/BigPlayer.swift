@@ -19,8 +19,10 @@ struct BigPlayer: View {
             ZStack {
                 Color.black
                 if let p, p.hasSong, immersive {
+                    // Alone when no pane shows beside it (too narrow for one, or lyrics hidden).
                     ImmersiveCover(path: p.artwork, seed: p.album + p.artist, songID: store.current?.id,
-                                   animated: store.settings.animatedCovers && store.motion)
+                                   animated: store.settings.animatedCovers && store.motion,
+                                   alone: !(wide && (!store.immersive || showLyrics)))
                 } else if let p, p.hasSong {
                     CoverBackdrop(path: p.artwork, seed: p.album + p.artist, moving: store.motion)
                 } else {
@@ -33,7 +35,12 @@ struct BigPlayer: View {
                                 // The cover is the window's side itself: the words sit over its foot.
                                 Spacer(minLength: 0)
                             } else {
+                                // The moving cover (Moving covers on) plays in the square too, cropped to it.
                                 Cover(path: p.artwork, seed: p.album + p.artist, side: min(geo.size.height * 0.5, wide ? 460 : 340), corner: 14)
+                                    .overlay {
+                                        MovingCoverLayer(songID: store.current?.id, on: store.settings.animatedCovers && store.motion)
+                                            .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+                                    }
                                     .shadow(color: .black.opacity(0.45), radius: 40, y: 18)
                             }
                             VStack(spacing: 4) {
@@ -163,29 +170,57 @@ struct ImmersiveCover: View {
     let seed: String
     let songID: String?
     let animated: Bool
+    /// No pane beside it: the cover spans the window (up to 1.4 times its height, faded at
+    /// both sides beyond that) and grows and shrinks with it. With a pane it is the window's
+    /// left side, fading into the tone on its right.
+    var alone = false
     @State private var tone = Color.black
     @State private var video: URL?
 
     var body: some View {
         GeometryReader { geo in
-            let side = min(geo.size.height, geo.size.width * 0.62)
-            ZStack(alignment: .leading) {
+            let width = geo.size.width, height = geo.size.height
+            let side = alone ? min(width, height * 1.4) : min(height, width * 0.62)
+            ZStack(alignment: alone ? .center : .leading) {
                 tone
                 ZStack {
                     Artwork(path: path, seed: seed, size: 1800)
-                    if animated, let video { LoopingVideo(url: video) }
+                    // A video plays; an animated WebP or GIF shows its frames.
+                    if animated, let video { if AnimatedImage.isPicture(video) { AnimatedImage(url: video) } else { LoopingVideo(url: video) } }
                 }
-                .frame(width: side, height: geo.size.height)
+                // Filled and cropped, centred on the window's height.
+                .frame(width: side, height: height)
                 .clipped()
                 .overlay(alignment: .trailing) {
-                    LinearGradient(colors: [tone.opacity(0), tone.opacity(0.7), tone], startPoint: .leading, endPoint: .trailing)
-                        .frame(width: side * 0.45)
+                    if !alone {
+                        LinearGradient(colors: [tone.opacity(0), tone.opacity(0.7), tone], startPoint: .leading, endPoint: .trailing)
+                            .frame(width: side * 0.45)
+                    }
+                }
+                .overlay {
+                    // A window much wider than tall: the cover's outer quarters fade into the tone.
+                    if alone && side < width - 1 {
+                        HStack(spacing: 0) {
+                            LinearGradient(colors: [tone, tone.opacity(0)], startPoint: .leading, endPoint: .trailing)
+                                .frame(width: side * 0.25)
+                            Spacer(minLength: 0)
+                            LinearGradient(colors: [tone.opacity(0), tone], startPoint: .leading, endPoint: .trailing)
+                                .frame(width: side * 0.25)
+                        }
+                    }
+                }
+                .overlay(alignment: .top) {
+                    // A light fade under the buttons at the top.
+                    if alone {
+                        LinearGradient(colors: [tone.opacity(0.45), tone.opacity(0)], startPoint: .top, endPoint: .bottom)
+                            .frame(height: min(120, height * 0.2))
+                    }
                 }
                 .overlay(alignment: .bottom) {
                     // Solid at the foot, so the cover's own words never show under the controls.
                     LinearGradient(stops: [.init(color: tone.opacity(0), location: 0), .init(color: tone.opacity(0.8), location: 0.5),
                                            .init(color: tone, location: 0.8)], startPoint: .top, endPoint: .bottom)
-                        .frame(height: geo.size.height * 0.55)
+                        .frame(height: height * 0.55)
                 }
                 .modifier(ExtendsUnderGlass())
             }

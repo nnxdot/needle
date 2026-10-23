@@ -3,10 +3,13 @@ import MediaPlayer
 import SwiftUI
 
 /// The song playing, on the tab bar: tap it for the full player. When the tab bar is small
-/// (scrolled down), only the song's name and play or pause are left.
+/// (scrolled down), only the song's name and play or pause are left. With Lyrics under the
+/// mini player on, the line being sung shows under the song's name in place of its artist.
 struct MiniPlayer: View {
     @Environment(Store.self) private var store
     @Environment(\.tabViewBottomAccessoryPlacement) private var placement
+    /// The playing song's timed lines, while Lyrics under the mini player is on.
+    @State private var lines: [LyricLine] = []
 
     var body: some View {
         let song = store.playback?.current
@@ -24,9 +27,20 @@ struct MiniPlayer: View {
             VStack(alignment: .leading, spacing: 0) {
                 Text(song?.title ?? "Not Playing").font(.subheadline.weight(.semibold)).lineLimit(1)
                 if placement != .inline, let song {
-                    Text(store.onComputer ? "On your computer" : song.artist).font(.caption).foregroundStyle(.secondary).lineLimit(1)
+                    if let sung {
+                        // Fades in at each new line; a faint ♪ while none is sung.
+                        Text(sung.text.isEmpty ? "♪" : sung.text)
+                            .font(.caption.weight(.medium))
+                            .foregroundStyle(sung.text.isEmpty ? AnyShapeStyle(.tertiary) : AnyShapeStyle(.primary))
+                            .lineLimit(1)
+                            .id(sung.index)
+                            .transition(.opacity)
+                    } else {
+                        Text(store.onComputer ? "On your computer" : song.artist).font(.caption).foregroundStyle(.secondary).lineLimit(1)
+                    }
                 }
             }
+            .animation(.easeOut(duration: 0.35), value: sung?.index)
             .frame(maxWidth: .infinity, alignment: .leading)
             Button { store.toggle() } label: {
                 Image(systemName: playing ? "pause.fill" : "play.fill")
@@ -46,6 +60,30 @@ struct MiniPlayer: View {
         .buttonStyle(.plain)
         .padding(.leading, 6)
         .padding(.trailing, 4)
+        .task(id: "\(store.playback?.current?.id ?? "")|\(store.lyricsVersion)|\(store.app.miniPlayerLyrics)") { await loadLines() }
+    }
+
+    /// The line being sung (-1 before the first), when the song has timed lyrics and the
+    /// setting is on.
+    private var sung: (index: Int, text: String)? {
+        guard store.app.miniPlayerLyrics, !lines.isEmpty else { return nil }
+        let position = store.playback?.position ?? 0
+        guard let i = lines.lastIndex(where: { $0.time <= position + 0.2 }) else { return (-1, "") }
+        return (i, lines[i].text.trimmingCharacters(in: .whitespaces))
+    }
+
+    private func loadLines() async {
+        lines = []
+        guard store.app.miniPlayerLyrics, let song = store.playback?.current else { return }
+        let found: Lyrics?
+        if song.onComputer, let pc = store.pc?.current {
+            found = await store.load { $0.pcLyrics(song: pc) } ?? nil
+        } else {
+            let id = song.id
+            found = await store.load { try $0.lyrics(id: id) } ?? nil
+        }
+        guard !Task.isCancelled, song.id == store.playback?.current?.id, let found, !found.instrumental else { return }
+        lines = found.lines
     }
 }
 
@@ -228,6 +266,9 @@ struct NowPlayingView: View {
         return RecordSpin(on: round && playing && !reduceMotion) {
             Artwork(path: song?.artwork, seed: seed, size: 1000)
                 .aspectRatio(1, contentMode: .fit)
+                // The moving cover (Moving covers on) plays in the square or the record too,
+                // cropped to it, while the cover pane shows.
+                .overlay { MovingCoverLayer(song: song, on: store.app.animatedCovers && !reduceMotion && pane == .cover) }
                 .clipShape(round ? AnyShape(.circle) : AnyShape(.rect(cornerRadius: 18)))
                 .overlay { if round { Circle().fill(.black).frame(width: 26).overlay(Circle().stroke(.white.opacity(0.3), lineWidth: 2)) } }
         }
@@ -654,7 +695,8 @@ struct ImmersiveCover: View {
                 tone
                 ZStack {
                     Artwork(path: song?.artwork, seed: seed, size: 1400)
-                    if animated, let video { LoopingVideo(url: video) }
+                    // A video plays; an animated WebP or GIF shows its frames.
+                    if animated, let video { if AnimatedImage.isPicture(video) { AnimatedImage(url: video) } else { LoopingVideo(url: video) } }
                 }
                 .frame(width: side, height: tall)
                 .clipped()
@@ -671,8 +713,13 @@ struct ImmersiveCover: View {
             let colors = await PageColors.of(song?.artwork, seed: seed)
             guard !Task.isCancelled else { return }
             tone = colors.page.darkened(to: 0.3)
+            #if DEBUG
+            // Test builds: -animated-cover <file> plays that file as the moving cover (to check
+            // animated pictures without adding files beside anyone's music).
+            if animated, let test = UserDefaults.standard.string(forKey: "animated-cover") { video = URL(fileURLWithPath: test); return }
+            #endif
             guard animated, let id = song?.id, !(song?.onComputer ?? true) else { return }
-            let found = (await store.load { $0.animatedCover(id: id) } ?? nil).map(URL.init(fileURLWithPath:))
+            let found = await store.movingCover(id)
             if !Task.isCancelled { video = found }
         }
     }

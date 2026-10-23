@@ -18,7 +18,7 @@ struct HomePage: View {
                     if !home.artists.isEmpty {
                         VStack(alignment: .leading, spacing: 10) {
                             ShelfTitle(title: "Artists you play most", detail: nil, all: .artists)
-                            ScrollView(.horizontal, showsIndicators: false) {
+                            PagedRow(tile: 132, spacing: 20, middle: 66) {
                                 LazyHStack(alignment: .top, spacing: 20) {
                                     ForEach(home.artists) { artist in ArtistTile(artist: artist, side: 132) }
                                 }
@@ -103,7 +103,7 @@ struct Shelf: View {
         if !albums.isEmpty {
             VStack(alignment: .leading, spacing: 10) {
                 ShelfTitle(title: title, detail: detail, all: .albums)
-                ScrollView(.horizontal, showsIndicators: false) {
+                PagedRow(tile: 156, spacing: 18, middle: 78) {
                     LazyHStack(alignment: .top, spacing: 18) {
                         ForEach(albums) { album in AlbumTile(album: album, side: 156) }
                     }
@@ -112,6 +112,66 @@ struct Shelf: View {
                 }
             }
         }
+    }
+}
+
+/// A sideways row of tiles with an arrow at each end while the pointer is over it, only
+/// toward more: a click moves one page, as many whole tiles as the row shows (at least one).
+struct PagedRow<Content: View>: View {
+    private var store: Store { .shared }
+    /// A tile's width, and the room between two.
+    let tile: CGFloat
+    let spacing: CGFloat
+    /// The middle of the covers, from the row's top: the arrows are centred on it.
+    let middle: CGFloat
+    @ViewBuilder let content: Content
+    @State private var position = ScrollPosition(edge: .leading)
+    @State private var offset: CGFloat = 0
+    @State private var extent: CGFloat = 0
+    @State private var visible: CGFloat = 0
+    @State private var hover = false
+
+    var body: some View {
+        ScrollView(.horizontal, showsIndicators: false) { content }
+            .scrollPosition($position)
+            .onScrollGeometryChange(for: [CGFloat].self) { g in
+                [g.contentOffset.x, g.contentSize.width, g.containerSize.width]
+            } action: { _, now in
+                offset = now[0]; extent = now[1]; visible = now[2]
+            }
+            .overlay(alignment: .topLeading) {
+                if hover && offset > 1 { arrow(-1).padding(.leading, 6).offset(y: middle - 28) }
+            }
+            .overlay(alignment: .topTrailing) {
+                if hover && offset < extent - visible - 1 { arrow(1).padding(.trailing, 6).offset(y: middle - 28) }
+            }
+            .animation(.easeOut(duration: 0.15), value: hover)
+            .onHover { hover = $0 }
+    }
+
+    private func arrow(_ way: CGFloat) -> some View {
+        Button { page(way) } label: {
+            Image(systemName: way < 0 ? "chevron.left" : "chevron.right")
+                .font(.system(size: 15, weight: .semibold))
+                .foregroundStyle(store.colors.ink)
+                .frame(width: 30, height: 56)
+                .contentShape(Capsule())
+        }
+        .buttonStyle(.plain)
+        .pane(Capsule(), interactive: true)
+        .shadow(color: .black.opacity(0.18), radius: 6, y: 2)
+        .help(way < 0 ? "Back" : "More")
+        .accessibilityLabel(way < 0 ? "Scroll back" : "Scroll for more")
+        .transition(.opacity)
+    }
+
+    /// One page on, from the tile at the edge now, kept within the row.
+    private func page(_ way: CGFloat) {
+        let step = tile + spacing
+        let tiles = max(1, ((visible + spacing) / step).rounded(.down))
+        let first = (offset / step).rounded()
+        let target = min(max((first + way * tiles) * step, 0), max(extent - visible, 0))
+        withAnimation(store.motion ? .smooth(duration: 0.35) : nil) { position.scrollTo(x: target) }
     }
 }
 

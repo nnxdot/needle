@@ -40,9 +40,28 @@ struct MainWindow: View {
             // In full screen the toolbar shows only while the pointer is at the top.
             .windowToolbarFullScreenVisibility(.onHover)
             .onChange(of: store.search) { _, text in findSuggestions(text) }
+            .onChange(of: store.leaveSearch) { _, _ in searchFocused = false }
             .onChange(of: store.focusSearch) { _, _ in
                 // With the sidebar folded away, its search field is too: the palette searches.
-                if store.settings.layout.searchHidden || store.settings.layout.sidebarHidden { store.palette = true } else { searchFocused = true }
+                if store.settings.layout.searchHidden || store.settings.layout.sidebarHidden {
+                    store.palette = true
+                } else {
+                    // Off, then on: after a click away (see `Keys`) the focus state may still
+                    // read as on, and setting it on again would do nothing.
+                    searchFocused = false
+                    DispatchQueue.main.async { searchFocused = true }
+                }
+            }
+            // The big and full screen players cover the sidebar, but not its search field's focus:
+            // AppKit drew the field's ring over the cover, and keys went into the hidden field
+            // instead of playing and pausing. They take the focus from the field when they open.
+            .onChange(of: store.big || store.immersive) { _, covered in
+                guard covered else { return }
+                searchFocused = false
+                // Only a search field's editor: a field being typed in Settings stays as it is.
+                for window in NSApp.windows where (window.firstResponder as? NSTextView)?.delegate is NSSearchField {
+                    window.makeFirstResponder(nil)
+                }
             }
 
             if store.big || store.immersive {
@@ -85,6 +104,9 @@ struct MainWindow: View {
     }
 
     #if DEBUG
+    /// The plain window behind Needle's for pictures (`--plain-backdrop`), kept while it shows.
+    @MainActor private static var backdrop: NSWindow?
+
     /// Test builds: `--show settings|mini|big|palette|panel-later|sidebar-flips` opens that at the start (the
     /// side panel two seconds later), to look at it.
     private func showForTest() {
@@ -99,12 +121,81 @@ struct MainWindow: View {
         let value = { (flag: String) in arguments.firstIndex(of: flag).flatMap { arguments.indices.contains($0 + 1) ? arguments[$0 + 1] : nil } }
         // `--rescan`: read the music folders again.
         if arguments.contains("--rescan") { store.rescan() }
+        // `--snapshot-main <path>`: after 12 seconds, the main window drawn twice, half a second
+        // apart (<path>-1.png, <path>-2.png), to see whether something moves.
+        if let path = value("--snapshot-main") {
+            Task {
+                try? await Task.sleep(for: .seconds(12))
+                for n in 1...2 {
+                    if let window = NSApp.windows.first(where: { $0.identifier?.rawValue.hasPrefix("main") == true }),
+                       let view = window.contentView,
+                       let rep = view.bitmapImageRepForCachingDisplay(in: view.bounds) {
+                        view.cacheDisplay(in: view.bounds, to: rep)
+                        try? rep.representation(using: .png, properties: [:])?.write(to: URL(fileURLWithPath: "\(path)-\(n).png"))
+                    }
+                    try? await Task.sleep(for: .milliseconds(500))
+                }
+            }
+        }
+        // `--snapshot-settings <path.png>`: after 8 seconds, the Settings window drawn into a
+        // picture at the screen's scale (Needle's own drawing: no screen recording needed).
+        if let path = value("--snapshot-settings") {
+            Task {
+                try? await Task.sleep(for: .seconds(8))
+                guard let window = NSApp.windows.first(where: { $0.isVisible && $0.title == (UserDefaults.standard.string(forKey: "settings-tab") ?? "") }),
+                      let view = window.contentView?.superview ?? window.contentView,
+                      let rep = view.bitmapImageRepForCachingDisplay(in: view.bounds) else { return }
+                view.cacheDisplay(in: view.bounds, to: rep)
+                try? rep.representation(using: .png, properties: [:])?.write(to: URL(fileURLWithPath: path))
+            }
+        }
         if let name = value("--artist") { store.navigate(.artist(name)) }
         if let title = value("--album") {
             Task {
                 try? await Task.sleep(for: .seconds(1))
                 let albums = JSON.decode([AlbumSummary].self, await store.load { try $0.albumsJson(query: "") }) ?? []
                 if let album = albums.first(where: { $0.album == title }) { store.navigate(album.route) }
+            }
+        }
+        // For the website's pictures: `--page albums|songs|artists|home` opens that page,
+        // `--panel queue|details|lyrics` the side panel on that, and `--play-album <title>`
+        // plays that album from its first song, `--seek <seconds>` into it.
+        switch value("--page") {
+        case "albums": store.navigate(.albums)
+        case "songs": store.navigate(.songs)
+        case "artists": store.navigate(.artists)
+        case "home": store.navigate(.home)
+        default: break
+        }
+        if let name = value("--panel"), let panel = Store.Panel.allCases.first(where: { $0.rawValue.lowercased() == name }) {
+            store.panel = panel
+            store.set(["show_inspector": true])
+        }
+        // `--plain-backdrop`: a plain black window behind Needle's, so its glass shows nothing of
+        // the desktop (no wallpaper, no other windows) in a picture.
+        if arguments.contains("--plain-backdrop"), let screen = NSScreen.main {
+            Task {
+                try? await Task.sleep(for: .seconds(1))
+                guard let main = NSApp.windows.first(where: { $0.identifier?.rawValue.hasPrefix("main") == true }) else { return }
+                let backdrop = NSWindow(contentRect: screen.frame, styleMask: .borderless, backing: .buffered, defer: false)
+                backdrop.backgroundColor = .black
+                backdrop.isReleasedWhenClosed = false
+                backdrop.ignoresMouseEvents = true
+                backdrop.order(.below, relativeTo: main.windowNumber)
+                Self.backdrop = backdrop
+            }
+        }
+        if let title = value("--play-album") {
+            let seek = value("--seek").flatMap(Double.init)
+            Task {
+                try? await Task.sleep(for: .seconds(2))
+                let albums = JSON.decode([AlbumSummary].self, await store.load { try $0.albumsJson(query: "") }) ?? []
+                guard let album = albums.first(where: { $0.album == title }) else { return }
+                _ = await store.ask { try $0.playView(query: album.query, playlist: nil, filter: "", start: 0, shuffle: false, reason: "From the album \(title)") }
+                if let seek {
+                    try? await Task.sleep(for: .seconds(1))
+                    store.seek(seek)
+                }
             }
         }
         guard let i = arguments.firstIndex(of: "--show"), arguments.indices.contains(i + 1) else { return }
@@ -209,24 +300,38 @@ struct MainWindow: View {
             // more room than the window had set the split view fighting over the columns until
             // AppKit stopped the app.
             .frame(minWidth: 360, idealWidth: 360, maxWidth: .infinity, minHeight: 300, idealHeight: 300, maxHeight: .infinity)
-            // Clipped at the sides and foot, not at the top: an album's or artist's picture goes
-            // on under the bar's glass.
-            .clipShape(OpenAtTop())
+            // Clipped at the sides only: an album's or artist's picture goes on under the title
+            // bar's glass, and the page runs on under the floating player (the inset below only
+            // leaves its last row room to scroll out from under it). Clipped at the foot too, the
+            // page stopped in a hard line above the player, which sat in a flat band.
+            .clipShape(OpenAtTopAndFoot())
             // The player floats over the foot of the page, which slides under it (or sits in
             // the title bar; see `toolbar`).
             .safeAreaInset(edge: .bottom, spacing: 0) {
                 if !store.settings.layout.playerOnTop && !Self.drop.contains("player") {
-                    PlayerBar().padding(.horizontal, 20).padding(.bottom, 14).padding(.top, 4)
-                        // Clear of the side panel on pages that run under it.
-                        .padding(.trailing, store.settings.showInspector && Self.runsUnder(store.route) ? Self.panelWidth + 20 : 0)
+                    // The strip takes about 12 pt more than the bar alone: no tall band under it.
+                    VStack(spacing: 2) {
+                        PlayerBar()
+                        // Lyrics under the player (Settings › Appearance): the line being sung.
+                        if LyricStrip.shows { LyricStrip() }
+                    }
+                    .padding(.horizontal, 20).padding(.bottom, LyricStrip.shows ? 4 : 14).padding(.top, 4)
+                    // Clear of the side panel on pages that run under it.
+                    .padding(.trailing, store.settings.showInspector && Self.runsUnder(store.route) ? Self.panelWidth + 20 : 0)
+                }
+            }
+            // With the player in the title bar, the line goes right under it, over the page.
+            .overlay(alignment: .top) {
+                if store.settings.layout.playerOnTop && LyricStrip.shows {
+                    LyricStrip().padding(.horizontal, 20).padding(.top, 2)
                 }
             }
     }
 
-    /// The page's box, and the bar above it.
-    private struct OpenAtTop: Shape {
+    /// The page's box, the bar above it, and the player below it.
+    private struct OpenAtTopAndFoot: Shape {
         func path(in rect: CGRect) -> Path {
-            Path(CGRect(x: rect.minX, y: rect.minY - 160, width: rect.width, height: rect.height + 160))
+            Path(CGRect(x: rect.minX, y: rect.minY - 160, width: rect.width, height: rect.height + 160 + 240))
         }
     }
 
@@ -423,6 +528,9 @@ struct WindowBackground: View {
                 store.colors.canvas
             }
         }
+        // The one place new colours fade in: the page's and the cover's colours change at once
+        // everywhere else (see `Store.setPageTint`). Nothing here is a table.
+        .animation(store.motion ? .easeInOut(duration: 0.45) : nil, value: store.colors)
         .ignoresSafeArea()
     }
 }
