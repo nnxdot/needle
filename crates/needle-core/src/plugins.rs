@@ -2685,7 +2685,16 @@ mod tests {
                 } else if path.ends_with("/stream.view") {
                     ("audio/wav", wav.clone())
                 } else if path.ends_with("/getCoverArt.view") {
-                    ("image/png", vec![7u8; 500])
+                    // Song s1's album has a moving cover: the server gives it as it is when
+                    // no size is asked for (a smaller copy is a still picture).
+                    if param("id") == "s1" && param("size").is_empty() {
+                        let mut webp = b"RIFF    WEBPVP8X".to_vec();
+                        webp.extend_from_slice(&[10, 0, 0, 0, 0x12, 0, 0, 0]);
+                        webp.resize(500, 7);
+                        ("image/webp", webp)
+                    } else {
+                        ("image/png", vec![7u8; 500])
+                    }
                 } else if path.ends_with("/getLyricsBySongId.view") {
                     // OpenSubsonic: timed lyrics (with an offset) for one song, plain ones
                     // for the other, and none for any else.
@@ -2844,6 +2853,64 @@ mod tests {
         assert_eq!(tracks[0].title, "Octo Song");
         assert!(tracks[0].is_streamed());
         assert!(library.track(&tracks[0].id).unwrap().is_none());
+    }
+
+    /// A server song's moving cover: the album's cover as the server keeps it, fetched once
+    /// and kept when it moves; a still one is remembered as still and not asked for again.
+    #[test]
+    fn a_server_albums_moving_cover_is_fetched_once() {
+        let (server, requests) = fake_subsonic("hunter2");
+        let dir = tempfile::tempdir().unwrap();
+        let library = Library::open(dir.path()).unwrap();
+        library
+            .set_json(
+                &format!("plugin:{}", crate::subsonic::ID),
+                &serde_json::json!({ "server": server, "username": "willow" }),
+            )
+            .unwrap();
+        crate::secrets::plugin::set(crate::subsonic::ID, "password", "hunter2").unwrap();
+        let song = |id: &str, album: &str| crate::model::Track {
+            path: format!("source://subsonic/{id}"),
+            album: album.into(),
+            album_artist: "Moving Picture".into(),
+            ..Default::default()
+        };
+        let covers = || {
+            requests
+                .lock()
+                .unwrap()
+                .iter()
+                .filter(|r| r.contains("getCoverArt"))
+                .count()
+        };
+        let moving = song("s1", "Sparkle");
+        let found = crate::media::fetch_server_moving_cover(&library, &moving).unwrap();
+        assert_eq!(found.extension().unwrap(), "webp");
+        assert!(crate::media::is_animated_image(&found));
+        assert_eq!(
+            crate::media::animated_cover(&library, &moving),
+            Some(found.clone())
+        );
+        // Another song of the same album, and the same again: kept, not asked for again.
+        assert_eq!(
+            crate::media::fetch_server_moving_cover(&library, &song("s9", "Sparkle")),
+            Some(found)
+        );
+        assert_eq!(covers(), 1);
+        let still = song("s2", "Plain");
+        assert_eq!(
+            crate::media::fetch_server_moving_cover(&library, &still),
+            None
+        );
+        assert_eq!(
+            crate::media::fetch_server_moving_cover(&library, &still),
+            None
+        );
+        assert_eq!(covers(), 2, "a still cover is asked for once");
+        assert_eq!(
+            crate::media::server_moving_cover_kept(&library, &still),
+            (None, true)
+        );
     }
 
     #[test]
