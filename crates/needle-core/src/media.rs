@@ -677,8 +677,12 @@ pub fn fetch_server_moving_cover(library: &Library, track: &Track) -> Option<Pat
     if plugin != crate::subsonic::ID {
         return None;
     }
-    let link = crate::subsonic::Subsonic::new(library.clone())
-        .original_cover(&id)
+    // The album's own picture first (a moving one lives in the album's folder), else the
+    // song's.
+    let server = crate::subsonic::Subsonic::new(library.clone());
+    let link = server
+        .original_album_cover(&id)
+        .or_else(|_| server.original_cover(&id))
         .ok()?;
     let bytes = (|| -> Result<Vec<u8>> {
         let response = crate::integrations::client()?
