@@ -119,6 +119,7 @@ import androidx.compose.ui.input.key.onKeyEvent
 import androidx.compose.ui.input.key.type
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.ui.semantics.CustomAccessibilityAction
 import androidx.compose.ui.semantics.customActions
@@ -401,6 +402,8 @@ fun FullPlayer(onClose: () -> Unit, open: (Route) -> Unit) {
     val playing by remember { derivedStateOf { playbackState.value?.playing == true } }
     val repeat by remember { derivedStateOf { playbackState.value?.repeat ?: fyi.nnx.needle.core.RepeatMode.OFF } }
     val queueVersion by remember { derivedStateOf { playbackState.value?.queueVersion ?: 0uL } }
+    // Why the song stopped, such as a music server that stopped answering: shown until it plays again.
+    val stopped by remember { derivedStateOf { playbackState.value?.error?.takeIf { playbackState.value?.playing != true } } }
     // The same object while the song is the same: what takes it can then skip a redraw.
     val song = remember(current) { current } ?: return
     val position = { playbackState.value?.position ?: 0.0 }
@@ -553,6 +556,15 @@ fun FullPlayer(onClose: () -> Unit, open: (Route) -> Unit) {
             }
             val controls: @Composable () -> Unit = {
                 AtPosition { at -> SeekBar(position = at, duration = song.duration, playing = playing) }
+                androidx.compose.animation.AnimatedVisibility(stopped != null) {
+                    Text(
+                        stopped.orEmpty(),
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = Color.White.copy(alpha = 0.85f),
+                        textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+                        modifier = Modifier.fillMaxWidth().padding(top = 8.dp).semantics { liveRegion = androidx.compose.ui.semantics.LiveRegionMode.Polite },
+                    )
+                }
                 PlayerControls(playing, position, song.duration, haptics)
                 val app by NeedleApp.instance.app.collectAsState()
                 if (song.onComputer() || app.volumeSlider) VolumeRow(song.onComputer())
