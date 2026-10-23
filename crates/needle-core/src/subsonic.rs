@@ -24,6 +24,16 @@ const PAGE: i64 = 250;
 /// Albums a page, for servers that find nothing for an empty search (Ampache). Short pages,
 /// so songs waiting to play are not held up for long.
 const ALBUM_PAGE: i64 = 5;
+
+/// Albums asked for at a time when reading the albums' own cover ids.
+const COVER_PAGE: i64 = 500;
+
+/// The albums' own cover ids (album id to cover id), read at the first page of a sync. An
+/// album's cover id changes when its picture changes on the server; a song's own cover id
+/// does not, and the server keeps its small copy under it, so a new album picture would
+/// never come in through the songs' ids.
+static ALBUM_COVERS: std::sync::Mutex<Option<HashMap<String, String>>> =
+    std::sync::Mutex::new(None);
 /// The longest a request may take.
 const TIMEOUT: Duration = Duration::from_secs(15);
 /// The most a server's answer may hold, so a broken server cannot fill the memory.
@@ -115,6 +125,15 @@ impl Subsonic {
     pub fn songs(&self, page: i64) -> Result<Vec<Value>, String> {
         let session = self.session()?;
         if self.text("list_by") != "albums" {
+            if page == 0 {
+                *ALBUM_COVERS.lock().unwrap_or_else(|e| e.into_inner()) =
+                    Some(album_covers(&session));
+            }
+            let covers = ALBUM_COVERS
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .clone()
+                .unwrap_or_default();
             let reply = session.ask(
                 "search3",
                 &[
@@ -127,7 +146,7 @@ impl Subsonic {
             )?;
             let found = list(&reply["searchResult3"]["song"]);
             if !found.is_empty() {
-                return Ok(to_songs(&found, &session));
+                return Ok(to_songs(&found, &session, &covers));
             }
             if page > 0 {
                 return Ok(vec![]);
@@ -144,6 +163,11 @@ impl Subsonic {
             ],
         )?;
         let albums = list(&reply["albumList2"]["album"]);
+        let covers: HashMap<String, String> = albums
+            .iter()
+            .map(|album| (text(&album["id"]), text(&album["coverArt"])))
+            .filter(|(id, cover)| !id.is_empty() && !cover.is_empty())
+            .collect();
         // The albums' songs, asked for side by side.
         let links: Vec<String> = albums
             .iter()
@@ -165,7 +189,7 @@ impl Subsonic {
         for answer in answers {
             found.extend(list(&answer?["album"]["song"]));
         }
-        Ok(to_songs(&found, &session))
+        Ok(to_songs(&found, &session, &covers))
     }
 
     /// Songs on the server for a search, when the switch is on. Through octo-fiesta (a
@@ -186,7 +210,17 @@ impl Subsonic {
                 ("albumCount", "0".into()),
             ],
         )?;
-        Ok(to_songs(&list(&reply["searchResult3"]["song"]), &session))
+        // A search uses the albums' cover ids known from the last sync.
+        let covers = ALBUM_COVERS
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .clone()
+            .unwrap_or_default();
+        Ok(to_songs(
+            &list(&reply["searchResult3"]["song"]),
+            &session,
+            &covers,
+        ))
     }
 
     /// A link to a song's cover as the server keeps it, not a smaller copy (a smaller copy of
@@ -345,14 +379,54 @@ impl Session {
     }
 }
 
+/// Every album's own cover id (see `ALBUM_COVERS`), a few requests for a whole library. A
+/// server that cannot list them gives none, and songs keep their own ids.
+fn album_covers(session: &Session) -> HashMap<String, String> {
+    let mut covers = HashMap::new();
+    for page in 0..200 {
+        let Ok(reply) = session.ask(
+            "getAlbumList2",
+            &[
+                ("type", "alphabeticalByName".into()),
+                ("size", COVER_PAGE.to_string()),
+                ("offset", (page * COVER_PAGE).to_string()),
+            ],
+        ) else {
+            break;
+        };
+        let albums = list(&reply["albumList2"]["album"]);
+        if albums.is_empty() {
+            break;
+        }
+        for album in &albums {
+            let (id, cover) = (text(&album["id"]), text(&album["coverArt"]));
+            if !id.is_empty() && !cover.is_empty() {
+                covers.insert(id, cover);
+            }
+        }
+        if (albums.len() as i64) < COVER_PAGE {
+            break;
+        }
+    }
+    covers
+}
+
 /// The server's songs as Needle wants them. Their cover links share the session's sign-in, so
-/// an album's songs share one link.
-fn to_songs(found: &[Value], session: &Session) -> Vec<Value> {
+/// an album's songs share one link: the album's own cover id when it is known (it changes
+/// with the album's picture), else the song's.
+fn to_songs(
+    found: &[Value],
+    session: &Session,
+    album_covers: &HashMap<String, String>,
+) -> Vec<Value> {
     found
         .iter()
         .map(|song| {
-            let cover = text(&song["coverArt"]);
             let album = text(&song["albumId"]);
+            let cover = album_covers
+                .get(&album)
+                .cloned()
+                .unwrap_or_else(|| text(&song["coverArt"]));
             let mut map = Map::new();
             for (ours, theirs) in [
                 ("id", "id"),

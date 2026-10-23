@@ -653,7 +653,14 @@ fn server_moving_kept(
         .iter()
         .map(|kind| base.with_extension(kind))
         .find(|p| p.is_file());
-    let known = found.is_some() || base.with_extension("still").is_file();
+    // A still cover is asked for again after a week: the server's cover may have changed.
+    let still_lately = std::fs::metadata(base.with_extension("still"))
+        .and_then(|m| m.modified())
+        .is_ok_and(|at| {
+            at.elapsed()
+                .is_ok_and(|age| age < std::time::Duration::from_secs(7 * 86_400))
+        });
+    let known = found.is_some() || still_lately;
     Some((base, found, known))
 }
 

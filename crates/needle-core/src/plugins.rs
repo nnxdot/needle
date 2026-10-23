@@ -2739,6 +2739,10 @@ mod tests {
                 } else if path.ends_with("/getAlbumList2.view") {
                     let list = if param("offset") == "0" && param("size") == "5" {
                         r#"[{"id":"al-1","name":"WhyKiiiKiii - EP"}]"#
+                    } else if param("offset") == "0" && param("size") == "500" {
+                        // The albums' own cover ids, as Navidrome gives them (with a part
+                        // that changes when the picture does).
+                        r#"[{"id":"1","name":"WhyKiiiKiii - EP","coverArt":"al-1_5f2a"}]"#
                     } else {
                         "[]"
                     };
@@ -2878,6 +2882,28 @@ mod tests {
         assert_eq!(tracks[0].title, "Octo Song");
         assert!(tracks[0].is_streamed());
         assert!(library.track(&tracks[0].id).unwrap().is_none());
+    }
+
+    /// A song's cover link uses its album's own cover id (which changes when the album's
+    /// picture changes on the server), not the song's, whose small copy the server keeps.
+    #[test]
+    fn server_covers_follow_the_albums_own_cover_id() {
+        let (server, _) = fake_subsonic("hunter2");
+        let dir = tempfile::tempdir().unwrap();
+        let library = Library::open(dir.path()).unwrap();
+        library
+            .set_json(
+                &format!("plugin:{}", crate::subsonic::ID),
+                &serde_json::json!({ "server": server, "username": "willow" }),
+            )
+            .unwrap();
+        crate::secrets::plugin::set(crate::subsonic::ID, "password", "hunter2").unwrap();
+        let songs = crate::subsonic::Subsonic::new(library).songs(0).unwrap();
+        assert_eq!(songs.len(), 2);
+        for song in &songs {
+            let cover = song["cover"].as_str().unwrap();
+            assert!(cover.contains("id=al-1_5f2a"), "{cover}");
+        }
     }
 
     /// A server song's moving cover: the album's cover as the server keeps it, fetched once
