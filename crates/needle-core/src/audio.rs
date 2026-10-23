@@ -1189,6 +1189,8 @@ impl Worker {
                 }
                 result.map_err(|e| anyhow::anyhow!("Seek failed: {e}"))
             }
+            // The song waits for that part of its stream: the seek ends when it comes.
+            Err(_) if self.stream_waiting() => Ok(()),
             Err(_) => {
                 self.lost = Some("Audio output stopped responding".into());
                 bail!("Audio output stopped responding")
@@ -1772,10 +1774,21 @@ impl Worker {
             self.progress = (position, Instant::now());
             return None;
         }
-        (self.progress.1.elapsed() > self.stall_timeout).then(|| {
-            self.progress.1 = Instant::now();
-            "Audio output stopped responding".into()
-        })
+        if self.progress.1.elapsed() <= self.stall_timeout {
+            return None;
+        }
+        self.progress.1 = Instant::now();
+        // A song waiting for its stream (a slow server, a dropped connection that is asked
+        // again) holds the output still: that is not a stuck device, and opening the output
+        // again would only wait on the stream too.
+        (!self.stream_waiting()).then(|| "Audio output stopped responding".into())
+    }
+    /// The playing song waits for a part of its stream that has not come yet.
+    fn stream_waiting(&self) -> bool {
+        self.queue
+            .active
+            .as_ref()
+            .is_some_and(|item| crate::sources::waiting(&item.track))
     }
     fn default_changed(&mut self) -> Option<String> {
         if self.settings.output_device.is_some()
