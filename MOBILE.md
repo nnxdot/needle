@@ -100,7 +100,7 @@ on Android, **Liquid Glass** (iOS 26) on iPhone.
 ## iPhone
 
 Started on branch `ios`: `apps/ios`, built on a Mac with Xcode by `scripts/build-ios.sh`
-(`sim`, `device`, or `core`). It needs the Rust targets `aarch64-apple-ios` and
+(`sim`, `device`, `ipa`, or `core`). It needs the Rust targets `aarch64-apple-ios` and
 `aarch64-apple-ios-sim`, and iOS 26 or newer.
 
 - **UI:** SwiftUI with Liquid Glass: the system tab bar with the mini player on it
@@ -133,7 +133,17 @@ Started on branch `ios`: `apps/ios`, built on a Mac with Xcode by `scripts/build
   can also be imported from Files, or opened from another app. The app's folder can move when it
   is updated, so the library's paths are moved at start (`relocate` in
   `crates/needle-mobile/src/ios.rs`).
-- Secrets (Last.fm, ListenBrainz) are kept in the iPhone Keychain.
+- Secrets (Last.fm, ListenBrainz, the Discord key) are kept in the iPhone Keychain.
+- **Discord status** uses the same Social SDK as Android, but an iPhone app cannot reach the
+  Discord app, so the person links their Discord account once (Settings › Discord); Needle keeps
+  Discord's refresh key in the Keychain and connects to Discord itself. Copy
+  `discord_social_sdk/lib/release/discord_partner_sdk.xcframework` from the SDK zip to
+  `apps/ios/Discord/` (not in git); the build's "Embed Discord" step puts it in the app.
+  Without it the app builds the same, with no Discord settings. On the Discord Developer
+  Portal, Needle's application needs the redirect `discord-1552097597454295110:/authorize/callback`
+  (OAuth2 tab) and "Public Client" on, since there is no server to swap the sign-in code for a key.
+- **Lyrics:** a music server's songs get the server's own lyrics (OpenSubsonic
+  `getLyricsBySongId`; Navidrome reads them from the files), even with online lookups off.
 - Not on iPhone: CarPlay (Apple must grant it, with a paid account), Dolby files (FFmpeg runs as
   its own program, which an iPhone app cannot start), bit-perfect USB output, and updating itself.
 - Signing: the project has no team. To put it on a phone, choose a team in Xcode (a free Apple ID
@@ -190,8 +200,10 @@ Started on branch `ios`: `apps/ios`, built on a Mac with Xcode by `scripts/build
 ## Publishing
 
 - **Android:** free as an APK installed directly; Play Store is $25 once.
-- **iPhone:** needs the $99 a year Apple Developer account in practice (a free self-signed app
-  stops working after 7 days).
+- **iPhone:** the App Store needs the $99 a year Apple Developer account. Without it:
+  SideStore or AltStore, from `scripts/build-ios.sh ipa` (an unsigned `Needle.ipa` with only an
+  ad hoc signature, so no Apple ID or team is in it). Each phone signs it with its own Apple ID,
+  and it must be refreshed every 7 days.
 
 ## Easier alternative
 

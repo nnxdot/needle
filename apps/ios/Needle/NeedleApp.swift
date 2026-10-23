@@ -14,6 +14,9 @@ struct NeedleApp: App {
         .onChange(of: phase) { _, now in
             // Songs added in the Files app or from a computer while Needle was away.
             if now == .active { store.rescan() }
+            // The phone may end the app while it is away: the queue, the place, and what was
+            // heard of a paused song are kept now.
+            if now == .background { store.core.persist() }
         }
     }
 }
@@ -46,6 +49,25 @@ struct RootView: View {
             }
         }
         .tabBarMinimizeBehavior(.onScrollDown)
+        #if DEBUG
+        // For testing from a shell: -tab library|sources|search, and -albums opens Albums there.
+        .onAppear {
+            let args = CommandLine.arguments
+            if let i = args.firstIndex(of: "-tab"), args.indices.contains(i + 1) {
+                place = ["library": .library, "sources": .sources, "search": .search][args[i + 1]] ?? .home
+            }
+            if args.contains("-albums") { paths[place] = NavigationPath([Route.albums]) }
+            // -artist <name>, -album <title>: open that page.
+            let value = { (flag: String) in args.firstIndex(of: flag).flatMap { args.indices.contains($0 + 1) ? args[$0 + 1] : nil } }
+            if let name = value("-artist") { store.opening = .artist(name) }
+            if let title = value("-album") {
+                Task {
+                    try? await Task.sleep(for: .seconds(1))
+                    if let album = await store.load({ try $0.albums().first { $0.title == title } }) ?? nil { store.opening = .album(album) }
+                }
+            }
+        }
+        #endif
         .tabViewBottomAccessory {
             MiniPlayer()
                 .matchedTransitionSource(id: "player", in: player)
@@ -57,21 +79,14 @@ struct RootView: View {
                 .navigationTransition(.zoom(sourceID: "player", in: player))
                 .sheet(item: $store.sheet) { SheetView(sheet: $0) }
                 .overlay(alignment: .top) { Toast().animation(.spring, value: store.message) }
+                .modifier(QuestionAlert(shown: true))
         }
         .fullScreenCover(isPresented: Binding(get: { !store.app.welcomed }, set: { _ in })) {
             WelcomeView { where_, route in go(where_, route) }
         }
         .sheet(item: Binding(get: { store.showPlayer ? nil : store.sheet }, set: { store.sheet = $0 })) { SheetView(sheet: $0) }
         .overlay(alignment: .top) { Toast().animation(.spring, value: store.message) }
-        .alert(store.question?.title ?? "", isPresented: Binding(get: { store.question != nil }, set: { if !$0, let q = store.question { store.answer(q, with: nil) } })) {
-            if let q = store.question {
-                TextField("", text: Binding(get: { store.question?.answer ?? "" }, set: { store.question?.answer = $0 }))
-                Button("OK") { store.answer(store.question ?? q, with: store.question?.answer ?? "") }
-                Button("Cancel", role: .cancel) { store.answer(q, with: nil) }
-            }
-        } message: {
-            Text(store.question?.prompt ?? "")
-        }
+        .modifier(QuestionAlert(shown: !store.showPlayer))
         .onChange(of: store.opening) { _, route in
             guard let route else { return }
             store.opening = nil
@@ -82,16 +97,23 @@ struct RootView: View {
         .preferredColorScheme(colors.dark ? .dark : .light)
     }
 
+    /// The page last opened in each place from a link, and how deep it was.
+    @State private var opened: [Place: (Int, Route)] = [:]
+
     private func path(_ place: Place) -> Binding<NavigationPath> {
-        Binding(get: { paths[place] ?? NavigationPath() }, set: { paths[place] = $0 })
+        // Back, or a page opened inside: what was opened from a link is no longer on top.
+        Binding(get: { paths[place] ?? NavigationPath() }, set: { paths[place] = $0; opened[place] = nil })
     }
 
     private func go(_ where_: Place, _ route: Route?) {
         place = where_
         if let route {
             var next = paths[where_] ?? NavigationPath()
+            // Already the page on top (opened from it again): nothing new.
+            if let top = opened[where_], top.0 == next.count, top.1 == route { return }
             next.append(route)
             paths[where_] = next
+            opened[where_] = (next.count, route)
         }
     }
 }
@@ -109,6 +131,25 @@ struct SheetView: View {
             case .timing(let song): TimingView(song: song)
             case .speakers: SpeakersView()
             }
+        }
+    }
+}
+
+/// A plugin's question, answered with text: over the page, or over the player when it is open
+/// (an alert under the player could not show).
+struct QuestionAlert: ViewModifier {
+    @Environment(Store.self) private var store
+    let shown: Bool
+
+    func body(content: Content) -> some View {
+        content.alert(store.question?.title ?? "", isPresented: Binding(get: { shown && store.question != nil }, set: { if !$0, let q = store.question { store.answer(q, with: nil) } })) {
+            if let q = store.question {
+                TextField("", text: Binding(get: { store.question?.answer ?? "" }, set: { store.question?.answer = $0 }))
+                Button("OK") { store.answer(store.question ?? q, with: store.question?.answer ?? "") }
+                Button("Cancel", role: .cancel) { store.answer(q, with: nil) }
+            }
+        } message: {
+            Text(store.question?.prompt ?? "")
         }
     }
 }

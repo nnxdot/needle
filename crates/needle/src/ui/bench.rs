@@ -343,7 +343,7 @@ impl AppView {
             })
             .detach();
         }
-        // For screenshots: a page, once the window is up (NEEDLE_SHOW_PAGE: "songs", or
+        // For screenshots: a page, once the window is up (NEEDLE_SHOW_PAGE: "home", "songs", or
         // "settings:2" for a tab of Settings).
         if let Ok(page) = std::env::var("NEEDLE_SHOW_PAGE") {
             cx.spawn_in(window, async move |view, cx| {
@@ -353,17 +353,27 @@ impl AppView {
                         v.settings_tab = tab.parse().unwrap_or(0);
                         open(v, Page::Settings, window, cx)
                     }
+                    _ if page == "home" => open(v, Page::Home, window, cx),
                     _ => open(v, Page::Songs, window, cx),
                 });
             })
             .detach();
         }
-        // For screenshots: the big player, once the window is up.
-        if std::env::var_os("NEEDLE_SHOW_BIG").is_some() {
+        // For screenshots: the big player, once the window is up ("moving": held as it is while
+        // it grows, over the page and under the usual title bar).
+        if let Ok(how) = std::env::var("NEEDLE_SHOW_BIG") {
             cx.spawn_in(window, async move |view, cx| {
                 cx.background_executor().timer(Duration::from_secs(3)).await;
                 let _ = view.update(cx, |v, cx| {
                     v.big = true;
+                    if how == "moving" {
+                        v.big_was = true;
+                        v.big_moving = true;
+                    }
+                    // "alone": with no pane beside it.
+                    if how == "alone" {
+                        v.big_side = super::now_playing::Side::None;
+                    }
                     cx.notify();
                 });
             })

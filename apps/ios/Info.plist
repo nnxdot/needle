@@ -50,6 +50,20 @@
 				<string>needle</string>
 			</array>
 		</dict>
+		<!-- Discord's sign-in comes back here (Settings › Discord). -->
+		<dict>
+			<key>CFBundleURLName</key>
+			<string>fyi.nnx.needle.discord</string>
+			<key>CFBundleURLSchemes</key>
+			<array>
+				<string>discord-1552097597454295110</string>
+			</array>
+		</dict>
+	</array>
+	<!-- Discord's library checks for the Discord app, to sign in there. -->
+	<key>LSApplicationQueriesSchemes</key>
+	<array>
+		<string>discord</string>
 	</array>
 	<key>ITSAppUsesNonExemptEncryption</key>
 	<false/>
