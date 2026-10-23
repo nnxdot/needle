@@ -126,6 +126,33 @@ struct MainWindow: View {
                 if let album = albums.first(where: { $0.album == title }) { store.navigate(album.route) }
             }
         }
+        // For the website's pictures: `--page albums|songs|artists|home` opens that page,
+        // `--panel queue|details|lyrics` the side panel on that, and `--play-album <title>`
+        // plays that album from its first song, `--seek <seconds>` into it.
+        switch value("--page") {
+        case "albums": store.navigate(.albums)
+        case "songs": store.navigate(.songs)
+        case "artists": store.navigate(.artists)
+        case "home": store.navigate(.home)
+        default: break
+        }
+        if let name = value("--panel"), let panel = Store.Panel.allCases.first(where: { $0.rawValue.lowercased() == name }) {
+            store.panel = panel
+            store.set(["show_inspector": true])
+        }
+        if let title = value("--play-album") {
+            let seek = value("--seek").flatMap(Double.init)
+            Task {
+                try? await Task.sleep(for: .seconds(2))
+                let albums = JSON.decode([AlbumSummary].self, await store.load { try $0.albumsJson(query: "") }) ?? []
+                guard let album = albums.first(where: { $0.album == title }) else { return }
+                _ = await store.ask { try $0.playView(query: album.query, playlist: nil, filter: "", start: 0, shuffle: false, reason: "From the album \(title)") }
+                if let seek {
+                    try? await Task.sleep(for: .seconds(1))
+                    store.seek(seek)
+                }
+            }
+        }
         guard let i = arguments.firstIndex(of: "--show"), arguments.indices.contains(i + 1) else { return }
         switch arguments[i + 1] {
         case "settings": openSettings()
