@@ -169,22 +169,20 @@ pub fn generated_cover(seed: &str, size: f32, round: bool, p: &Palette) -> Div {
     })
 }
 
-/// A square cover that moves: an animated WebP or GIF, drawn as it is (a smaller copy would be
-/// still), with the same rounded corners as `cover`. `id` lets GPUI step through its frames.
-pub fn moving_cover(id: &'static str, path: &str, size: f32) -> AnyElement {
-    div()
-        .size(px(size))
-        .flex_shrink_0()
-        .rounded(px((size * 0.06).clamp(3., 8.)))
-        .overflow_hidden()
-        .child(
-            // A file path (text would be read as one of the app's own assets).
-            img(std::path::PathBuf::from(path))
-                .id(id)
-                .size_full()
-                .object_fit(ObjectFit::Cover),
-        )
-        .into_any_element()
+/// A square cover that moves: an animated WebP or GIF, prepared to a size that fits in memory
+/// (see `moving`), with the same rounded corners as `cover`. `None` until it is prepared.
+/// `id` lets GPUI step through its frames.
+pub fn moving_cover(id: &'static str, path: &str, size: f32) -> Option<AnyElement> {
+    let frames = super::moving::image(std::path::Path::new(path))?;
+    Some(
+        div()
+            .size(px(size))
+            .flex_shrink_0()
+            .rounded(px((size * 0.06).clamp(3., 8.)))
+            .overflow_hidden()
+            .child(img(frames).id(id).size_full().object_fit(ObjectFit::Cover))
+            .into_any_element(),
+    )
 }
 
 pub fn cover(path: Option<&str>, seed: &str, size: f32, cx: &App) -> AnyElement {

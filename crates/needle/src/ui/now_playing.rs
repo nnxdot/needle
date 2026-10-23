@@ -46,10 +46,16 @@ pub(super) fn immersive_cover(
     };
     // A square cover fills its box, so it is drawn as large as the box's longer edge. A
     // moving picture is drawn as it is (a smaller copy would be a still one).
-    let file = if moving {
-        path.into()
-    } else {
-        super::thumbs::for_size(path, cover_w.max(h)).unwrap_or_else(|| path.into())
+    // A moving cover as prepared to fit in memory (see `moving`); until it is, or for a
+    // still cover, a copy of the picture at the size it is drawn.
+    let file: ImageSource = match moving
+        .then(|| super::moving::image(std::path::Path::new(path)))
+        .flatten()
+    {
+        Some(frames) => frames.into(),
+        None => super::thumbs::for_size(path, cover_w.max(h))
+            .unwrap_or_else(|| path.into())
+            .into(),
     };
     let edge_fade = |at: f32, into_tone: bool| {
         div()
@@ -346,14 +352,24 @@ impl AppView {
                                         }])
                                         // Settings › Appearance › Moving covers: the cover
                                         // moves here too with Immersive cover off.
-                                        .child(match &moving {
-                                            Some(path) => {
-                                                super::widgets::moving_cover("big-cover", path, art)
-                                            }
-                                            None => {
-                                                artwork(current.as_ref().map(|i| &i.track), art, cx)
-                                            }
-                                        }),
+                                        .child(
+                                            moving
+                                                .as_deref()
+                                                .and_then(|path| {
+                                                    super::widgets::moving_cover(
+                                                        "big-cover",
+                                                        path,
+                                                        art,
+                                                    )
+                                                })
+                                                .unwrap_or_else(|| {
+                                                    artwork(
+                                                        current.as_ref().map(|i| &i.track),
+                                                        art,
+                                                        cx,
+                                                    )
+                                                }),
+                                        ),
                                 )
                             })
                             .child(match &current {
