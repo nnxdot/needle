@@ -673,6 +673,11 @@ pub fn fetch_server_moving_cover(library: &Library, track: &Track) -> Option<Pat
     if known {
         return found;
     }
+    // The still cover may be the moving picture already (Navidrome gives a moving WebP
+    // whole, even when a smaller copy is asked for): use that file, with no second download.
+    if let Some(kept) = keep_moving_still_cover(library, track) {
+        return Some(kept);
+    }
     let (plugin, id) = track.source()?;
     if plugin != crate::subsonic::ID {
         return None;
@@ -721,6 +726,32 @@ pub fn forget_server_moving_cover(library: &Library, track: &Track) {
             let _ = std::fs::remove_file(base.with_extension(kind));
         }
     }
+}
+
+/// When a music server song's still cover is itself a moving picture, keep it as the album's
+/// moving cover too: the same file (a hard link, so no second copy where the system allows
+/// one, else a copy). Returns the moving cover's path.
+pub fn keep_moving_still_cover(library: &Library, track: &Track) -> Option<PathBuf> {
+    let artwork = PathBuf::from(track.artwork.as_deref()?);
+    let mut file = std::fs::File::open(&artwork).ok()?;
+    // Most covers are JPEG or PNG: a look at the first bytes is enough to pass them by.
+    let mut head = [0u8; 16];
+    file.read_exact(&mut head).ok()?;
+    let webp = &head[0..4] == b"RIFF" && &head[8..12] == b"WEBP";
+    if !webp && !head.starts_with(b"GIF8") {
+        return None;
+    }
+    let mut bytes = head.to_vec();
+    file.take(60 * 1024 * 1024).read_to_end(&mut bytes).ok()?;
+    let kind = moves(&bytes)?;
+    let (base, _, _) = server_moving_kept(library, track)?;
+    std::fs::create_dir_all(base.parent()?).ok()?;
+    let path = base.with_extension(kind);
+    if !path.is_file() && std::fs::hard_link(&artwork, &path).is_err() {
+        std::fs::copy(&artwork, &path).ok()?;
+    }
+    let _ = std::fs::remove_file(base.with_extension("still"));
+    Some(path)
 }
 
 /// A music server song's moving cover if it was fetched already, and whether it was looked
@@ -1228,6 +1259,43 @@ pub fn fetch_album_art(library: &Library, track: &Track) -> Result<usize> {
 
 #[cfg(test)]
 mod tests {
+
+    /// A server song whose still cover is already a moving picture: that file is its
+    /// album's moving cover too, with no second download (no server is even set up here).
+    #[test]
+    fn a_moving_still_cover_is_the_moving_cover_too() {
+        let dir = tempfile::tempdir().unwrap();
+        let library = crate::database::Library::open(dir.path()).unwrap();
+        let mut bytes = b"RIFF\0\0\0\0WEBPVP8X".to_vec();
+        bytes.extend_from_slice(&[10, 0, 0, 0, 0x12, 0, 0, 0]);
+        bytes.resize(400, 7);
+        let cover = dir.path().join("artwork").join("cover.img");
+        std::fs::write(&cover, &bytes).unwrap();
+        let track = crate::model::Track {
+            path: "source://subsonic/s1".into(),
+            album: "Get Up".into(),
+            album_artist: "NewJeans".into(),
+            artwork: Some(cover.to_string_lossy().into()),
+            ..Default::default()
+        };
+        let moving = super::fetch_server_moving_cover(&library, &track).unwrap();
+        assert_eq!(moving.extension().unwrap(), "webp");
+        assert_eq!(std::fs::read(&moving).unwrap(), bytes);
+        assert_eq!(
+            super::server_moving_cover_kept(&library, &track),
+            (Some(moving), true)
+        );
+        // A still JPEG cover is not a moving one.
+        let jpeg = dir.path().join("artwork").join("still.img");
+        std::fs::write(&jpeg, b"\xFF\xD8\xFF\xE0 still picture").unwrap();
+        let other = crate::model::Track {
+            path: "source://subsonic/s2".into(),
+            album: "Plain".into(),
+            artwork: Some(jpeg.to_string_lossy().into()),
+            ..Default::default()
+        };
+        assert_eq!(super::keep_moving_still_cover(&library, &other), None);
+    }
 
     /// An animated WebP and a GIF of two frames move; a still WebP, a GIF of one frame, and
     /// a picture of another kind do not.
