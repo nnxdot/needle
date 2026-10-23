@@ -139,6 +139,10 @@ function play(next: number, fade: boolean) {
         .to(parts, { opacity: 1, y: 0, filter: "blur(0px)", duration: .6, ease: "expo.out" });
     } else swap();
   }
+  // The real pictures of the app (AppShot) show the picture of this song.
+  for (const shot of $$(".stage-app[data-app-shot]")) {
+    $$("img[data-shot]", shot).forEach((img) => img.classList.toggle("on", img.dataset.shot === String(song)));
+  }
   $("[data-stage-in]")?.style.setProperty("--glow", album.glow);
 }
 play(0, false);
@@ -159,6 +163,8 @@ function setLook(id: string) {
   lookNow = id;
   themeApp.classList.remove("look-night", "look-midnight", "look-day", "look-sakura");
   themeApp.classList.add(`look-${id}`);
+  // A real picture of each look (AppShot): show this one.
+  $$("img[data-shot]", themeApp).forEach((img) => img.classList.toggle("on", img.dataset.shot === id));
   lookItems.forEach((b) => b.setAttribute("aria-pressed", String(b.dataset.look === id)));
   themeSection?.style.setProperty("--look-glow", lookGlow[id]);
 }
@@ -278,7 +284,6 @@ mm.add(
     /* The app stands up out of the record. */
     gsap.timeline({ scrollTrigger: { trigger: "[data-stage]", start: "top 98%", end: "top 12%", scrub: 1 } })
       .fromTo(".stage-app", { rotateX: 34, y: 120, scale: .84, opacity: .4 }, { rotateX: 0, y: 0, scale: 1, opacity: 1, ease: "power2.out" }, 0)
-      .from(".stage-app .tile", { opacity: 0, scale: .7, y: 30, stagger: { each: .04, from: "center" }, ease: "power2.out" }, .15)
       .from('[data-chip="left"]', { x: -120, opacity: 0, ease: "power2.out" }, .35)
       .from('[data-chip="right"]', { x: 120, opacity: 0, ease: "power2.out" }, .4)
       .from('[data-chip="low"]', { y: 80, opacity: 0, ease: "power2.out" }, .5);
