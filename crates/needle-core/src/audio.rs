@@ -1765,6 +1765,34 @@ impl Worker {
             }
         }
     }
+    /// A song from a server that stopped answering for good (its stream gave up after
+    /// minutes of asking again) ends short of its end: pause at that place, with the song
+    /// still there, rather than go on to the next songs, which would fail the same way. Play
+    /// asks the server again from there.
+    fn pause_cut_short(&mut self) {
+        let Some(active) = self
+            .queue
+            .active
+            .clone()
+            .filter(|item| item.track.is_streamed())
+        else {
+            return;
+        };
+        if !crate::sources::cut_short(&active.track) {
+            return;
+        }
+        // The place the song had reached at the last look (the output may have gone on to the
+        // next song since).
+        let position = self.state.lock().unwrap().position;
+        let mut items = vec![active];
+        items.extend(self.queue.tail());
+        self.finish_listen();
+        self.suspend(items, position);
+        self.state.lock().unwrap().error = Some(
+            "The music server stopped answering, so the song paused here. Press Play to try again."
+                .into(),
+        );
+    }
     /// A playing, unpaused output whose position does not move has stopped.
     fn stalled(&mut self) -> Option<String> {
         let sink = self.sink.as_ref()?;
@@ -1855,6 +1883,7 @@ impl Worker {
             self.progress.1 = Instant::now();
         }
         self.watch_output();
+        self.pause_cut_short();
         let elapsed = elapsed.min(0.25);
         self.last_tick = Instant::now();
         if self.playing
