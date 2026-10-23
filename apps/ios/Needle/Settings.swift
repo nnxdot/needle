@@ -1138,6 +1138,9 @@ struct WhatsNewView: View {
         case "albums": ("square.stack.fill", .orange)
         case "palette", "theme": ("paintbrush.fill", .pink)
         case "server": ("server.rack", .cyan)
+        case "radio": ("dot.radiowaves.left.and.right", .red)
+        case "signal": ("antenna.radiowaves.left.and.right", .green)
+        case "account": ("person.crop.circle.fill", .blue)
         case "": change.title.isEmpty ? ("wrench.and.screwdriver.fill", .gray) : ("sparkles", .yellow)
         default: ("sparkles", .yellow)
         }
