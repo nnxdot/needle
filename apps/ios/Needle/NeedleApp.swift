@@ -28,6 +28,8 @@ enum Place: Hashable {
 struct RootView: View {
     @Environment(Store.self) private var store
     @State private var place = Place.home
+    /// Test builds: -show-welcome shows the welcome guide once, with nothing reset.
+    @State private var welcomeTest = false
     @State private var paths: [Place: NavigationPath] = [:]
     @Namespace private var player
 
@@ -62,10 +64,12 @@ struct RootView: View {
             if let i = args.firstIndex(of: "-route"), args.indices.contains(i + 1),
                let route = ["settings": [Route.settings], "appearance": [.settings, .settingsAppearance], "sources": [.settings, .sources],
                              "scrobbling": [.settings, .settingsScrobbling], "library": [.settings, .settingsLibrary],
-                             "playback": [.settings, .settingsPlayback], "server": [.settings, .server("subsonic")]][args[i + 1]] {
+                             "playback": [.settings, .settingsPlayback], "server": [.settings, .server("subsonic")],
+                             "whatsnew": [.settings, .whatsNew]][args[i + 1]] {
                 paths[place] = NavigationPath(route)
             }
             if args.contains("-albums") { paths[place] = NavigationPath([Route.albums]) }
+            if args.contains("-show-welcome") { welcomeTest = true }
             // -artist <name>, -album <title>: open that page.
             let value = { (flag: String) in args.firstIndex(of: flag).flatMap { args.indices.contains($0 + 1) ? args[$0 + 1] : nil } }
             if let name = value("-artist") { store.opening = .artist(name) }
@@ -84,7 +88,7 @@ struct RootView: View {
                     if found.count == 3, !found[2].isEmpty {
                         let path = found[2]
                         let frames = await Task.detached { AnimatedImage.Frames.load(URL(fileURLWithPath: path)) }.value
-                        line += " | \(frames?.images.count ?? 1) frames, \(String(format: "%.2f", frames?.total ?? 0)) s a loop"
+                        line += " | \(frames?.count ?? 1) frames, \(String(format: "%.2f", frames?.total ?? 0)) s a loop"
                     }
                     try? (line + "\n").write(toFile: NSTemporaryDirectory() + "needle-moving-check.log", atomically: true, encoding: .utf8)
                 }
@@ -110,8 +114,8 @@ struct RootView: View {
                 .overlay(alignment: .top) { Toast().animation(.spring, value: store.message) }
                 .modifier(QuestionAlert(shown: true))
         }
-        .fullScreenCover(isPresented: Binding(get: { !store.app.welcomed }, set: { _ in })) {
-            WelcomeView { where_, route in go(where_, route) }
+        .fullScreenCover(isPresented: Binding(get: { !store.app.welcomed || welcomeTest }, set: { if !$0 { welcomeTest = false } })) {
+            WelcomeView { where_, route in welcomeTest = false; go(where_, route) }
         }
         .sheet(item: Binding(get: { store.showPlayer ? nil : store.sheet }, set: { store.sheet = $0 })) { SheetView(sheet: $0) }
         .overlay(alignment: .top) { Toast().animation(.spring, value: store.message) }
