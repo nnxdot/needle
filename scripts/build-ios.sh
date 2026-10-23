@@ -1,14 +1,22 @@
 #!/usr/bin/env bash
 # Builds the iPhone app on a Mac with Xcode: Needle's core (crates/needle-mobile) for iPhones and
 # the simulator, its Swift bindings, then the app with xcodebuild.
-#   scripts/build-ios.sh [sim|device|core]
+#   scripts/build-ios.sh [sim|device|ipa|core]
 # sim: the app for the simulator (apps/ios/build/sim). device: an unsigned build for a phone
-# (apps/ios/build/device), to sign in Xcode. core: only the core and its bindings.
+# (apps/ios/build/device), to sign in Xcode. ipa: that build as apps/ios/build/Needle.ipa, for
+# SideStore and AltStore, which sign it on each phone with the person's own Apple ID. core:
+# only the core and its bindings.
 # Needs the Rust targets aarch64-apple-ios and aarch64-apple-ios-sim.
 set -euo pipefail
 
 here="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$here"
+# Keys built into the app (fanart.tv's, for artists' logos), from a private file outside the
+# code: lines such as `export NEEDLE_FANART_KEY=...`. Without it, people add their own in Settings.
+if [ -f "$HOME/.needle-keys" ]; then
+    # shellcheck disable=SC1091
+    . "$HOME/.needle-keys"
+fi
 kind="${1:-sim}"
 ios="$here/apps/ios"
 export IPHONEOS_DEPLOYMENT_TARGET=26.0
@@ -43,7 +51,7 @@ rm -rf "$gen"
 [ "$kind" = core ] && exit 0
 
 cd "$ios"
-if [ "$kind" = device ]; then
+if [ "$kind" = device ] || [ "$kind" = ipa ]; then
     xcodebuild -project Needle.xcodeproj -scheme Needle -configuration Release \
         -sdk iphoneos -destination 'generic/platform=iOS' -derivedDataPath build/derived \
         CODE_SIGNING_ALLOWED=NO CONFIGURATION_BUILD_DIR="$ios/build/device" build | tail -3
@@ -52,3 +60,21 @@ else
         -sdk iphonesimulator -destination 'generic/platform=iOS Simulator' -derivedDataPath build/derived \
         CONFIGURATION_BUILD_DIR="$ios/build/sim" build | tail -3
 fi
+[ "$kind" = ipa ] || exit 0
+
+# No Apple ID or team: only an ad hoc signature, which writes down the entitlements (the
+# widgets' shared folder) for SideStore and AltStore to ask for when they sign.
+rm -rf build/ipa build/Needle.ipa
+mkdir -p build/ipa/Payload
+cp -R build/device/Needle.app build/ipa/Payload/
+app=build/ipa/Payload/Needle.app
+for framework in "$app"/Frameworks/*.framework; do
+    if [ -e "$framework" ]; then
+        codesign --force --sign - --timestamp=none "$framework"
+    fi
+done
+codesign --force --sign - --timestamp=none --entitlements NeedleWidgets.entitlements "$app/PlugIns/NeedleWidgets.appex"
+codesign --force --sign - --timestamp=none --entitlements Needle.entitlements "$app"
+(cd build/ipa && zip -qry ../Needle.ipa Payload)
+rm -rf build/ipa
+echo "$ios/build/Needle.ipa"

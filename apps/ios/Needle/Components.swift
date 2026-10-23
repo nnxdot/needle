@@ -12,6 +12,14 @@ extension Playlist: Identifiable {}
 extension Genre: Identifiable { public var id: String { name } }
 
 /// The places a screen can open.
+/// The core's name for songs without an artist.
+let unknownArtist = "Unknown artist"
+
+/// Not a real artist (none, or the core's name for none): it has no page.
+func isPlaceholderArtist(_ name: String) -> Bool {
+    name.trimmingCharacters(in: .whitespaces).isEmpty || name == unknownArtist
+}
+
 enum Route: Hashable {
     case album(Album)
     case albumOf(String)
@@ -21,7 +29,7 @@ enum Route: Hashable {
     case folder(String)
     case albums, artists, songs, playlists, genres, favorites, recent, folders
     case history, stats, wrapped
-    case settings, settingsLibrary, settingsPlayback, settingsSound, settingsAppearance, settingsScrobbling
+    case settings, settingsLibrary, settingsPlayback, settingsSound, settingsAppearance, settingsScrobbling, settingsDiscord
     case plugins, plugin(String), server(String), computer, sync, whatsNew, about
     case fixLibrary, duplicates, missingCovers, albumProblems, tidy, importing
     case themeEditor(String?)
@@ -55,6 +63,7 @@ extension View {
             case .settingsSound: SoundView()
             case .settingsAppearance: AppearanceView()
             case .settingsScrobbling: ScrobblingView()
+            case .settingsDiscord: DiscordView()
             case .plugins: PluginsView()
             case .plugin(let id): PluginView(id: id)
             case .server(let id): ServerView(plugin: id)
@@ -144,9 +153,15 @@ struct AlbumMenu: View {
         Button("Play Next", systemImage: "text.line.first.and.arrowtriangle.forward") { withSongs(store.playNext) }
         Button("Add to Queue", systemImage: "text.line.last.and.arrowtriangle.forward") { withSongs(store.enqueue) }
         Button("Add to a Playlist", systemImage: "music.note.list") { withSongs { store.sheet = .addToPlaylist($0) } }
-        Button("Edit Tags", systemImage: "tag") { withSongs { songs in store.sheet = .tags(songs.filter { !$0.fromServer }.map(\.id)) } }
+        Button("Edit Tags", systemImage: "tag") {
+            withSongs { songs in
+                let own = songs.filter { !$0.fromServer }.map(\.id)
+                if own.isEmpty { store.message = "These songs are on your music server: edit their tags there." } else { store.sheet = .tags(own) }
+            }
+        }
         Divider()
         Button("Go to Artist", systemImage: "music.microphone") { store.opening = .artist(album.artist) }
+            .disabled(isPlaceholderArtist(album.artist))
     }
 
     private func withSongs(_ then: @escaping ([Song]) -> Void) {
@@ -206,15 +221,18 @@ struct SongRow: View {
     let play: () -> Void
 
     var body: some View {
-        let playing = store.playback?.current?.id == song.id
+        let playing = store.playingID == song.id
+        // The app's accent, not the tint: on a page in its cover's colours the tint is the
+        // text's own colour, and the playing song did not stand out.
+        let lit = AnyShapeStyle(store.colors.accent)
         Button(action: play) {
             HStack(spacing: 12) {
                 if let number {
                     Group {
-                        if playing { Image(systemName: "waveform").symbolEffect(.variableColor.iterative, isActive: store.playback?.playing == true) }
+                        if playing { Image(systemName: "waveform").symbolEffect(.variableColor.iterative, isActive: store.isPlaying) }
                         else { Text("\(number)") }
                     }
-                    .font(.subheadline.monospacedDigit()).foregroundStyle(playing ? AnyShapeStyle(.tint) : AnyShapeStyle(.secondary))
+                    .font(.subheadline.monospacedDigit()).foregroundStyle(playing ? lit : AnyShapeStyle(.secondary))
                     .frame(width: 24)
                 } else if showCover {
                     Artwork(path: song.artwork, seed: song.album + song.artist, size: 120)
@@ -222,7 +240,7 @@ struct SongRow: View {
                         .clipShape(.rect(cornerRadius: 8))
                 }
                 VStack(alignment: .leading, spacing: 2) {
-                    Text(song.title).foregroundStyle(playing ? AnyShapeStyle(.tint) : AnyShapeStyle(.primary)).lineLimit(1)
+                    Text(song.title).foregroundStyle(playing ? lit : AnyShapeStyle(.primary)).lineLimit(1)
                     if number == nil {
                         HStack(spacing: 4) {
                             if song.fromServer { Image(systemName: "server.rack").font(.caption2) }
@@ -261,16 +279,18 @@ struct SongMenu: View {
             Button("Start Radio", systemImage: "dot.radiowaves.left.and.right") {
                 let id = song.id
                 store.run { try $0.startRadio(id: id) }
+                store.playedWhenReady()
             }
             Menu {
                 ForEach((0...5).reversed(), id: \.self) { stars in
                     Button {
                         let id = song.id
-                        store.run { try $0.rate(id: id, stars: UInt8(stars)) }
+                        store.rate(id, stars: stars)
                         store.message = stars == 0 ? "Stars taken off" : "Rated \(count(stars, "star"))"
                     } label: {
                         Text(stars == 0 ? "No stars" : String(repeating: "★", count: stars))
                     }
+                    .accessibilityLabel(stars == 0 ? "No stars" : count(stars, "star"))
                 }
             } label: {
                 Label("Rate", systemImage: "star")
@@ -278,6 +298,7 @@ struct SongMenu: View {
             Divider()
             Button("Go to Album", systemImage: "square.stack") { store.opening = .albumOf(song.id) }
             Button("Go to Artist", systemImage: "music.microphone") { store.opening = .artist(song.artist) }
+                .disabled(isPlaceholderArtist(song.artist))
             Divider()
             if song.fromServer {
                 Button("Keep Offline", systemImage: "arrow.down.circle") { store.keepOffline([song], keep: true) }
@@ -348,7 +369,7 @@ struct SongList: View {
         .themed()
         .environment(\.editMode, .constant(selecting ? .active : .inactive))
         .toolbar { SelectToolbar(selecting: $selecting, selected: $selected, songs: songs ?? []) }
-        .task(id: store.libraryVersion) { songs = await store.load(load) ?? [] }
+        .task(id: "\(store.libraryVersion)|\(store.ratingVersion)") { songs = await store.load(load) ?? [] }
         .overlay { if songs == nil { ProgressView() } }
     }
 }
@@ -358,14 +379,19 @@ struct SelectToolbar: ToolbarContent {
     @Binding var selecting: Bool
     @Binding var selected: Set<String>
     let songs: [Song]
+    /// On a page in its picture's colours, the words in the page's ink.
+    var tint: Color?
 
     var body: some ToolbarContent {
         ToolbarItem(placement: .topBarTrailing) {
-            if selecting {
-                Button("Done") { selecting = false; selected = [] }
-            } else if !songs.isEmpty {
-                Button("Select") { selecting = true }
+            Group {
+                if selecting {
+                    Button("Done") { selecting = false; selected = [] }
+                } else if !songs.isEmpty {
+                    Button("Select") { selecting = true }
+                }
             }
+            .tint(tint)
         }
         if selecting && !selected.isEmpty {
             SelectionActions(songs: songs.filter { selected.contains($0.id) })
@@ -402,7 +428,7 @@ struct PagedSongs: View {
                 .listRowSeparator(.hidden).listRowBackground(Color.clear).selectionDisabled()
             }
             ForEach(Array(songs.enumerated()), id: \.element.id) { i, song in
-                SongRow(song: song) { store.play(songs, from: i) }
+                SongRow(song: song) { store.playSearch(query, from: i) }
                     .tag(song.id)
                     .onAppear { if i == songs.count - 20 || i == songs.count - 1 { Task { await more() } } }
             }
@@ -417,10 +443,18 @@ struct PagedSongs: View {
             else if total == 0 { ContentUnavailableView("No songs", systemImage: "music.note", description: Text("Add music in Sources.")) }
         }
         .task(id: store.libraryVersion) {
-            let q = query
+            let (q, want) = (query, max(Int(page), songs.count))
             total = await store.load { try $0.searchSongsCount(query: q) } ?? 0
-            songs = []
-            await more()
+            // As many as were shown, so the list stays where it was scrolled: in pages of at
+            // most 1,000, the core's most at a time.
+            var all: [Song] = []
+            while all.count < want {
+                let (offset, size) = (UInt32(all.count), UInt32(min(1000, want - all.count)))
+                let next = await store.load { try $0.searchSongsPage(query: q, offset: offset, size: size) } ?? []
+                all += next
+                if next.count < Int(size) { break }
+            }
+            songs = all
         }
     }
 
@@ -432,11 +466,7 @@ struct PagedSongs: View {
     }
 
     private func playAll(shuffled: Bool) {
-        let q = query
-        store.run { core in
-            let all = try core.searchSongsPage(query: q, offset: 0, size: 1000).map(\.id)
-            try core.play(ids: shuffled ? all.shuffled() : all, start: 0)
-        }
+        store.playSearch(query, shuffled: shuffled)
     }
 }
 
@@ -444,17 +474,23 @@ struct PagedSongs: View {
 struct PlayButtons: View {
     @Environment(Store.self) private var store
     let songs: [Song]
+    /// On a page in its picture's colours: Play in the page's ink, its words in the page's colour.
+    var look: PageColors?
 
     var body: some View {
-        HStack(spacing: 12) {
-            Button { store.play(songs) } label: {
-                Label("Play", systemImage: "play.fill").frame(maxWidth: .infinity).padding(.vertical, 6)
+        GlassEffectContainer(spacing: 12) {
+            HStack(spacing: 12) {
+                Button { store.play(songs) } label: {
+                    Label("Play", systemImage: "play.fill").frame(maxWidth: .infinity).padding(.vertical, 6)
+                        .foregroundStyle(look?.page ?? .white)
+                }
+                .buttonStyle(.glassProminent)
+                .tint(look?.ink)
+                Button { store.shufflePlay(songs) } label: {
+                    Label("Shuffle", systemImage: "shuffle").frame(maxWidth: .infinity).padding(.vertical, 6)
+                }
+                .buttonStyle(.glass)
             }
-            .buttonStyle(.glassProminent)
-            Button { store.shufflePlay(songs) } label: {
-                Label("Shuffle", systemImage: "shuffle").frame(maxWidth: .infinity).padding(.vertical, 6)
-            }
-            .buttonStyle(.glass)
         }
         .font(.headline)
         .padding(.vertical, 6)
@@ -482,7 +518,7 @@ struct Toast: View {
                 .glassEffect(.regular, in: .capsule)
                 .padding(.top, 8)
                 .transition(.move(edge: .top).combined(with: .opacity))
-                .task(id: text) {
+                .task(id: store.messageCount) {
                     try? await Task.sleep(for: .seconds(2.5))
                     withAnimation { store.message = nil }
                 }

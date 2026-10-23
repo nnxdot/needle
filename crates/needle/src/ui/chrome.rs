@@ -11,7 +11,22 @@ use gpui_component::{
 };
 use needle_core::{audio::Command, audio::Repeat, model::format_duration};
 
+/// The height of the strip with the sung line under the player.
+const LYRIC_STRIP: f32 = 22.;
+
 impl AppView {
+    /// The title bar's height: taller with the player in it. Over the big player it keeps its
+    /// height, so the player's contents do not move when it opens.
+    pub(super) fn title_height(&self, window: &Window) -> f32 {
+        let server_frame =
+            cfg!(target_os = "linux") && matches!(window.window_decorations(), Decorations::Server);
+        if self.settings.layout.player_on_top && !server_frame {
+            60.
+        } else {
+            48.
+        }
+    }
+
     pub(super) fn title_bar(
         &self,
         sidebar: f32,
@@ -48,8 +63,11 @@ impl AppView {
             (width - corner - 32. - 36. - if narrow { 44. } else { 96. } - 170.).clamp(140., 520.);
         // The sidebar corner, back button, search, and palette button; or, as in Apple Music,
         // the player (Settings › Appearance).
-        // Over the big player, which has its own controls, the usual bar (back and search).
-        let content = if self.settings.layout.player_on_top && !self.big {
+        // Over the big player, its own buttons: one bar, with the player showing through.
+        let over_big = self.big && !self.big_moving;
+        let content = if over_big {
+            self.big_bar(cx)
+        } else if self.settings.layout.player_on_top && !self.big {
             self.top_player(corner, hidden, width, cx)
         } else {
             div()
@@ -97,18 +115,18 @@ impl AppView {
                 .h(px(48.))
                 .flex_shrink_0()
                 .flex()
-                .bg(p.back)
+                .when(!over_big, |el| el.bg(p.back))
                 .child(content)
                 .into_any_element();
         }
         TitleBar::new()
-            .h(px(if self.settings.layout.player_on_top {
-                60.
-            } else {
-                48.
-            }))
+            .h(px(self.title_height(window)))
             .pl_0()
-            .bg(p.back)
+            .bg(if over_big {
+                transparent_black()
+            } else {
+                p.back
+            })
             .border_b_0()
             // A thin strip that is not a drag area, so Windows offers top-edge resizing.
             .when(!window.is_maximized(), |el| {
@@ -624,14 +642,69 @@ impl AppView {
         }
     }
 
+    /// Settings > Appearance > Lyrics under the player: the line being sung, in a strip at the
+    /// window's foot. Only for a song with timed lyrics; a note while no line is sung.
+    pub(super) fn player_lyrics(&self, cx: &App) -> Option<AnyElement> {
+        if !self.settings.player_lyrics {
+            return None;
+        }
+        let p = pal(cx);
+        let current = self.playback.current.as_ref()?;
+        let lyrics = match &self.lyrics {
+            Some((id, Some(lyrics))) if *id == current.track.id && !lyrics.lines.is_empty() => {
+                lyrics
+            }
+            _ => return None,
+        };
+        let line = self
+            .lyric_line
+            .and_then(|i| lyrics.lines.get(i))
+            .map(|l| l.text.trim())
+            .filter(|t| !t.is_empty());
+        let text = div()
+            .w_full()
+            .px_6()
+            .text_center()
+            .truncate()
+            .text_size(px(13.))
+            .font_weight(FontWeight::MEDIUM)
+            .text_color(if line.is_some() { p.ink } else { p.ink_3 })
+            .child(line.unwrap_or("♪").to_string());
+        // Each new line fades in.
+        let serial = self.lyric_line.map_or(0, |i| i as u64 + 1);
+        Some(
+            div()
+                .id("player-lyrics")
+                .h(px(LYRIC_STRIP))
+                .flex_shrink_0()
+                .flex()
+                .items_center()
+                .bg(p.back)
+                .child(super::motion::animate(
+                    text,
+                    ("player-lyric", serial),
+                    220,
+                    cx,
+                    |el, t| el.opacity(t),
+                ))
+                .into_any_element(),
+        )
+    }
+
     pub(super) fn player_bar(&self, width: Pixels, cx: &mut Context<Self>) -> impl IntoElement {
         let p = pal(cx);
+        // With the sung line under it, the bar gives up the room under its controls.
+        let lyrics_under = !self.settings.layout.player_on_top && self.player_lyrics(cx).is_some();
         let current = self.playback.current.as_ref().map(|i| i.track.clone());
         let wide = width > px(1180.);
         let (path, path_detail, exclusive) = self.signal_path(cx);
         let floating = self.floating();
         div()
-            .h(px(if floating { 76. } else { 80. }))
+            .h(px(match (floating, lyrics_under) {
+                (true, _) => 76.,
+                (false, true) => 70.,
+                (false, false) => 80.,
+            }))
             .flex_shrink_0()
             .relative()
             // macOS: the player floats on its own pane of glass, clear of the window's edges, over

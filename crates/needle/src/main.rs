@@ -137,6 +137,8 @@ fn main() {
 fn run() -> Result<()> {
     let cli = Cli::parse();
     let library = Library::open(cli.data_dir.unwrap_or_else(Library::default_directory))?;
+    // A test copy's library with a secrets.json keeps its secrets there (see needle-core).
+    needle_core::set_secrets_folder(library.directory.clone());
     match cli.command {
         None => ui::run(library, vec![]),
         Some(Commands::Tag {
