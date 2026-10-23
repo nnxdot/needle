@@ -1,7 +1,8 @@
 use super::{
     AppView, Event, pal,
     widgets::{
-        faint, glyph, heading, icon, meta, page_title, segmented, setting_row, small_button, strong,
+        card, faint, glyph, heading, icon, meta, page_title, row_label, segmented, setting_row,
+        small_button, strong,
     },
 };
 use anyhow::Result;
@@ -52,6 +53,66 @@ impl AppView {
             .when(!repeat, |el| el.child(heading(title.to_string())))
             .when(!description.is_empty(), |el| {
                 el.child(meta(description.to_string(), cx).w_full())
+            })
+    }
+
+    /// A settings card that opens with an arrow: its header (icon, name, one line, and what is
+    /// set now on the right) and, while open, `body` under a line.
+    fn expander(
+        &self,
+        id: &'static str,
+        title: &str,
+        description: &str,
+        trailing: Option<AnyElement>,
+        body: impl FnOnce(&mut Context<Self>) -> AnyElement,
+        cx: &mut Context<Self>,
+    ) -> Div {
+        let p = pal(cx);
+        let open = self.settings_open.contains(id);
+        card(cx)
+            .px_0()
+            .py_0()
+            .flex()
+            .flex_col()
+            .child(
+                div()
+                    .id(SharedString::from(format!("open-{id}")))
+                    .px(px(14.))
+                    .py(px(12.))
+                    .flex()
+                    .items_center()
+                    .gap_4()
+                    .cursor_pointer()
+                    .rounded(px(7.))
+                    .hover(|s| s.bg(p.raised.opacity(0.5)))
+                    .child(row_label(title, description, cx))
+                    .children(trailing)
+                    .child(
+                        glyph(if open {
+                            "chevron-down"
+                        } else {
+                            "chevron-right"
+                        })
+                        .size(px(14.))
+                        .text_color(p.ink_2),
+                    )
+                    .on_click(cx.listener(move |this, _, _, cx| {
+                        if !this.settings_open.remove(id) {
+                            this.settings_open.insert(id);
+                        }
+                        cx.notify();
+                    })),
+            )
+            .when(open, |el| {
+                el.child(
+                    div()
+                        .border_t_1()
+                        .border_color(p.line_soft)
+                        .pl(px(46.))
+                        .pr(px(14.))
+                        .py(px(12.))
+                        .child(body(cx)),
+                )
             })
     }
 
@@ -112,10 +173,7 @@ impl AppView {
             })
             // Last.fm
             .child(
-                div()
-                    .py_4()
-                    .border_b_1()
-                    .border_color(p.line_soft)
+                card(cx)
                     .flex()
                     .flex_col()
                     .gap_3()
@@ -133,6 +191,9 @@ impl AppView {
                                     .child(strong("Last.fm"))
                                     .child(self.service_line(&lastfm, cx)),
                             )
+                            .when(!lastfm.configured && self.lastfm_pending.is_none(), |el| {
+                                el.child(self.connect_button("lastfm", cx))
+                            })
                             .when(lastfm.configured && !from_env(&lastfm), |el| {
                                 el.child(small_button("lastfm-out", "Sign out").ghost().on_click(cx.listener(|this, _, _, cx| {
                                     this.service_job(|| integrations::lastfm_sign_out().map(|_| "Signed out of Last.fm.".into()));
@@ -151,7 +212,7 @@ impl AppView {
                                     })),
                             ),
                     )
-                    .when(!lastfm.configured, |el| {
+                    .when(!lastfm.configured && (self.settings_open.contains("lastfm") || self.lastfm_pending.is_some()), |el| {
                         if let Some(pending) = &self.lastfm_pending {
                             let url = pending.auth_url.clone();
                             el.child(
@@ -181,7 +242,7 @@ impl AppView {
                             )
                         } else {
                             el.when(!status.lastfm_app.configured, |el| {
-                                el.child(meta("Needle needs a Last.fm API account to sign in. Create one at last.fm/api/account/create, then paste its key and shared secret.", cx).line_height(relative(1.45)))
+                                el.child(meta("Needs a Last.fm API account: make one at last.fm/api/account/create, then paste its key and shared secret.", cx).line_height(relative(1.45)))
                                     .child(div().flex().gap_2().child(Input::new(&self.lastfm_key).small().flex_1()).child(Input::new(&self.lastfm_secret).small().flex_1()))
                             })
                             .child(
@@ -201,7 +262,7 @@ impl AppView {
             )
             .child(setting_row(
                 "Fix artist names for scrobbles",
-                "When your tags write an artist another way than Apple Music does (키키 for KiiiKiii), scrobble Apple's spelling, so Last.fm and ListenBrainz file the song under the right artist. Your files are not changed. Looks up the artist, song, and album on Apple's iTunes catalog.",
+                "Scrobble Apple Music's spelling of an artist (KiiiKiii for 키키). Your files stay as they are.",
                 Switch::new("scrobble-corrections").checked(self.settings.scrobble_corrections).on_click(cx.listener(|this, checked: &bool, _, cx| {
                     this.settings.scrobble_corrections = *checked;
                     this.persist_settings();
@@ -211,10 +272,7 @@ impl AppView {
             ))
             // ListenBrainz
             .child(
-                div()
-                    .py_4()
-                    .border_b_1()
-                    .border_color(p.line_soft)
+                card(cx)
                     .flex()
                     .flex_col()
                     .gap_3()
@@ -224,6 +282,7 @@ impl AppView {
                             .items_center()
                             .gap_6()
                             .child(div().flex_1().flex().flex_col().gap_1().child(strong("ListenBrainz")).child(self.service_line(&listenbrainz, cx)))
+                            .when(!listenbrainz.configured, |el| el.child(self.connect_button("listenbrainz", cx)))
                             .when(listenbrainz.configured && !from_env(&listenbrainz), |el| {
                                 el.child(small_button("lb-out", "Sign out").ghost().on_click(cx.listener(|this, _, _, cx| {
                                     this.service_job(|| integrations::listenbrainz_sign_out().map(|_| "Signed out of ListenBrainz.".into()));
@@ -242,7 +301,7 @@ impl AppView {
                                     })),
                             ),
                     )
-                    .when(!listenbrainz.configured, |el| {
+                    .when(!listenbrainz.configured && self.settings_open.contains("listenbrainz"), |el| {
                         el.child(meta("Paste the user token from listenbrainz.org/settings.", cx)).child(
                             div()
                                 .flex()
@@ -262,8 +321,7 @@ impl AppView {
             )
             // AcoustID
             .child(
-                div()
-                    .py_4()
+                card(cx)
                     .flex()
                     .flex_col()
                     .gap_3()
@@ -279,9 +337,10 @@ impl AppView {
                                     .flex_col()
                                     .gap_1()
                                     .child(strong("AcoustID"))
-                                    .child(meta("Identifies tracks by their sound. Needs a free application key from acoustid.org.", cx))
+                                    .child(meta("Identifies songs by their sound.", cx))
                                     .child(self.service_line(&acoustid, cx)),
                             )
+                            .when(!acoustid.configured, |el| el.child(self.connect_button("acoustid", cx)))
                             .when(acoustid.configured && !from_env(&acoustid), |el| {
                                 el.child(small_button("acoustid-clear", "Remove key").ghost().on_click(cx.listener(|this, _, _, cx| {
                                     this.service_job(|| integrations::clear_secret(SecretKind::AcoustidKey).map(|_| "AcoustID key removed.".into()));
@@ -289,8 +348,8 @@ impl AppView {
                                 })))
                             }),
                     )
-                    .when(!acoustid.configured, |el| {
-                        el.child(
+                    .when(!acoustid.configured && self.settings_open.contains("acoustid"), |el| {
+                        el.child(meta("Needs a free application key from acoustid.org.", cx)).child(
                             div()
                                 .flex()
                                 .gap_2()
@@ -307,6 +366,26 @@ impl AppView {
                     }),
             )
             .child(faint(format!("Keys and sessions are stored in {}, never in your library or its exports. Environment variables override them.", needle_core::integrations::STORE_NAME), cx).line_height(relative(1.45)).pt_2())
+    }
+
+    /// "Connect" on a service's card: opens its sign-in form under it (and closes it again).
+    fn connect_button(&self, id: &'static str, cx: &mut Context<Self>) -> impl IntoElement {
+        let open = self.settings_open.contains(id);
+        let button = small_button(
+            SharedString::from(format!("connect-{id}")),
+            if open { "Cancel" } else { "Connect" },
+        );
+        if open {
+            button.ghost()
+        } else {
+            button.primary()
+        }
+        .on_click(cx.listener(move |this, _, _, cx| {
+            if !this.settings_open.remove(id) {
+                this.settings_open.insert(id);
+            }
+            cx.notify();
+        }))
     }
 
     fn queue_summary(
@@ -478,52 +557,67 @@ impl AppView {
             ("Ctrl + ,", "Settings"),
             ("Alt + ← or Backspace", "Go back"),
         ];
-        // Playback's list of outputs, under Exclusive output.
-        let output_devices = div()
-            .py_4()
-            .border_b_1()
-            .border_color(p.line_soft)
-            .flex()
-            .flex_col()
-            .gap_2()
-            .child(
+        // Playback's list of outputs, under Exclusive output: an opening card, with the one in
+        // use on its right.
+        let device_name = self
+            .current_speaker()
+            .map(|s| s.name.clone())
+            .or_else(|| self.settings.output_device.clone())
+            .unwrap_or_else(|| "System default".into());
+        let output_devices = self.expander(
+            "output-device",
+            "Output device",
+            "Where the music plays.",
+            Some(
+                meta(device_name, cx)
+                    .max_w(px(220.))
+                    .truncate()
+                    .into_any_element(),
+            ),
+            |cx| {
                 div()
                     .flex()
-                    .justify_between()
-                    .items_center()
-                    .child(strong("Output device"))
-                    .child(small_button("refresh-devices", "Refresh").ghost().on_click(
-                        cx.listener(|this, _, _, cx| {
-                            this.list_output_devices();
-                            cx.notify();
-                        }),
-                    )),
-            )
-            .child(device(
-                "device-default".into(),
-                "System default".into(),
-                self.settings.output_device.is_none(),
-                None,
-                cx,
-            ))
-            .children(self.current_speaker().map(|s| {
-                device(
-                    "device-speaker".into(),
-                    format!("{} ({} speaker)", s.name, s.kind.label()),
-                    true,
-                    Some(s.device_name()),
-                    cx,
-                )
-            }))
-            .children(self.output_devices.iter().enumerate().map(|(i, name)| {
-                device(
-                    format!("device-{i}").into(),
-                    name.clone(),
-                    self.settings.output_device.as_ref() == Some(name),
-                    Some(name.clone()),
-                    cx,
-                )
-            }));
+                    .flex_col()
+                    .gap_1()
+                    .child(device(
+                        "device-default".into(),
+                        "System default".into(),
+                        self.settings.output_device.is_none(),
+                        None,
+                        cx,
+                    ))
+                    .children(self.current_speaker().map(|s| {
+                        device(
+                            "device-speaker".into(),
+                            format!("{} ({} speaker)", s.name, s.kind.label()),
+                            true,
+                            Some(s.device_name()),
+                            cx,
+                        )
+                    }))
+                    .children(self.output_devices.iter().enumerate().map(|(i, name)| {
+                        device(
+                            format!("device-{i}").into(),
+                            name.clone(),
+                            self.settings.output_device.as_ref() == Some(name),
+                            Some(name.clone()),
+                            cx,
+                        )
+                    }))
+                    .child(
+                        div().pt_2().child(
+                            small_button("refresh-devices", "Look for outputs again")
+                                .ghost()
+                                .on_click(cx.listener(|this, _, _, cx| {
+                                    this.list_output_devices();
+                                    cx.notify();
+                                })),
+                        ),
+                    )
+                    .into_any_element()
+            },
+            cx,
+        );
         let tab = self.settings_tab;
         let nav = div()
             .w(px(188.))
@@ -602,7 +696,7 @@ impl AppView {
                     // Exclusive output is WASAPI's, so Windows only.
                     .when(cfg!(windows), |el| el.child(setting_row(
                         "Exclusive output",
-                        "Plays each file at its own sample rate with nothing in between. Volume and ReplayGain are bypassed, so use your device's volume.",
+                        "Each file at its own sample rate. Volume and ReplayGain are bypassed.",
                         Switch::new("exclusive").checked(self.settings.exclusive).on_click(cx.listener(|this, checked: &bool, _, cx| {
                             this.settings.exclusive = *checked;
                             this.configure();
@@ -626,7 +720,7 @@ impl AppView {
                     .when(self.settings.replay_gain, |el| {
                         el.child(setting_row(
                             "Keep album dynamics",
-                            "Uses album gain when an album has been measured, so quiet songs stay quiet next to loud ones. Falls back to track gain.",
+                            "Album gain where an album is measured, so quiet songs stay quiet.",
                             Switch::new("album-gain").checked(self.settings.album_gain).on_click(cx.listener(|this, checked: &bool, _, cx| {
                                 this.settings.album_gain = *checked;
                                 this.configure();
@@ -637,7 +731,7 @@ impl AppView {
                     })
                     .child(setting_row(
                         "Crossfade",
-                        "Songs overlap as one ends and the next begins. Tracks that follow each other on an album stay gapless, and exclusive output never crossfades.",
+                        "Songs overlap as one ends. Albums stay gapless.",
                         segmented(
                             "crossfade",
                             &["Off", "2 s", "4 s", "6 s", "8 s", "12 s"],
@@ -656,35 +750,43 @@ impl AppView {
                         ),
                         cx,
                     ))
-                    .child(
-                        div()
-                            .py_4()
-                            .border_b_1()
-                            .border_color(p.line_soft)
-                            .flex()
-                            .flex_col()
-                            .gap_2()
-                            .child(strong("When the queue runs out"))
-                            .child(meta("Needle keeps playing tracks that match this rule. Leave it empty to stop.", cx))
-                            .child(
+                    .child({
+                        let rule = self.settings.autoplay_query.trim().to_string();
+                        let shown = if rule.is_empty() { "Off".to_string() } else { rule };
+                        self.expander(
+                            "autoplay",
+                            "When the queue runs out",
+                            "Keep playing songs that match a rule.",
+                            Some(meta(shown, cx).max_w(px(200.)).truncate().into_any_element()),
+                            |cx| {
                                 div()
                                     .flex()
+                                    .flex_col()
                                     .gap_2()
-                                    .child(Input::new(&self.autoplay).small().flex_1())
-                                    .child(small_button("save-autoplay", "Save").on_click(cx.listener(|this, _, _, cx| {
-                                        let rule = this.autoplay.read(cx).value().trim().to_string();
-                                        match query::compile(&rule, chrono::Utc::now().timestamp()) {
-                                            Ok(_) => {
-                                                this.settings.autoplay_query = rule;
-                                                this.configure();
-                                                this.notify("Autoplay rule saved.");
-                                            }
-                                            Err(e) => this.fail(e.to_string()),
-                                        }
-                                        cx.notify();
-                                    }))),
-                            ),
-                    )
+                                    .child(meta("Leave it empty to stop when the queue ends.", cx))
+                                    .child(
+                                        div()
+                                            .flex()
+                                            .gap_2()
+                                            .child(Input::new(&self.autoplay).small().flex_1())
+                                            .child(small_button("save-autoplay", "Save").on_click(cx.listener(|this, _, _, cx| {
+                                                let rule = this.autoplay.read(cx).value().trim().to_string();
+                                                match query::compile(&rule, chrono::Utc::now().timestamp()) {
+                                                    Ok(_) => {
+                                                        this.settings.autoplay_query = rule;
+                                                        this.configure();
+                                                        this.notify("Autoplay rule saved.");
+                                                    }
+                                                    Err(e) => this.fail(e.to_string()),
+                                                }
+                                                cx.notify();
+                                            }))),
+                                    )
+                                    .into_any_element()
+                            },
+                            cx,
+                        )
+                    })
                     .child(self.section_title("Window and phone", "", cx))
                     .child(self.remote_settings(cx))
                     })
@@ -693,7 +795,7 @@ impl AppView {
                     // Library
                     .when(tab == 2, |el| {
                         el
-                    .child(self.lead_title("Music folders", "Needle watches these folders. It moves or removes files only when you ask, in Fix my library.", cx))
+                    .child(self.lead_title("Music folders", "Needle watches these folders, and changes files only in Fix my library.", cx))
                     .child(
                         div()
                             .py_2()
@@ -723,14 +825,14 @@ impl AppView {
                                     .child(small_button("rescan", "Check for changes").ghost().disabled(self.scan.is_some()).on_click(cx.listener(|this, _, _, cx| this.rescan(cx)))),
                             ),
                     )
-                    .child(self.section_title("Music servers", "Navidrome, Airsonic, Gonic, and other Subsonic servers. Your server's songs show with your own and play straight away.", cx))
+                    .child(self.section_title("Music servers", "Navidrome and other Subsonic servers. Their songs show with your own.", cx))
                     .children(self.music_servers(cx))
                     .child(setting_row(
                         "Measure songs for radio",
                         &match self.measured {
-                            Some((done, total)) if done < total => format!("Needle listens to each song on this computer (tempo, key, energy, and tone) to build radio stations. {} of {} measured.", super::widgets::count(done), super::widgets::count(total)),
-                            Some((_, total)) => format!("Needle listens to each song on this computer (tempo, key, energy, and tone) to build radio stations. All {} measured.", super::widgets::count(total)),
-                            None => "Needle listens to each song on this computer (tempo, key, energy, and tone) to build radio stations. Nothing is sent anywhere.".to_string(),
+                            Some((done, total)) if done < total => format!("Tempo, key, and energy of each song, for radio. {} of {} measured.", super::widgets::count(done), super::widgets::count(total)),
+                            Some((_, total)) => format!("Tempo, key, and energy of each song, for radio. All {} measured.", super::widgets::count(total)),
+                            None => "Tempo, key, and energy of each song, for radio, worked out on this computer.".to_string(),
                         },
                         Switch::new("sound-analysis").checked(self.settings.sound_analysis).on_click(cx.listener(|this, checked: &bool, _, cx| {
                             this.set_measuring(*checked);
@@ -749,7 +851,7 @@ impl AppView {
                     .child(self.section_title("Artwork and lyrics", "Needle always uses covers, .lrc files, and lyrics tags found with your music.", cx))
                     .child(setting_row(
                         "Look things up online",
-                        "Finds missing album covers (MusicBrainz and the Cover Art Archive), artist photos (Wikimedia Commons), artists' wide pictures and logos (fanart.tv), and lyrics (LRCLIB). Only artist, album, title, and length are sent.",
+                        "Missing covers, artist pictures, and lyrics. Only artist, album, title, and length are sent.",
                         Switch::new("online-media").checked(self.settings.online_media).on_click(cx.listener(|this, checked: &bool, _, cx| {
                             this.settings.online_media = *checked;
                             this.persist_settings();
@@ -764,7 +866,7 @@ impl AppView {
                     .when(self.settings.online_media, |el| {
                         el.child(setting_row(
                             "Find missing album covers",
-                            "Looks up every album without a cover. Large libraries take a while: MusicBrainz allows one request per second.",
+                            "Looks up every album without a cover. Large libraries take a while.",
                             small_button("fetch-covers", "Find covers").on_click(cx.listener(|this, _, _, _| {
                                 let library = this.library.clone();
                                 this.notify("Looking for missing album covers in the background…");
@@ -849,13 +951,12 @@ impl AppView {
                         cx,
                     ))
                     .child(
-                        div()
-                            .py_4()
+                        card(cx)
                             .flex()
                             .flex_col()
                             .gap_2()
                             .child(strong("Move to another computer"))
-                            .child(meta("Exports an encrypted bundle of history, ratings, and playlists. Import it where the same music files exist, using the same passphrase.", cx).line_height(relative(1.45)))
+                            .child(meta("An encrypted bundle of history, ratings, and playlists, for a computer with the same music.", cx).line_height(relative(1.45)))
                             .child(
                                 div()
                                     .flex()
@@ -913,7 +1014,7 @@ impl AppView {
         vec![
             setting_row(
                 "Send crash reports",
-                "If Needle crashes, it sends a report the next time it starts: the Needle version, the operating system, and where in Needle it went wrong. File paths and your name are taken out first, and nothing is sent about your music or listening.",
+                "After a crash, sends the version, the system, and where it failed. No file paths, no name.",
                 Switch::new("crash-reports").checked(crash_reports).on_click(cx.listener(|this, checked: &bool, _, cx| {
                     this.settings.crash_reports = *checked;
                     this.persist_settings();
@@ -924,7 +1025,7 @@ impl AppView {
             .into_any_element(),
             setting_row(
                 "Log file",
-                "Needle writes what it does, and any errors, to a log on this computer. It never leaves this computer unless you share it.",
+                "What Needle does and any errors, kept on this computer.",
                 div()
                     .flex()
                     .gap_2()
@@ -1249,16 +1350,21 @@ impl AppView {
                 )
                 .into_any_element(),
             );
-            rows.push(setting_row(
+            rows.push(
+                setting_row(
                     "Glass behind the page",
-                    "Let a little of the glass show through the page as well. Text stays on a mostly solid surface.",
-                    Switch::new("glass-page").checked(self.settings.glass_page).on_click(cx.listener(|this, checked: &bool, _, cx| {
-                        this.settings.glass_page = *checked;
-                        this.persist_settings();
-                        cx.notify();
-                    })),
+                    "A little glass through the page too. Text stays readable.",
+                    Switch::new("glass-page")
+                        .checked(self.settings.glass_page)
+                        .on_click(cx.listener(|this, checked: &bool, _, cx| {
+                            this.settings.glass_page = *checked;
+                            this.persist_settings();
+                            cx.notify();
+                        })),
                     cx,
-                ).into_any_element());
+                )
+                .into_any_element(),
+            );
         }
         rows
     }
@@ -1371,7 +1477,7 @@ impl AppView {
         let covers = switch(
             "discord-covers",
             "Look up covers",
-            "Discord can only show pictures from the web, so Needle finds the cover in Apple's iTunes catalog by artist and song name. Your files never leave this PC. Turn this off to send no lookups at all.",
+            "Finds the cover in Apple's iTunes catalog, as Discord needs a picture from the web. Off: no lookups.",
             self.settings.discord_covers,
             |t, v| t.settings.discord_covers = v,
             cx,
@@ -1379,7 +1485,7 @@ impl AppView {
         let logo = switch(
             "discord-logo",
             "Show the Needle logo",
-            "A small badge on the cover, and the picture when there is no cover. With this off and no cover, the card has no picture (and Discord then hides the third line).",
+            "A small badge on the cover, or the picture when there is none.",
             self.settings.discord_logo,
             |t, v| t.settings.discord_logo = v,
             cx,
@@ -1387,7 +1493,7 @@ impl AppView {
         let paused = switch(
             "discord-paused",
             "Show while paused",
-            "Keeps the song on your profile, marked Paused, while the music is paused. Off, the status goes away as soon as you pause.",
+            "Keep the song on your profile, marked Paused.",
             self.settings.discord_paused,
             |t, v| t.settings.discord_paused = v,
             cx,
@@ -1405,7 +1511,7 @@ impl AppView {
             .unwrap_or(1);
         let idle = setting_row(
             "Clear when nothing plays",
-            "After this long paused or stopped, the status goes away. It comes back when you play again.",
+            "The status goes after this long paused or stopped.",
             segmented(
                 "discord-idle",
                 &IDLE.map(|(_, label)| label),
@@ -1532,15 +1638,17 @@ impl AppView {
             );
         // Rows go straight into the settings column: a wrapper box would not stretch, and
         // wrapped descriptions inside it would overlap what comes next.
-        let mut rows = vec![switch(
-            "discord-presence",
-            "Show what you're playing on Discord",
-            "When Discord is open on this PC, your profile shows what is playing and a time bar. Needle finds Discord by itself and only talks to the real Discord app on this PC.",
-            on,
-            |t, v| t.settings.discord_presence = v,
-            cx,
-        )
-        .into_any_element()];
+        let mut rows = vec![
+            switch(
+                "discord-presence",
+                "Show what you're playing on Discord",
+                "Your Discord profile shows what plays, with a time bar.",
+                on,
+                |t, v| t.settings.discord_presence = v,
+                cx,
+            )
+            .into_any_element(),
+        ];
         if on {
             rows.extend([
                 preview.into_any_element(),
