@@ -188,6 +188,7 @@ struct ServerView: View {
     @State private var cached: [UInt64] = []
     @State private var confirmFree = false
     @State private var confirmStopKeeping = false
+    @State private var confirmRefresh = false
 
     /// Test builds: `-server-signed-out` shows the sign-in card even while signed in (nothing
     /// is signed out).
@@ -310,6 +311,18 @@ struct ServerView: View {
             }
             .foregroundStyle(.primary)
             .disabled(source.syncing)
+            // Every song and cover again; songs gone from the server leave (asked first).
+            Button { confirmRefresh = true } label: {
+                SettingLabel(title: "Refresh everything", detail: "Every song and cover again. Gone songs leave.", icon: "arrow.clockwise.circle.fill", tint: .orange)
+            }
+            .foregroundStyle(.primary)
+            .disabled(source.syncing)
+            .alert("Refresh everything?", isPresented: $confirmRefresh) {
+                Button("Cancel", role: .cancel) {}
+                Button("Refresh") { store.core.sourceRefresh(plugin: plugin) }
+            } message: {
+                Text("Needle gets every song and cover again. Songs no longer on the server leave your library.")
+            }
             if source.coversLeft > 0 {
                 SettingLabel(title: "Bringing in covers", detail: "\(count(Int(source.coversLeft), "cover")) to go.", icon: "photo.on.rectangle", tint: .orange)
             }
