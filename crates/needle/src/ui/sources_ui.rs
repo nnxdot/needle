@@ -88,6 +88,7 @@ impl AppView {
         cx: &mut Context<Self>,
     ) -> Option<AnyElement> {
         let source = plugin.source.clone().filter(|_| plugin.enabled)?;
+        let builtin = plugin.builtin;
         let p = pal(cx);
         let id = plugin.manifest.id.clone();
         // Not signed in: one card with a button; the form opens under it.
@@ -261,13 +262,27 @@ impl AppView {
                 .child(strong(format!("Sign in to {}", source.name)))
                 .children(fields)
                 .child(
-                    div().flex().child(
-                        small_button(SharedString::from(format!("source-in-{id}")), "Sign in")
-                            .primary()
-                            .on_click(cx.listener(move |this, _, window, cx| {
-                                this.sign_in_source(&plugin, window, cx)
-                            })),
-                    ),
+                    div()
+                        .flex()
+                        .gap_2()
+                        .child(
+                            small_button(SharedString::from(format!("source-in-{id}")), "Sign in")
+                                .primary()
+                                .on_click(cx.listener(move |this, _, window, cx| {
+                                    this.sign_in_source(&plugin, window, cx)
+                                })),
+                        )
+                        // A form opened from Settings › Library's card closes again.
+                        .when(builtin, |el| {
+                            el.child(
+                                small_button("server-sign-in-close", "Cancel")
+                                    .ghost()
+                                    .on_click(cx.listener(|this, _, _, cx| {
+                                        this.settings_open.remove("server-sign-in");
+                                        cx.notify();
+                                    })),
+                            )
+                        }),
                 )
                 .child(
                     faint(
