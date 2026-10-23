@@ -3,6 +3,10 @@ import UniformTypeIdentifiers
 
 /// Settings, by section, as on the desktop and Android.
 struct SettingsView: View {
+    @Environment(Store.self) private var store
+    /// This build has Discord's library.
+    @State private var discord = false
+
     var body: some View {
         List {
             Section {
@@ -11,6 +15,9 @@ struct SettingsView: View {
                 row("Sound", "Equalizer, balance, and headphones", "slider.vertical.3", .purple, .settingsSound)
                 row("Appearance", "Themes, colours, and the player", "paintpalette", .pink, .settingsAppearance)
                 row("Scrobbling", "Last.fm and ListenBrainz", "waveform", .red, .settingsScrobbling)
+                if discord {
+                    row("Discord", "Show what you play on your profile", "bubble.left.and.text.bubble.right", .indigo, .settingsDiscord)
+                }
             }
             Section {
                 row("Plugins", "Music servers, NetEase lyrics, effects", "puzzlepiece.extension", .teal, .plugins)
@@ -26,6 +33,7 @@ struct SettingsView: View {
         }
         .navigationTitle("Settings")
         .themed()
+        .task { discord = await store.load { $0.discordAccount() }?.available ?? false }
     }
 
     private func row(_ title: String, _ detail: String, _ symbol: String, _ tint: Color, _ route: Route) -> some View {
@@ -48,7 +56,7 @@ struct SettingsView: View {
 private func saved<T: Sendable>(_ value: Binding<T?>, _ store: Store, _ write: @escaping @Sendable (Needle, T) throws -> Void) -> (T) -> Void {
     { new in
         value.wrappedValue = new
-        store.run { try write($0, new) }
+        store.inOrder { try write($0, new) }
     }
 }
 
@@ -56,8 +64,12 @@ private func saved<T: Sendable>(_ value: Binding<T?>, _ store: Store, _ write: @
 
 struct LibrarySettingsView: View {
     @Environment(Store.self) private var store
+    /// Folders asked to be removed, waiting for a yes.
+    @State private var removing: [String] = []
     @State private var folders: [String] = []
     @State private var settings: PlaybackSettings?
+    @State private var hasFanart = false
+    @State private var fanartKey = ""
     @State private var measured: [UInt32] = []
     @State private var backup: URL?
     @State private var moving = false
@@ -67,18 +79,30 @@ struct LibrarySettingsView: View {
             Section {
                 ForEach(folders, id: \.self) { folder in
                     VStack(alignment: .leading, spacing: 2) {
-                        Text(folder == store.musicFolder.path ? "Needle's folder" : (folder as NSString).lastPathComponent)
-                        Text(folder == store.musicFolder.path ? "Files › On My iPhone › Needle" : folder)
+                        Text(Store.realPath(folder) == Store.realPath(store.musicFolder.path) ? "Needle's folder" : (folder as NSString).lastPathComponent)
+                        Text(Store.realPath(folder) == Store.realPath(store.musicFolder.path) ? "Files › On My iPhone › Needle" : folder)
                             .font(.caption).foregroundStyle(.secondary).lineLimit(1)
                     }
-                    .deleteDisabled(folder == store.musicFolder.path)
+                    .deleteDisabled(Store.realPath(folder) == Store.realPath(store.musicFolder.path))
                 }
                 .onDelete { rows in
-                    for folder in rows.map({ folders[$0] }) { store.run { try $0.removeFolder(path: folder) } }
-                    folders.remove(atOffsets: rows)
-                    store.libraryChanged()
+                    // Asked first: its songs leave the library, with their plays and stars.
+                    removing = rows.map { folders[$0] }
                 }
                 Button("Read the music again") { store.rescan() }.disabled(store.scan.running)
+                    .confirmationDialog("Stop reading this folder?", isPresented: Binding(get: { !removing.isEmpty }, set: { if !$0 { removing = [] } }), titleVisibility: .visible) {
+                        Button("Stop Reading It", role: .destructive) {
+                            let gone = removing
+                            removing = []
+                            folders.removeAll { gone.contains($0) }
+                            Task {
+                                for folder in gone { _ = await store.ask { try $0.removeFolder(path: folder) } }
+                                store.libraryChanged()
+                            }
+                        }
+                    } message: {
+                        Text("Its songs leave the library, with their plays, stars, and places in playlists. The files stay.")
+                    }
             } header: {
                 Text("Music folders")
             } footer: {
@@ -89,7 +113,32 @@ struct LibrarySettingsView: View {
                 Section {
                     Toggle("Look up online", isOn: Binding(get: { settings.onlineMedia }, set: { var s = settings; s.onlineMedia = $0; save(s) }))
                 } footer: {
-                    Text("Lyrics from LRCLIB when a song has none, and covers and artist photos from MusicBrainz and Wikidata. Off: Needle asks no one.")
+                    Text("Lyrics from LRCLIB when a song has none, and covers and artist photos from MusicBrainz and Wikidata. Off: Needle asks none of these. Your own music server is still asked for its songs' lyrics.")
+                }
+                Section {
+                    if hasFanart {
+                        LabeledContent("fanart.tv key", value: "Your own")
+                        Button("Remove Your Key", role: .destructive) {
+                            Task {
+                                if await store.ask({ try $0.setFanartKey(key: "") }) != nil {
+                                    hasFanart = await store.load { $0.hasOwnFanartKey() } ?? false
+                                }
+                            }
+                        }
+                    } else {
+                        SecureField("fanart.tv key", text: $fanartKey).textInputAutocapitalization(.never).autocorrectionDisabled()
+                        Button("Save the Key") {
+                            let key = fanartKey
+                            Task {
+                                if await store.ask({ try $0.setFanartKey(key: key) }) != nil { fanartKey = ""; hasFanart = true }
+                            }
+                        }
+                        .disabled(fanartKey.trimmingCharacters(in: .whitespaces).isEmpty)
+                    }
+                } header: {
+                    Text("Artists' logos")
+                } footer: {
+                    Text("With online lookups on, artist pages show the artist's logo from fanart.tv. Needle asks MusicBrainz for the artist's ID by name, and sends fanart.tv only that ID. Needle has a key of its own; your own key, if you add one, stays in the iPhone Keychain.")
                 }
                 Section {
                     Toggle("Measure songs for radio", isOn: Binding(get: { settings.soundAnalysis }, set: { var s = settings; s.soundAnalysis = $0; save(s) }))
@@ -130,6 +179,7 @@ struct LibrarySettingsView: View {
         .task {
             folders = await store.load { try $0.folders() } ?? []
             settings = await store.load { try $0.playbackSettings() }
+            hasFanart = await store.load { $0.hasOwnFanartKey() } ?? false
             while !Task.isCancelled {
                 measured = await store.load { $0.measured() } ?? []
                 try? await Task.sleep(for: .seconds(2))
@@ -471,7 +521,9 @@ struct AppearanceView: View {
                 Text("Colours")
             }
             Section("Player") {
-                toggle("Cover behind the player", "The player's background is the playing cover, blurred.", \.coverBackdrop)
+                toggle("Immersive cover", "The cover fills the top of the player, edge to edge, as in Apple Music.", \.immersiveCover)
+                toggle("Moving covers", "A video beside the songs, such as cover.mp4, plays as the cover.", \.animatedCovers)
+                toggle("Cover behind the player", app.immersiveCover ? "Behind the lyrics and the queue, the playing cover, blurred." : "The player's background is the playing cover, blurred.", \.coverBackdrop)
                 if app.coverBackdrop {
                     toggle("Moving cover", nil, \.movingBackdrop)
                     VStack(alignment: .leading) {
@@ -479,9 +531,12 @@ struct AppearanceView: View {
                         Slider(value: Binding(get: { Double(app.backdropBlur) }, set: { v in store.updateApp { $0.backdropBlur = Float(v.rounded()) } }), in: 20...120)
                     }
                 }
-                Picker("Cover", selection: Binding(get: { app.coverShape }, set: { v in store.updateApp { $0.coverShape = v } })) {
-                    Text("Square").tag("square")
-                    Text("Record").tag("round")
+                // The immersive cover is always square, across the top.
+                if !app.immersiveCover {
+                    Picker("Cover", selection: Binding(get: { app.coverShape }, set: { v in store.updateApp { $0.coverShape = v } })) {
+                        Text("Square").tag("square")
+                        Text("Record").tag("round")
+                    }
                 }
                 Picker("Beside play", selection: Binding(get: { app.sideButtons }, set: { v in store.updateApp { $0.sideButtons = v } })) {
                     Text("Skip songs").tag("skip")
@@ -540,9 +595,9 @@ struct ScrobblingView: View {
                     if let user = a.lastfmUser {
                         LabeledContent("Signed in", value: user.isEmpty ? "Yes" : user)
                         Toggle("Send listens", isOn: Binding(get: { a.lastfmOn }, set: { on in
-                            store.run { try $0.setScrobbling(lastfm: on, listenbrainz: nil) }; Task { await reload() }
+                            accounts?.lastfmOn = on; Task { _ = await store.ask { try $0.setScrobbling(lastfm: on, listenbrainz: nil) }; await reload() }
                         }))
-                        Button("Sign out", role: .destructive) { store.run { try $0.signOut(service: "lastfm") }; Task { await reload() } }
+                        Button("Sign out", role: .destructive) { Task { _ = await store.ask { try $0.signOut(service: "lastfm") }; await reload() } }
                     } else if waitingForBrowser {
                         Text("Allow Needle on the Last.fm page, then come back.")
                         Button("I allowed Needle") {
@@ -578,9 +633,9 @@ struct ScrobblingView: View {
                     if let user = a.listenbrainzUser {
                         LabeledContent("Signed in", value: user)
                         Toggle("Send listens", isOn: Binding(get: { a.listenbrainzOn }, set: { on in
-                            store.run { try $0.setScrobbling(lastfm: nil, listenbrainz: on) }; Task { await reload() }
+                            accounts?.listenbrainzOn = on; Task { _ = await store.ask { try $0.setScrobbling(lastfm: nil, listenbrainz: on) }; await reload() }
                         }))
-                        Button("Sign out", role: .destructive) { store.run { try $0.signOut(service: "listenbrainz") }; Task { await reload() } }
+                        Button("Sign out", role: .destructive) { Task { _ = await store.ask { try $0.signOut(service: "listenbrainz") }; await reload() } }
                     } else {
                         SecureField("User token", text: $token)
                         Button("Sign in") {
@@ -615,6 +670,114 @@ struct ScrobblingView: View {
 
     private func reload() async {
         accounts = await store.load { $0.accounts() }
+    }
+}
+
+// MARK: - Discord
+
+/// Discord's "Listening to" status, as on Android, once the Discord account is linked.
+struct DiscordView: View {
+    @Environment(Store.self) private var store
+    @State private var settings: DiscordSettings?
+    @State private var account: DiscordAccount?
+
+    var body: some View {
+        Form {
+            if let account {
+                Section {
+                    if account.linked {
+                        LabeledContent("Discord account", value: "Linked")
+                        Button("Unlink", role: .destructive) {
+                            store.core.discordUnlink()
+                            Task { await reload() }
+                        }
+                    } else if account.linking {
+                        HStack(spacing: 10) {
+                            ProgressView()
+                            Text("Allow Needle on Discord's page.")
+                        }
+                        Button("Cancel", role: .cancel) {
+                            store.core.discordCancelLink()
+                        }
+                    } else {
+                        Button("Link Your Discord Account") {
+                            store.core.discordLink()
+                            Task { await follow() }
+                        }
+                    }
+                    if let problem = account.problem { Text(problem).foregroundStyle(.red) }
+                } footer: {
+                    Text("Discord asks you to allow Needle once. Needle then sets your status itself, and keeps Discord's key in the iPhone Keychain. It sends Discord only what the card shows.")
+                }
+            }
+            if let s = settings {
+                let save = saved($settings, store) { try $0.setDiscordSettings(value: $1) }
+                Section {
+                    Toggle("Show what you're playing on Discord", isOn: Binding(get: { s.on }, set: { var n = s; n.on = $0; save(n) }))
+                }
+                if s.on {
+                    Section("The card") {
+                        choice("Listening to …", [("song", "Song"), ("artist", "Artist"), ("needle", "Needle")], s.title) { var n = s; n.title = $0; save(n) }
+                        choice("First line", [("artist", "Artist"), ("song", "Song"), ("album", "Album")], s.top) { var n = s; n.top = $0; save(n) }
+                        choice("Second line", [("song", "Song"), ("artist", "Artist"), ("album", "Album"), ("none", "None")], s.middle) { var n = s; n.middle = $0; save(n) }
+                        choice("Third line", [("album", "Album"), ("song", "Song"), ("artist", "Artist"), ("none", "None")], s.bottom) { var n = s; n.bottom = $0; save(n) }
+                    }
+                    Section {
+                        Toggle("Look up covers", isOn: Binding(get: { s.covers }, set: { var n = s; n.covers = $0; save(n) }))
+                        Toggle(isOn: Binding(get: { s.logo }, set: { var n = s; n.logo = $0; save(n) })) {
+                            Text("Show the Needle logo")
+                            Text("A badge on the cover, and the picture when there is no cover")
+                        }
+                    } header: {
+                        Text("Picture")
+                    } footer: {
+                        Text("Discord can only show pictures from the web, so Needle finds the cover in Apple's iTunes catalog by artist and song name. Your files never leave this iPhone. Without a picture, Discord hides the third line.")
+                    }
+                    Section {
+                        Toggle(isOn: Binding(get: { s.paused }, set: { var n = s; n.paused = $0; save(n) })) {
+                            Text("Show while paused")
+                            Text("The song stays, marked Paused")
+                        }
+                        Picker("Clear after", selection: Binding(get: { s.idleMinutes }, set: { var n = s; n.idleMinutes = $0; save(n) })) {
+                            Text("5 min").tag(UInt32(5))
+                            Text("10 min").tag(UInt32(10))
+                            Text("30 min").tag(UInt32(30))
+                            Text("1 h").tag(UInt32(60))
+                            Text("Never").tag(UInt32(0))
+                        }
+                    } header: {
+                        Text("When nothing plays")
+                    } footer: {
+                        Text("After this long paused or stopped, the status goes away. It comes back when you play again.")
+                    }
+                }
+            }
+        }
+        .navigationTitle("Discord")
+        .themed()
+        .task {
+            settings = await store.load { try $0.discordSettings() }
+            await follow()
+        }
+    }
+
+    private func choice(_ title: String, _ options: [(String, String)], _ current: String, _ change: @escaping (String) -> Void) -> some View {
+        Picker(title, selection: Binding(get: { current }, set: change)) {
+            ForEach(options, id: \.0) { Text($0.1).tag($0.0) }
+        }
+    }
+
+    private func reload() async {
+        account = await store.load { $0.discordAccount() }
+    }
+
+    /// Reads the link again while Discord's sign-in page is open.
+    private func follow() async {
+        await reload()
+        while account?.linking == true, !Task.isCancelled {
+            try? await Task.sleep(for: .milliseconds(500))
+            await reload()
+        }
     }
 }
 
@@ -870,10 +1033,6 @@ struct AboutView: View {
                             store.message = "This is the newest Needle"
                         }
                     }
-                }
-                if let settings {
-                    let save = saved($settings, store) { try $0.setPlaybackSettings(value: $1) }
-                    Toggle("Ask once a day", isOn: Binding(get: { settings.checkUpdates }, set: { var s = settings; s.checkUpdates = $0; save(s) }))
                 }
             } footer: {
                 Text("Asking sends nothing but the request to needle.nnx.fyi.")
