@@ -21,7 +21,7 @@ struct SoundPane: View {
                 ProgressView().frame(maxWidth: .infinity)
             }
         } header: {
-            GroupHeader(title: "Equalizer", detail: "Shape the sound. Changes apply while you listen.")
+            GroupHeader(title: "Equalizer")
         }
         .task(id: store.libraryVersion) { load() }
         .alert("Name for this sound", isPresented: $naming) {
@@ -39,7 +39,7 @@ struct SoundPane: View {
         }
         if let sound {
             Section {
-                SettingRow(title: "Balance", detail: abs(sound.balance) < 0.01 ? "Centred." : sound.balance < 0 ? "Leaning left." : "Leaning right.") {
+                SettingRow(title: "Balance", detail: abs(sound.balance) < 0.01 ? "Centred." : sound.balance < 0 ? "Leaning left." : "Leaning right.", icon: "speaker.wave.2") {
                     HStack {
                         Text("L").foregroundStyle(.secondary)
                         Slider(value: Binding(get: { Double(sound.balance) }, set: { v in change { $0.balance = abs(v) < 0.03 ? 0 : Float(v) } }), in: -1...1)
@@ -47,10 +47,10 @@ struct SoundPane: View {
                         Text("R").foregroundStyle(.secondary)
                     }
                 }
-                SettingRow(title: "Mono", detail: "Plays both channels in both ears. Useful with one earbud, or for hearing loss in one ear.") {
+                SettingRow(title: "Mono", detail: "Both channels in both ears. For one earbud, or one ear.", icon: "speaker") {
                     RowToggle(isOn: Binding(get: { sound.mono }, set: { v in change { $0.mono = v } })).toggleStyle(.switch).labelsHidden()
                 }
-                SettingRow(title: "Headphone crossfeed", detail: "Blends a little of each side into the other, the way speakers reach both ears. Makes hard-panned older recordings less tiring on headphones.") {
+                SettingRow(title: "Headphone crossfeed", detail: "Blends the sides a little, as speakers do.", icon: "headphones") {
                     RowToggle(isOn: Binding(get: { sound.crossfeed }, set: { v in change { $0.crossfeed = v } })).toggleStyle(.switch).labelsHidden()
                 }
             } header: {
@@ -228,7 +228,7 @@ struct SoundPane: View {
                 }
             }
         } header: {
-            GroupHeader(title: "Effects", detail: "Effects come from plugins. They play in this order, after the equalizer.")
+            GroupHeader(title: "Effects")
         }
     }
 

@@ -10,11 +10,13 @@ struct ServicesSettings: View {
     @State private var token = ""
     @State private var acoustid = ""
     @State private var pending: String?
+    /// Sign-in forms, shown only when asked for (Connect), until Cancel or a sign-in.
+    @State private var connecting: Set<String> = []
 
     var body: some View {
         let s = store.settings
         Section {
-            SettingRow(title: "Check for updates automatically", detail: "Once a day, when Needle starts. You have Needle \(store.version). Needle asks needle.nnx.fyi for a newer version; nothing else is sent.") {
+            SettingRow(title: "Check for updates automatically", detail: "Once a day. You have Needle \(store.version).", icon: "arrow.down.circle") {
                 SettingSwitch(key: "check_updates", on: s.checkUpdates)
             }
             HStack {
@@ -36,12 +38,12 @@ struct ServicesSettings: View {
                 Text("The Keychain could not be read: \(error)").foregroundStyle(store.plainColors.danger).padding(.vertical, 6)
             }
             lastfm(s)
-            SettingRow(title: "Fix artist names for scrobbles", detail: "When your tags write an artist another way than Apple Music does (키키 for KiiiKiii), scrobble Apple's spelling, so Last.fm and ListenBrainz file the song under the right artist. Your files are not changed.") {
+            SettingRow(title: "Fix artist names for scrobbles", detail: "Apple Music's spelling of an artist. Your files stay.", icon: "pencil") {
                 SettingSwitch(key: "scrobble_corrections", on: s.scrobbleCorrections)
             }
             listenbrainz(s)
         } header: {
-            GroupHeader(title: "Listening services", detail: "Optional. Nothing is sent until you connect a service and turn it on.")
+            GroupHeader(title: "Listening services")
         }
         .task { refresh() }
         Section {
@@ -49,7 +51,7 @@ struct ServicesSettings: View {
         } header: {
             GroupHeader(title: "Identifying songs")
         } footer: {
-            Text("Keys and sessions are stored in the Keychain, never in your library or its exports. Environment variables override them.")
+            Text("Keys and sessions are kept in the Keychain. Nothing is sent until you connect and turn on a service.")
                 .font(.caption).foregroundStyle(.secondary)
         }
     }
@@ -104,28 +106,32 @@ struct ServicesSettings: View {
     private func lastfm(_ s: NeedleSettings) -> some View {
         let state = info?.status.lastfm
         let configured = state?.configured == true
+        let open = connecting.contains("lastfm")
         return VStack(alignment: .leading, spacing: 10) {
-            HStack(spacing: 20) {
+            HStack(spacing: 12) {
+                RowIcon(name: "music.note")
                 VStack(alignment: .leading, spacing: 3) {
-                    Text("Last.fm").font(.body.weight(.medium))
+                    Text("Last.fm")
                     line(state)
                 }
                 Spacer()
                 if configured && state?.source != "Environment" {
                     Button("Sign out") { signOut("lastfm") }
+                } else if !configured && pending == nil {
+                    connectButton("lastfm", open: open)
                 }
                 RowToggle(label: "Scrobble to Last.fm", isOn: Binding(get: { s.lastfmEnabled }, set: { store.set(["lastfm_enabled": $0]) }))
                     .toggleStyle(.switch).labelsHidden().disabled(!configured)
                     .help("Scrobble qualified listens to Last.fm")
             }
-            if !configured {
+            if !configured && (open || pending != nil) {
                 if let pending {
                     VStack(alignment: .leading, spacing: 8) {
                         Text("Approve Needle in the Last.fm page that just opened, then press Continue.").font(.callout)
                         HStack {
                             Button(busy ? "Checking…" : "Continue") { lastfmContinue() }.buttonStyle(.borderedProminent).disabled(busy)
                             Button("Open the page again") { openWebPage(pending) }
-                            Button("Cancel") { store.core.lastfmCancel(); self.pending = nil }
+                            Button("Cancel") { store.core.lastfmCancel(); self.pending = nil; connecting.remove("lastfm") }
                         }
                     }
                     .padding(10)
@@ -152,21 +158,25 @@ struct ServicesSettings: View {
     private func listenbrainz(_ s: NeedleSettings) -> some View {
         let state = info?.status.listenbrainz
         let configured = state?.configured == true
+        let open = connecting.contains("listenbrainz")
         return VStack(alignment: .leading, spacing: 10) {
-            HStack(spacing: 20) {
+            HStack(spacing: 12) {
+                RowIcon(name: "brain")
                 VStack(alignment: .leading, spacing: 3) {
-                    Text("ListenBrainz").font(.body.weight(.medium))
+                    Text("ListenBrainz")
                     line(state)
                 }
                 Spacer()
                 if configured && state?.source != "Environment" {
                     Button("Sign out") { signOut("listenbrainz") }
+                } else if !configured {
+                    connectButton("listenbrainz", open: open)
                 }
                 RowToggle(label: "Submit to ListenBrainz", isOn: Binding(get: { s.listenbrainzEnabled }, set: { store.set(["listenbrainz_enabled": $0]) }))
                     .toggleStyle(.switch).labelsHidden().disabled(!configured)
                     .help("Submit qualified listens to ListenBrainz")
             }
-            if !configured {
+            if !configured && open {
                 Text("Paste the user token from listenbrainz.org/settings.").font(.callout).foregroundStyle(.secondary)
                 HStack {
                     SecureField("Token", text: $token, prompt: Text("ListenBrainz user token")).labelsHidden().textFieldStyle(.roundedBorder)
@@ -177,6 +187,7 @@ struct ServicesSettings: View {
                         Task {
                             if let user = await store.ask({ try $0.listenbrainzSignIn(token: token) }) {
                                 store.notify("Connected to ListenBrainz as \(user).")
+                                connecting.remove("listenbrainz")
                             }
                             busy = false
                             refresh()
@@ -193,11 +204,13 @@ struct ServicesSettings: View {
 
     private var acoustidSection: some View {
         let state = info?.status.acoustid
+        let open = connecting.contains("acoustid")
         return VStack(alignment: .leading, spacing: 10) {
-            HStack {
+            HStack(spacing: 12) {
+                RowIcon(name: "waveform.badge.magnifyingglass")
                 VStack(alignment: .leading, spacing: 3) {
-                    Text("AcoustID").font(.body.weight(.medium))
-                    Text("Identifies tracks by their sound. Needs a free application key from acoustid.org.").font(.callout).foregroundStyle(.secondary)
+                    Text("AcoustID")
+                    Text("Identifies songs by their sound.").font(.callout).foregroundStyle(.secondary)
                     line(state)
                 }
                 Spacer()
@@ -206,21 +219,35 @@ struct ServicesSettings: View {
                         store.job { try $0.clearAcoustidKey(); return "AcoustID key removed." }
                         refresh()
                     }
+                } else if state?.configured != true {
+                    connectButton("acoustid", open: open)
                 }
             }
-            if state?.configured != true {
+            if state?.configured != true && open {
+                Text("A free application key from acoustid.org.").font(.callout).foregroundStyle(.secondary)
                 HStack {
                     SecureField("Key", text: $acoustid, prompt: Text("AcoustID application key")).labelsHidden().textFieldStyle(.roundedBorder)
                     Button("Save key") {
                         let key = acoustid.trimmingCharacters(in: .whitespaces)
                         guard !key.isEmpty else { store.fail("Paste your AcoustID application key first."); return }
                         store.job { try $0.setAcoustidKey(key: key); return "AcoustID key saved." }
+                        connecting.remove("acoustid")
                         Task { try? await Task.sleep(for: .milliseconds(300)); refresh() }
                     }
                 }
             }
         }
         .padding(.vertical, 4)
+    }
+
+    /// Connect opens a service's form; Cancel closes it again.
+    @ViewBuilder
+    private func connectButton(_ service: String, open: Bool) -> some View {
+        if open {
+            Button("Cancel") { connecting.remove(service) }
+        } else {
+            Button("Connect") { connecting.insert(service) }.buttonStyle(.borderedProminent)
+        }
     }
 
     private func signOut(_ service: String) {
@@ -250,6 +277,7 @@ struct ServicesSettings: View {
         Task {
             if let user = await store.ask({ try $0.lastfmContinue() }) {
                 pending = nil
+                connecting.remove("lastfm")
                 store.notify("Signed in to Last.fm as \(user). Scrobbling is on.")
                 store.reloadSettings()
             }
@@ -273,7 +301,7 @@ struct MusicServersSection: View {
             }
             ForEach(servers, id: \.id) { plugin in SourceCard(plugin: plugin) }
         } header: {
-            GroupHeader(title: "Music servers", detail: "Navidrome, Airsonic, Gonic, and other Subsonic servers. Your server's songs show with your own and play straight away.")
+            GroupHeader(title: "Music servers")
         }
         .task { store.reloadPlugins() }
     }
@@ -394,13 +422,28 @@ private struct SourceCard: View {
     let plugin: PluginItem
     @State private var fields: [String: String] = [:]
     @State private var usage: [UInt64] = [0, 0]
+    /// The sign-in form, shown only after Sign in….
+    @State private var signingIn = false
 
     var body: some View {
         let source = plugin.source!
         VStack(alignment: .leading, spacing: 8) {
-            HStack {
-                Text(source.name).font(.body.weight(.semibold))
+            HStack(spacing: 12) {
+                RowIcon(name: "server.rack")
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(source.name)
+                    if !source.signedIn {
+                        Text("Not signed in. Your server's songs show with your own.").font(.callout).foregroundStyle(.secondary).lineLimit(1)
+                    }
+                }
                 Spacer()
+                if !source.signedIn {
+                    if signingIn {
+                        Button("Cancel") { signingIn = false }
+                    } else {
+                        Button("Sign in…") { signingIn = true }.buttonStyle(.borderedProminent)
+                    }
+                }
                 if source.signedIn {
                     Button("Show songs") { store.navigate(.source(plugin: plugin.id, name: source.name)) }
                     Button(source.syncing ? "Getting the list of songs…" : "Update now") { store.core.sourceSync(plugin: plugin.id) }
@@ -431,8 +474,7 @@ private struct SourceCard: View {
                     Text("\(usage[0]) songs kept on this Mac · \(ByteCountFormatter.string(fromByteCount: Int64(usage.last ?? 0), countStyle: .file))")
                         .font(.caption)
                 }
-            } else {
-                Text("Type your server's address and sign in below.").font(.callout).foregroundStyle(.secondary)
+            } else if signingIn {
                 ForEach(source.fields, id: \.id) { field in
                     if field.secret {
                         SecureField(field.label, text: Binding(get: { fields[field.id] ?? "" }, set: { fields[field.id] = $0 }), prompt: Text(field.placeholder))
