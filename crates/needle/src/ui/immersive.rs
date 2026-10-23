@@ -400,11 +400,14 @@ impl AppView {
                 blur_radius: px(64.),
                 spread_radius: px(-8.),
             }])
-            .child(match &moving {
-                // Settings › Appearance › Moving covers, with Immersive cover off.
-                Some(path) => super::widgets::moving_cover("full-cover", path, art),
-                None => artwork(current.as_ref().map(|i| &i.track), art, cx),
-            });
+            // Settings › Appearance › Moving covers, with Immersive cover off: the moving one
+            // once it is prepared, the still one until then.
+            .child(
+                moving
+                    .as_deref()
+                    .and_then(|path| super::widgets::moving_cover("full-cover", path, art))
+                    .unwrap_or_else(|| artwork(current.as_ref().map(|i| &i.track), art, cx)),
+            );
 
         let left = div()
             .h_full()
