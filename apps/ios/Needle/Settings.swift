@@ -20,7 +20,8 @@ struct SettingsView: View {
                 }
             }
             Section {
-                row("Plugins", "Music servers, NetEase lyrics, effects", "puzzlepiece.extension", .teal, .plugins)
+                row("Music server", "Navidrome and other Subsonic servers", "server.rack", .cyan, .server("subsonic"))
+                row("Plugins", "NetEase lyrics, effects, and commands", "puzzlepiece.extension", .teal, .plugins)
                 row("Your computer", "Control Needle there, play its music here", "laptopcomputer", .indigo, .computer)
                 row("Sync", "Move history, ratings, and playlists", "arrow.triangle.2.circlepath", .yellow, .sync)
                 row("Fix my library", "Tags, duplicates, covers, and files", "wrench.and.screwdriver", .green, .fixLibrary)
@@ -522,6 +523,8 @@ struct AppearanceView: View {
             }
             Section("Player") {
                 toggle("Immersive cover", "The cover fills the top of the player, edge to edge, as in Apple Music.", \.immersiveCover)
+                toggle("Lyrics under the mini player", "The line being sung, in the mini player under the song's name, in place of the artist.", \.miniPlayerLyrics)
+                toggle("Mark server songs", "Songs from your music server show a small server icon beside their artist.", \.serverMark)
                 toggle("Moving covers", "A video beside the songs, such as cover.mp4, plays as the cover.", \.animatedCovers)
                 toggle("Cover behind the player", app.immersiveCover ? "Behind the lyrics and the queue, the playing cover, blurred." : "The player's background is the playing cover, blurred.", \.coverBackdrop)
                 if app.coverBackdrop {
@@ -802,7 +805,7 @@ struct PluginsView: View {
                     Task { await reload() }
                 }
             } footer: {
-                Text("Plugins add music servers (Navidrome, Subsonic), lyrics from NetEase, sound effects, and commands. They run inside Needle, with only the permissions they list.")
+                Text("Plugins add lyrics from NetEase, sound effects, and commands. They run inside Needle, with only the permissions they list. Music servers are built into Needle: see Sources.")
             }
             Section {
                 ForEach(plugins ?? [], id: \.id) { plugin in
@@ -825,7 +828,8 @@ struct PluginsView: View {
     }
 
     private func reload() async {
-        plugins = await store.load { $0.plugins() }
+        // Parts built into Needle (its music server) are not plugins here.
+        plugins = await store.load { $0.plugins().filter { !$0.builtIn } }
     }
 }
 
