@@ -18,6 +18,10 @@ import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.AccountCircle
+import androidx.compose.material.icons.rounded.Usb
+import androidx.compose.material.icons.rounded.SignalCellularAlt
+import androidx.compose.material.icons.rounded.Dns
 import androidx.compose.material.icons.rounded.NewReleases
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.material.icons.automirrored.rounded.QueueMusic
@@ -100,6 +104,10 @@ private fun noteIcon(name: String): ImageVector = when (name) {
     "discord" -> Icons.Rounded.Forum
     "video" -> Icons.Rounded.Movie
     "album" -> Icons.Rounded.Album
+    "server" -> Icons.Rounded.Dns
+    "signal" -> Icons.Rounded.SignalCellularAlt
+    "usb" -> Icons.Rounded.Usb
+    "account" -> Icons.Rounded.AccountCircle
     else -> Icons.Rounded.AutoAwesome
 }
 
