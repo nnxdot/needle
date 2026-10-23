@@ -69,6 +69,26 @@ struct RootView: View {
             // -artist <name>, -album <title>: open that page.
             let value = { (flag: String) in args.firstIndex(of: flag).flatMap { args.indices.contains($0 + 1) ? args[$0 + 1] : nil } }
             if let name = value("-artist") { store.opening = .artist(name) }
+            // -check-moving <album title>: asks the core for that album's moving cover (its first
+            // song's), plays nothing, and writes what came back to needle-moving-check.log.
+            if let title = value("-check-moving") {
+                Task {
+                    let started = Date()
+                    let found: [String] = await store.load { core in
+                        guard let album = try core.albums().first(where: { $0.title == title }),
+                              let first = try core.albumSongs(key: album.key).first else { return ["no such album"] }
+                        return [album.artist, first.id, core.animatedCover(id: first.id) ?? ""]
+                    } ?? ["failed"]
+                    var line = "\(title): " + found.joined(separator: " | ")
+                    line += String(format: " | %.1f s", Date().timeIntervalSince(started))
+                    if found.count == 3, !found[2].isEmpty {
+                        let path = found[2]
+                        let frames = await Task.detached { AnimatedImage.Frames.load(URL(fileURLWithPath: path)) }.value
+                        line += " | \(frames?.images.count ?? 1) frames, \(String(format: "%.2f", frames?.total ?? 0)) s a loop"
+                    }
+                    try? (line + "\n").write(toFile: NSTemporaryDirectory() + "needle-moving-check.log", atomically: true, encoding: .utf8)
+                }
+            }
             if let title = value("-album") {
                 Task {
                     try? await Task.sleep(for: .seconds(1))
