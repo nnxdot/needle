@@ -1,6 +1,5 @@
-//! Settings › Appearance: every choice as a small picture of what it does, a preview of the
-//! window as chosen at the top, and the choices in groups (look, background, layout, while
-//! music plays, text and motion).
+//! Settings › Appearance: every choice as a small picture of what it does, in groups (look,
+//! background, layout, while music plays, text and motion).
 
 use super::{
     AppView, Event, motion, pal,
@@ -24,53 +23,19 @@ fn hex(value: u32) -> Hsla {
 }
 
 #[derive(Clone, Copy, PartialEq)]
-enum Side {
-    Full,
-    Strip,
-    Hidden,
-}
-
-#[derive(Clone, Copy, PartialEq)]
 enum Backdrop {
     Plain,
     Ambient,
     Glass,
 }
 
-/// What a small window shows.
-#[derive(Clone, Copy)]
-struct Mini {
-    side: Side,
-    search: bool,
-    player_on_top: bool,
-    compact: bool,
-    lyrics: bool,
-    backdrop: Backdrop,
-}
-
-impl Default for Mini {
-    fn default() -> Self {
-        Self {
-            side: Side::Full,
-            search: false,
-            player_on_top: false,
-            compact: false,
-            lyrics: false,
-            backdrop: Backdrop::Plain,
-        }
-    }
-}
-
-/// A small drawing of Needle's window, `w` wide: the sidebar, a grid of covers, and the player.
-fn mini(w: f32, m: Mini, p: &Palette) -> Div {
+/// A small drawing of Needle's window, `w` wide, on one of the backgrounds: the sidebar, a
+/// grid of covers, and the player.
+fn mini(w: f32, backdrop: Backdrop, p: &Palette) -> Div {
     let h = (w * 0.625).round();
-    let side_w = match m.side {
-        Side::Full => (w * 0.24).round(),
-        Side::Strip => (w * 0.08).round(),
-        Side::Hidden => 0.,
-    };
+    let side_w = (w * 0.24).round();
     let pad = (w * 0.035).max(4.);
-    let back: Background = match m.backdrop {
+    let back: Background = match backdrop {
         Backdrop::Plain => p.chrome.into(),
         Backdrop::Ambient => linear_gradient(
             150.,
@@ -83,47 +48,27 @@ fn mini(w: f32, m: Mini, p: &Palette) -> Div {
             linear_color_stop(hex(0x3e2b3c), 1.),
         ),
     };
-    let sheet = match m.backdrop {
+    let sheet = match backdrop {
         Backdrop::Plain => p.canvas,
         Backdrop::Ambient => hsla(0., 0., 0., 0.18),
         Backdrop::Glass => p.canvas.opacity(0.55),
     };
-    let panel = match m.backdrop {
+    let panel = match backdrop {
         Backdrop::Plain => p.raised,
         Backdrop::Ambient => hsla(0., 0., 0., 0.3),
         Backdrop::Glass => hsla(0., 0., 1., 0.14),
     };
     let dim = p.ink_3.opacity(0.7);
-
-    // The player: at the foot, or in the top bar.
+    let inset = if backdrop == Backdrop::Glass { 3. } else { 0. };
     let bar_h = (h * 0.1).max(6.);
     let bar_left = side_w + w * 0.04;
     let bar_w = w - bar_left - w * 0.04;
-    let lyric_room = if m.lyrics { bar_h * 0.6 } else { 0. };
-    let bar_top = if m.player_on_top {
-        h * 0.05
-    } else {
-        h - h * 0.05 - bar_h - lyric_room
-    };
-
-    // The covers: a grid in the room the player leaves.
-    let cols = if m.compact { 6 } else { 4 };
-    let main_x = side_w + pad;
+    let bar_top = h - h * 0.05 - bar_h;
+    let cols = 4;
     let main_w = w - side_w - pad * 2.;
-    let tile_gap = if m.compact { 2. } else { (w * 0.02).max(2.) };
+    let tile_gap = (w * 0.02).max(2.);
     let tile = (main_w - tile_gap * (cols as f32 - 1.)) / cols as f32;
-    let grid_top = if m.player_on_top {
-        bar_top + bar_h + pad
-    } else {
-        pad
-    };
-    let grid_room = if m.player_on_top {
-        h - grid_top - pad
-    } else {
-        bar_top - pad - grid_top
-    };
-    let rows = (((grid_room + tile_gap) / (tile + tile_gap)).floor() as usize).clamp(1, 3);
-
+    let rows = (((bar_top - pad * 2. + tile_gap) / (tile + tile_gap)).floor() as usize).clamp(1, 3);
     let mut window = div()
         .relative()
         .w(px(w))
@@ -131,106 +76,53 @@ fn mini(w: f32, m: Mini, p: &Palette) -> Div {
         .flex_shrink_0()
         .rounded(px(7.))
         .overflow_hidden()
-        .bg(back);
-    // The page sheet beside the sidebar.
-    window = window.child(
-        div()
-            .absolute()
-            .left(px(side_w))
-            .top_0()
-            .w(px(w - side_w))
-            .h(px(h))
-            .bg(sheet),
-    );
-    // The sidebar.
-    match m.side {
-        Side::Full => {
-            let mut side = div()
+        .bg(back)
+        .child(
+            div()
                 .absolute()
-                .left(px(if m.backdrop == Backdrop::Glass {
-                    3.
-                } else {
-                    0.
-                }))
-                .top(px(if m.backdrop == Backdrop::Glass {
-                    3.
-                } else {
-                    0.
-                }))
-                .w(px(side_w
-                    - if m.backdrop == Backdrop::Glass {
-                        6.
-                    } else {
-                        0.
-                    }))
-                .h(px(h - if m.backdrop == Backdrop::Glass {
-                    6.
-                } else {
-                    0.
-                }))
-                .when(m.backdrop == Backdrop::Glass, |el| {
+                .left(px(side_w))
+                .top_0()
+                .w(px(w - side_w))
+                .h(px(h))
+                .bg(sheet),
+        )
+        .child(
+            div()
+                .absolute()
+                .left(px(inset))
+                .top(px(inset))
+                .w(px(side_w - inset * 2.))
+                .h(px(h - inset * 2.))
+                .when(backdrop == Backdrop::Glass, |el| {
                     el.rounded(px(5.)).bg(panel)
                 })
                 .px(px(side_w * 0.16))
                 .py(px(pad * 1.3))
                 .flex()
                 .flex_col()
-                .gap(px((h * 0.055).max(3.)));
-            if m.search {
-                side = side.child(
-                    div()
-                        .w_full()
-                        .h(px((h * 0.06).max(4.)))
-                        .rounded(px(3.))
-                        .bg(p.ink_3.opacity(0.35)),
-                );
-            }
-            for fraction in [0.8, 0.6, 0.72, 0.5] {
-                side = side.child(
+                .gap(px((h * 0.055).max(3.)))
+                .children([0.8, 0.6, 0.72, 0.5].map(|fraction| {
                     div()
                         .h(px(2.5))
                         .w(px((side_w * 0.68 * fraction).max(4.)))
                         .rounded(px(1.))
-                        .bg(dim),
-                );
-            }
-            window = window.child(side);
-        }
-        Side::Strip => {
-            window = window.child(
-                div()
-                    .absolute()
-                    .left_0()
-                    .top_0()
-                    .w(px(side_w))
-                    .h(px(h))
-                    .pt(px(pad * 1.3))
-                    .flex()
-                    .flex_col()
-                    .items_center()
-                    .gap(px((h * 0.07).max(3.)))
-                    .children((0..4).map(|_| div().size(px(3.5)).rounded_full().bg(dim))),
-            );
-        }
-        Side::Hidden => {}
-    }
-    // The covers.
+                        .bg(dim)
+                })),
+        );
     for row in 0..rows {
         for col in 0..cols {
-            let color = COVERS[(row * cols + col) % COVERS.len()];
             window = window.child(
                 div()
                     .absolute()
-                    .left(px(main_x + col as f32 * (tile + tile_gap)))
-                    .top(px(grid_top + row as f32 * (tile + tile_gap)))
+                    .left(px(side_w + pad + col as f32 * (tile + tile_gap)))
+                    .top(px(pad + row as f32 * (tile + tile_gap)))
                     .size(px(tile))
                     .rounded(px((tile * 0.12).clamp(1.5, 4.)))
-                    .bg(hex(color)),
+                    .bg(hex(COVERS[(row * cols + col) % COVERS.len()])),
             );
         }
     }
-    // The player.
-    window = window.child(
+    window.child(
         div()
             .absolute()
             .left(px(bar_left))
@@ -251,19 +143,217 @@ fn mini(w: f32, m: Mini, p: &Palette) -> Div {
                     .bg(p.accent),
             )
             .child(div().flex_1().h(px(2.)).rounded(px(1.)).bg(dim)),
+    )
+}
+
+/// The one part of the window a layout choice changes.
+#[derive(Clone, Copy, PartialEq)]
+enum Focus {
+    PlayerBottom,
+    PlayerTop,
+    SidebarHides,
+    SidebarStrip,
+    Roomy,
+    Compact,
+    SearchInSidebar,
+    SearchPalette,
+}
+
+/// A plain grey sketch of the window with only the part `focus` is about in the accent color,
+/// so two pictures of a choice differ at a glance.
+fn sketch(w: f32, focus: Focus, p: &Palette) -> Div {
+    use Focus::*;
+    let h = (w * 0.625).round();
+    let grey = p.ink_3.opacity(0.22);
+    let line = p.ink_3.opacity(0.4);
+    let lit = p.accent;
+    let pad = (w * 0.05).round();
+    let side_w = match focus {
+        SidebarHides => 0.,
+        SidebarStrip => (w * 0.1).round(),
+        _ => (w * 0.26).round(),
+    };
+    let top_player = focus == PlayerTop;
+    let bar_h = (h * 0.11).round().max(6.);
+    let bar_top = if top_player {
+        pad * 0.6
+    } else {
+        h - pad * 0.6 - bar_h
+    };
+    let content_x = side_w + pad;
+    let content_w = w - content_x - pad;
+    let content_top = if top_player {
+        bar_top + bar_h + pad * 0.8
+    } else {
+        pad
+    };
+    let content_bottom = if top_player {
+        h - pad
+    } else {
+        bar_top - pad * 0.8
+    };
+
+    let mut window = div()
+        .relative()
+        .w(px(w))
+        .h(px(h))
+        .flex_shrink_0()
+        .rounded(px(7.))
+        .overflow_hidden()
+        .bg(p.canvas)
+        .border_1()
+        .border_color(p.line_soft);
+    // The sidebar: lines, or the icon strip, or nothing.
+    if side_w > 0. {
+        let strip = focus == SidebarStrip;
+        let mut side = div()
+            .absolute()
+            .left_0()
+            .top_0()
+            .w(px(side_w))
+            .h(px(h))
+            .bg(if strip { lit.opacity(0.18) } else { p.chrome })
+            .pt(px(pad))
+            .px(px(if strip { 0. } else { side_w * 0.16 }))
+            .flex()
+            .flex_col()
+            .when(strip, |el| el.items_center())
+            .gap(px((h * 0.07).max(3.)));
+        if focus == SearchInSidebar {
+            side = side.child(
+                div()
+                    .w_full()
+                    .h(px((h * 0.09).max(5.)))
+                    .rounded(px(3.))
+                    .bg(lit),
+            );
+        }
+        for fraction in [0.85, 0.6, 0.72, 0.5] {
+            side = side.child(if strip {
+                div().size(px(4.)).rounded_full().bg(lit)
+            } else {
+                div()
+                    .h(px(2.5))
+                    .w(px(side_w * 0.68 * fraction))
+                    .rounded(px(1.))
+                    .bg(line)
+            });
+        }
+        window = window.child(side);
+    }
+    // The page: song rows for density, else a few plain blocks.
+    match focus {
+        Roomy | Compact => {
+            let compact = focus == Compact;
+            let row_h = if compact {
+                (h * 0.075).max(4.)
+            } else {
+                (h * 0.15).max(8.)
+            };
+            let gap = if compact { row_h * 0.45 } else { row_h * 0.3 };
+            let count =
+                (((content_bottom - content_top + gap) / (row_h + gap)).floor() as usize).max(1);
+            for i in 0..count {
+                let y = content_top + i as f32 * (row_h + gap);
+                window = window
+                    .child(
+                        div()
+                            .absolute()
+                            .left(px(content_x))
+                            .top(px(y))
+                            .size(px(row_h))
+                            .rounded(px(2.))
+                            .bg(lit),
+                    )
+                    .child(
+                        div()
+                            .absolute()
+                            .left(px(content_x + row_h + pad * 0.6))
+                            .top(px(y + if compact { row_h * 0.35 } else { row_h * 0.2 }))
+                            .w(px(content_w * 0.55))
+                            .h(px(if compact { row_h * 0.3 } else { row_h * 0.22 }))
+                            .rounded(px(1.))
+                            .bg(p.ink_2.opacity(0.7)),
+                    )
+                    .when(!compact, |el| {
+                        el.child(
+                            div()
+                                .absolute()
+                                .left(px(content_x + row_h + pad * 0.6))
+                                .top(px(y + row_h * 0.58))
+                                .w(px(content_w * 0.35))
+                                .h(px(row_h * 0.18))
+                                .rounded(px(1.))
+                                .bg(line),
+                        )
+                    });
+            }
+        }
+        _ => {
+            window = window.child(
+                div()
+                    .absolute()
+                    .left(px(content_x))
+                    .top(px(content_top))
+                    .w(px(content_w * 0.45))
+                    .h(px((h * 0.06).max(3.)))
+                    .rounded(px(2.))
+                    .bg(line),
+            );
+            let block_top = content_top + (h * 0.06).max(3.) + pad * 0.6;
+            let block_w = (content_w - pad * 0.6 * 2.) / 3.;
+            let block_h = (content_bottom - block_top).max(4.);
+            for i in 0..3 {
+                window = window.child(
+                    div()
+                        .absolute()
+                        .left(px(content_x + i as f32 * (block_w + pad * 0.6)))
+                        .top(px(block_top))
+                        .w(px(block_w))
+                        .h(px(block_h))
+                        .rounded(px(3.))
+                        .bg(grey),
+                );
+            }
+        }
+    }
+    // The player bar: lit when it is the choice.
+    let player_lit = matches!(focus, PlayerBottom | PlayerTop);
+    window = window.child(
+        div()
+            .absolute()
+            .left(px(side_w + pad * 0.6))
+            .top(px(bar_top))
+            .w(px(w - side_w - pad * 1.2))
+            .h(px(bar_h))
+            .rounded(px(bar_h * 0.45))
+            .bg(if player_lit { lit } else { grey }),
     );
-    // The line being sung, under the player.
-    if m.lyrics {
-        window = window.child(
-            div()
-                .absolute()
-                .left(px(bar_left + bar_w * 0.3))
-                .top(px(bar_top + bar_h + lyric_room * 0.45))
-                .w(px(bar_w * 0.4))
-                .h(px(2.))
-                .rounded(px(1.))
-                .bg(p.ink.opacity(0.85)),
-        );
+    // Search from the command palette: a box over the page.
+    if focus == SearchPalette {
+        window = window
+            .child(div().absolute().inset_0().bg(p.canvas.opacity(0.55)))
+            .child(
+                div()
+                    .absolute()
+                    .left(px(w * 0.22))
+                    .top(px(h * 0.16))
+                    .w(px(w * 0.56))
+                    .h(px(h * 0.5))
+                    .rounded(px(5.))
+                    .bg(p.raised)
+                    .border_1()
+                    .border_color(lit)
+                    .p(px(pad * 0.6))
+                    .flex()
+                    .flex_col()
+                    .gap(px(pad * 0.5))
+                    .child(div().h(px((h * 0.08).max(4.))).rounded(px(2.)).bg(lit))
+                    .children(
+                        [0.8, 0.6, 0.7]
+                            .map(|f| div().h(px(2.5)).w(px(w * 0.5 * f)).rounded(px(1.)).bg(line)),
+                    ),
+            );
     }
     window
 }
@@ -303,7 +393,11 @@ fn badge(p: &Palette) -> Div {
         .flex()
         .items_center()
         .justify_center()
-        .child(glyph("check").size(px(15.)).text_color(hsla(0., 0., 0.1, 1.)))
+        .child(
+            glyph("check")
+                .size(px(15.))
+                .text_color(hsla(0., 0., 0.1, 1.)),
+        )
 }
 
 /// Cards in rows of `cols` (rows of their own: a wrapping row grows too tall in GPUI).
@@ -490,127 +584,6 @@ impl AppView {
             }))
     }
 
-    /// The window as chosen now, small, with the choices named beside it.
-    fn appearance_preview(&self, width: f32, cx: &App) -> Div {
-        let p = pal(cx);
-        let s = &self.settings;
-        let ambient = self.ambient_look();
-        let glass = self.glass_chosen();
-        let m = Mini {
-            side: if s.layout.compact_sidebar {
-                Side::Strip
-            } else {
-                Side::Full
-            },
-            search: !s.layout.search_hidden,
-            player_on_top: s.layout.player_on_top,
-            compact: s.layout.row_height < 50.,
-            lyrics: s.player_lyrics,
-            backdrop: if ambient {
-                Backdrop::Ambient
-            } else if glass {
-                Backdrop::Glass
-            } else {
-                Backdrop::Plain
-            },
-        };
-        let narrow = width < 460.;
-        let picture_w = if narrow {
-            width - 36.
-        } else {
-            (width * 0.56).min(330.)
-        };
-        let look = super::theme::Base::ALL
-            .iter()
-            .find(|(mode, _, _)| {
-                super::theme::Base::from_name(mode) == super::theme::Base::from_name(&s.theme)
-            })
-            .map(|(_, name, _)| name.to_string())
-            .unwrap_or_else(|| "Your theme".into());
-        let names = [
-            look,
-            match m.backdrop {
-                Backdrop::Plain => "Plain",
-                Backdrop::Ambient => "Ambient",
-                Backdrop::Glass => "Glass",
-            }
-            .into(),
-            if s.layout.player_on_top {
-                "Player on top"
-            } else {
-                "Player at the bottom"
-            }
-            .into(),
-            if m.compact { "Compact" } else { "Roomy" }.into(),
-        ];
-        let chip = |text: String| {
-            div()
-                .px(px(8.))
-                .py(px(3.))
-                .rounded(px(6.))
-                .bg(p.raised_hover)
-                .text_size(px(11.))
-                .font_weight(FontWeight::SEMIBOLD)
-                .child(text)
-        };
-        div()
-            .mt(px(14.))
-            .p(px(18.))
-            .rounded(px(18.))
-            .bg(linear_gradient(
-                100.,
-                linear_color_stop(p.glow.opacity(0.22), 0.),
-                linear_color_stop(p.raised.opacity(0.5), 0.7),
-            ))
-            .flex()
-            .when(narrow, |el| el.flex_col())
-            .gap(px(20.))
-            .items_center()
-            .child(
-                div()
-                    .rounded(px(8.))
-                    .shadow_lg()
-                    .border_1()
-                    .border_color(p.line_soft)
-                    .child(mini(picture_w, m, &p)),
-            )
-            .child(
-                div()
-                    .flex_1()
-                    .min_w_0()
-                    .flex()
-                    .flex_col()
-                    .gap(px(6.))
-                    .child(
-                        div()
-                            .font_family(SharedString::from(super::theme::display_font()))
-                            .text_size(px(18.))
-                            .font_weight(FontWeight::SEMIBOLD)
-                            .child("Your Needle"),
-                    )
-                    .child(meta("What you choose below shows here first.", cx))
-                    .child(
-                        div()
-                            .mt(px(6.))
-                            .flex()
-                            .flex_col()
-                            .gap(px(6.))
-                            .child(
-                                div()
-                                    .flex()
-                                    .gap(px(6.))
-                                    .children(names[..2].iter().cloned().map(chip)),
-                            )
-                            .child(
-                                div()
-                                    .flex()
-                                    .gap(px(6.))
-                                    .children(names[2..].iter().cloned().map(chip)),
-                            ),
-                    ),
-            )
-    }
-
     /// Glass is chosen and can show (Windows' or macOS's own glass, with Ambient off).
     fn glass_chosen(&self) -> bool {
         use super::glass::Material;
@@ -623,11 +596,7 @@ impl AppView {
     pub(super) fn appearance_page(&self, width: f32, cx: &mut Context<Self>) -> Div {
         let p = pal(cx);
         let s = self.settings.clone();
-        let mut page = div()
-            .w(px(width))
-            .flex()
-            .flex_col()
-            .child(self.appearance_preview(width, cx));
+        let mut page = div().w(px(width)).flex().flex_col();
 
         // Look: the base looks and themes.
         let mut looks: Vec<(String, String, String)> = super::theme::Base::ALL
@@ -674,7 +643,7 @@ impl AppView {
                 "plain",
                 card,
                 !ambient && !glass,
-                mini(picture, Mini::default(), &p),
+                mini(picture, Backdrop::Plain, &p),
                 "Plain",
                 Some("The look's own colors"),
                 |this, _, _| {
@@ -690,14 +659,7 @@ impl AppView {
                 "ambient",
                 card,
                 ambient,
-                mini(
-                    picture,
-                    Mini {
-                        backdrop: Backdrop::Ambient,
-                        ..Mini::default()
-                    },
-                    &p,
-                ),
+                mini(picture, Backdrop::Ambient, &p),
                 "Ambient",
                 Some("The playing cover, blurred"),
                 |this, _, _| this.settings.ambient = true,
@@ -716,14 +678,7 @@ impl AppView {
                 "glass",
                 card,
                 glass,
-                mini(
-                    picture,
-                    Mini {
-                        backdrop: Backdrop::Glass,
-                        ..Mini::default()
-                    },
-                    &p,
-                ),
+                mini(picture, Backdrop::Glass, &p),
                 "Glass",
                 Some(about),
                 move |this, _, _| {
@@ -917,7 +872,7 @@ impl AppView {
                     "player-bottom",
                     card,
                     !on_top,
-                    mini(picture, Mini::default(), &p),
+                    sketch(picture, Focus::PlayerBottom, &p),
                     "At the bottom",
                     None,
                     |this, _, _| this.settings.layout.player_on_top = false,
@@ -927,14 +882,7 @@ impl AppView {
                     "player-top",
                     card,
                     on_top,
-                    mini(
-                        picture,
-                        Mini {
-                            player_on_top: true,
-                            ..Mini::default()
-                        },
-                        &p,
-                    ),
+                    sketch(picture, Focus::PlayerTop, &p),
                     "In the top bar",
                     None,
                     |this, _, _| this.settings.layout.player_on_top = true,
@@ -947,14 +895,7 @@ impl AppView {
                     "sidebar-hides",
                     card,
                     !strip,
-                    mini(
-                        picture,
-                        Mini {
-                            side: Side::Hidden,
-                            ..Mini::default()
-                        },
-                        &p,
-                    ),
+                    sketch(picture, Focus::SidebarHides, &p),
                     "Hides",
                     None,
                     |this, _, _| this.settings.layout.compact_sidebar = false,
@@ -964,14 +905,7 @@ impl AppView {
                     "sidebar-strip",
                     card,
                     strip,
-                    mini(
-                        picture,
-                        Mini {
-                            side: Side::Strip,
-                            ..Mini::default()
-                        },
-                        &p,
-                    ),
+                    sketch(picture, Focus::SidebarStrip, &p),
                     "Icon strip",
                     None,
                     |this, _, _| this.settings.layout.compact_sidebar = true,
@@ -979,12 +913,12 @@ impl AppView {
                 ),
             ),
             question(
-                "Density",
+                "Song rows",
                 self.pick(
                     "roomy",
                     card,
                     !compact,
-                    mini(picture, Mini::default(), &p),
+                    sketch(picture, Focus::Roomy, &p),
                     "Roomy",
                     None,
                     |this, _, _| this.settings.layout.row_height = 58.,
@@ -994,14 +928,7 @@ impl AppView {
                     "compact",
                     card,
                     compact,
-                    mini(
-                        picture,
-                        Mini {
-                            compact: true,
-                            ..Mini::default()
-                        },
-                        &p,
-                    ),
+                    sketch(picture, Focus::Compact, &p),
                     "Compact",
                     None,
                     |this, _, _| this.settings.layout.row_height = 36.,
@@ -1014,14 +941,7 @@ impl AppView {
                     "search-shown",
                     card,
                     !searchless,
-                    mini(
-                        picture,
-                        Mini {
-                            search: true,
-                            ..Mini::default()
-                        },
-                        &p,
-                    ),
+                    sketch(picture, Focus::SearchInSidebar, &p),
                     "In the sidebar",
                     None,
                     |this, _, _| this.settings.layout.search_hidden = false,
@@ -1031,11 +951,11 @@ impl AppView {
                     "search-hidden",
                     card,
                     searchless,
-                    mini(picture, Mini::default(), &p),
+                    sketch(picture, Focus::SearchPalette, &p),
                     if cfg!(target_os = "macos") {
-                        "⌘K only"
+                        "Only with ⌘K"
                     } else {
-                        "Ctrl+K only"
+                        "Only with Ctrl+K"
                     },
                     None,
                     |this, _, _| this.settings.layout.search_hidden = true,
@@ -1069,32 +989,54 @@ impl AppView {
         } else {
             width
         };
+        // The song playing now, for the pictures of the player.
+        let current = self.playback.current.as_ref().map(|item| &item.track);
+        let (title, artist) = current
+            .map(|t| (t.title.clone(), t.artist.clone()))
+            .unwrap_or_else(|| ("A song".into(), "An artist".into()));
         let immersive_art = {
             let on = s.immersive_cover;
             let art_w = big_w - 24.;
             let h = 150.;
-            let cover = if on {
-                div()
-                    .absolute()
-                    .left_0()
-                    .top_0()
-                    .w(px(art_w * 0.55))
-                    .h(px(h))
-                    .bg(linear_gradient(
-                        90.,
-                        linear_color_stop(p.glow, 0.55),
-                        linear_color_stop(p.glow.opacity(0.), 1.),
-                    ))
-            } else {
-                div()
-                    .absolute()
-                    .left(px(art_w * 0.1))
-                    .top(px(h * 0.24))
-                    .size(px(h * 0.52))
-                    .rounded(px(6.))
-                    .bg(p.glow)
-            };
-            div()
+            let words = div()
+                .absolute()
+                .left(px(art_w * 0.56))
+                .top(px(h * 0.3))
+                .w(px(art_w * 0.4))
+                .flex()
+                .flex_col()
+                .gap(px(3.))
+                .child(
+                    div()
+                        .font_family(SharedString::from(super::theme::display_font()))
+                        .text_size(px(15.))
+                        .font_weight(FontWeight::SEMIBOLD)
+                        .text_color(p.ink)
+                        .truncate()
+                        .child(title.clone()),
+                )
+                .child(
+                    div()
+                        .text_size(px(11.))
+                        .text_color(p.ink_2)
+                        .truncate()
+                        .child(artist.clone()),
+                )
+                .child(
+                    div()
+                        .mt(px(12.))
+                        .h(px(3.))
+                        .rounded(px(2.))
+                        .bg(p.line)
+                        .child(
+                            div()
+                                .h_full()
+                                .w(px(art_w * 0.14))
+                                .rounded(px(2.))
+                                .bg(p.accent),
+                        ),
+                );
+            let picture = div()
                 .relative()
                 .w(px(art_w))
                 .h(px(h))
@@ -1103,85 +1045,111 @@ impl AppView {
                 .bg(if on {
                     linear_gradient(
                         90.,
-                        linear_color_stop(motion::mix(p.glow, p.canvas, 0.75), 0.),
-                        linear_color_stop(p.canvas, 0.8),
+                        linear_color_stop(motion::mix(p.glow, p.canvas, 0.7), 0.),
+                        linear_color_stop(p.canvas, 0.85),
                     )
                 } else {
                     p.canvas.into()
-                })
-                .child(cover)
-                .child(
+                });
+            let picture = if on {
+                // The cover fills the left side, top to bottom, and fades into its colors.
+                picture
+                    .child(
+                        div()
+                            .absolute()
+                            .left_0()
+                            .top_0()
+                            .child(super::widgets::artwork(current, h, cx)),
+                    )
+                    .child(
+                        div()
+                            .absolute()
+                            .left(px(h * 0.45))
+                            .top_0()
+                            .w(px(h * 0.56))
+                            .h(px(h))
+                            .bg(linear_gradient(
+                                90.,
+                                linear_color_stop(
+                                    motion::mix(p.glow, p.canvas, 0.7).opacity(0.),
+                                    0.,
+                                ),
+                                linear_color_stop(motion::mix(p.glow, p.canvas, 0.7), 1.),
+                            )),
+                    )
+            } else {
+                // The cover as a picture of its own.
+                picture.child(
                     div()
                         .absolute()
-                        .left(px(art_w * 0.58))
-                        .top(px(h * 0.36))
-                        .w(px(art_w * 0.32))
-                        .flex()
-                        .flex_col()
-                        .gap(px(7.))
-                        .child(div().h(px(7.)).rounded(px(3.)).bg(p.ink))
-                        .child(
-                            div()
-                                .h(px(5.))
-                                .w(px(art_w * 0.22))
-                                .rounded(px(3.))
-                                .bg(p.ink_3),
-                        ),
+                        .left(px(art_w * 0.12))
+                        .top(px((h - h * 0.62) / 2.))
+                        .rounded(px(8.))
+                        .overflow_hidden()
+                        .shadow_lg()
+                        .child(super::widgets::artwork(current, h * 0.62, cx)),
                 )
-                .child(
-                    div()
-                        .absolute()
-                        .left(px(art_w * 0.58))
-                        .top(px(h * 0.72))
-                        .w(px(art_w * 0.32))
-                        .h(px(3.))
-                        .rounded(px(2.))
-                        .bg(p.line)
-                        .child(
-                            div()
-                                .h_full()
-                                .w(px(art_w * 0.13))
-                                .rounded(px(2.))
-                                .bg(p.accent),
-                        ),
-                )
-                .into_any_element()
+            };
+            picture.child(words).into_any_element()
         };
         let lyrics_art = {
             let on = s.player_lyrics;
             div()
-                .relative()
                 .h(px(64.))
                 .rounded(px(9.))
                 .bg(p.canvas)
+                .px(px(10.))
                 .flex()
                 .flex_col()
-                .items_center()
-                .pt(px(12.))
-                .gap(px(6.))
+                .justify_center()
+                .gap(px(5.))
                 .child(
                     div()
-                        .w(px(small_w - 48.))
-                        .h(px(20.))
-                        .rounded(px(7.))
+                        .h(px(30.))
+                        .rounded(px(8.))
                         .bg(p.raised_hover)
                         .px(px(6.))
                         .flex()
                         .items_center()
-                        .gap(px(6.))
-                        .child(div().size(px(12.)).rounded(px(3.)).bg(p.glow))
-                        .child(div().flex_1().h(px(3.)).rounded(px(2.)).bg(p.line)),
+                        .gap(px(7.))
+                        .child(
+                            div()
+                                .rounded(px(3.))
+                                .overflow_hidden()
+                                .child(super::widgets::artwork(current, 20., cx)),
+                        )
+                        .child(
+                            div()
+                                .flex_1()
+                                .min_w_0()
+                                .text_size(px(10.5))
+                                .truncate()
+                                .child(
+                                    div()
+                                        .font_weight(FontWeight::SEMIBOLD)
+                                        .truncate()
+                                        .child(title.clone()),
+                                ),
+                        ),
                 )
-                .when(on, |el| {
-                    el.child(
-                        div()
-                            .font_family(SharedString::from(super::theme::display_font()))
-                            .italic()
-                            .text_size(px(11.))
-                            .text_color(p.ink)
-                            .child("and the harbor lights come on"),
-                    )
-                })
+                .child(
+                    // The line being sung: there with the setting on, a faint dash without.
+                    div()
+                        .h(px(14.))
+                        .flex()
+                        .justify_center()
+                        .items_center()
+                        .child(if on {
+                            div()
+                                .font_family(SharedString::from(super::theme::display_font()))
+                                .italic()
+                                .text_size(px(11.))
+                                .text_color(p.ink)
+                                .child("♪ the line being sung")
+                        } else {
+                            div().w(px(40.)).h(px(2.)).rounded(px(1.)).bg(p.line)
+                        }),
+                )
                 .into_any_element()
         };
         let server_art = {
