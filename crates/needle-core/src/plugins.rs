@@ -2713,7 +2713,7 @@ mod tests {
                     // Song s1's album has a moving cover: the server gives it as it is when
                     // no size is asked for (a smaller copy is a still picture).
                     if param("id") == "1" && param("size").is_empty() {
-                        let mut webp = b"RIFF    WEBPVP8X".to_vec();
+                        let mut webp = b"RIFF\0\0\0\0WEBPVP8X".to_vec();
                         webp.extend_from_slice(&[10, 0, 0, 0, 0x12, 0, 0, 0]);
                         webp.resize(500, 7);
                         ("image/webp", webp)
