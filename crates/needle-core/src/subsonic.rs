@@ -231,6 +231,20 @@ impl Subsonic {
             .link("getCoverArt", &[("id", id.to_string())]))
     }
 
+    /// A link to a song's ALBUM's cover as the server keeps it, not a smaller copy. Asked by
+    /// the album's id, a server gives the album's own picture (such as a moving cover.webp in
+    /// its folder); asked by the song's id, Navidrome gives the picture inside the song's
+    /// file first, often a still one.
+    pub fn original_album_cover(&self, song_id: &str) -> Result<String, String> {
+        let session = self.session()?;
+        let reply = session.ask("getSong", &[("id", song_id.to_string())])?;
+        let album = text(&reply["song"]["albumId"]);
+        if album.is_empty() {
+            return Err("The server gave no album for the song".into());
+        }
+        Ok(session.link("getCoverArt", &[("id", album)]))
+    }
+
     /// A link to the original file, not a smaller copy.
     pub fn stream(&self, id: &str) -> Result<String, String> {
         Ok(self.session()?.link(
@@ -428,6 +442,8 @@ fn to_songs(
                 .cloned()
                 .unwrap_or_else(|| text(&song["coverArt"]));
             let mut map = Map::new();
+            // The album's own id on the server (its cover is asked for by it).
+            map.insert("album_id".into(), json!(album));
             for (ours, theirs) in [
                 ("id", "id"),
                 ("title", "title"),
