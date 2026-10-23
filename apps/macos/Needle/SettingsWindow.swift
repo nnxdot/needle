@@ -25,7 +25,36 @@ struct SettingsWindow: View {
             .navigationSplitViewColumnWidth(200)
             .toolbar(removing: .sidebarToggle)
         } detail: {
-            // Grouped boxes, as in System Settings; the title bar names the page.
+            // Appearance: picture cards in groups, in a page of their own. The others: grouped
+            // boxes, as in System Settings. The title bar names the page.
+            if tab == "Appearance" {
+                ScrollViewReader { reader in
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 18) {
+                        AppearanceSettings()
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text("Needle \(store.version) · nnx")
+                            Text("Library data: \(store.core.dataDirectory())").textSelection(.enabled)
+                        }
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                    }
+                    .padding(.horizontal, 28)
+                    .padding(.vertical, 22)
+                    .frame(maxWidth: 820, alignment: .leading)
+                    .frame(maxWidth: .infinity)
+                }
+                #if DEBUG
+                // Test builds: `-appearance-scroll layout|playing|text` opens the page at that group.
+                .task {
+                    guard let group = UserDefaults.standard.string(forKey: "appearance-scroll") else { return }
+                    try? await Task.sleep(for: .milliseconds(600))
+                    reader.scrollTo(group, anchor: .top)
+                }
+                #endif
+                }
+                .navigationTitle(tab)
+            } else {
             Form {
                 switch tab {
                 case "Sound": SoundPane()
@@ -53,6 +82,7 @@ struct SettingsWindow: View {
             .formStyle(.grouped)
             .id(tab)
             .navigationTitle(tab)
+            }
         }
         .frame(minWidth: 820, idealWidth: 900, minHeight: 600, idealHeight: 720)
         .tint(store.playerAccent)
@@ -415,191 +445,7 @@ struct LibrarySettings: View {
     }
 }
 
-// MARK: - Appearance
-
-struct AppearanceSettings: View {
-    private var store: Store { .shared }
-    @State private var editing: ThemeFile?
-    @State private var newTheme = false
-
-    var body: some View {
-        let s = store.settings
-        Section {
-            VStack(alignment: .leading, spacing: 10) {
-                LazyVGrid(columns: [GridItem(.adaptive(minimum: 150), spacing: 14)], alignment: .leading, spacing: 14) {
-                    ForEach(Palette.bases, id: \.0) { mode, name, about in
-                        ThemeCard(mode: mode, name: name, about: about, theme: nil)
-                    }
-                    ForEach(store.themes) { theme in
-                        ThemeCard(mode: theme.id, name: theme.name, about: theme.readOnly ? "From \(theme.id.dropFirst(7).split(separator: "/").first ?? "")" : theme.author.isEmpty ? "Your theme" : "By \(theme.author)", theme: theme)
-                            .contextMenu {
-                                Button(theme.readOnly ? "Make a copy" : "Edit colors") { editing = theme }
-                                Button("Show the file") { store.reveal(theme.path) }
-                                if !theme.readOnly {
-                                    Button("Delete", role: .destructive) { delete(theme) }
-                                }
-                            }
-                    }
-                }
-                HStack {
-                    Button("New theme…") { newTheme = true }
-                    Button("Add a theme file…") { addTheme() }
-                    Button("Open themes folder") {
-                        let folder = store.core.themesFolder()
-                        try? FileManager.default.createDirectory(atPath: folder, withIntermediateDirectories: true)
-                        NSWorkspace.shared.open(URL(fileURLWithPath: folder))
-                    }
-                    if let theme = store.customTheme {
-                        Button(theme.readOnly ? "Make a copy" : "Edit colors") { editing = theme }
-                    }
-                }
-                .padding(.top, 4)
-            }
-            .padding(.vertical, 6)
-        } header: {
-            GroupHeader(title: "Look")
-        }
-        Section {
-            SettingRow(title: "Ambient background", detail: "The cover that is playing (or your chosen color) fills the whole background, blurred. Works with every look.") {
-                SettingSwitch(key: "ambient", on: s.ambient)
-            }
-            SettingRow(title: "Film grain", detail: "A fine texture over the whole window. Off by default.") {
-                HStack {
-                    Slider(value: Binding(get: { Double(s.grain) }, set: { store.set(["grain": $0]) }), in: 0...1).frame(width: 180)
-                    Text(s.grain <= 0.001 ? "Off" : "\(Int(s.grain * 100))%").monospacedDigit().frame(width: 40, alignment: .trailing).foregroundStyle(.secondary)
-                }
-            }
-            if !s.musicColors {
-                SettingRow(title: "Color", detail: "Tints the buttons, highlights, and surfaces.") {
-                    HStack(spacing: 6) {
-                        ForEach(Palette.accents, id: \.0) { hex, name in
-                            let color = Color(hex: hex) ?? Color(hex: "#e2b46c")!
-                            Button { store.set(["accent_color": hex]) } label: {
-                                Circle().fill(color).frame(width: 20, height: 20)
-                                    .padding(3)
-                                    .overlay(Circle().strokeBorder(s.accentColor == hex ? Color.primary : .clear, lineWidth: 2))
-                            }
-                            .buttonStyle(.plain)
-                            .help(name)
-                        }
-                    }
-                }
-            }
-            SettingRow(title: "Colors from the music", detail: "Tint Needle with the colors of the cover that is playing.") {
-                SettingSwitch(key: "music_colors", on: s.musicColors)
-            }
-            SettingRow(title: "Colors from covers", detail: "Album and artist pages, and the whole window while one is open, take the colors of its cover or photo.") {
-                SettingSwitch(key: "cover_colors", on: s.coverColors)
-            }
-            SettingRow(title: "Immersive cover", detail: "In the big player, the cover fills its side of the window edge to edge and fades into its colors, as in Apple Music.") {
-                SettingSwitch(key: "immersive_cover", on: s.immersiveCover)
-            }
-            SettingRow(title: "Lyrics under the player", detail: "The line being sung, under the player.") {
-                SettingSwitch(key: "player_lyrics", on: s.playerLyrics)
-            }
-            SettingRow(title: "Mark server songs", detail: "Songs from your music server show a small server icon beside their title.") {
-                SettingSwitch(key: "server_mark", on: s.serverMark)
-            }
-            SettingRow(title: "Moving covers", detail: "A video beside the songs, such as cover.mp4, plays as the cover in the big player.") {
-                SettingSwitch(key: "animated_covers", on: s.animatedCovers)
-            }
-            SettingRow(title: "Reduce motion", detail: NSWorkspace.shared.accessibilityDisplayShouldReduceMotion ? "Your Mac has animations turned down, so Needle keeps still too." : "Turns off fades, slides, and other animations.") {
-                SettingSwitch(key: "reduce_motion", on: s.reduceMotion)
-            }
-        } header: {
-            GroupHeader(title: "Window")
-        }
-        Section {
-            SettingRow(title: "Compact sidebar", detail: "Folding the sidebar leaves a strip of page icons, as in Apple Music, instead of hiding it altogether.") {
-                RowToggle(isOn: Binding(get: { s.layout.compactSidebar }, set: { store.setLayout(["compact_sidebar": $0]) })).toggleStyle(.switch).labelsHidden()
-            }
-            SettingRow(title: "Fold the sidebar now", detail: "The same as the sidebar button in the toolbar.") {
-                RowToggle(isOn: Binding(get: { s.layout.sidebarHidden }, set: { store.setLayout(["sidebar_hidden": $0]) })).toggleStyle(.switch).labelsHidden()
-            }
-            SettingRow(title: "Player in the title bar", detail: "The player sits in the bar at the top of the window, not at the foot of the page.") {
-                RowToggle(isOn: Binding(get: { s.layout.playerOnTop }, set: { store.setLayout(["player_on_top": $0]) })).toggleStyle(.switch).labelsHidden()
-            }
-            SettingRow(title: "Hide the search field", detail: "Search from the command palette instead (⌘K, or ⌘F).") {
-                RowToggle(isOn: Binding(get: { s.layout.searchHidden }, set: { store.setLayout(["search_hidden": $0]) })).toggleStyle(.switch).labelsHidden()
-            }
-        } header: {
-            GroupHeader(title: "Layout")
-        }
-        Section {
-            SettingRow(title: "Titles", detail: "The font for page titles, album and artist names, and the big player.") {
-                Picker("", selection: Binding(get: { s.displayFont }, set: { store.set(["display_font": $0]) })) {
-                    Text("System").tag("system")
-                    Text("Condensed").tag("bahnschrift")
-                    Text("Fraunces").tag("fraunces")
-                }
-                .pickerStyle(.segmented).labelsHidden().frame(width: 260)
-            }
-            SettingRow(title: "Density", detail: "Compact fits more tracks on screen.") {
-                Picker("", selection: Binding(get: { s.layout.rowHeight < 50 }, set: { store.setLayout(["row_height": $0 ? 36 : 58]) })) {
-                    Text("Compact").tag(true)
-                    Text("Comfortable").tag(false)
-                }
-                .pickerStyle(.segmented).labelsHidden().frame(width: 220)
-            }
-            SettingRow(title: "Layout file", detail: "Share the sidebar, panels, and row height as a small JSON file.") {
-                HStack {
-                    Button("Import…") { importLayout() }
-                    Button("Export…") { exportLayout() }
-                }
-            }
-        } header: {
-            GroupHeader(title: "Fonts and density")
-        }
-        .sheet(item: $editing) { theme in ThemeEditor(theme: theme).environment(store) }
-        .sheet(isPresented: $newTheme) { ThemeEditor(theme: nil).environment(store) }
-    }
-
-    private func addTheme() {
-        let panel = NSOpenPanel()
-        panel.allowedContentTypes = [UTType(filenameExtension: "toml") ?? .plainText]
-        guard panel.runModal() == .OK, let url = panel.url else { return }
-        store.importTheme(url)
-    }
-
-    private func delete(_ theme: ThemeFile) {
-        let id = theme.id
-        store.run { try $0.deleteTheme(id: id) }
-        if store.settings.theme == id { store.chooseTheme("dark", extras: nil) }
-        Task { try? await Task.sleep(for: .milliseconds(200)); store.reloadThemes(); store.notify("Deleted the theme \(theme.name).") }
-    }
-
-    private func importLayout() {
-        let panel = NSOpenPanel()
-        panel.allowedContentTypes = [.json]
-        guard panel.runModal() == .OK, let url = panel.url, let data = try? Data(contentsOf: url) else { return }
-        let text = String(decoding: data, as: UTF8.self)
-        do {
-            try store.core.checkLayout(json: text)
-            if let object = try JSONSerialization.jsonObject(with: data) as? [String: Any] {
-                store.set(["layout": object])
-                store.notify("Layout applied.")
-            }
-        } catch {
-            store.fail(error.message)
-        }
-    }
-
-    private func exportLayout() {
-        let panel = NSSavePanel()
-        panel.nameFieldStringValue = "needle-layout.json"
-        guard panel.runModal() == .OK, let url = panel.url,
-              let json = try? store.core.settingsJson(), let data = json.data(using: .utf8),
-              let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-              let layout = object["layout"],
-              let out = try? JSONSerialization.data(withJSONObject: layout, options: [.prettyPrinted, .sortedKeys]) else { return }
-        do {
-            try out.write(to: url)
-            store.notify("Layout exported.")
-        } catch {
-            store.fail(error.message)
-        }
-    }
-}
+// MARK: - Appearance (the page is in AppearancePage.swift)
 
 /// A small picture of a look, in today's colours, that switches to it when clicked.
 struct ThemeCard: View {
@@ -642,12 +488,15 @@ struct ThemeCard: View {
                 .frame(width: 150, height: 96)
                 .background(look.chrome, in: RoundedRectangle(cornerRadius: 10))
                 .overlay(RoundedRectangle(cornerRadius: 10).strokeBorder(active ? store.plainColors.accent : store.plainColors.line, lineWidth: 2))
+                .overlay(alignment: .topTrailing) { if active { CheckBadge().offset(x: 7, y: -7) } }
                 Text(name).font(.callout.weight(active ? .semibold : .regular)).lineLimit(1)
                 Text(about).font(.caption).foregroundStyle(.secondary).lineLimit(1)
             }
             .frame(width: 150, alignment: .leading)
         }
         .buttonStyle(.plain)
+        .accessibilityLabel("\(name), \(about)")
+        .accessibilityAddTraits(active ? .isSelected : [])
     }
 
     private func choose() {
