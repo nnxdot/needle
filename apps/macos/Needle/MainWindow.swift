@@ -121,6 +121,22 @@ struct MainWindow: View {
         let value = { (flag: String) in arguments.firstIndex(of: flag).flatMap { arguments.indices.contains($0 + 1) ? arguments[$0 + 1] : nil } }
         // `--rescan`: read the music folders again.
         if arguments.contains("--rescan") { store.rescan() }
+        // `--snapshot-main <path>`: after 12 seconds, the main window drawn twice, half a second
+        // apart (<path>-1.png, <path>-2.png), to see whether something moves.
+        if let path = value("--snapshot-main") {
+            Task {
+                try? await Task.sleep(for: .seconds(12))
+                for n in 1...2 {
+                    if let window = NSApp.windows.first(where: { $0.identifier?.rawValue.hasPrefix("main") == true }),
+                       let view = window.contentView,
+                       let rep = view.bitmapImageRepForCachingDisplay(in: view.bounds) {
+                        view.cacheDisplay(in: view.bounds, to: rep)
+                        try? rep.representation(using: .png, properties: [:])?.write(to: URL(fileURLWithPath: "\(path)-\(n).png"))
+                    }
+                    try? await Task.sleep(for: .milliseconds(500))
+                }
+            }
+        }
         // `--snapshot-settings <path.png>`: after 8 seconds, the Settings window drawn into a
         // picture at the screen's scale (Needle's own drawing: no screen recording needed).
         if let path = value("--snapshot-settings") {

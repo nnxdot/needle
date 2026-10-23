@@ -72,7 +72,7 @@ struct AppearanceView: View {
                             .accessibilityLabel("Softness")
                     }
                 }
-                toggle("Moving covers", "A cover.mp4 beside the songs plays as the cover.", "play.rectangle.fill", .purple, \.animatedCovers)
+                toggle("Moving covers", "A video, or an animated WebP or GIF, beside the songs.", "play.rectangle.fill", .purple, \.animatedCovers)
                 toggle("Volume slider", "Under the controls.", "speaker.wave.2.fill", .gray, \.volumeSlider)
                 toggle("Swipe the cover to skip", "Next or last song.", "hand.draw.fill", .gray, \.swipeCover)
                 toggle("Open the player on play", "When you choose a song.", "arrow.up.forward.app.fill", .gray, \.openPlayerOnPlay)
