@@ -113,8 +113,9 @@ impl Subsonic {
     /// One page of the server's songs (from 0), until a page comes back empty. Each song is
     /// a map as a source plugin gives it (see [`crate::sources::Song::from_value`]).
     pub fn songs(&self, page: i64) -> Result<Vec<Value>, String> {
+        let session = self.session()?;
         if self.text("list_by") != "albums" {
-            let reply = self.ask(
+            let reply = session.ask(
                 "search3",
                 &[
                     ("query", String::new()),
@@ -126,7 +127,7 @@ impl Subsonic {
             )?;
             let found = list(&reply["searchResult3"]["song"]);
             if !found.is_empty() {
-                return self.to_songs(&found);
+                return Ok(to_songs(&found, &session));
             }
             if page > 0 {
                 return Ok(vec![]);
@@ -134,7 +135,7 @@ impl Subsonic {
             // Nothing for an empty search: this server is read album by album from now on.
             self.set("list_by", json!("albums"))?;
         }
-        let reply = self.ask(
+        let reply = session.ask(
             "getAlbumList2",
             &[
                 ("type", "alphabeticalByName".into()),
@@ -144,10 +145,10 @@ impl Subsonic {
         )?;
         let albums = list(&reply["albumList2"]["album"]);
         // The albums' songs, asked for side by side.
-        let links = albums
+        let links: Vec<String> = albums
             .iter()
-            .map(|album| Ok(self.link("getAlbum", &[("id", text(&album["id"]))], &self.auth()?)))
-            .collect::<Result<Vec<_>, String>>()?;
+            .map(|album| session.link("getAlbum", &[("id", text(&album["id"]))]))
+            .collect();
         let answers: Vec<Result<Value, String>> = std::thread::scope(|scope| {
             let asks: Vec<_> = links
                 .into_iter()
@@ -164,7 +165,7 @@ impl Subsonic {
         for answer in answers {
             found.extend(list(&answer?["album"]["song"]));
         }
-        self.to_songs(&found)
+        Ok(to_songs(&found, &session))
     }
 
     /// Songs on the server for a search, when the switch is on. Through octo-fiesta (a
@@ -175,7 +176,8 @@ impl Subsonic {
         if words.is_empty() || !self.switch(SEARCH_SERVER) {
             return Ok(vec![]);
         }
-        let reply = self.ask(
+        let session = self.session()?;
+        let reply = session.ask(
             "search3",
             &[
                 ("query", words.to_string()),
@@ -184,15 +186,14 @@ impl Subsonic {
                 ("albumCount", "0".into()),
             ],
         )?;
-        self.to_songs(&list(&reply["searchResult3"]["song"]))
+        Ok(to_songs(&list(&reply["searchResult3"]["song"]), &session))
     }
 
     /// A link to the original file, not a smaller copy.
     pub fn stream(&self, id: &str) -> Result<String, String> {
-        Ok(self.link(
+        Ok(self.session()?.link(
             "stream",
             &[("id", id.to_string()), ("format", "raw".into())],
-            &self.auth()?,
         ))
     }
 
@@ -279,99 +280,128 @@ impl Subsonic {
 
     // Talking to the server.
 
-    /// The sign-in part of every request. The password itself is never sent: only a salted
-    /// hash of it.
-    fn auth(&self) -> Result<String, String> {
+    /// The server's address and the sign-in part of requests, read once for all the requests
+    /// of one task (a page of songs and its cover links). The password itself is never sent:
+    /// only a salted hash of it.
+    fn session(&self) -> Result<Session, String> {
         use rand::Rng;
         let password = self
             .password()
             .ok_or_else(|| "Sign in to your server first".to_string())?;
+        let settings = self.settings();
+        let setting = |key: &str| {
+            settings
+                .get(key)
+                .and_then(Value::as_str)
+                .unwrap_or_default()
+                .to_string()
+        };
         let salt: String = rand::thread_rng()
             .sample_iter(&rand::distributions::Alphanumeric)
             .take(12)
             .map(char::from)
             .collect();
         let token = format!("{:x}", md5::compute(format!("{password}{salt}")));
-        Ok(format!(
-            "u={}&t={token}&s={salt}&v={API_VERSION}&c=Needle&f=json",
-            encode(&self.text("username"))
-        ))
+        Ok(Session {
+            server: setting("server"),
+            auth: format!(
+                "u={}&t={token}&s={salt}&v={API_VERSION}&c=Needle&f=json",
+                encode(&setting("username"))
+            ),
+        })
     }
 
-    fn link(&self, method: &str, params: &[(&str, String)], auth: &str) -> String {
-        let mut url = format!("{}/rest/{method}.view?{auth}", self.text("server"));
+    /// Ask the server, and return its `subsonic-response` when it says "ok".
+    fn ask(&self, method: &str, params: &[(&str, String)]) -> Result<Value, String> {
+        self.session()?.ask(method, params)
+    }
+}
+
+/// What every request to the server needs (see `Subsonic::session`).
+struct Session {
+    server: String,
+    auth: String,
+}
+
+impl Session {
+    fn link(&self, method: &str, params: &[(&str, String)]) -> String {
+        let mut url = format!("{}/rest/{method}.view?{}", self.server, self.auth);
         for (key, value) in params {
             url += &format!("&{key}={}", encode(value));
         }
         url
     }
 
-    /// Ask the server, and return its `subsonic-response` when it says "ok".
     fn ask(&self, method: &str, params: &[(&str, String)]) -> Result<Value, String> {
-        get(&self.link(method, params, &self.auth()?))
+        get(&self.link(method, params))
     }
+}
 
-    /// The server's songs as Needle wants them.
-    fn to_songs(&self, found: &[Value]) -> Result<Vec<Value>, String> {
-        // One sign-in for all the cover links of this page, so an album's songs share one link.
-        let cover_auth = self.auth()?;
-        Ok(found
-            .iter()
-            .map(|song| {
-                let cover = text(&song["coverArt"]);
-                let album = text(&song["albumId"]);
-                let mut map = Map::new();
-                for (ours, theirs) in [
-                    ("id", "id"),
-                    ("title", "title"),
-                    ("artist", "artist"),
-                    ("album", "album"),
-                    ("album_artist", "displayAlbumArtist"),
-                    ("genre", "genre"),
-                    ("year", "year"),
-                    ("track", "track"),
-                    ("disc", "discNumber"),
-                    ("duration", "duration"),
-                    ("format", "suffix"),
-                    ("bitrate", "bitRate"),
-                    ("sample_rate", "samplingRate"),
-                    ("bit_depth", "bitDepth"),
-                    ("channels", "channelCount"),
-                    ("size", "size"),
-                    ("musicbrainz_id", "musicBrainzId"),
-                ] {
-                    map.insert(ours.into(), song[theirs].clone());
-                }
-                // One cover per album: songs often carry their own copy of the same picture.
+/// The server's songs as Needle wants them. Their cover links share the session's sign-in, so
+/// an album's songs share one link.
+fn to_songs(found: &[Value], session: &Session) -> Vec<Value> {
+    found
+        .iter()
+        .map(|song| {
+            let cover = text(&song["coverArt"]);
+            let album = text(&song["albumId"]);
+            let mut map = Map::new();
+            for (ours, theirs) in [
+                ("id", "id"),
+                ("title", "title"),
+                ("artist", "artist"),
+                ("album", "album"),
+                ("album_artist", "displayAlbumArtist"),
+                ("genre", "genre"),
+                ("year", "year"),
+                ("track", "track"),
+                ("disc", "discNumber"),
+                ("duration", "duration"),
+                ("format", "suffix"),
+                ("bitrate", "bitRate"),
+                ("sample_rate", "samplingRate"),
+                ("bit_depth", "bitDepth"),
+                ("channels", "channelCount"),
+                ("size", "size"),
+                ("musicbrainz_id", "musicBrainzId"),
+            ] {
+                map.insert(ours.into(), song[theirs].clone());
+            }
+            // One cover per album: songs often carry their own copy of the same picture.
+            map.insert(
+                "cover_id".into(),
+                json!(if album.is_empty() {
+                    cover.clone()
+                } else {
+                    format!("album:{album}")
+                }),
+            );
+            if !cover.is_empty() {
                 map.insert(
-                    "cover_id".into(),
-                    json!(if album.is_empty() {
-                        cover.clone()
-                    } else {
-                        format!("album:{album}")
-                    }),
+                    "cover".into(),
+                    json!(session.link("getCoverArt", &[("id", cover), ("size", "600".into())])),
                 );
-                if !cover.is_empty() {
-                    map.insert(
-                        "cover".into(),
-                        json!(self.link(
-                            "getCoverArt",
-                            &[("id", cover), ("size", "600".into())],
-                            &cover_auth
-                        )),
-                    );
-                }
-                Value::Object(map)
-            })
-            .collect())
+            }
+            Value::Object(map)
+        })
+        .collect()
+}
+
+/// One client for all requests to the server: it keeps its connections (and its TLS setup)
+/// for the next request, instead of making them again each time.
+fn client() -> Result<&'static reqwest::blocking::Client, String> {
+    static CLIENT: std::sync::OnceLock<reqwest::blocking::Client> = std::sync::OnceLock::new();
+    if let Some(client) = CLIENT.get() {
+        return Ok(client);
     }
+    let made = crate::integrations::client().map_err(|e| e.to_string())?;
+    Ok(CLIENT.get_or_init(|| made))
 }
 
 /// Ask the server at `url`, and return its `subsonic-response` when it says "ok".
 fn get(url: &str) -> Result<Value, String> {
     use std::io::Read;
-    let response = crate::integrations::client()
-        .map_err(|e| e.to_string())?
+    let response = client()?
         .get(url)
         .timeout(TIMEOUT)
         .send()
