@@ -327,7 +327,7 @@ fn run(command, ids) {
             </tbody>
           </table>
         </div>
-        <p>Needle gets the whole list of songs when someone signs in, when Needle starts (at most every 30 minutes), and when they press <b>Update now</b>. A song the server no longer lists is marked missing, never deleted. Songs stream into a cache as they play; the last 2 GB played stay on the computer and play again without the network. Jumping ahead in a song that is still downloading asks the server for that part first, when the server allows it. The song after the next one downloads ahead of time. <b>Keep on this computer</b> (in a song's menu, or the pin on a server album's page) downloads songs to play without the network and never clears them. Tag editing, stems, Fix my library, and measuring for radio skip server songs; <b>Save to my music</b> in a song's menu downloads it into the first music folder as a normal file.</p>
+        <p>Needle gets the whole list of songs when someone signs in, when Needle starts (at most every 30 minutes), and when they press <b>Update now</b>. A song the server no longer lists is marked missing, with its plays and ratings. <b>Refresh everything</b> gets every song and cover again, after a question; then songs the server no longer lists leave the library. Songs stream into a cache as they play; the last 2 GB played stay on the computer and play again without the network. Jumping ahead in a song that is still downloading asks the server for that part first, when the server allows it. The song after the next one downloads ahead of time. <b>Keep on this computer</b> (in a song's menu, or the pin on a server album's page) downloads songs to play without the network and never clears them. Tag editing, stems, Fix my library, and measuring for radio skip server songs; <b>Save to my music</b> in a song's menu downloads it into the first music folder as a normal file.</p>
         <h3 id="source-song">Source song</h3>
         <dl class="fields">
           <dt><code>id</code>, <code>title</code></dt><dd>Needed. The server's id for the song (text or a number), and its title.</dd>
@@ -342,7 +342,7 @@ fn run(command, ids) {
         <p>Numbers may also be text; empty or missing fields are fine.</p>
         <h3>Helpers for servers</h3>
         <dl class="api">
-          <dt><code>secret(key)</code>, <code>set_secret(key, value)</code>, <code>delete_secret(key)</code></dt><dd>Keep a password or token in the system's credential store (Windows Credential Manager, or GNOME Keyring or KWallet on Linux), under this plugin's name, instead of in Needle's files. Always allowed.</dd>
+          <dt><code>secret(key)</code>, <code>set_secret(key, value)</code>, <code>delete_secret(key)</code></dt><dd>Keep a password or token in the system's credential store (Windows Credential Manager, GNOME Keyring or KWallet on Linux, or the macOS Keychain), under this plugin's name, instead of in Needle's files. Always allowed.</dd>
           <dt><code>md5(text)</code></dt><dd>The MD5 hash of the text, as 32 hex digits (Subsonic's salted sign-in uses it).</dd>
           <dt><code>random_text(length)</code></dt><dd>Random letters and digits.</dd>
           <dt><code>url_encode(text)</code></dt><dd>Text made safe for a web address.</dd>

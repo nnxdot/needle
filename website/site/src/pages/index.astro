@@ -241,7 +241,7 @@ const platforms = [
   <section id="android" class="android" aria-labelledby="android-title" data-android>
     <div class="wrap android-copy">
       <h2 id="android-title">Needle on <em>your phone.</em></h2>
-      <p>Needle for Android plays the music on your phone. Each album page, and the player, takes the colors of its cover.</p>
+      <p>Needle for Android plays the music on your phone, or from your music server. It runs on phones, tablets, and TVs. Each album page, and the player, takes the colors of its cover.</p>
     </div>
     <div class="phones">
       <figure class="phone-shot ps-left">
@@ -405,7 +405,7 @@ const platforms = [
           </div>
           <div class="dl-info">
             <h3>Needle for Mac</h3>
-            <p class="dl-meta">Version <span data-version="mac">{macVersion}</span>. Macs with Apple silicon (M1 or newer), macOS 11 or newer.</p>
+            <p class="dl-meta">Version <span data-version="mac">{macVersion}</span>. Macs with Apple silicon (M1 or newer), macOS 15 or newer.</p>
             <p class="dl-step">Paste this into Terminal, then press Return:</p>
             <div class="command">
               <code data-command>curl -fsSL https://needle.nnx.fyi/install-mac.sh | bash</code>
@@ -448,7 +448,7 @@ const platforms = [
               <a class="btn btn-primary" href={href("apkArm")} data-asset="apkArm"><Icon name="download-simple" weight="bold" />For most phones</a>
               <a class="btn btn-quiet" href={href("apkX86")} data-asset="apkX86">For Intel and AMD devices</a>
             </div>
-            <p class="dl-note">Most phones and tablets need the first one (ARM64). The second (x86_64) is for devices with Intel or AMD chips, and for emulators. Open the downloaded file to install it. <span class="dl-size"><span data-size="apkArm">{size("apkArm")}</span> each.</span></p>
+            <p class="dl-note">Most phones and tablets need the first one (ARM64). The second (x86_64) is for devices with Intel or AMD chips, and for emulators. Open the downloaded file to install it. Older TVs with a 32-bit chip need <a href={href("apkArm7")} data-asset="apkArm7">the 32-bit one (ARMv7)</a>. <span class="dl-size"><span data-size="apkArm">{size("apkArm")}</span> each.</span></p>
           </div>
         </div>
 
