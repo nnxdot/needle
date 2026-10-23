@@ -289,7 +289,98 @@ fun MusicServers() {
         color = MaterialTheme.colorScheme.onSurfaceVariant,
         modifier = Modifier.padding(horizontal = Edge, vertical = 4.dp),
     )
-    servers.forEach { ServerSection(it) }
+    servers.forEach { server ->
+        ServerSection(server)
+        if (server.source?.signedIn == true) PhoneStorage(server)
+    }
+}
+
+/** What one server's songs take on this phone: its count of songs and their size, in words. */
+private fun usage(context: android.content.Context, use: List<ULong>?): String {
+    val songs = use?.getOrNull(0)?.toInt() ?: 0
+    val bytes = use?.getOrNull(1)?.toLong() ?: 0L
+    return if (songs == 0) "None" else "${count(songs, "song")} · ${android.text.format.Formatter.formatShortFileSize(context, bytes)}"
+}
+
+/**
+ * What a server's songs take on this phone: the songs kept on purpose, and the songs played
+ * lately (which play again without the network), each with a way to give the space back,
+ * after a question. As on the iPhone and the Mac.
+ */
+@Composable
+private fun PhoneStorage(server: PluginItem) {
+    val context = androidx.compose.ui.platform.LocalContext.current
+    var refresh by remember { mutableIntStateOf(0) }
+    var kept by remember { mutableStateOf<List<ULong>?>(null) }
+    var cached by remember { mutableStateOf<List<ULong>?>(null) }
+    // Read again now and then: songs are kept and played while the page is open.
+    LaunchedEffect(server.id, refresh) {
+        while (true) {
+            withContext(Dispatchers.IO) {
+                kept = runCatching { core.keptUsage(server.id) }.getOrNull()
+                cached = runCatching { core.streamCacheUsage(server.id) }.getOrNull()
+            }
+            delay(5000)
+        }
+    }
+    var asking by remember { mutableStateOf<String?>(null) }
+    val keptSongs = kept?.getOrNull(0)?.toInt() ?: 0
+    val cachedSongs = cached?.getOrNull(0)?.toInt() ?: 0
+    val cachedSize = android.text.format.Formatter.formatShortFileSize(context, cached?.getOrNull(1)?.toLong() ?: 0L)
+    Section(title = "On this phone") {
+        StorageRow("Kept offline", "Songs you chose to keep.", usage(context, kept), if (keptSongs > 0) "Stop keeping all" else null) { asking = "kept" }
+        HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant, modifier = Modifier.padding(horizontal = 16.dp))
+        StorageRow("Played lately", "They play again without the network.", usage(context, cached), if (cachedSongs > 0) "Free space" else null) { asking = "cache" }
+    }
+    when (asking) {
+        "kept" -> androidx.compose.material3.AlertDialog(
+            onDismissRequest = { asking = null },
+            title = { Text("Stop keeping ${count(keptSongs, "song")}?") },
+            text = { Text("They stay on this phone until the space is needed, then they stream again.") },
+            confirmButton = {
+                TextButton(onClick = {
+                    asking = null
+                    NeedleApp.instance.scope.launch(Dispatchers.IO) {
+                        runCatching { core.forgetKept(server.id) }
+                            .onSuccess { showMessage("Stopped keeping ${count(it.toInt(), "song")}") }
+                            .onFailure { showMessage(it.message ?: "Could not stop keeping the songs") }
+                        refresh++
+                    }
+                }) { Text("Stop keeping") }
+            },
+            dismissButton = { TextButton(onClick = { asking = null }) { Text("Cancel") } },
+        )
+        "cache" -> androidx.compose.material3.AlertDialog(
+            onDismissRequest = { asking = null },
+            title = { Text("Free $cachedSize?") },
+            text = { Text("These songs stream again the next time you play them. Songs you kept stay.") },
+            confirmButton = {
+                TextButton(onClick = {
+                    asking = null
+                    NeedleApp.instance.scope.launch(Dispatchers.IO) {
+                        runCatching { core.clearStreamCache(server.id) }
+                            .onSuccess { showMessage("Freed the space of ${count(it.toInt(), "song")}") }
+                            .onFailure { showMessage(it.message ?: "Could not free the space") }
+                        refresh++
+                    }
+                }) { Text("Free space") }
+            },
+            dismissButton = { TextButton(onClick = { asking = null }) { Text("Cancel") } },
+        )
+    }
+}
+
+/** One kind of song on the phone: what it is, how much, and its button (none when empty). */
+@Composable
+private fun StorageRow(title: String, detail: String, amount: String, action: String?, onAction: () -> Unit) {
+    Row(Modifier.fillMaxWidth().padding(16.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+        Column(Modifier.weight(1f)) {
+            Text(title, style = MaterialTheme.typography.bodyLarge)
+            Text(detail, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Text(amount, style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary, modifier = Modifier.padding(top = 4.dp))
+        }
+        if (action != null) FilledTonalButton(onClick = onAction) { Text(action) }
+    }
 }
 
 /** A titled group of rows on one rounded surface. */
