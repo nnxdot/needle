@@ -39,10 +39,15 @@ struct ScanPill: View {
 
 // MARK: - Home
 
+/// Home: a greeting, a grid of quick picks, the big cards, your week, and shelves of albums,
+/// artists, and playlists, each with a line saying what it holds.
 struct HomeView: View {
     @Environment(Store.self) private var store
     @State private var home: Home?
     @State private var playlists: [Playlist] = []
+    @State private var week: Stats?
+    /// The artists played most this month, with their pictures.
+    @State private var artists: [TopArtist] = []
     @State private var importing = false
 
     var body: some View {
@@ -53,12 +58,24 @@ struct HomeView: View {
                     if home.recent.isEmpty && home.added.isEmpty && home.mostPlayed.isEmpty {
                         empty
                     } else {
+                        Text(greeting).font(.title3.weight(.semibold)).foregroundStyle(.secondary)
+                            .padding(.horizontal).padding(.top, 2)
+                        quickPicks(home)
                         picks(home)
-                        shelf("Recently Played", home.recent, route: nil)
-                        shelf("Recently Added", home.added, route: .albums)
-                        shelf("Most Played", home.mostPlayed, route: nil)
+                        shelf("Jump back in", "Albums you played last", home.recent, route: .history)
+                        if let week, week.plays > 0 { WeekCard(stats: week).padding(.top, 22) }
+                        shelf("New in your library", "Added most recently", home.added, route: .albums)
+                        shelf("On repeat", "Your most played albums", home.mostPlayed, route: nil)
+                        if !artists.isEmpty {
+                            SectionTitle(title: "Artists you play most", route: .artists, detail: "This month")
+                            Shelf {
+                                ForEach(artists) { artist in
+                                    ArtistBubble(name: artist.name, artwork: artist.artwork)
+                                }
+                            }
+                        }
                         if !playlists.isEmpty {
-                            SectionTitle(title: "Playlists", route: .playlists)
+                            SectionTitle(title: "Playlists", route: .playlists, detail: "Yours, and the smart ones")
                             Shelf {
                                 ForEach(playlists) { PlaylistTile(playlist: $0) }
                             }
@@ -81,8 +98,38 @@ struct HomeView: View {
         .task(id: store.libraryVersion) {
             home = await store.load { try $0.home() }
             playlists = await store.load { try $0.playlists() } ?? []
+            week = await store.load { try $0.stats(days: 7) }
+            artists = await store.load { core in
+                let top = try core.stats(days: 30).topArtists.filter { !$0.artist.isEmpty && !isPlaceholderArtist($0.artist) }.prefix(12)
+                let pictures = Dictionary(try core.artists().map { ($0.name, $0.artwork) }, uniquingKeysWith: { a, _ in a })
+                return top.map { TopArtist(name: $0.artist, artwork: (pictures[$0.artist] ?? nil) ?? $0.artwork) }
+            } ?? []
         }
         .refreshable { store.rescan() }
+    }
+
+    private var greeting: String {
+        switch Calendar.current.component(.hour, from: Date()) {
+        case 5..<12: "Good morning"
+        case 12..<18: "Good afternoon"
+        default: "Good evening"
+        }
+    }
+
+    /// Quick picks, two to a row, as small tiles: the albums played last and the playlists.
+    @ViewBuilder
+    private func quickPicks(_ home: Home) -> some View {
+        let albums = home.recent.prefix(playlists.isEmpty ? 6 : 4).map { QuickPick.album($0) }
+        let lists = playlists.prefix(6 - albums.count).map { QuickPick.playlist($0) }
+        let all = albums + lists
+        // Only when it adds picks beyond the big cards (a small library would show them twice).
+        if all.count >= 4 {
+            LazyVGrid(columns: [GridItem(.flexible(), spacing: 10), GridItem(.flexible(), spacing: 10)], spacing: 10) {
+                ForEach(all) { pick in QuickPickTile(pick: pick) }
+            }
+            .padding(.horizontal)
+            .padding(.top, 14)
+        }
     }
 
     /// The big cards at the top: the most played albums, or the newest when nothing has played.
@@ -102,9 +149,9 @@ struct HomeView: View {
     }
 
     @ViewBuilder
-    private func shelf(_ title: String, _ albums: [Album], route: Route?) -> some View {
+    private func shelf(_ title: String, _ detail: String, _ albums: [Album], route: Route?) -> some View {
         if !albums.isEmpty {
-            SectionTitle(title: title, route: route)
+            SectionTitle(title: title, route: route, detail: detail)
             Shelf {
                 ForEach(albums) { AlbumTile(album: $0) }
             }
@@ -116,7 +163,7 @@ struct HomeView: View {
             ContentUnavailableView {
                 Label("No music yet", systemImage: "music.note.house")
             } description: {
-                Text("Import songs from the Files app, or put them in Files › On My iPhone › Needle. Music servers and your computer are in Sources.")
+                Text("Import songs from the Files app, or put them in Files › On My iPhone › Needle. Music servers and your computer are in Settings.")
             }
             Button { importing = true } label: {
                 Label("Import from Files", systemImage: "folder").padding(.horizontal, 8).padding(.vertical, 4)
@@ -124,6 +171,116 @@ struct HomeView: View {
             .buttonStyle(.glassProminent)
         }
         .padding(.top, 60)
+    }
+}
+
+/// An artist played most, with their picture.
+struct TopArtist: Identifiable, Hashable, Sendable {
+    let name: String
+    let artwork: String?
+    var id: String { name }
+}
+
+/// A quick pick on Home: an album or a playlist.
+enum QuickPick: Identifiable {
+    case album(Album)
+    case playlist(Playlist)
+
+    var id: String {
+        switch self {
+        case .album(let a): "a:" + a.key
+        case .playlist(let p): "p:" + p.id
+        }
+    }
+}
+
+/// A quick pick as a small tile: its cover and name, on glass.
+struct QuickPickTile: View {
+    let pick: QuickPick
+
+    var body: some View {
+        let (route, name): (Route, String) = switch pick {
+        case .album(let a): (.album(a), a.title)
+        case .playlist(let p): (.playlist(p), p.name)
+        }
+        NavigationLink(value: route) {
+            HStack(spacing: 10) {
+                Group {
+                    switch pick {
+                    case .album(let a): Artwork(path: a.artwork, seed: a.title + a.artist, size: 160)
+                    case .playlist(let p): PlaylistCover(playlist: p)
+                    }
+                }
+                .frame(width: 52, height: 52)
+                .clipShape(.rect(cornerRadius: 9))
+                Text(name).font(.footnote.weight(.semibold)).lineLimit(2).multilineTextAlignment(.leading)
+                Spacer(minLength: 0)
+            }
+            .padding(5)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .glassEffect(.regular, in: .rect(cornerRadius: 14))
+            .contentShape(.rect)
+        }
+        .buttonStyle(Pressable())
+    }
+}
+
+/// Your week of listening, in short: time, plays, and the artist played most; a tap opens it all.
+struct WeekCard: View {
+    let stats: Stats
+
+    var body: some View {
+        NavigationLink(value: Route.stats) {
+            HStack(spacing: 14) {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("YOUR WEEK").font(.caption.weight(.bold)).kerning(0.6).foregroundStyle(.secondary)
+                    Text(hoursMinutes(stats.seconds)).font(.title.bold()).monospacedDigit()
+                    Text("\(count(Int(stats.plays), "play")) · \(count(Int(stats.artists), "artist"))")
+                        .font(.subheadline).foregroundStyle(.secondary)
+                    if let top = stats.topArtists.first, !top.artist.isEmpty {
+                        Text("Most: \(top.artist)").font(.subheadline.weight(.medium)).lineLimit(1)
+                    }
+                }
+                Spacer(minLength: 8)
+                // A bar for each day of the week.
+                HStack(alignment: .bottom, spacing: 4) {
+                    let most = max(stats.days.map(\.seconds).max() ?? 1, 1)
+                    ForEach(Array(stats.days.suffix(7).enumerated()), id: \.offset) { _, day in
+                        Capsule().fill(.tint).frame(width: 7, height: max(4, 54 * day.seconds / most))
+                    }
+                }
+                .frame(height: 56, alignment: .bottom)
+                .accessibilityHidden(true)
+                Image(systemName: "chevron.right").font(.footnote.weight(.bold)).foregroundStyle(.tertiary)
+            }
+            .padding(16)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .glassEffect(.regular, in: .rect(cornerRadius: 22))
+            .padding(.horizontal)
+            .contentShape(.rect)
+        }
+        .buttonStyle(Pressable())
+    }
+}
+
+/// An artist as a round picture with their name under it.
+struct ArtistBubble: View {
+    let name: String
+    let artwork: String?
+
+    var body: some View {
+        NavigationLink(value: Route.artist(name)) {
+            VStack(spacing: 7) {
+                Artwork(path: artwork, seed: name, size: 300)
+                    .frame(width: 104, height: 104)
+                    .clipShape(.circle)
+                    .shadow(color: .black.opacity(0.25), radius: 8, y: 4)
+                Text(name).font(.footnote.weight(.medium)).lineLimit(1)
+            }
+            .frame(width: 110)
+            .contentShape(.rect)
+        }
+        .buttonStyle(Pressable())
     }
 }
 
