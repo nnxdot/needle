@@ -21,6 +21,7 @@ mod media_keys;
 mod menus;
 mod mini;
 mod motion;
+mod moving;
 mod now_playing;
 mod pages;
 mod palette;
