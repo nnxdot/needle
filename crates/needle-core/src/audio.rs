@@ -105,6 +105,9 @@ pub struct PlaybackState {
     /// `current` is a song from a server that is still connecting (its time is not moving
     /// yet).
     pub loading: bool,
+    /// The music plays to speakers on the network (Chromecast, DLNA, AirPlay), which need the
+    /// network kept awake (a phone's Wi-Fi lock) as a song from a server does.
+    pub network_output: bool,
 }
 
 /// A song from a server that a helper thread is opening, for the output of `epoch`.
@@ -1908,6 +1911,7 @@ impl Worker {
         state.album_gain = state.replay_gain && self.settings.album_gain;
         state.loop_range = self.loop_range;
         state.exclusive = self.exclusive();
+        state.network_output = self.network().is_some();
         state.stems = self.stems.as_ref().map(|(id, _)| id.clone());
         Ok(())
     }
