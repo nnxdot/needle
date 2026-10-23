@@ -18,10 +18,11 @@ import kotlinx.coroutines.launch
  * Keeps the phone awake for the music while it plays, as Android's own players do: with the
  * screen off and locked, a phone or tablet otherwise lets its processor sleep between sounds
  * and puts its Wi-Fi to sleep. A song streamed from a music server then stops coming, and
- * after the core's waits (about a minute and a half), it stops playing.
+ * once the core has waited long enough, it stops playing.
  *
- * While music plays: the processor stays awake. While a server's song plays, or the phone
- * shows the computer's player: the Wi-Fi stays awake too. Both go when it pauses.
+ * While music plays: the processor stays awake. While a server's song plays, the music plays on
+ * a network speaker (Chromecast, DLNA, AirPlay), or the phone shows the computer's player: the
+ * Wi-Fi stays awake too. Both go when it pauses.
  */
 internal class PlaybackLocks(context: Context) {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
@@ -41,7 +42,7 @@ internal class PlaybackLocks(context: Context) {
         scope.launch {
             combine(app.playback, app.remoteShown) { playback, pc ->
                 val playing = playback?.playing == true
-                playing to (playing && (pc || playback?.current?.fromServer() == true))
+                playing to (playing && (pc || playback?.networkOutput == true || playback?.current?.fromServer() == true))
             }
                 .distinctUntilChanged()
                 .collectLatest { (playing, network) ->
