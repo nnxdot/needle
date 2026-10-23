@@ -80,6 +80,25 @@ impl AppView {
         {
             return None;
         }
+        // A music server's song: its moving cover comes from the server, once per album, on
+        // another thread; until then the still cover shows, and this looks again.
+        if track.source().is_some() {
+            let (found, looked) =
+                needle_core::media::server_moving_cover_kept(&self.library, track);
+            if !looked && self.moving_cover_asked.insert(track.id.clone()) {
+                let (library, track) = (self.library.clone(), track.clone());
+                std::thread::spawn(move || {
+                    needle_core::media::fetch_server_moving_cover(&library, &track);
+                });
+            }
+            return found
+                .filter(|p| {
+                    p.extension().is_some_and(|e| {
+                        e.eq_ignore_ascii_case("webp") || e.eq_ignore_ascii_case("gif")
+                    })
+                })
+                .map(|p| p.to_string_lossy().to_string());
+        }
         if self
             .moving_cover
             .as_ref()
