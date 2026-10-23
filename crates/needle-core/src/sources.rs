@@ -470,6 +470,24 @@ fn kept_path_in(cache: &Path, track: &Track) -> Result<PathBuf> {
     Ok(kept_dir(cache).join(plugin).join(name))
 }
 
+/// Whether the song's stream holds its player still: a reader waits for a part that has not
+/// come yet (a slow server, or a dropped connection that is asked again). The output does
+/// not move then, but it is not stuck.
+pub fn waiting(track: &Track) -> bool {
+    track.source().is_some() && cache_dir().is_ok_and(|cache| waiting_in(&cache, track))
+}
+
+fn waiting_in(cache: &Path, track: &Track) -> bool {
+    let Ok(target) = cache_path_in(cache, track) else {
+        return false;
+    };
+    ACTIVE
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .get(&target)
+        .is_some_and(|job| job.lock().waiting > 0)
+}
+
 /// Whether a source song is on this computer (kept, or in the cache), so it plays without
 /// the network.
 pub fn is_cached(track: &Track) -> bool {
@@ -528,6 +546,8 @@ struct Progress {
     want: Option<u64>,
     /// The connection dropped and the download is asking again: readers wait for it.
     retrying: bool,
+    /// Readers waiting now for a part that has not come yet.
+    waiting: usize,
 }
 
 impl Progress {
@@ -942,16 +962,24 @@ impl Read for Growing {
             return Ok(0);
         }
         let position = self.position;
-        {
+        let missing = {
             let mut progress = self.job.lock();
-            if progress.covered_until(position).is_none() && !progress.done {
+            let missing = progress.covered_until(position).is_none() && !progress.done;
+            if missing {
                 progress.want = Some(position);
+                progress.waiting += 1;
             }
-        }
-        self.job.wait(
+            missing
+        };
+        let arrived = self.job.wait(
             |p| p.covered_until(position).is_some() || p.total.is_some_and(|t| position >= t),
             Duration::from_secs(600),
-        )?;
+        );
+        if missing {
+            let mut progress = self.job.lock();
+            progress.waiting = progress.waiting.saturating_sub(1);
+        }
+        arrived?;
         let end = {
             let progress = self.job.lock();
             match progress.covered_until(position) {
@@ -1516,6 +1544,50 @@ mod tests {
         job.finish(Duration::from_secs(30)).unwrap();
         job.release();
         assert_eq!(std::fs::read(&target).unwrap(), data);
+    }
+
+    /// A reader that waits for a part that has not come yet makes the song "waiting" (so the
+    /// player does not take the still output for a stuck one), until the part comes.
+    #[test]
+    fn a_reader_waiting_for_its_part_is_seen() {
+        let dir = tempfile::tempdir().unwrap();
+        let track = server_track("waiting");
+        let target = cache_path_in(dir.path(), &track).unwrap();
+        std::fs::create_dir_all(target.parent().unwrap()).unwrap();
+        let part = target.with_extension("flac.part");
+        std::fs::write(&part, vec![7u8; 1000]).unwrap();
+        let job = Arc::new(Download {
+            part,
+            target: target.clone(),
+            progress: Mutex::new(Progress {
+                ranges: vec![(0, 100)],
+                total: Some(1000),
+                // The connection dropped: the reader waits however long it takes.
+                retrying: true,
+                ..Default::default()
+            }),
+            changed: Condvar::new(),
+        });
+        ACTIVE.lock().unwrap().insert(target.clone(), job.clone());
+        assert!(!waiting_in(dir.path(), &track));
+        let reader = std::thread::spawn({
+            let job = job.clone();
+            move || read_at(&job, 500, 10)
+        });
+        let started = Instant::now();
+        while !waiting_in(dir.path(), &track) {
+            assert!(started.elapsed() < Duration::from_secs(5), "never waiting");
+            std::thread::sleep(Duration::from_millis(10));
+        }
+        {
+            let mut progress = job.lock();
+            progress.add(100, 1000);
+            progress.retrying = false;
+        }
+        job.changed.notify_all();
+        assert_eq!(reader.join().unwrap(), vec![7u8; 10]);
+        assert!(!waiting_in(dir.path(), &track));
+        ACTIVE.lock().unwrap().remove(&target);
     }
 
     /// An empty answer fails the download and leaves nothing in the cache to fail again.
