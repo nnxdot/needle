@@ -266,6 +266,9 @@ struct NowPlayingView: View {
         return RecordSpin(on: round && playing && !reduceMotion) {
             Artwork(path: song?.artwork, seed: seed, size: 1000)
                 .aspectRatio(1, contentMode: .fit)
+                // The moving cover (Moving covers on) plays in the square or the record too,
+                // cropped to it, while the cover pane shows.
+                .overlay { MovingCoverLayer(song: song, on: store.app.animatedCovers && !reduceMotion && pane == .cover) }
                 .clipShape(round ? AnyShape(.circle) : AnyShape(.rect(cornerRadius: 18)))
                 .overlay { if round { Circle().fill(.black).frame(width: 26).overlay(Circle().stroke(.white.opacity(0.3), lineWidth: 2)) } }
         }

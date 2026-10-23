@@ -35,7 +35,12 @@ struct BigPlayer: View {
                                 // The cover is the window's side itself: the words sit over its foot.
                                 Spacer(minLength: 0)
                             } else {
+                                // The moving cover (Moving covers on) plays in the square too, cropped to it.
                                 Cover(path: p.artwork, seed: p.album + p.artist, side: min(geo.size.height * 0.5, wide ? 460 : 340), corner: 14)
+                                    .overlay {
+                                        MovingCoverLayer(songID: store.current?.id, on: store.settings.animatedCovers && store.motion)
+                                            .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+                                    }
                                     .shadow(color: .black.opacity(0.45), radius: 40, y: 18)
                             }
                             VStack(spacing: 4) {
