@@ -673,7 +673,10 @@ fn forget_old_still_marks(folder: &Path) {
     }
     done.push(folder.to_path_buf());
     let marker = folder.join("asked-by-album");
-    if marker.is_file() || !folder.is_dir() {
+    if marker.is_file() {
+        return;
+    }
+    if !folder.is_dir() {
         let _ = std::fs::create_dir_all(folder);
         let _ = std::fs::write(&marker, b"");
         return;

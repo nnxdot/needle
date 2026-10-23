@@ -1,3 +1,19 @@
+# 1.8.0 [windows, linux]
+Navidrome built in, moving covers, and calmer Settings.
+! **Navidrome and Subsonic, built in.** Sign in to your music server in Settings › Library › Music servers, with no plugin to add. Its songs show with your own, with a small server icon beside the artist (turn it off in Settings › Appearance › Mark server songs). Long lists load faster, and Refresh everything gets every song and cover again and removes songs the server no longer has.
+- [play] **Moving covers.** An animated WebP or GIF beside an album's songs (cover.webp, animated.gif), or the album's moving cover on your music server, moves in the big player and in full screen. Turn it off in Settings › Appearance › Moving covers.
+- [palette] **Calmer Settings.** Every setting is a card with one short line. The look and the background are chosen by picture, and where things sit by small sketches. Sign-in forms open only when you press Connect or Sign in.
+- [signal] **Music that keeps playing.** When the network sleeps, a song from your server waits and goes on from where it stopped. If the server does not answer for 5 minutes, the song pauses at its place, and Play goes on from there.
+- [lyrics] **Lyrics under the player.** The line being sung shows under the player. Turn it on in Settings › Appearance.
+- [fullscreen] **One bar over the big player.** The big player shares the window's title bar, and its immersive cover fills the window at any size.
+- A cover changed on your server comes in with Refresh everything.
+- Stars you give the playing song show at once.
+- Small covers are smooth, not jagged.
+- On Windows 10, the window's glass no longer spills past its edge.
+- The buttons on the right of the player are larger, and the lyrics button is easier to tell apart.
+- Rows on Home scroll sideways with arrows.
+- Artist pictures from fanart.tv are the newest by when the photo was taken.
+- Last.fm signs in with one click on Connect.
 # 1.7.2 [macos]
 A fix for a crash.
 - Needle no longer quits when you leave an album's or artist's page while its colours are still coming in, or just as a new song's colours come in.
