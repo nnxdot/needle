@@ -192,7 +192,21 @@ impl AppView {
                                     .child(self.service_line(&lastfm, cx)),
                             )
                             .when(!lastfm.configured && self.lastfm_pending.is_none(), |el| {
-                                el.child(self.connect_button("lastfm", cx))
+                                // With Needle's own Last.fm key built in, there is nothing to
+                                // fill in: Connect goes straight to Last.fm's page.
+                                if status.lastfm_app.configured {
+                                    el.child(
+                                        small_button("lastfm-connect", if busy { "Opening…" } else { "Connect" })
+                                            .primary()
+                                            .disabled(busy)
+                                            .on_click(cx.listener(|this, _, _, cx| {
+                                                this.lastfm_begin(cx);
+                                                cx.notify();
+                                            })),
+                                    )
+                                } else {
+                                    el.child(self.connect_button("lastfm", cx))
+                                }
                             })
                             .when(lastfm.configured && !from_env(&lastfm), |el| {
                                 el.child(small_button("lastfm-out", "Sign out").ghost().on_click(cx.listener(|this, _, _, cx| {
