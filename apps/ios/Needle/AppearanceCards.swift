@@ -12,6 +12,7 @@ struct AppearanceView: View {
 
     var body: some View {
         let app = store.app
+        ScrollViewReader { reader in
         Form {
             Section {
                 LazyVGrid(columns: two, spacing: 14) {
@@ -73,10 +74,16 @@ struct AppearanceView: View {
                     }
                 }
                 toggle("Moving covers", "A video, or an animated WebP or GIF, beside the songs.", "play.rectangle.fill", .purple, \.animatedCovers)
+                // A dependent row (SETTINGS-STYLE.md): only while Moving covers is on.
+                if app.animatedCovers {
+                    toggle("On mobile data", "Downloads moving covers without Wi-Fi.", "antenna.radiowaves.left.and.right", .green, \.movingCoversOnMobileData)
+                        .padding(.leading, 16)
+                }
                 toggle("Volume slider", "Under the controls.", "speaker.wave.2.fill", .gray, \.volumeSlider)
                 toggle("Swipe the cover to skip", "Next or last song.", "hand.draw.fill", .gray, \.swipeCover)
                 toggle("Open the player on play", "When you choose a song.", "arrow.up.forward.app.fill", .gray, \.openPlayerOnPlay)
             }
+            .id("player")
             Section("The mini player and lists") {
                 toggle("Lyrics under the mini player", "The line being sung, in place of the artist.", "quote.bubble.fill", .pink, \.miniPlayerLyrics)
                 toggle("Mark server songs", "A small server icon beside their artist.", "server.rack", .cyan, \.serverMark)
@@ -89,6 +96,15 @@ struct AppearanceView: View {
                 toggle("Haptics", "A little tap on play, pause, and long presses.", "hand.tap.fill", .green, \.haptics)
                 toggle("Reduce motion", "Needle's own switch, besides the iPhone's.", "figure.walk.motion", .blue, \.reduceMotion)
             }
+        }
+        #if DEBUG
+        // Test builds: -appearance-scroll player opens the page at The player.
+        .task {
+            guard UserDefaults.standard.string(forKey: "appearance-scroll") == "player" else { return }
+            try? await Task.sleep(for: .milliseconds(700))
+            reader.scrollTo("player", anchor: .top)
+        }
+        #endif
         }
         .navigationTitle("Appearance")
         .themed()

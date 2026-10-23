@@ -719,7 +719,7 @@ struct ImmersiveCover: View {
             if animated, let test = UserDefaults.standard.string(forKey: "animated-cover") { video = URL(fileURLWithPath: test); return }
             #endif
             guard animated, let id = song?.id, !(song?.onComputer ?? true) else { return }
-            let found = (await store.load { $0.animatedCover(id: id) } ?? nil).map(URL.init(fileURLWithPath:))
+            let found = await store.movingCover(id)
             if !Task.isCancelled { video = found }
         }
     }

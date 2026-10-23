@@ -174,7 +174,7 @@ struct MovingCoverLayer: View {
         .task(id: "\(song?.id ?? "")|\(on)") {
             file = nil
             guard on, let id = song?.id, !(song?.onComputer ?? true) else { return }
-            let found = (await store.load { $0.animatedCover(id: id) } ?? nil).map(URL.init(fileURLWithPath:))
+            let found = await store.movingCover(id)
             if !Task.isCancelled { file = found }
         }
     }
