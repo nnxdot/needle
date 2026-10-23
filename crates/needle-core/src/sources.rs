@@ -24,6 +24,9 @@ pub const SCHEME: &str = "source://";
 pub const CACHE_LIMIT: u64 = 2 << 30;
 /// How long a stream may stall before playback gives up.
 const STALL: Duration = Duration::from_secs(30);
+/// How long a dropped stream is asked for again, from where it stopped, before playback gives
+/// up: a locked phone's Wi-Fi can sleep for a while, and a train goes through tunnels.
+const GIVE_UP: Duration = Duration::from_secs(5 * 60);
 
 /// A network error in plain words, without the link: a source's links carry sign-in tokens,
 /// which must not end up on screen or in the log.
@@ -523,6 +526,8 @@ struct Progress {
     readers: usize,
     /// Where a reader waits, far from where the download is: it jumps there.
     want: Option<u64>,
+    /// The connection dropped and the download is asking again: readers wait for it.
+    retrying: bool,
 }
 
 impl Progress {
@@ -592,7 +597,9 @@ impl Download {
                 last = progress.received;
                 quiet = Instant::now();
             }
-            if quiet.elapsed() > STALL || started.elapsed() > limit {
+            // A download that is asking again after a dropped connection is waited for (it
+            // gives up by itself after `GIVE_UP`).
+            if (quiet.elapsed() > STALL && !progress.retrying) || started.elapsed() > limit {
                 return Err(io::Error::new(
                     io::ErrorKind::TimedOut,
                     "The server stopped sending the song",
@@ -680,8 +687,30 @@ fn download(
     Ok(job)
 }
 
+/// After the connection dropped: wait a little (longer each time), and say whether to ask
+/// again: someone still listens, and the song has not been quiet for `GIVE_UP`.
+fn may_retry(job: &Download, tries: &mut u32, quiet: Instant) -> bool {
+    if job.lock().readers == 0 || quiet.elapsed() > GIVE_UP {
+        return false;
+    }
+    job.lock().retrying = true;
+    job.changed.notify_all();
+    let pause = Duration::from_secs(1 << (*tries).min(4)).min(Duration::from_secs(15));
+    *tries += 1;
+    let until = Instant::now() + pause;
+    while Instant::now() < until {
+        if job.lock().readers == 0 {
+            return false;
+        }
+        std::thread::sleep(Duration::from_millis(200));
+    }
+    true
+}
+
 /// Download the song into its `.part` file, jumping to where a reader waits when the server
 /// can send part of a file, then filling the gaps. Renames it to the cache file when whole.
+/// A dropped connection is asked again from where the song stopped (see `may_retry`), so a
+/// network that sleeps for a while does not end the song.
 fn fetch(job: &Download, link: &str) -> Result<()> {
     // `timeout` bounds each read of the answer, so a server that goes quiet ends the
     // download (and frees its place for the next try) instead of hanging it.
@@ -698,14 +727,38 @@ fn fetch(job: &Download, link: &str) -> Result<()> {
     // Whether the server sends parts of the file; unknown until it is asked.
     let mut ranged = true;
     let mut buffer = vec![0u8; 64 * 1024];
+    // When data last came, and how often it was asked again since.
+    let (mut quiet, mut tries) = (Instant::now(), 0u32);
+    // Where to go on from after a dropped connection: the first part still missing.
+    let resume = |ranged: bool| -> u64 {
+        if !ranged {
+            return 0;
+        }
+        let progress = job.lock();
+        progress
+            .first_gap()
+            .or_else(|| progress.ranges.first().map(|r| r.1))
+            .unwrap_or(0)
+    };
     loop {
         let mut request = client.get(link);
         if start > 0 {
             request = request.header("Range", format!("bytes={start}-"));
         }
-        let mut response = request
-            .send()
-            .map_err(|e| anyhow::anyhow!(http_error(&e)))?;
+        let mut response = match request.send() {
+            Ok(response) => response,
+            Err(error) => {
+                if may_retry(job, &mut tries, quiet) {
+                    crate::logfile::info(format!(
+                        "A stream's connection failed ({}); asking again",
+                        http_error(&error)
+                    ));
+                    start = resume(ranged);
+                    continue;
+                }
+                bail!("{}", http_error(&error));
+            }
+        };
         let status = response.status();
         if !status.is_success() {
             bail!("The server answered {status}");
@@ -751,13 +804,21 @@ fn fetch(job: &Download, link: &str) -> Result<()> {
         file.seek(SeekFrom::Start(start))?;
         let mut at = start;
         let mut next = None;
+        let mut dropped = false;
         loop {
-            let n = response
-                .read(&mut buffer)
-                .map_err(|_| anyhow::anyhow!("The server stopped sending the song"))?;
+            let n = match response.read(&mut buffer) {
+                Ok(n) => n,
+                Err(_) if may_retry(job, &mut tries, quiet) => {
+                    crate::logfile::info("A stream stopped coming; asking again from where it was");
+                    dropped = true;
+                    break;
+                }
+                Err(_) => bail!("The server stopped sending the song"),
+            };
             if n == 0 {
                 break;
             }
+            (quiet, tries) = (Instant::now(), 0);
             file.write_all(&buffer[..n])?;
             file.flush()?;
             let mut progress = job.lock();
@@ -770,6 +831,7 @@ fn fetch(job: &Download, link: &str) -> Result<()> {
             }
             progress.add(at, at + n as u64);
             progress.received += n as u64;
+            progress.retrying = false;
             at += n as u64;
             let stop = progress.readers == 0;
             // A reader waiting well past this download, or this download reaching a part
@@ -793,6 +855,10 @@ fn fetch(job: &Download, link: &str) -> Result<()> {
             if next.is_some() {
                 break;
             }
+        }
+        if dropped {
+            start = resume(ranged);
+            continue;
         }
         // An answer with nothing in it: the song cannot be read from here, so the download
         // fails (and nothing is cached) instead of keeping an empty song or asking again.
@@ -1324,6 +1390,55 @@ mod tests {
         (address, starts)
     }
 
+    /// A file server whose first answer stops after `cut` bytes, as a connection that drops
+    /// (a phone's Wi-Fi asleep); later ones answer "Range: bytes=N-" in full. Records each
+    /// request's start.
+    fn dropping_server(data: Vec<u8>, cut: usize) -> (String, Arc<Mutex<Vec<u64>>>) {
+        use std::io::{BufRead, BufReader};
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let address = format!("http://{}/song", listener.local_addr().unwrap());
+        let starts: Arc<Mutex<Vec<u64>>> = Arc::default();
+        let log = starts.clone();
+        std::thread::spawn(move || {
+            for (n, stream) in listener.incoming().flatten().enumerate() {
+                let mut reader = BufReader::new(stream.try_clone().unwrap());
+                let mut start = 0u64;
+                loop {
+                    let mut line = String::new();
+                    if reader.read_line(&mut line).is_err() || line.trim().is_empty() {
+                        break;
+                    }
+                    if let Some(value) = line.to_lowercase().strip_prefix("range: bytes=") {
+                        start = value.trim().trim_end_matches('-').parse().unwrap_or(0);
+                    }
+                }
+                log.lock().unwrap().push(start);
+                let body = &data[start as usize..];
+                let head = if start > 0 {
+                    format!(
+                        "HTTP/1.1 206 Partial Content\r\nContent-Type: audio/flac\r\nContent-Length: {}\r\nContent-Range: bytes {start}-{}/{}\r\nConnection: close\r\n\r\n",
+                        body.len(),
+                        data.len() - 1,
+                        data.len()
+                    )
+                } else {
+                    format!(
+                        "HTTP/1.1 200 OK\r\nContent-Type: audio/flac\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+                        body.len()
+                    )
+                };
+                let mut stream = stream;
+                let _ = stream.write_all(head.as_bytes());
+                // The first answer drops part way; the rest are whole.
+                let sent = if n == 0 { &body[..cut] } else { body };
+                let _ = stream.write_all(sent);
+                let _ = stream.flush();
+                drop(stream);
+            }
+        });
+        (address, starts)
+    }
+
     fn song_bytes() -> Vec<u8> {
         (0..4_000_000u32).map(|i| (i % 251) as u8).collect()
     }
@@ -1339,6 +1454,26 @@ mod tests {
             },
             0,
         )
+    }
+
+    /// A connection that drops in the middle of a song: the download asks again from where
+    /// the song stopped (not from its start), and the song arrives whole.
+    #[test]
+    fn a_dropped_stream_goes_on_from_where_it_stopped() {
+        let data = song_bytes();
+        let cut = 1 << 20;
+        let (link, starts) = dropping_server(data.clone(), cut);
+        let dir = tempfile::tempdir().unwrap();
+        let track = server_track("dropped");
+        let target = dir.path().join("dropped.flac");
+        let resolver = move |_: &str, _: &str| Ok(link.clone());
+        let job = download(&track, &target, dir.path(), &resolver).unwrap();
+        job.finish(Duration::from_secs(60)).unwrap();
+        job.release();
+        assert_eq!(std::fs::read(&target).unwrap(), data);
+        let starts = starts.lock().unwrap().clone();
+        assert_eq!(starts.len(), 2, "{starts:?}");
+        assert_eq!(starts[1], cut as u64, "went on from where it stopped");
     }
 
     fn read_at(job: &Arc<Download>, at: u64, length: usize) -> Vec<u8> {
