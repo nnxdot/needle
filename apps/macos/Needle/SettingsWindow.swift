@@ -60,26 +60,81 @@ struct SettingsWindow: View {
     }
 }
 
-/// One setting, as a row of a grouped form: its name and what it does, and its control on the
-/// right.
+/// One setting, as a row of a grouped form (as in System Settings): a small icon, its name and
+/// one short line, and its control on the right.
 struct SettingRow<Control: View>: View {
     let title: String
     var detail: String = ""
+    var icon: String?
     @ViewBuilder let control: Control
 
     var body: some View {
-        HStack(alignment: .center, spacing: 24) {
+        HStack(alignment: .center, spacing: 12) {
+            if let icon { RowIcon(name: icon) }
             VStack(alignment: .leading, spacing: 2) {
                 Text(title)
                 if !detail.isEmpty {
-                    Text(detail).font(.callout).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+                    Text(detail).font(.callout).foregroundStyle(.secondary).lineLimit(1).truncationMode(.tail)
+                        .help(detail)
                 }
             }
-            Spacer(minLength: 0)
+            Spacer(minLength: 12)
             control
                 .environment(\.settingTitle, title)
         }
         .padding(.vertical, 2)
+    }
+}
+
+/// A row's small icon, in the secondary color.
+struct RowIcon: View {
+    let name: String
+
+    var body: some View {
+        Image(systemName: name)
+            .font(.system(size: 14, weight: .regular))
+            .foregroundStyle(.secondary)
+            .frame(width: 22)
+            .accessibilityHidden(true)
+    }
+}
+
+/// A setting that opens to show more (as a disclosure row), with its current choice on the
+/// right while closed.
+struct OpenRow<Content: View>: View {
+    let title: String
+    let detail: String
+    let icon: String?
+    let value: String
+    let content: Content
+    @State private var open = false
+
+    init(title: String, detail: String = "", icon: String? = nil, value: String, @ViewBuilder content: () -> Content) {
+        self.title = title
+        self.detail = detail
+        self.icon = icon
+        self.value = value
+        self.content = content()
+    }
+
+    var body: some View {
+        DisclosureGroup(isExpanded: $open) {
+            content.padding(.top, 6)
+        } label: {
+            HStack(spacing: 12) {
+                if let icon { RowIcon(name: icon) }
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(title)
+                    if !detail.isEmpty { Text(detail).font(.callout).foregroundStyle(.secondary).lineLimit(1) }
+                }
+                Spacer(minLength: 12)
+                Text(value).foregroundStyle(.secondary).lineLimit(1).truncationMode(.middle)
+            }
+            .contentShape(Rectangle())
+            .onTapGesture { withAnimation(.snappy(duration: 0.2)) { open.toggle() } }
+            .accessibilityElement(children: .combine)
+            .accessibilityValue(value)
+        }
     }
 }
 
@@ -146,78 +201,78 @@ struct PlaybackSettingsView: View {
     var body: some View {
         let s = store.settings
         Section {
-            SettingRow(title: "ReplayGain", detail: "Evens out loudness using measured or tagged gain, with peak protection.") {
+            OpenRow(title: "Output device", detail: "Where the music plays.", icon: "hifispeaker",
+                    value: s.outputDevice == nil ? "System default" : s.outputDevice!.hasPrefix("speaker") ? "A network speaker" : s.outputDevice!) {
+                VStack(alignment: .leading, spacing: 2) {
+                    device("System default", selected: s.outputDevice == nil, value: nil)
+                    if let current = s.outputDevice, current.hasPrefix("speaker") {
+                        device("A speaker on the network", selected: true, value: current)
+                    }
+                    ForEach(devices, id: \.self) { name in
+                        device(name, selected: s.outputDevice == name, value: name)
+                    }
+                    Button("Look for outputs again") { loadDevices() }.buttonStyle(.link).padding(.top, 4)
+                }
+            }
+            if !members.isEmpty {
+                OpenRow(title: "Speaker timing", detail: "Move a late or early speaker's slider.", icon: "timer", value: "\(members.count) speakers") {
+                    ForEach(members, id: \.key) { member in
+                        HStack {
+                            Text(member.name).frame(width: 160, alignment: .leading).lineLimit(1)
+                            Slider(value: Binding(get: { Double(member.delay) }, set: { setDelay(member.key, Int32($0)) }), in: -1000...1000, step: 10)
+                            Text("\(member.delay > 0 ? "+" : "")\(member.delay) ms").monospacedDigit().frame(width: 72, alignment: .trailing)
+                        }
+                    }
+                }
+            }
+        } header: {
+            GroupHeader(title: "Sound output")
+        }
+        Section {
+            SettingRow(title: "ReplayGain", detail: "Evens out loudness, with peak protection.", icon: "waveform.path") {
                 SettingSwitch(key: "replay_gain", on: s.replayGain)
             }
             if s.replayGain {
-                SettingRow(title: "Keep album dynamics", detail: "Uses album gain when an album has been measured, so quiet songs stay quiet next to loud ones. Falls back to track gain.") {
+                SettingRow(title: "Keep album dynamics", detail: "Album gain when the album is measured.", icon: "dial.medium") {
                     SettingSwitch(key: "album_gain", on: s.albumGain)
                 }
             }
-            SettingRow(title: "Crossfade", detail: "Songs overlap as one ends and the next begins. Tracks that follow each other on an album stay gapless.") {
+            SettingRow(title: "Crossfade", detail: "Songs overlap as one ends. Albums stay gapless.", icon: "arrow.left.arrow.right") {
                 Picker("", selection: Binding(get: { Double(s.crossfade) }, set: { store.set(["crossfade": $0]) })) {
                     Text("Off").tag(0.0)
                     ForEach([2.0, 4, 6, 8, 12], id: \.self) { Text("\(Int($0)) s").tag($0) }
                 }
                 .pickerStyle(.segmented)
                 .labelsHidden()
-                .frame(width: 280)
+                .frame(width: 260)
             }
-        } header: {
-            GroupHeader(title: "Playback")
-        }
-        Section {
-            device("System default", selected: s.outputDevice == nil, value: nil)
-            if let current = s.outputDevice, current.hasPrefix("speaker") {
-                device("A speaker on the network", selected: true, value: current)
-            }
-            ForEach(devices, id: \.self) { name in
-                device(name, selected: s.outputDevice == name, value: name)
-            }
-        } header: {
-            HStack(alignment: .firstTextBaseline) {
-                GroupHeader(title: "Output device")
-                Spacer()
-                Button("Refresh") { loadDevices() }.buttonStyle(.link).font(.callout)
-            }
-        }
-        Section {
-            VStack(alignment: .leading, spacing: 6) {
-                HStack {
-                    TextField("Rule", text: $autoplay, prompt: Text("rating >= 4 and not played(7d) shuffle limit 20")).labelsHidden()
-                        .textFieldStyle(.roundedBorder)
-                    Button("Save") {
-                        let rule = autoplay.trimmingCharacters(in: .whitespaces)
-                        if let error = store.core.checkQuery(query: rule).error, !rule.isEmpty {
-                            store.fail(error)
-                        } else {
-                            store.set(["autoplay_query": rule])
-                            store.notify("Autoplay rule saved.")
+            OpenRow(title: "When the queue runs out", detail: "Keep playing songs that match a rule.", icon: "sparkles",
+                    value: s.autoplayQuery.isEmpty ? "Off" : s.autoplayQuery) {
+                VStack(alignment: .leading, spacing: 6) {
+                    Text("Leave it empty to stop when the queue ends.").font(.callout).foregroundStyle(.secondary)
+                    HStack {
+                        TextField("Rule", text: $autoplay, prompt: Text("rating >= 4 and not played(7d) shuffle limit 20")).labelsHidden()
+                            .textFieldStyle(.roundedBorder)
+                        Button("Save") {
+                            let rule = autoplay.trimmingCharacters(in: .whitespaces)
+                            if let error = store.core.checkQuery(query: rule).error, !rule.isEmpty {
+                                store.fail(error)
+                            } else {
+                                store.set(["autoplay_query": rule])
+                                store.notify("Autoplay rule saved.")
+                            }
                         }
                     }
                 }
             }
         } header: {
-            GroupHeader(title: "When the queue runs out", detail: "Needle keeps playing tracks that match this rule. Leave it empty to stop.")
-        }
-        if !members.isEmpty {
-            Section {
-                ForEach(members, id: \.key) { member in
-                    HStack {
-                        Text(member.name).frame(width: 160, alignment: .leading).lineLimit(1)
-                        Slider(value: Binding(get: { Double(member.delay) }, set: { setDelay(member.key, Int32($0)) }), in: -1000...1000, step: 10)
-                        Text("\(member.delay > 0 ? "+" : "")\(member.delay) ms").monospacedDigit().frame(width: 72, alignment: .trailing)
-                    }
-                }
-            } header: {
-                GroupHeader(title: "Speaker timing", detail: "Needle lines the speakers up for you. If one still sounds early or late, move its slider: to the right plays it later.")
-            }
+            GroupHeader(title: "Playing")
         }
         Section {
-            SettingRow(title: "Keep in the menu bar", detail: "Puts Needle in the menu bar. Closing the window hides it there and the music plays on; click the icon to play, pause, skip, show Needle, or quit.") {
+            SettingRow(title: "Keep in the menu bar", detail: "Closing the window keeps the music playing.", icon: "menubar.rectangle") {
                 SettingSwitch(key: "tray", on: s.tray)
             }
-            SettingRow(title: "Phone remote", detail: "Control Needle from a phone's web browser on the same Wi-Fi. Nothing to install on the phone.") {
+            SettingRow(title: "Phone remote", detail: "Control Needle from a phone on the same Wi-Fi.", icon: "iphone") {
                 RowToggle(isOn: Binding(get: { s.remote }, set: { on in
                     store.set(["remote": on])
                     Task { try? await Task.sleep(for: .milliseconds(300)); address = store.core.remoteAddress() }
@@ -335,25 +390,26 @@ struct LibrarySettings: View {
                 Button("Check for changes") { store.rescan() }.disabled(store.scan.running)
             }
         } header: {
-            GroupHeader(title: "Music folders", detail: "Needle watches these folders. It moves or removes files only when you ask, in Fix my library.")
+            GroupHeader(title: "Music folders")
         }
+        MusicServersSection()
         Section {
-            SettingRow(title: "Measure songs for radio", detail: measuredText) {
+            SettingRow(title: "Measure songs for radio", detail: measuredText, icon: "dot.radiowaves.left.and.right") {
                 SettingSwitch(key: "sound_analysis", on: s.soundAnalysis)
             }
         }
         Section {
-            SettingRow(title: "Look things up online", detail: "Finds missing album covers (MusicBrainz and the Cover Art Archive), artist photos (Wikimedia Commons), and lyrics (LRCLIB). Only artist, album, title, and length are sent.") {
+            SettingRow(title: "Look things up online", detail: "Missing covers, artist photos, and lyrics. Only names are sent.", icon: "globe") {
                 SettingSwitch(key: "online_media", on: s.onlineMedia)
             }
             if s.onlineMedia {
-                SettingRow(title: "Find missing album covers", detail: "Looks up every album without a cover. Large libraries take a while: MusicBrainz allows one request per second.") {
+                SettingRow(title: "Find missing album covers", detail: "Every album without one. Large libraries take a while.", icon: "photo.on.rectangle") {
                     Button("Find covers") {
                         store.notify("Looking for missing album covers in the background…")
                         store.job { "Found covers for \(try $0.findAllCovers()) albums." }
                     }
                 }
-                SettingRow(title: "Artists' logos", detail: "With online lookups on, artist pages show the artist's logo from fanart.tv. Needle asks MusicBrainz for the artist's ID by name, and sends fanart.tv only that ID. Needle has a key of its own; your own key, if you add one, stays in the macOS Keychain.") {
+                SettingRow(title: "Artists' logos", detail: "From fanart.tv. Needle has a key; yours is optional.", icon: "signature") {
                     if hasFanart {
                         Button("Remove your key", role: .destructive) {
                             Task {
@@ -377,7 +433,7 @@ struct LibrarySettings: View {
                 }
             }
         } header: {
-            GroupHeader(title: "Artwork and lyrics", detail: "Needle always uses covers, .lrc files, and lyrics tags found with your music.")
+            GroupHeader(title: "Artwork and lyrics")
         }
         .task(id: store.libraryVersion) {
             roots = (try? store.core.folders()) ?? []
@@ -387,9 +443,9 @@ struct LibrarySettings: View {
     }
 
     private var measuredText: String {
-        let base = "Needle listens to each song on this Mac (tempo, key, energy, and tone) to build radio stations."
+        let base = "Tempo, key, and energy, on this Mac."
         let (done, total) = (Int(measured.first ?? 0), Int(measured.last ?? 0))
-        if total == 0 { return base + " Nothing is sent anywhere." }
+        if total == 0 { return base }
         return done < total ? base + " \(done.formatted()) of \(total.formatted()) measured." : base + " All \(total.formatted()) measured."
     }
 
@@ -414,185 +470,7 @@ struct LibrarySettings: View {
     }
 }
 
-// MARK: - Appearance
-
-struct AppearanceSettings: View {
-    private var store: Store { .shared }
-    @State private var editing: ThemeFile?
-    @State private var newTheme = false
-
-    var body: some View {
-        let s = store.settings
-        Section {
-            VStack(alignment: .leading, spacing: 10) {
-                LazyVGrid(columns: [GridItem(.adaptive(minimum: 150), spacing: 14)], alignment: .leading, spacing: 14) {
-                    ForEach(Palette.bases, id: \.0) { mode, name, about in
-                        ThemeCard(mode: mode, name: name, about: about, theme: nil)
-                    }
-                    ForEach(store.themes) { theme in
-                        ThemeCard(mode: theme.id, name: theme.name, about: theme.readOnly ? "From \(theme.id.dropFirst(7).split(separator: "/").first ?? "")" : theme.author.isEmpty ? "Your theme" : "By \(theme.author)", theme: theme)
-                            .contextMenu {
-                                Button(theme.readOnly ? "Make a copy" : "Edit colors") { editing = theme }
-                                Button("Show the file") { store.reveal(theme.path) }
-                                if !theme.readOnly {
-                                    Button("Delete", role: .destructive) { delete(theme) }
-                                }
-                            }
-                    }
-                }
-                HStack {
-                    Button("New theme…") { newTheme = true }
-                    Button("Add a theme file…") { addTheme() }
-                    Button("Open themes folder") {
-                        let folder = store.core.themesFolder()
-                        try? FileManager.default.createDirectory(atPath: folder, withIntermediateDirectories: true)
-                        NSWorkspace.shared.open(URL(fileURLWithPath: folder))
-                    }
-                    if let theme = store.customTheme {
-                        Button(theme.readOnly ? "Make a copy" : "Edit colors") { editing = theme }
-                    }
-                }
-                .padding(.top, 4)
-            }
-            .padding(.vertical, 6)
-        } header: {
-            GroupHeader(title: "Look")
-        }
-        Section {
-            SettingRow(title: "Ambient background", detail: "The cover that is playing (or your chosen color) fills the whole background, blurred. Works with every look.") {
-                SettingSwitch(key: "ambient", on: s.ambient)
-            }
-            SettingRow(title: "Film grain", detail: "A fine texture over the whole window. Off by default.") {
-                HStack {
-                    Slider(value: Binding(get: { Double(s.grain) }, set: { store.set(["grain": $0]) }), in: 0...1).frame(width: 180)
-                    Text(s.grain <= 0.001 ? "Off" : "\(Int(s.grain * 100))%").monospacedDigit().frame(width: 40, alignment: .trailing).foregroundStyle(.secondary)
-                }
-            }
-            if !s.musicColors {
-                SettingRow(title: "Color", detail: "Tints the buttons, highlights, and surfaces.") {
-                    HStack(spacing: 6) {
-                        ForEach(Palette.accents, id: \.0) { hex, name in
-                            let color = Color(hex: hex) ?? Color(hex: "#e2b46c")!
-                            Button { store.set(["accent_color": hex]) } label: {
-                                Circle().fill(color).frame(width: 20, height: 20)
-                                    .padding(3)
-                                    .overlay(Circle().strokeBorder(s.accentColor == hex ? Color.primary : .clear, lineWidth: 2))
-                            }
-                            .buttonStyle(.plain)
-                            .help(name)
-                        }
-                    }
-                }
-            }
-            SettingRow(title: "Colors from the music", detail: "Tint Needle with the colors of the cover that is playing.") {
-                SettingSwitch(key: "music_colors", on: s.musicColors)
-            }
-            SettingRow(title: "Colors from covers", detail: "Album and artist pages, and the whole window while one is open, take the colors of its cover or photo.") {
-                SettingSwitch(key: "cover_colors", on: s.coverColors)
-            }
-            SettingRow(title: "Immersive cover", detail: "In the big player, the cover fills its side of the window edge to edge and fades into its colors, as in Apple Music.") {
-                SettingSwitch(key: "immersive_cover", on: s.immersiveCover)
-            }
-            SettingRow(title: "Moving covers", detail: "A video beside the songs, such as cover.mp4, plays as the cover in the big player.") {
-                SettingSwitch(key: "animated_covers", on: s.animatedCovers)
-            }
-            SettingRow(title: "Reduce motion", detail: NSWorkspace.shared.accessibilityDisplayShouldReduceMotion ? "Your Mac has animations turned down, so Needle keeps still too." : "Turns off fades, slides, and other animations.") {
-                SettingSwitch(key: "reduce_motion", on: s.reduceMotion)
-            }
-        } header: {
-            GroupHeader(title: "Window")
-        }
-        Section {
-            SettingRow(title: "Compact sidebar", detail: "Folding the sidebar leaves a strip of page icons, as in Apple Music, instead of hiding it altogether.") {
-                RowToggle(isOn: Binding(get: { s.layout.compactSidebar }, set: { store.setLayout(["compact_sidebar": $0]) })).toggleStyle(.switch).labelsHidden()
-            }
-            SettingRow(title: "Fold the sidebar now", detail: "The same as the sidebar button in the toolbar.") {
-                RowToggle(isOn: Binding(get: { s.layout.sidebarHidden }, set: { store.setLayout(["sidebar_hidden": $0]) })).toggleStyle(.switch).labelsHidden()
-            }
-            SettingRow(title: "Player in the title bar", detail: "The player sits in the bar at the top of the window, not at the foot of the page.") {
-                RowToggle(isOn: Binding(get: { s.layout.playerOnTop }, set: { store.setLayout(["player_on_top": $0]) })).toggleStyle(.switch).labelsHidden()
-            }
-            SettingRow(title: "Hide the search field", detail: "Search from the command palette instead (⌘K, or ⌘F).") {
-                RowToggle(isOn: Binding(get: { s.layout.searchHidden }, set: { store.setLayout(["search_hidden": $0]) })).toggleStyle(.switch).labelsHidden()
-            }
-        } header: {
-            GroupHeader(title: "Layout")
-        }
-        Section {
-            SettingRow(title: "Titles", detail: "The font for page titles, album and artist names, and the big player.") {
-                Picker("", selection: Binding(get: { s.displayFont }, set: { store.set(["display_font": $0]) })) {
-                    Text("System").tag("system")
-                    Text("Condensed").tag("bahnschrift")
-                    Text("Fraunces").tag("fraunces")
-                }
-                .pickerStyle(.segmented).labelsHidden().frame(width: 260)
-            }
-            SettingRow(title: "Density", detail: "Compact fits more tracks on screen.") {
-                Picker("", selection: Binding(get: { s.layout.rowHeight < 50 }, set: { store.setLayout(["row_height": $0 ? 36 : 58]) })) {
-                    Text("Compact").tag(true)
-                    Text("Comfortable").tag(false)
-                }
-                .pickerStyle(.segmented).labelsHidden().frame(width: 220)
-            }
-            SettingRow(title: "Layout file", detail: "Share the sidebar, panels, and row height as a small JSON file.") {
-                HStack {
-                    Button("Import…") { importLayout() }
-                    Button("Export…") { exportLayout() }
-                }
-            }
-        } header: {
-            GroupHeader(title: "Fonts and density")
-        }
-        .sheet(item: $editing) { theme in ThemeEditor(theme: theme).environment(store) }
-        .sheet(isPresented: $newTheme) { ThemeEditor(theme: nil).environment(store) }
-    }
-
-    private func addTheme() {
-        let panel = NSOpenPanel()
-        panel.allowedContentTypes = [UTType(filenameExtension: "toml") ?? .plainText]
-        guard panel.runModal() == .OK, let url = panel.url else { return }
-        store.importTheme(url)
-    }
-
-    private func delete(_ theme: ThemeFile) {
-        let id = theme.id
-        store.run { try $0.deleteTheme(id: id) }
-        if store.settings.theme == id { store.chooseTheme("dark", extras: nil) }
-        Task { try? await Task.sleep(for: .milliseconds(200)); store.reloadThemes(); store.notify("Deleted the theme \(theme.name).") }
-    }
-
-    private func importLayout() {
-        let panel = NSOpenPanel()
-        panel.allowedContentTypes = [.json]
-        guard panel.runModal() == .OK, let url = panel.url, let data = try? Data(contentsOf: url) else { return }
-        let text = String(decoding: data, as: UTF8.self)
-        do {
-            try store.core.checkLayout(json: text)
-            if let object = try JSONSerialization.jsonObject(with: data) as? [String: Any] {
-                store.set(["layout": object])
-                store.notify("Layout applied.")
-            }
-        } catch {
-            store.fail(error.message)
-        }
-    }
-
-    private func exportLayout() {
-        let panel = NSSavePanel()
-        panel.nameFieldStringValue = "needle-layout.json"
-        guard panel.runModal() == .OK, let url = panel.url,
-              let json = try? store.core.settingsJson(), let data = json.data(using: .utf8),
-              let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-              let layout = object["layout"],
-              let out = try? JSONSerialization.data(withJSONObject: layout, options: [.prettyPrinted, .sortedKeys]) else { return }
-        do {
-            try out.write(to: url)
-            store.notify("Layout exported.")
-        } catch {
-            store.fail(error.message)
-        }
-    }
-}
+// MARK: - Appearance (the page is in AppearancePage.swift)
 
 /// A small picture of a look, in today's colours, that switches to it when clicked.
 struct ThemeCard: View {
@@ -635,12 +513,15 @@ struct ThemeCard: View {
                 .frame(width: 150, height: 96)
                 .background(look.chrome, in: RoundedRectangle(cornerRadius: 10))
                 .overlay(RoundedRectangle(cornerRadius: 10).strokeBorder(active ? store.plainColors.accent : store.plainColors.line, lineWidth: 2))
+                .overlay(alignment: .topTrailing) { if active { CheckBadge().offset(x: 7, y: -7) } }
                 Text(name).font(.callout.weight(active ? .semibold : .regular)).lineLimit(1)
                 Text(about).font(.caption).foregroundStyle(.secondary).lineLimit(1)
             }
             .frame(width: 150, alignment: .leading)
         }
         .buttonStyle(.plain)
+        .accessibilityLabel("\(name), \(about)")
+        .accessibilityAddTraits(active ? .isSelected : [])
     }
 
     private func choose() {
@@ -773,7 +654,7 @@ struct DiscordSettingsView: View {
     var body: some View {
         let s = store.settings
         Section {
-            SettingRow(title: "Show what you're playing on Discord", detail: "When Discord is open on this Mac, your profile shows what is playing and a time bar. Needle finds Discord by itself and only talks to the real Discord app on this Mac.") {
+            SettingRow(title: "Show what you're playing", detail: "Your Discord profile shows what plays, with a time bar.", icon: "bubble.left.and.bubble.right") {
                 SettingSwitch(key: "discord_presence", on: s.discordPresence)
             }
         }
@@ -788,16 +669,16 @@ struct DiscordSettingsView: View {
                 GroupHeader(title: "What your profile shows")
             }
             Section {
-                SettingRow(title: "Look up covers", detail: "Discord can only show pictures from the web, so Needle finds the cover in Apple's iTunes catalog by artist and song name. Your files never leave this Mac. Turn this off to send no lookups at all.") {
+                SettingRow(title: "Look up covers", detail: "From Apple's iTunes catalog, by name. Off: no lookups.", icon: "photo") {
                     SettingSwitch(key: "discord_covers", on: s.discordCovers)
                 }
-                SettingRow(title: "Show the Needle logo", detail: "A small badge on the cover, and the picture when there is no cover.") {
+                SettingRow(title: "Show the Needle logo", detail: "A small badge on the cover.", icon: "seal") {
                     SettingSwitch(key: "discord_logo", on: s.discordLogo)
                 }
-                SettingRow(title: "Show while paused", detail: "Keeps the song on your profile, marked Paused, while the music is paused.") {
+                SettingRow(title: "Show while paused", detail: "The song stays on your profile, marked Paused.", icon: "pause") {
                     SettingSwitch(key: "discord_paused", on: s.discordPaused)
                 }
-                SettingRow(title: "Clear when nothing plays", detail: "After this long paused or stopped, the status goes away. It comes back when you play again.") {
+                SettingRow(title: "Clear when nothing plays", detail: "The status goes after this long paused.", icon: "clock") {
                     Picker("", selection: Binding(get: { s.discordIdleMinutes }, set: { store.set(["discord_idle_minutes": $0]) })) {
                         Text("5 min").tag(5)
                         Text("10 min").tag(10)
@@ -865,7 +746,7 @@ struct StemsSettings: View {
     var body: some View {
         Section {
             if let info {
-                SettingRow(title: "Split songs", detail: "\(Int(Double(info.used) / 1_048_576)) MB on this Mac.") {
+                SettingRow(title: "Split songs", detail: "\(Int(Double(info.used) / 1_048_576)) MB on this Mac.", icon: "square.stack.3d.up") {
                     Button("Delete all") {
                         store.core.deleteAllStems()
                         store.notify("All stems deleted.")
@@ -873,7 +754,7 @@ struct StemsSettings: View {
                     }
                     .disabled(info.used == 0)
                 }
-                SettingRow(title: "Separation model", detail: info.modelReady ? "Downloaded (166 MB)." : "Not downloaded. It downloads the first time you split a song.") {
+                SettingRow(title: "Separation model", detail: info.modelReady ? "Downloaded (166 MB)." : "Downloads the first time you split a song.", icon: "cpu") {
                     Button("Delete") {
                         store.core.deleteStemModel()
                         store.notify("Stem model deleted. It downloads again the next time you split a song.")
@@ -883,9 +764,9 @@ struct StemsSettings: View {
                 }
             }
         } header: {
-            GroupHeader(title: "Stems", detail: "Split songs into drums, bass, vocals, and other, on this Mac.")
+            GroupHeader(title: "Stems")
         } footer: {
-            Text("Split a song from its menu (Split into Stems), or from the details panel. Stems use HT-Demucs, running locally. Nothing is uploaded.")
+            Text("Split a song from its menu. It runs on this Mac; nothing is uploaded.")
                 .font(.callout).foregroundStyle(.secondary)
         }
         .task { refresh() }
@@ -903,10 +784,10 @@ struct DataSettings: View {
     var body: some View {
         let s = store.settings
         Section {
-            SettingRow(title: "Send crash reports", detail: "If Needle crashes, it sends a report the next time it starts: the Needle version, the system, and where in Needle it went wrong. File paths and your name are taken out first, and nothing is sent about your music or listening.") {
+            SettingRow(title: "Send crash reports", detail: "Version, system, and where it failed. No names or paths.", icon: "exclamationmark.triangle") {
                 SettingSwitch(key: "crash_reports", on: s.crashReports)
             }
-            SettingRow(title: "Log file", detail: "Needle writes what it does, and any errors, to a log on this Mac. It never leaves this Mac unless you share it.") {
+            SettingRow(title: "Log file", detail: "What Needle does and any errors, kept on this Mac.", icon: "doc.text") {
                 HStack {
                     Button("Open log folder") { NSWorkspace.shared.open(URL(fileURLWithPath: store.core.logFolder())) }
                     Button("Copy error report") {
@@ -915,14 +796,14 @@ struct DataSettings: View {
                     }
                 }
             }
-            SettingRow(title: "Welcome guide", detail: "The short guide Needle shows the first time it opens.") {
+            SettingRow(title: "Welcome guide", detail: "The short guide from the first start.", icon: "house") {
                 Button("Show it again") { store.welcome = true }
             }
         } header: {
             GroupHeader(title: "Privacy and help")
         }
         Section {
-            SettingRow(title: "Back up the library", detail: "Saves a consistent copy of the database, including recent changes.") {
+            SettingRow(title: "Back up the library", detail: "A copy of the database, with recent changes.", icon: "externaldrive") {
                 Button("Back up…") {
                     let panel = NSSavePanel()
                     panel.nameFieldStringValue = "needle-library.db"
@@ -930,7 +811,7 @@ struct DataSettings: View {
                     store.job { try $0.backupLibrary(path: path); return "Library backup saved." }
                 }
             }
-            SettingRow(title: "Import a playlist", detail: "Reads an M3U or M3U8 file. Add its music folder first so the tracks can be matched.") {
+            SettingRow(title: "Import a playlist", detail: "An M3U or M3U8 file. Add its music folder first.", icon: "music.note.list") {
                 Button("Import…") {
                     let panel = NSOpenPanel()
                     panel.allowedContentTypes = ["m3u", "m3u8"].compactMap { UTType(filenameExtension: $0) }
@@ -939,16 +820,19 @@ struct DataSettings: View {
                 }
             }
         } header: {
-            GroupHeader(title: "Your library", detail: "History, ratings, and playlists live in one local database.")
+            GroupHeader(title: "Your library")
         }
         Section {
-            HStack {
-                SecureField("Passphrase", text: $phrase, prompt: Text("Passphrase, at least 12 characters")).labelsHidden().textFieldStyle(.roundedBorder)
-                Button("Export…") { transfer(export: true) }
-                Button("Import…") { transfer(export: false) }
+            OpenRow(title: "Move to another computer", detail: "History, ratings, and playlists, encrypted.", icon: "arrow.right.arrow.left", value: "") {
+                VStack(alignment: .leading, spacing: 6) {
+                    Text("Import it where the same music files are, with the same passphrase.").font(.callout).foregroundStyle(.secondary)
+                    HStack {
+                        SecureField("Passphrase", text: $phrase, prompt: Text("Passphrase, at least 12 characters")).labelsHidden().textFieldStyle(.roundedBorder)
+                        Button("Export…") { transfer(export: true) }
+                        Button("Import…") { transfer(export: false) }
+                    }
+                }
             }
-        } header: {
-            GroupHeader(title: "Move to another computer", detail: "Exports an encrypted bundle of history, ratings, and playlists. Import it where the same music files exist, using the same passphrase.")
         }
     }
 

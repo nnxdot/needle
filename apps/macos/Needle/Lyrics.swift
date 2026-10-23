@@ -388,3 +388,43 @@ struct TimingPage: View {
         }
     }
 }
+
+/// Lyrics under the player (Settings › Appearance › Lyrics under the player): the line being
+/// sung, one line, fading in at each new one; a faint ♪ while none is (the intro, a gap). Only
+/// for timed lyrics, and not in the big or full screen player, which have their own.
+struct LyricStrip: View {
+    private var store: Store { .shared }
+
+    @MainActor static var shows: Bool {
+        let store = Store.shared
+        guard store.settings.playerLyrics, store.current != nil, !store.big, !store.immersive,
+              let lyrics = store.lyrics, !lyrics.instrumental else { return false }
+        return !lyrics.lines.isEmpty
+    }
+
+    var body: some View {
+        let colors = store.colors
+        let lines = store.lyrics?.lines ?? []
+        let text = store.lyricLine.flatMap { $0 < lines.count ? lines[$0].text.trimmingCharacters(in: .whitespaces) : nil } ?? ""
+        ZStack {
+            if text.isEmpty {
+                Text("♪").foregroundStyle(colors.ink3.opacity(0.7))
+                    .accessibilityLabel("No words sung now")
+            } else {
+                Text(text).foregroundStyle(colors.ink)
+            }
+        }
+        .id(store.lyricLine ?? -1)
+        .transition(.opacity)
+        .font(.system(size: 13, weight: .medium))
+        .lineLimit(1)
+        .truncationMode(.tail)
+        .padding(.horizontal, 14)
+        .frame(height: 22)
+        .frame(maxWidth: 640)
+        .pane(Capsule())
+        .animation(store.motion ? .easeOut(duration: 0.35) : nil, value: store.lyricLine)
+        .onTapGesture { store.panel = .lyrics; store.set(["show_inspector": true]) }
+        .help("Lyrics: click to see them all")
+    }
+}

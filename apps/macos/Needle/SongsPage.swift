@@ -125,7 +125,7 @@ struct SongsPage: View {
             case .favorites: Problem(title: "No favorites yet", detail: "Press the heart on any track, or drag songs onto Favorites.", steps: [.songs])
             case .folder: Problem(title: "No songs in this folder", detail: "Needle lists music it has scanned. Check for changes in Settings › Library if you added files here.", steps: [.songs])
             case .recent: Problem(title: "Nothing added in the last 30 days", detail: "New files in your music folders appear here automatically.", steps: [.addFolder])
-            case .source(_, let name): Problem(title: "No songs from \(name) yet", detail: "Needle is getting the list of songs, or the server has none. Check Settings › Plugins.", steps: [.songs])
+            case .source(_, let name): Problem(title: "No songs from \(name) yet", detail: "Needle is getting the list of songs, or the server has none. Check Settings › Library › Music servers.", steps: [.songs])
             case .playlist: Problem(title: "This playlist is empty", detail: "Drag songs onto the playlist in the sidebar, or right-click them and choose Add to Playlist.", steps: [.songs])
             case .songs: Problem(title: "Your library is empty", detail: "Add a folder with music, or bring your library over from iTunes, Spotify, or Last.fm.", steps: [.addFolder, .importing])
             default: Problem(title: "Nothing to show yet", detail: "Your songs are one click away.", steps: [.songs])
