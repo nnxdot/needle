@@ -344,7 +344,7 @@ impl Needle {
     }
 
     pub fn set_crash_reports(&self, on: bool) -> Result<()> {
-        // Saved here: the player keeps (and saves) only the settings of the sound.
+        // Saved here: the player keeps only its own settings, and this is none of them.
         self.library.update_settings(|s| s.crash_reports = on)?;
         Ok(())
     }

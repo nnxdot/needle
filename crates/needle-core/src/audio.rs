@@ -161,6 +161,9 @@ pub enum Command {
     Shutdown,
     /// Keeps what plays now, as at a shutdown, and plays on.
     Persist,
+    /// A song was rated (by its id): its copies in the queue, the playing one too, show the
+    /// new rating at once, not only after the song is queued again.
+    Rated(String, i64),
 }
 
 #[derive(Clone)]
@@ -246,8 +249,16 @@ pub struct StreamFormat {
 
 /// Sets the format the system output opens at (it applies when the output next opens).
 pub fn set_stream_format(format: Option<StreamFormat>) {
-    *STREAM_FORMAT.lock().unwrap_or_else(|e| e.into_inner()) = format;
+    let mut current = STREAM_FORMAT.lock().unwrap_or_else(|e| e.into_inner());
+    if *current != format {
+        // The output open now has the old format: it opens again at the next Configure.
+        FORMAT_CHANGED.store(true, std::sync::atomic::Ordering::SeqCst);
+    }
+    *current = format;
 }
+
+/// The stream format changed since the output last opened (see [`set_stream_format`]).
+static FORMAT_CHANGED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 
 /// Names of the connected output devices, enumerated afresh on each call.
 pub fn devices() -> Result<Vec<String>> {
@@ -405,6 +416,22 @@ impl Queue {
     }
     fn touch(&mut self) {
         self.version += 1;
+    }
+    /// Give every copy of a song in the queue this rating.
+    fn rate(&mut self, id: &str, stars: i64) {
+        for item in self
+            .active
+            .iter_mut()
+            .chain(self.pending.iter_mut())
+            .chain(self.staged.iter_mut())
+            .chain(self.previous.iter_mut())
+            .chain(self.cycle.iter_mut())
+            .chain(self.repeat_tail.iter_mut())
+            .filter(|item| item.track.id == id)
+        {
+            item.track.rating = stars;
+        }
+        self.touch();
     }
     /// Items after the current one, in playing order.
     fn tail(&self) -> Vec<QueueItem> {
@@ -658,6 +685,8 @@ trait OutputOpener {
 struct SystemOutput;
 impl OutputOpener for SystemOutput {
     fn open(&mut self, device: Option<&str>) -> Result<Option<OpenOutput>> {
+        // Whatever opens now (a speaker on the network takes no format), the change is met.
+        FORMAT_CHANGED.store(false, std::sync::atomic::Ordering::SeqCst);
         let group = device.and_then(crate::cast::Group::from_device_name);
         let speaker = device.and_then(crate::cast::Speaker::from_device_name);
         if group.is_some() || speaker.is_some() {
@@ -789,6 +818,22 @@ impl Worker {
             s.dsp = self.settings.dsp.clone();
         })?;
         Ok(())
+    }
+    /// Whether new settings change how the sound is opened: the output, its gain, the overlap
+    /// of songs, or the equalizer turning on or off (songs queued without it would not hear
+    /// it). Then the song is opened again where it was.
+    fn needs_reopen(&self, new: &Settings) -> bool {
+        let off = |d: &crate::dsp::Dsp| d.is_transparent() && !d.eq;
+        new.output_device != self.settings.output_device
+            || new.exclusive != self.settings.exclusive
+            || new.replay_gain != self.settings.replay_gain
+            || new.album_gain != self.settings.album_gain
+            || new.crossfade != self.settings.crossfade
+            || off(&new.dsp) != off(&self.settings.dsp)
+            // A bit-perfect USB mixer takes only its own format; a speaker on the network
+            // takes none, so a change made while casting does not open it again.
+            || (FORMAT_CHANGED.load(std::sync::atomic::Ordering::SeqCst)
+                && !new.output_device.as_deref().is_some_and(crate::cast::is_network))
     }
     /// Whether output is exclusive. That is WASAPI's, so elsewhere the setting (kept as it is,
     /// for when the library is opened on Windows again) is ignored.
@@ -1512,17 +1557,19 @@ impl Worker {
                 self.dsp.set(self.settings.dsp.clone());
                 self.persist_audio_settings()?;
             }
-            // Nothing that changes how the sound is made (lookups, autoplay's rule): the song
-            // plays on, without the gap of opening the output again.
-            Command::Configure(settings)
-                if settings.output_device == self.settings.output_device
-                    && settings.exclusive == self.settings.exclusive
-                    && settings.replay_gain == self.settings.replay_gain
-                    && settings.album_gain == self.settings.album_gain
-                    && settings.crossfade == self.settings.crossfade =>
-            {
+            // Nothing that changes how the sound is opened (a setting of the app, the equalizer's
+            // bands, the volume, autoplay): kept, and the song plays on without a break.
+            Command::Configure(settings) if !self.needs_reopen(&settings) => {
+                let volume = settings.volume != self.settings.volume;
                 self.settings = *settings;
                 self.dsp.set(self.settings.dsp.clone());
+                if volume && let Some(sink) = &self.sink {
+                    sink.set_volume(if self.exclusive() {
+                        1.0
+                    } else {
+                        self.settings.volume
+                    });
+                }
                 self.persist_audio_settings()?;
             }
             Command::Configure(settings) => {
@@ -1601,6 +1648,12 @@ impl Worker {
                     self.listen = listen;
                     self.restart(items, position, was_playing)?;
                 }
+            }
+            Command::Rated(id, stars) => {
+                if let Some(item) = self.loading.as_mut().filter(|i| i.track.id == id) {
+                    item.track.rating = stars;
+                }
+                self.queue.rate(&id, stars);
             }
             Command::ClearQueue => {
                 self.queue.repeat_tail.clear();
@@ -2650,6 +2703,25 @@ mod tests {
         rig.until_active("mono44.opus");
         assert!(rig.state().error.is_none());
         rig.until("finished", |w| !w.playing);
+    }
+
+    /// A rating shows on the playing song and on its copies up next at once.
+    #[test]
+    fn a_rating_reaches_the_songs_in_the_queue() {
+        let mut rig = rig(FakeOpener::with(&[], Some("Speakers")), Settings::default());
+        let list = rig.items(&["first", "second", "first"]);
+        rig.run(Command::Play(list));
+        rig.until_active("first");
+        rig.run(Command::Rated("first".into(), 4));
+        rig.worker.tick().unwrap();
+        let state = rig.state();
+        assert_eq!(state.current.map(|c| c.track.rating), Some(4));
+        let ratings: Vec<(String, i64)> = state
+            .queue
+            .iter()
+            .map(|i| (i.track.id.clone(), i.track.rating))
+            .collect();
+        assert_eq!(ratings, [("second".into(), 0), ("first".into(), 4)]);
     }
 
     #[test]

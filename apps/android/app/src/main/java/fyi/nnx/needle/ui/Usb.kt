@@ -25,6 +25,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
+import androidx.compose.foundation.selection.toggleable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
@@ -66,6 +67,28 @@ private fun bitPerfect(audio: AudioManager, device: AudioDeviceInfo): AudioMixer
 private fun matchOutput(mixer: AudioMixerAttributes?) {
     val float = mixer?.format?.encoding == android.media.AudioFormat.ENCODING_PCM_FLOAT
     runCatching { core.setUsbFormat((mixer?.format?.sampleRate ?: 0).toUInt(), float) }
+}
+
+/**
+ * Needle's output follows the USB DAC's mixer from the start and wherever the app is, not only
+ * while Settings shows the switch: a DAC unplugged (or plugged back in) with bit-perfect on
+ * changes the format Needle opens in at once, and so does a start with it already on.
+ */
+fun followUsbMixer(context: Context) {
+    if (Build.VERSION.SDK_INT < 34) return
+    val audio = context.getSystemService(AudioManager::class.java) ?: return
+    fun check() {
+        val mixer = usbOutput(audio)?.let { device -> runCatching { audio.getPreferredMixerAttributes(MUSIC, device) }.getOrNull() }
+        matchOutput(mixer?.takeIf { it.mixerBehavior == AudioMixerAttributes.MIXER_BEHAVIOR_BIT_PERFECT })
+    }
+    check()
+    audio.registerAudioDeviceCallback(
+        object : android.media.AudioDeviceCallback() {
+            override fun onAudioDevicesAdded(devices: Array<out AudioDeviceInfo>) = check()
+            override fun onAudioDevicesRemoved(devices: Array<out AudioDeviceInfo>) = check()
+        },
+        android.os.Handler(android.os.Looper.getMainLooper()),
+    )
 }
 
 /**
@@ -115,7 +138,8 @@ fun UsbBitPerfect() {
         Modifier
             .fillMaxWidth()
             .heightIn(min = 64.dp)
-            .clickable(enabled = usable) { setMixer(!on) }
+            // The whole row is the one switch, named by its words.
+            .toggleable(on, enabled = usable, role = androidx.compose.ui.semantics.Role.Switch) { setMixer(it) }
             .padding(horizontal = 16.dp, vertical = 12.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(16.dp),
@@ -132,7 +156,7 @@ fun UsbBitPerfect() {
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
         }
-        Switch(checked = on, enabled = usable, onCheckedChange = ::setMixer)
+        Switch(checked = on, enabled = usable, onCheckedChange = null)
     }
     HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant, modifier = Modifier.padding(horizontal = 16.dp))
 }

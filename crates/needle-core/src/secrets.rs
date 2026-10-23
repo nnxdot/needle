@@ -1,5 +1,5 @@
 //! Account secrets live in the operating system's credential store, never in the library database.
-#[cfg_attr(target_os = "android", allow(unused_imports))]
+#[cfg_attr(any(target_os = "android", target_os = "macos"), allow(unused_imports))]
 use anyhow::{Result, bail};
 use std::{collections::HashMap, sync::Mutex};
 
@@ -96,6 +96,7 @@ pub trait SecretStore: Send + Sync {
 pub struct SystemStore;
 #[cfg(any(windows, target_os = "linux", target_vendor = "apple"))]
 impl SystemStore {
+    #[cfg_attr(target_os = "macos", allow(dead_code))]
     fn entry(kind: SecretKind) -> Result<keyring::Entry> {
         keyring::Entry::new(SERVICE_NAME, kind.account())
             .map_err(|e| anyhow::anyhow!("{STORE_NAME}: {e}"))
@@ -104,6 +105,14 @@ impl SystemStore {
 #[cfg(any(windows, target_os = "linux", target_vendor = "apple"))]
 impl SecretStore for SystemStore {
     fn get(&self, kind: SecretKind) -> Result<Option<String>> {
+        if file_store::active() {
+            return Ok(file_store::get(kind.account()));
+        }
+        #[cfg(target_os = "macos")]
+        {
+            keychain::get(kind.account())
+        }
+        #[cfg(not(target_os = "macos"))]
         match Self::entry(kind)?.get_password() {
             Ok(value) => Ok(Some(value).filter(|v| !v.is_empty())),
             Err(keyring::Error::NoEntry) => Ok(None),
@@ -111,34 +120,278 @@ impl SecretStore for SystemStore {
         }
     }
     fn set(&self, kind: SecretKind, value: &str) -> Result<()> {
+        if file_store::active() {
+            return file_store::set(kind.account(), Some(value));
+        }
+        #[cfg(target_os = "macos")]
+        {
+            keychain::set(kind.account(), value)
+        }
+        #[cfg(not(target_os = "macos"))]
         Self::entry(kind)?
             .set_password(value)
             .map_err(|e| anyhow::anyhow!("{STORE_NAME} could not save {}: {e}", kind.account()))
     }
     fn delete(&self, kind: SecretKind) -> Result<()> {
+        if file_store::active() {
+            return file_store::set(kind.account(), None);
+        }
+        #[cfg(target_os = "macos")]
+        {
+            keychain::delete(kind.account())
+        }
+        #[cfg(not(target_os = "macos"))]
         match Self::entry(kind)?.delete_credential() {
             Ok(()) | Err(keyring::Error::NoEntry) => Ok(()),
             Err(e) => bail!("{STORE_NAME} could not remove {}: {e}", kind.account()),
         }
     }
 }
-#[cfg(target_os = "android")]
-impl SecretStore for SystemStore {
-    fn get(&self, kind: SecretKind) -> Result<Option<String>> {
-        Ok(android::get(kind.account()))
+
+/// The Mac keeps all of Needle's secrets in one Keychain item. Without an Apple developer
+/// team, the Keychain trusts an item only to the exact build that may read it, so each new
+/// build (an update too) asks the person once per item it reads: one item, one question.
+#[cfg(target_os = "macos")]
+mod keychain {
+    use super::{SERVICE_NAME, STORE_NAME, bundle};
+    use anyhow::{Result, anyhow};
+    use std::sync::{LazyLock, Mutex};
+
+    /// Items in the login Keychain, by account, under Needle's service name.
+    struct Keychain;
+    impl bundle::Items for Keychain {
+        fn read(&self, account: &str) -> Result<Option<String>, String> {
+            let entry = keyring::Entry::new(SERVICE_NAME, account).map_err(|e| e.to_string())?;
+            match entry.get_password() {
+                Ok(value) => Ok(Some(value)),
+                Err(keyring::Error::NoEntry) => Ok(None),
+                Err(e) => Err(e.to_string()),
+            }
+        }
+        fn write(&self, account: &str, value: &str) -> Result<(), String> {
+            keyring::Entry::new(SERVICE_NAME, account)
+                .and_then(|entry| entry.set_password(value))
+                .map_err(|e| e.to_string())
+        }
     }
-    fn set(&self, kind: SecretKind, value: &str) -> Result<()> {
-        android::set(kind.account(), Some(value))
+
+    static SECRETS: LazyLock<Mutex<bundle::Bundle<Keychain>>> =
+        LazyLock::new(|| Mutex::new(bundle::Bundle::new(Keychain)));
+
+    fn secrets() -> std::sync::MutexGuard<'static, bundle::Bundle<Keychain>> {
+        SECRETS.lock().unwrap_or_else(|p| p.into_inner())
     }
-    fn delete(&self, kind: SecretKind) -> Result<()> {
-        android::set(kind.account(), None)
+
+    pub fn get(account: &str) -> Result<Option<String>> {
+        secrets()
+            .get(account)
+            .map_err(|e| anyhow!("{STORE_NAME} could not read {account}: {e}"))
+    }
+
+    pub fn set(account: &str, value: &str) -> Result<()> {
+        secrets()
+            .set(account, Some(value))
+            .map_err(|e| anyhow!("{STORE_NAME} could not save {account}: {e}"))
+    }
+
+    pub fn delete(account: &str) -> Result<()> {
+        secrets()
+            .set(account, None)
+            .map_err(|e| anyhow!("{STORE_NAME} could not remove {account}: {e}"))
     }
 }
 
-/// Android has no keyring for apps: secrets are kept in a file in the app's own storage, which
-/// Android lets no other app read. The app names the folder once at start ([`set_android_folder`]).
+/// All of a store's secrets in one item (the Mac's Keychain; see `keychain`), read once a run
+/// and kept in memory. Secrets an earlier Needle kept as items of their own are moved in the
+/// first time each is asked for. Their old items are left as they are (removing one could make
+/// the Keychain ask again), and are not read again.
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+mod bundle {
+    use serde::{Deserialize, Serialize};
+    use std::collections::{BTreeMap, BTreeSet};
+
+    /// The item that holds the rest.
+    pub const ACCOUNT: &str = "secrets";
+
+    /// A store of items by account (an item's value, or none).
+    pub trait Items {
+        fn read(&self, account: &str) -> Result<Option<String>, String>;
+        fn write(&self, account: &str, value: &str) -> Result<(), String>;
+    }
+
+    #[derive(Default, Serialize, Deserialize)]
+    struct Saved {
+        #[serde(default)]
+        values: BTreeMap<String, String>,
+        /// Accounts whose old item of their own was looked for already (moved, or none).
+        #[serde(default)]
+        moved: BTreeSet<String>,
+    }
+
+    pub struct Bundle<I: Items> {
+        items: I,
+        /// Read once a run; a failed read is not tried again, so it asks the person once.
+        saved: Option<Result<Saved, String>>,
+    }
+
+    impl<I: Items> Bundle<I> {
+        pub fn new(items: I) -> Self {
+            Self { items, saved: None }
+        }
+
+        fn saved(&mut self) -> Result<&mut Saved, String> {
+            let items = &self.items;
+            let loaded = self.saved.get_or_insert_with(|| {
+                Ok(items
+                    .read(ACCOUNT)?
+                    .and_then(|text| serde_json::from_str(&text).ok())
+                    .unwrap_or_default())
+            });
+            loaded.as_mut().map_err(|e| e.clone())
+        }
+
+        fn save(&mut self) -> Result<(), String> {
+            let text = serde_json::to_string(self.saved()?).map_err(|e| e.to_string())?;
+            self.items.write(ACCOUNT, &text)
+        }
+
+        pub fn get(&mut self, account: &str) -> Result<Option<String>, String> {
+            let saved = self.saved()?;
+            if let Some(value) = saved.values.get(account) {
+                return Ok(Some(value.clone()));
+            }
+            if saved.moved.contains(account) {
+                return Ok(None);
+            }
+            // Kept by an earlier Needle as an item of its own: moved in, once.
+            let old = self.items.read(account)?.filter(|v| !v.is_empty());
+            let saved = self.saved()?;
+            saved.moved.insert(account.to_string());
+            if let Some(value) = &old {
+                saved.values.insert(account.to_string(), value.clone());
+            }
+            // Not saved now, it is looked for again next run; the value is right either way.
+            let _ = self.save();
+            Ok(old)
+        }
+
+        /// Keep `value` for `account`, or forget it.
+        pub fn set(&mut self, account: &str, value: Option<&str>) -> Result<(), String> {
+            let saved = self.saved()?;
+            saved.moved.insert(account.to_string());
+            match value.filter(|v| !v.is_empty()) {
+                Some(value) => saved.values.insert(account.to_string(), value.to_string()),
+                None => saved.values.remove(account),
+            };
+            self.save()
+        }
+    }
+
+    #[cfg(test)]
+    mod tests {
+        use super::*;
+        use std::{cell::RefCell, collections::HashMap};
+
+        /// A pretend Keychain that counts reads (each would ask the person).
+        #[derive(Default)]
+        struct Fake {
+            items: RefCell<HashMap<String, String>>,
+            reads: RefCell<Vec<String>>,
+        }
+        impl Items for &Fake {
+            fn read(&self, account: &str) -> Result<Option<String>, String> {
+                self.reads.borrow_mut().push(account.to_string());
+                Ok(self.items.borrow().get(account).cloned())
+            }
+            fn write(&self, account: &str, value: &str) -> Result<(), String> {
+                self.items
+                    .borrow_mut()
+                    .insert(account.to_string(), value.to_string());
+                Ok(())
+            }
+        }
+
+        #[test]
+        fn old_items_move_into_one_and_a_new_build_reads_only_that() {
+            let keychain = Fake::default();
+            for (account, value) in [
+                ("lastfm-session", "s3ss"),
+                ("plugin:subsonic:password", "pw"),
+            ] {
+                keychain
+                    .items
+                    .borrow_mut()
+                    .insert(account.into(), value.into());
+            }
+            // The first run of the new Needle: each old item is read once, and moved.
+            let mut first = Bundle::new(&keychain);
+            assert_eq!(
+                first.get("lastfm-session").unwrap().as_deref(),
+                Some("s3ss")
+            );
+            assert_eq!(
+                first.get("lastfm-session").unwrap().as_deref(),
+                Some("s3ss")
+            );
+            assert_eq!(
+                first.get("plugin:subsonic:password").unwrap().as_deref(),
+                Some("pw")
+            );
+            assert_eq!(first.get("listenbrainz-token").unwrap(), None);
+            assert_eq!(
+                *keychain.reads.borrow(),
+                [
+                    "secrets",
+                    "lastfm-session",
+                    "plugin:subsonic:password",
+                    "listenbrainz-token"
+                ]
+            );
+            // The old items stay where they were (removing one could ask).
+            assert!(keychain.items.borrow().contains_key("lastfm-session"));
+
+            // A later build (an update): one read, of the one item, for all of them.
+            keychain.reads.borrow_mut().clear();
+            let mut next = Bundle::new(&keychain);
+            assert_eq!(
+                next.get("plugin:subsonic:password").unwrap().as_deref(),
+                Some("pw")
+            );
+            assert_eq!(next.get("lastfm-session").unwrap().as_deref(), Some("s3ss"));
+            assert_eq!(next.get("listenbrainz-token").unwrap(), None);
+            assert_eq!(*keychain.reads.borrow(), ["secrets"]);
+
+            // Signing out forgets it for good: the old item is not read again.
+            next.set("lastfm-session", None).unwrap();
+            next.set("acoustid-key", Some("k3y")).unwrap();
+            let mut later = Bundle::new(&keychain);
+            assert_eq!(later.get("lastfm-session").unwrap(), None);
+            assert_eq!(later.get("acoustid-key").unwrap().as_deref(), Some("k3y"));
+            assert!(!keychain.items.borrow()["secrets"].contains("s3ss"));
+        }
+    }
+}
+
 #[cfg(target_os = "android")]
-mod android {
+impl SecretStore for SystemStore {
+    fn get(&self, kind: SecretKind) -> Result<Option<String>> {
+        Ok(file_store::get(kind.account()))
+    }
+    fn set(&self, kind: SecretKind, value: &str) -> Result<()> {
+        file_store::set(kind.account(), Some(value))
+    }
+    fn delete(&self, kind: SecretKind) -> Result<()> {
+        file_store::set(kind.account(), None)
+    }
+}
+
+/// Secrets kept in `secrets.json` in a folder, readable only by this user (0600):
+/// - Android has no keyring for apps, so its secrets are kept so in the app's own storage,
+///   which Android lets no other app read ([`set_android_folder`]).
+/// - Elsewhere, a test copy's library folder with a `secrets.json` in it ([`set_secrets_folder`])
+///   keeps its secrets there, apart from the person's own: a test build then never asks for the
+///   Keychain, nor reads or changes the real Needle's sign-ins.
+mod file_store {
     use anyhow::{Context, Result};
     use std::{
         collections::HashMap,
@@ -155,6 +408,12 @@ mod android {
 
     fn file() -> Option<PathBuf> {
         FOLDER.get().map(|f| f.join("secrets.json"))
+    }
+
+    /// Whether secrets are kept in the file: always on Android, and elsewhere when the file is
+    /// there (only a test copy's library has one).
+    pub fn active() -> bool {
+        cfg!(target_os = "android") || file().is_some_and(|f| f.is_file())
     }
 
     fn read() -> HashMap<String, String> {
@@ -180,6 +439,7 @@ mod android {
         // Written aside, then moved over, so a crash never leaves half a file.
         let partial = path.with_extension("part");
         std::fs::write(&partial, serde_json::to_vec(&all)?)?;
+        #[cfg(unix)]
         {
             use std::os::unix::fs::PermissionsExt;
             std::fs::set_permissions(&partial, std::fs::Permissions::from_mode(0o600))?;
@@ -192,7 +452,14 @@ mod android {
 /// Android: the folder, in the app's own storage, where secrets are kept.
 #[cfg(target_os = "android")]
 pub fn set_android_folder(folder: std::path::PathBuf) {
-    android::set_folder(folder);
+    file_store::set_folder(folder);
+}
+
+/// The library folder. A test copy's library with a `secrets.json` file in it keeps its
+/// secrets in that file, not in the system's store (see `file_store`); for a real library
+/// (with no such file) nothing changes.
+pub fn set_secrets_folder(folder: std::path::PathBuf) {
+    file_store::set_folder(folder);
 }
 
 #[cfg(not(any(
@@ -274,7 +541,17 @@ pub mod plugin {
     }
 
     pub fn get(plugin: &str, key: &str) -> Result<Option<String>> {
-        #[cfg(all(any(windows, target_os = "linux", target_vendor = "apple"), not(test)))]
+        #[cfg(not(any(test, target_os = "android")))]
+        if super::file_store::active() {
+            return Ok(super::file_store::get(&account(plugin, key)));
+        }
+        #[cfg(all(target_os = "macos", not(test)))]
+        return super::keychain::get(&account(plugin, key));
+        #[cfg(all(
+            any(windows, target_os = "linux", target_vendor = "apple"),
+            not(target_os = "macos"),
+            not(test)
+        ))]
         {
             let entry = keyring::Entry::new(super::SERVICE_NAME, &account(plugin, key))
                 .map_err(|e| anyhow::anyhow!("{}: {e}", super::STORE_NAME))?;
@@ -287,7 +564,7 @@ pub mod plugin {
             }
         }
         #[cfg(all(target_os = "android", not(test)))]
-        return Ok(super::android::get(&account(plugin, key)));
+        return Ok(super::file_store::get(&account(plugin, key)));
         #[cfg(any(
             test,
             not(any(
@@ -301,7 +578,17 @@ pub mod plugin {
     }
 
     pub fn set(plugin: &str, key: &str, value: &str) -> Result<()> {
-        #[cfg(all(any(windows, target_os = "linux", target_vendor = "apple"), not(test)))]
+        #[cfg(not(any(test, target_os = "android")))]
+        if super::file_store::active() {
+            return super::file_store::set(&account(plugin, key), Some(value));
+        }
+        #[cfg(all(target_os = "macos", not(test)))]
+        return super::keychain::set(&account(plugin, key), value);
+        #[cfg(all(
+            any(windows, target_os = "linux", target_vendor = "apple"),
+            not(target_os = "macos"),
+            not(test)
+        ))]
         {
             keyring::Entry::new(super::SERVICE_NAME, &account(plugin, key))
                 .and_then(|e| e.set_password(value))
@@ -310,7 +597,7 @@ pub mod plugin {
                 })
         }
         #[cfg(all(target_os = "android", not(test)))]
-        return super::android::set(&account(plugin, key), Some(value));
+        return super::file_store::set(&account(plugin, key), Some(value));
         #[cfg(any(
             test,
             not(any(
@@ -330,7 +617,17 @@ pub mod plugin {
     }
 
     pub fn delete(plugin: &str, key: &str) -> Result<()> {
-        #[cfg(all(any(windows, target_os = "linux", target_vendor = "apple"), not(test)))]
+        #[cfg(not(any(test, target_os = "android")))]
+        if super::file_store::active() {
+            return super::file_store::set(&account(plugin, key), None);
+        }
+        #[cfg(all(target_os = "macos", not(test)))]
+        return super::keychain::delete(&account(plugin, key));
+        #[cfg(all(
+            any(windows, target_os = "linux", target_vendor = "apple"),
+            not(target_os = "macos"),
+            not(test)
+        ))]
         {
             let entry = keyring::Entry::new(super::SERVICE_NAME, &account(plugin, key))
                 .map_err(|e| anyhow::anyhow!("{}: {e}", super::STORE_NAME))?;
@@ -343,7 +640,7 @@ pub mod plugin {
             }
         }
         #[cfg(all(target_os = "android", not(test)))]
-        return super::android::set(&account(plugin, key), None);
+        return super::file_store::set(&account(plugin, key), None);
         #[cfg(any(
             test,
             not(any(

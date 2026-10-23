@@ -51,6 +51,12 @@ import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
+import androidx.lifecycle.repeatOnLifecycle
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.heading
+import androidx.compose.ui.semantics.stateDescription
+import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.Modifier
 import androidx.compose.foundation.layout.offset
 import androidx.compose.ui.unit.sp
@@ -82,6 +88,20 @@ val SmallCoverShape = RoundedCornerShape(6.dp)
 /** Space from the screen edge to content. */
 val Edge = 20.dp
 
+/** The last answers pages loaded, a few of them, for a page that comes back (see [rememberLoaded]). */
+private object Loads {
+    /** Each answer with the library's version it was read at. */
+    private val kept = object : LinkedHashMap<List<Any?>, Pair<Int, fyi.nnx.needle.LoadResult<*>>>(32, 0.75f, true) {
+        override fun removeEldestEntry(eldest: MutableMap.MutableEntry<List<Any?>, Pair<Int, fyi.nnx.needle.LoadResult<*>>>?) = size > 32
+    }
+    @Synchronized fun get(key: List<Any?>, version: Int) = kept[key]?.takeIf { it.first == version }?.second
+    @Synchronized fun put(key: List<Any?>, version: Int, value: fyi.nnx.needle.LoadResult<*>) {
+        // Answers from an older library are never used again: they go, and their memory with them.
+        kept.values.removeAll { it.first < version }
+        kept[key] = version to value
+    }
+}
+
 class LoadedState<T> internal constructor(private val result: fyi.nnx.needle.LoadResult<T>) : State<T?> {
     override val value: T? get() = (result as? fyi.nnx.needle.LoadResult.Ready)?.data
     val loading: Boolean get() = result is fyi.nnx.needle.LoadResult.Loading
@@ -90,16 +110,48 @@ class LoadedState<T> internal constructor(private val result: fyi.nnx.needle.Loa
 
 /** Loading, a completed value (including empty/null), and failure remain distinct. */
 @Composable
-fun <T> rememberLoaded(vararg keys: Any?, load: Needle.() -> T): LoadedState<T> {
+fun <T> rememberLoaded(vararg keys: Any?, cache: Boolean = true, load: Needle.() -> T): LoadedState<T> {
     val version by NeedleApp.instance.libraryVersion.collectAsState()
     var attempt by remember(*keys) { mutableStateOf(0) }
-    val result by produceState<fyi.nnx.needle.LoadResult<T>>(fyi.nnx.needle.LoadResult.Loading, version, attempt, *keys) {
-        value = fyi.nnx.needle.LoadResult.Loading
+    // Back on the failure card: first it tries again, then (still failing) it leaves the page.
+    var retried by remember(*keys) { mutableStateOf(false) }
+    val back = androidx.activity.compose.LocalOnBackPressedDispatcherOwner.current
+    // A change in the library (a heart, a scan) reloads quietly: what shows stays until the new
+    // answer comes. New keys (another album, another song) are other data, so they show loading.
+    val wanted = keys.toList()
+    // What this load gave last time (the same call in the code, the same keys): a page that
+    // comes back (Back) shows it at once and reads it again quietly, so its rows are there
+    // to scroll back to where they were, rather than placeholders.
+    val cacheKey = listOf<Any?>(load::class.java.name) + wanted
+    // Only from the library as it is now: after any change (a rename, a delete) it is read anew.
+    // Not for a tile's small answer (an artist's photo), of which a grid has dozens: they
+    // would push out the page's own list, which is what Back needs.
+    val seed = remember(cacheKey) { if (cache) Loads.get(cacheKey, version) else null }
+    val shown = remember { arrayOfNulls<List<Any?>>(1).also { if (seed != null) it[0] = wanted } }
+    @Suppress("UNCHECKED_CAST")
+    val result by produceState<fyi.nnx.needle.LoadResult<T>>(
+        (seed as fyi.nnx.needle.LoadResult<T>?) ?: fyi.nnx.needle.LoadResult.Loading, version, attempt, *keys,
+    ) {
+        if (shown[0] != wanted || value !is fyi.nnx.needle.LoadResult.Ready) {
+            value = (if (cache) Loads.get(cacheKey, version) as fyi.nnx.needle.LoadResult<T>? else null) ?: fyi.nnx.needle.LoadResult.Loading
+        }
+        shown[0] = wanted
+        val asked = version
         value = withContext(Dispatchers.IO) { fyi.nnx.needle.loadAttempt { core.load() } }
+        if (cache && value is fyi.nnx.needle.LoadResult.Ready) Loads.put(cacheKey, asked, value)
     }
     val failure = result as? fyi.nnx.needle.LoadResult.Failed
+    if (result is fyi.nnx.needle.LoadResult.Ready) retried = false
     if (failure != null) {
-        androidx.compose.ui.window.Popup(alignment = Alignment.BottomCenter) {
+        // With a remote the card takes the focus, so Retry is in reach.
+        val keys = usingKeys()
+        androidx.compose.ui.window.Popup(
+            alignment = Alignment.BottomCenter,
+            onDismissRequest = if (keys) ({
+                if (retried) back?.onBackPressedDispatcher?.onBackPressed() else { retried = true; attempt++ }
+            }) else null,
+            properties = androidx.compose.ui.window.PopupProperties(focusable = keys),
+        ) {
             androidx.compose.material3.Surface(shape = CoverShape, tonalElevation = 6.dp, modifier = Modifier.padding(Edge)) {
                 Column(Modifier.padding(16.dp)) {
                     Text(failure.error.message ?: "Could not load this page", color = MaterialTheme.colorScheme.error)
@@ -114,6 +166,185 @@ fun <T> rememberLoaded(vararg keys: Any?, load: Needle.() -> T): LoadedState<T> 
 /** A cover's place: a file on the phone, or a link (covers from Needle on a computer). */
 fun fileUri(path: String?): Uri? = path?.let {
     if (it.startsWith("http://") || it.startsWith("https://")) Uri.parse(it) else Uri.fromFile(File(it))
+}
+
+/**
+ * Puts songs next, or at the end of what is to play, and says so. Off the main thread: the core
+ * looks each song up, which for a long playlist takes a moment. `ids` is read there too.
+ */
+fun addToQueue(next: Boolean, ids: () -> List<String>) {
+    NeedleApp.instance.scope.launch(Dispatchers.IO) {
+        runCatching {
+            val list = ids()
+            if (next) core.playNext(list) else core.enqueue(list)
+        }
+            .onSuccess { showMessage(if (next) "Plays next" else "Added to the queue") }
+            .onFailure { showMessage(it.message ?: "Could not add them") }
+    }
+}
+
+/** Needle may read the music files (Android 13 and newer ask for music alone; older, for files). */
+fun hasMusicAccess(context: android.content.Context): Boolean {
+    if (android.os.Build.VERSION.SDK_INT >= 30 && android.os.Environment.isExternalStorageManager()) return true
+    val permission = if (android.os.Build.VERSION.SDK_INT >= 33) android.Manifest.permission.READ_MEDIA_AUDIO else android.Manifest.permission.READ_EXTERNAL_STORAGE
+    return androidx.core.content.ContextCompat.checkSelfPermission(context, permission) == android.content.pm.PackageManager.PERMISSION_GRANTED
+}
+
+/**
+ * Whether Needle may see the pictures beside the songs (an album folder's cover.jpg). Android 12
+ * and older give that with music; Android 13 and newer ask about pictures on their own.
+ */
+fun hasCoverAccess(context: android.content.Context): Boolean {
+    if (android.os.Build.VERSION.SDK_INT < 33) return true
+    if (android.os.Environment.isExternalStorageManager()) return true
+    // Pictures, and videos for moving covers (cover.mp4): Android asks about both at once.
+    return coverPermissions.all {
+        androidx.core.content.ContextCompat.checkSelfPermission(context, it) == android.content.pm.PackageManager.PERMISSION_GRANTED
+    }
+}
+
+/** What Android 13 and newer ask about for covers beside the songs: pictures and videos. */
+private val coverPermissions = arrayOf(android.Manifest.permission.READ_MEDIA_IMAGES, android.Manifest.permission.READ_MEDIA_VIDEO)
+
+/**
+ * Settings › Library, on Android 13 and newer until it is allowed: a way to let Needle see the
+ * covers kept beside the songs. Albums whose cover is only such a picture show none without it.
+ */
+@Composable
+fun FolderCoversAccess(modifier: Modifier = Modifier) {
+    if (android.os.Build.VERSION.SDK_INT < 33) return
+    val context = androidx.compose.ui.platform.LocalContext.current
+    var allowed by remember { mutableStateOf(hasCoverAccess(context)) }
+    // Checked again when Needle comes back (from Android's Settings): the folders are read
+    // again then, so the covers show without a restart.
+    val lifecycle = androidx.lifecycle.compose.LocalLifecycleOwner.current.lifecycle
+    LaunchedEffect(lifecycle) {
+        lifecycle.repeatOnLifecycle(androidx.lifecycle.Lifecycle.State.RESUMED) {
+            val now = hasCoverAccess(context)
+            if (now && !allowed) runCatching { core.rescan() }
+            allowed = now
+        }
+    }
+    var askedAt by remember { androidx.compose.runtime.mutableLongStateOf(0L) }
+    val ask = androidx.activity.compose.rememberLauncherForActivityResult(androidx.activity.result.contract.ActivityResultContracts.RequestMultiplePermissions()) { _ ->
+        allowed = hasCoverAccess(context)
+        if (allowed) runCatching { core.rescan() }
+        // An answer at once: Android no longer shows its question, so its Settings page opens.
+        else if (android.os.SystemClock.uptimeMillis() - askedAt < 500) tryOpen("page in Settings for Needle") {
+            context.startActivity(
+                android.content.Intent(android.provider.Settings.ACTION_APPLICATION_DETAILS_SETTINGS, android.net.Uri.parse("package:${context.packageName}"))
+                    .addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK),
+            )
+        }
+    }
+    if (allowed) return
+    Column(
+        modifier.fillMaxWidth().clip(CoverShape).background(MaterialTheme.colorScheme.secondaryContainer).padding(16.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        Text("Covers beside your songs", style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.onSecondaryContainer)
+        Text(
+            "Some albums keep their cover in their folder: a picture (cover.jpg) or a short video that moves (cover.mp4). Android asks about pictures and videos apart from music, so Needle needs your yes to show them. It reads only the covers in your music folders.",
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSecondaryContainer,
+        )
+        androidx.compose.material3.Button(onClick = {
+            askedAt = android.os.SystemClock.uptimeMillis()
+            ask.launch(coverPermissions)
+        }) { Text("Allow") }
+    }
+}
+
+/**
+ * Said where the library is empty because Needle may not read music: Android's question again,
+ * or (asked too often already, when Android no longer asks) its page for Needle in Settings.
+ */
+@Composable
+fun MusicAccessNotice(modifier: Modifier = Modifier) {
+    val context = androidx.compose.ui.platform.LocalContext.current
+    // Checked again each time Needle comes back to the screen (from Settings, say).
+    val lifecycle = androidx.lifecycle.compose.LocalLifecycleOwner.current.lifecycle
+    var allowed by remember { mutableStateOf(hasMusicAccess(context)) }
+    LaunchedEffect(lifecycle) {
+        lifecycle.repeatOnLifecycle(androidx.lifecycle.Lifecycle.State.RESUMED) {
+            val now = hasMusicAccess(context)
+            // Allowed in Android's own Settings: the folders are read now, not at the next start.
+            if (now && !allowed) runCatching { core.rescan() }
+            allowed = now
+        }
+    }
+    // When Android was asked: an answer at once means it no longer shows its question (asked
+    // too often), and only then does its Settings page open. A plain "Don't allow" is left be.
+    var askedAt by remember { androidx.compose.runtime.mutableLongStateOf(0L) }
+    val ask = androidx.activity.compose.rememberLauncherForActivityResult(androidx.activity.result.contract.ActivityResultContracts.RequestPermission()) { granted ->
+        allowed = granted
+        if (granted) runCatching { core.rescan() }
+        else if (android.os.SystemClock.uptimeMillis() - askedAt < 500) tryOpen("page in Settings for Needle") {
+            context.startActivity(
+                android.content.Intent(android.provider.Settings.ACTION_APPLICATION_DETAILS_SETTINGS, android.net.Uri.parse("package:${context.packageName}"))
+                    .addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK),
+            )
+        }
+    }
+    if (allowed) return
+    Column(
+        modifier.fillMaxWidth().clip(CoverShape).background(MaterialTheme.colorScheme.errorContainer).padding(16.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        Text("Needle may not read your music", style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.onErrorContainer)
+        Text(
+            "Android asks first. Without it, the music folders look empty.",
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onErrorContainer,
+        )
+        androidx.compose.material3.Button(onClick = {
+            askedAt = android.os.SystemClock.uptimeMillis()
+            ask.launch(if (android.os.Build.VERSION.SDK_INT >= 33) android.Manifest.permission.READ_MEDIA_AUDIO else android.Manifest.permission.READ_EXTERNAL_STORAGE)
+        }) { Text("Allow") }
+    }
+}
+
+/**
+ * Writes to the library off the main thread (a scan writing at the same time holds it a
+ * moment, and the page would freeze), then reports back on the main thread: `done` with the
+ * answer, or `failed`; the lists are read again either way.
+ */
+fun <T> libraryWrite(
+    work: () -> T,
+    failed: (Throwable) -> Unit = { showMessage(it.message ?: "That did not work") },
+    done: (T) -> Unit = {},
+) {
+    NeedleApp.instance.scope.launch(Dispatchers.Main) {
+        withContext(Dispatchers.IO) { runCatching(work) }.onSuccess(done).onFailure(failed)
+        NeedleApp.instance.libraryChanged()
+    }
+}
+
+/**
+ * Keys for a list's rows that stay with each song when the list is put in another order: the
+ * song's id, and how many times it came before (a playlist may hold a song twice).
+ */
+fun songKeys(list: List<fyi.nnx.needle.core.Song>): List<String> {
+    val seen = HashMap<String, Int>()
+    return list.map { s -> "${s.id}#${seen.merge(s.id, 1, Int::plus)}" }
+}
+
+/** The id of the song playing, for marking it in a list (see [NeedleApp.playingId]). */
+@Composable
+fun playingSongId(): String? = NeedleApp.instance.playingId.collectAsState().value
+
+/**
+ * Plays songs from `start`, then opens the player (when that is on). Off the main thread: the
+ * core looks each song up, which for a whole library or a long playlist takes a moment.
+ */
+fun playSongs(ids: List<String>, start: Int = 0) {
+    // Nothing to play (an empty playlist): the player is not opened on nothing.
+    if (ids.isEmpty()) return
+    NeedleApp.instance.scope.launch(Dispatchers.IO) {
+        runCatching { core.play(ids, start.toUInt()) }
+            .onSuccess { NeedleApp.instance.openPlayer.tryEmit(Unit) }
+            .onFailure { showMessage(it.message ?: "Could not play these songs") }
+    }
 }
 
 fun time(seconds: Double): String {
@@ -191,7 +422,7 @@ private fun seedHash(seed: String): Long =
 fun seedColor(seed: String): Color = Color.hsl((seedHash(seed) % 360).toFloat(), 0.5f, 0.4f)
 
 @Composable
-private fun MadeUpCover(seed: String) {
+internal fun MadeUpCover(seed: String) {
     val hash = seedHash(seed)
     val h1 = (hash % 360).toFloat()
     val h2 = (h1 + 21.6f + ((hash shr 9) % 12) * 3.6f) % 360f
@@ -234,7 +465,7 @@ fun LargeTitle(text: String, modifier: Modifier = Modifier, action: @Composable 
             style = MaterialTheme.typography.headlineLarge,
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
-            modifier = Modifier.weight(1f),
+            modifier = Modifier.weight(1f).semantics { heading() },
         )
         action()
     }
@@ -242,16 +473,17 @@ fun LargeTitle(text: String, modifier: Modifier = Modifier, action: @Composable 
 }
 
 /** A section's title; with `onMore`, a chevron leads to the whole list. */
+@OptIn(androidx.compose.material3.ExperimentalMaterial3ExpressiveApi::class)
 @Composable
-fun SectionHeader(text: String, modifier: Modifier = Modifier, onMore: (() -> Unit)? = null) {
+fun SectionHeader(text: String, modifier: Modifier = Modifier, top: Dp = 28.dp, onMore: (() -> Unit)? = null) {
     Row(
         modifier
             .fillMaxWidth()
             .then(if (onMore != null) Modifier.clickable(onClick = onMore) else Modifier)
-            .padding(start = Edge, end = 12.dp, top = 28.dp, bottom = 12.dp),
+            .padding(start = Edge, end = 12.dp, top = top, bottom = 12.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Text(text, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+        Text(text, style = MaterialTheme.typography.titleLargeEmphasized, modifier = Modifier.semantics { heading() })
         if (onMore != null) {
             Icon(
                 Icons.AutoMirrored.Rounded.KeyboardArrowRight,
@@ -340,7 +572,8 @@ val LocalRows = androidx.compose.runtime.compositionLocalOf { Rows.of("comfortab
 
 /**
  * A song in a list: its cover (or its number on an album page), title and artist, and its menu,
- * over a hairline that starts where the text does.
+ * over a hairline that starts where the text does. With a [place], a row of a group instead
+ * (`segment`): no hairline, and the playing song on its own tone.
  */
 @Composable
 fun SongRow(
@@ -353,6 +586,7 @@ fun SongRow(
     remove: (() -> Unit)? = null,
     /** Shown at the end instead of the menu, such as a handle to drag the row by. */
     trailing: (@Composable () -> Unit)? = null,
+    place: Place? = null,
     onClick: () -> Unit,
 ) {
     val rows = LocalRows.current
@@ -363,18 +597,35 @@ fun SongRow(
     val lead: Dp = if (number) 36.dp else rows.cover + 4.dp
     var menu by remember { mutableStateOf(false) }
     val haptics = rememberHaptics()
-    val isPlaying = playing && NeedleApp.instance.playback.collectAsState().value?.playing == true
+    // Not the whole playback: a row would redraw at every tick of the playing position.
+    val isPlaying = playing && NeedleApp.instance.isPlaying.collectAsState().value
+    val colors = MaterialTheme.colorScheme
     Column(
         modifier
             .fillMaxWidth()
-            .background(if (chosen) MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.45f) else Color.Transparent)
+            .then(
+                if (place == null) {
+                    Modifier.background(if (chosen) colors.primaryContainer.copy(alpha = 0.45f) else Color.Transparent)
+                } else {
+                    Modifier.segment(place, when {
+                        chosen -> colors.primaryContainer
+                        playing -> colors.secondaryContainer
+                        else -> groupColor()
+                    })
+                },
+            )
+            // TalkBack hears what only colour shows: the song playing, a song chosen.
+            .semantics {
+                if (playing) stateDescription = if (isPlaying) "Playing" else "Paused"
+                if (choosing) selected = chosen
+            }
             .combinedClickable(
                 onClick = { if (choosing) Selection.toggle(song) else onClick() },
                 onLongClick = { haptics(true); if (choosing) Selection.toggle(song) else menu = true },
             ),
     ) {
         Row(
-            Modifier.fillMaxWidth().heightIn(min = rows.height).padding(start = Edge, end = 4.dp),
+            Modifier.fillMaxWidth().heightIn(min = rows.height).padding(start = if (place == null) Edge else 14.dp, end = 4.dp),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(rows.gap),
         ) {
@@ -418,12 +669,13 @@ fun SongRow(
                 }
             }
             when {
-                choosing -> androidx.compose.material3.Checkbox(chosen, { Selection.toggle(song) })
+                // The row is the one stop that chooses; the box only shows it.
+                choosing -> androidx.compose.material3.Checkbox(chosen, onCheckedChange = null, modifier = Modifier.padding(12.dp))
                 trailing != null -> trailing()
                 else -> SongMenu(song, open, menu, remove) { menu = it }
             }
         }
-        if (divider) {
+        if (divider && place == null) {
             HorizontalDivider(
                 color = MaterialTheme.colorScheme.outlineVariant,
                 modifier = Modifier.padding(start = Edge + lead + rows.gap),

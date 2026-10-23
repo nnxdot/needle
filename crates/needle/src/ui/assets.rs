@@ -69,6 +69,8 @@ fn shape(name: &str) -> Option<String> {
         "info" => "<circle cx='12' cy='12' r='9'/><path d='M12 11v5.5M12 7.6v.1'/>".into(),
         "alert" => "<path d='M12 3.5 2.5 20h19z'/><path d='M12 10v4.5M12 17.2v.1'/>".into(),
         "globe" => "<circle cx='12' cy='12' r='9'/><path d='M3 12h18M12 3c2.5 2.6 3.7 5.6 3.7 9s-1.2 6.4-3.7 9c-2.5-2.6-3.7-5.6-3.7-9S9.5 5.6 12 3z'/>".into(),
+        // A server rack, for songs from a music server.
+        "server" => "<rect x='3.5' y='4' width='17' height='7' rx='2'/><rect x='3.5' y='13' width='17' height='7' rx='2'/><path d='M7.5 7.4v.2M7.5 16.4v.2'/>".into(),
         "undo" => "<path d='M9 14 4 9l5-5'/><path d='M4 9h10.5a5.5 5.5 0 0 1 0 11H11'/>".into(),
         "lyrics" => "<path d='M4 6a2.5 2.5 0 0 1 2.5-2.5h11A2.5 2.5 0 0 1 20 6v7.5a2.5 2.5 0 0 1-2.5 2.5H10l-4.5 4v-4A1.5 1.5 0 0 1 4 14.5z'/><path d='M8 8.5h8M8 12h5'/>".into(),
         "mini" => "<rect x='3' y='5' width='18' height='14' rx='2.5'/><rect x='11.5' y='11.5' width='7' height='5' rx='1' fill='currentColor' stroke='none'/>".into(),

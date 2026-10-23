@@ -515,7 +515,10 @@ fn download_image(url: &str, destination: &Path) -> Result<()> {
     }
     // Each picture its own part file: an artist's photo, logo, and wide picture are fetched at
     // the same time, and one shared part file mixed them up.
-    let kind = destination.extension().and_then(|e| e.to_str()).unwrap_or("img");
+    let kind = destination
+        .extension()
+        .and_then(|e| e.to_str())
+        .unwrap_or("img");
     let partial = destination.with_extension(format!("{kind}.part"));
     std::fs::write(&partial, bytes)?;
     std::fs::rename(partial, destination)?;
@@ -569,7 +572,12 @@ fn musicbrainz_artist_kept(library: &Library, name: &str) -> Result<Option<Strin
         return Ok(hit);
     }
     let found = musicbrainz_artist(name)?;
-    remember(library, &key, &found, if found.is_some() { WEEK * 13 } else { WEEK })?;
+    remember(
+        library,
+        &key,
+        &found,
+        if found.is_some() { WEEK * 13 } else { WEEK },
+    )?;
     Ok(found)
 }
 
@@ -608,13 +616,25 @@ pub fn animated_cover(library: &Library, track: &Track) -> Option<PathBuf> {
     let folder = Path::new(track.file_path()).parent()?;
     let names = ["cover", "animated", "folder", "front", "album", "motion"];
     let kinds = ["mp4", "m4v", "mov"];
-    let video = std::fs::read_dir(folder).ok()?.flatten().map(|e| e.path()).find(|p| {
-        let stem = p.file_stem().and_then(|s| s.to_str()).unwrap_or_default().to_lowercase();
-        let kind = p.extension().and_then(|s| s.to_str()).unwrap_or_default().to_lowercase();
-        // A moving cover is a short loop, not a whole music video.
-        let small = std::fs::metadata(p).is_ok_and(|m| m.len() <= 60 * 1024 * 1024);
-        names.contains(&stem.as_str()) && kinds.contains(&kind.as_str()) && small
-    })?;
+    let video = std::fs::read_dir(folder)
+        .ok()?
+        .flatten()
+        .map(|e| e.path())
+        .find(|p| {
+            let stem = p
+                .file_stem()
+                .and_then(|s| s.to_str())
+                .unwrap_or_default()
+                .to_lowercase();
+            let kind = p
+                .extension()
+                .and_then(|s| s.to_str())
+                .unwrap_or_default()
+                .to_lowercase();
+            // A moving cover is a short loop, not a whole music video.
+            let small = std::fs::metadata(p).is_ok_and(|m| m.len() <= 60 * 1024 * 1024);
+            names.contains(&stem.as_str()) && kinds.contains(&kind.as_str()) && small
+        })?;
     // Only a folder of one album: in a folder of many (an iPhone's own, say) one cover.mp4
     // would be every song's.
     let inside = format!("{}/", folder.to_string_lossy());
@@ -639,7 +659,9 @@ static FANART: std::sync::Mutex<()> = std::sync::Mutex::new(());
 /// Forgets fanart.tv's kept answers, so a new key (or none) is asked with at once: a refused
 /// key's "nothing" was kept a day.
 pub fn forget_fanart(library: &Library) -> Result<()> {
-    library.connection()?.execute("DELETE FROM cache WHERE key LIKE 'fanart:%'", [])?;
+    library
+        .connection()?
+        .execute("DELETE FROM cache WHERE key LIKE 'fanart:%'", [])?;
     Ok(())
 }
 
@@ -756,16 +778,29 @@ pub fn artist_logo(library: &Library, name: &str, online: bool) -> Result<Option
 /// A wide picture of an artist, for the top of their page, from fanart.tv: its newest
 /// background, or else its newest photo. Looked at again each month, with fanart.tv's answer.
 pub fn artist_banner(library: &Library, name: &str, online: bool) -> Result<Option<PathBuf>> {
-    fanart_picture(library, name, online, "wide", best_banner)
+    let found = fanart_picture(library, name, online, "banner", best_banner)?;
+    // The one chosen before pictures were dated (the last one fanart.tv listed) goes.
+    if let Some(file) = &found {
+        let _ = std::fs::remove_file(file.with_extension("wide"));
+    }
+    Ok(found)
 }
 
 /// The most liked of fanart.tv's pictures of one kind; in English or with no language first.
 fn best_of(data: &Value, kind: &str) -> Option<String> {
     let mut found: Vec<&Value> = data[kind].as_array().into_iter().flatten().collect();
-    let likes = |v: &Value| v["likes"].as_str().and_then(|n| n.parse::<i64>().ok()).unwrap_or(0);
+    let likes = |v: &Value| {
+        v["likes"]
+            .as_str()
+            .and_then(|n| n.parse::<i64>().ok())
+            .unwrap_or(0)
+    };
     let english = |v: &Value| matches!(v["lang"].as_str(), Some("en" | "" | "00") | None);
     found.sort_by_key(|v| (!english(v), -likes(v)));
-    found.first().and_then(|v| v["url"].as_str()).map(String::from)
+    found
+        .first()
+        .and_then(|v| v["url"].as_str())
+        .map(String::from)
 }
 
 /// The logo to show from fanart.tv's answer: the high-definition ones first.
@@ -773,15 +808,116 @@ fn best_logo(data: &Value) -> Option<String> {
     best_of(data, "hdmusiclogo").or_else(|| best_of(data, "musiclogo"))
 }
 
-/// The newest of fanart.tv's pictures of one kind (its "added" is "2024-05-01 12:00:00").
+/// The newest of fanart.tv's pictures of one kind, by `picture_date`; the one uploaded last
+/// when none can be dated.
 fn newest_of(data: &Value, kind: &str) -> Option<String> {
+    let id = |v: &Value| {
+        v["id"]
+            .as_str()
+            .and_then(|n| n.parse::<i64>().ok())
+            .or_else(|| v["id"].as_i64())
+            .unwrap_or(0)
+    };
     data[kind]
         .as_array()
         .into_iter()
         .flatten()
-        .max_by_key(|v| v["added"].as_str().unwrap_or_default().to_string())
+        .max_by_key(|v| (picture_date(v).unwrap_or(0), id(v)))
         .and_then(|v| v["url"].as_str())
         .map(String::from)
+}
+
+/// How much older than its upload a picture without a photo date counts as. Pictures reach
+/// fanart.tv months after they come out (and old ones years later), so a photo with a date
+/// beats one without, unless that one was uploaded more than a year after it.
+const UNDATED_AGE: i64 = 365 * 86_400;
+
+/// About when one of fanart.tv's pictures is from (Unix seconds). fanart.tv keeps no date for
+/// a picture, so this is when the photo was first posted, from the link it was copied from
+/// (`copyright_link`), or else a year before it was uploaded to fanart.tv, from its file name.
+fn picture_date(picture: &Value) -> Option<i64> {
+    let now = chrono::Utc::now().timestamp() + 86_400;
+    // Nothing before 2010 or in the future: such a "date" was misread.
+    let real = |t: i64| (1_262_304_000..now).contains(&t).then_some(t);
+    picture["copyright_link"]
+        .as_str()
+        .and_then(posted_at)
+        .and_then(real)
+        .or_else(|| {
+            picture["url"]
+                .as_str()
+                .and_then(uploaded_at)
+                .and_then(real)
+                .map(|t| t - UNDATED_AGE)
+        })
+}
+
+/// When a photo was first posted, from its link:
+/// - Twitter and X: the picture's name is its id in base64, and the id holds the time.
+/// - A year folder, then a month folder, as WordPress and many picture sites keep them:
+///   `/wp-content/uploads/2021/11/`, `/kpics/2026/02/`.
+/// - File names that start with the date, as Korean photo sites name them: `251201-...`.
+fn posted_at(link: &str) -> Option<i64> {
+    let day = |year: i32, month: u32, date: u32| {
+        chrono::NaiveDate::from_ymd_opt(year, month, date)
+            .and_then(|d| d.and_hms_opt(12, 0, 0))
+            .map(|t| t.and_utc().timestamp())
+    };
+    let digits = |text: &str| !text.is_empty() && text.chars().all(|c| c.is_ascii_digit());
+    if let Some(rest) = link.split("pbs.twimg.com/media/").nth(1) {
+        let name: String = rest
+            .chars()
+            .take_while(|c| c.is_ascii_alphanumeric() || matches!(c, '-' | '_'))
+            .collect();
+        let bits = name.chars().take(11).try_fold(0u128, |all, c| {
+            let n = match c {
+                'A'..='Z' => c as u32 - 'A' as u32,
+                'a'..='z' => c as u32 - 'a' as u32 + 26,
+                '0'..='9' => c as u32 - '0' as u32 + 52,
+                '-' => 62,
+                _ => 63,
+            };
+            Some((all << 6) | n as u128)
+        });
+        if let Some(bits) = bits.filter(|_| name.len() == 15) {
+            // 11 letters hold 66 bits; the id is the first 64. Its time is in milliseconds
+            // since Twitter's own start (2010-11-04).
+            let id = (bits >> 2) as u64;
+            return Some((((id >> 22) + 1_288_834_974_657) / 1000) as i64);
+        }
+    }
+    let path = link.split(['?', '#']).next()?;
+    let parts: Vec<&str> = path.split('/').collect();
+    for pair in parts.windows(2) {
+        if let [year, month] = pair
+            && year.len() == 4
+            && month.len() == 2
+            && digits(year)
+            && digits(month)
+            && year.starts_with("20")
+            && let Some(date) = day(year.parse().ok()?, month.parse().ok()?, 1)
+        {
+            return Some(date);
+        }
+    }
+    let file = parts.last()?;
+    let (start, after) = (file.get(..6)?, file.get(6..7)?);
+    if digits(start) && matches!(after, "-" | "_") {
+        let n = |i: usize| start[i..i + 2].parse::<u32>().ok();
+        return day(2000 + n(0)? as i32, n(2)?, n(4)?);
+    }
+    None
+}
+
+/// When a picture was uploaded to fanart.tv: its file name ends in a PHP `uniqid`, whose first
+/// eight hex digits are the time (`ive-61a7f2f0dcee2.jpg`).
+fn uploaded_at(url: &str) -> Option<i64> {
+    let stem = url.rsplit('/').next()?.split('.').next()?;
+    let id = stem.rsplit('-').next()?;
+    if id.len() != 13 || !id.chars().all(|c| c.is_ascii_hexdigit()) {
+        return None;
+    }
+    i64::from_str_radix(&id[..8], 16).ok()
 }
 
 /// The picture for the top of the page: the newest wide background, then the newest photo.
@@ -924,17 +1060,84 @@ mod tests {
 
     #[test]
     fn the_banner_is_the_newest_background_then_photo() {
+        // As fanart.tv lists IVE's: all uploaded on one day, the photos posted months apart.
         let both = serde_json::json!({
-            "artistthumb": [{ "url": "photo", "added": "2026-01-01 10:00:00" }],
+            "artistthumb": [{ "id": "9", "url": "https://assets.fanart.tv/fanart/ive-69935e86c350f.jpg" }],
             "artistbackground": [
-                { "url": "old", "likes": "40", "added": "2022-10-01 16:06:54" },
-                { "url": "new", "likes": "1", "added": "2025-04-11 09:12:00" },
-                { "url": "middle", "likes": "9", "added": "2024-02-02 08:00:00" },
+                { "id": "465470", "url": "december", "copyright_link": "https://legacy.kpopping.com/f4/0/251201-MAMA-Awards-2.jpeg" },
+                { "id": "465482", "url": "august", "copyright_link": "https://pbs.twimg.com/media/GxqKZcyawAIF0Ff?format=jpg&name=4096x4096" },
+                { "id": "465484", "url": "july", "copyright_link": "https://pbs.twimg.com/media/Gu6-afuXsAAfcPL?format=jpg&name=large" },
             ],
         });
-        assert_eq!(super::best_banner(&both).as_deref(), Some("new"));
-        let photo = serde_json::json!({ "artistthumb": [{ "url": "photo", "added": "2023-01-01 00:00:00" }] });
+        assert_eq!(super::best_banner(&both).as_deref(), Some("december"));
+        let photo = serde_json::json!({ "artistthumb": [{ "id": "1", "url": "photo" }] });
         assert_eq!(super::best_banner(&photo).as_deref(), Some("photo"));
+        // Undated: the one uploaded last (by its file name), then the last by id.
+        let undated = serde_json::json!({ "artistbackground": [
+            { "id": "3", "url": "https://assets.fanart.tv/fanart/a-61a7f2f0dcee2.jpg" },
+            { "id": "2", "url": "https://assets.fanart.tv/fanart/a-69935e86c350f.jpg" },
+            { "id": "1", "url": "https://assets.fanart.tv/fanart/a.jpg" },
+        ]});
+        assert!(
+            super::best_banner(&undated)
+                .unwrap()
+                .ends_with("69935e86c350f.jpg")
+        );
+        // As aespa's: a photo posted in September 2025 beats one without a date that was
+        // uploaded in March 2026 (from a 2024 page).
+        let mixed = serde_json::json!({ "artistbackground": [
+            { "id": "2", "url": "https://assets.fanart.tv/fanart/aespa-69a62480c0d2e.jpg", "copyright_link": "https://aespa-official.jp/aspect/wp-content/themes/hotmess2/img/slider/09.webp" },
+            { "id": "1", "url": "dated", "copyright_link": "https://legacy.kpopping.com/1/2/250910-aespa.jpeg" },
+        ]});
+        assert_eq!(super::best_banner(&mixed).as_deref(), Some("dated"));
+    }
+
+    #[test]
+    fn pictures_are_dated_by_where_they_were_posted() {
+        let date = |t: i64| {
+            chrono::DateTime::from_timestamp(t, 0)
+                .unwrap()
+                .date_naive()
+                .to_string()
+        };
+        let posted = |link: &str| super::posted_at(link).map(date);
+        assert_eq!(
+            posted("https://pbs.twimg.com/media/GxqKZcyawAIF0Ff?format=jpg").as_deref(),
+            Some("2025-08-06")
+        );
+        assert_eq!(
+            posted("https://dbkpop.com/wp-content/uploads/2021/11/ive_eleven.jpg").as_deref(),
+            Some("2021-11-01")
+        );
+        assert_eq!(
+            posted("https://legacy.kpopping.com/98/5/251231-IVE-at-the-show.jpeg").as_deref(),
+            Some("2025-12-31")
+        );
+        assert_eq!(
+            posted("https://cdn.kpopping.com/kpics/2026/02/1771156810354-ds9qhe-0.jpg").as_deref(),
+            Some("2026-02-01")
+        );
+        assert_eq!(
+            posted("https://example.com/123456-photo.jpg"),
+            None,
+            "not a date"
+        );
+        assert_eq!(
+            posted("https://example.com/2026/13/photo.jpg"),
+            None,
+            "no 13th month"
+        );
+        assert_eq!(posted("https://example.com/photo.jpg"), None);
+        assert_eq!(
+            super::uploaded_at("https://assets.fanart.tv/fanart/ive-61a7f2f0dcee2.jpg")
+                .map(date)
+                .as_deref(),
+            Some("2021-12-01")
+        );
+        assert_eq!(
+            super::uploaded_at("https://assets.fanart.tv/fanart/ive.jpg"),
+            None
+        );
     }
     use super::*;
 

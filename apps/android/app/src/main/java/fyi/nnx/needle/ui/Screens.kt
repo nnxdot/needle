@@ -85,13 +85,10 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
-private fun play(songs: List<Song>, start: Int = 0) {
-    core.play(songs.map { it.id }, start.toUInt())
-    NeedleApp.instance.openPlayer.tryEmit(Unit)
-}
+private fun play(songs: List<Song>, start: Int = 0) = playSongs(songs.map { it.id }, start)
 
 @Composable
-private fun currentId(): String? = NeedleApp.instance.playback.collectAsState().value?.current?.id
+private fun currentId(): String? = playingSongId()
 
 internal fun LazyGridScope.full(content: @Composable () -> Unit) =
     item(span = { GridItemSpan(maxLineSpan) }) { content() }
@@ -99,17 +96,11 @@ internal fun LazyGridScope.full(content: @Composable () -> Unit) =
 /** Albums two to a row, with the page's side margins; soft placeholders while they load. */
 private fun LazyGridScope.albumGrid(albums: List<Album>?, open: (Route) -> Unit, loading: Boolean) {
     if (loading) {
-        items(6) { i ->
-            AlbumPlaceholder(Modifier.padding(start = if (i % 2 == 0) Edge else 0.dp, end = if (i % 2 == 1) Edge else 0.dp))
-        }
+        items(6) { AlbumPlaceholder() }
         return
     }
-    gridItemsIndexed(albums.orEmpty(), key = { _, a -> a.key }) { i, album ->
-        AlbumTile(
-            album,
-            Modifier.padding(start = if (i % 2 == 0) Edge else 0.dp, end = if (i % 2 == 1) Edge else 0.dp),
-            open,
-        ) { open(Route.AlbumPage(album)) }
+    gridItemsIndexed(albums.orEmpty(), key = { _, a -> a.key }) { _, album ->
+        AlbumTile(album, Modifier, open) { open(Route.AlbumPage(album)) }
     }
 }
 
@@ -118,9 +109,10 @@ fun AlbumsScreen(open: (Route) -> Unit) {
     val albumsLoad = rememberLoaded { albums() }
     val albums by albumsLoad
     Page("Albums", albums?.let { count(it.size, "album") }) { padding, scroll ->
+        // Two covers across on a phone, more on a tablet.
         LazyVerticalGrid(
-            columns = GridCells.Fixed(2),
-            contentPadding = PaddingValues(bottom = 24.dp),
+            columns = gridColumns(180.dp),
+            contentPadding = PaddingValues(start = Edge, end = Edge, bottom = 24.dp),
             horizontalArrangement = Arrangement.spacedBy(16.dp),
             verticalArrangement = Arrangement.spacedBy(LocalRows.current.grid),
             modifier = Modifier.fillMaxSize().padding(padding).then(scroll),
@@ -133,17 +125,17 @@ fun ArtistsScreen(open: (Route) -> Unit) {
     val artistsLoad = rememberLoaded { artists() }
     val artists by artistsLoad
     Page("Artists") { padding, scroll ->
-        LazyColumn(Modifier.fillMaxSize().padding(padding).then(scroll), contentPadding = PaddingValues(bottom = 24.dp)) {
-            items(artists.orEmpty(), key = { it.name }) { artist ->
-                Row(
-                    Modifier.fillMaxWidth().clickable { open(Route.Artist(artist.name)) }.padding(horizontal = Edge, vertical = LocalRows.current.pad / 2),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(14.dp),
-                ) {
-                    RoundCover(artist.artwork, LocalRows.current.cover + 4.dp)
-                    Text(artist.name.ifBlank { "Unknown artist" }, style = MaterialTheme.typography.bodyLarge, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                }
-            }
+        // As the Library's artists: each in the artists' arch, as many across as fit.
+        androidx.compose.foundation.lazy.grid.LazyVerticalGrid(
+            columns = androidx.compose.foundation.lazy.grid.GridCells.Adaptive(104.dp),
+            contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 8.dp, bottom = 24.dp),
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
+            verticalArrangement = Arrangement.spacedBy(LocalRows.current.grid),
+            modifier = Modifier.fillMaxSize().padding(padding).then(scroll),
+        ) {
+            // One list, read once: a reload that fails leaves it, not a null, to the tiles.
+            val list = artists.orEmpty()
+            items(list.size, key = { list[it].name }) { i -> ArtistTile(list[i], Modifier, open) }
         }
     }
 }
@@ -157,7 +149,7 @@ private fun SongListPage(title: String, songs: List<Song>?, open: (Route) -> Uni
             if (loading) items(8) { SongPlaceholder() }
             if (list.isNotEmpty()) item { PlayRow(list) }
             itemsIndexed(list, key = { _, s -> s.id }) { i, song ->
-                SongRow(song, playing == song.id, open) { play(list, i) }
+                SongRow(song, playing == song.id, open, place = Place(i, list.size)) { play(list, i) }
             }
         }
     }
@@ -195,9 +187,11 @@ fun PlaylistsScreen(open: (Route) -> Unit) {
             if (playlists != null && list.isEmpty()) {
                 item { Text("No playlists yet.", color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(horizontal = Edge, vertical = 8.dp)) }
             }
-            items(list, key = { it.id }) { playlist ->
+            items(list.size, key = { list[it].id }) { i ->
+                val playlist = list[i]
                 Row(
-                    Modifier.fillMaxWidth().clickable { open(Route.Playlist(playlist.id, playlist.name)) }.padding(horizontal = Edge, vertical = LocalRows.current.pad / 2),
+                    Modifier.fillMaxWidth().segment(Place(i, list.size), groupColor()).clickable { open(Route.Playlist(playlist.id, playlist.name)) }
+                        .padding(horizontal = 14.dp, vertical = LocalRows.current.pad / 2 + 2.dp),
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(14.dp),
                 ) {
@@ -224,14 +218,14 @@ fun GenresScreen(open: (Route) -> Unit) {
     val list = genres.orEmpty()
     Page("Genres") { padding, scroll ->
         LazyVerticalGrid(
-            columns = GridCells.Fixed(2),
-            contentPadding = PaddingValues(bottom = 24.dp),
+            columns = gridColumns(210.dp),
+            contentPadding = PaddingValues(start = 16.dp, end = 16.dp, bottom = 24.dp),
             horizontalArrangement = Arrangement.spacedBy(12.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp),
             modifier = Modifier.fillMaxSize().padding(padding).then(scroll),
         ) {
-            gridItemsIndexed(list, key = { _, g -> g.name }) { i, genre ->
-                GenreTile(genre.name, genre.artwork, Modifier.padding(start = if (i % 2 == 0) 16.dp else 0.dp, end = if (i % 2 == 1) 16.dp else 0.dp)) { open(Route.Genre(genre.name)) }
+            gridItemsIndexed(list, key = { _, g -> g.name }) { _, genre ->
+                GenreTile(genre.name, genre.artwork, Modifier) { open(Route.Genre(genre.name)) }
             }
         }
     }

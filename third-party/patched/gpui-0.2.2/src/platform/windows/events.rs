@@ -44,8 +44,16 @@ impl WindowsWindowInner {
             WM_MOVE => self.handle_move_msg(handle, lparam),
             WM_SIZE => self.handle_size_msg(wparam, lparam),
             WM_GETMINMAXINFO => self.handle_get_min_max_info_msg(lparam),
-            WM_ENTERSIZEMOVE | WM_ENTERMENULOOP => self.handle_size_move_loop(handle),
-            WM_EXITSIZEMOVE | WM_EXITMENULOOP => self.handle_size_move_loop_exit(handle),
+            WM_ENTERSIZEMOVE => {
+                self.plain_blur_while_moving(handle, true);
+                self.handle_size_move_loop(handle)
+            }
+            WM_EXITSIZEMOVE => {
+                self.plain_blur_while_moving(handle, false);
+                self.handle_size_move_loop_exit(handle)
+            }
+            WM_ENTERMENULOOP => self.handle_size_move_loop(handle),
+            WM_EXITMENULOOP => self.handle_size_move_loop_exit(handle),
             WM_TIMER => self.handle_timer_msg(handle, wparam),
             WM_NCCALCSIZE => self.handle_calc_client_size(handle, wparam, lparam),
             WM_DPICHANGED => self.handle_dpi_changed_msg(handle, wparam, lparam),
@@ -229,6 +237,25 @@ impl WindowsWindowInner {
             }
         }
         None
+    }
+
+    /// Windows 10 with Acrylic, not maximized: the accent policy blurs the whole window, its
+    /// invisible resize border too, which then shows as a few pixels of blur around the window.
+    /// So the window has no border: its client area is all of it, and its outer edge (as wide
+    /// as the border was) resizes it.
+    pub(crate) fn borderless_blur(&self) -> bool {
+        matches!(self.windows_version, WindowsVersion::Win10)
+            && self.acrylic.get()
+            && !self.state.borrow().is_maximized()
+    }
+
+    /// Windows 10: Acrylic through the accent policy makes a dragged or resized window lag
+    /// behind the mouse and jump, so while it moves it takes plain blur, and Acrylic again after.
+    fn plain_blur_while_moving(&self, handle: HWND, moving: bool) {
+        if matches!(self.windows_version, WindowsVersion::Win10) && self.acrylic.get() {
+            let state = if moving { ACCENT_BLUR } else { ACCENT_ACRYLIC };
+            set_window_composition_attribute(handle, Some((0, 0, 0, 0)), state);
+        }
     }
 
     fn handle_size_move_loop_exit(&self, handle: HWND) -> Option<isize> {
@@ -707,7 +734,11 @@ impl WindowsWindowInner {
         }
 
         let is_maximized = self.state.borrow().is_maximized();
-        let insets = get_client_area_insets(handle, is_maximized, self.windows_version);
+        let insets = if self.borderless_blur() {
+            RECT::default()
+        } else {
+            get_client_area_insets(handle, is_maximized, self.windows_version)
+        };
         // wparam is TRUE so lparam points to an NCCALCSIZE_PARAMS structure
         let mut params = lparam.0 as *mut NCCALCSIZE_PARAMS;
         let mut requested_client_rect = unsafe { &mut ((*params).rgrc) };
@@ -915,6 +946,31 @@ impl WindowsWindowInner {
             y: lparam.signed_hiword().into(),
         };
         unsafe { ScreenToClient(handle, &mut cursor_point).ok().log_err() };
+        // No border (see `borderless_blur`): the window's own outer edge resizes it.
+        if self.borderless_blur() {
+            let edge = get_frame_thickness(dpi);
+            let mut client = RECT::default();
+            unsafe { GetClientRect(handle, &mut client).log_err() };
+            let (x, y) = (cursor_point.x, cursor_point.y);
+            let left = x < edge;
+            let right = x >= client.right - edge;
+            let top = y < frame_y;
+            let bottom = y >= client.bottom - edge;
+            let hit = match (top, bottom, left, right) {
+                (true, _, true, _) => Some(HTTOPLEFT),
+                (true, _, _, true) => Some(HTTOPRIGHT),
+                (_, true, true, _) => Some(HTBOTTOMLEFT),
+                (_, true, _, true) => Some(HTBOTTOMRIGHT),
+                (true, ..) => Some(HTTOP),
+                (_, true, ..) => Some(HTBOTTOM),
+                (_, _, true, _) => Some(HTLEFT),
+                (_, _, _, true) => Some(HTRIGHT),
+                _ => None,
+            };
+            if let Some(hit) = hit {
+                return Some(hit as _);
+            }
+        }
         if !self.state.borrow().is_maximized() && cursor_point.y >= 0 && cursor_point.y <= frame_y {
             return Some(HTTOP as _);
         }
@@ -1539,7 +1595,7 @@ fn get_frame_thickness(dpi: u32) -> i32 {
     resize_frame_thickness + padding_thickness
 }
 
-fn notify_frame_changed(handle: HWND) {
+pub(crate) fn notify_frame_changed(handle: HWND) {
     unsafe {
         SetWindowPos(
             handle,

@@ -17,6 +17,7 @@ import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -40,6 +41,12 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.runtime.remember
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
@@ -48,16 +55,14 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.coerceAtLeast
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import fyi.nnx.needle.NeedleApp
 import fyi.nnx.needle.core.Wrapped
 import kotlinx.coroutines.launch
 
-private fun playTop(w: Wrapped, start: Int = 0) {
-    core.play(w.topSongs.map { it.id }, start.toUInt())
-    NeedleApp.instance.openPlayer.tryEmit(Unit)
-}
+private fun playTop(w: Wrapped, start: Int = 0) = playSongs(w.topSongs.map { it.id }, start)
 
 /**
  * The year in music as a story: full-height cards to swipe through, coloured by the year's
@@ -70,6 +75,11 @@ fun WrappedScreen(year: Int?, open: (Route) -> Unit) {
     val years by yearsLoad
     var chosen by rememberSaveable { mutableStateOf(year) }
     val shown = chosen ?: years?.firstOrNull()
+    // The years saved as a playlist, kept on this page (its cards come and go as they are swiped).
+    var savedYears by androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf(listOf<String>()) }
+    // A year saved on an earlier visit has its playlist already.
+    val playlistsLoad = rememberLoaded { playlists() }
+    val playlistNames = playlistsLoad.value.orEmpty().map { it.name }.toSet()
     val wrappedLoad = rememberLoaded(shown) { shown?.let { wrapped(it) } }
     val wrapped by wrappedLoad
     val w = wrapped
@@ -80,7 +90,14 @@ fun WrappedScreen(year: Int?, open: (Route) -> Unit) {
         }
         return
     }
-    if (w == null) return
+    // Loading (or another year coming): the way back, and Material's loading shape.
+    if (w == null) {
+        Box(Modifier.fillMaxSize()) {
+            if (LocalCanGoBack.current) BackButton(Modifier.padding(start = 6.dp, top = 4.dp))
+            androidx.compose.material3.LoadingIndicator(Modifier.align(Alignment.Center))
+        }
+        return
+    }
     val glow = coverColor(w.topSongs.firstOrNull()?.artwork)
     val pages = listOfNotNull<@Composable () -> Unit>(
         { Intro(w) },
@@ -88,7 +105,7 @@ fun WrappedScreen(year: Int?, open: (Route) -> Unit) {
         if (w.topSongs.size > 1) ({ TopFive(w) }) else null,
         if (w.stats.topArtists.isNotEmpty()) ({ Artists(w, open) }) else null,
         { Habits(w) },
-        { Keep(w) },
+        { Keep(w, "${w.year}" in savedYears || "Top songs of ${w.year}" in playlistNames) { savedYears = savedYears + "${w.year}" } },
     )
     val pager = rememberPagerState { pages.size }
     val scope = rememberCoroutineScope()
@@ -98,7 +115,9 @@ fun WrappedScreen(year: Int?, open: (Route) -> Unit) {
             .background(Brush.verticalGradient(listOf(glow.copy(alpha = 0.9f), MaterialTheme.colorScheme.background), endY = 1800f)),
     ) {
         Column(Modifier.fillMaxSize()) {
-            // Story segments along the top: done, current, still to come.
+            // The way back, as every page opened from another has, then the story segments along
+            // the top: done, current, still to come.
+            if (LocalCanGoBack.current) BackButton(Modifier.padding(start = 6.dp, top = 4.dp))
             Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
                 repeat(pages.size) { i ->
                     val fill by animateFloatAsState(if (i <= pager.currentPage) 1f else 0f, tween(300), label = "segment")
@@ -108,13 +127,16 @@ fun WrappedScreen(year: Int?, open: (Route) -> Unit) {
                 }
             }
             if ((years?.size ?: 0) > 1) {
-                Row(Modifier.padding(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    years.orEmpty().take(4).forEach { y ->
+                // Every year, along a row that scrolls.
+                Row(Modifier.horizontalScroll(androidx.compose.foundation.rememberScrollState()).padding(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    years.orEmpty().forEach { y ->
                         FilterChip(selected = y == shown, onClick = { chosen = y; scope.launch { pager.scrollToPage(0) } }, label = { Text(y.toString()) })
                     }
                 }
             }
-            HorizontalPager(pager, Modifier.weight(1f), pageSpacing = 12.dp, contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 16.dp, vertical = 12.dp)) { page ->
+            // On a tablet the cards stay the shape of a phone's, the next ones showing at the sides.
+            val sides = ((LocalPageWidth.current - 560.dp) / 2).coerceAtLeast(16.dp)
+            HorizontalPager(pager, Modifier.weight(1f), pageSpacing = 12.dp, contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = sides, vertical = 12.dp)) { page ->
                 // Each card its own colour; the song card takes its cover's.
                 val (top, bottom) = if (page == 1) glow to Color(0xFF0E0D0C) else CardColors[page % CardColors.size]
                 Box(
@@ -123,9 +145,18 @@ fun WrappedScreen(year: Int?, open: (Route) -> Unit) {
                         .clip(RoundedCornerShape(36.dp))
                         .background(Brush.linearGradient(listOf(top, bottom)))
                         // A tap moves on, as in a story.
-                        .clickable { scope.launch { pager.animateScrollToPage((page + 1).coerceAtMost(pages.size - 1)) } }
+                        .clickable(onClickLabel = "Next card") { scope.launch { pager.animateScrollToPage((page + 1).coerceAtMost(pages.size - 1)) } }
                         .padding(28.dp),
-                ) { pages[page]() }
+                ) {
+                    // Centred where the card has room; scrolled where it has not (a TV, a phone
+                    // on its side), so its foot and its button stay in reach.
+                    androidx.compose.foundation.layout.BoxWithConstraints(Modifier.fillMaxSize()) {
+                        Box(
+                            Modifier.fillMaxWidth().heightIn(min = maxHeight).verticalScroll(rememberScrollState()),
+                            propagateMinConstraints = true,
+                        ) { pages[page]() }
+                    }
+                }
             }
         }
     }
@@ -143,7 +174,17 @@ private val CardColors = listOf(
 
 @Composable
 private fun Big(text: String, size: Int = 88) {
-    Text(text, color = Color.White, fontSize = size.sp, lineHeight = (size * 0.95).sp, fontWeight = FontWeight.Black, letterSpacing = (-2).sp)
+    // On one line, smaller where it would not fit (a narrow phone, large text), never broken mid-word.
+    Text(
+        text,
+        color = Color.White,
+        lineHeight = (size * 0.95).sp,
+        fontWeight = FontWeight.Black,
+        letterSpacing = (-2).sp,
+        maxLines = 1,
+        softWrap = false,
+        autoSize = androidx.compose.foundation.text.TextAutoSize.StepBased(minFontSize = 28.sp, maxFontSize = size.sp),
+    )
 }
 
 @Composable
@@ -178,7 +219,7 @@ private fun TopSong(w: Wrapped) {
         Spacer(Modifier.height(24.dp))
         Cover(
             song.artwork,
-            Modifier.fillMaxWidth(0.8f).aspectRatio(1f).graphicsLayer { rotationZ = if (reduce) 0f else spin },
+            Modifier.widthIn(max = 280.dp).fillMaxWidth(0.8f).aspectRatio(1f).graphicsLayer { rotationZ = if (reduce) 0f else spin },
             MaterialShapes.Cookie12Sided.toShape(),
         )
         Spacer(Modifier.height(28.dp))
@@ -220,7 +261,7 @@ private fun Artists(w: Wrapped, open: (Route) -> Unit) {
         Spacer(Modifier.height(20.dp))
         w.stats.topArtists.take(5).forEachIndexed { i, a ->
             // Their photo, or else a cover of theirs.
-            val photoLoad = rememberLoaded(a.artist) { artistPhoto(a.artist) ?: artistAlbums(a.artist).firstNotNullOfOrNull { it.artwork } }
+            val photoLoad = rememberLoaded(a.artist, cache = false) { artistPhoto(a.artist) ?: artistAlbums(a.artist).firstNotNullOfOrNull { it.artwork } }
             val photo by photoLoad
             Row(
                 Modifier.fillMaxWidth().clip(RoundedCornerShape(16.dp)).clickable { open(Route.Artist(a.artist)) }.padding(vertical = 8.dp),
@@ -255,7 +296,8 @@ private fun Habits(w: Wrapped) {
         Spacer(Modifier.height(24.dp))
         // The day's hours as bars, the busiest lit.
         val most = (w.stats.hours.maxOrNull() ?: 0.0).coerceAtLeast(1.0)
-        Row(Modifier.fillMaxWidth().height(90.dp), horizontalArrangement = Arrangement.spacedBy(3.dp), verticalAlignment = Alignment.Bottom) {
+        // The words above say it for TalkBack.
+        Row(Modifier.fillMaxWidth().height(90.dp).clearAndSetSemantics {}, horizontalArrangement = Arrangement.spacedBy(3.dp), verticalAlignment = Alignment.Bottom) {
             w.stats.hours.forEach { h ->
                 Box(Modifier.weight(1f).fillMaxHeight((h / most).toFloat().coerceIn(0.04f, 1f)).clip(RoundedCornerShape(3.dp)).background(Color.White.copy(alpha = if (h == most) 1f else 0.4f)))
             }
@@ -268,18 +310,22 @@ private fun Habits(w: Wrapped) {
 }
 
 @Composable
-private fun Keep(w: Wrapped) {
+private fun Keep(w: Wrapped, saved: Boolean, onSaved: () -> Unit) {
     Column(Modifier.fillMaxSize(), verticalArrangement = Arrangement.Center, horizontalAlignment = Alignment.CenterHorizontally) {
         Big("${w.year}", 96)
         Small("That was your year.")
         Spacer(Modifier.height(32.dp))
         Button(onClick = { playTop(w) }, colors = ButtonDefaults.buttonColors(containerColor = Color.White, contentColor = Color.Black)) { Text("Play your top songs") }
         Spacer(Modifier.height(8.dp))
-        FilledTonalButton(onClick = {
-            core.createPlaylist("Top songs of ${w.year}", "Your most played songs of ${w.year}.", w.topSongs.map { it.id }, null)
-            NeedleApp.instance.libraryVersion.value++
-            showMessage("Saved as a playlist")
-        }) { Text("Save them as a playlist") }
+        // Once: a second tap would make a second playlist of the same songs.
+        var saving by remember { mutableStateOf(false) }
+        FilledTonalButton(enabled = !saved && !saving, onClick = {
+            saving = true
+            libraryWrite(
+                { core.createPlaylist("Top songs of ${w.year}", "Your most played songs of ${w.year}.", w.topSongs.map { it.id }, null) },
+                { saving = false; showMessage("Could not save it: ${it.message}") },
+            ) { saving = false; onSaved(); showMessage("Saved as a playlist") }
+        }) { Text(if (saved) "Saved as a playlist" else "Save them as a playlist") }
     }
 }
 

@@ -324,6 +324,61 @@ impl AppView {
             })
             .detach();
         }
+        // For screenshots: an artist's page, opened once the window is up.
+        if let Ok(name) = std::env::var("NEEDLE_SHOW_ARTIST") {
+            cx.spawn_in(window, async move |view, cx| {
+                cx.background_executor().timer(Duration::from_secs(2)).await;
+                let _ = view.update_in(cx, |v, window, cx| open(v, Page::Artist(name), window, cx));
+                // And scrolled down this far (NEEDLE_SHOW_SCROLL, in pixels), once it has drawn.
+                let down = std::env::var("NEEDLE_SHOW_SCROLL")
+                    .ok()
+                    .and_then(|s| s.parse::<f32>().ok());
+                if let Some(down) = down {
+                    cx.background_executor().timer(Duration::from_secs(2)).await;
+                    let _ = view.update(cx, |v, cx| {
+                        v.artist_scroll.set_offset(point(px(0.), px(-down)));
+                        cx.notify();
+                    });
+                }
+            })
+            .detach();
+        }
+        // For screenshots: a page, once the window is up (NEEDLE_SHOW_PAGE: "home", "songs", or
+        // "settings:2" for a tab of Settings).
+        if let Ok(page) = std::env::var("NEEDLE_SHOW_PAGE") {
+            cx.spawn_in(window, async move |view, cx| {
+                cx.background_executor().timer(Duration::from_secs(2)).await;
+                let _ = view.update_in(cx, |v, window, cx| match page.split_once(':') {
+                    Some(("settings", tab)) => {
+                        v.settings_tab = tab.parse().unwrap_or(0);
+                        open(v, Page::Settings, window, cx)
+                    }
+                    _ if page == "home" => open(v, Page::Home, window, cx),
+                    _ => open(v, Page::Songs, window, cx),
+                });
+            })
+            .detach();
+        }
+        // For screenshots: the big player, once the window is up ("moving": held as it is while
+        // it grows, over the page and under the usual title bar).
+        if let Ok(how) = std::env::var("NEEDLE_SHOW_BIG") {
+            cx.spawn_in(window, async move |view, cx| {
+                cx.background_executor().timer(Duration::from_secs(3)).await;
+                let _ = view.update(cx, |v, cx| {
+                    v.big = true;
+                    if how == "moving" {
+                        v.big_was = true;
+                        v.big_moving = true;
+                    }
+                    // "alone": with no pane beside it.
+                    if how == "alone" {
+                        v.big_side = super::now_playing::Side::None;
+                    }
+                    cx.notify();
+                });
+            })
+            .detach();
+        }
         if std::env::var_os("NEEDLE_BENCH").is_none() {
             return;
         }

@@ -15,12 +15,18 @@
 /apps/android/build/
 /apps/android/app/build/
 /apps/android/local.properties
+# Discord's Social SDK: closed source, from the Developer Portal
+/apps/android/app/libs/
 # iPhone: made by scripts/build-ios.sh and Xcode
 /apps/ios/Needle/Core/
 /apps/ios/NeedleCore.xcframework/
 /apps/ios/build/
 /apps/ios/Needle.xcodeproj/project.xcworkspace/
 /apps/ios/Needle.xcodeproj/xcuserdata/
-# Discord's Social SDK: closed source, from the Developer Portal
-/apps/android/app/libs/
-/apps/ios/Discord/
+/apps/macos/Needle/Core/
+/apps/macos/NeedleCore.xcframework/
+/apps/macos/build/
+/apps/macos/Needle/Resources/Needle.icns
+/apps/macos/Needle/Resources/*.ttf
+/apps/macos/Needle.xcodeproj/project.xcworkspace/
+/apps/macos/Needle.xcodeproj/xcuserdata/
