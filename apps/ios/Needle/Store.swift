@@ -1,6 +1,8 @@
 import ActivityKit
 import AVFoundation
+import CryptoKit
 import MediaPlayer
+import MetricKit
 import Observation
 import SwiftUI
 import UIKit
@@ -32,12 +34,59 @@ final class Store {
     private(set) var themes: [ThemeInfo] = []
     /// The playing cover's main colour.
     private(set) var coverColor: Color?
+    /// The song playing (or shown, the computer's) and whether it plays: song rows follow
+    /// these, which change only with the song, not four times a second as `playback` does.
+    private(set) var playingID: String?
+    private(set) var isPlaying = false
     /// The songs up next, read again whenever the queue changes.
     private(set) var upNext: [Song] = []
     /// When the sleep timer pauses the music; `.distantFuture` for "at the end of the song".
     private(set) var sleepEnds: Date?
     /// A short message to show at the top of the screen.
-    var message: String?
+    var message: String? {
+        // VoiceOver hears each message once (two toasts show it while the player is open), and
+        // the same one given again is heard (and shown its full time) again.
+        didSet {
+            guard let message else { return }
+            messageCount += 1
+            UIAccessibility.post(notification: .announcement, argument: message)
+        }
+    }
+    /// Goes up when stars change (a rating, a favourite): the player's star and Favourites follow.
+    private(set) var ratingVersion = 0
+
+    /// Goes up when a song's own lyrics are saved or taken off: the lyrics shown follow.
+    private(set) var lyricsVersion = 0
+
+    func lyricsChanged() { lyricsVersion += 1 }
+
+    /// Takes a song out of Up Next, at once on the screen too (the queue is read again a moment
+    /// later, and a second swipe meanwhile used the old places).
+    func removeUpNext(at rows: IndexSet) {
+        rows.sorted(by: >).forEach { core.removeUpNext(index: UInt32($0)) }
+        upNext.remove(atOffsets: rows)
+    }
+
+    /// Moves a song in Up Next, at once on the screen too.
+    func moveUpNext(from: IndexSet, to: Int) {
+        guard let first = from.first else { return }
+        // The core moves to a place in the list as it is after taking the song out.
+        core.moveUpNext(from: UInt32(first), to: UInt32(to > first ? to - 1 : to))
+        upNext.move(fromOffsets: from, toOffset: to)
+    }
+
+    /// Stars or a favourite were changed.
+    func ratingsChanged() { ratingVersion += 1 }
+
+    /// Rates a song, then lets what shows its stars know.
+    func rate(_ id: String, stars: Int) {
+        Task {
+            if await ask({ try $0.rate(id: id, stars: UInt8(stars)) }) != nil { ratingsChanged() }
+        }
+    }
+
+    /// Goes up with each message.
+    private(set) var messageCount = 0
     /// A plugin's question, answered with text.
     var question: Question?
     var showPlayer = false
@@ -81,7 +130,14 @@ final class Store {
     }
 
     @ObservationIgnored private var timer: Timer?
-    @ObservationIgnored private var wasScanning = false
+    @ObservationIgnored private var scansSeen: UInt64 = 0
+    @ObservationIgnored private var shownError: String?
+    @ObservationIgnored private var askComputerNow = false
+    /// Music played at the last look (the audio was taken for it).
+    @ObservationIgnored private var audioTaken = false
+
+    /// Asks the computer for its state at once (a link was just made or dropped).
+    func askComputer() { askComputerNow = true }
     @ObservationIgnored private var queueVersion: UInt64 = .max
     @ObservationIgnored private var shownSong: String?
     @ObservationIgnored private var shownArtwork: MPMediaItemArtwork?
@@ -105,9 +161,11 @@ final class Store {
         let home = NSHomeDirectory()
         let defaults = UserDefaults.standard
         if let earlier = defaults.string(forKey: "home"), earlier != home {
-            _ = try? relocate(dataDir: support.path, old: earlier, new: home)
+            // Kept as moved only when the library moved with it; else tried again next time.
+            if (try? relocate(dataDir: support.path, old: earlier, new: home)) != nil { defaults.set(home, forKey: "home") }
+        } else {
+            defaults.set(home, forKey: "home")
         }
-        defaults.set(home, forKey: "home")
         do {
             core = try Needle(dataDir: support.path)
         } catch {
@@ -118,21 +176,32 @@ final class Store {
         startAudio()
         startRemoteCommands()
         Actions.handler = { [weak self] action in self?.perform(action) }
-        let folder = musicFolder.path
+        Actions.takeWaiting().forEach(perform)
+        let folder = Self.realPath(musicFolder.path)
         let core = core
+        let welcomed = app.welcomed
         Task.detached {
             // Already known: it is read again when the app comes to the front.
             if (try? core.folders())?.contains(folder) != true {
                 try? core.addFolder(path: folder)
             }
-            _ = core.sendCrashReports()
+            // Only once the welcome screen has let the person choose.
+            if welcomed { _ = core.sendCrashReports() }
+            // The app's own crashes (not only the core's): the system tells of them after.
+            await MainActor.run { CrashWatcher.shared.start(core) }
             _ = core.reconnectPc()
+            // Discord's status, when this build has Discord's library (it waits, unlinked).
+            core.startDiscord()
             #if DEBUG
             // For testing in the simulator from a shell: plays the whole library at start.
             if CommandLine.arguments.contains("-play-test") {
                 try? await Task.sleep(for: .seconds(3))
                 if let songs = try? core.songs(), !songs.isEmpty {
-                    try? core.play(ids: songs.map(\.id), start: 0)
+                    // -play-title <title>: from that song.
+                    let args = CommandLine.arguments
+                    let title = args.firstIndex(of: "-play-title").flatMap { args.indices.contains($0 + 1) ? args[$0 + 1] : nil }
+                    let start = title.flatMap { t in songs.firstIndex { $0.title == t } } ?? 0
+                    try? core.play(ids: songs.map(\.id), start: UInt32(start))
                 }
             }
             #endif
@@ -140,8 +209,26 @@ final class Store {
         timer = Timer.scheduledTimer(withTimeInterval: 0.25, repeats: true) { [weak self] _ in
             MainActor.assumeIsolated { self?.tick() }
         }
+        // Also while a finger scrolls a list (the timer's own mode waits for it to stop).
+        if let timer { RunLoop.main.add(timer, forMode: .common) }
         followComputer()
         refreshPlugins()
+        #if DEBUG
+        // For testing from a shell: opens Discord's sign-in page.
+        if CommandLine.arguments.contains("-discord-link") {
+            Task {
+                try? await Task.sleep(for: .seconds(3))
+                core.discordLink()
+            }
+        }
+        // For testing from a shell, with -play-test: opens the player (on its lyrics or queue).
+        if ["-show-player", "-show-lyrics", "-show-queue"].contains(where: CommandLine.arguments.contains) {
+            Task { [weak self] in
+                try? await Task.sleep(for: .seconds(5))
+                self?.showPlayer = true
+            }
+        }
+        #endif
         Task { await updateWidgets(library: true) }
     }
 
@@ -154,9 +241,26 @@ final class Store {
         if shown != onComputer { onComputer = shown }
         let next = shown ? pc.map(Self.playback(of:)) ?? now : now
         if next != playback { playback = next }
+        if next.current?.id != playingID { playingID = next.current?.id }
+        if now.playing, !audioTaken { activateAudio() }
+        audioTaken = now.playing
+        if next.playing != isPlaying { isPlaying = next.playing }
         if next.queueVersion != queueVersion {
             queueVersion = next.queueVersion
-            upNext = shown ? (pc?.upNext ?? []).map(Self.song(of:)) : core.upNext()
+            if shown {
+                upNext = (pc?.upNext ?? []).map(Self.song(of:))
+            } else {
+                let (core, version) = (core, next.queueVersion)
+                Task {
+                    let list = await Task.detached { core.upNext() }.value
+                    if self.queueVersion == version { self.upNext = list }
+                }
+            }
+        }
+        // A song that could not play says so (without any address, which may hold a key).
+        if now.error != shownError {
+            shownError = now.error
+            if let error = now.error { message = Self.withoutAddresses(error) }
         }
         updateNowPlaying(now)
         followSleep(now)
@@ -170,8 +274,10 @@ final class Store {
         guard ticks % 2 == 0 else { return }
         let status = core.scanStatus()
         if status != scan { scan = status }
-        if wasScanning && !status.running { libraryChanged() }
-        wasScanning = status.running
+        if status.changes != scansSeen {
+            scansSeen = status.changes
+            libraryChanged()
+        }
         for notice in core.takeNotices() {
             switch notice {
             case .message(let text): message = text
@@ -236,9 +342,16 @@ final class Store {
         let core = core
         Task.detached {
             do { try work(core) } catch {
-                await MainActor.run { self.message = "\(error.localizedDescription)" }
+                await MainActor.run { self.message = Self.words(error) }
             }
         }
+    }
+
+    /// An error's own words (Needle's errors carry a message; the generated description is the
+    /// error's type and fields).
+    nonisolated static func words(_ error: Error) -> String {
+        if let error = error as? NeedleError, case .Failed(let message) = error { return withoutAddresses(message) }
+        return error.localizedDescription
     }
 
     /// Runs `work` away from the screen and gives back its result, or shows its error.
@@ -247,7 +360,7 @@ final class Store {
         let result = await Task.detached { Result { try work(core) } }.value
         switch result {
         case .success(let value): return value
-        case .failure(let error): message = error.localizedDescription; return nil
+        case .failure(let error): message = Self.words(error); return nil
         }
     }
 
@@ -264,7 +377,21 @@ final class Store {
         change(&next)
         app = next
         let saved = next
-        run { try $0.setAppSettings(value: saved) }
+        inOrder { try $0.setAppSettings(value: saved) }
+    }
+
+    @ObservationIgnored private var saving: Task<Void, Never>?
+
+    /// Runs `work` away from the screen after the work given before it: settings saved in the
+    /// order they were changed (a slider sends many), so the last one is the one kept.
+    func inOrder(_ work: @escaping @Sendable (Needle) throws -> Void) {
+        let (core, before) = (core, saving)
+        saving = Task.detached {
+            await before?.value
+            do { try work(core) } catch {
+                await MainActor.run { self.message = Self.words(error) }
+            }
+        }
     }
 
     func reloadThemes() {
@@ -274,6 +401,8 @@ final class Store {
     // MARK: - Playback
 
     func play(_ songs: [Song], from start: Int = 0) {
+        guard !songs.isEmpty else { message = "These songs are not on this iPhone"; return }
+        activateAudio()
         let ids = songs.map(\.id)
         run { try $0.play(ids: ids, start: UInt32(start)) }
         played()
@@ -291,16 +420,65 @@ final class Store {
     }
 
     func playAlbum(key: String, shuffled: Bool = false) {
-        run { core in
-            var ids = try core.albumSongs(key: key).map(\.id)
+        playIDs({ try $0.albumSongs(key: key).map(\.id) }, shuffled: shuffled)
+    }
+
+    /// Plays the songs `find` gives, from `start`; with none, says so, and the player stays shut.
+    func playIDs(_ find: @escaping @Sendable (Needle) throws -> [String], shuffled: Bool = false, from start: Int = 0) {
+        Task {
+            guard var ids = await ask(find) else { return }
+            guard !ids.isEmpty else { message = "These songs are not on this iPhone"; return }
+            activateAudio()
             if shuffled { ids.shuffle() }
-            try core.play(ids: ids, start: 0)
+            let at = UInt32(min(start, ids.count - 1))
+            if await ask({ try $0.play(ids: ids, start: at) }) != nil { played() }
         }
-        played()
+    }
+
+    /// The phone's audio, taken when music is asked for (not at launch, which stopped other
+    /// apps' sound when Needle only opened).
+    func activateAudio() {
+        try? AVAudioSession.sharedInstance().setActive(true)
+    }
+
+    /// Opens the player (if that is on) once a song plays: a radio station takes a moment to
+    /// make, and an empty player showed until then.
+    func playedWhenReady() {
+        guard app.openPlayerOnPlay else { return }
+        let before = local?.queueVersion
+        Task {
+            for _ in 0..<40 {
+                try? await Task.sleep(for: .milliseconds(250))
+                if local?.current != nil, local?.queueVersion != before { showPlayer = true; return }
+            }
+        }
+    }
+
+    /// All of an artist's songs, the most played first.
+    func playArtist(_ name: String, shuffled: Bool = false) {
+        playIDs({ try $0.artistAllSongs(name: name).map(\.id) }, shuffled: shuffled)
+    }
+
+    /// Every song a search finds (all, with an empty one), from the song at `start`.
+    func playSearch(_ query: String, shuffled: Bool = false, from start: Int = 0) {
+        playIDs({ try $0.searchSongIds(query: query) }, shuffled: shuffled, from: start)
+    }
+
+    /// A folder's real path (links followed: the phone's /var is /private/var), as the library
+    /// keeps its folders.
+    nonisolated static func realPath(_ path: String) -> String {
+        guard let real = realpath(path, nil) else { return path }
+        defer { free(real) }
+        return String(cString: real)
+    }
+
+    /// Text with any web address taken out.
+    nonisolated static func withoutAddresses(_ text: String) -> String {
+        text.replacingOccurrences(of: #"https?://\S+"#, with: "the server", options: .regularExpression)
     }
 
     /// Opens the player when a song is chosen, if that is on.
-    private func played() {
+    func played() {
         if app.openPlayerOnPlay { showPlayer = true }
     }
 
@@ -316,7 +494,15 @@ final class Store {
         message = "Added to the queue"
     }
 
-    func toggle() { onComputer ? computer { try $0.pcDo(action: "toggle") } : core.toggle() }
+    func toggle() {
+        if onComputer {
+            computer { try $0.pcDo(action: "toggle") }
+        } else {
+            // Only when there is a song to play: else another app's sound stopped for nothing.
+            if local?.current != nil, local?.playing != true { activateAudio() }
+            core.toggle()
+        }
+    }
     func next() { onComputer ? computer { try $0.pcDo(action: "next") } : core.next() }
     func previous() { onComputer ? computer { try $0.pcDo(action: "previous") } : core.previous() }
 
@@ -371,10 +557,7 @@ final class Store {
         case .previous: previous()
         case .playAlbum(let key): playAlbum(key: key)
         case .playPlaylist(let id):
-            run { core in
-                let ids = try core.playlistSongs(id: id).map(\.id)
-                try core.play(ids: ids, start: 0)
-            }
+            playIDs { try $0.playlistSongs(id: id).map(\.id) }
         case .favourites:
             run { core in
                 let ids = try core.favorites().map(\.id).shuffled()
@@ -384,12 +567,11 @@ final class Store {
         case .radio:
             run { core in
                 // From the song played most, or any song when nothing has played yet.
-                let top = try core.stats(days: 30).topSongs.compactMap(\.songId).first
+                let top = try core.stats(days: 30).topSongs.compactMap(\.songId)
                 let any = try core.songs().randomElement()?.id
-                guard let id = top ?? any else {
-                    throw NeedleError.Failed(message: "Add music first")
-                }
-                try core.startRadio(id: id)
+                // The first that can start one (a song whose file is gone cannot).
+                for id in top + [any].compactMap({ $0 }) where (try? core.startRadio(id: id)) != nil { return }
+                throw NeedleError.Failed(message: "Add music first")
             }
         }
     }
@@ -397,6 +579,7 @@ final class Store {
     /// Opens a link from a widget, Siri, or another app: `needle://album?id=…` and so on, or a
     /// music file.
     func open(_ url: URL) {
+        if url.scheme?.hasPrefix("discord-") == true { return }
         guard url.scheme == "needle" else { return openFile(url) }
         let id = URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems?.first { $0.name == "id" }?.value ?? ""
         switch url.host {
@@ -443,11 +626,26 @@ final class Store {
     private func followComputer() {
         let core = core
         Task { [weak self] in
+            var failures = 0
             while true {
-                let heard = await Task.detached { core.pcConnected() ? try? core.pcState() : nil }.value
+                let (connected, heard) = await Task.detached { () -> (Bool, PcState?) in
+                    let connected = core.pcConnected()
+                    return (connected, connected ? try? core.pcState() : nil)
+                }.value
                 guard let self else { return }
-                if heard != self.pc { self.pc = heard }
-                try? await Task.sleep(for: .milliseconds(self.onComputer ? 700 : 1500))
+                // Not answering (another network, the computer off): wait longer each time.
+                failures = connected && heard == nil ? min(failures + 1, 5) : 0
+                // One missed answer keeps what the computer last said: Wi-Fi drops one now and then.
+                if (heard != nil || failures > 2 || !connected), heard != self.pc { self.pc = heard }
+                let away = UIApplication.shared.applicationState == .background && !self.onComputer
+                let seconds = self.onComputer ? 0.7 : failures > 2 ? min(30, 1.5 * pow(2, Double(failures - 2))) : away ? 15 : 1.5
+                // Woken at once when a link is made or dropped.
+                var waited = 0.0
+                while waited < seconds, !self.askComputerNow {
+                    try? await Task.sleep(for: .milliseconds(250))
+                    waited += 0.25
+                }
+                self.askComputerNow = false
             }
         }
     }
@@ -469,8 +667,9 @@ final class Store {
         sleepActivity = nil
         guard let minutes else { sleepEnds = nil; sleepSong = nil; message = "Sleep timer off"; return }
         if minutes == 0 {
+            guard let song = local?.current?.id else { message = "Nothing is playing to end"; return }
             sleepEnds = .distantFuture
-            sleepSong = local?.current?.id
+            sleepSong = song
             message = "Music pauses after this song"
         } else {
             sleepEnds = Date().addingTimeInterval(TimeInterval(minutes * 60))
@@ -488,7 +687,8 @@ final class Store {
 
     private func followSleep(_ now: Playback) {
         guard let ends = sleepEnds else { return }
-        let songEnded = sleepSong != nil && now.current?.id != sleepSong
+        let atEnd = now.current.map { $0.duration > 1 && now.position >= $0.duration - 0.35 } ?? false
+        let songEnded = sleepSong != nil && (now.current?.id != sleepSong || atEnd)
         if Date() >= ends || songEnded {
             if now.playing { core.toggle() }
             sleepEnds = nil
@@ -569,7 +769,7 @@ final class Store {
             let scoped = url.startAccessingSecurityScopedResource()
             defer { if scoped { url.stopAccessingSecurityScopedResource() } }
             var path = url.path
-            if !path.hasPrefix(target.deletingLastPathComponent().path) {
+            if !Self.realPath(path).hasPrefix(Self.realPath(target.deletingLastPathComponent().path)) {
                 try? FileManager.default.createDirectory(at: target, withIntermediateDirectories: true)
                 let destination = Self.freeName(for: url.lastPathComponent, in: target)
                 if (try? FileManager.default.copyItem(at: url, to: destination)) != nil {
@@ -626,7 +826,18 @@ final class Store {
 
     // MARK: - Widgets
 
+    @ObservationIgnored private var widgetWork: Task<Void, Never>?
+
+    /// One update of the widgets at a time: a slow one (the library's) never writes an older
+    /// song over a newer one.
     private func updateWidgets(library: Bool) async {
+        let before = widgetWork
+        let work = Task { await before?.value; await writeWidgets(library: library) }
+        widgetWork = work
+        await work.value
+    }
+
+    private func writeWidgets(library: Bool) async {
         guard let folder = Snapshot.folder else { return }
         var snapshot = Snapshot.load()
         let now = local
@@ -653,18 +864,36 @@ final class Store {
             snapshot.playlists = lists
             snapshot.weekSeconds = week?.seconds ?? 0
             snapshot.weekSongs = Int(week?.songs ?? 0)
-            snapshot.topArtist = week?.topArtists.first?.title
+            snapshot.topArtist = week?.topArtists.first.map(\.artist).flatMap { $0.isEmpty ? nil : $0 }
+        }
+        // The song as it is now: it may have changed while the library was read.
+        if let current = local?.current?.id, current != now?.current?.id {
+            snapshot.title = local?.current?.title
+            snapshot.artist = local?.current?.artist
+            snapshot.album = local?.current?.album
+            snapshot.playing = local?.playing ?? false
+            snapshot.cover = await Self.shareCover(local?.current?.artwork, in: folder)
         }
         snapshot.save()
+        Self.pruneCovers(in: folder, keeping: snapshot)
         WidgetCenter.shared.reloadAllTimelines()
     }
 
-    /// A small copy of a cover in the folder the widgets can read; its file name.
+    /// Takes away the widgets' covers that no widget shows now.
+    private static func pruneCovers(in folder: URL, keeping snapshot: Snapshot) {
+        let used = Set([snapshot.cover] + snapshot.recent.map(\.cover) + snapshot.playlists.map(\.cover)).compactMap { $0 }
+        let files = (try? FileManager.default.contentsOfDirectory(atPath: folder.path)) ?? []
+        for file in files where file.hasPrefix("cover-") && file.hasSuffix(".jpg") && !used.contains(file) {
+            try? FileManager.default.removeItem(at: folder.appendingPathComponent(file))
+        }
+    }
+
+    /// A small copy of a cover in the folder the widgets can read; its file name, the same
+    /// for the same cover from one start of the app to the next.
     private static func shareCover(_ path: String?, in folder: URL) async -> String? {
         guard let path else { return nil }
-        var hasher = Hasher()
-        hasher.combine(path)
-        let name = "cover-\(UInt64(bitPattern: Int64(hasher.finalize()))).jpg"
+        let digest = SHA256.hash(data: Data(path.utf8)).prefix(12).map { String(format: "%02x", $0) }.joined()
+        let name = "cover-\(digest).jpg"
         let url = folder.appendingPathComponent(name)
         if FileManager.default.fileExists(atPath: url.path) { return name }
         guard let image = await Covers.load(path, size: 300), let data = image.jpegData(compressionQuality: 0.8) else { return nil }
@@ -677,7 +906,7 @@ final class Store {
     private func startAudio() {
         let session = AVAudioSession.sharedInstance()
         try? session.setCategory(.playback, mode: .default, policy: .longFormAudio)
-        try? session.setActive(true)
+        // Made active when music is asked for (see `activateAudio`), not here.
         let center = NotificationCenter.default
         // A call or an alarm pauses the music; it goes on afterwards when the phone says so.
         center.addObserver(forName: AVAudioSession.interruptionNotification, object: nil, queue: .main) { [weak self] note in
@@ -713,14 +942,24 @@ final class Store {
         let commands = MPRemoteCommandCenter.shared()
         let core = core
         commands.playCommand.addTarget { [weak self] _ in
-            MainActor.assumeIsolated { if self?.local?.playing != true { core.toggle() } }
+            MainActor.assumeIsolated {
+                guard let self, self.local?.current != nil, self.local?.playing != true else { return }
+                self.activateAudio()
+                core.toggle()
+            }
             return .success
         }
         commands.pauseCommand.addTarget { [weak self] _ in
             MainActor.assumeIsolated { if self?.local?.playing == true { core.toggle() } }
             return .success
         }
-        commands.togglePlayPauseCommand.addTarget { _ in core.toggle(); return .success }
+        commands.togglePlayPauseCommand.addTarget { [weak self] _ in
+            MainActor.assumeIsolated {
+                if self?.local?.current != nil, self?.local?.playing != true { self?.activateAudio() }
+            }
+            core.toggle()
+            return .success
+        }
         commands.nextTrackCommand.addTarget { _ in core.next(); return .success }
         commands.previousTrackCommand.addTarget { _ in core.previous(); return .success }
         commands.changePlaybackPositionCommand.addTarget { event in
@@ -763,4 +1002,61 @@ final class Store {
     }
 
     func shutdown() { core.shutdown() }
+}
+
+/// Crashes the system reports (through MetricKit, at the next start): the app's own, which the
+/// core's reporter does not see. Each is kept and sent as the core's are, when crash reports
+/// are on: what went wrong, and where in the crashed thread (no names, no files).
+final class CrashWatcher: NSObject, MXMetricManagerSubscriber {
+    static let shared = CrashWatcher()
+    nonisolated(unsafe) private var core: Needle?
+
+    func start(_ core: Needle) {
+        guard self.core == nil else { return }
+        self.core = core
+        MXMetricManager.shared.add(self)
+    }
+
+    func didReceive(_ payloads: [MXDiagnosticPayload]) {
+        guard let core else { return }
+        var kept = false
+        for payload in payloads {
+            for crash in payload.crashDiagnostics ?? [] where core.keepCrashReport(text: Self.text(crash)) {
+                kept = true
+            }
+        }
+        if kept { _ = core.sendCrashReports() }
+    }
+
+    /// The crash as Needle sends it.
+    static func text(_ crash: MXCrashDiagnostic) -> String {
+        let version = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "?"
+        let meta = crash.metaData
+        var out = "Needle \(version) on ios \(meta.platformArchitecture) (the system's report, build \(meta.applicationBuildVersion))\n"
+        out += "iOS \(meta.osVersion)\n"
+        out += "Exception: \(crash.exceptionType?.stringValue ?? "?") code \(crash.exceptionCode?.stringValue ?? "?") signal \(crash.signal?.stringValue ?? "?")\n"
+        if let reason = crash.terminationReason { out += "Termination: \(reason)\n" }
+        if #available(iOS 17, *), let reason = crash.exceptionReason {
+            out += "Message: \(reason.className): \(reason.composedMessage)\n"
+        }
+        guard let tree = try? JSONSerialization.jsonObject(with: crash.callStackTree.jsonRepresentation()) as? [String: Any],
+              let stacks = tree["callStacks"] as? [[String: Any]] else { return out }
+        let crashed = stacks.first { ($0["threadAttributed"] as? Bool) == true } ?? stacks.first
+        var lines: [String] = []
+        var builds: [String: String] = [:]
+        func walk(_ frames: [[String: Any]]) {
+            for frame in frames where lines.count < 60 {
+                let binary = frame["binaryName"] as? String ?? "?"
+                let offset = (frame["offsetIntoBinaryTextSegment"] as? NSNumber)?.uint64Value ?? 0
+                lines.append(String(format: "%3d  %@  + 0x%llx", lines.count, binary, offset))
+                if let uuid = frame["binaryUUID"] as? String { builds[binary] = uuid }
+                if let sub = frame["subFrames"] as? [[String: Any]] { walk(sub) }
+            }
+        }
+        walk(crashed?["callStackRootFrames"] as? [[String: Any]] ?? [])
+        out += "\nCrashed thread:\n" + lines.joined(separator: "\n") + "\n"
+        // Which build of each part, to find the names of the places later.
+        if let needle = builds["Needle"] { out += "\nNeedle build \(needle)\n" }
+        return out
+    }
 }

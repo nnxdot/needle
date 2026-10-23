@@ -33,6 +33,8 @@ pub mod remote;
 pub mod rules;
 pub mod scan;
 mod secrets;
+/// Secrets kept in the system store (the Keychain on iPhone), by owner and key.
+pub use secrets::plugin as secret_store;
 /// Android: where the app keeps its secrets (see `secrets`).
 #[cfg(target_os = "android")]
 pub use secrets::set_android_folder;

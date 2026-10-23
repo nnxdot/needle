@@ -12,6 +12,10 @@ struct HistoryView: View {
     @State private var items: [HistoryItem] = []
     @State private var done = false
 
+    @State private var loading = false
+    /// Goes up each time the list begins again.
+    @State private var generation = 0
+
     var body: some View {
         List {
             Section {
@@ -46,13 +50,16 @@ struct HistoryView: View {
         .overlay { if done && items.isEmpty { ContentUnavailableView("Nothing played yet", systemImage: "clock") } }
         .navigationTitle("History")
         .themed()
-        .task(id: store.libraryVersion) { items = []; done = false; await more() }
+        .task(id: store.libraryVersion) { generation += 1; loading = false; items = []; done = false; await more() }
     }
 
     private func more() async {
-        guard !done else { return }
-        let offset = UInt32(items.count)
+        guard !done, !loading else { return }
+        loading = true
+        let (offset, from) = (UInt32(items.count), generation)
         let page = await store.load { try $0.history(offset: offset, limit: 100) } ?? []
+        guard from == generation, UInt32(items.count) == offset else { return }
+        loading = false
         if page.count < 100 { done = true }
         items += page
     }
@@ -99,7 +106,9 @@ struct StatsView: View {
                         .chartXScale(domain: 0...23)
                         .frame(height: 120)
                     }
-                    ranked("Top artists", s.topArtists) { r in .artist(r.title) }
+                    // Artists' and albums' rows carry their name in `artist` and `album` (only a
+                    // song's row has a title).
+                    ranked("Top artists", s.topArtists) { r in r.artist.isEmpty ? nil : .artist(r.artist) }
                     ranked("Top albums", s.topAlbums) { _ in nil }
                     ranked("Top songs", s.topSongs) { _ in nil }
                 }
@@ -136,8 +145,9 @@ struct StatsView: View {
                         Artwork(path: r.artwork, seed: r.album + r.artist, size: 120)
                             .frame(width: 40, height: 40).clipShape(.rect(cornerRadius: 6))
                         VStack(alignment: .leading, spacing: 1) {
-                            Text(r.title).lineLimit(1)
-                            if r.artist != r.title && !r.artist.isEmpty { Text(r.artist).font(.caption).foregroundStyle(.secondary).lineLimit(1) }
+                            let name = !r.title.isEmpty ? r.title : !r.album.isEmpty ? r.album : r.artist
+                            Text(name).lineLimit(1)
+                            if r.artist != name && !r.artist.isEmpty { Text(r.artist).font(.caption).foregroundStyle(.secondary).lineLimit(1) }
                         }
                         Spacer()
                         Text("\(r.plays)×").font(.caption).foregroundStyle(.secondary)
@@ -145,7 +155,7 @@ struct StatsView: View {
                     if let route = route(r) {
                         NavigationLink(value: route) { row }.buttonStyle(.plain)
                     } else if let id = r.songId {
-                        Button { store.run { try $0.play(ids: [id], start: 0) } } label: { row }.buttonStyle(.plain)
+                        Button { store.playIDs { _ in [id] } } label: { row }.buttonStyle(.plain)
                     } else {
                         row
                     }
@@ -174,7 +184,7 @@ struct WrappedView: View {
                 if let w = wrapped {
                     card(String(w.year), "Your year in music", "\(hoursMinutes(w.stats.seconds)) of \(count(Int(w.stats.songs), "song")) by \(count(Int(w.stats.artists), "artist")).")
                     if let artist = w.stats.topArtists.first {
-                        card("Top artist", artist.title, "\(count(Int(artist.plays), "play")), \(hoursMinutes(artist.seconds)).")
+                        card("Top artist", artist.artist, "\(count(Int(artist.plays), "play")), \(hoursMinutes(artist.seconds)).")
                     }
                     if let song = w.topSongs.first {
                         card("Song of the year", song.title, song.artist)
@@ -262,7 +272,7 @@ struct FoldersView: View {
                 songs = await store.load { try $0.folderSongs(path: path) } ?? []
             } else {
                 let roots = await store.load { try $0.folders() } ?? []
-                folders = roots.map { Folder(path: $0, name: $0 == store.musicFolder.path ? "Needle's folder" : ($0 as NSString).lastPathComponent, songs: 0, artwork: nil) }
+                folders = roots.map { Folder(path: $0, name: Store.realPath($0) == Store.realPath(store.musicFolder.path) ? "Needle's folder" : ($0 as NSString).lastPathComponent, songs: 0, artwork: nil) }
                 if roots.count == 1, let only = roots.first {
                     folders = await store.load { try $0.subfolders(path: only) } ?? []
                     songs = await store.load { try $0.folderSongs(path: only) } ?? []
