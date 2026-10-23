@@ -29,6 +29,7 @@ import androidx.compose.foundation.selection.toggleable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
+import androidx.compose.material.icons.rounded.Usb
 
 private val MUSIC: AudioAttributes = AudioAttributes.Builder()
     .setUsage(AudioAttributes.USAGE_MEDIA)
@@ -44,8 +45,9 @@ private fun usbOutput(audio: AudioManager): AudioDeviceInfo? = runCatching {
 
 /**
  * The DAC's bit-perfect mixer in a format Needle's output can send exactly: stereo, 32-bit
- * float (which carries 16- and 24-bit music as it is) or else 16-bit, at 44.1 kHz or else
- * 48 kHz. A mixer in another format would take nothing from Needle.
+ * whole numbers (what DACs such as the FiiO BTR17 take, and which carry 16- and 24-bit music
+ * as it is), else 32-bit float, else 16-bit, at 44.1 kHz or else 48 kHz. A mixer in another
+ * format (24-bit packed in 3 bytes) would take nothing from Needle.
  */
 @RequiresApi(34)
 private fun bitPerfect(audio: AudioManager, device: AudioDeviceInfo): AudioMixerAttributes? = runCatching {
@@ -53,20 +55,104 @@ private fun bitPerfect(audio: AudioManager, device: AudioDeviceInfo): AudioMixer
         .filter {
             it.mixerBehavior == AudioMixerAttributes.MIXER_BEHAVIOR_BIT_PERFECT &&
                 it.format.channelMask == android.media.AudioFormat.CHANNEL_OUT_STEREO &&
-                it.format.encoding in listOf(android.media.AudioFormat.ENCODING_PCM_FLOAT, android.media.AudioFormat.ENCODING_PCM_16BIT) &&
+                it.format.encoding in SENDABLE &&
                 it.format.sampleRate in listOf(44100, 48000)
         }
-        .minByOrNull {
-            (if (it.format.encoding == android.media.AudioFormat.ENCODING_PCM_FLOAT) 0 else 2) +
-                (if (it.format.sampleRate == 44100) 0 else 1)
-        }
+        .minByOrNull { SENDABLE.indexOf(it.format.encoding) * 2 + (if (it.format.sampleRate == 44100) 0 else 1) }
 }.getOrNull()
 
-/** Needle's output opens in the mixer's format, or as Android likes when `mixer` is null. */
+/** The encodings Needle's output can send a mixer exactly, the DAC's own (whole numbers) first. */
+private val SENDABLE = listOf(
+    android.media.AudioFormat.ENCODING_PCM_32BIT,
+    android.media.AudioFormat.ENCODING_PCM_FLOAT,
+    android.media.AudioFormat.ENCODING_PCM_16BIT,
+)
+
+/** A format's encoding in words: "16-bit", "24-bit", "32-bit float". */
+private fun encodingName(encoding: Int): String = when (encoding) {
+    android.media.AudioFormat.ENCODING_PCM_8BIT -> "8-bit"
+    android.media.AudioFormat.ENCODING_PCM_16BIT -> "16-bit"
+    android.media.AudioFormat.ENCODING_PCM_24BIT_PACKED -> "24-bit"
+    android.media.AudioFormat.ENCODING_PCM_32BIT -> "32-bit"
+    android.media.AudioFormat.ENCODING_PCM_FLOAT -> "32-bit float"
+    else -> "encoding $encoding"
+}
+
+private fun kHz(rate: Int) = if (rate % 1000 == 0) "${rate / 1000}" else "${rate / 1000.0}"
+
+/**
+ * Why a DAC that is plugged in has no bit-perfect mode Needle can use, in words that say what
+ * is missing: Android offers none for it on this phone, or it offers only formats Needle cannot
+ * send yet. Needle plays to the DAC as usual either way, through Android's mixer.
+ */
+@RequiresApi(34)
+private fun whyNot(audio: AudioManager, device: AudioDeviceInfo): String {
+    val name = device.productName
+    val all = runCatching { audio.getSupportedMixerAttributes(device) }.getOrNull()
+        ?: return "Android did not say whether $name can play bit-perfect. Needle plays to it as usual."
+    val perfect = all.filter { it.mixerBehavior == AudioMixerAttributes.MIXER_BEHAVIOR_BIT_PERFECT }
+    if (perfect.isEmpty()) {
+        return "This phone's Android offers no bit-perfect mode for $name. Needle plays to it as usual, through Android's mixer."
+    }
+    val bits = perfect.map { encodingName(it.format.encoding) }.distinct().joinToString(", ")
+    val rates = perfect.map { it.format.sampleRate }.distinct().sorted().joinToString(", ") { kHz(it) }
+    return "In bit-perfect mode $name takes $bits at $rates kHz. Needle can send it 16-bit, 32-bit, or 32-bit float at 44.1 or 48 kHz, but not 24-bit packed in 3 bytes yet, so it plays to it as usual."
+}
+
+/**
+ * What Android says about a USB DAC, in Needle's log (once for each DAC plugged in): its
+ * formats and the mixers Android offers for it. A report of a DAC that will not play
+ * bit-perfect can then be answered from the log.
+ */
+@RequiresApi(34)
+private fun logDac(audio: AudioManager, device: AudioDeviceInfo) {
+    val key = "${device.id}:${device.productName}"
+    if (key == loggedDac) return
+    loggedDac = key
+    val mixers = runCatching { audio.getSupportedMixerAttributes(device) }
+    val listed = mixers.getOrNull()?.joinToString("; ") {
+        val kind = if (it.mixerBehavior == AudioMixerAttributes.MIXER_BEHAVIOR_BIT_PERFECT) "bit-perfect" else "default"
+        "$kind ${encodingName(it.format.encoding)} ${it.format.sampleRate} Hz ${it.format.channelCount} ch (mask ${it.format.channelMask})"
+    }?.ifEmpty { "none" } ?: "failed: ${mixers.exceptionOrNull()?.javaClass?.simpleName}"
+    val preferred = runCatching { audio.getPreferredMixerAttributes(MUSIC, device) }.getOrNull()
+        ?.let { "${it.mixerBehavior} ${encodingName(it.format.encoding)} ${it.format.sampleRate} Hz" } ?: "none"
+    val usable = bitPerfect(audio, device)?.let { "${encodingName(it.format.encoding)} ${it.format.sampleRate} Hz" } ?: "none"
+    fyi.nnx.needle.NeedleLog.info(
+        "USB DAC ${device.productName} (type ${device.type}) on Android ${Build.VERSION.RELEASE} (API ${Build.VERSION.SDK_INT}), " +
+            "${Build.MANUFACTURER} ${Build.MODEL}: rates ${device.sampleRates.joinToString(",").ifEmpty { "any" }}, " +
+            "encodings ${device.encodings.joinToString(",") { encodingName(it) }.ifEmpty { "any" }}, " +
+            "channels ${device.channelCounts.joinToString(",").ifEmpty { "any" }}; mixers: $listed; preferred: $preferred; Needle can use: $usable",
+    )
+}
+
+/** The DAC last written to the log, so one plugged in is written once. */
+private var loggedDac: String? = null
+
+/** The format last written to the log, so each change is written once (and "off" at a start, never). */
+private var loggedOutput: String? = "off"
+
+/**
+ * Needle's output opens in the mixer's format (its rate, and 16-bit, 32-bit, or float), or as
+ * Android likes when `mixer` is null. Which one goes in Needle's log.
+ */
 @RequiresApi(34)
 private fun matchOutput(mixer: AudioMixerAttributes?) {
-    val float = mixer?.format?.encoding == android.media.AudioFormat.ENCODING_PCM_FLOAT
-    runCatching { core.setUsbFormat((mixer?.format?.sampleRate ?: 0).toUInt(), float) }
+    val sample = when (mixer?.format?.encoding) {
+        android.media.AudioFormat.ENCODING_PCM_32BIT -> fyi.nnx.needle.core.UsbSample.INT32
+        android.media.AudioFormat.ENCODING_PCM_FLOAT -> fyi.nnx.needle.core.UsbSample.FLOAT32
+        else -> fyi.nnx.needle.core.UsbSample.INT16
+    }
+    val rate = mixer?.format?.sampleRate ?: 0
+    runCatching { core.setUsbOutput(rate.toUInt(), sample) }
+        .onFailure { fyi.nnx.needle.NeedleLog.info("Bit-perfect USB: the output could not be set (${it.message})") }
+    val shown = if (mixer == null) "off" else "${encodingName(mixer.format.encoding)} at $rate Hz"
+    if (shown != loggedOutput) {
+        loggedOutput = shown
+        fyi.nnx.needle.NeedleLog.info(
+            if (mixer == null) "Bit-perfect USB off: Needle's output opens as Android likes"
+            else "Bit-perfect USB on: Needle's output opens in $shown",
+        )
+    }
 }
 
 /**
@@ -78,7 +164,9 @@ fun followUsbMixer(context: Context) {
     if (Build.VERSION.SDK_INT < 34) return
     val audio = context.getSystemService(AudioManager::class.java) ?: return
     fun check() {
-        val mixer = usbOutput(audio)?.let { device -> runCatching { audio.getPreferredMixerAttributes(MUSIC, device) }.getOrNull() }
+        val dac = usbOutput(audio)
+        dac?.let { logDac(audio, it) }
+        val mixer = dac?.let { device -> runCatching { audio.getPreferredMixerAttributes(MUSIC, device) }.getOrNull() }
         matchOutput(mixer?.takeIf { it.mixerBehavior == AudioMixerAttributes.MIXER_BEHAVIOR_BIT_PERFECT })
     }
     check()
@@ -114,6 +202,8 @@ fun UsbBitPerfect() {
     }
     val connected = device
     val offer = remember(connected) { connected?.let { bitPerfect(audio, it) } }
+    val why = remember(connected, offer) { if (connected != null && offer == null) whyNot(audio, connected) else null }
+    androidx.compose.runtime.LaunchedEffect(connected) { connected?.let { logDac(audio, it) } }
     var on by remember(connected) {
         mutableStateOf(
             connected != null && runCatching {
@@ -134,31 +224,25 @@ fun UsbBitPerfect() {
             }
             .onFailure { showMessage(it.message ?: "Android could not change the USB mixer") }
     }
-    Row(
-        Modifier
-            .fillMaxWidth()
-            .heightIn(min = 64.dp)
+    Column {
+        SettingRow(
+            androidx.compose.material.icons.Icons.Rounded.Usb,
+            "Bit-perfect USB",
+            when {
+                connected == null -> "Plug in a USB DAC for the exact sound"
+                offer == null -> "${connected.productName} cannot use it here"
+                else -> "${encodingName(offer.format.encoding)} at ${kHz(offer.format.sampleRate)} kHz; other sounds wait"
+            },
             // The whole row is the one switch, named by its words.
-            .toggleable(on, enabled = usable, role = androidx.compose.ui.semantics.Role.Switch) { setMixer(it) }
-            .padding(horizontal = 16.dp, vertical = 12.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(16.dp),
-    ) {
-        Column(Modifier.weight(1f)) {
-            Text("Bit-perfect USB", style = MaterialTheme.typography.bodyLarge, color = if (usable) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurfaceVariant)
-            Text(
-                when {
-                    connected == null -> "Plug in a USB DAC to send it the music exactly as it is"
-                    offer == null -> "${connected.productName} cannot play bit-perfect on this phone"
-                    else -> "${connected.productName} gets the music exactly as it is, at ${offer.format.sampleRate.let { if (it % 1000 == 0) "${it / 1000}" else "${it / 1000.0}" }} kHz; other sounds wait"
-                },
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
+            Modifier.toggleable(on, enabled = usable, role = androidx.compose.ui.semantics.Role.Switch) { setMixer(it) },
+            enabled = usable,
+        ) { Switch(checked = on, enabled = usable, onCheckedChange = null) }
+        // Why not, in full: what is missing, and that the DAC still plays as usual.
+        if (why != null) {
+            Text(why, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(start = 68.dp, end = 16.dp, bottom = 14.dp))
         }
-        Switch(checked = on, enabled = usable, onCheckedChange = null)
     }
-    HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant, modifier = Modifier.padding(horizontal = 16.dp))
+    Divider()
 }
 
 private fun toggle(audio: AudioManager, device: AudioDeviceInfo?, offer: AudioMixerAttributes?, on: Boolean): Boolean {

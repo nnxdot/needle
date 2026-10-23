@@ -70,6 +70,49 @@ impl AppView {
                 && (!lyrics.lines.is_empty() || !lyrics.plain.trim().is_empty()))
     }
 
+    /// The song's moving cover, an animated WebP or GIF beside its file, looked up once per
+    /// song (Settings › Appearance › Moving covers). The computer plays no cover videos.
+    pub(super) fn moving_cover(&mut self, track: &needle_core::model::Track) -> Option<String> {
+        // With Reduce motion on (in Needle or in the system), the cover keeps still.
+        if !self.settings.animated_covers
+            || self.settings.reduce_motion
+            || !super::motion::system_allows_animation()
+        {
+            return None;
+        }
+        // A music server's song: its moving cover comes from the server, once per album, on
+        // another thread; until then the still cover shows, and this looks again.
+        if track.source().is_some() {
+            let (found, looked) =
+                needle_core::media::server_moving_cover_kept(&self.library, track);
+            if !looked && self.moving_cover_asked.insert(track.id.clone()) {
+                let (library, track) = (self.library.clone(), track.clone());
+                std::thread::spawn(move || {
+                    needle_core::media::fetch_server_moving_cover(&library, &track);
+                });
+            }
+            return found
+                .filter(|p| {
+                    p.extension().is_some_and(|e| {
+                        e.eq_ignore_ascii_case("webp") || e.eq_ignore_ascii_case("gif")
+                    })
+                })
+                .map(|p| p.to_string_lossy().to_string());
+        }
+        if self
+            .moving_cover
+            .as_ref()
+            .is_none_or(|(id, _)| *id != track.id)
+        {
+            let found = needle_core::media::animated_picture(&self.library, track)
+                .map(|p| p.to_string_lossy().to_string());
+            self.moving_cover = Some((track.id.clone(), found));
+        }
+        self.moving_cover
+            .as_ref()
+            .and_then(|(_, path)| path.clone())
+    }
+
     pub(super) fn immersive_view(
         &mut self,
         window: &mut Window,
@@ -84,22 +127,29 @@ impl AppView {
         let look = self.now_look();
         let lyrics = self.immersive_lyrics && self.has_lyrics() && w >= 900.;
         // Settings > Appearance > Immersive cover, for a song with a cover of its own.
+        let moving = current.as_ref().and_then(|c| self.moving_cover(&c.track));
         let (cover_layer, cover_side, tone) = match self
             .settings
             .immersive_cover
-            .then(|| current.as_ref().and_then(|c| c.track.artwork.clone()))
+            .then(|| {
+                moving
+                    .clone()
+                    .or_else(|| current.as_ref().and_then(|c| c.track.artwork.clone()))
+            })
             .flatten()
         {
             Some(path) => {
                 let widest = if lyrics { w * 0.5 } else { w };
                 let (layer, side, tone) = super::now_playing::immersive_cover(
                     &path,
+                    moving.is_some(),
                     look.as_ref(),
                     w,
                     h,
                     widest,
                     380.,
                     p.dark,
+                    !lyrics,
                 );
                 (Some(layer), Some(side), Some(tone))
             }
@@ -350,7 +400,14 @@ impl AppView {
                 blur_radius: px(64.),
                 spread_radius: px(-8.),
             }])
-            .child(artwork(current.as_ref().map(|i| &i.track), art, cx));
+            // Settings › Appearance › Moving covers, with Immersive cover off: the moving one
+            // once it is prepared, the still one until then.
+            .child(
+                moving
+                    .as_deref()
+                    .and_then(|path| super::widgets::moving_cover("full-cover", path, art))
+                    .unwrap_or_else(|| artwork(current.as_ref().map(|i| &i.track), art, cx)),
+            );
 
         let left = div()
             .h_full()

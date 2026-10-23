@@ -318,8 +318,8 @@ impl AppView {
                         div()
                             .mt_6()
                             .p_5()
-                            .rounded(px(10.))
-                            .bg(p.chrome)
+                            .rounded(px(7.))
+                            .bg(p.raised.opacity(0.5))
                             .border_1()
                             .border_color(p.line_soft)
                             .flex()
@@ -375,7 +375,7 @@ impl AppView {
                     )
                     .child(self.effects_card(cx))
                     // Other tools
-                    .child(div().mt_6().child(heading("Listening tools")))
+                    .child(div().mt_10().mb_1().child(heading("Listening tools")))
                     .child(setting_row(
                         "Balance",
                         match dsp.balance {
@@ -388,7 +388,7 @@ impl AppView {
                     ))
                     .child(setting_row(
                         "Mono",
-                        "Plays both channels in both ears. Useful with one earbud, or for hearing loss in one ear.",
+                        "Both channels in both ears. For one earbud, or one ear.",
                         Switch::new("mono").checked(dsp.mono).on_click(cx.listener(|this, checked: &bool, _, cx| {
                             let on = *checked;
                             this.edit_dsp(|d| d.mono = on);
@@ -398,7 +398,7 @@ impl AppView {
                     ))
                     .child(setting_row(
                         "Headphone crossfeed",
-                        "Blends a little of each side into the other, the way speakers reach both ears. Makes hard-panned older recordings less tiring on headphones.",
+                        "Blends the sides a little, as speakers do. Easier on hard-panned old recordings.",
                         Switch::new("crossfeed").checked(dsp.crossfeed).on_click(cx.listener(|this, checked: &bool, _, cx| {
                             let on = *checked;
                             this.edit_dsp(|d| d.crossfeed = on);
@@ -707,8 +707,8 @@ impl AppView {
         div()
             .mt_6()
             .p_5()
-            .rounded(px(10.))
-            .bg(p.chrome)
+            .rounded(px(7.))
+            .bg(p.raised.opacity(0.5))
             .border_1()
             .border_color(p.line_soft)
             .flex()

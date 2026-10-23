@@ -1,6 +1,6 @@
 ---
 import Base from "../layouts/Base.astro";
-import AppWindow from "../components/AppWindow.astro";
+import AppShot from "../components/AppShot.astro";
 import Logo from "../components/Logo.astro";
 import Icon from "../components/Icon.astro";
 import { Image } from "astro:assets";
@@ -9,6 +9,17 @@ import shotPlayer from "../assets/shots/player.webp";
 import shotRecord from "../assets/shots/player-record.webp";
 import shotLyrics from "../assets/shots/lyrics.webp";
 import shotIphone from "../assets/shots/iphone-player.webp";
+import appOpening from "../assets/shots/desktop/app-opening.webp";
+import appPaperLanterns from "../assets/shots/desktop/app-paper-lanterns.webp";
+import appLastCrossing from "../assets/shots/desktop/app-last-crossing.webp";
+import appComingHome from "../assets/shots/desktop/app-coming-home.webp";
+import lookNight from "../assets/shots/desktop/look-night.webp";
+import lookMidnight from "../assets/shots/desktop/look-midnight.webp";
+import lookDay from "../assets/shots/desktop/look-day.webp";
+import lookSakura from "../assets/shots/desktop/look-sakura.webp";
+import cardServer from "../assets/shots/desktop/card-server.webp";
+import cardYear from "../assets/shots/desktop/card-year.webp";
+import appMac from "../assets/shots/desktop/app-mac.webp";
 import { release } from "../lib/release.js";
 import { albums, byId, cover } from "../lib/albums.js";
 import "../styles/home.css";
@@ -87,7 +98,17 @@ const platforms = [
   <section class="stage" aria-label="Needle on a computer" data-stage>
     <div class="stage-in" data-stage-in>
       <div class="stage-glow" aria-hidden="true" data-glow></div>
-      <AppWindow class="stage-app" />
+      <AppShot
+        class="stage-app"
+        eager
+        label="Needle on a computer: the album grid, the queue beside it, and a song playing at the bottom."
+        shots={[
+          { src: appOpening, key: "0" },
+          { src: appPaperLanterns, key: "1" },
+          { src: appLastCrossing, key: "2" },
+          { src: appComingHome, key: "3" },
+        ]}
+      />
       <div class="chip chip-lyric" aria-hidden="true" data-chip="left">
         <img src={cover("harbor-lights")} alt="" />
         <span><small>Lyrics</small><b>Every song I ever kept</b></span>
@@ -173,26 +194,16 @@ const platforms = [
       </article>
 
       <article class="card card-server" aria-labelledby="se-title">
-        <div class="card-art" role="img" aria-label="Songs from a Navidrome server: one streams now, two are kept on this computer.">
-          <div class="server">
-            <p class="server-head"><Icon name="globe-simple" /><b>Navidrome</b><span>6,728 songs</span></p>
-            <p class="srow playing"><img src={cover("night-ferry")} alt="" loading="lazy" /><span>Last Crossing<small>Oda Lind</small></span><em>Streaming</em></p>
-            <p class="srow"><img src={cover("grey-weather")} alt="" loading="lazy" /><span>Overcast<small>Low Ceiling</small></span><Icon name="push-pin" weight="fill" /></p>
-            <p class="srow"><img src={cover("bloom-season")} alt="" loading="lazy" /><span>Paper Lanterns<small>Hana Mori</small></span><Icon name="push-pin" weight="fill" /></p>
-          </div>
+        <div class="card-art card-shot">
+          <Image src={cardServer} widths={[572]} sizes="572px" loading="lazy" alt="Needle's page of songs from a Navidrome server: each song with its cover, and a small server mark beside its artist." />
         </div>
         <h3 id="se-title">Your server, too.</h3>
         <p>Sign in to Navidrome or another Subsonic server. Its songs sit with yours, stream as they play, and the ones you keep play without the internet.</p>
       </article>
 
       <article class="card card-year" aria-labelledby="ye-title">
-        <div class="card-art" role="img" aria-label="An example of your year in music: 40 hours, 795 plays, mostly around 11 PM.">
-          <div class="year">
-            <p class="year-num">2026</p>
-            <p class="year-stats"><span><b data-count="40">40</b> hours</span><span><b data-count="795">795</b> plays</span><span><b data-count="24">24</b> songs</span></p>
-            <p class="year-bars">{[.3, .12, .06, .18, .32, .26, .5, .78, 1, .62].map((h) => <span style={`--h:${h}`}></span>)}</p>
-            <p class="year-foot">You listen most around 11 PM.</p>
-          </div>
+        <div class="card-art card-shot">
+          <Image src={cardYear} widths={[572]} sizes="572px" loading="lazy" alt="Needle's year in music: 43 hours with your music, 647 plays of 38 songs by 10 artists, and your artist of the year." />
         </div>
         <h3 id="ye-title">Your year, told back.</h3>
         <p>Your artist of the year, the songs you had on repeat, the albums you lived in, and the hour you listen most.</p>
@@ -209,7 +220,16 @@ const platforms = [
         <p class="themes-links"><a class="link" href="/themes">Make a theme <Icon name="arrow-right" weight="bold" /></a><a class="link" href="/plugins">Write a plugin <Icon name="arrow-right" weight="bold" /></a></p>
       </div>
       <div class="themes-stage">
-        <AppWindow class="themes-app" look="night" label="The same Needle window in four looks: Night, Midnight, Day, and a pink theme called Sakura." />
+        <AppShot
+          class="themes-app"
+          label="The same Needle window in four looks: Night, Midnight, Day, and a pink theme called Sakura."
+          shots={[
+            { src: lookNight, key: "night" },
+            { src: lookMidnight, key: "midnight" },
+            { src: lookDay, key: "day" },
+            { src: lookSakura, key: "sakura" },
+          ]}
+        />
         <div class="look-names" role="group" aria-label="Looks">
           {looks.map((l, i) => <button type="button" aria-pressed={i === 0 ? "true" : "false"} data-look={l.id}><b>{l.name}</b><small>{l.note}</small></button>)}
         </div>
@@ -221,7 +241,7 @@ const platforms = [
   <section id="android" class="android" aria-labelledby="android-title" data-android>
     <div class="wrap android-copy">
       <h2 id="android-title">Needle on <em>your phone.</em></h2>
-      <p>Needle for Android plays the music on your phone. Each album page, and the player, takes the colors of its cover.</p>
+      <p>Needle for Android plays the music on your phone, or from your music server. It runs on phones, tablets, and TVs. Each album page, and the player, takes the colors of its cover.</p>
     </div>
     <div class="phones">
       <figure class="phone-shot ps-left">
@@ -363,7 +383,7 @@ const platforms = [
         <!-- Windows -->
         <div class="dl-panel" role="tabpanel" id="panel-windows" aria-labelledby="tab-windows" data-panel="windows">
           <div class="device device-monitor" aria-hidden="true">
-            <div class="screen"><AppWindow class="device-app" /></div>
+            <div class="screen"><AppShot class="device-app" label="Needle on Windows." shots={[{ src: appOpening, key: "0" }]} /></div>
             <span class="stand"></span>
           </div>
           <div class="dl-info">
@@ -380,12 +400,12 @@ const platforms = [
         <!-- Mac -->
         <div class="dl-panel" role="tabpanel" id="panel-mac" aria-labelledby="tab-mac" data-panel="mac" hidden>
           <div class="device device-laptop" aria-hidden="true">
-            <div class="screen"><AppWindow class="device-app" /></div>
+            <div class="screen"><AppShot class="device-app" label="Needle on a Mac." shots={[{ src: appMac, key: "mac" }]} /></div>
             <span class="base"></span>
           </div>
           <div class="dl-info">
             <h3>Needle for Mac</h3>
-            <p class="dl-meta">Version <span data-version="mac">{macVersion}</span>. Macs with Apple silicon (M1 or newer), macOS 11 or newer.</p>
+            <p class="dl-meta">Version <span data-version="mac">{macVersion}</span>. Macs with Apple silicon (M1 or newer), macOS 15 or newer.</p>
             <p class="dl-step">Paste this into Terminal, then press Return:</p>
             <div class="command">
               <code data-command>curl -fsSL https://needle.nnx.fyi/install-mac.sh | bash</code>
@@ -402,7 +422,7 @@ const platforms = [
         <!-- Linux -->
         <div class="dl-panel" role="tabpanel" id="panel-linux" aria-labelledby="tab-linux" data-panel="linux" hidden>
           <div class="device device-monitor" aria-hidden="true">
-            <div class="screen"><AppWindow class="device-app" look="midnight" /></div>
+            <div class="screen"><AppShot class="device-app" label="Needle on Linux, in the Midnight look." shots={[{ src: lookMidnight, key: "midnight" }]} /></div>
             <span class="stand"></span>
           </div>
           <div class="dl-info">
@@ -428,7 +448,7 @@ const platforms = [
               <a class="btn btn-primary" href={href("apkArm")} data-asset="apkArm"><Icon name="download-simple" weight="bold" />For most phones</a>
               <a class="btn btn-quiet" href={href("apkX86")} data-asset="apkX86">For Intel and AMD devices</a>
             </div>
-            <p class="dl-note">Most phones and tablets need the first one (ARM64). The second (x86_64) is for devices with Intel or AMD chips, and for emulators. Open the downloaded file to install it. <span class="dl-size"><span data-size="apkArm">{size("apkArm")}</span> each.</span></p>
+            <p class="dl-note">Most phones and tablets need the first one (ARM64). The second (x86_64) is for devices with Intel or AMD chips, and for emulators. Open the downloaded file to install it. Older TVs with a 32-bit chip need <a href={href("apkArm7")} data-asset="apkArm7">the 32-bit one (ARMv7)</a>. <span class="dl-size"><span data-size="apkArm">{size("apkArm")}</span> each.</span></p>
           </div>
         </div>
 

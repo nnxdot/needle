@@ -607,20 +607,250 @@ fn musicbrainz_artist(name: &str) -> Result<Option<String>> {
         .map(String::from))
 }
 
+/// Whether picture bytes move: an animated WebP, or a GIF of more than one frame.
+fn moves(bytes: &[u8]) -> Option<&'static str> {
+    if bytes.len() > 20
+        && &bytes[0..4] == b"RIFF"
+        && &bytes[8..12] == b"WEBP"
+        && &bytes[12..16] == b"VP8X"
+        && bytes[20] & 0x02 != 0
+    {
+        return Some("webp");
+    }
+    (bytes.starts_with(b"GIF8")
+        && bytes
+            .windows(3)
+            .filter(|w| *w == [0x21, 0xF9, 0x04])
+            .nth(1)
+            .is_some())
+    .then_some("gif")
+}
+
+/// Where a music server's moving cover for this song's album is kept, without its
+/// extension, and whether it was looked for already: `(base, found)`. `found` is the kept
+/// picture, or `None` when the server's cover was still (or not looked for yet).
+fn server_moving_kept(
+    library: &Library,
+    track: &Track,
+) -> Option<(PathBuf, Option<PathBuf>, bool)> {
+    let (plugin, id) = track.source()?;
+    // One cover per album, as the covers are fetched; a song without an album has its own.
+    let key = if track.album.is_empty() {
+        format!("{plugin}/{id}")
+    } else {
+        format!(
+            "{plugin}/{}/{}",
+            track.album_artist.to_lowercase(),
+            track.album.to_lowercase()
+        )
+    };
+    let folder = library.directory.join("artwork").join("moving");
+    forget_old_still_marks(&folder);
+    let base = folder.join(&blake3::hash(key.as_bytes()).to_hex()[..32]);
+    let found = ["webp", "gif"]
+        .iter()
+        .map(|kind| base.with_extension(kind))
+        .find(|p| p.is_file());
+    // A still cover is asked for again after a week: the server's cover may have changed.
+    let still_lately = std::fs::metadata(base.with_extension("still"))
+        .and_then(|m| m.modified())
+        .is_ok_and(|at| {
+            at.elapsed()
+                .is_ok_and(|age| age < std::time::Duration::from_secs(7 * 86_400))
+        });
+    let known = found.is_some() || still_lately;
+    Some((base, found, known))
+}
+
+/// "Still" marks made before Needle asked by the album's id (a song's id often gives the
+/// still picture inside the file) are forgotten once, so those albums are asked again now,
+/// not a week later. A small file in the folder says it was done.
+fn forget_old_still_marks(folder: &Path) {
+    static DONE: std::sync::Mutex<Vec<PathBuf>> = std::sync::Mutex::new(Vec::new());
+    let mut done = DONE.lock().unwrap_or_else(|e| e.into_inner());
+    if done.iter().any(|f| f == folder) {
+        return;
+    }
+    done.push(folder.to_path_buf());
+    let marker = folder.join("asked-by-album");
+    if marker.is_file() {
+        return;
+    }
+    if !folder.is_dir() {
+        let _ = std::fs::create_dir_all(folder);
+        let _ = std::fs::write(&marker, b"");
+        return;
+    }
+    for entry in std::fs::read_dir(folder).into_iter().flatten().flatten() {
+        if entry.path().extension().is_some_and(|e| e == "still") {
+            let _ = std::fs::remove_file(entry.path());
+        }
+    }
+    let _ = std::fs::write(&marker, b"");
+}
+
+/// A music server song's moving cover: its album's cover as the server keeps it (not the
+/// smaller still copy Needle shows elsewhere), when that is an animated WebP or GIF. Asked
+/// once per album and kept; a still cover is remembered as still. This waits for the
+/// network the first time, so call it off the main thread.
+pub fn fetch_server_moving_cover(library: &Library, track: &Track) -> Option<PathBuf> {
+    let (base, found, known) = server_moving_kept(library, track)?;
+    if known {
+        return found;
+    }
+    // The still cover may be the moving picture already (Navidrome gives a moving WebP
+    // whole, even when a smaller copy is asked for): use that file, with no second download.
+    if let Some(kept) = keep_moving_still_cover(library, track) {
+        return Some(kept);
+    }
+    let (plugin, id) = track.source()?;
+    if plugin != crate::subsonic::ID {
+        return None;
+    }
+    // The album's own picture first (a moving one lives in the album's folder), else the
+    // song's.
+    let server = crate::subsonic::Subsonic::new(library.clone());
+    let link = server
+        .original_album_cover(&id)
+        .or_else(|_| server.original_cover(&id))
+        .ok()?;
+    let bytes = (|| -> Result<Vec<u8>> {
+        let response = crate::integrations::client()?
+            .get(&link)
+            .timeout(std::time::Duration::from_secs(20))
+            .send()?
+            .error_for_status()?;
+        let mut bytes = vec![];
+        response.take(40 * 1024 * 1024).read_to_end(&mut bytes)?;
+        Ok(bytes)
+    })();
+    let folder = base.parent()?;
+    std::fs::create_dir_all(folder).ok()?;
+    match bytes {
+        Ok(bytes) => match moves(&bytes) {
+            Some(kind) => {
+                let path = base.with_extension(kind);
+                std::fs::write(&path, &bytes).ok()?;
+                Some(path)
+            }
+            None => {
+                let _ = std::fs::write(base.with_extension("still"), b"");
+                None
+            }
+        },
+        // No answer now (offline, say): ask again another time.
+        Err(_) => None,
+    }
+}
+
+/// Forget a music server song's album's moving cover, and that it was looked for, so it is
+/// asked for again (Refresh everything).
+pub fn forget_server_moving_cover(library: &Library, track: &Track) {
+    if let Some((base, _, _)) = server_moving_kept(library, track) {
+        for kind in ["webp", "gif", "still"] {
+            let _ = std::fs::remove_file(base.with_extension(kind));
+        }
+    }
+}
+
+/// When a music server song's still cover is itself a moving picture, keep it as the album's
+/// moving cover too: the same file (a hard link, so no second copy where the system allows
+/// one, else a copy). Returns the moving cover's path.
+pub fn keep_moving_still_cover(library: &Library, track: &Track) -> Option<PathBuf> {
+    let artwork = PathBuf::from(track.artwork.as_deref()?);
+    let mut file = std::fs::File::open(&artwork).ok()?;
+    // Most covers are JPEG or PNG: a look at the first bytes is enough to pass them by.
+    let mut head = [0u8; 16];
+    file.read_exact(&mut head).ok()?;
+    let webp = &head[0..4] == b"RIFF" && &head[8..12] == b"WEBP";
+    if !webp && !head.starts_with(b"GIF8") {
+        return None;
+    }
+    let mut bytes = head.to_vec();
+    file.take(60 * 1024 * 1024).read_to_end(&mut bytes).ok()?;
+    let kind = moves(&bytes)?;
+    let (base, _, _) = server_moving_kept(library, track)?;
+    std::fs::create_dir_all(base.parent()?).ok()?;
+    let path = base.with_extension(kind);
+    if !path.is_file() && std::fs::hard_link(&artwork, &path).is_err() {
+        std::fs::copy(&artwork, &path).ok()?;
+    }
+    let _ = std::fs::remove_file(base.with_extension("still"));
+    Some(path)
+}
+
+/// A music server song's moving cover if it was fetched already, and whether it was looked
+/// for: `(picture, looked)`. Never waits for the network.
+pub fn server_moving_cover_kept(library: &Library, track: &Track) -> (Option<PathBuf>, bool) {
+    server_moving_kept(library, track).map_or((None, true), |(_, found, known)| (found, known))
+}
+
+/// Whether a picture moves: an animated WebP, or a GIF of more than one frame. A still WebP
+/// or GIF (a plain cover) does not.
+pub fn is_animated_image(path: &Path) -> bool {
+    let kind = path
+        .extension()
+        .and_then(|s| s.to_str())
+        .unwrap_or_default()
+        .to_lowercase();
+    let Ok(mut file) = std::fs::File::open(path) else {
+        return false;
+    };
+    match kind.as_str() {
+        // RIFF....WEBPVP8X, whose flags (byte 20) mark an animation.
+        "webp" => {
+            let mut head = [0u8; 21];
+            file.read_exact(&mut head).is_ok()
+                && &head[0..4] == b"RIFF"
+                && &head[8..12] == b"WEBP"
+                && &head[12..16] == b"VP8X"
+                && head[20] & 0x02 != 0
+        }
+        // Each frame of a moving GIF has its own graphic control block (21 F9 04).
+        "gif" => {
+            let mut bytes = vec![];
+            file.take(60 * 1024 * 1024).read_to_end(&mut bytes).is_ok()
+                && bytes.starts_with(b"GIF8")
+                && bytes
+                    .windows(3)
+                    .filter(|w| *w == [0x21, 0xF9, 0x04])
+                    .nth(1)
+                    .is_some()
+        }
+        _ => false,
+    }
+}
+
 /// A moving cover beside a song's file: a short video, such as `cover.mp4` or `animated.mov`,
-/// as some downloads of Apple Music's moving covers are saved.
+/// as some downloads of Apple Music's moving covers are saved, or a moving picture
+/// (`cover.webp` or `cover.gif` that is animated). A video comes first when there are both.
 pub fn animated_cover(library: &Library, track: &Track) -> Option<PathBuf> {
-    if track.source().is_some() || track.path.starts_with("http") {
+    moving_cover(library, track, true)
+}
+
+/// A moving picture beside a song's file (an animated `cover.webp` or `cover.gif`), for an
+/// app that shows pictures but plays no video.
+pub fn animated_picture(library: &Library, track: &Track) -> Option<PathBuf> {
+    moving_cover(library, track, false)
+}
+
+fn moving_cover(library: &Library, track: &Track, with_videos: bool) -> Option<PathBuf> {
+    // A music server's song: the moving cover fetched from the server, if it was.
+    if track.source().is_some() {
+        return server_moving_cover_kept(library, track).0;
+    }
+    if track.path.starts_with("http") {
         return None;
     }
     let folder = Path::new(track.file_path()).parent()?;
     let names = ["cover", "animated", "folder", "front", "album", "motion"];
-    let kinds = ["mp4", "m4v", "mov"];
-    let video = std::fs::read_dir(folder)
+    let videos = ["mp4", "m4v", "mov"];
+    let pictures = ["webp", "gif"];
+    let mut found: Vec<(bool, PathBuf)> = std::fs::read_dir(folder)
         .ok()?
         .flatten()
         .map(|e| e.path())
-        .find(|p| {
+        .filter_map(|p| {
             let stem = p
                 .file_stem()
                 .and_then(|s| s.to_str())
@@ -632,9 +862,22 @@ pub fn animated_cover(library: &Library, track: &Track) -> Option<PathBuf> {
                 .unwrap_or_default()
                 .to_lowercase();
             // A moving cover is a short loop, not a whole music video.
-            let small = std::fs::metadata(p).is_ok_and(|m| m.len() <= 60 * 1024 * 1024);
-            names.contains(&stem.as_str()) && kinds.contains(&kind.as_str()) && small
-        })?;
+            let small = std::fs::metadata(&p).is_ok_and(|m| m.len() <= 60 * 1024 * 1024);
+            if !names.contains(&stem.as_str()) || !small {
+                return None;
+            }
+            if with_videos && videos.contains(&kind.as_str()) {
+                Some((true, p))
+            } else if pictures.contains(&kind.as_str()) && is_animated_image(&p) {
+                Some((false, p))
+            } else {
+                None
+            }
+        })
+        .collect();
+    // Videos first, then by name, so the choice does not depend on the folder's order.
+    found.sort_by(|a, b| b.0.cmp(&a.0).then_with(|| a.1.cmp(&b.1)));
+    let video = found.into_iter().next()?.1;
     // Only a folder of one album: in a folder of many (an iPhone's own, say) one cover.mp4
     // would be every song's.
     let inside = format!("{}/", folder.to_string_lossy());
@@ -778,7 +1021,12 @@ pub fn artist_logo(library: &Library, name: &str, online: bool) -> Result<Option
 /// A wide picture of an artist, for the top of their page, from fanart.tv: its newest
 /// background, or else its newest photo. Looked at again each month, with fanart.tv's answer.
 pub fn artist_banner(library: &Library, name: &str, online: bool) -> Result<Option<PathBuf>> {
-    fanart_picture(library, name, online, "wide", best_banner)
+    let found = fanart_picture(library, name, online, "banner", best_banner)?;
+    // The one chosen before pictures were dated (the last one fanart.tv listed) goes.
+    if let Some(file) = &found {
+        let _ = std::fs::remove_file(file.with_extension("wide"));
+    }
+    Ok(found)
 }
 
 /// The most liked of fanart.tv's pictures of one kind; in English or with no language first.
@@ -803,15 +1051,116 @@ fn best_logo(data: &Value) -> Option<String> {
     best_of(data, "hdmusiclogo").or_else(|| best_of(data, "musiclogo"))
 }
 
-/// The newest of fanart.tv's pictures of one kind (its "added" is "2024-05-01 12:00:00").
+/// The newest of fanart.tv's pictures of one kind, by `picture_date`; the one uploaded last
+/// when none can be dated.
 fn newest_of(data: &Value, kind: &str) -> Option<String> {
+    let id = |v: &Value| {
+        v["id"]
+            .as_str()
+            .and_then(|n| n.parse::<i64>().ok())
+            .or_else(|| v["id"].as_i64())
+            .unwrap_or(0)
+    };
     data[kind]
         .as_array()
         .into_iter()
         .flatten()
-        .max_by_key(|v| v["added"].as_str().unwrap_or_default().to_string())
+        .max_by_key(|v| (picture_date(v).unwrap_or(0), id(v)))
         .and_then(|v| v["url"].as_str())
         .map(String::from)
+}
+
+/// How much older than its upload a picture without a photo date counts as. Pictures reach
+/// fanart.tv months after they come out (and old ones years later), so a photo with a date
+/// beats one without, unless that one was uploaded more than a year after it.
+const UNDATED_AGE: i64 = 365 * 86_400;
+
+/// About when one of fanart.tv's pictures is from (Unix seconds). fanart.tv keeps no date for
+/// a picture, so this is when the photo was first posted, from the link it was copied from
+/// (`copyright_link`), or else a year before it was uploaded to fanart.tv, from its file name.
+fn picture_date(picture: &Value) -> Option<i64> {
+    let now = chrono::Utc::now().timestamp() + 86_400;
+    // Nothing before 2010 or in the future: such a "date" was misread.
+    let real = |t: i64| (1_262_304_000..now).contains(&t).then_some(t);
+    picture["copyright_link"]
+        .as_str()
+        .and_then(posted_at)
+        .and_then(real)
+        .or_else(|| {
+            picture["url"]
+                .as_str()
+                .and_then(uploaded_at)
+                .and_then(real)
+                .map(|t| t - UNDATED_AGE)
+        })
+}
+
+/// When a photo was first posted, from its link:
+/// - Twitter and X: the picture's name is its id in base64, and the id holds the time.
+/// - A year folder, then a month folder, as WordPress and many picture sites keep them:
+///   `/wp-content/uploads/2021/11/`, `/kpics/2026/02/`.
+/// - File names that start with the date, as Korean photo sites name them: `251201-...`.
+fn posted_at(link: &str) -> Option<i64> {
+    let day = |year: i32, month: u32, date: u32| {
+        chrono::NaiveDate::from_ymd_opt(year, month, date)
+            .and_then(|d| d.and_hms_opt(12, 0, 0))
+            .map(|t| t.and_utc().timestamp())
+    };
+    let digits = |text: &str| !text.is_empty() && text.chars().all(|c| c.is_ascii_digit());
+    if let Some(rest) = link.split("pbs.twimg.com/media/").nth(1) {
+        let name: String = rest
+            .chars()
+            .take_while(|c| c.is_ascii_alphanumeric() || matches!(c, '-' | '_'))
+            .collect();
+        let bits = name.chars().take(11).try_fold(0u128, |all, c| {
+            let n = match c {
+                'A'..='Z' => c as u32 - 'A' as u32,
+                'a'..='z' => c as u32 - 'a' as u32 + 26,
+                '0'..='9' => c as u32 - '0' as u32 + 52,
+                '-' => 62,
+                _ => 63,
+            };
+            Some((all << 6) | n as u128)
+        });
+        if let Some(bits) = bits.filter(|_| name.len() == 15) {
+            // 11 letters hold 66 bits; the id is the first 64. Its time is in milliseconds
+            // since Twitter's own start (2010-11-04).
+            let id = (bits >> 2) as u64;
+            return Some((((id >> 22) + 1_288_834_974_657) / 1000) as i64);
+        }
+    }
+    let path = link.split(['?', '#']).next()?;
+    let parts: Vec<&str> = path.split('/').collect();
+    for pair in parts.windows(2) {
+        if let [year, month] = pair
+            && year.len() == 4
+            && month.len() == 2
+            && digits(year)
+            && digits(month)
+            && year.starts_with("20")
+            && let Some(date) = day(year.parse().ok()?, month.parse().ok()?, 1)
+        {
+            return Some(date);
+        }
+    }
+    let file = parts.last()?;
+    let (start, after) = (file.get(..6)?, file.get(6..7)?);
+    if digits(start) && matches!(after, "-" | "_") {
+        let n = |i: usize| start[i..i + 2].parse::<u32>().ok();
+        return day(2000 + n(0)? as i32, n(2)?, n(4)?);
+    }
+    None
+}
+
+/// When a picture was uploaded to fanart.tv: its file name ends in a PHP `uniqid`, whose first
+/// eight hex digits are the time (`ive-61a7f2f0dcee2.jpg`).
+fn uploaded_at(url: &str) -> Option<i64> {
+    let stem = url.rsplit('/').next()?.split('.').next()?;
+    let id = stem.rsplit('-').next()?;
+    if id.len() != 13 || !id.chars().all(|c| c.is_ascii_hexdigit()) {
+        return None;
+    }
+    i64::from_str_radix(&id[..8], 16).ok()
 }
 
 /// The picture for the top of the page: the newest wide background, then the newest photo.
@@ -936,6 +1285,75 @@ pub fn fetch_album_art(library: &Library, track: &Track) -> Result<usize> {
 #[cfg(test)]
 mod tests {
 
+    /// A server song whose still cover is already a moving picture: that file is its
+    /// album's moving cover too, with no second download (no server is even set up here).
+    #[test]
+    fn a_moving_still_cover_is_the_moving_cover_too() {
+        let dir = tempfile::tempdir().unwrap();
+        let library = crate::database::Library::open(dir.path()).unwrap();
+        let mut bytes = b"RIFF\0\0\0\0WEBPVP8X".to_vec();
+        bytes.extend_from_slice(&[10, 0, 0, 0, 0x12, 0, 0, 0]);
+        bytes.resize(400, 7);
+        let cover = dir.path().join("artwork").join("cover.img");
+        std::fs::write(&cover, &bytes).unwrap();
+        let track = crate::model::Track {
+            path: "source://subsonic/s1".into(),
+            album: "Get Up".into(),
+            album_artist: "NewJeans".into(),
+            artwork: Some(cover.to_string_lossy().into()),
+            ..Default::default()
+        };
+        let moving = super::fetch_server_moving_cover(&library, &track).unwrap();
+        assert_eq!(moving.extension().unwrap(), "webp");
+        assert_eq!(std::fs::read(&moving).unwrap(), bytes);
+        assert_eq!(
+            super::server_moving_cover_kept(&library, &track),
+            (Some(moving), true)
+        );
+        // A still JPEG cover is not a moving one.
+        let jpeg = dir.path().join("artwork").join("still.img");
+        std::fs::write(&jpeg, b"\xFF\xD8\xFF\xE0 still picture").unwrap();
+        let other = crate::model::Track {
+            path: "source://subsonic/s2".into(),
+            album: "Plain".into(),
+            artwork: Some(jpeg.to_string_lossy().into()),
+            ..Default::default()
+        };
+        assert_eq!(super::keep_moving_still_cover(&library, &other), None);
+    }
+
+    /// An animated WebP and a GIF of two frames move; a still WebP, a GIF of one frame, and
+    /// a picture of another kind do not.
+    #[test]
+    fn moving_pictures_are_told_from_still_ones() {
+        let dir = tempfile::tempdir().unwrap();
+        let webp = |flags: u8| {
+            let mut b = b"RIFF\0\0\0\0WEBPVP8X".to_vec();
+            b.extend_from_slice(&[10, 0, 0, 0, flags, 0, 0, 0]);
+            b
+        };
+        let write = |name: &str, bytes: &[u8]| {
+            let path = dir.path().join(name);
+            std::fs::write(&path, bytes).unwrap();
+            path
+        };
+        let frame = [0x21u8, 0xF9, 0x04, 0, 0, 0, 0, 0, 0x2C];
+        let mut two = b"GIF89a".to_vec();
+        two.extend_from_slice(&frame);
+        two.extend_from_slice(&frame);
+        let mut one = b"GIF89a".to_vec();
+        one.extend_from_slice(&frame);
+        assert!(super::is_animated_image(&write("moving.webp", &webp(0x02))));
+        assert!(!super::is_animated_image(&write("still.webp", &webp(0x10))));
+        assert!(!super::is_animated_image(&write(
+            "plain.webp",
+            b"RIFF\0\0\0\0WEBPVP8 "
+        )));
+        assert!(super::is_animated_image(&write("moving.gif", &two)));
+        assert!(!super::is_animated_image(&write("still.gif", &one)));
+        assert!(!super::is_animated_image(&write("cover.jpg", &two)));
+    }
+
     #[test]
     fn the_best_logo_is_high_definition_english_and_liked() {
         let data = serde_json::json!({
@@ -954,17 +1372,84 @@ mod tests {
 
     #[test]
     fn the_banner_is_the_newest_background_then_photo() {
+        // As fanart.tv lists IVE's: all uploaded on one day, the photos posted months apart.
         let both = serde_json::json!({
-            "artistthumb": [{ "url": "photo", "added": "2026-01-01 10:00:00" }],
+            "artistthumb": [{ "id": "9", "url": "https://assets.fanart.tv/fanart/ive-69935e86c350f.jpg" }],
             "artistbackground": [
-                { "url": "old", "likes": "40", "added": "2022-10-01 16:06:54" },
-                { "url": "new", "likes": "1", "added": "2025-04-11 09:12:00" },
-                { "url": "middle", "likes": "9", "added": "2024-02-02 08:00:00" },
+                { "id": "465470", "url": "december", "copyright_link": "https://legacy.kpopping.com/f4/0/251201-MAMA-Awards-2.jpeg" },
+                { "id": "465482", "url": "august", "copyright_link": "https://pbs.twimg.com/media/GxqKZcyawAIF0Ff?format=jpg&name=4096x4096" },
+                { "id": "465484", "url": "july", "copyright_link": "https://pbs.twimg.com/media/Gu6-afuXsAAfcPL?format=jpg&name=large" },
             ],
         });
-        assert_eq!(super::best_banner(&both).as_deref(), Some("new"));
-        let photo = serde_json::json!({ "artistthumb": [{ "url": "photo", "added": "2023-01-01 00:00:00" }] });
+        assert_eq!(super::best_banner(&both).as_deref(), Some("december"));
+        let photo = serde_json::json!({ "artistthumb": [{ "id": "1", "url": "photo" }] });
         assert_eq!(super::best_banner(&photo).as_deref(), Some("photo"));
+        // Undated: the one uploaded last (by its file name), then the last by id.
+        let undated = serde_json::json!({ "artistbackground": [
+            { "id": "3", "url": "https://assets.fanart.tv/fanart/a-61a7f2f0dcee2.jpg" },
+            { "id": "2", "url": "https://assets.fanart.tv/fanart/a-69935e86c350f.jpg" },
+            { "id": "1", "url": "https://assets.fanart.tv/fanart/a.jpg" },
+        ]});
+        assert!(
+            super::best_banner(&undated)
+                .unwrap()
+                .ends_with("69935e86c350f.jpg")
+        );
+        // As aespa's: a photo posted in September 2025 beats one without a date that was
+        // uploaded in March 2026 (from a 2024 page).
+        let mixed = serde_json::json!({ "artistbackground": [
+            { "id": "2", "url": "https://assets.fanart.tv/fanart/aespa-69a62480c0d2e.jpg", "copyright_link": "https://aespa-official.jp/aspect/wp-content/themes/hotmess2/img/slider/09.webp" },
+            { "id": "1", "url": "dated", "copyright_link": "https://legacy.kpopping.com/1/2/250910-aespa.jpeg" },
+        ]});
+        assert_eq!(super::best_banner(&mixed).as_deref(), Some("dated"));
+    }
+
+    #[test]
+    fn pictures_are_dated_by_where_they_were_posted() {
+        let date = |t: i64| {
+            chrono::DateTime::from_timestamp(t, 0)
+                .unwrap()
+                .date_naive()
+                .to_string()
+        };
+        let posted = |link: &str| super::posted_at(link).map(date);
+        assert_eq!(
+            posted("https://pbs.twimg.com/media/GxqKZcyawAIF0Ff?format=jpg").as_deref(),
+            Some("2025-08-06")
+        );
+        assert_eq!(
+            posted("https://dbkpop.com/wp-content/uploads/2021/11/ive_eleven.jpg").as_deref(),
+            Some("2021-11-01")
+        );
+        assert_eq!(
+            posted("https://legacy.kpopping.com/98/5/251231-IVE-at-the-show.jpeg").as_deref(),
+            Some("2025-12-31")
+        );
+        assert_eq!(
+            posted("https://cdn.kpopping.com/kpics/2026/02/1771156810354-ds9qhe-0.jpg").as_deref(),
+            Some("2026-02-01")
+        );
+        assert_eq!(
+            posted("https://example.com/123456-photo.jpg"),
+            None,
+            "not a date"
+        );
+        assert_eq!(
+            posted("https://example.com/2026/13/photo.jpg"),
+            None,
+            "no 13th month"
+        );
+        assert_eq!(posted("https://example.com/photo.jpg"), None);
+        assert_eq!(
+            super::uploaded_at("https://assets.fanart.tv/fanart/ive-61a7f2f0dcee2.jpg")
+                .map(date)
+                .as_deref(),
+            Some("2021-12-01")
+        );
+        assert_eq!(
+            super::uploaded_at("https://assets.fanart.tv/fanart/ive.jpg"),
+            None
+        );
     }
     use super::*;
 

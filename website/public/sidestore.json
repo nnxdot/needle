@@ -16,7 +16,7 @@
             "bundleIdentifier": "fyi.nnx.needle",
             "developerName": "Needle",
             "subtitle": "Your music, on your iPhone.",
-            "localizedDescription": "Needle is a music player for the songs you own.\n\n- Your library on your iPhone, made for Liquid Glass.\n- A full player in the cover's colours, with lyrics that follow the song word by word.\n- Lock Screen, Control Center, AirPlay, Bluetooth, Chromecast and DLNA speakers.\n- Widgets for the song playing, recent albums, playlists and your week of listening.\n- Play from Navidrome and other music servers.\n- Control Needle on your computer, and move what plays between the computer and the phone.\n- A 10-band and parametric equalizer, headphone corrections, crossfeed and crossfade.\n- Playlists, smart playlists, tag editing, and tools to find duplicates and covers.\n- Discord status: show what you play on your profile.\n\nNo account and no tracking. Needle goes online only for things that you turn on.",
+            "localizedDescription": "Needle is a music player for the songs you own.\n\n- Your library on your iPhone, made for Liquid Glass.\n- A full player in the cover's colours, with lyrics that follow the song word by word.\n- Lock Screen, Control Center, AirPlay, Bluetooth, Chromecast and DLNA speakers.\n- Widgets for the song playing, recent albums, playlists and your week of listening.\n- Navidrome and other music servers built in, with a page for your server.\n- Moving covers, from your folders or your server.\n- A Radio tab: stations from the songs you play most.\n- Control Needle on your computer, and move what plays between the computer and the phone.\n- A 10-band and parametric equalizer, headphone corrections, crossfeed and crossfade.\n- Playlists, smart playlists, tag editing, and tools to find duplicates and covers.\n- Discord status: show what you play on your profile.\n\nNo account and no tracking. Needle goes online only for things that you turn on.",
             "iconURL": "https://needle.nnx.fyi/icon-512.png",
             "tintColor": "#FF5C8A",
             "category": "entertainment",
@@ -48,6 +48,15 @@
                 }
             ],
             "versions": [
+                {
+                    "version": "1.8.0",
+                    "buildVersion": "1",
+                    "date": "2026-10-23",
+                    "localizedDescription": "Navidrome built in, a Radio tab, moving covers, and calmer Settings.\n\n- Navidrome and Subsonic, built in: sign in in Settings › Music server, with no plugin to add. A page shows your server, its songs, albums, and artists. Refresh everything gets every song and cover again.\n- Moving covers: an animated WebP or GIF beside an album's songs, or the album's moving cover on your server, moves in the player. On mobile data, no new ones are downloaded unless you turn it on.\n- A Radio tab in place of Sources, and a new Home.\n- Calmer Settings, and a neater What's new and welcome screen.\n- Music that keeps playing when the network sleeps.\n- Lyrics under the mini player.\n- Last.fm in one click.",
+                    "downloadURL": "https://needle.nnx.fyi/download/Needle-1.8.0-ios.ipa",
+                    "size": 14786092,
+                    "minOSVersion": "26.0"
+                },
                 {
                     "version": "1.7.1",
                     "buildVersion": "1",

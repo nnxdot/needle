@@ -31,6 +31,7 @@ class PlaybackService : MediaLibraryService() {
     private var session: MediaLibrarySession? = null
     private var library: Library? = null
     private var focus: AudioFocus? = null
+    private var locks: PlaybackLocks? = null
 
     @UnstableApi
     override fun onCreate() {
@@ -46,6 +47,7 @@ class PlaybackService : MediaLibraryService() {
         )
         session = MediaLibrarySession.Builder(this, player, callback).setSessionActivity(open).build()
         focus = AudioFocus(this).also { it.start() }
+        locks = PlaybackLocks(this).also { it.start() }
     }
 
     override fun onGetSession(controllerInfo: MediaSession.ControllerInfo) = session
@@ -53,6 +55,8 @@ class PlaybackService : MediaLibraryService() {
     override fun onDestroy() {
         focus?.stop()
         focus = null
+        locks?.stop()
+        locks = null
         session?.run {
             player.release()
             release()

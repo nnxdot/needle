@@ -24,6 +24,9 @@ pub const SCHEME: &str = "source://";
 pub const CACHE_LIMIT: u64 = 2 << 30;
 /// How long a stream may stall before playback gives up.
 const STALL: Duration = Duration::from_secs(30);
+/// How long a dropped stream is asked for again, from where it stopped, before playback gives
+/// up: a locked phone's Wi-Fi can sleep for a while, and a train goes through tunnels.
+const GIVE_UP: Duration = Duration::from_secs(5 * 60);
 
 /// A network error in plain words, without the link: a source's links carry sign-in tokens,
 /// which must not end up on screen or in the log.
@@ -197,6 +200,8 @@ pub struct Synced {
     pub updated: usize,
     /// Songs the server no longer has; they stay in the library, marked missing.
     pub gone: usize,
+    /// Songs the server no longer has that left the library (Refresh everything).
+    pub removed: usize,
     /// Tracks without a cover yet: the track, the link to fetch it from, and which cover it is
     /// (tracks with the same one share a download).
     pub covers: Vec<(String, String, String)>,
@@ -204,6 +209,15 @@ pub struct Synced {
 
 /// Bring the library in step with the full list of a source's songs.
 pub fn apply(library: &Library, plugin: &str, songs: &[Song]) -> Result<Synced> {
+    apply_with(library, plugin, songs, false)
+}
+
+/// `apply`, or with `full` ("Refresh everything"): every song's cover is fetched again (a
+/// cover changed on the server comes in), moving covers are looked for again, and songs the
+/// server no longer has leave the library instead of staying, marked missing. An empty list
+/// removes nothing (a server that lists nothing for a moment must not empty the library).
+pub fn apply_with(library: &Library, plugin: &str, songs: &[Song], full: bool) -> Result<Synced> {
+    let full = full && !songs.is_empty();
     let now = chrono::Utc::now().timestamp();
     let mut db = library.connection()?;
     let tx = db.transaction()?;
@@ -248,7 +262,10 @@ pub fn apply(library: &Library, plugin: &str, songs: &[Song]) -> Result<Synced> 
                 Library::upsert_on(&tx, &track)?;
             }
         }
-        if track.artwork.is_none() && !song.cover.is_empty() {
+        if full {
+            crate::media::forget_server_moving_cover(library, &track);
+        }
+        if (full || track.artwork.is_none()) && !song.cover.is_empty() {
             let key = if song.cover_id.is_empty() {
                 song.cover.clone()
             } else {
@@ -259,13 +276,31 @@ pub fn apply(library: &Library, plugin: &str, songs: &[Song]) -> Result<Synced> 
                 .push((track.id.clone(), song.cover.clone(), key));
         }
     }
+    let mut removed = std::collections::HashSet::new();
     for (id, old) in &existing {
-        if !seen.contains(id) && !old.missing {
+        if seen.contains(id) {
+            continue;
+        }
+        if full {
+            tx.execute("DELETE FROM tracks WHERE id=?", [id])?;
+            tx.execute("DELETE FROM features WHERE track_id=?", [id])?;
+            removed.insert(id.clone());
+        } else if !old.missing {
             tx.execute("UPDATE tracks SET missing=1 WHERE id=?", [id])?;
             synced.gone += 1;
         }
     }
     tx.commit()?;
+    synced.removed = removed.len();
+    // Playlists let go of the songs that left (listening history keeps them by name).
+    if !removed.is_empty() {
+        for mut playlist in library.playlists()? {
+            if playlist.track_ids.iter().any(|id| removed.contains(id)) {
+                playlist.track_ids.retain(|id| !removed.contains(id));
+                library.save_playlist(&playlist)?;
+            }
+        }
+    }
     library.set_json(&format!("source-synced:{plugin}"), &now)?;
     Ok(synced)
 }
@@ -376,11 +411,18 @@ pub fn fetch_covers(
                             continue;
                         }
                     };
+                    let mut first = true;
                     for id in tracks {
                         if let Ok(Some(mut track)) = library.track(id) {
                             track.artwork = Some(path.to_string_lossy().into());
                             if library.upsert(&track).is_ok() {
                                 done.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                            }
+                            // A moving picture is the album's moving cover too (one file for
+                            // both; nothing is fetched again for it).
+                            if first {
+                                first = false;
+                                crate::media::keep_moving_still_cover(library, &track);
                             }
                         }
                     }
@@ -404,6 +446,9 @@ static RESOLVER: RwLock<Option<Arc<Resolver>>> = RwLock::new(None);
 static CACHE: RwLock<Option<PathBuf>> = RwLock::new(None);
 /// Downloads under way, by cache file.
 static ACTIVE: LazyLock<Mutex<HashMap<PathBuf, Arc<Download>>>> = LazyLock::new(Default::default);
+/// Songs (their cache files) whose stream gave up part way, until the player asks.
+static CUT_SHORT: LazyLock<Mutex<std::collections::HashSet<PathBuf>>> =
+    LazyLock::new(Default::default);
 /// How far ahead of a download a reader may wait before the download jumps to it.
 const JUMP_AFTER: u64 = 1 << 20;
 
@@ -467,6 +512,44 @@ fn kept_path_in(cache: &Path, track: &Track) -> Result<PathBuf> {
     Ok(kept_dir(cache).join(plugin).join(name))
 }
 
+/// Whether the song's stream holds its player still: a reader waits for a part that has not
+/// come yet (a slow server, or a dropped connection that is asked again). The output does
+/// not move then, but it is not stuck.
+pub fn waiting(track: &Track) -> bool {
+    track.source().is_some() && cache_dir().is_ok_and(|cache| waiting_in(&cache, track))
+}
+
+/// Whether the song's stream gave up part way (the server stopped answering for `GIVE_UP`,
+/// or the download failed), so it ended short of its end. Asking forgets it.
+pub fn cut_short(track: &Track) -> bool {
+    track.source().is_some()
+        && !CUT_SHORT
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .is_empty()
+        && cache_dir().is_ok_and(|cache| cut_short_in(&cache, track))
+}
+
+fn cut_short_in(cache: &Path, track: &Track) -> bool {
+    cache_path_in(cache, track).is_ok_and(|target| {
+        CUT_SHORT
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .remove(&target)
+    })
+}
+
+fn waiting_in(cache: &Path, track: &Track) -> bool {
+    let Ok(target) = cache_path_in(cache, track) else {
+        return false;
+    };
+    ACTIVE
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .get(&target)
+        .is_some_and(|job| job.lock().waiting > 0)
+}
+
 /// Whether a source song is on this computer (kept, or in the cache), so it plays without
 /// the network.
 pub fn is_cached(track: &Track) -> bool {
@@ -491,6 +574,42 @@ pub fn kept_usage(plugin: &str) -> (usize, u64) {
         .filter(|e| e.file_type().is_file())
         .filter_map(|e| e.metadata().ok())
         .fold((0, 0), |(n, size), m| (n + 1, size + m.len()))
+}
+
+/// Songs of a source in the stream cache (played lately, not kept on purpose), and their
+/// size in bytes. Parts still downloading are not counted.
+pub fn cache_usage(plugin: &str) -> (usize, u64) {
+    let Ok(cache) = cache_dir() else {
+        return (0, 0);
+    };
+    walkdir::WalkDir::new(cache.join(plugin))
+        .into_iter()
+        .flatten()
+        .filter(|e| e.file_type().is_file())
+        .filter(|e| e.path().extension().is_none_or(|x| x != "part"))
+        .filter_map(|e| e.metadata().ok())
+        .fold((0, 0), |(n, size), m| (n + 1, size + m.len()))
+}
+
+/// Empty a source's stream cache: songs played lately go (they stream again next time).
+/// Kept songs and songs downloading now stay. Returns how many files went.
+pub fn clear_cache(plugin: &str) -> Result<usize> {
+    let folder = cache_dir()?.join(plugin);
+    let active: Vec<PathBuf> = ACTIVE
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .keys()
+        .cloned()
+        .collect();
+    let mut removed = 0;
+    for entry in std::fs::read_dir(&folder).into_iter().flatten().flatten() {
+        let path = entry.path();
+        let busy = path.extension().is_some_and(|x| x == "part") || active.contains(&path);
+        if !busy && path.is_file() && std::fs::remove_file(&path).is_ok() {
+            removed += 1;
+        }
+    }
+    Ok(removed)
 }
 
 /// Stop keeping every song of a source; they move back to the cache, which can clear them.
@@ -523,6 +642,10 @@ struct Progress {
     readers: usize,
     /// Where a reader waits, far from where the download is: it jumps there.
     want: Option<u64>,
+    /// The connection dropped and the download is asking again: readers wait for it.
+    retrying: bool,
+    /// Readers waiting now for a part that has not come yet.
+    waiting: usize,
 }
 
 impl Progress {
@@ -592,7 +715,9 @@ impl Download {
                 last = progress.received;
                 quiet = Instant::now();
             }
-            if quiet.elapsed() > STALL || started.elapsed() > limit {
+            // A download that is asking again after a dropped connection is waited for (it
+            // gives up by itself after `GIVE_UP`).
+            if (quiet.elapsed() > STALL && !progress.retrying) || started.elapsed() > limit {
                 return Err(io::Error::new(
                     io::ErrorKind::TimedOut,
                     "The server stopped sending the song",
@@ -680,8 +805,30 @@ fn download(
     Ok(job)
 }
 
+/// After the connection dropped: wait a little (longer each time), and say whether to ask
+/// again: someone still listens, and the song has not been quiet for `GIVE_UP`.
+fn may_retry(job: &Download, tries: &mut u32, quiet: Instant) -> bool {
+    if job.lock().readers == 0 || quiet.elapsed() > GIVE_UP {
+        return false;
+    }
+    job.lock().retrying = true;
+    job.changed.notify_all();
+    let pause = Duration::from_secs(1 << (*tries).min(4)).min(Duration::from_secs(15));
+    *tries += 1;
+    let until = Instant::now() + pause;
+    while Instant::now() < until {
+        if job.lock().readers == 0 {
+            return false;
+        }
+        std::thread::sleep(Duration::from_millis(200));
+    }
+    true
+}
+
 /// Download the song into its `.part` file, jumping to where a reader waits when the server
 /// can send part of a file, then filling the gaps. Renames it to the cache file when whole.
+/// A dropped connection is asked again from where the song stopped (see `may_retry`), so a
+/// network that sleeps for a while does not end the song.
 fn fetch(job: &Download, link: &str) -> Result<()> {
     // `timeout` bounds each read of the answer, so a server that goes quiet ends the
     // download (and frees its place for the next try) instead of hanging it.
@@ -698,14 +845,38 @@ fn fetch(job: &Download, link: &str) -> Result<()> {
     // Whether the server sends parts of the file; unknown until it is asked.
     let mut ranged = true;
     let mut buffer = vec![0u8; 64 * 1024];
+    // When data last came, and how often it was asked again since.
+    let (mut quiet, mut tries) = (Instant::now(), 0u32);
+    // Where to go on from after a dropped connection: the first part still missing.
+    let resume = |ranged: bool| -> u64 {
+        if !ranged {
+            return 0;
+        }
+        let progress = job.lock();
+        progress
+            .first_gap()
+            .or_else(|| progress.ranges.first().map(|r| r.1))
+            .unwrap_or(0)
+    };
     loop {
         let mut request = client.get(link);
         if start > 0 {
             request = request.header("Range", format!("bytes={start}-"));
         }
-        let mut response = request
-            .send()
-            .map_err(|e| anyhow::anyhow!(http_error(&e)))?;
+        let mut response = match request.send() {
+            Ok(response) => response,
+            Err(error) => {
+                if may_retry(job, &mut tries, quiet) {
+                    crate::logfile::info(format!(
+                        "A stream's connection failed ({}); asking again",
+                        http_error(&error)
+                    ));
+                    start = resume(ranged);
+                    continue;
+                }
+                bail!("{}", http_error(&error));
+            }
+        };
         let status = response.status();
         if !status.is_success() {
             bail!("The server answered {status}");
@@ -751,13 +922,21 @@ fn fetch(job: &Download, link: &str) -> Result<()> {
         file.seek(SeekFrom::Start(start))?;
         let mut at = start;
         let mut next = None;
+        let mut dropped = false;
         loop {
-            let n = response
-                .read(&mut buffer)
-                .map_err(|_| anyhow::anyhow!("The server stopped sending the song"))?;
+            let n = match response.read(&mut buffer) {
+                Ok(n) => n,
+                Err(_) if may_retry(job, &mut tries, quiet) => {
+                    crate::logfile::info("A stream stopped coming; asking again from where it was");
+                    dropped = true;
+                    break;
+                }
+                Err(_) => bail!("The server stopped sending the song"),
+            };
             if n == 0 {
                 break;
             }
+            (quiet, tries) = (Instant::now(), 0);
             file.write_all(&buffer[..n])?;
             file.flush()?;
             let mut progress = job.lock();
@@ -770,6 +949,7 @@ fn fetch(job: &Download, link: &str) -> Result<()> {
             }
             progress.add(at, at + n as u64);
             progress.received += n as u64;
+            progress.retrying = false;
             at += n as u64;
             let stop = progress.readers == 0;
             // A reader waiting well past this download, or this download reaching a part
@@ -793,6 +973,10 @@ fn fetch(job: &Download, link: &str) -> Result<()> {
             if next.is_some() {
                 break;
             }
+        }
+        if dropped {
+            start = resume(ranged);
+            continue;
         }
         // An answer with nothing in it: the song cannot be read from here, so the download
         // fails (and nothing is cached) instead of keeping an empty song or asking again.
@@ -876,16 +1060,31 @@ impl Read for Growing {
             return Ok(0);
         }
         let position = self.position;
-        {
+        let missing = {
             let mut progress = self.job.lock();
-            if progress.covered_until(position).is_none() && !progress.done {
+            let missing = progress.covered_until(position).is_none() && !progress.done;
+            if missing {
                 progress.want = Some(position);
+                progress.waiting += 1;
             }
-        }
-        self.job.wait(
+            missing
+        };
+        let arrived = self.job.wait(
             |p| p.covered_until(position).is_some() || p.total.is_some_and(|t| position >= t),
             Duration::from_secs(600),
-        )?;
+        );
+        if missing {
+            let mut progress = self.job.lock();
+            progress.waiting = progress.waiting.saturating_sub(1);
+        }
+        if arrived.is_err() {
+            // The song ends here, short of its end: the player pauses at this place.
+            CUT_SHORT
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .insert(self.job.target.clone());
+        }
+        arrived?;
         let end = {
             let progress = self.job.lock();
             match progress.covered_until(position) {
@@ -953,6 +1152,11 @@ pub fn open_with(
         return Ok(Box::new(crate::audio_file::decode(&kept)?));
     }
     let target = cache_path_in(cache, track)?;
+    // Opened again: an earlier stream of it that gave up is old news.
+    CUT_SHORT
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .remove(&target);
     if target.is_file() {
         // Played again: move it to the back of the queue for pruning.
         let _ = File::options()
@@ -1244,6 +1448,63 @@ mod tests {
         assert_eq!(library.search(&rule("other")).unwrap().len(), 1);
     }
 
+    /// Refresh everything: every cover is asked for again, a song the server no longer has
+    /// leaves the library and its playlists (others keep their ratings), and an empty list
+    /// removes nothing.
+    #[test]
+    fn refresh_everything_fetches_all_covers_and_removes_lost_songs() {
+        let dir = tempfile::tempdir().unwrap();
+        let library = Library::open(dir.path()).unwrap();
+        let song = |id: &str| Song {
+            id: id.into(),
+            title: format!("Song {id}"),
+            artist: "A".into(),
+            cover: format!("http://server/cover/{id}"),
+            ..Default::default()
+        };
+        apply(&library, "sub", &[song("1"), song("2")]).unwrap();
+        let (one, two) = (track_id("sub", "1"), track_id("sub", "2"));
+        let conn = library.connection().unwrap();
+        conn.execute("UPDATE tracks SET rating=5 WHERE id=?", [&one])
+            .unwrap();
+        // Both have covers now: a plain sync asks for none again.
+        for id in [&one, &two] {
+            let mut track = library.track(id).unwrap().unwrap();
+            track.artwork = Some("cover.img".into());
+            library.upsert(&track).unwrap();
+        }
+        assert!(
+            apply(&library, "sub", &[song("1"), song("2")])
+                .unwrap()
+                .covers
+                .is_empty()
+        );
+        library
+            .save_playlist(&crate::model::Playlist {
+                id: "p".into(),
+                name: "Mix".into(),
+                track_ids: vec![one.clone(), two.clone()],
+                ..Default::default()
+            })
+            .unwrap();
+        // An empty answer takes nothing away, even when refreshing.
+        let empty = apply_with(&library, "sub", &[], true).unwrap();
+        assert_eq!(empty.removed, 0);
+        assert!(library.track(&two).unwrap().is_some());
+        // The server lost song 2.
+        let refreshed = apply_with(&library, "sub", &[song("1")], true).unwrap();
+        assert_eq!((refreshed.removed, refreshed.covers.len()), (1, 1));
+        assert!(library.track(&two).unwrap().is_none());
+        assert_eq!(library.track(&one).unwrap().unwrap().rating, 5);
+        let playlist = library
+            .playlists()
+            .unwrap()
+            .into_iter()
+            .find(|p| p.id == "p")
+            .unwrap();
+        assert_eq!(playlist.track_ids, vec![one]);
+    }
+
     /// Server songs are not files here: they are never duplicates to recycle, files to move,
     /// albums to tag or give covers, or songs to download just to measure.
     #[test]
@@ -1324,6 +1585,55 @@ mod tests {
         (address, starts)
     }
 
+    /// A file server whose first answer stops after `cut` bytes, as a connection that drops
+    /// (a phone's Wi-Fi asleep); later ones answer "Range: bytes=N-" in full. Records each
+    /// request's start.
+    fn dropping_server(data: Vec<u8>, cut: usize) -> (String, Arc<Mutex<Vec<u64>>>) {
+        use std::io::{BufRead, BufReader};
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let address = format!("http://{}/song", listener.local_addr().unwrap());
+        let starts: Arc<Mutex<Vec<u64>>> = Arc::default();
+        let log = starts.clone();
+        std::thread::spawn(move || {
+            for (n, stream) in listener.incoming().flatten().enumerate() {
+                let mut reader = BufReader::new(stream.try_clone().unwrap());
+                let mut start = 0u64;
+                loop {
+                    let mut line = String::new();
+                    if reader.read_line(&mut line).is_err() || line.trim().is_empty() {
+                        break;
+                    }
+                    if let Some(value) = line.to_lowercase().strip_prefix("range: bytes=") {
+                        start = value.trim().trim_end_matches('-').parse().unwrap_or(0);
+                    }
+                }
+                log.lock().unwrap().push(start);
+                let body = &data[start as usize..];
+                let head = if start > 0 {
+                    format!(
+                        "HTTP/1.1 206 Partial Content\r\nContent-Type: audio/flac\r\nContent-Length: {}\r\nContent-Range: bytes {start}-{}/{}\r\nConnection: close\r\n\r\n",
+                        body.len(),
+                        data.len() - 1,
+                        data.len()
+                    )
+                } else {
+                    format!(
+                        "HTTP/1.1 200 OK\r\nContent-Type: audio/flac\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+                        body.len()
+                    )
+                };
+                let mut stream = stream;
+                let _ = stream.write_all(head.as_bytes());
+                // The first answer drops part way; the rest are whole.
+                let sent = if n == 0 { &body[..cut] } else { body };
+                let _ = stream.write_all(sent);
+                let _ = stream.flush();
+                drop(stream);
+            }
+        });
+        (address, starts)
+    }
+
     fn song_bytes() -> Vec<u8> {
         (0..4_000_000u32).map(|i| (i % 251) as u8).collect()
     }
@@ -1339,6 +1649,26 @@ mod tests {
             },
             0,
         )
+    }
+
+    /// A connection that drops in the middle of a song: the download asks again from where
+    /// the song stopped (not from its start), and the song arrives whole.
+    #[test]
+    fn a_dropped_stream_goes_on_from_where_it_stopped() {
+        let data = song_bytes();
+        let cut = 1 << 20;
+        let (link, starts) = dropping_server(data.clone(), cut);
+        let dir = tempfile::tempdir().unwrap();
+        let track = server_track("dropped");
+        let target = dir.path().join("dropped.flac");
+        let resolver = move |_: &str, _: &str| Ok(link.clone());
+        let job = download(&track, &target, dir.path(), &resolver).unwrap();
+        job.finish(Duration::from_secs(60)).unwrap();
+        job.release();
+        assert_eq!(std::fs::read(&target).unwrap(), data);
+        let starts = starts.lock().unwrap().clone();
+        assert_eq!(starts.len(), 2, "{starts:?}");
+        assert_eq!(starts[1], cut as u64, "went on from where it stopped");
     }
 
     fn read_at(job: &Arc<Download>, at: u64, length: usize) -> Vec<u8> {
@@ -1381,6 +1711,83 @@ mod tests {
         job.finish(Duration::from_secs(30)).unwrap();
         job.release();
         assert_eq!(std::fs::read(&target).unwrap(), data);
+    }
+
+    /// A reader that waits for a part that has not come yet makes the song "waiting" (so the
+    /// player does not take the still output for a stuck one), until the part comes.
+    #[test]
+    fn a_reader_waiting_for_its_part_is_seen() {
+        let dir = tempfile::tempdir().unwrap();
+        let track = server_track("waiting");
+        let target = cache_path_in(dir.path(), &track).unwrap();
+        std::fs::create_dir_all(target.parent().unwrap()).unwrap();
+        let part = target.with_extension("flac.part");
+        std::fs::write(&part, vec![7u8; 1000]).unwrap();
+        let job = Arc::new(Download {
+            part,
+            target: target.clone(),
+            progress: Mutex::new(Progress {
+                ranges: vec![(0, 100)],
+                total: Some(1000),
+                // The connection dropped: the reader waits however long it takes.
+                retrying: true,
+                ..Default::default()
+            }),
+            changed: Condvar::new(),
+        });
+        ACTIVE.lock().unwrap().insert(target.clone(), job.clone());
+        assert!(!waiting_in(dir.path(), &track));
+        let reader = std::thread::spawn({
+            let job = job.clone();
+            move || read_at(&job, 500, 10)
+        });
+        let started = Instant::now();
+        while !waiting_in(dir.path(), &track) {
+            assert!(started.elapsed() < Duration::from_secs(5), "never waiting");
+            std::thread::sleep(Duration::from_millis(10));
+        }
+        {
+            let mut progress = job.lock();
+            progress.add(100, 1000);
+            progress.retrying = false;
+        }
+        job.changed.notify_all();
+        assert_eq!(reader.join().unwrap(), vec![7u8; 10]);
+        assert!(!waiting_in(dir.path(), &track));
+        ACTIVE.lock().unwrap().remove(&target);
+    }
+
+    /// A download that fails while a reader waits for its next part ends the song short, and
+    /// the song is reported once as cut short (for the player to pause there).
+    #[test]
+    fn a_failed_stream_is_reported_cut_short_once() {
+        let dir = tempfile::tempdir().unwrap();
+        let track = server_track("cut");
+        let target = cache_path_in(dir.path(), &track).unwrap();
+        std::fs::create_dir_all(target.parent().unwrap()).unwrap();
+        let part = target.with_extension("flac.part");
+        std::fs::write(&part, vec![7u8; 100]).unwrap();
+        let job = Arc::new(Download {
+            part,
+            target,
+            progress: Mutex::new(Progress {
+                ranges: vec![(0, 100)],
+                total: Some(1000),
+                error: Some("The server stopped answering".into()),
+                ..Default::default()
+            }),
+            changed: Condvar::new(),
+        });
+        assert!(!cut_short_in(dir.path(), &track));
+        job.add_reader();
+        let mut reader = Growing {
+            job: job.clone(),
+            file: None,
+            position: 500,
+        };
+        assert!(reader.read(&mut [0u8; 10]).is_err());
+        assert!(cut_short_in(dir.path(), &track));
+        assert!(!cut_short_in(dir.path(), &track), "reported once");
     }
 
     /// An empty answer fails the download and leaves nothing in the cache to fail again.

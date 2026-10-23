@@ -105,6 +105,9 @@ pub struct PlaybackState {
     /// `current` is a song from a server that is still connecting (its time is not moving
     /// yet).
     pub loading: bool,
+    /// The music plays to speakers on the network (Chromecast, DLNA, AirPlay), which need the
+    /// network kept awake (a phone's Wi-Fi lock) as a song from a server does.
+    pub network_output: bool,
 }
 
 /// A song from a server that a helper thread is opening, for the output of `epoch`.
@@ -161,6 +164,9 @@ pub enum Command {
     Shutdown,
     /// Keeps what plays now, as at a shutdown, and plays on.
     Persist,
+    /// A song was rated (by its id): its copies in the queue, the playing one too, show the
+    /// new rating at once, not only after the song is queued again.
+    Rated(String, i64),
 }
 
 #[derive(Clone)]
@@ -240,8 +246,19 @@ static STREAM_FORMAT: Mutex<Option<StreamFormat>> = Mutex::new(None);
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct StreamFormat {
     pub rate: u32,
-    /// 32-bit float samples; otherwise 16-bit whole numbers.
-    pub float: bool,
+    pub sample: StreamSample,
+}
+
+/// How each sample of a [`StreamFormat`] is stored.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum StreamSample {
+    /// 16-bit whole numbers.
+    Int16,
+    /// 32-bit whole numbers, which many USB DACs ask for (they carry 16- and 24-bit music
+    /// exactly).
+    Int32,
+    /// 32-bit float.
+    Float32,
 }
 
 /// Sets the format the system output opens at (it applies when the output next opens).
@@ -413,6 +430,22 @@ impl Queue {
     }
     fn touch(&mut self) {
         self.version += 1;
+    }
+    /// Give every copy of a song in the queue this rating.
+    fn rate(&mut self, id: &str, stars: i64) {
+        for item in self
+            .active
+            .iter_mut()
+            .chain(self.pending.iter_mut())
+            .chain(self.staged.iter_mut())
+            .chain(self.previous.iter_mut())
+            .chain(self.cycle.iter_mut())
+            .chain(self.repeat_tail.iter_mut())
+            .filter(|item| item.track.id == id)
+        {
+            item.track.rating = stars;
+        }
+        self.touch();
     }
     /// Items after the current one, in playing order.
     fn tail(&self) -> Vec<QueueItem> {
@@ -707,10 +740,10 @@ impl OutputOpener for SystemOutput {
             builder = builder
                 .with_channels(2)
                 .with_sample_rate(format.rate)
-                .with_sample_format(if format.float {
-                    rodio::cpal::SampleFormat::F32
-                } else {
-                    rodio::cpal::SampleFormat::I16
+                .with_sample_format(match format.sample {
+                    StreamSample::Int16 => rodio::cpal::SampleFormat::I16,
+                    StreamSample::Int32 => rodio::cpal::SampleFormat::I32,
+                    StreamSample::Float32 => rodio::cpal::SampleFormat::F32,
                 });
         }
         let mut stream = builder
@@ -761,6 +794,9 @@ struct Worker {
     /// The song the A–B loop belongs to: another song playing ends it.
     loop_track: Option<String>,
     resume_position: f64,
+    /// A seek that waits for its part of a stream, and when the stream last waited: the
+    /// song's time shows (and is saved as) that place until it gets there.
+    pending_seek: Option<(f64, Instant)>,
     last_session_save: Instant,
     saved_version: u64,
     published_version: u64,
@@ -877,6 +913,7 @@ impl Worker {
             loop_range: None,
             loop_track: None,
             resume_position,
+            pending_seek: None,
             last_session_save: Instant::now(),
             saved_version,
             published_version: 0,
@@ -891,23 +928,23 @@ impl Worker {
         }
     }
     fn position(&self) -> f64 {
-        self.sink
-            .as_ref()
-            .map(|s| s.get_pos().as_secs_f64())
-            .unwrap_or(self.resume_position)
-    }
-    fn save_session(&mut self) -> Result<()> {
-        let position = self
+        let now = self
             .sink
             .as_ref()
-            .map(|s| {
-                if s.empty() {
-                    0.
-                } else {
-                    s.get_pos().as_secs_f64()
-                }
-            })
+            .map(|s| s.get_pos().as_secs_f64())
             .unwrap_or(self.resume_position);
+        match self.pending_seek {
+            Some((target, _)) if self.sink.is_some() && now + 0.5 < target => target,
+            _ => now,
+        }
+    }
+    fn save_session(&mut self) -> Result<()> {
+        let position = match (self.pending_seek, &self.sink) {
+            (Some(_), Some(_)) => self.position(),
+            (None, Some(s)) if !s.empty() => s.get_pos().as_secs_f64(),
+            (None, Some(_)) => 0.,
+            (_, None) => self.resume_position,
+        };
         if self.saved_version != self.queue.version {
             self.library
                 .set_json("playback_session", &self.queue.session(position))?;
@@ -945,6 +982,7 @@ impl Worker {
         // The output's queued songs go with it, and their endings too.
         self.endings.clear();
         self.active_ending = None;
+        self.pending_seek = None;
         self.epoch += 1;
         // A song still opening for the old output is not wanted any more.
         self.opening = None;
@@ -1135,11 +1173,13 @@ impl Worker {
         let Some(sink) = self.sink.clone() else {
             return Ok(());
         };
+        self.pending_seek = None;
         // The song to play is still opening: it starts from there once it is in.
         if sink.empty()
             && let Some(opening) = &mut self.opening
         {
             opening.seek = Some(position);
+            self.pending_seek = Some((position, Instant::now()));
             return Ok(());
         }
         let (tx, rx) = crossbeam_channel::bounded(1);
@@ -1155,6 +1195,11 @@ impl Worker {
                     control.flush();
                 }
                 result.map_err(|e| anyhow::anyhow!("Seek failed: {e}"))
+            }
+            // The song waits for that part of its stream: the seek ends when it comes.
+            Err(_) if self.stream_waiting() => {
+                self.pending_seek = Some((position, Instant::now()));
+                Ok(())
             }
             Err(_) => {
                 self.lost = Some("Audio output stopped responding".into());
@@ -1630,6 +1675,12 @@ impl Worker {
                     self.restart(items, position, was_playing)?;
                 }
             }
+            Command::Rated(id, stars) => {
+                if let Some(item) = self.loading.as_mut().filter(|i| i.track.id == id) {
+                    item.track.rating = stars;
+                }
+                self.queue.rate(&id, stars);
+            }
             Command::ClearQueue => {
                 self.queue.repeat_tail.clear();
                 self.queue.pending.clear();
@@ -1724,6 +1775,49 @@ impl Worker {
             }
         }
     }
+    /// A seek that waited for its stream is over once the song reaches its place, or when
+    /// the stream has not been waiting for a few seconds (the seek ended some other way).
+    fn settle_pending_seek(&mut self) {
+        let Some((target, since)) = self.pending_seek else {
+            return;
+        };
+        let now = self.sink.as_ref().map_or(0., |s| s.get_pos().as_secs_f64());
+        if now + 0.5 >= target {
+            self.pending_seek = None;
+        } else if self.stream_waiting() || self.opening.is_some() {
+            self.pending_seek = Some((target, Instant::now()));
+        } else if since.elapsed() > Duration::from_secs(3) {
+            self.pending_seek = None;
+        }
+    }
+    /// A song from a server that stopped answering for good (its stream gave up after
+    /// minutes of asking again) ends short of its end: pause at that place, with the song
+    /// still there, rather than go on to the next songs, which would fail the same way. Play
+    /// asks the server again from there.
+    fn pause_cut_short(&mut self) {
+        let Some(active) = self
+            .queue
+            .active
+            .clone()
+            .filter(|item| item.track.is_streamed())
+        else {
+            return;
+        };
+        if !crate::sources::cut_short(&active.track) {
+            return;
+        }
+        // The place the song had reached at the last look (the output may have gone on to the
+        // next song since).
+        let position = self.state.lock().unwrap().position;
+        let mut items = vec![active];
+        items.extend(self.queue.tail());
+        self.finish_listen();
+        self.suspend(items, position);
+        self.state.lock().unwrap().error = Some(
+            "The music server stopped answering, so the song paused here. Press Play to try again."
+                .into(),
+        );
+    }
     /// A playing, unpaused output whose position does not move has stopped.
     fn stalled(&mut self) -> Option<String> {
         let sink = self.sink.as_ref()?;
@@ -1733,10 +1827,24 @@ impl Worker {
             self.progress = (position, Instant::now());
             return None;
         }
-        (self.progress.1.elapsed() > self.stall_timeout).then(|| {
-            self.progress.1 = Instant::now();
-            "Audio output stopped responding".into()
-        })
+        if self.progress.1.elapsed() <= self.stall_timeout {
+            return None;
+        }
+        self.progress.1 = Instant::now();
+        // A song waiting for its stream (a slow server, a dropped connection that is asked
+        // again) holds the output still: that is not a stuck device, and opening the output
+        // again would only wait on the stream too.
+        (!self.stream_waiting()).then(|| "Audio output stopped responding".into())
+    }
+    /// The playing song waits for a part of its stream that has not come yet. That may also
+    /// be the song just put on the output and not started yet (Play after a pause opens it
+    /// again, and its first seek waits for the stream).
+    fn stream_waiting(&self) -> bool {
+        self.queue
+            .active
+            .iter()
+            .chain(self.queue.staged.front())
+            .any(|item| item.track.is_streamed() && crate::sources::waiting(&item.track))
     }
     fn default_changed(&mut self) -> Option<String> {
         if self.settings.output_device.is_some()
@@ -1803,6 +1911,8 @@ impl Worker {
             self.progress.1 = Instant::now();
         }
         self.watch_output();
+        self.pause_cut_short();
+        self.settle_pending_seek();
         let elapsed = elapsed.min(0.25);
         self.last_tick = Instant::now();
         if self.playing
@@ -1862,7 +1972,9 @@ impl Worker {
         // A speaker plays a little behind; show where it is.
         let lag = self.network().map_or(0., |c| c.lag());
         let position = if self.loading.is_some() {
-            0.
+            // A song connecting starts at its start, or at the place a seek waits to reach
+            // (Play after a pause opens it again there).
+            self.pending_seek.map_or(0., |(target, _)| target)
         } else {
             (self.position() - lag).max(0.)
         };
@@ -1883,6 +1995,7 @@ impl Worker {
         state.album_gain = state.replay_gain && self.settings.album_gain;
         state.loop_range = self.loop_range;
         state.exclusive = self.exclusive();
+        state.network_output = self.network().is_some();
         state.stems = self.stems.as_ref().map(|(id, _)| id.clone());
         Ok(())
     }
@@ -2678,6 +2791,25 @@ mod tests {
         rig.until_active("mono44.opus");
         assert!(rig.state().error.is_none());
         rig.until("finished", |w| !w.playing);
+    }
+
+    /// A rating shows on the playing song and on its copies up next at once.
+    #[test]
+    fn a_rating_reaches_the_songs_in_the_queue() {
+        let mut rig = rig(FakeOpener::with(&[], Some("Speakers")), Settings::default());
+        let list = rig.items(&["first", "second", "first"]);
+        rig.run(Command::Play(list));
+        rig.until_active("first");
+        rig.run(Command::Rated("first".into(), 4));
+        rig.worker.tick().unwrap();
+        let state = rig.state();
+        assert_eq!(state.current.map(|c| c.track.rating), Some(4));
+        let ratings: Vec<(String, i64)> = state
+            .queue
+            .iter()
+            .map(|i| (i.track.id.clone(), i.track.rating))
+            .collect();
+        assert_eq!(ratings, [("second".into(), 0), ("first".into(), 4)]);
     }
 
     #[test]

@@ -15,13 +15,15 @@ struct PlaylistView: View {
     @State private var deleting = false
     @State private var selecting = false
     @State private var selected = Set<String>()
+    /// The playlist as it is now (its picture, after a change).
+    @State private var current: Playlist?
 
     var body: some View {
         let songs = detail?.songs ?? []
         let smart = detail?.rule != nil
         List(selection: selecting ? $selected : nil) {
             VStack(spacing: 6) {
-                PlaylistCover(playlist: playlist)
+                PlaylistCover(playlist: current ?? playlist)
                     .frame(width: 230, height: 230)
                     .clipShape(.rect(cornerRadius: 18))
                     .shadow(color: .black.opacity(0.4), radius: 20, y: 12)
@@ -68,7 +70,7 @@ struct PlaylistView: View {
         .toolbar {
             if selecting {
                 ToolbarItem(placement: .topBarLeading) { Button("Done") { selecting = false; selected = [] } }
-                SelectionActions(songs: songs.filter { selected.contains($0.id) })
+                if !selected.isEmpty { SelectionActions(songs: songs.filter { selected.contains($0.id) }) }
             } else {
                 ToolbarItem(placement: .topBarTrailing) {
                     Menu {
@@ -76,11 +78,12 @@ struct PlaylistView: View {
                         Button("Edit", systemImage: "pencil") { editing = true }
                         if !smart {
                             Button("Choose a picture", systemImage: "photo") { picking = true }
-                            if playlist.artwork != nil {
+                            if detail?.artwork != nil {
                                 Button("Use the songs' covers", systemImage: "square.grid.2x2") {
                                     let id = playlist.id
-                                    store.run { try $0.setPlaylistPicture(id: id, path: nil) }
-                                    store.libraryChanged()
+                                    Task {
+                                        if await store.ask({ try $0.setPlaylistPicture(id: id, path: nil) }) != nil { store.libraryChanged() }
+                                    }
                                 }
                             }
                         }
@@ -121,12 +124,18 @@ struct PlaylistView: View {
         } message: {
             Text("The songs stay in your library.")
         }
-        .task(id: store.libraryVersion) { await reload() }
+        // Stars too: a smart playlist's rule can be by them.
+        .task(id: "\(store.libraryVersion)|\(store.ratingVersion)") { await reload() }
     }
 
     private func reload() async {
         let id = playlist.id
         detail = await store.load { try $0.playlistDetail(id: id) }
+        // The whole list only when the picture changed (or the first time): it is costly.
+        if current == nil || current?.picture != detail?.artwork || Int(current?.songs ?? 0) != detail?.songs.count
+            || current?.artwork != (detail?.artwork ?? detail?.songs.first(where: { $0.artwork != nil })?.artwork) {
+            current = await store.load { try $0.playlists().first { $0.id == id } } ?? nil
+        }
     }
 
     private func export() {
@@ -296,7 +305,10 @@ struct SelectionActions: ToolbarContent {
                 Button("Add to a playlist", systemImage: "music.note.list") { store.sheet = .addToPlaylist(songs) }
                 Button("Favourite", systemImage: "star") {
                     let ids = songs.map(\.id)
-                    store.run { core in for id in ids where !core.isFavorite(id: id) { _ = try core.toggleFavorite(id: id) } }
+                    Task {
+                        _ = await store.ask { core in for id in ids where !core.isFavorite(id: id) { _ = try core.toggleFavorite(id: id) } }
+                        store.ratingsChanged()
+                    }
                     store.message = "Added to Favourites"
                 }
                 if songs.contains(where: \.fromServer) {

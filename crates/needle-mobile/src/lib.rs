@@ -204,6 +204,10 @@ pub struct Playback {
     pub loop_start: Option<f64>,
     #[uniffi(default = None)]
     pub loop_end: Option<f64>,
+    /// The music plays to speakers on the network (Chromecast, DLNA): keep the network awake
+    /// (Android's Wi-Fi lock), as for a song from a server.
+    #[uniffi(default = false)]
+    pub network_output: bool,
 }
 
 #[derive(Clone, Default, uniffi::Record)]
@@ -260,6 +264,9 @@ impl Needle {
         log(false, &format!("starting in {data_dir}"));
         #[cfg(target_os = "android")]
         needle_core::set_android_folder(PathBuf::from(&data_dir));
+        // A test copy's library with a secrets.json keeps its secrets there (see needle-core).
+        #[cfg(not(target_os = "android"))]
+        needle_core::set_secrets_folder(PathBuf::from(&data_dir));
         let library = Library::open(PathBuf::from(data_dir))?;
         // On a phone the phone's own volume is the one volume: Needle's (the desktop's slider,
         // 65% to start) stays at full, or Needle would play quieter than other apps at the same
@@ -796,7 +803,15 @@ impl Needle {
             error: state.error.clone(),
             loop_start: state.loop_range.map(|r| r.0),
             loop_end: state.loop_range.map(|r| r.1),
+            network_output: state.network_output,
         }
+    }
+
+    /// Writes a line to Needle's log (`needle.log` in the data folder, which crash reports
+    /// and "Send logs" read), for what the app itself finds: a USB DAC's formats, say.
+    pub fn log_info(&self, message: String) {
+        needle_core::logfile::info(&message);
+        log(false, &message);
     }
 
     /// The songs up next, after the one playing.

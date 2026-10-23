@@ -128,6 +128,15 @@ pub struct AppSettings {
     /// Moving covers (a video beside the songs, such as cover.mp4) play in the player.
     #[uniffi(default = true)]
     pub animated_covers: bool,
+    /// A music server's moving covers also download on mobile data (they can be several MB
+    /// each). Off: only on Wi-Fi, and covers already here still play. Shown only under
+    /// Moving covers, while that is on.
+    #[uniffi(default = false)]
+    pub moving_covers_on_mobile_data: bool,
+    /// Songs from a music server show a small server icon beside their artist (the same
+    /// choice as the computer's `server_mark`).
+    #[uniffi(default = true)]
+    pub server_mark: bool,
 }
 
 impl Default for AppSettings {
@@ -161,6 +170,8 @@ impl Default for AppSettings {
             welcomed: false,
             immersive_cover: true,
             animated_covers: true,
+            moving_covers_on_mobile_data: false,
+            server_mark: true,
         }
     }
 }

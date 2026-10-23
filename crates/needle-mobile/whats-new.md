@@ -1,3 +1,21 @@
+# 1.8.0
+Navidrome built in, moving covers, and calmer Settings.
+! **Navidrome and Subsonic, built in.** Sign in to your music server in Settings › Music servers, with no plugin to add. The page shows whether the server is connected, how many songs, albums, and artists it has, and when it last updated. Bring in songs again gets new songs, and Refresh everything gets every song and cover again and removes songs the server no longer has. On this phone shows the songs you kept and the songs played lately, and frees their space after a question.
+- [server] **Server songs, marked.** Songs from your music server show a small server icon beside the artist. Turn it off in Settings › Appearance › Mark server songs.
+- [video] **More moving covers.** An animated WebP or GIF beside an album's songs (cover.webp, cover.gif), or the album's moving cover on your music server, moves like cover.mp4. It now moves in the player's own cover too, not only in the immersive cover. Turn it off in Settings › Appearance › Moving covers.
+- [signal] **Moving covers on mobile data.** On mobile data, Needle shows the moving covers already on your phone and downloads no new ones. Turn on Settings › Appearance › On mobile data to download them anyway.
+- [player] **Music that keeps playing.** With the screen locked, your phone keeps its Wi-Fi awake for songs from your server. When the network sleeps, the song waits and goes on from where it stopped. If the server does not answer for 5 minutes, the song pauses at its place, and Play goes on from there.
+- [lyrics] **Lyrics in the mini player, on tablets.** On a tablet, the line being sung sits in the middle of the mini player, and the bar stays its usual height. On a phone, it shows in one line under the song. Turn it on in Settings › Appearance › Lyrics in the mini player.
+- [palette] **Calmer Settings.** Every setting is a row with a small icon and one short line. Themes are chosen by picture, and the player's cover, buttons, and seek bar by small sketches. Longer text and sign-in forms open only when you tap their row.
+- [account] **Last.fm in one click.** Tap Connect in Settings › Scrobbling, and Last.fm's page opens at once. You no longer need an API key of your own.
+- [usb] **Bit-perfect USB for more DACs.** DACs that take 32-bit music now play bit-perfect. Turn it on in Settings › Sound › Bit-perfect USB. When a DAC cannot, the row says why.
+- What's new shows every version, with older versions folded into one row each.
+- The welcome guide shows the looks as pictures, and its music server choice opens Settings › Music servers.
+- When a song stops because of a problem, the player says why under the seek bar.
+- A cover changed on your server comes in with Refresh everything.
+- Stars you give the playing song show at once.
+- Artist pictures from fanart.tv are the newest by when the photo was taken.
+
 # 1.7.1
 Artist pages with their picture and logo, an immersive player, and fixes.
 ! **New artist pages.** An artist's page opens with a wide picture of them and their logo (with online lookups on, from fanart.tv), a large Play between Shuffle and Radio, their latest release in a box of its own, and their top songs as one group.

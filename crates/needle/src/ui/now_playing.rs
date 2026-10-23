@@ -13,24 +13,63 @@ use needle_core::{
 /// from top to foot and fades, to its right and at its foot, into a tone of its own colour.
 /// `foot` is how tall the words and controls over its foot are: the tone is solid behind all of
 /// them, so no cover makes them hard to read, and the cover fades in above.
-/// Gives the layer, how wide the cover is, and the tone (which the rest of the player takes).
+/// With a pane beside it (`alone` false), the cover is the window's left side, at most `widest`
+/// wide. Alone, it spans the window, and grows and shrinks with it; in a window much wider
+/// than tall it stops at 1.4 times the height, in the middle, fading into the tone each side.
+/// Gives the layer, how wide it is (the room for the words and controls over its foot), and
+/// the tone (which the rest of the player takes).
+#[allow(clippy::too_many_arguments)]
 pub(super) fn immersive_cover(
     path: &str,
+    moving: bool,
     look: Option<&super::ambient::Look>,
     w: f32,
     h: f32,
     widest: f32,
     foot: f32,
     dark: bool,
+    alone: bool,
 ) -> (AnyElement, f32, Hsla) {
-    let side = h.min(w * 0.62).min(widest).max(1.);
+    let (side, cover_w) = if alone {
+        (w.max(1.), w.min(h * 1.4).max(1.))
+    } else {
+        let side = h.min(w * 0.62).min(widest).max(1.);
+        (side, side)
+    };
+    let left = (side - cover_w) / 2.;
+    let fade = cover_w * 0.25;
     let tone = match look.map(|l| l.vivid) {
         Some(c) if dark => hsla(c.h, (c.s * 0.8).min(0.5), 0.15, 1.),
         Some(c) => hsla(c.h, (c.s * 0.7).min(0.45), 0.88, 1.),
         None if dark => hsla(0., 0., 0.1, 1.),
         None => hsla(0., 0., 0.92, 1.),
     };
-    let file = super::thumbs::for_size(path, side).unwrap_or_else(|| path.into());
+    // A square cover fills its box, so it is drawn as large as the box's longer edge. A
+    // moving picture is drawn as it is (a smaller copy would be a still one).
+    // A moving cover as prepared to fit in memory (see `moving`); until it is, or for a
+    // still cover, a copy of the picture at the size it is drawn.
+    let file: ImageSource = match moving
+        .then(|| super::moving::image(std::path::Path::new(path)))
+        .flatten()
+    {
+        Some(frames) => frames.into(),
+        None => super::thumbs::for_size(path, cover_w.max(h))
+            .unwrap_or_else(|| path.into())
+            .into(),
+    };
+    let edge_fade = |at: f32, into_tone: bool| {
+        div()
+            .absolute()
+            .top_0()
+            .bottom_0()
+            .left(px(at))
+            .w(px(fade))
+            .bg(linear_gradient(
+                90.,
+                linear_color_stop(tone.opacity(if into_tone { 0. } else { 1. }), 0.),
+                linear_color_stop(tone.opacity(if into_tone { 1. } else { 0. }), 1.),
+            ))
+    };
     let layer = div()
         .absolute()
         .left_0()
@@ -38,27 +77,39 @@ pub(super) fn immersive_cover(
         .w(px(side))
         .h(px(h))
         .overflow_hidden()
+        .bg(tone)
         .child(
             img(file)
-                .absolute()
-                .inset_0()
-                .size_full()
-                .object_fit(ObjectFit::Cover),
-        )
-        // Into the tone to its right...
-        .child(
-            div()
+                // GPUI steps through a moving picture's frames only for an image with an id.
+                .id("immersive-cover")
                 .absolute()
                 .top_0()
-                .bottom_0()
-                .right_0()
-                .w(px(side * 0.45))
-                .bg(linear_gradient(
-                    90.,
-                    linear_color_stop(tone.opacity(0.), 0.),
-                    linear_color_stop(tone, 1.),
-                )),
+                .left(px(left))
+                .w(px(cover_w))
+                .h(px(h))
+                .object_fit(ObjectFit::Cover),
         )
+        // Beside a pane: into the tone to its right. Alone and narrower than the window: into
+        // the tone on both sides.
+        .when(!alone, |el| {
+            el.child(
+                div()
+                    .absolute()
+                    .top_0()
+                    .bottom_0()
+                    .right_0()
+                    .w(px(side * 0.45))
+                    .bg(linear_gradient(
+                        90.,
+                        linear_color_stop(tone.opacity(0.), 0.),
+                        linear_color_stop(tone, 1.),
+                    )),
+            )
+        })
+        .when(alone && cover_w < side, |el| {
+            el.child(edge_fade(left, false))
+                .child(edge_fade(left + cover_w - fade, true))
+        })
         // ...and solid behind the words and controls at its foot.
         .child(
             div()
@@ -111,7 +162,17 @@ pub enum Side {
 impl AppView {
     /// Grow the big player out of the cover in the bottom-left corner, or shrink it back.
     /// The player keeps its full size inside a growing clip, so nothing re-flows mid-way.
-    pub(super) fn big_reveal(&self, player: AnyElement, w: f32, h: f32, cx: &App) -> AnyElement {
+    /// The big player growing from the player bar's cover (or shrinking back), in a space `w`
+    /// by `h`. The player itself is `lift` taller and starts that far above the space (under the
+    /// title bar), so it is drawn the same as once it is open, when it runs under the title bar.
+    pub(super) fn big_reveal(
+        &self,
+        player: AnyElement,
+        w: f32,
+        h: f32,
+        lift: f32,
+        cx: &App,
+    ) -> AnyElement {
         let closing = !self.big;
         let canvas = pal(cx).canvas;
         // Where the cover sits in the player bar, measured from the body's edges.
@@ -119,11 +180,11 @@ impl AppView {
         let edge = move |t: f32, i: usize| art[i] * (1. - if closing { 1. - t } else { t });
         let serial = self.big_serial;
         let inner = motion::animate(
-            div().absolute().w(px(w)).h(px(h)).child(player),
+            div().absolute().w(px(w)).h(px(h + lift)).child(player),
             ("big-inner", serial),
             BIG_MS,
             cx,
-            move |el, t| el.left(px(-edge(t, 0))).top(px(-edge(t, 1))),
+            move |el, t| el.left(px(-edge(t, 0))).top(px(-edge(t, 1) - lift)),
         );
         let clip = div().absolute().overflow_hidden().bg(canvas).child(inner);
         motion::animate(clip, ("big-reveal", serial), BIG_MS, cx, move |el, t| {
@@ -151,12 +212,29 @@ impl AppView {
         let left_w = if side == Side::None { w } else { w - 440. };
         let art = (h - 440.).min(left_w - 120.).clamp(140., 520.);
         // Settings > Appearance > Immersive cover, for a song with a cover of its own.
+        let moving = current.as_ref().and_then(|c| self.moving_cover(&c.track));
         let immersive = self
             .settings
             .immersive_cover
-            .then(|| current.as_ref().and_then(|c| c.track.artwork.clone()))
+            .then(|| {
+                moving
+                    .clone()
+                    .or_else(|| current.as_ref().and_then(|c| c.track.artwork.clone()))
+            })
             .flatten()
-            .map(|path| immersive_cover(&path, look.as_ref(), w, h, left_w - 40., 340., p.dark));
+            .map(|path| {
+                immersive_cover(
+                    &path,
+                    moving.is_some(),
+                    look.as_ref(),
+                    w,
+                    h,
+                    left_w - 40.,
+                    340.,
+                    p.dark,
+                    side == Side::None,
+                )
+            });
         let column = immersive
             .as_ref()
             .map_or(art.max(420.), |(_, side, _)| (side - 96.).clamp(300., 480.));
@@ -174,23 +252,6 @@ impl AppView {
         }
         let (from, to, tint_serial) = self.big_tint;
         let canvas = p.canvas;
-        let side_button = |id: &'static str,
-                           name: &'static str,
-                           tip: &'static str,
-                           which: Side,
-                           cx: &mut Context<Self>| {
-            let active = self.big_side == which;
-            icon_button(id, name, tip)
-                .when(active, |b| b.text_color(p.accent))
-                .on_click(cx.listener(move |this, _, _, cx| {
-                    this.big_side = if this.big_side == which {
-                        Side::None
-                    } else {
-                        which
-                    };
-                    cx.notify();
-                }))
-        };
         let ambient = self.ambient_look();
         // Ambient: the cover fills the whole screen at full strength.
         let fit = if ambient {
@@ -251,77 +312,9 @@ impl AppView {
                     linear_color_stop(p.canvas.opacity(0.), 0.3),
                 )))
             })
-            .child(
-                div()
-                    .h(px(56.))
-                    .px_4()
-                    .flex_shrink_0()
-                    .flex()
-                    .items_center()
-                    .gap_2()
-                    .child(
-                        div()
-                            // macOS Liquid Glass: a round pane of glass.
-                            .when(liquid, |el| el.p(px(3.)).rounded_full().glass())
-                            .child(
-                                icon_button("close-big", "chevron-down", "Close the player · Esc")
-                                    .on_click(cx.listener(|this, _, _, cx| {
-                                        this.big = false;
-                                        cx.notify();
-                                    })),
-                            ),
-                    )
-                    .child(
-                        div()
-                            .flex_1()
-                            .min_w_0()
-                            .text_center()
-                            .truncate()
-                            .text_size(px(12.))
-                            .text_color(p.ink_2)
-                            .child(
-                                current
-                                    .as_ref()
-                                    .map(|i| i.reason.clone())
-                                    .unwrap_or_default(),
-                            ),
-                    )
-                    .child(
-                        div()
-                            .flex()
-                            .items_center()
-                            .gap_1()
-                            // macOS Liquid Glass: the buttons on one capsule of glass.
-                            .when(liquid, |el| el.px(px(6.)).py(px(3.)).rounded_full().glass())
-                            .child(side_button(
-                                "big-lyrics",
-                                "lyrics",
-                                "Lyrics",
-                                Side::Lyrics,
-                                cx,
-                            ))
-                            .child(side_button(
-                                "big-queue",
-                                "queue",
-                                "Up next",
-                                Side::Queue,
-                                cx,
-                            ))
-                            .child(side_button("big-stems", "stems", "Stems", Side::Stems, cx))
-                            .child(
-                                icon_button("big-full", "fullscreen", "Full screen · F11")
-                                    .on_click(cx.listener(|this, _, window, cx| {
-                                        this.set_immersive(true, window, cx)
-                                    })),
-                            )
-                            .child(icon_button("big-mini", "mini", "Mini player").on_click(
-                                cx.listener(|this, _, window, cx| {
-                                    this.big = false;
-                                    this.open_mini(window, cx);
-                                }),
-                            )),
-                    ),
-            )
+            // It runs under the title bar (which carries its buttons once it is open): room for
+            // that.
+            .child(div().h(px(self.title_height(window))).flex_shrink_0())
             .child(
                 div()
                     .flex_1()
@@ -357,11 +350,26 @@ impl AppView {
                                             blur_radius: px(48.),
                                             spread_radius: px(-6.),
                                         }])
-                                        .child(artwork(
-                                            current.as_ref().map(|i| &i.track),
-                                            art,
-                                            cx,
-                                        )),
+                                        // Settings › Appearance › Moving covers: the cover
+                                        // moves here too with Immersive cover off.
+                                        .child(
+                                            moving
+                                                .as_deref()
+                                                .and_then(|path| {
+                                                    super::widgets::moving_cover(
+                                                        "big-cover",
+                                                        path,
+                                                        art,
+                                                    )
+                                                })
+                                                .unwrap_or_else(|| {
+                                                    artwork(
+                                                        current.as_ref().map(|i| &i.track),
+                                                        art,
+                                                        cx,
+                                                    )
+                                                }),
+                                        ),
                                 )
                             })
                             .child(match &current {
@@ -607,6 +615,108 @@ impl AppView {
                 linear_color_stop(if plain { canvas } else { tone }, 0.85),
             ))
         })
+    }
+
+    /// The big player's own buttons, in the title bar while it is open (one bar, not two):
+    /// close, why this song plays, and the side panes, full screen, and the mini player.
+    pub(super) fn big_bar(&self, cx: &mut Context<Self>) -> Div {
+        let liquid = super::glass::liquid_on(cx);
+        let p = pal(cx);
+        // The song the big player shows (it was drawn first, and noted it).
+        let current = self
+            .playback
+            .current
+            .clone()
+            .or_else(|| self.last_item.as_ref().map(|(item, _)| item.clone()));
+        let side_button = |id: &'static str,
+                           name: &'static str,
+                           tip: &'static str,
+                           which: Side,
+                           cx: &mut Context<Self>| {
+            let active = self.big_side == which;
+            icon_button(id, name, tip)
+                .when(active, |b| b.text_color(p.accent))
+                .on_click(cx.listener(move |this, _, _, cx| {
+                    this.big_side = if this.big_side == which {
+                        Side::None
+                    } else {
+                        which
+                    };
+                    cx.notify();
+                }))
+        };
+        div()
+            .flex_1()
+            .h_full()
+            .pl_4()
+            .pr_2()
+            .flex_shrink_0()
+            .flex()
+            .items_center()
+            .gap_2()
+            .child(
+                div()
+                    // macOS Liquid Glass: a round pane of glass.
+                    .when(liquid, |el| el.p(px(3.)).rounded_full().glass())
+                    .child(
+                        icon_button("close-big", "chevron-down", "Close the player · Esc")
+                            .on_click(cx.listener(|this, _, _, cx| {
+                                this.big = false;
+                                cx.notify();
+                            })),
+                    ),
+            )
+            .child(
+                div()
+                    .flex_1()
+                    .min_w_0()
+                    .text_center()
+                    .truncate()
+                    .text_size(px(12.))
+                    .text_color(p.ink_2)
+                    .child(
+                        current
+                            .as_ref()
+                            .map(|i| i.reason.clone())
+                            .unwrap_or_default(),
+                    ),
+            )
+            .child(
+                div()
+                    .flex()
+                    .items_center()
+                    .gap_1()
+                    // macOS Liquid Glass: the buttons on one capsule of glass.
+                    .when(liquid, |el| el.px(px(6.)).py(px(3.)).rounded_full().glass())
+                    .child(side_button(
+                        "big-lyrics",
+                        "lyrics",
+                        "Lyrics",
+                        Side::Lyrics,
+                        cx,
+                    ))
+                    .child(side_button(
+                        "big-queue",
+                        "queue",
+                        "Up next",
+                        Side::Queue,
+                        cx,
+                    ))
+                    .child(side_button("big-stems", "stems", "Stems", Side::Stems, cx))
+                    .child(
+                        icon_button("big-full", "fullscreen", "Full screen · F11").on_click(
+                            cx.listener(|this, _, window, cx| this.set_immersive(true, window, cx)),
+                        ),
+                    )
+                    .child(
+                        icon_button("big-mini", "mini", "Mini player").on_click(cx.listener(
+                            |this, _, window, cx| {
+                                this.big = false;
+                                this.open_mini(window, cx);
+                            },
+                        )),
+                    ),
+            )
     }
 
     /// The upcoming queue as a simple list, shared by the big and mini players.

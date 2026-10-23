@@ -343,12 +343,97 @@ impl AppView {
             })
             .detach();
         }
-        // For screenshots: the big player, once the window is up.
-        if std::env::var_os("NEEDLE_SHOW_BIG").is_some() {
+        // For screenshots: a page, once the window is up (NEEDLE_SHOW_PAGE: "home", "songs", or
+        // "settings:2" for a tab of Settings).
+        if let Ok(page) = std::env::var("NEEDLE_SHOW_PAGE") {
+            cx.spawn_in(window, async move |view, cx| {
+                cx.background_executor().timer(Duration::from_secs(2)).await;
+                let _ = view.update_in(cx, |v, window, cx| match page.split_once(':') {
+                    Some(("settings", tab)) => {
+                        // "settings:3:900": Appearance, scrolled down 900 pixels.
+                        let (tab, down) = tab.split_once(':').unwrap_or((tab, "0"));
+                        v.settings_tab = tab.parse().unwrap_or(0);
+                        open(v, Page::Settings, window, cx);
+                        let down: f32 = down.parse().unwrap_or(0.);
+                        v.settings_scroll.set_offset(point(px(0.), px(-down)));
+                        // NEEDLE_SHOW_OPEN: settings cards to open, such as "output-device,lastfm".
+                        if let Ok(open) = std::env::var("NEEDLE_SHOW_OPEN") {
+                            for id in open.split(',') {
+                                v.settings_open
+                                    .insert(Box::leak(id.trim().to_string().into_boxed_str()));
+                            }
+                        }
+                    }
+                    _ if page == "home" => open(v, Page::Home, window, cx),
+                    _ if page == "albums" => open(v, Page::Albums, window, cx),
+                    _ if page == "artists" => open(v, Page::Artists, window, cx),
+                    _ if page == "history" => open(v, Page::History, window, cx),
+                    _ if page == "server" => open(
+                        v,
+                        Page::Source {
+                            plugin: needle_core::subsonic::ID.into(),
+                            name: "Navidrome".into(),
+                        },
+                        window,
+                        cx,
+                    ),
+                    _ if page == "year" => {
+                        use chrono::Datelike;
+                        open(v, Page::Wrapped(chrono::Local::now().year()), window, cx)
+                    }
+                    _ => open(v, Page::Songs, window, cx),
+                });
+            })
+            .detach();
+        }
+        // For screenshots: the side panel's tab (NEEDLE_SHOW_PANEL: details, queue, lyrics).
+        if let Ok(tab) = std::env::var("NEEDLE_SHOW_PANEL") {
+            cx.spawn_in(window, async move |view, cx| {
+                cx.background_executor().timer(Duration::from_secs(2)).await;
+                let _ = view.update(cx, |v, cx| {
+                    v.panel = match tab.as_str() {
+                        "queue" => Panel::Queue,
+                        "lyrics" => Panel::Lyrics,
+                        _ => Panel::Details,
+                    };
+                    cx.notify();
+                });
+            })
+            .detach();
+        }
+        // For screenshots: play what a rule finds (NEEDLE_SHOW_PLAY), from NEEDLE_SHOW_SEEK
+        // seconds into the first song.
+        if let Ok(rule) = std::env::var("NEEDLE_SHOW_PLAY") {
+            let seek = std::env::var("NEEDLE_SHOW_SEEK")
+                .ok()
+                .and_then(|s| s.parse::<f64>().ok());
+            cx.spawn_in(window, async move |view, cx| {
+                cx.background_executor().timer(Duration::from_secs(1)).await;
+                let _ = view.update(cx, |v, _| v.play_rule(rule, "From Albums".into()));
+                if let Some(at) = seek {
+                    cx.background_executor().timer(Duration::from_secs(2)).await;
+                    let _ = view.update(cx, |v, _| {
+                        v.player.send(needle_core::audio::Command::Seek(at));
+                    });
+                }
+            })
+            .detach();
+        }
+        // For screenshots: the big player, once the window is up ("moving": held as it is while
+        // it grows, over the page and under the usual title bar).
+        if let Ok(how) = std::env::var("NEEDLE_SHOW_BIG") {
             cx.spawn_in(window, async move |view, cx| {
                 cx.background_executor().timer(Duration::from_secs(3)).await;
                 let _ = view.update(cx, |v, cx| {
                     v.big = true;
+                    if how == "moving" {
+                        v.big_was = true;
+                        v.big_moving = true;
+                    }
+                    // "alone": with no pane beside it.
+                    if how == "alone" {
+                        v.big_side = super::now_playing::Side::None;
+                    }
                     cx.notify();
                 });
             })

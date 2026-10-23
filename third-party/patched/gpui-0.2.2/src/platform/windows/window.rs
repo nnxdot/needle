@@ -762,9 +762,14 @@ impl PlatformWindow for WindowsWindow {
 
     fn set_background_appearance(&self, background_appearance: WindowBackgroundAppearance) {
         let hwnd = self.0.hwnd;
+        let was = self.0.borderless_blur();
         self.0
             .acrylic
             .set(background_appearance == WindowBackgroundAppearance::Blurred);
+        // Windows 10: Acrylic on or off changes whether the window has a border.
+        if self.0.borderless_blur() != was {
+            super::events::notify_frame_changed(hwnd);
+        }
 
         match background_appearance {
             WindowBackgroundAppearance::Opaque => {

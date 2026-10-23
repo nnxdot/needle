@@ -139,7 +139,7 @@ impl AppView {
             }
             Some(UpdateState::Failed(e)) => format!("The update did not work: {e}"),
             None => format!(
-                "You have Needle {}. Needle asks needle.nnx.fyi for a newer version once a day; nothing else is sent.",
+                "You have Needle {}. Needle checks needle.nnx.fyi once a day.",
                 env!("CARGO_PKG_VERSION")
             ),
         };

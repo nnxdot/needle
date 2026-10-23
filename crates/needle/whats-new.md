@@ -1,3 +1,43 @@
+# 1.8.0 [macos]
+Navidrome built in, moving covers, and calmer Settings.
+! **Navidrome and Subsonic, built in.** Sign in to your music server in Settings › Library › Music servers, with no plugin to add. Its songs show with your own, with a small server icon on them (turn it off in Settings › Appearance › Mark server songs). Long lists load faster.
+- [server] **A page for your server.** When you are signed in, it shows how the server is, its songs, albums, and artists, and when it was last updated. Update now gets new songs. Refresh everything gets every song and cover again and removes songs the server no longer has. The page also shows what is kept on this Mac, with Free Space and Stop Keeping All.
+- [play] **Moving covers.** An animated WebP or GIF beside an album's songs (cover.webp, animated.gif), or the album's moving cover on your music server, moves in the big player and in full screen, in the immersive cover and in the square cover. Turn it off in Settings › Appearance › Moving covers.
+- [palette] **Calmer Settings.** Every setting is a row with a small icon and one short line, as in System Settings. In Settings › Appearance, you choose the look and the background by picture, and where things sit by small sketches. Sign-in forms open only when you press Connect or Sign in.
+- [signal] **Music that keeps playing.** When the network sleeps, a song from your server waits and goes on from where it stopped. If the server does not answer for 5 minutes, the song pauses at its place, and Play goes on from there.
+- [lyrics] **Lyrics under the player.** The line being sung shows in a thin strip under the player. Turn it on in Settings › Appearance › Lyrics under the player.
+- [fullscreen] **A bigger immersive cover.** When no side panel is open, the cover in the big player and in full screen fills the window at any size.
+- [account] **Last.fm in one click.** Press Connect in Settings › Online services, and Last.fm's sign-in page opens. You no longer fill anything in.
+- After an update, the Mac asks once to let Needle use the Keychain, not once for each sign-in.
+- A cover changed on your server comes in with Refresh everything.
+- Rows on Home scroll sideways with arrows.
+- A click outside the search field, or Esc, ends typing in it. The big player takes the keys when it opens.
+- The page scrolls on under the floating player.
+- Artist pictures from fanart.tv are the newest by when the photo was taken.
+
+# 1.8.0 [windows, linux]
+Navidrome built in, moving covers, and calmer Settings.
+! **Navidrome and Subsonic, built in.** Sign in to your music server in Settings › Library › Music servers, with no plugin to add. Its songs show with your own, with a small server icon beside the artist (turn it off in Settings › Appearance › Mark server songs). Long lists load faster, and Refresh everything gets every song and cover again and removes songs the server no longer has.
+- [play] **Moving covers.** An animated WebP or GIF beside an album's songs (cover.webp, animated.gif), or the album's moving cover on your music server, moves in the big player and in full screen. Turn it off in Settings › Appearance › Moving covers.
+- [palette] **Calmer Settings.** Every setting is a card with one short line. The look and the background are chosen by picture, and where things sit by small sketches. Sign-in forms open only when you press Connect or Sign in.
+- [signal] **Music that keeps playing.** When the network sleeps, a song from your server waits and goes on from where it stopped. If the server does not answer for 5 minutes, the song pauses at its place, and Play goes on from there.
+- [lyrics] **Lyrics under the player.** The line being sung shows under the player. Turn it on in Settings › Appearance.
+- [fullscreen] **One bar over the big player.** The big player shares the window's title bar, and its immersive cover fills the window at any size.
+- A cover changed on your server comes in with Refresh everything.
+- Stars you give the playing song show at once.
+- Small covers are smooth, not jagged.
+- On Windows 10, the window's glass no longer spills past its edge.
+- The buttons on the right of the player are larger, and the lyrics button is easier to tell apart.
+- Rows on Home scroll sideways with arrows.
+- Artist pictures from fanart.tv are the newest by when the photo was taken.
+- Last.fm signs in with one click on Connect.
+
+# 1.7.2 [macos]
+A fix for a crash.
+- Needle no longer quits when you leave an album's or artist's page while its colours are still coming in, or just as a new song's colours come in.
+- An album's or artist's colours now show at once; only the window's background fades into them.
+- Each crash report is sent once, not again at every start.
+
 # 1.7.1 [windows, linux]
 Artist pages made new, an immersive big player, and Last.fm in one click.
 ! **Artist pages, made new.** An artist's page opens on a wide photo of them that fades into the page, with their logo where fanart.tv has one, and a large Play between Shuffle, Radio, and Blend. Their latest release sits beside their top songs, over their albums. Turn on Look things up online in Settings › Artwork and lyrics for the photos and logos.
