@@ -28,13 +28,23 @@ pub const SETTINGS_TABS: [(&str, &str); 10] = [
 
 impl AppView {
     fn section_title(&self, title: &str, description: &str, cx: &App) -> Div {
+        self.titled(title, description, false, cx)
+    }
+
+    /// The first group on a settings page, right under the page title.
+    fn lead_title(&self, title: &str, description: &str, cx: &App) -> Div {
+        self.titled(title, description, true, cx)
+    }
+
+    fn titled(&self, title: &str, description: &str, first: bool, cx: &App) -> Div {
         // The first section of a settings page shares the page's name; don't repeat it.
         let repeat = SETTINGS_TABS
             .get(self.settings_tab)
             .is_some_and(|(tab, _)| *tab == title);
         div()
-            .when(!repeat, |el| el.mt_10())
+            .when(!repeat && !first, |el| el.mt_10())
             .when(repeat, |el| el.mt_1())
+            .when(first && !repeat, |el| el.mt(px(8.)))
             .mb_1()
             .flex()
             .flex_col()
@@ -43,6 +53,11 @@ impl AppView {
             .when(!description.is_empty(), |el| {
                 el.child(meta(description.to_string(), cx).w_full())
             })
+    }
+
+    /// The first group's name on a settings page, right under the page title.
+    fn first_title(&self, title: &str) -> Div {
+        div().mt(px(8.)).mb_1().child(heading(title.to_string()))
     }
 
     fn service_line(&self, state: &ServiceState, cx: &App) -> Div {
@@ -143,7 +158,8 @@ impl AppView {
                                 div()
                                     .p_3()
                                     .rounded(px(8.))
-                                    .bg(p.raised)
+                                    .border_1()
+                                    .border_color(p.line_soft)
                                     .flex()
                                     .flex_col()
                                     .gap_2()
@@ -462,6 +478,52 @@ impl AppView {
             ("Ctrl + ,", "Settings"),
             ("Alt + ← or Backspace", "Go back"),
         ];
+        // Playback's list of outputs, under Exclusive output.
+        let output_devices = div()
+            .py_4()
+            .border_b_1()
+            .border_color(p.line_soft)
+            .flex()
+            .flex_col()
+            .gap_2()
+            .child(
+                div()
+                    .flex()
+                    .justify_between()
+                    .items_center()
+                    .child(strong("Output device"))
+                    .child(small_button("refresh-devices", "Refresh").ghost().on_click(
+                        cx.listener(|this, _, _, cx| {
+                            this.list_output_devices();
+                            cx.notify();
+                        }),
+                    )),
+            )
+            .child(device(
+                "device-default".into(),
+                "System default".into(),
+                self.settings.output_device.is_none(),
+                None,
+                cx,
+            ))
+            .children(self.current_speaker().map(|s| {
+                device(
+                    "device-speaker".into(),
+                    format!("{} ({} speaker)", s.name, s.kind.label()),
+                    true,
+                    Some(s.device_name()),
+                    cx,
+                )
+            }))
+            .children(self.output_devices.iter().enumerate().map(|(i, name)| {
+                device(
+                    format!("device-{i}").into(),
+                    name.clone(),
+                    self.settings.output_device.as_ref() == Some(name),
+                    Some(name.clone()),
+                    cx,
+                )
+            }));
         let tab = self.settings_tab;
         let nav = div()
             .w(px(188.))
@@ -536,7 +598,7 @@ impl AppView {
                     // Playback
                     .when(tab == 0, |el| {
                         el
-                    .child(self.section_title("Playback", "", cx))
+                    .child(self.first_title("Sound output"))
                     // Exclusive output is WASAPI's, so Windows only.
                     .when(cfg!(windows), |el| el.child(setting_row(
                         "Exclusive output",
@@ -548,6 +610,9 @@ impl AppView {
                         })),
                         cx,
                     )))
+                    .child(output_devices)
+                    .children(self.speaker_timing_view(cx))
+                    .child(self.section_title("Playing", "", cx))
                     .child(setting_row(
                         "ReplayGain",
                         "Evens out loudness using measured or tagged gain, with peak protection.",
@@ -599,31 +664,6 @@ impl AppView {
                             .flex()
                             .flex_col()
                             .gap_2()
-                            .child(
-                                div()
-                                    .flex()
-                                    .justify_between()
-                                    .items_center()
-                                    .child(strong("Output device"))
-                                    .child(small_button("refresh-devices", "Refresh").ghost().on_click(cx.listener(|this, _, _, cx| {
-                                        this.list_output_devices();
-                                        cx.notify();
-                                    }))),
-                            )
-                            .child(device("device-default".into(), "System default".into(), self.settings.output_device.is_none(), None, cx))
-                            .children(self.current_speaker().map(|s| {
-                                device("device-speaker".into(), format!("{} ({} speaker)", s.name, s.kind.label()), true, Some(s.device_name()), cx)
-                            }))
-                            .children(self.output_devices.iter().enumerate().map(|(i, name)| {
-                                device(format!("device-{i}").into(), name.clone(), self.settings.output_device.as_ref() == Some(name), Some(name.clone()), cx)
-                            })),
-                    )
-                    .child(
-                        div()
-                            .py_4()
-                            .flex()
-                            .flex_col()
-                            .gap_2()
                             .child(strong("When the queue runs out"))
                             .child(meta("Needle keeps playing tracks that match this rule. Leave it empty to stop.", cx))
                             .child(
@@ -645,7 +685,7 @@ impl AppView {
                                     }))),
                             ),
                     )
-                    .children(self.speaker_timing_view(cx))
+                    .child(self.section_title("Window and phone", "", cx))
                     .child(self.remote_settings(cx))
                     })
                     // Sound: the same tools as the Sound page
@@ -653,7 +693,7 @@ impl AppView {
                     // Library
                     .when(tab == 2, |el| {
                         el
-                    .child(self.section_title("Music folders", "Needle watches these folders. It moves or removes files only when you ask, in Fix my library.", cx))
+                    .child(self.lead_title("Music folders", "Needle watches these folders. It moves or removes files only when you ask, in Fix my library.", cx))
                     .child(
                         div()
                             .py_2()
@@ -666,7 +706,8 @@ impl AppView {
                                     .h(px(34.))
                                     .px_3()
                                     .rounded(px(6.))
-                                    .bg(p.raised)
+                                    .border_1()
+                                    .border_color(p.line_soft)
                                     .flex()
                                     .items_center()
                                     .gap_3()
@@ -744,7 +785,7 @@ impl AppView {
                     // Services
                     .when(tab == 4, |el| {
                         el
-                    .child(self.section_title("Needle", "", cx))
+                    .child(self.lead_title("Needle", "", cx))
                     .child(self.updates_view(cx))
                     .child(self.section_title("Listening services", "Optional. Nothing is sent until you connect a service and turn it on.", cx))
                     .child(self.services(cx))
@@ -842,8 +883,8 @@ impl AppView {
                                         .rounded(px(4.))
                                         .border_1()
                                         .border_color(p.line)
-                                        .bg(p.raised)
-                                        .text_size(px(12.))
+                                        .font_family(super::theme::MONO_FONT)
+                                        .text_size(px(11.5))
                                         .max_w_full()
                                         .flex_none()
                                         .child(super::widgets::keys(keys)),

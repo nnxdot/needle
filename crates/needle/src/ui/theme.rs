@@ -88,6 +88,15 @@ pub fn parse_hex(hex: &str) -> Option<Hsla> {
 }
 
 /// Fonts for page titles and big names: settings value, name people see, font family.
+/// A fixed-width face for keys and other small technical text.
+pub const MONO_FONT: &str = if cfg!(windows) {
+    "Consolas"
+} else if cfg!(target_os = "macos") {
+    "Menlo"
+} else {
+    "DejaVu Sans Mono"
+};
+
 pub const DISPLAY_FONTS: [(&str, &str, &str); 3] = [
     ("system", "Segoe UI", "Segoe UI Variable Display"),
     ("bahnschrift", "Bahnschrift", "Bahnschrift"),

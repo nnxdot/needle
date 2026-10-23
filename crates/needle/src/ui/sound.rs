@@ -319,7 +319,6 @@ impl AppView {
                             .mt_6()
                             .p_5()
                             .rounded(px(10.))
-                            .bg(p.chrome)
                             .border_1()
                             .border_color(p.line_soft)
                             .flex()
@@ -375,7 +374,7 @@ impl AppView {
                     )
                     .child(self.effects_card(cx))
                     // Other tools
-                    .child(div().mt_6().child(heading("Listening tools")))
+                    .child(div().mt_10().mb_1().child(heading("Listening tools")))
                     .child(setting_row(
                         "Balance",
                         match dsp.balance {
@@ -708,7 +707,6 @@ impl AppView {
             .mt_6()
             .p_5()
             .rounded(px(10.))
-            .bg(p.chrome)
             .border_1()
             .border_color(p.line_soft)
             .flex()

@@ -66,7 +66,7 @@ pub fn strong(text: impl Into<SharedString>) -> Div {
 }
 pub fn heading(text: impl Into<SharedString>) -> Div {
     div()
-        .text_size(px(16.))
+        .text_size(px(15.))
         .font_weight(FontWeight::SEMIBOLD)
         .child(text.into())
 }

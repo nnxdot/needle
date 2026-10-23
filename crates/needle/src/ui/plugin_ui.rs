@@ -169,7 +169,6 @@ impl AppView {
                     .id(("plugin", i))
                     .p_4()
                     .rounded(px(10.))
-                    .bg(p.chrome)
                     .border_1()
                     .border_color(if plugin.error.is_some() { p.danger.opacity(0.4) } else { p.line_soft })
                     .flex()
