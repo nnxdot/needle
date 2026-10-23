@@ -184,6 +184,10 @@ struct ServerView: View {
     /// The server's songs, albums, and artists, counted from its songs in the library.
     @State private var counts: (songs: Int, albums: Int, artists: Int)?
     @State private var confirmSignOut = false
+    /// Songs played lately, kept for a while to play again without the network: count, bytes.
+    @State private var cached: [UInt64] = []
+    @State private var confirmFree = false
+    @State private var confirmStopKeeping = false
 
     /// Test builds: `-server-signed-out` shows the sign-in card even while signed in (nothing
     /// is signed out).
@@ -216,6 +220,7 @@ struct ServerView: View {
     }
 
     var body: some View {
+        ScrollViewReader { reader in
         Form {
             if let item, let source = item.source {
                 if source.signedIn && !showSignedOut {
@@ -233,6 +238,15 @@ struct ServerView: View {
                 }
             }
         }
+        #if DEBUG
+        // Test builds: -server-scroll space opens the page at what is kept on this iPhone.
+        .task(id: item == nil) {
+            guard item != nil, UserDefaults.standard.string(forKey: "server-scroll") == "space" else { return }
+            try? await Task.sleep(for: .milliseconds(700))
+            reader.scrollTo("space", anchor: .top)
+        }
+        #endif
+        }
         .navigationTitle(item?.source?.name ?? item?.name ?? "Server")
         .navigationBarTitleDisplayMode(.inline)
         .themed()
@@ -246,6 +260,7 @@ struct ServerView: View {
                 let id = plugin
                 item = await store.load { $0.plugins().first { $0.id == id } } ?? nil
                 kept = await store.load { $0.keptUsage(plugin: id) } ?? []
+                cached = await store.load { $0.streamCacheUsage(plugin: id) } ?? []
                 try? await Task.sleep(for: .seconds(1))
             }
         }
@@ -301,19 +316,46 @@ struct ServerView: View {
             }
         }
         Section {
-            HStack {
-                SettingLabel(title: "Kept on this iPhone", detail: "They play without the network.", icon: "arrow.down.circle.fill", tint: .green)
-                Spacer()
-                VStack(alignment: .trailing, spacing: 1) {
-                    Text(count(Int(kept.first ?? 0), "song")).monospacedDigit()
-                    Text(ByteCountFormatter.string(fromByteCount: Int64(kept.last ?? 0), countStyle: .file)).font(.caption).foregroundStyle(.secondary)
-                }
+            usage("Kept offline", "Songs you chose to keep.", "arrow.down.circle.fill", .green, kept)
+            if (kept.first ?? 0) > 0 {
+                Button("Stop Keeping All") { confirmStopKeeping = true }
+                    .foregroundStyle(.tint)
+                    .confirmationDialog("Stop keeping \(count(Int(kept.first ?? 0), "song"))?", isPresented: $confirmStopKeeping, titleVisibility: .visible) {
+                        Button("Stop Keeping All", role: .destructive) {
+                            let id = plugin
+                            Task {
+                                if let n = await store.ask({ try $0.forgetKept(plugin: id) }) {
+                                    store.message = "\(count(Int(n), "song")) no longer kept"
+                                }
+                            }
+                        }
+                    } message: {
+                        Text("They stay on this iPhone until the space is needed, then they stream again.")
+                    }
+            }
+            usage("Played lately", "They play again without the network.", "clock.arrow.circlepath", .blue, cached)
+            if (cached.first ?? 0) > 0 {
+                Button("Free Space") { confirmFree = true }
+                    .foregroundStyle(.tint)
+                    .confirmationDialog("Free \(ByteCountFormatter.string(fromByteCount: Int64(cached.last ?? 0), countStyle: .file))?", isPresented: $confirmFree, titleVisibility: .visible) {
+                        Button("Free Space", role: .destructive) {
+                            let id = plugin
+                            Task {
+                                if let n = await store.ask({ try $0.clearStreamCache(plugin: id) }) {
+                                    store.message = "Freed \(count(Int(n), "song"))"
+                                }
+                            }
+                        }
+                    } message: {
+                        Text("These songs stream again the next time you play them. Songs you kept stay.")
+                    }
             }
         } header: {
             Text("On this iPhone")
         } footer: {
-            Text("Keep a song, album, or playlist from its menu: Keep Offline. Songs you play stream, and the last ones stay for a while.")
+            Text("Keep a song, album, or playlist from its menu: Keep Offline.")
         }
+        .id("space")
         if !source.switches.isEmpty {
             Section("On the server") {
                 ForEach(source.switches, id: \.id) { s in
@@ -324,7 +366,9 @@ struct ServerView: View {
             }
         }
         Section {
+            // Red, as a destructive button is (the page's text colour would cover it).
             Button("Sign Out", role: .destructive) { confirmSignOut = true }
+                .foregroundStyle(.red)
                 .frame(maxWidth: .infinity)
         }
     }
@@ -381,6 +425,18 @@ struct ServerView: View {
     }
 
     // MARK: Pieces
+
+    /// A row of songs on this iPhone: what they are, and how many and how much space.
+    private func usage(_ title: String, _ detail: String, _ icon: String, _ tint: Color, _ numbers: [UInt64]) -> some View {
+        HStack {
+            SettingLabel(title: title, detail: detail, icon: icon, tint: tint)
+            Spacer()
+            VStack(alignment: .trailing, spacing: 1) {
+                Text(count(Int(numbers.first ?? 0), "song")).monospacedDigit()
+                Text(ByteCountFormatter.string(fromByteCount: Int64(numbers.last ?? 0), countStyle: .file)).font(.caption).foregroundStyle(.secondary)
+            }
+        }
+    }
 
     private struct Status {
         let text: String
