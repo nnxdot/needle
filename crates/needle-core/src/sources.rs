@@ -411,11 +411,18 @@ pub fn fetch_covers(
                             continue;
                         }
                     };
+                    let mut first = true;
                     for id in tracks {
                         if let Ok(Some(mut track)) = library.track(id) {
                             track.artwork = Some(path.to_string_lossy().into());
                             if library.upsert(&track).is_ok() {
                                 done.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                            }
+                            // A moving picture is the album's moving cover too (one file for
+                            // both; nothing is fetched again for it).
+                            if first {
+                                first = false;
+                                crate::media::keep_moving_still_cover(library, &track);
                             }
                         }
                     }
