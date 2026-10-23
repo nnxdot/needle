@@ -16,9 +16,17 @@ enum Action: Sendable {
 @MainActor
 enum Actions {
     static var handler: ((Action) -> Void)?
+    /// Asked for before the app set `handler` (a cold start from a widget or Siri).
+    private static var waiting: [Action] = []
 
     static func run(_ action: Action) {
-        handler?(action)
+        if let handler { handler(action) } else { waiting.append(action) }
+    }
+
+    /// The actions asked for before the app was ready, once.
+    static func takeWaiting() -> [Action] {
+        defer { waiting = [] }
+        return waiting
     }
 }
 
