@@ -794,6 +794,9 @@ struct Worker {
     /// The song the A–B loop belongs to: another song playing ends it.
     loop_track: Option<String>,
     resume_position: f64,
+    /// A seek that waits for its part of a stream, and when the stream last waited: the
+    /// song's time shows (and is saved as) that place until it gets there.
+    pending_seek: Option<(f64, Instant)>,
     last_session_save: Instant,
     saved_version: u64,
     published_version: u64,
@@ -910,6 +913,7 @@ impl Worker {
             loop_range: None,
             loop_track: None,
             resume_position,
+            pending_seek: None,
             last_session_save: Instant::now(),
             saved_version,
             published_version: 0,
@@ -924,23 +928,23 @@ impl Worker {
         }
     }
     fn position(&self) -> f64 {
-        self.sink
-            .as_ref()
-            .map(|s| s.get_pos().as_secs_f64())
-            .unwrap_or(self.resume_position)
-    }
-    fn save_session(&mut self) -> Result<()> {
-        let position = self
+        let now = self
             .sink
             .as_ref()
-            .map(|s| {
-                if s.empty() {
-                    0.
-                } else {
-                    s.get_pos().as_secs_f64()
-                }
-            })
+            .map(|s| s.get_pos().as_secs_f64())
             .unwrap_or(self.resume_position);
+        match self.pending_seek {
+            Some((target, _)) if self.sink.is_some() && now + 0.5 < target => target,
+            _ => now,
+        }
+    }
+    fn save_session(&mut self) -> Result<()> {
+        let position = match (self.pending_seek, &self.sink) {
+            (Some(_), Some(_)) => self.position(),
+            (None, Some(s)) if !s.empty() => s.get_pos().as_secs_f64(),
+            (None, Some(_)) => 0.,
+            (_, None) => self.resume_position,
+        };
         if self.saved_version != self.queue.version {
             self.library
                 .set_json("playback_session", &self.queue.session(position))?;
@@ -978,6 +982,7 @@ impl Worker {
         // The output's queued songs go with it, and their endings too.
         self.endings.clear();
         self.active_ending = None;
+        self.pending_seek = None;
         self.epoch += 1;
         // A song still opening for the old output is not wanted any more.
         self.opening = None;
@@ -1168,11 +1173,13 @@ impl Worker {
         let Some(sink) = self.sink.clone() else {
             return Ok(());
         };
+        self.pending_seek = None;
         // The song to play is still opening: it starts from there once it is in.
         if sink.empty()
             && let Some(opening) = &mut self.opening
         {
             opening.seek = Some(position);
+            self.pending_seek = Some((position, Instant::now()));
             return Ok(());
         }
         let (tx, rx) = crossbeam_channel::bounded(1);
@@ -1190,7 +1197,10 @@ impl Worker {
                 result.map_err(|e| anyhow::anyhow!("Seek failed: {e}"))
             }
             // The song waits for that part of its stream: the seek ends when it comes.
-            Err(_) if self.stream_waiting() => Ok(()),
+            Err(_) if self.stream_waiting() => {
+                self.pending_seek = Some((position, Instant::now()));
+                Ok(())
+            }
             Err(_) => {
                 self.lost = Some("Audio output stopped responding".into());
                 bail!("Audio output stopped responding")
@@ -1765,6 +1775,21 @@ impl Worker {
             }
         }
     }
+    /// A seek that waited for its stream is over once the song reaches its place, or when
+    /// the stream has not been waiting for a few seconds (the seek ended some other way).
+    fn settle_pending_seek(&mut self) {
+        let Some((target, since)) = self.pending_seek else {
+            return;
+        };
+        let now = self.sink.as_ref().map_or(0., |s| s.get_pos().as_secs_f64());
+        if now + 0.5 >= target {
+            self.pending_seek = None;
+        } else if self.stream_waiting() || self.opening.is_some() {
+            self.pending_seek = Some((target, Instant::now()));
+        } else if since.elapsed() > Duration::from_secs(3) {
+            self.pending_seek = None;
+        }
+    }
     /// A song from a server that stopped answering for good (its stream gave up after
     /// minutes of asking again) ends short of its end: pause at that place, with the song
     /// still there, rather than go on to the next songs, which would fail the same way. Play
@@ -1811,12 +1836,15 @@ impl Worker {
         // again would only wait on the stream too.
         (!self.stream_waiting()).then(|| "Audio output stopped responding".into())
     }
-    /// The playing song waits for a part of its stream that has not come yet.
+    /// The playing song waits for a part of its stream that has not come yet. That may also
+    /// be the song just put on the output and not started yet (Play after a pause opens it
+    /// again, and its first seek waits for the stream).
     fn stream_waiting(&self) -> bool {
         self.queue
             .active
-            .as_ref()
-            .is_some_and(|item| crate::sources::waiting(&item.track))
+            .iter()
+            .chain(self.queue.staged.front())
+            .any(|item| item.track.is_streamed() && crate::sources::waiting(&item.track))
     }
     fn default_changed(&mut self) -> Option<String> {
         if self.settings.output_device.is_some()
@@ -1884,6 +1912,7 @@ impl Worker {
         }
         self.watch_output();
         self.pause_cut_short();
+        self.settle_pending_seek();
         let elapsed = elapsed.min(0.25);
         self.last_tick = Instant::now();
         if self.playing
