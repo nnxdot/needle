@@ -283,3 +283,12 @@ internal fun lookCard(theme: fyi.nnx.needle.core.ThemeInfo): LookCard {
         color("page", base.page), color("panel", base.panel), color("text", base.ink), color("accent", base.accent),
     )
 }
+
+/**
+ * A setting that belongs to the row above it (SETTINGS-STYLE.md, "Adding a setting"): shown
+ * only while that one is on, its words under the other's words.
+ */
+@Composable
+internal fun DependentRow(content: @Composable () -> Unit) {
+    Box(Modifier.padding(start = 52.dp)) { content() }
+}

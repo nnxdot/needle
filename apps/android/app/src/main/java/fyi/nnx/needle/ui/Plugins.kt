@@ -429,17 +429,7 @@ private fun ServerSignIn(plugin: PluginItem) {
 @Composable
 fun MusicServers() {
     val servers = rememberPlugins()?.filter { it.builtIn && it.source != null } ?: return
-    servers.forEach { server ->
-        if (server.source?.signedIn != true) {
-            Text(
-                "Play the music on your own Navidrome or Subsonic server, streamed or kept on this phone.",
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.padding(horizontal = Edge, vertical = 4.dp),
-            )
-        }
-        ServerSection(server)
-    }
+    servers.forEach { ServerSection(it) }
 }
 
 /** What one server's songs take on this phone: its count of songs and their size, in words. */

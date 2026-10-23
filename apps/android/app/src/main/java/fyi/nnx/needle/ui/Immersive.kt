@@ -13,6 +13,8 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.width
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
+import fyi.nnx.needle.NeedleApp
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
@@ -102,14 +104,28 @@ fun ImmersiveCover(song: Song, animated: Boolean, wide: Boolean) {
  */
 @Composable
 fun movingCover(song: Song, animated: Boolean): String? {
-    val path by produceState<String?>(null, song.id, animated) {
+    val context = androidx.compose.ui.platform.LocalContext.current
+    val app by NeedleApp.instance.app.collectAsState()
+    val anyNetwork = app.movingCoversOnMobileData
+    val path by produceState<String?>(null, song.id, animated, anyNetwork) {
         value = null
         if (animated && !song.onComputer()) {
-            value = withContext(Dispatchers.IO) { runCatching { core.animatedCover(song.id) }.getOrNull() }
+            value = withContext(Dispatchers.IO) {
+                runCatching {
+                    // On mobile data (or any metered network), with "On mobile data" off: only a
+                    // moving cover already on this phone, never a download.
+                    if (!anyNetwork && meteredNetwork(context)) core.animatedCoverKept(song.id) else core.animatedCover(song.id)
+                }.getOrNull()
+            }
         }
     }
     return path
 }
+
+/** The phone is on mobile data, or another network that counts what it sends (not unmetered). */
+private fun meteredNetwork(context: android.content.Context): Boolean = runCatching {
+    context.getSystemService(android.net.ConnectivityManager::class.java)?.isActiveNetworkMetered ?: false
+}.getOrDefault(false)
 
 /**
  * A moving cover filling its frame (cut, not squeezed): an animated WebP or GIF drawn with
