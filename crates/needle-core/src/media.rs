@@ -607,20 +607,68 @@ fn musicbrainz_artist(name: &str) -> Result<Option<String>> {
         .map(String::from))
 }
 
+/// Whether a picture moves: an animated WebP, or a GIF of more than one frame. A still WebP
+/// or GIF (a plain cover) does not.
+pub fn is_animated_image(path: &Path) -> bool {
+    let kind = path
+        .extension()
+        .and_then(|s| s.to_str())
+        .unwrap_or_default()
+        .to_lowercase();
+    let Ok(mut file) = std::fs::File::open(path) else {
+        return false;
+    };
+    match kind.as_str() {
+        // RIFF....WEBPVP8X, whose flags (byte 20) mark an animation.
+        "webp" => {
+            let mut head = [0u8; 21];
+            file.read_exact(&mut head).is_ok()
+                && &head[0..4] == b"RIFF"
+                && &head[8..12] == b"WEBP"
+                && &head[12..16] == b"VP8X"
+                && head[20] & 0x02 != 0
+        }
+        // Each frame of a moving GIF has its own graphic control block (21 F9 04).
+        "gif" => {
+            let mut bytes = vec![];
+            file.take(60 * 1024 * 1024).read_to_end(&mut bytes).is_ok()
+                && bytes.starts_with(b"GIF8")
+                && bytes
+                    .windows(3)
+                    .filter(|w| *w == [0x21, 0xF9, 0x04])
+                    .nth(1)
+                    .is_some()
+        }
+        _ => false,
+    }
+}
+
 /// A moving cover beside a song's file: a short video, such as `cover.mp4` or `animated.mov`,
-/// as some downloads of Apple Music's moving covers are saved.
+/// as some downloads of Apple Music's moving covers are saved, or a moving picture
+/// (`cover.webp` or `cover.gif` that is animated). A video comes first when there are both.
 pub fn animated_cover(library: &Library, track: &Track) -> Option<PathBuf> {
+    moving_cover(library, track, true)
+}
+
+/// A moving picture beside a song's file (an animated `cover.webp` or `cover.gif`), for an
+/// app that shows pictures but plays no video.
+pub fn animated_picture(library: &Library, track: &Track) -> Option<PathBuf> {
+    moving_cover(library, track, false)
+}
+
+fn moving_cover(library: &Library, track: &Track, with_videos: bool) -> Option<PathBuf> {
     if track.source().is_some() || track.path.starts_with("http") {
         return None;
     }
     let folder = Path::new(track.file_path()).parent()?;
     let names = ["cover", "animated", "folder", "front", "album", "motion"];
-    let kinds = ["mp4", "m4v", "mov"];
-    let video = std::fs::read_dir(folder)
+    let videos = ["mp4", "m4v", "mov"];
+    let pictures = ["webp", "gif"];
+    let mut found: Vec<(bool, PathBuf)> = std::fs::read_dir(folder)
         .ok()?
         .flatten()
         .map(|e| e.path())
-        .find(|p| {
+        .filter_map(|p| {
             let stem = p
                 .file_stem()
                 .and_then(|s| s.to_str())
@@ -632,9 +680,22 @@ pub fn animated_cover(library: &Library, track: &Track) -> Option<PathBuf> {
                 .unwrap_or_default()
                 .to_lowercase();
             // A moving cover is a short loop, not a whole music video.
-            let small = std::fs::metadata(p).is_ok_and(|m| m.len() <= 60 * 1024 * 1024);
-            names.contains(&stem.as_str()) && kinds.contains(&kind.as_str()) && small
-        })?;
+            let small = std::fs::metadata(&p).is_ok_and(|m| m.len() <= 60 * 1024 * 1024);
+            if !names.contains(&stem.as_str()) || !small {
+                return None;
+            }
+            if with_videos && videos.contains(&kind.as_str()) {
+                Some((true, p))
+            } else if pictures.contains(&kind.as_str()) && is_animated_image(&p) {
+                Some((false, p))
+            } else {
+                None
+            }
+        })
+        .collect();
+    // Videos first, then by name, so the choice does not depend on the folder's order.
+    found.sort_by(|a, b| b.0.cmp(&a.0).then_with(|| a.1.cmp(&b.1)));
+    let video = found.into_iter().next()?.1;
     // Only a folder of one album: in a folder of many (an iPhone's own, say) one cover.mp4
     // would be every song's.
     let inside = format!("{}/", folder.to_string_lossy());
@@ -1041,6 +1102,38 @@ pub fn fetch_album_art(library: &Library, track: &Track) -> Result<usize> {
 
 #[cfg(test)]
 mod tests {
+
+    /// An animated WebP and a GIF of two frames move; a still WebP, a GIF of one frame, and
+    /// a picture of another kind do not.
+    #[test]
+    fn moving_pictures_are_told_from_still_ones() {
+        let dir = tempfile::tempdir().unwrap();
+        let webp = |flags: u8| {
+            let mut b = b"RIFF\0\0\0\0WEBPVP8X".to_vec();
+            b.extend_from_slice(&[10, 0, 0, 0, flags, 0, 0, 0]);
+            b
+        };
+        let write = |name: &str, bytes: &[u8]| {
+            let path = dir.path().join(name);
+            std::fs::write(&path, bytes).unwrap();
+            path
+        };
+        let frame = [0x21u8, 0xF9, 0x04, 0, 0, 0, 0, 0, 0x2C];
+        let mut two = b"GIF89a".to_vec();
+        two.extend_from_slice(&frame);
+        two.extend_from_slice(&frame);
+        let mut one = b"GIF89a".to_vec();
+        one.extend_from_slice(&frame);
+        assert!(super::is_animated_image(&write("moving.webp", &webp(0x02))));
+        assert!(!super::is_animated_image(&write("still.webp", &webp(0x10))));
+        assert!(!super::is_animated_image(&write(
+            "plain.webp",
+            b"RIFF\0\0\0\0WEBPVP8 "
+        )));
+        assert!(super::is_animated_image(&write("moving.gif", &two)));
+        assert!(!super::is_animated_image(&write("still.gif", &one)));
+        assert!(!super::is_animated_image(&write("cover.jpg", &two)));
+    }
 
     #[test]
     fn the_best_logo_is_high_definition_english_and_liked() {
