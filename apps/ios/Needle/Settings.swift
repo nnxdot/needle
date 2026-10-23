@@ -601,7 +601,10 @@ struct ScrobblingView: View {
         Form {
             if let a = accounts {
                 Section {
-                    service("Last.fm", user: a.lastfmUser, icon: "music.note", tint: .red, id: "lastfm", busy: waitingForBrowser)
+                    // Needle's own key built in: nothing to fill in, so Connect opens Last.fm's
+                    // sign-in page at once.
+                    service("Last.fm", user: a.lastfmUser, icon: "music.note", tint: .red, id: "lastfm", busy: waitingForBrowser,
+                            direct: a.lastfmKeyBuiltIn ? { beginLastfm(key: "", secret: "") } : nil)
                     if a.lastfmUser != nil {
                         Toggle("Send listens", isOn: Binding(get: { a.lastfmOn }, set: { on in
                             accounts?.lastfmOn = on; Task { _ = await store.ask { try $0.setScrobbling(lastfm: on, listenbrainz: nil) }; await reload() }
@@ -621,15 +624,7 @@ struct ScrobblingView: View {
                             TextField("API key", text: $apiKey).textInputAutocapitalization(.never).autocorrectionDisabled()
                             SecureField("Shared secret", text: $secret)
                         }
-                        Button("Sign in to Last.fm") {
-                            let (k, s) = (apiKey, secret)
-                            Task {
-                                if let page = await store.ask({ try $0.lastfmBegin(apiKey: k, secret: s) }), let url = URL(string: page) {
-                                    waitingForBrowser = true
-                                    openURL(url)
-                                }
-                            }
-                        }
+                        Button("Sign in to Last.fm") { beginLastfm(key: apiKey, secret: secret) }
                         .disabled(!a.lastfmKeyBuiltIn && (apiKey.isEmpty || secret.isEmpty))
                         if !a.lastfmKeyBuiltIn {
                             Text("Make a free key at last.fm/api/account/create.").font(.caption).foregroundStyle(.secondary)
@@ -685,8 +680,18 @@ struct ScrobblingView: View {
         accounts = await store.load { $0.accounts() }
     }
 
+    /// Opens Last.fm's page to allow Needle, then waits for the listener to come back.
+    private func beginLastfm(key: String, secret: String) {
+        Task {
+            if let page = await store.ask({ try $0.lastfmBegin(apiKey: key, secret: secret) }), let url = URL(string: page) {
+                waitingForBrowser = true
+                openURL(url)
+            }
+        }
+    }
+
     /// A service's row: its name and whether it is connected, with Connect (or Cancel) while not.
-    private func service(_ name: String, user: String?, icon: String, tint: Color, id: String, busy: Bool) -> some View {
+    private func service(_ name: String, user: String?, icon: String, tint: Color, id: String, busy: Bool, direct: (() -> Void)? = nil) -> some View {
         HStack {
             SettingLabel(title: name, detail: user.map { $0.isEmpty ? "Signed in" : "Signed in as \($0)" } ?? "Not connected", icon: icon, tint: tint)
             Spacer()
@@ -694,7 +699,7 @@ struct ScrobblingView: View {
                 if connecting.contains(id) {
                     Button("Cancel") { connecting.remove(id) }.buttonStyle(.borderless)
                 } else {
-                    Button("Connect") { connecting.insert(id) }
+                    Button("Connect") { if let direct { direct() } else { connecting.insert(id) } }
                         .buttonStyle(.borderedProminent).buttonBorderShape(.capsule).controlSize(.small)
                 }
             }

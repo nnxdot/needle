@@ -118,7 +118,13 @@ struct ServicesSettings: View {
                 if configured && state?.source != "Environment" {
                     Button("Sign out") { signOut("lastfm") }
                 } else if !configured && pending == nil {
-                    connectButton("lastfm", open: open)
+                    if info?.status.lastfmApp.configured == true {
+                        // Needle's own key (or one saved): nothing to fill in, so Connect opens
+                        // Last.fm's sign-in page at once.
+                        Button(busy ? "Opening…" : "Connect") { lastfmBegin() }.buttonStyle(.borderedProminent).disabled(busy)
+                    } else {
+                        connectButton("lastfm", open: open)
+                    }
                 }
                 RowToggle(label: "Scrobble to Last.fm", isOn: Binding(get: { s.lastfmEnabled }, set: { store.set(["lastfm_enabled": $0]) }))
                     .toggleStyle(.switch).labelsHidden().disabled(!configured)
