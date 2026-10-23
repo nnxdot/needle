@@ -246,8 +246,19 @@ static STREAM_FORMAT: Mutex<Option<StreamFormat>> = Mutex::new(None);
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct StreamFormat {
     pub rate: u32,
-    /// 32-bit float samples; otherwise 16-bit whole numbers.
-    pub float: bool,
+    pub sample: StreamSample,
+}
+
+/// How each sample of a [`StreamFormat`] is stored.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum StreamSample {
+    /// 16-bit whole numbers.
+    Int16,
+    /// 32-bit whole numbers, which many USB DACs ask for (they carry 16- and 24-bit music
+    /// exactly).
+    Int32,
+    /// 32-bit float.
+    Float32,
 }
 
 /// Sets the format the system output opens at (it applies when the output next opens).
@@ -729,10 +740,10 @@ impl OutputOpener for SystemOutput {
             builder = builder
                 .with_channels(2)
                 .with_sample_rate(format.rate)
-                .with_sample_format(if format.float {
-                    rodio::cpal::SampleFormat::F32
-                } else {
-                    rodio::cpal::SampleFormat::I16
+                .with_sample_format(match format.sample {
+                    StreamSample::Int16 => rodio::cpal::SampleFormat::I16,
+                    StreamSample::Int32 => rodio::cpal::SampleFormat::I32,
+                    StreamSample::Float32 => rodio::cpal::SampleFormat::F32,
                 });
         }
         let mut stream = builder

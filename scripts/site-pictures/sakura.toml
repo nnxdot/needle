@@ -1,0 +1,11 @@
+name = "Sakura"
+author = "Needle"
+base = "light"
+music_colors = false
+[colors]
+page = "#fff5f7"
+accent = "#e75480"
+text = "#3a2230"
+[extras]
+grain = 0.2
+font = "fraunces"

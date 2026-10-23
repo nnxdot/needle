@@ -354,8 +354,57 @@ impl AppView {
                         open(v, Page::Settings, window, cx)
                     }
                     _ if page == "home" => open(v, Page::Home, window, cx),
+                    _ if page == "albums" => open(v, Page::Albums, window, cx),
+                    _ if page == "artists" => open(v, Page::Artists, window, cx),
+                    _ if page == "history" => open(v, Page::History, window, cx),
+                    _ if page == "server" => open(
+                        v,
+                        Page::Source {
+                            plugin: needle_core::subsonic::ID.into(),
+                            name: "Navidrome".into(),
+                        },
+                        window,
+                        cx,
+                    ),
+                    _ if page == "year" => {
+                        use chrono::Datelike;
+                        open(v, Page::Wrapped(chrono::Local::now().year()), window, cx)
+                    }
                     _ => open(v, Page::Songs, window, cx),
                 });
+            })
+            .detach();
+        }
+        // For screenshots: the side panel's tab (NEEDLE_SHOW_PANEL: details, queue, lyrics).
+        if let Ok(tab) = std::env::var("NEEDLE_SHOW_PANEL") {
+            cx.spawn_in(window, async move |view, cx| {
+                cx.background_executor().timer(Duration::from_secs(2)).await;
+                let _ = view.update(cx, |v, cx| {
+                    v.panel = match tab.as_str() {
+                        "queue" => Panel::Queue,
+                        "lyrics" => Panel::Lyrics,
+                        _ => Panel::Details,
+                    };
+                    cx.notify();
+                });
+            })
+            .detach();
+        }
+        // For screenshots: play what a rule finds (NEEDLE_SHOW_PLAY), from NEEDLE_SHOW_SEEK
+        // seconds into the first song.
+        if let Ok(rule) = std::env::var("NEEDLE_SHOW_PLAY") {
+            let seek = std::env::var("NEEDLE_SHOW_SEEK")
+                .ok()
+                .and_then(|s| s.parse::<f64>().ok());
+            cx.spawn_in(window, async move |view, cx| {
+                cx.background_executor().timer(Duration::from_secs(1)).await;
+                let _ = view.update(cx, |v, _| v.play_rule(rule, "From Albums".into()));
+                if let Some(at) = seek {
+                    cx.background_executor().timer(Duration::from_secs(2)).await;
+                    let _ = view.update(cx, |v, _| {
+                        v.player.send(needle_core::audio::Command::Seek(at));
+                    });
+                }
             })
             .detach();
         }
