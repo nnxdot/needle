@@ -121,6 +121,18 @@ struct MainWindow: View {
         let value = { (flag: String) in arguments.firstIndex(of: flag).flatMap { arguments.indices.contains($0 + 1) ? arguments[$0 + 1] : nil } }
         // `--rescan`: read the music folders again.
         if arguments.contains("--rescan") { store.rescan() }
+        // `--snapshot-settings <path.png>`: after 8 seconds, the Settings window drawn into a
+        // picture at the screen's scale (Needle's own drawing: no screen recording needed).
+        if let path = value("--snapshot-settings") {
+            Task {
+                try? await Task.sleep(for: .seconds(8))
+                guard let window = NSApp.windows.first(where: { $0.isVisible && $0.title == (UserDefaults.standard.string(forKey: "settings-tab") ?? "") }),
+                      let view = window.contentView?.superview ?? window.contentView,
+                      let rep = view.bitmapImageRepForCachingDisplay(in: view.bounds) else { return }
+                view.cacheDisplay(in: view.bounds, to: rep)
+                try? rep.representation(using: .png, properties: [:])?.write(to: URL(fileURLWithPath: path))
+            }
+        }
         if let name = value("--artist") { store.navigate(.artist(name)) }
         if let title = value("--album") {
             Task {

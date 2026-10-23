@@ -179,6 +179,8 @@ struct ServerView: View {
     @State private var kept: [UInt64] = []
     @State private var signingIn = false
     @State private var waiting: Task<Void, Never>?
+    /// The sign-in form, shown only after Sign in….
+    @State private var form = false
 
     /// Signs in, and waits for the server's answer: signed in, or an error (even the same one
     /// as before), or a minute at most.
@@ -223,6 +225,17 @@ struct ServerView: View {
                         Button("Bring in songs again") { store.core.sourceSync(plugin: plugin) }.disabled(source.syncing)
                         Button("Sign out", role: .destructive) { store.core.sourceSignOut(plugin: plugin) }
                     } else {
+                        HStack {
+                            SettingLabel(title: source.name, detail: "Not signed in", icon: "server.rack", tint: .cyan)
+                            Spacer()
+                            if form {
+                                Button("Cancel") { form = false }.buttonStyle(.borderless)
+                            } else {
+                                Button("Sign in…") { form = true }
+                                    .buttonStyle(.borderedProminent).buttonBorderShape(.capsule).controlSize(.small)
+                            }
+                        }
+                        if form {
                         ForEach(source.fields, id: \.id) { field in
                             let binding = Binding(get: { fields[field.id] ?? "" }, set: { fields[field.id] = $0 })
                             if field.secret {
@@ -239,12 +252,12 @@ struct ServerView: View {
                         } else {
                             Button("Sign in") { signIn() }
                         }
+                        Text("The whole address, with http:// or https://.").font(.caption).foregroundStyle(.secondary)
+                        }
                     }
                     if !signingIn, let error = source.error { Text(error).foregroundStyle(.red) }
                 } header: {
-                    Text(source.name)
-                } footer: {
-                    if !source.signedIn { Text("Type the server's whole address, with http:// or https://.") }
+                    if source.signedIn { Text(source.name) }
                 }
                 if !source.switches.isEmpty {
                     Section {

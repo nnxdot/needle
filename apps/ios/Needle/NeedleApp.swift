@@ -60,7 +60,9 @@ struct RootView: View {
                 place = ["library": .library, "radio": .radio, "search": .search][args[i + 1]] ?? .home
             }
             if let i = args.firstIndex(of: "-route"), args.indices.contains(i + 1),
-               let route = ["settings": [Route.settings], "appearance": [.settings, .settingsAppearance], "sources": [.settings, .sources]][args[i + 1]] {
+               let route = ["settings": [Route.settings], "appearance": [.settings, .settingsAppearance], "sources": [.settings, .sources],
+                             "scrobbling": [.settings, .settingsScrobbling], "library": [.settings, .settingsLibrary],
+                             "playback": [.settings, .settingsPlayback], "server": [.settings, .server("subsonic")]][args[i + 1]] {
                 paths[place] = NavigationPath(route)
             }
             if args.contains("-albums") { paths[place] = NavigationPath([Route.albums]) }
