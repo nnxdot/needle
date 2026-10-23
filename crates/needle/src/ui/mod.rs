@@ -1,4 +1,5 @@
 mod ambient;
+mod appearance;
 mod artist;
 mod assets;
 mod bench;
@@ -487,6 +488,8 @@ pub struct AppView {
     volume: Entity<SliderState>,
     glass_slider: Entity<SliderState>,
     grain_slider: Entity<SliderState>,
+    /// Settings' page scroll: back to the top when another section opens.
+    settings_scroll: ScrollHandle,
     seek: Entity<SliderState>,
     focus: FocusHandle,
     list_scroll: UniformListScrollHandle,
@@ -1011,6 +1014,7 @@ impl AppView {
             volume,
             glass_slider,
             grain_slider,
+            settings_scroll: ScrollHandle::new(),
             seek,
             focus,
             list_scroll: UniformListScrollHandle::new(),
