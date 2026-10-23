@@ -308,7 +308,12 @@ extension Store {
 
     /// The font for page titles and big names.
     func display(_ size: CGFloat, weight: Font.Weight = .bold) -> Font {
-        switch displayFont {
+        Self.titleFont(displayFont, size: size, weight: weight)
+    }
+
+    /// A title font by its settings name ("system", "bahnschrift", "fraunces").
+    static func titleFont(_ name: String, size: CGFloat, weight: Font.Weight = .bold) -> Font {
+        switch name {
         case "fraunces": .custom(weight == .bold ? "Fraunces72ptSoft-Bold" : "Fraunces72ptSoft-SemiBold", size: size)
         case "bahnschrift": .system(size: size, weight: weight, design: .default).width(.condensed)
         default: .system(size: size, weight: weight, design: .default)
@@ -316,7 +321,9 @@ extension Store {
     }
 
 
-    /// Liquid Glass on the sidebar, the player, and the panels (off: solid bars).
+    /// Liquid Glass on the player, the panels, and the strips over the page (Settings ›
+    /// Appearance › Background: Glass); Plain makes them solid in the look's own colors.
+    var liquidGlass: Bool { settings.windowMaterial != "solid" }
 
 }
 
@@ -334,10 +341,14 @@ extension EnvironmentValues {
 }
 
 extension View {
-    /// A pane of Liquid Glass (macOS 26), or the frosted material before it.
-    @ViewBuilder
+    /// A pane of Liquid Glass (macOS 26), or the frosted material before it; solid in the
+    /// look's own colors with the Plain background.
+    @MainActor @ViewBuilder
     func pane<S: Shape>(_ shape: S, tint: Color? = nil, interactive: Bool = false) -> some View {
-        if #available(macOS 26, *) {
+        if !Store.shared.liquidGlass {
+            background(Store.shared.colors.raised, in: shape)
+                .overlay(shape.stroke(Store.shared.colors.line, lineWidth: 1))
+        } else if #available(macOS 26, *) {
             glassEffect(interactive ? Glass.regular.tint(tint).interactive() : Glass.regular.tint(tint), in: shape)
         } else {
             background(.regularMaterial, in: shape)

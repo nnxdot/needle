@@ -66,6 +66,9 @@ pub struct PluginItem {
     /// Comes with Needle, and its files are as Needle wrote them.
     pub official: bool,
     pub verified: bool,
+    /// Part of Needle, not a script (Navidrome / Subsonic): always on, with no folder. Show it
+    /// with the music servers, not in the list of plugins.
+    pub built_in: bool,
     /// What it may do, as people read it.
     pub permissions: Vec<String>,
     pub finds_lyrics: bool,
@@ -293,6 +296,7 @@ impl Needle {
                 error: p.error.clone(),
                 official: p.official,
                 verified: p.verified,
+                built_in: p.builtin,
                 permissions: p
                     .manifest
                     .permissions
@@ -348,14 +352,12 @@ impl Needle {
         self.plugins.send(PluginEvent::Enable(id, on));
     }
 
-    /// Adds the plugins that come with Needle (NetEase lyrics, the Navidrome / Subsonic
-    /// source, and the examples), leaving any already there.
+    /// Adds the plugins that come with Needle (NetEase lyrics and the examples), leaving any
+    /// already there. Navidrome / Subsonic is built in, so it is not one of them.
     pub fn install_bundled_plugins(&self) -> Result<u32> {
         let mut added = needle_core::plugins::install_examples(&self.library)? as u32;
-        for name in ["netease-lyrics", "subsonic"] {
-            if needle_core::plugins::install_example(&self.library, name).unwrap_or(false) {
-                added += 1;
-            }
+        if needle_core::plugins::install_example(&self.library, "netease-lyrics").unwrap_or(false) {
+            added += 1;
         }
         self.plugins.send(PluginEvent::Reload);
         Ok(added)
@@ -378,6 +380,13 @@ impl Needle {
 
     pub fn source_sync(&self, plugin: String) {
         self.plugins.send(PluginEvent::SourceSync(plugin));
+    }
+
+    /// Refresh everything: the whole list of songs, every cover again (moving ones too), and
+    /// songs no longer on the server leave the library. Plays and ratings of the songs that
+    /// stay are kept.
+    pub fn source_refresh(&self, plugin: String) {
+        self.plugins.send(PluginEvent::SourceRefresh(plugin));
     }
 
     pub fn source_switch(&self, plugin: String, id: String, on: bool) {

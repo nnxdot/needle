@@ -309,7 +309,7 @@ fn run(command, ids) {
 
       <section id="sources">
         <h2>Music sources</h2>
-        <p>A source plugin brings songs from a server: its songs show in Needle next to your own files, stream when they play, and can be queued, cast, rated, scrobbled, and added to playlists. Needle comes with one for Navidrome and other Subsonic servers; press <b>Set up</b> at the top of <b>Settings › Plugins</b>, or read its <code>main.rhai</code> after <b>Add example plugins</b>.</p>
+        <p>A source plugin brings songs from a server: its songs show in Needle next to your own files, stream when they play, and can be queued, cast, rated, scrobbled, and added to playlists. Navidrome and other Subsonic servers are built into Needle (<b>Settings › Library › Music servers</b>), so a source plugin is for other kinds of server.</p>
         <p>A source needs the <code>"network"</code> permission, because Needle downloads the links it gives. Sources are for music you own, bought, or that is free to stream. Do not write one for services with copy protection or terms that forbid other players, such as Spotify, Apple Music, Tidal, or YouTube Music.</p>
         <div class="table">
           <table>
@@ -327,7 +327,7 @@ fn run(command, ids) {
             </tbody>
           </table>
         </div>
-        <p>Needle gets the whole list of songs when someone signs in, when Needle starts (at most every 30 minutes), and when they press <b>Update now</b>. A song the server no longer lists is marked missing, never deleted. Songs stream into a cache as they play; the last 2 GB played stay on the computer and play again without the network. Jumping ahead in a song that is still downloading asks the server for that part first, when the server allows it. The song after the next one downloads ahead of time. <b>Keep on this computer</b> (in a song's menu, or the pin on a server album's page) downloads songs to play without the network and never clears them. Tag editing, stems, Fix my library, and measuring for radio skip server songs; <b>Save to my music</b> in a song's menu downloads it into the first music folder as a normal file.</p>
+        <p>Needle gets the whole list of songs when someone signs in, when Needle starts (at most every 30 minutes), and when they press <b>Update now</b>. A song the server no longer lists is marked missing, with its plays and ratings. <b>Refresh everything</b> gets every song and cover again, after a question; then songs the server no longer lists leave the library. Songs stream into a cache as they play; the last 2 GB played stay on the computer and play again without the network. Jumping ahead in a song that is still downloading asks the server for that part first, when the server allows it. The song after the next one downloads ahead of time. <b>Keep on this computer</b> (in a song's menu, or the pin on a server album's page) downloads songs to play without the network and never clears them. Tag editing, stems, Fix my library, and measuring for radio skip server songs; <b>Save to my music</b> in a song's menu downloads it into the first music folder as a normal file.</p>
         <h3 id="source-song">Source song</h3>
         <dl class="fields">
           <dt><code>id</code>, <code>title</code></dt><dd>Needed. The server's id for the song (text or a number), and its title.</dd>
@@ -342,7 +342,7 @@ fn run(command, ids) {
         <p>Numbers may also be text; empty or missing fields are fine.</p>
         <h3>Helpers for servers</h3>
         <dl class="api">
-          <dt><code>secret(key)</code>, <code>set_secret(key, value)</code>, <code>delete_secret(key)</code></dt><dd>Keep a password or token in the system's credential store (Windows Credential Manager, or GNOME Keyring or KWallet on Linux), under this plugin's name, instead of in Needle's files. Always allowed.</dd>
+          <dt><code>secret(key)</code>, <code>set_secret(key, value)</code>, <code>delete_secret(key)</code></dt><dd>Keep a password or token in the system's credential store (Windows Credential Manager, GNOME Keyring or KWallet on Linux, or the macOS Keychain), under this plugin's name, instead of in Needle's files. Always allowed.</dd>
           <dt><code>md5(text)</code></dt><dd>The MD5 hash of the text, as 32 hex digits (Subsonic's salted sign-in uses it).</dd>
           <dt><code>random_text(length)</code></dt><dd>Random letters and digits.</dd>
           <dt><code>url_encode(text)</code></dt><dd>Text made safe for a web address.</dd>
@@ -380,7 +380,7 @@ fn run(command, ids) {
 
       <section id="examples">
         <h2>Examples</h2>
-        <p>Press <b>Add example plugins</b> in Settings to get these eight. Open their folders to read or change them. Two add sound effects: <b>Studio effects</b> (Room, Echo, Night mode, and Old radio, made from blocks) and <b>Bitcrusher</b> (DSP code in WebAssembly text). <b>Navidrome / Subsonic</b> is a <a href="#sources">music source</a>, and <b>NetEase lyrics</b> <a href="#lyrics">finds lyrics</a>.</p>
+        <p>Press <b>Add example plugins</b> in Settings to get these seven. Open their folders to read or change them. Two add sound effects: <b>Studio effects</b> (Room, Echo, Night mode, and Old radio, made from blocks) and <b>Bitcrusher</b> (DSP code in WebAssembly text). <b>NetEase lyrics</b> <a href="#lyrics">finds lyrics</a>.</p>
         <p>Needle updates these plugins by itself when a new version of Needle has a newer one, as long as you have not changed them. If you have, Settings shows <b>Update</b>, which keeps your changed files next to the new ones as <code>.mine</code> files, and <b>Keep mine</b>.</p>
         <p>Settings lists these under <b>Official</b>, and plugins you add under <b>Community</b>. An official plugin whose files are exactly as Needle installed them has a check mark next to its author. Once you change it, it says <i>changed by you</i> instead.</p>
 

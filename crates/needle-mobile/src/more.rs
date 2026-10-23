@@ -186,6 +186,8 @@ impl Needle {
     pub fn rate(&self, id: String, stars: u8) -> Result<()> {
         let stars = stars.min(5) as i64;
         self.library.rate(&id, stars)?;
+        // The player's copies too, so the playing song shows its new stars at once.
+        self.player.send(Command::Rated(id.clone(), stars));
         self.plugins.send(needle_core::plugins::PluginEvent::Rated {
             track_id: id,
             stars,

@@ -3,7 +3,7 @@ use super::{
     AppView, Event, Page, album_page,
     library::{Group, album_groups, artist_groups},
     pal,
-    widgets::{artwork, cover, display, faint, icon, meta},
+    widgets::{artwork, cover, display, faint, glyph, icon, meta},
 };
 use chrono::Timelike;
 use gpui::{prelude::*, *};
@@ -144,14 +144,83 @@ impl AppView {
                                         })),
                                 ),
                         )
-                        .child(
-                            div()
-                                .id(("shelf", i))
-                                .overflow_x_scroll()
-                                .child(div().px_8().flex().gap(px(20.)).children(tiles)),
-                        )
+                        .child(self.shelf_row(i, tiles, cx))
                 },
             ))
+    }
+
+    /// One Home row, scrolled sideways, with an arrow at each end (while the pointer is over
+    /// it, and only toward more) that moves it a page of tiles.
+    fn shelf_row(&self, i: usize, tiles: Vec<AnyElement>, cx: &mut Context<Self>) -> Div {
+        let p = pal(cx);
+        let Some(scroll) = self.shelf_scrolls.get(i).cloned() else {
+            return div().child(
+                div()
+                    .id(("shelf", i))
+                    .overflow_x_scroll()
+                    .child(div().px_8().flex().gap(px(20.)).children(tiles)),
+            );
+        };
+        let group = SharedString::from(format!("shelf-{i}"));
+        let (offset, most) = (scroll.offset().x, -scroll.max_offset().width);
+        let arrow = |back: bool| {
+            let scroll = scroll.clone();
+            div()
+                .id(("shelf-arrow", i * 2 + back as usize))
+                .absolute()
+                .top(px((TILE - 56.) / 2.))
+                .when(back, |el| el.left(px(6.)))
+                .when(!back, |el| el.right(px(6.)))
+                .w(px(30.))
+                .h(px(56.))
+                .rounded_full()
+                .flex()
+                .items_center()
+                .justify_center()
+                .bg(p.raised.opacity(0.92))
+                .border_1()
+                .border_color(p.line_soft)
+                .shadow_md()
+                .cursor_pointer()
+                .opacity(0.)
+                .group_hover(group.clone(), |s| s.opacity(1.))
+                .hover(|s| s.bg(p.raised))
+                .child(
+                    glyph(if back {
+                        "chevron-left"
+                    } else {
+                        "chevron-right"
+                    })
+                    .size(px(16.))
+                    .text_color(p.ink),
+                )
+                .on_click(cx.listener(move |_, _, _, cx| {
+                    cx.stop_propagation();
+                    // A page: the tiles that fit in the row's width, at least one.
+                    let step = TILE + 20.;
+                    let shown = f32::from(scroll.bounds().size.width) - 64.;
+                    let page = ((shown / step).floor().max(1.)) * step;
+                    let now = scroll.offset();
+                    let most = -f32::from(scroll.max_offset().width);
+                    let x = (f32::from(now.x) + if back { page } else { -page }).clamp(most, 0.);
+                    scroll.set_offset(point(px(x), now.y));
+                    cx.notify();
+                }))
+        };
+        div()
+            .relative()
+            .group(group.clone())
+            .child(
+                // A row of its own width (wider than the window), so it can scroll.
+                div()
+                    .id(("shelf", i))
+                    .flex()
+                    .overflow_x_scroll()
+                    .track_scroll(&scroll)
+                    .child(div().flex_none().px_8().flex().gap(px(20.)).children(tiles)),
+            )
+            .when(offset < px(-1.), |el| el.child(arrow(true)))
+            .when(offset > most + px(1.), |el| el.child(arrow(false)))
     }
 
     /// The song playing now (or the last one heard), large, with a way to carry on.

@@ -119,12 +119,17 @@ impl AppView {
 
     pub(super) fn plugins_section(&self, cx: &mut Context<Self>) -> impl IntoElement {
         let p = pal(cx);
-        let list = self.plugins.plugins();
+        // Sources built into Needle are set up in Settings › Library, not here.
+        let list: Vec<_> = self
+            .plugins
+            .plugins()
+            .into_iter()
+            .filter(|p| !p.builtin)
+            .collect();
         div()
             .flex()
             .flex_col()
             .gap_3()
-            .children(self.music_server_card(cx))
             .child(
                 div()
                     .flex()
@@ -163,8 +168,8 @@ impl AppView {
                 div()
                     .id(("plugin", i))
                     .p_4()
-                    .rounded(px(10.))
-                    .bg(p.chrome)
+                    .rounded(px(7.))
+                    .bg(p.raised.opacity(0.5))
                     .border_1()
                     .border_color(if plugin.error.is_some() { p.danger.opacity(0.4) } else { p.line_soft })
                     .flex()

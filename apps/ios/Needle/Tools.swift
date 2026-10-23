@@ -72,7 +72,8 @@ struct DuplicatesView: View {
         let keep = Int(set.keep)
         let others = set.songs.enumerated().filter { $0.offset != keep }.map(\.element.id)
         let paths = set.paths.enumerated().filter { $0.offset != keep }.map(\.element)
-            .filter { $0.hasPrefix(NSHomeDirectory()) }
+            // Only Needle's own files (by real path: the library keeps /private/var).
+            .filter { Store.realPath($0).hasPrefix(Store.realPath(NSHomeDirectory())) }
         let keepId = set.songs[keep].id
         Task {
             if await store.ask({ try $0.mergeDuplicates(keep: keepId, others: others) }) != nil {

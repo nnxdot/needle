@@ -1,5 +1,6 @@
-//! Music sources in the app: signing in to a server (Settings › Plugins), its songs in the
-//! sidebar, and saving a streamed song as a file.
+//! Music sources in the app: signing in to a server (Settings › Library, or a source
+//! plugin's card), and saving a streamed song as a file. A server's songs show with the rest,
+//! marked with a small server icon.
 use super::{
     AppView, Page, pal,
     widgets::{count, faint, meta, small_button, strong},
@@ -11,10 +12,7 @@ use gpui_component::{
     input::{Input, InputState},
     switch::Switch,
 };
-use needle_core::plugins::{self, PluginEvent, PluginInfo};
-
-/// The plugin that connects Needle to Navidrome and other Subsonic servers.
-const SUBSONIC: &str = "subsonic";
+use needle_core::plugins::{PluginEvent, PluginInfo};
 
 /// "just now", "5 min ago", "3 h ago", "2 days ago".
 fn ago(seconds: i64) -> String {
@@ -27,19 +25,6 @@ fn ago(seconds: i64) -> String {
 }
 
 impl AppView {
-    /// Sources that are turned on and signed in, for the sidebar.
-    pub(super) fn signed_in_sources(&self) -> Vec<(String, String)> {
-        self.plugins
-            .plugins()
-            .into_iter()
-            .filter(|p| p.enabled)
-            .filter_map(|p| {
-                let source = p.source?;
-                (source.signed_in && source.songs > 0).then_some((p.manifest.id, source.name))
-            })
-            .collect()
-    }
-
     /// Make the text boxes of each sign-in form (called from the poll, which has a window).
     pub(super) fn ensure_source_inputs(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         for plugin in self.plugins.plugins() {
@@ -84,72 +69,49 @@ impl AppView {
         cx.notify();
     }
 
-    /// Install the Navidrome / Subsonic plugin if needed, and turn it on.
-    fn set_up_subsonic(&mut self, cx: &mut Context<Self>) {
-        // Only this plugin: the other examples stay out until someone asks for them.
-        if let Err(error) = plugins::install_example(&self.library, SUBSONIC) {
-            self.fail(format!("{error:#}"));
-            return;
-        }
-        self.plugins.send(PluginEvent::Reload);
+    /// Settings › Library › Music servers: the servers built into Needle, each with its
+    /// sign-in form or how it is doing.
+    pub(super) fn music_servers(&self, cx: &mut Context<Self>) -> Vec<AnyElement> {
         self.plugins
-            .send(PluginEvent::Enable(SUBSONIC.into(), true));
-        self.notify("Type your server's address and sign in below.");
-        cx.notify();
-    }
-
-    /// The card at the top of Settings › Plugins that sets up a music server in one click.
-    pub(super) fn music_server_card(&self, cx: &mut Context<Self>) -> Option<AnyElement> {
-        let ready = self
-            .plugins
             .plugins()
             .iter()
-            .any(|p| p.manifest.id == SUBSONIC && p.enabled);
-        if ready {
-            return None;
-        }
-        let p = pal(cx);
-        Some(
-            div()
-                .p_4()
-                .rounded(px(10.))
-                .border_1()
-                .border_color(p.accent.opacity(0.4))
-                .bg(p.accent_soft)
-                .flex()
-                .items_center()
-                .gap_4()
-                .child(
-                    div()
-                        .flex_1()
-                        .min_w_0()
-                        .flex()
-                        .flex_col()
-                        .gap_1()
-                        .child(strong("Play music from your server"))
-                        .child(
-                            meta("Navidrome, Airsonic, Gonic, and other Subsonic servers. Your server's songs show with your own and play straight away.", cx)
-                                .w_full(),
-                        ),
-                )
-                .child(
-                    small_button("subsonic-set-up", "Set up")
-                        .primary()
-                        .on_click(cx.listener(|this, _, _, cx| this.set_up_subsonic(cx))),
-                )
-                .into_any_element(),
-        )
+            .filter(|p| p.builtin)
+            .filter_map(|p| self.source_block(p, cx))
+            .collect()
     }
 
-    /// Sign-in form, or how the source is doing, inside its plugin's card.
+    /// Sign-in form, or how the source is doing: in Settings › Library for a server built into
+    /// Needle, and inside its plugin's card for one a plugin brings.
     pub(super) fn source_block(
         &self,
         plugin: &PluginInfo,
         cx: &mut Context<Self>,
     ) -> Option<AnyElement> {
         let source = plugin.source.clone().filter(|_| plugin.enabled)?;
+        let builtin = plugin.builtin;
         let p = pal(cx);
         let id = plugin.manifest.id.clone();
+        // Not signed in: one card with a button; the form opens under it.
+        if plugin.builtin
+            && !source.signed_in
+            && source.error.is_none()
+            && !self.settings_open.contains("server-sign-in")
+        {
+            return Some(
+                super::widgets::setting_row(
+                    &source.name,
+                    "Not signed in. Your server's songs show with your own.",
+                    small_button("server-sign-in-open", "Sign in…")
+                        .primary()
+                        .on_click(cx.listener(|this, _, _, cx| {
+                            this.settings_open.insert("server-sign-in");
+                            cx.notify();
+                        })),
+                    cx,
+                )
+                .into_any_element(),
+            );
+        }
         let body = if source.signed_in {
             let status = if source.syncing {
                 "Getting the list of songs…".to_string()
@@ -162,6 +124,7 @@ impl AppView {
             };
             let (kept_songs, kept_bytes) = self.kept_usage.get(&id).copied().unwrap_or((0, 0));
             let (show, sync, out, unkeep) = (id.clone(), id.clone(), id.clone(), id.clone());
+            let refresh = id.clone();
             let name = source.name.clone();
             // The source's own switches, such as searching the server as you type.
             let switches = source.switches.iter().map(|switch| {
@@ -262,6 +225,19 @@ impl AppView {
                                 })),
                         )
                         .child(
+                            small_button(SharedString::from(format!("source-refresh-{id}")), "Refresh everything")
+                                .ghost()
+                                .disabled(source.syncing)
+                                .tooltip("Get every song and cover again, look for moving covers again, and remove songs no longer on the server. Plays and ratings stay.")
+                                .on_click(cx.listener({
+                                    let refresh = refresh.clone();
+                                    move |this, _, _, cx| {
+                                        this.plugins.send(PluginEvent::SourceRefresh(refresh.clone()));
+                                        cx.notify();
+                                    }
+                                })),
+                        )
+                        .child(
                             small_button(SharedString::from(format!("source-out-{id}")), "Sign out")
                                 .ghost()
                                 .tooltip("Forget the password. Its songs stay, marked missing, until you sign in again.")
@@ -300,13 +276,27 @@ impl AppView {
                 .child(strong(format!("Sign in to {}", source.name)))
                 .children(fields)
                 .child(
-                    div().flex().child(
-                        small_button(SharedString::from(format!("source-in-{id}")), "Sign in")
-                            .primary()
-                            .on_click(cx.listener(move |this, _, window, cx| {
-                                this.sign_in_source(&plugin, window, cx)
-                            })),
-                    ),
+                    div()
+                        .flex()
+                        .gap_2()
+                        .child(
+                            small_button(SharedString::from(format!("source-in-{id}")), "Sign in")
+                                .primary()
+                                .on_click(cx.listener(move |this, _, window, cx| {
+                                    this.sign_in_source(&plugin, window, cx)
+                                })),
+                        )
+                        // A form opened from Settings › Library's card closes again.
+                        .when(builtin, |el| {
+                            el.child(
+                                small_button("server-sign-in-close", "Cancel")
+                                    .ghost()
+                                    .on_click(cx.listener(|this, _, _, cx| {
+                                        this.settings_open.remove("server-sign-in");
+                                        cx.notify();
+                                    })),
+                            )
+                        }),
                 )
                 .child(
                     faint(
@@ -320,11 +310,7 @@ impl AppView {
                 )
         };
         Some(
-            div()
-                .mt_1()
-                .p_3()
-                .rounded(px(8.))
-                .bg(p.raised)
+            super::widgets::card(cx)
                 .flex()
                 .flex_col()
                 .gap_2()

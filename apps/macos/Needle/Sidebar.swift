@@ -1,7 +1,7 @@
 import SwiftUI
 import UniformTypeIdentifiers
 
-/// The sidebar: the library, collections, music servers, and playlists; songs dropped on a
+/// The sidebar: the library, collections, and playlists; songs dropped on a
 /// playlist join it, and on Favorites become favorites. Folded to a strip of icons with the
 /// compact sidebar.
 struct Sidebar: View {
@@ -52,13 +52,6 @@ struct Sidebar: View {
                         .menuIndicator(.hidden)
                         .fixedSize()
                         .help("Add a collection")
-                    }
-                }
-            }
-            if !store.servers.isEmpty {
-                Section(rail ? "" : "Servers") {
-                    ForEach(store.servers, id: \.plugin) { server in
-                        item(server.name, "globe", .source(plugin: server.plugin, name: server.name))
                     }
                 }
             }
@@ -292,9 +285,6 @@ struct Rail: View {
                     page("Listening history", "chart.line.uptrend.xyaxis", .history)
                     ForEach(store.settings.layout.collections, id: \.self) { key in
                         if let c = Collections.find(key) { page(c.name, c.icon, .collection(key)) }
-                    }
-                    ForEach(store.servers, id: \.plugin) { server in
-                        page(server.name, "globe", .source(plugin: server.plugin, name: server.name))
                     }
                     if !store.playlists.isEmpty {
                         Divider().padding(.vertical, 4).padding(.horizontal, 12)

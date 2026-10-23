@@ -1,12 +1,29 @@
-//! Discord's "Listening to" status from the phone. Discord's own library (its Social SDK)
-//! hands the status to the Discord app on the phone; there is no sign-in. The library is not
-//! part of Needle's source, so the app loads it when the build has it (see MOBILE.md), then
-//! calls [`Needle::start_discord`].
+//! Discord's "Listening to" status from the phone, through Discord's own library (its Social
+//! SDK). On Android the library hands the status to the Discord app on the phone; there is no
+//! sign-in. An iPhone app cannot talk to another app, so there the person links their Discord
+//! account once (Settings › Discord): Needle keeps the key Discord gives it in the Keychain
+//! and talks to Discord itself. The library is not part of Needle's source, so the app has it
+//! only when the build does (see MOBILE.md); the app then calls [`Needle::start_discord`].
 use crate::{Needle, Result};
 
 /// The Discord application Needle appears as, as on desktop.
-#[cfg(target_os = "android")]
+#[cfg(any(target_os = "android", target_os = "ios"))]
 const APP_ID: &str = "1552097597454295110";
+
+/// Discord on this phone: whether the build has Discord's library, and on iPhone, the link to
+/// the person's Discord account.
+#[derive(Clone, uniffi::Record)]
+pub struct DiscordAccount {
+    /// This build has Discord's library.
+    pub available: bool,
+    /// The Discord account must be linked before the status can show (iPhone).
+    pub needs_link: bool,
+    pub linked: bool,
+    /// Discord's sign-in page is open.
+    pub linking: bool,
+    /// Why linking, or the last connection, failed.
+    pub problem: Option<String>,
+}
 
 /// The Discord status settings, as on desktop.
 #[derive(Clone, uniffi::Record)]
@@ -58,10 +75,33 @@ impl Needle {
         Ok(())
     }
 
+    pub fn discord_account(&self) -> DiscordAccount {
+        account_now()
+    }
+
+    /// iPhone: opens Discord's sign-in page, to link the person's Discord account. See
+    /// [`Needle::discord_account`] for how it went.
+    pub fn discord_link(&self) {
+        #[cfg(target_os = "ios")]
+        sdk::link(APP_ID);
+    }
+
+    /// iPhone: stops linking (Discord's sign-in page may stay open; its answer is ignored).
+    pub fn discord_cancel_link(&self) {
+        #[cfg(target_os = "ios")]
+        sdk::account::CANCEL.store(true, std::sync::atomic::Ordering::SeqCst);
+    }
+
+    /// iPhone: forgets the Discord account; the status goes away.
+    pub fn discord_unlink(&self) {
+        #[cfg(target_os = "ios")]
+        sdk::account::unlink();
+    }
+
     /// Keeps the Discord status in step with playback, from now on (when it is on in
     /// Settings). Call once, after the app has loaded Discord's library.
     pub fn start_discord(&self) {
-        #[cfg(target_os = "android")]
+        #[cfg(any(target_os = "android", target_os = "ios"))]
         {
             use std::sync::atomic::{AtomicBool, Ordering};
             static STARTED: AtomicBool = AtomicBool::new(false);
@@ -74,16 +114,63 @@ impl Needle {
     }
 }
 
+#[cfg(target_os = "android")]
+fn account_now() -> DiscordAccount {
+    DiscordAccount {
+        available: sdk::available(),
+        needs_link: false,
+        linked: true,
+        linking: false,
+        problem: None,
+    }
+}
+
+#[cfg(target_os = "ios")]
+fn account_now() -> DiscordAccount {
+    let (linking, problem) = sdk::account::state();
+    DiscordAccount {
+        available: sdk::available(),
+        needs_link: true,
+        linked: sdk::account::token().is_some(),
+        linking,
+        problem,
+    }
+}
+
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
+fn account_now() -> DiscordAccount {
+    DiscordAccount {
+        available: false,
+        needs_link: false,
+        linked: false,
+        linking: false,
+        problem: None,
+    }
+}
+
 /// As on desktop: tells Discord when the song, pause, or position changes, and clears the
 /// status after a while of nothing playing.
-#[cfg(target_os = "android")]
+#[cfg(any(target_os = "android", target_os = "ios"))]
 fn follow(player: needle_core::audio::Player, library: needle_core::database::Library) {
     use needle_core::discord::{Activity, Layout, Presence};
     let mut presence: Option<Presence> = None;
     let mut sent: Option<(_, i64)> = None;
     let mut idle_since: Option<i64> = None;
+    #[cfg(target_os = "ios")]
+    let mut unlinked = sdk::account::UNLINKED.load(std::sync::atomic::Ordering::SeqCst);
     loop {
         std::thread::sleep(std::time::Duration::from_secs(1));
+        // Unlinked: the status goes now (dropping the presence clears it and lets go of the
+        // client), not when the song next changes.
+        #[cfg(target_os = "ios")]
+        {
+            let now = sdk::account::UNLINKED.load(std::sync::atomic::Ordering::SeqCst);
+            if now != unlinked {
+                unlinked = now;
+                presence = None;
+                sent = None;
+            }
+        }
         let Ok(settings) = library.settings() else {
             continue;
         };
@@ -131,6 +218,8 @@ fn follow(player: needle_core::audio::Player, library: needle_core::database::Li
                 (
                     a.title.clone(),
                     a.artist.clone(),
+                    a.album.clone(),
+                    a.ends.map(|end| end - a.started),
                     a.paused,
                     a.find_cover,
                     a.layout,
@@ -141,7 +230,7 @@ fn follow(player: needle_core::audio::Player, library: needle_core::database::Li
         let changed = match (&sent, &key) {
             (None, None) => false,
             (Some((what, started)), Some((new_what, new_started))) => {
-                what != new_what || (!new_what.2 && (started - new_started).abs() > 2i64)
+                what != new_what || (!new_what.4 && (started - new_started).abs() > 2i64)
             }
             _ => true,
         };
@@ -152,17 +241,23 @@ fn follow(player: needle_core::audio::Player, library: needle_core::database::Li
     }
 }
 
-/// Discord's library, called through its C interface. It is loaded by the app (Java needs it
-/// first), so here it is only looked up.
-#[cfg(target_os = "android")]
+/// Discord's library, called through its C interface. On Android the app loads it (Java needs
+/// it first); on iPhone it is a framework inside the app. Here it is only looked up.
+#[cfg(any(target_os = "android", target_os = "ios"))]
 mod sdk {
     use needle_core::discord::{Activity, Link};
     use std::{
-        ffi::{c_char, c_int, c_void},
+        ffi::{CStr, c_char, c_int, c_void},
         ptr::null_mut,
         sync::{Arc, Mutex, OnceLock},
         time::{Duration, Instant},
     };
+
+    #[cfg(target_os = "android")]
+    const LIBRARY: &CStr = c"libdiscord_partner_sdk.so";
+    #[cfg(target_os = "ios")]
+    const LIBRARY: &CStr =
+        c"@executable_path/Frameworks/discord_partner_sdk.framework/discord_partner_sdk";
 
     /// Discord does not find Needle's logo by its name when the status comes from a phone, so
     /// it gets the logo's web link.
@@ -194,11 +289,25 @@ mod sdk {
                 size: s.len(),
             }
         }
+
+        /// For Discord to fill in.
+        #[cfg(target_os = "ios")]
+        fn empty() -> Self {
+            Self {
+                ptr: null_mut(),
+                size: 0,
+            }
+        }
     }
 
     type Free = unsafe extern "C" fn(*mut c_void);
     type Answered = unsafe extern "C" fn(*mut Object, *mut c_void);
     type Logged = unsafe extern "C" fn(Text, c_int, *mut c_void);
+    /// A sign-in's answer: the result, the code, and the address Discord sent it to.
+    type Authorized = unsafe extern "C" fn(*mut Object, Text, Text, *mut c_void);
+    /// A key's answer: the result, the access key, the refresh key, the key's type, its
+    /// lifetime in seconds, and the scopes.
+    type Exchanged = unsafe extern "C" fn(*mut Object, Text, Text, c_int, i32, Text, *mut c_void);
 
     unsafe extern "C" {
         fn dlopen(name: *const c_char, flags: c_int) -> *mut c_void;
@@ -208,16 +317,18 @@ mod sdk {
 
     macro_rules! api {
         ($($field:ident = $name:literal: fn($($arg:ty),*) $(-> $ret:ty)?;)*) => {
+            // Android does not sign in, so some are only called on iPhone.
+            #[allow(dead_code)]
             struct Api {
                 $($field: unsafe extern "C" fn($($arg),*) $(-> $ret)?,)*
             }
 
             impl Api {
                 fn load() -> Option<Self> {
-                    // SAFETY: looks up a library the app has loaded, and functions with the
-                    // types Discord's header (cdiscord.h) gives them.
+                    // SAFETY: looks up Discord's library, and functions with the types
+                    // Discord's header (cdiscord.h) gives them.
                     unsafe {
-                        let library = dlopen(c"libdiscord_partner_sdk.so".as_ptr(), RTLD_NOW);
+                        let library = dlopen(LIBRARY.as_ptr(), RTLD_NOW);
                         if library.is_null() {
                             return None;
                         }
@@ -267,6 +378,24 @@ mod sdk {
         result_successful = "Discord_ClientResult_Successful": fn(*mut Object) -> bool;
         result_error = "Discord_ClientResult_Error": fn(*mut Object, *mut Text);
         result_drop = "Discord_ClientResult_Drop": fn(*mut Object);
+        // Signing in (iPhone).
+        client_connect = "Discord_Client_Connect": fn(*mut Object);
+        client_status = "Discord_Client_GetStatus": fn(*mut Object) -> c_int;
+        update_token = "Discord_Client_UpdateToken": fn(*mut Object, c_int, Text, Answered, Option<Free>, *mut c_void);
+        refresh_token = "Discord_Client_RefreshToken": fn(*mut Object, u64, Text, Exchanged, Option<Free>, *mut c_void);
+        get_token = "Discord_Client_GetToken": fn(*mut Object, u64, Text, Text, Text, Exchanged, Option<Free>, *mut c_void);
+        authorize = "Discord_Client_Authorize": fn(*mut Object, *mut Object, Authorized, Option<Free>, *mut c_void);
+        create_verifier = "Discord_Client_CreateAuthorizationCodeVerifier": fn(*mut Object, *mut Object);
+        presence_scopes = "Discord_Client_GetDefaultPresenceScopes": fn(*mut Text);
+        verifier_drop = "Discord_AuthorizationCodeVerifier_Drop": fn(*mut Object);
+        verifier_challenge = "Discord_AuthorizationCodeVerifier_Challenge": fn(*mut Object, *mut Object);
+        verifier_text = "Discord_AuthorizationCodeVerifier_Verifier": fn(*mut Object, *mut Text);
+        challenge_drop = "Discord_AuthorizationCodeChallenge_Drop": fn(*mut Object);
+        args_init = "Discord_AuthorizationArgs_Init": fn(*mut Object);
+        args_drop = "Discord_AuthorizationArgs_Drop": fn(*mut Object);
+        args_set_client_id = "Discord_AuthorizationArgs_SetClientId": fn(*mut Object, u64);
+        args_set_scopes = "Discord_AuthorizationArgs_SetScopes": fn(*mut Object, Text);
+        args_set_challenge = "Discord_AuthorizationArgs_SetCodeChallenge": fn(*mut Object, *mut Object);
     }
 
     fn api() -> Option<&'static Api> {
@@ -274,18 +403,54 @@ mod sdk {
         API.get_or_init(Api::load).as_ref()
     }
 
-    /// Discord's answer to a change: none yet, then taken or refused (with why).
-    type Answer = Arc<Mutex<Option<Result<(), String>>>>;
+    /// This build has Discord's library.
+    pub fn available() -> bool {
+        api().is_some()
+    }
 
-    /// Called by Discord with its answer; the answer is ours to drop.
-    unsafe extern "C" fn answered(result: *mut Object, answer: *mut c_void) {
-        let Some(api) = api() else {
-            return;
-        };
-        // SAFETY: `answer` is the Answer given with the change, kept until `release`.
-        let answer = unsafe { &*answer.cast::<Answer>() };
+    /// Where an answer from Discord lands: none yet, then the answer.
+    type Slot<T> = Arc<Mutex<Option<T>>>;
+    /// Discord took a change, or refused it (with why).
+    type Outcome = Result<(), String>;
+
+    /// A slot to hand Discord with a request; Discord releases it with [`drop_slot`].
+    fn give<T>(slot: &Slot<T>) -> *mut c_void {
+        Box::into_raw(Box::new(slot.clone())).cast()
+    }
+
+    unsafe extern "C" fn drop_slot<T>(slot: *mut c_void) {
+        // SAFETY: made by `give`, released once by Discord.
+        drop(unsafe { Box::from_raw(slot.cast::<Slot<T>>()) });
+    }
+
+    /// Puts Discord's answer in the slot given with the request.
+    unsafe fn put<T>(slot: *mut c_void, value: T) {
+        // SAFETY: a slot made by `give`, kept until Discord releases it.
+        let slot = unsafe { &*slot.cast::<Slot<T>>() };
+        *slot.lock().unwrap_or_else(|e| e.into_inner()) = Some(value);
+    }
+
+    /// Discord answers through its callbacks, which run on this thread when asked: runs them
+    /// until the answer comes, or `limit` passes.
+    fn wait_for<T>(api: &Api, slot: &Slot<T>, limit: Duration) -> Option<T> {
+        let until = Instant::now() + limit;
+        loop {
+            // SAFETY: runs Discord's waiting callbacks on this thread.
+            unsafe { (api.run_callbacks)() };
+            if let Some(answer) = slot.lock().unwrap_or_else(|e| e.into_inner()).take() {
+                return Some(answer);
+            }
+            if Instant::now() > until {
+                return None;
+            }
+            std::thread::sleep(Duration::from_millis(20));
+        }
+    }
+
+    /// Whether a request worked, and drops its result.
+    unsafe fn outcome(api: &Api, result: *mut Object) -> Outcome {
         // SAFETY: a live result, dropped once.
-        let outcome = unsafe {
+        unsafe {
             let outcome = if (api.result_successful)(result) {
                 Ok(())
             } else {
@@ -294,18 +459,18 @@ mod sdk {
                     size: 0,
                 };
                 (api.result_error)(result, &mut text);
-                let why = owned(api, text);
-                Err(why)
+                Err(owned(api, text))
             };
             (api.result_drop)(result);
             outcome
-        };
-        *answer.lock().unwrap_or_else(|e| e.into_inner()) = Some(outcome);
+        }
     }
 
-    unsafe extern "C" fn release(answer: *mut c_void) {
-        // SAFETY: made by Box::into_raw in `show`, released once by Discord.
-        drop(unsafe { Box::from_raw(answer.cast::<Answer>()) });
+    unsafe extern "C" fn answered(result: *mut Object, slot: *mut c_void) {
+        if let Some(api) = api() {
+            // SAFETY: Discord's result, and the slot given with the request.
+            unsafe { put(slot, outcome(api, result)) };
+        }
     }
 
     unsafe extern "C" fn logged(message: Text, _severity: c_int, _: *mut c_void) {
@@ -333,12 +498,20 @@ mod sdk {
         client: Box<Object>,
         /// The last refusal, so the log has each one once, not every few seconds.
         refused: Option<String>,
+        /// Refusals in a row: after a few, the connection is made again.
+        refusals: u32,
+        /// iPhone: the unlinks before this connection (see [`account::UNLINKED`]).
+        #[cfg(target_os = "ios")]
+        unlinked: u64,
+        /// iPhone: when the access key runs out, a while early, by the wall clock (which,
+        /// unlike `Instant`, goes on while the phone sleeps).
+        #[cfg(target_os = "ios")]
+        expires: std::time::SystemTime,
     }
 
-    impl Link for Sdk {
-        fn connect(client_id: &str) -> Option<Self> {
-            let api = api()?;
-            let id = client_id.parse().ok()?;
+    impl Sdk {
+        /// A new client of Discord's, as Needle's application.
+        fn new(api: &'static Api, id: u64) -> Self {
             let mut client = Box::new(Object::new());
             // SAFETY: a new client, used on this thread only.
             unsafe {
@@ -347,20 +520,50 @@ mod sdk {
                 (api.add_log_callback)(&mut *client, logged, None, null_mut(), 3);
                 (api.set_application_id)(&mut *client, id);
             }
-            Some(Self {
+            Self {
                 api,
                 client,
                 refused: None,
-            })
+                refusals: 0,
+                #[cfg(target_os = "ios")]
+                unlinked: account::UNLINKED.load(std::sync::atomic::Ordering::SeqCst),
+                #[cfg(target_os = "ios")]
+                expires: std::time::SystemTime::now(),
+            }
+        }
+    }
+
+    impl Link for Sdk {
+        fn connect(client_id: &str) -> Option<Self> {
+            let api = api()?;
+            let id = client_id.parse().ok()?;
+            // Without a linked account there is nothing to connect to.
+            #[cfg(target_os = "ios")]
+            let refresh = account::token()?;
+            #[allow(unused_mut)]
+            let mut sdk = Self::new(api, id);
+            #[cfg(target_os = "ios")]
+            if !sdk.sign_in(id, &refresh) {
+                return None;
+            }
+            Some(sdk)
         }
 
         fn show(&mut self, activity: Option<&Activity>) -> std::io::Result<bool> {
             let api = self.api;
             let Some(activity) = activity else {
+                // Clearing comes first, even after an unlink: it is how the status goes.
                 // SAFETY: the live client.
                 unsafe { (api.clear_rich_presence)(&mut *self.client) };
                 return Ok(true);
             };
+            // Unlinked, or the key is running out: let go, and connect again (or not).
+            #[cfg(target_os = "ios")]
+            if account::UNLINKED.load(std::sync::atomic::Ordering::SeqCst) != self.unlinked
+                || std::time::SystemTime::now() > self.expires
+            {
+                return Err(std::io::Error::other("Connecting to Discord again"));
+            }
             let card = activity.card();
             let picture = |name: String| {
                 if name == "needle" {
@@ -369,7 +572,7 @@ mod sdk {
                     name
                 }
             };
-            let answer: Answer = Answer::default();
+            let answer: Slot<Outcome> = Slot::default();
             // SAFETY: objects made here and dropped here; Discord copies what it is given.
             unsafe {
                 let mut a = Object::new();
@@ -410,42 +613,36 @@ mod sdk {
                     (api.activity_set_timestamps)(&mut a, &mut times);
                     (api.times_drop)(&mut times);
                 }
-                let user = Box::into_raw(Box::new(answer.clone()));
                 (api.update_rich_presence)(
                     &mut *self.client,
                     &mut a,
                     answered,
-                    Some(release),
-                    user.cast(),
+                    Some(drop_slot::<Outcome>),
+                    give(&answer),
                 );
                 (api.activity_drop)(&mut a);
             }
-            // Discord answers through its callbacks, which run here when asked.
-            let until = Instant::now() + Duration::from_secs(10);
-            loop {
-                // SAFETY: runs Discord's waiting callbacks on this thread.
-                unsafe { (api.run_callbacks)() };
-                if let Some(outcome) = answer.lock().unwrap_or_else(|e| e.into_inner()).take() {
-                    return Ok(match outcome {
-                        Ok(()) => {
-                            self.refused = None;
-                            true
-                        }
-                        Err(why) => {
-                            if self.refused.as_ref() != Some(&why) {
-                                needle_core::logfile::warn(format!(
-                                    "Discord did not take the status: {why}"
-                                ));
-                                self.refused = Some(why);
-                            }
-                            false
-                        }
-                    });
+            match wait_for(api, &answer, Duration::from_secs(10)) {
+                Some(Ok(())) => {
+                    self.refused = None;
+                    self.refusals = 0;
+                    Ok(true)
                 }
-                if Instant::now() > until {
-                    return Err(std::io::Error::other("Discord did not answer"));
+                Some(Err(why)) => {
+                    if self.refused.as_ref() != Some(&why) {
+                        needle_core::logfile::warn(format!(
+                            "Discord did not take the status: {why}"
+                        ));
+                        self.refused = Some(why);
+                    }
+                    // Refused again and again: the connection is likely gone; make it anew.
+                    self.refusals += 1;
+                    if self.refusals >= 4 {
+                        return Err(std::io::Error::other("Discord keeps refusing the status"));
+                    }
+                    Ok(false)
                 }
-                std::thread::sleep(Duration::from_millis(20));
+                None => Err(std::io::Error::other("Discord did not answer")),
             }
         }
     }
@@ -454,6 +651,300 @@ mod sdk {
         fn drop(&mut self) {
             // SAFETY: the live client, dropped once.
             unsafe { (self.api.client_drop)(&mut *self.client) };
+        }
+    }
+
+    /// A key from Discord: the access key, the refresh key, and the access key's lifetime in
+    /// seconds.
+    #[cfg(target_os = "ios")]
+    type Tokens = Result<(String, String, i32), String>;
+
+    #[cfg(target_os = "ios")]
+    unsafe extern "C" fn exchanged(
+        result: *mut Object,
+        access: Text,
+        refresh: Text,
+        _kind: c_int,
+        lifetime: i32,
+        scopes: Text,
+        slot: *mut c_void,
+    ) {
+        let Some(api) = api() else {
+            return;
+        };
+        // SAFETY: Discord hands over the strings, for us to free, and its result.
+        unsafe {
+            let (access, refresh) = (owned(api, access), owned(api, refresh));
+            owned(api, scopes);
+            let tokens = outcome(api, result).map(|()| (access, refresh, lifetime));
+            put::<Tokens>(slot, tokens);
+        }
+    }
+
+    /// The code Discord's sign-in gives, and the address it was sent to.
+    #[cfg(target_os = "ios")]
+    type Code = Result<(String, String), String>;
+
+    #[cfg(target_os = "ios")]
+    unsafe extern "C" fn authorized(
+        result: *mut Object,
+        code: Text,
+        redirect: Text,
+        slot: *mut c_void,
+    ) {
+        let Some(api) = api() else {
+            return;
+        };
+        // SAFETY: Discord hands over the strings, for us to free, and its result.
+        unsafe {
+            let (code, redirect) = (owned(api, code), owned(api, redirect));
+            let answer = outcome(api, result).map(|()| (code, redirect));
+            put::<Code>(slot, answer);
+        }
+    }
+
+    #[cfg(target_os = "ios")]
+    impl Sdk {
+        /// Signs in with the linked account's refresh key (Discord gives a new one each
+        /// time), then connects. False when that did not work.
+        fn sign_in(&mut self, id: u64, refresh: &str) -> bool {
+            let api = self.api;
+            let tokens: Slot<Tokens> = Slot::default();
+            // SAFETY: the live client; Discord copies the key.
+            unsafe {
+                (api.refresh_token)(
+                    &mut *self.client,
+                    id,
+                    Text::of(refresh),
+                    exchanged,
+                    Some(drop_slot::<Tokens>),
+                    give(&tokens),
+                )
+            };
+            let (access, refresh, lifetime) = match wait_for(api, &tokens, Duration::from_secs(30))
+            {
+                Some(Ok(tokens)) => tokens,
+                Some(Err(why)) => {
+                    // A refused key needs a new link; anything else (no internet) is tried
+                    // again later.
+                    if why.to_lowercase().contains("invalid") {
+                        account::problem(Some(format!(
+                            "Discord did not take Needle's key ({why}). Link your account again."
+                        )));
+                    }
+                    return false;
+                }
+                // No answer (no internet): try again later.
+                None => return false,
+            };
+            // Unlinked meanwhile: the new key is not kept, and nothing connects.
+            if account::UNLINKED.load(std::sync::atomic::Ordering::SeqCst) != self.unlinked {
+                return false;
+            }
+            // Discord's old key no longer works once it gave this one.
+            if !account::save(&refresh) {
+                account::problem(Some(
+                    "Needle could not keep Discord's key in the Keychain. Link your account again."
+                        .into(),
+                ));
+            }
+            // An hour early, so it never runs out while connected.
+            self.expires = std::time::SystemTime::now()
+                + Duration::from_secs((lifetime.max(0) as u64).saturating_sub(3600).max(600));
+            let done: Slot<Outcome> = Slot::default();
+            // SAFETY: the live client; Discord copies the key. 1 is a Bearer key.
+            unsafe {
+                (api.update_token)(
+                    &mut *self.client,
+                    1,
+                    Text::of(&access),
+                    answered,
+                    Some(drop_slot::<Outcome>),
+                    give(&done),
+                )
+            };
+            match wait_for(api, &done, Duration::from_secs(30)) {
+                Some(Ok(())) => {}
+                Some(Err(why)) => {
+                    account::problem(Some(format!("Discord did not take Needle's key ({why})")));
+                    return false;
+                }
+                None => return false,
+            }
+            // SAFETY: the live client.
+            unsafe { (api.client_connect)(&mut *self.client) };
+            let until = Instant::now() + Duration::from_secs(30);
+            loop {
+                // SAFETY: runs Discord's callbacks, and reads the live client's status.
+                let status = unsafe {
+                    (api.run_callbacks)();
+                    (api.client_status)(&mut *self.client)
+                };
+                // 3 is Ready.
+                if status == 3 {
+                    account::problem(None);
+                    return true;
+                }
+                if Instant::now() > until {
+                    needle_core::logfile::warn("Discord did not connect");
+                    return false;
+                }
+                std::thread::sleep(Duration::from_millis(50));
+            }
+        }
+    }
+
+    /// iPhone: opens Discord's sign-in page, and keeps the key Discord gives when the person
+    /// allows Needle. In the background; [`account::state`] tells how it goes.
+    #[cfg(target_os = "ios")]
+    pub fn link(client_id: &'static str) {
+        use std::sync::atomic::Ordering;
+        if account::LINKING.swap(true, Ordering::SeqCst) {
+            return;
+        }
+        account::CANCEL.store(false, Ordering::SeqCst);
+        account::problem(None);
+        std::thread::spawn(move || {
+            if let Err(why) = linked(client_id) {
+                needle_core::logfile::warn(format!("Linking Discord: {why}"));
+                // Cancelled by the person: nothing went wrong.
+                if !account::CANCEL.load(Ordering::SeqCst) {
+                    account::problem(Some(why));
+                }
+            }
+            account::LINKING.store(false, Ordering::SeqCst);
+        });
+    }
+
+    #[cfg(target_os = "ios")]
+    fn linked(client_id: &str) -> Result<(), String> {
+        let api = api().ok_or("This build of Needle has no Discord library")?;
+        let id: u64 = client_id
+            .parse()
+            .map_err(|_| "Needle's Discord application is wrong")?;
+        let mut sdk = Sdk::new(api, id);
+        let code: Slot<Code> = Slot::default();
+        // SAFETY: objects made here and dropped here; Discord copies what it is given.
+        let verifier = unsafe {
+            let mut verifier = Object::new();
+            (api.create_verifier)(&mut *sdk.client, &mut verifier);
+            let mut challenge = Object::new();
+            (api.verifier_challenge)(&mut verifier, &mut challenge);
+            let mut text = Text::empty();
+            (api.verifier_text)(&mut verifier, &mut text);
+            let verifier_text = owned(api, text);
+            let mut scopes = Text::empty();
+            (api.presence_scopes)(&mut scopes);
+            let scopes = owned(api, scopes);
+            let mut args = Object::new();
+            (api.args_init)(&mut args);
+            (api.args_set_client_id)(&mut args, id);
+            (api.args_set_scopes)(&mut args, Text::of(&scopes));
+            (api.args_set_challenge)(&mut args, &mut challenge);
+            (api.authorize)(
+                &mut *sdk.client,
+                &mut args,
+                authorized,
+                Some(drop_slot::<Code>),
+                give(&code),
+            );
+            (api.args_drop)(&mut args);
+            (api.challenge_drop)(&mut challenge);
+            (api.verifier_drop)(&mut verifier);
+            verifier_text
+        };
+        // The person signs in on Discord's page: give them time, or stop when they cancel.
+        let until = Instant::now() + Duration::from_secs(600);
+        let (code, redirect) = loop {
+            if let Some(answer) = wait_for(api, &code, Duration::from_millis(500)) {
+                break answer?;
+            }
+            if account::CANCEL.load(std::sync::atomic::Ordering::SeqCst) {
+                return Err("Linking was cancelled".into());
+            }
+            if Instant::now() > until {
+                return Err("Discord's sign-in page was open too long".into());
+            }
+        };
+        let tokens: Slot<Tokens> = Slot::default();
+        // SAFETY: the live client; Discord copies what it is given.
+        unsafe {
+            (api.get_token)(
+                &mut *sdk.client,
+                id,
+                Text::of(&code),
+                Text::of(&verifier),
+                Text::of(&redirect),
+                exchanged,
+                Some(drop_slot::<Tokens>),
+                give(&tokens),
+            )
+        };
+        let (_, refresh, _) =
+            wait_for(api, &tokens, Duration::from_secs(30)).ok_or("Discord did not answer")??;
+        if !account::save(&refresh) || account::token().as_deref() != Some(refresh.as_str()) {
+            return Err("Needle could not keep Discord's key in the Keychain".into());
+        }
+        drop(sdk);
+        Ok(())
+    }
+
+    /// iPhone: the linked Discord account. Its refresh key is kept in the Keychain.
+    #[cfg(target_os = "ios")]
+    pub mod account {
+        use needle_core::secret_store as plugin;
+        use std::sync::{
+            Mutex,
+            atomic::{AtomicBool, AtomicU64, Ordering},
+        };
+
+        const PLACE: &str = "discord";
+        const KEY: &str = "refresh_token";
+        pub static LINKING: AtomicBool = AtomicBool::new(false);
+        /// Asks linking to stop.
+        pub static CANCEL: AtomicBool = AtomicBool::new(false);
+        /// Goes up when the account is unlinked, so a connection made before lets go.
+        pub static UNLINKED: AtomicU64 = AtomicU64::new(0);
+        static PROBLEM: Mutex<Option<String>> = Mutex::new(None);
+
+        pub fn token() -> Option<String> {
+            plugin::get(PLACE, KEY).ok().flatten()
+        }
+
+        /// Keeps the key; false when the Keychain would not.
+        pub fn save(token: &str) -> bool {
+            match plugin::set(PLACE, KEY, token) {
+                Ok(()) => true,
+                Err(e) => {
+                    needle_core::logfile::warn(format!("Keeping Discord's key: {e:#}"));
+                    false
+                }
+            }
+        }
+
+        pub fn unlink() {
+            let _ = plugin::delete(PLACE, KEY);
+            UNLINKED.fetch_add(1, Ordering::SeqCst);
+            problem(None);
+        }
+
+        /// Sets why linking or connecting failed (logged once), or clears it.
+        pub fn problem(why: Option<String>) {
+            let mut now = PROBLEM.lock().unwrap_or_else(|e| e.into_inner());
+            if let Some(why) = &why
+                && now.as_ref() != Some(why)
+            {
+                needle_core::logfile::warn(format!("Discord: {why}"));
+            }
+            *now = why;
+        }
+
+        /// Whether Discord's sign-in page is open, and why linking or connecting failed.
+        pub fn state() -> (bool, Option<String>) {
+            (
+                LINKING.load(Ordering::SeqCst),
+                PROBLEM.lock().unwrap_or_else(|e| e.into_inner()).clone(),
+            )
         }
     }
 }

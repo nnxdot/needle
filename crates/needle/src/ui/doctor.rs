@@ -950,7 +950,8 @@ impl AppView {
             .gap_4()
             .child(head)
             .child(faint("Pick the release that is your copy", cx))
-            .child(div().id("releases").overflow_x_scroll().child(div().flex().gap_3().children(choices)))
+            // As wide as its choices, so it can scroll.
+            .child(div().id("releases").flex().overflow_x_scroll().child(div().flex_none().flex().gap_3().children(choices)))
             .child(
                 div()
                     .flex()

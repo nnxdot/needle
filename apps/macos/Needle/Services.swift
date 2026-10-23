@@ -10,11 +10,13 @@ struct ServicesSettings: View {
     @State private var token = ""
     @State private var acoustid = ""
     @State private var pending: String?
+    /// Sign-in forms, shown only when asked for (Connect), until Cancel or a sign-in.
+    @State private var connecting: Set<String> = []
 
     var body: some View {
         let s = store.settings
         Section {
-            SettingRow(title: "Check for updates automatically", detail: "Once a day, when Needle starts. You have Needle \(store.version). Needle asks needle.nnx.fyi for a newer version; nothing else is sent.") {
+            SettingRow(title: "Check for updates automatically", detail: "Once a day. You have Needle \(store.version).", icon: "arrow.down.circle") {
                 SettingSwitch(key: "check_updates", on: s.checkUpdates)
             }
             HStack {
@@ -36,12 +38,12 @@ struct ServicesSettings: View {
                 Text("The Keychain could not be read: \(error)").foregroundStyle(store.plainColors.danger).padding(.vertical, 6)
             }
             lastfm(s)
-            SettingRow(title: "Fix artist names for scrobbles", detail: "When your tags write an artist another way than Apple Music does (키키 for KiiiKiii), scrobble Apple's spelling, so Last.fm and ListenBrainz file the song under the right artist. Your files are not changed.") {
+            SettingRow(title: "Fix artist names for scrobbles", detail: "Apple Music's spelling of an artist. Your files stay.", icon: "pencil") {
                 SettingSwitch(key: "scrobble_corrections", on: s.scrobbleCorrections)
             }
             listenbrainz(s)
         } header: {
-            GroupHeader(title: "Listening services", detail: "Optional. Nothing is sent until you connect a service and turn it on.")
+            GroupHeader(title: "Listening services")
         }
         .task { refresh() }
         Section {
@@ -49,7 +51,7 @@ struct ServicesSettings: View {
         } header: {
             GroupHeader(title: "Identifying songs")
         } footer: {
-            Text("Keys and sessions are stored in the Keychain, never in your library or its exports. Environment variables override them.")
+            Text("Keys and sessions are kept in the Keychain. Nothing is sent until you connect and turn on a service.")
                 .font(.caption).foregroundStyle(.secondary)
         }
     }
@@ -104,28 +106,38 @@ struct ServicesSettings: View {
     private func lastfm(_ s: NeedleSettings) -> some View {
         let state = info?.status.lastfm
         let configured = state?.configured == true
+        let open = connecting.contains("lastfm")
         return VStack(alignment: .leading, spacing: 10) {
-            HStack(spacing: 20) {
+            HStack(spacing: 12) {
+                RowIcon(name: "music.note")
                 VStack(alignment: .leading, spacing: 3) {
-                    Text("Last.fm").font(.body.weight(.medium))
+                    Text("Last.fm")
                     line(state)
                 }
                 Spacer()
                 if configured && state?.source != "Environment" {
                     Button("Sign out") { signOut("lastfm") }
+                } else if !configured && pending == nil {
+                    if info?.status.lastfmApp.configured == true {
+                        // Needle's own key (or one saved): nothing to fill in, so Connect opens
+                        // Last.fm's sign-in page at once.
+                        Button(busy ? "Opening…" : "Connect") { lastfmBegin() }.buttonStyle(.borderedProminent).disabled(busy)
+                    } else {
+                        connectButton("lastfm", open: open)
+                    }
                 }
                 RowToggle(label: "Scrobble to Last.fm", isOn: Binding(get: { s.lastfmEnabled }, set: { store.set(["lastfm_enabled": $0]) }))
                     .toggleStyle(.switch).labelsHidden().disabled(!configured)
                     .help("Scrobble qualified listens to Last.fm")
             }
-            if !configured {
+            if !configured && (open || pending != nil) {
                 if let pending {
                     VStack(alignment: .leading, spacing: 8) {
                         Text("Approve Needle in the Last.fm page that just opened, then press Continue.").font(.callout)
                         HStack {
                             Button(busy ? "Checking…" : "Continue") { lastfmContinue() }.buttonStyle(.borderedProminent).disabled(busy)
                             Button("Open the page again") { openWebPage(pending) }
-                            Button("Cancel") { store.core.lastfmCancel(); self.pending = nil }
+                            Button("Cancel") { store.core.lastfmCancel(); self.pending = nil; connecting.remove("lastfm") }
                         }
                     }
                     .padding(10)
@@ -152,21 +164,25 @@ struct ServicesSettings: View {
     private func listenbrainz(_ s: NeedleSettings) -> some View {
         let state = info?.status.listenbrainz
         let configured = state?.configured == true
+        let open = connecting.contains("listenbrainz")
         return VStack(alignment: .leading, spacing: 10) {
-            HStack(spacing: 20) {
+            HStack(spacing: 12) {
+                RowIcon(name: "brain")
                 VStack(alignment: .leading, spacing: 3) {
-                    Text("ListenBrainz").font(.body.weight(.medium))
+                    Text("ListenBrainz")
                     line(state)
                 }
                 Spacer()
                 if configured && state?.source != "Environment" {
                     Button("Sign out") { signOut("listenbrainz") }
+                } else if !configured {
+                    connectButton("listenbrainz", open: open)
                 }
                 RowToggle(label: "Submit to ListenBrainz", isOn: Binding(get: { s.listenbrainzEnabled }, set: { store.set(["listenbrainz_enabled": $0]) }))
                     .toggleStyle(.switch).labelsHidden().disabled(!configured)
                     .help("Submit qualified listens to ListenBrainz")
             }
-            if !configured {
+            if !configured && open {
                 Text("Paste the user token from listenbrainz.org/settings.").font(.callout).foregroundStyle(.secondary)
                 HStack {
                     SecureField("Token", text: $token, prompt: Text("ListenBrainz user token")).labelsHidden().textFieldStyle(.roundedBorder)
@@ -177,6 +193,7 @@ struct ServicesSettings: View {
                         Task {
                             if let user = await store.ask({ try $0.listenbrainzSignIn(token: token) }) {
                                 store.notify("Connected to ListenBrainz as \(user).")
+                                connecting.remove("listenbrainz")
                             }
                             busy = false
                             refresh()
@@ -193,11 +210,13 @@ struct ServicesSettings: View {
 
     private var acoustidSection: some View {
         let state = info?.status.acoustid
+        let open = connecting.contains("acoustid")
         return VStack(alignment: .leading, spacing: 10) {
-            HStack {
+            HStack(spacing: 12) {
+                RowIcon(name: "waveform.badge.magnifyingglass")
                 VStack(alignment: .leading, spacing: 3) {
-                    Text("AcoustID").font(.body.weight(.medium))
-                    Text("Identifies tracks by their sound. Needs a free application key from acoustid.org.").font(.callout).foregroundStyle(.secondary)
+                    Text("AcoustID")
+                    Text("Identifies songs by their sound.").font(.callout).foregroundStyle(.secondary)
                     line(state)
                 }
                 Spacer()
@@ -206,21 +225,35 @@ struct ServicesSettings: View {
                         store.job { try $0.clearAcoustidKey(); return "AcoustID key removed." }
                         refresh()
                     }
+                } else if state?.configured != true {
+                    connectButton("acoustid", open: open)
                 }
             }
-            if state?.configured != true {
+            if state?.configured != true && open {
+                Text("A free application key from acoustid.org.").font(.callout).foregroundStyle(.secondary)
                 HStack {
                     SecureField("Key", text: $acoustid, prompt: Text("AcoustID application key")).labelsHidden().textFieldStyle(.roundedBorder)
                     Button("Save key") {
                         let key = acoustid.trimmingCharacters(in: .whitespaces)
                         guard !key.isEmpty else { store.fail("Paste your AcoustID application key first."); return }
                         store.job { try $0.setAcoustidKey(key: key); return "AcoustID key saved." }
+                        connecting.remove("acoustid")
                         Task { try? await Task.sleep(for: .milliseconds(300)); refresh() }
                     }
                 }
             }
         }
         .padding(.vertical, 4)
+    }
+
+    /// Connect opens a service's form; Cancel closes it again.
+    @ViewBuilder
+    private func connectButton(_ service: String, open: Bool) -> some View {
+        if open {
+            Button("Cancel") { connecting.remove(service) }
+        } else {
+            Button("Connect") { connecting.insert(service) }.buttonStyle(.borderedProminent)
+        }
     }
 
     private func signOut(_ service: String) {
@@ -250,6 +283,7 @@ struct ServicesSettings: View {
         Task {
             if let user = await store.ask({ try $0.lastfmContinue() }) {
                 pending = nil
+                connecting.remove("lastfm")
                 store.notify("Signed in to Last.fm as \(user). Scrobbling is on.")
                 store.reloadSettings()
             }
@@ -259,26 +293,40 @@ struct ServicesSettings: View {
     }
 }
 
-/// Settings › Plugins: music servers to sign in to, and every plugin with what it may do.
+/// Settings › Library › Music servers: Needle's own (Navidrome and other Subsonic servers),
+/// then any a plugin adds. No plugin to add or turn on first.
+struct MusicServersSection: View {
+    private var store: Store { .shared }
+
+    var body: some View {
+        let servers = store.plugins.filter { $0.source != nil && ($0.builtIn || $0.enabled) }
+            .sorted { $0.builtIn && !$1.builtIn }
+        Section {
+            if servers.isEmpty {
+                Text("Needle is getting ready to sign in to music servers.").foregroundStyle(.secondary)
+            }
+            ForEach(servers, id: \.id) { plugin in SourceCard(plugin: plugin) }
+        } header: {
+            GroupHeader(title: "Music servers")
+        }
+        .task { store.reloadPlugins() }
+    }
+}
+
+/// Settings › Plugins: every plugin with what it may do. Parts built into Needle (its music
+/// servers) are not plugins here.
 struct PluginsSettings: View {
     private var store: Store { .shared }
     @State private var updates: [PluginUpdate] = []
 
     var body: some View {
-        let sources = store.plugins.filter { $0.source != nil && $0.enabled }
-        if !sources.isEmpty {
-            Section {
-                ForEach(sources, id: \.id) { plugin in SourceCard(plugin: plugin) }
-            } header: {
-                GroupHeader(title: "Music servers", detail: "Navidrome, Airsonic, Gonic, and other Subsonic servers. Your server's songs show with your own and play straight away.")
-            }
-        }
+        let plugins = store.plugins.filter { !$0.builtIn }
         Section {
-            if store.plugins.isEmpty {
+            if plugins.isEmpty {
                 Text("No plugins yet. Add the examples, or put a plugin folder in the plugins folder and press Reload.")
                     .foregroundStyle(.secondary)
             }
-            ForEach(store.plugins, id: \.id) { plugin in
+            ForEach(plugins, id: \.id) { plugin in
                 PluginCard(plugin: plugin, update: updates.first { $0.id == plugin.id }?.update) {
                     updates = JSON.decode([PluginUpdate].self, store.core.pluginUpdatesJson(), plain: true) ?? []
                 }
@@ -305,9 +353,7 @@ struct PluginsSettings: View {
                 }
             }
         } header: {
-            GroupHeader(title: "Plugins", detail: sources.isEmpty
-                ? "Add features with small scripts. To play music from your Navidrome, Airsonic, or Gonic server, add the example plugins and turn on Subsonic."
-                : "Add features with small scripts. Each plugin lists what it may do.")
+            GroupHeader(title: "Plugins", detail: "Add features with small scripts. Each plugin lists what it may do. Music servers are in Settings › Library.")
         } footer: {
             Text("Plugins are Rhai scripts in their own folders. Nothing runs until you turn it on. Learn to write one at needle.nnx.fyi/plugins.")
                 .font(.caption).foregroundStyle(.secondary)
@@ -382,67 +428,205 @@ private struct SourceCard: View {
     let plugin: PluginItem
     @State private var fields: [String: String] = [:]
     @State private var usage: [UInt64] = [0, 0]
+    /// Songs played lately, kept for a while to play again without the network: count, bytes.
+    @State private var cached: [UInt64] = [0, 0]
+    /// The sign-in form, shown only after Sign in… (test builds: `-open-signin YES` opens it).
+    @State private var signingIn: Bool = {
+        #if DEBUG
+        UserDefaults.standard.bool(forKey: "open-signin")
+        #else
+        false
+        #endif
+    }()
+    /// The server's albums and artists, counted from its songs in the library.
+    @State private var counts: (albums: Int, artists: Int)?
+    @State private var confirmSignOut = false
 
     var body: some View {
         let source = plugin.source!
-        VStack(alignment: .leading, spacing: 8) {
-            HStack {
-                Text(source.name).font(.body.weight(.semibold))
+        Group {
+            if source.signedIn {
+                signedIn(source)
+            } else {
+                signedOut(source)
+            }
+        }
+        .padding(.vertical, 4)
+        .task { loadUsage() }
+        .task(id: "\(source.songs)|\(source.syncing)") {
+            guard source.signedIn else { return }
+            // The core counts albums and artists with the server's rule, as the iPhone shows them.
+            let id = plugin.id
+            if let found = await store.load({ try $0.sourceStats(plugin: id) }), found.count == 2 {
+                counts = (Int(found[0]), Int(found[1]))
+            }
+        }
+        .confirmationDialog("Sign out of \(source.name)?", isPresented: $confirmSignOut) {
+            Button("Sign Out", role: .destructive) { store.core.sourceSignOut(plugin: plugin.id); refresh() }
+        } message: {
+            Text("Its songs stay in your library, marked missing, until you sign in again.")
+        }
+    }
+
+    // MARK: Signed in
+
+    private func signedIn(_ source: MusicSource) -> some View {
+        VStack(alignment: .leading, spacing: 14) {
+            HStack(spacing: 14) {
+                ServerBadge()
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(source.name).font(.title3.weight(.semibold))
+                    status(source)
+                }
                 Spacer()
-                if source.signedIn {
-                    Button("Show songs") { store.navigate(.source(plugin: plugin.id, name: source.name)) }
-                    Button(source.syncing ? "Getting the list of songs…" : "Update now") { store.core.sourceSync(plugin: plugin.id) }
-                        .disabled(source.syncing)
-                        .help("Get the server's list of songs again")
-                    Button("Sign out") { store.core.sourceSignOut(plugin: plugin.id); refresh() }
-                        .help("Forget the password. Its songs stay, marked missing, until you sign in again.")
+                Button("Show songs") { store.navigate(.source(plugin: plugin.id, name: source.name)) }
+                    .buttonStyle(.borderedProminent)
+                Button(source.syncing ? "Updating…" : "Update now") { store.core.sourceSync(plugin: plugin.id) }
+                    .disabled(source.syncing)
+                    .help("Ask the server for its songs again")
+                Button("Refresh everything…") {
+                    if confirm("Refresh everything?", "Needle gets every song and cover again. Songs no longer on the server leave your library.", "Refresh") {
+                        store.core.sourceRefresh(plugin: plugin.id)
+                    }
+                }
+                .disabled(source.syncing)
+                .help("Every song and cover again, moving covers too. Songs no longer on the server leave the library; Update now keeps them, marked missing.")
+            }
+            HStack(spacing: 10) {
+                Stat(value: source.songs.formatted(), label: "Songs", symbol: "music.note")
+                Stat(value: counts.map { $0.albums.formatted() } ?? "…", label: "Albums", symbol: "square.stack")
+                Stat(value: counts.map { $0.artists.formatted() } ?? "…", label: "Artists", symbol: "music.microphone")
+                Stat(value: source.syncedAt.map { Date(timeIntervalSince1970: TimeInterval($0)).formatted(.relative(presentation: .named)) } ?? "Not yet",
+                     label: "Updated", symbol: "clock")
+            }
+            SettingRow(title: "Kept offline", detail: "Songs you chose to keep. They play without the network.", icon: "arrow.down.circle") {
+                HStack(spacing: 12) {
+                    Text(sizeText(usage)).foregroundStyle(.secondary).monospacedDigit()
+                    if (usage.first ?? 0) > 0 { Button("Stop Keeping All…") { stopKeeping() } }
                 }
             }
-            if source.signedIn {
-                let when = source.syncedAt.map { " · updated \(Date(timeIntervalSince1970: TimeInterval($0)).formatted(.relative(presentation: .named)))" } ?? ""
-                Text("Signed in. \(source.songs.formatted()) songs\(when).").font(.callout).foregroundStyle(.secondary)
-                if source.syncing && source.received > 0 {
-                    Text("\(source.received.formatted()) songs so far…").font(.caption).foregroundStyle(.secondary)
+            SettingRow(title: "Played lately", detail: "They play again without the network, for a while.", icon: "clock.arrow.circlepath") {
+                HStack(spacing: 12) {
+                    Text(sizeText(cached)).foregroundStyle(.secondary).monospacedDigit()
+                    if (cached.first ?? 0) > 0 { Button("Free Space…") { freeSpace() } }
                 }
-                ForEach(source.switches, id: \.id) { s in
-                    Toggle(isOn: Binding(get: { s.on }, set: { on in store.core.sourceSwitch(plugin: plugin.id, id: s.id, on: on); refresh() })) {
-                        VStack(alignment: .leading) {
-                            Text(s.label)
-                            if !s.detail.isEmpty { Text(s.detail).font(.caption).foregroundStyle(.secondary) }
-                        }
-                    }
-                    .toggleStyle(.switch)
+            }
+            if source.coversLeft > 0 {
+                SettingRow(title: "Bringing in covers", detail: "\(source.coversLeft.formatted()) to go.", icon: "photo.on.rectangle") { ProgressView().controlSize(.small) }
+            }
+            ForEach(source.switches, id: \.id) { s in
+                SettingRow(title: s.label, detail: s.detail, icon: "magnifyingglass") {
+                    RowToggle(isOn: Binding(get: { s.on }, set: { on in store.core.sourceSwitch(plugin: plugin.id, id: s.id, on: on); refresh() }))
+                        .toggleStyle(.switch).labelsHidden()
                 }
-                Text("Songs stream as you play them. The last 2 GB you played stay on this Mac, so they play again without the network.")
-                    .font(.caption).foregroundStyle(.secondary)
-                if (usage.first ?? 0) > 0 {
-                    Text("\(usage[0]) songs kept on this Mac · \(ByteCountFormatter.string(fromByteCount: Int64(usage.last ?? 0), countStyle: .file))")
-                        .font(.caption)
-                }
-            } else {
-                Text("Type your server's address and sign in below.").font(.callout).foregroundStyle(.secondary)
-                ForEach(source.fields, id: \.id) { field in
-                    if field.secret {
-                        SecureField(field.label, text: Binding(get: { fields[field.id] ?? "" }, set: { fields[field.id] = $0 }), prompt: Text(field.placeholder))
-                    } else {
-                        TextField(field.label, text: Binding(get: { fields[field.id] ?? "" }, set: { fields[field.id] = $0 }), prompt: Text(field.placeholder))
-                    }
-                }
-                .textFieldStyle(.roundedBorder)
-                Button("Sign in") {
-                    store.core.sourceSignIn(plugin: plugin.id, fields: fields)
-                    store.notify("Signing in to \(source.name)…")
-                    refresh()
-                }
-                .buttonStyle(.borderedProminent)
-                Text("Passwords are kept in the Keychain, not in Needle's files.").font(.caption).foregroundStyle(.secondary)
             }
             if let error = source.error {
                 Text(error).font(.caption).foregroundStyle(store.plainColors.danger)
             }
+            HStack {
+                Spacer()
+                Button("Sign Out…", role: .destructive) { confirmSignOut = true }
+                    .help("Forget the password. Its songs stay, marked missing, until you sign in again.")
+            }
         }
-        .padding(.vertical, 4)
-        .task { usage = store.core.keptUsage(plugin: plugin.id) }
+    }
+
+    /// How the server is doing: connected, updating its song list, or not reached.
+    @ViewBuilder
+    private func status(_ source: MusicSource) -> some View {
+        if source.syncing {
+            HStack(spacing: 6) {
+                ProgressView().controlSize(.mini)
+                Text(source.received > 0 ? "Updating the song list… \(source.received.formatted()) so far" : "Asking the server for its songs…")
+                    .font(.callout).foregroundStyle(.secondary)
+            }
+        } else if let error = source.error {
+            HStack(spacing: 6) {
+                Circle().fill(store.plainColors.danger).frame(width: 7, height: 7)
+                Text("Can't reach the server").font(.callout).foregroundStyle(store.plainColors.danger).help(error)
+            }
+        } else {
+            HStack(spacing: 6) {
+                Circle().fill(store.plainColors.success).frame(width: 7, height: 7)
+                Text("Connected").font(.callout).foregroundStyle(.secondary)
+            }
+        }
+    }
+
+    // MARK: Signed out
+
+    private func signedOut(_ source: MusicSource) -> some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(spacing: 12) {
+                RowIcon(name: "server.rack")
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(source.name)
+                    Text("Not signed in. Your server's songs show with your own.").font(.callout).foregroundStyle(.secondary).lineLimit(1)
+                }
+                Spacer()
+                if !signingIn {
+                    Button("Sign in…") { signingIn = true }.buttonStyle(.borderedProminent)
+                }
+            }
+            if signingIn {
+                signInForm(source)
+            } else if let error = source.error {
+                Text(error).font(.caption).foregroundStyle(store.plainColors.danger)
+            }
+        }
+    }
+
+    /// The sign-in form, as a Mac account sheet: one box, the labels right-aligned in a column
+    /// beside the fields, the notes small and grey, and Cancel and Sign In at the bottom right
+    /// (Return signs in).
+    private func signInForm(_ source: MusicSource) -> some View {
+        let p = store.plainColors
+        return VStack(alignment: .leading, spacing: 12) {
+            Text("Navidrome, Airsonic, Gonic, and other Subsonic servers.").font(.caption).foregroundStyle(.secondary)
+            Grid(alignment: .leading, horizontalSpacing: 10, verticalSpacing: 8) {
+                ForEach(source.fields, id: \.id) { field in
+                    GridRow {
+                        Text("\(field.label):")
+                            .foregroundStyle(.secondary)
+                            .gridColumnAlignment(.trailing)
+                        let binding = Binding(get: { fields[field.id] ?? "" }, set: { fields[field.id] = $0 })
+                        let hint = Text(field.placeholder.isEmpty ? field.label : field.placeholder)
+                        Group {
+                            if field.secret {
+                                SecureField(field.label, text: binding, prompt: hint)
+                            } else {
+                                TextField(field.label, text: binding, prompt: hint)
+                            }
+                        }
+                        .labelsHidden()
+                        .textFieldStyle(.roundedBorder)
+                        .multilineTextAlignment(.leading)
+                        .frame(maxWidth: 340)
+                        .onSubmit { signIn(source) }
+                    }
+                }
+            }
+            if let error = source.error {
+                Text(error).font(.caption).foregroundStyle(p.danger)
+            }
+            HStack(alignment: .center) {
+                Text("Passwords are kept in the Keychain, not in Needle's files.").font(.caption).foregroundStyle(.secondary)
+                Spacer(minLength: 12)
+                Button("Cancel") { signingIn = false }
+                    .keyboardShortcut(.cancelAction)
+                Button("Sign In") { signIn(source) }
+                    .keyboardShortcut(.defaultAction)
+            }
+        }
+        .padding(14)
+        .background(p.raised.opacity(0.55), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: 10, style: .continuous).strokeBorder(p.line.opacity(0.6), lineWidth: 1))
+    }
+
+    private func signIn(_ source: MusicSource) {
+        store.core.sourceSignIn(plugin: plugin.id, fields: fields)
+        store.notify("Signing in to \(source.name)…")
+        refresh()
     }
 
     private func refresh() {
@@ -453,6 +637,79 @@ private struct SourceCard: View {
             }
             store.libraryChanged()
         }
+    }
+
+    private func loadUsage() {
+        usage = store.core.keptUsage(plugin: plugin.id)
+        cached = store.core.streamCacheUsage(plugin: plugin.id)
+    }
+
+    private func sizeText(_ numbers: [UInt64]) -> String {
+        "\((numbers.first ?? 0).formatted()) songs · \(ByteCountFormatter.string(fromByteCount: Int64(numbers.last ?? 0), countStyle: .file))"
+    }
+
+    /// Asks first, in the Mac's own alert; true for the first button.
+    private func confirm(_ title: String, _ text: String, _ button: String) -> Bool {
+        let alert = NSAlert()
+        alert.messageText = title
+        alert.informativeText = text
+        alert.addButton(withTitle: button)
+        alert.addButton(withTitle: "Cancel")
+        alert.buttons.first?.hasDestructiveAction = true
+        alert.buttons.last?.keyEquivalent = "\u{1b}"
+        return alert.runModal() == .alertFirstButtonReturn
+    }
+
+    private func stopKeeping() {
+        guard confirm("Stop keeping \((usage.first ?? 0).formatted()) songs?",
+                      "They stay on this Mac until the space is needed, then they stream again.", "Stop Keeping All") else { return }
+        let id = plugin.id
+        Task {
+            if let n = await store.ask({ try $0.forgetKept(plugin: id) }) { store.notify("\(n.formatted()) songs no longer kept.") }
+            loadUsage()
+        }
+    }
+
+    private func freeSpace() {
+        guard confirm("Free \(ByteCountFormatter.string(fromByteCount: Int64(cached.last ?? 0), countStyle: .file))?",
+                      "These songs stream again the next time you play them. Songs you kept stay.", "Free Space") else { return }
+        let id = plugin.id
+        Task {
+            if let n = await store.ask({ try $0.clearStreamCache(plugin: id) }) { store.notify("Freed \(n.formatted()) songs.") }
+            loadUsage()
+        }
+    }
+}
+
+/// The server's badge: a server in a rounded square of its own colors.
+private struct ServerBadge: View {
+    var body: some View {
+        Image(systemName: "server.rack")
+            .font(.system(size: 20, weight: .semibold))
+            .foregroundStyle(.white)
+            .frame(width: 44, height: 44)
+            .background(LinearGradient(colors: [.cyan, .blue], startPoint: .topLeading, endPoint: .bottomTrailing), in: RoundedRectangle(cornerRadius: 11, style: .continuous))
+            .accessibilityHidden(true)
+    }
+}
+
+/// A number about the server: the number, and what it counts.
+private struct Stat: View {
+    private var store: Store { .shared }
+    let value: String
+    let label: String
+    let symbol: String
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Image(systemName: symbol).font(.caption).foregroundStyle(.secondary)
+            Text(value).font(.title3.weight(.semibold)).monospacedDigit().lineLimit(1).minimumScaleFactor(0.7)
+            Text(label).font(.caption).foregroundStyle(.secondary)
+        }
+        .padding(10)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(store.plainColors.raised, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+        .accessibilityElement(children: .combine)
     }
 }
 

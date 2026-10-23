@@ -139,6 +139,8 @@ class NeedleApp : Application() {
         scope.launch {
             var wasScanning = false
             var shown: Pair<String?, Boolean>? = null
+            // The core's last playback error: each new one is said once, as on the computer.
+            var error: String? = null
             while (isActive) {
                 val local = core.playback()
                 val pc = _remote.value
@@ -149,6 +151,10 @@ class NeedleApp : Application() {
                 _remoteShown.value = showPc
                 val playback = if (showPc) fyi.nnx.needle.ui.Live.shape(pc!!).asPlayback() else local
                 _playback.value = playback
+                if (local.error != error) {
+                    error = local.error
+                    error?.let { fyi.nnx.needle.ui.showMessage(it) }
+                }
                 // The widgets follow the song and play or pause.
                 val now = playback.current?.id to playback.playing
                 if (now != shown) {

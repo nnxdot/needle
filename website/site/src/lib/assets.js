@@ -9,6 +9,7 @@ export const kinds = {
   rpm: /^needle-[\d.]+-1\.x86_64\.rpm$/,
   apkArm: /^Needle-[\d.]+-android-arm64-release\.apk$/,
   apkX86: /^Needle-[\d.]+-android-x86_64-release\.apk$/,
+  apkArm7: /^Needle-[\d.]+-android-armv7-release\.apk$/,
 };
 
 /** { kind: file name } and the versions, from latest.json, latest-macos.json, and latest-android.json. */
@@ -21,7 +22,7 @@ export function pick(latest, latestMac, latestAndroid) {
   for (const asset of latestMac?.assets ?? []) if (kinds.dmg.test(asset.name)) files.dmg = asset.name;
   // So has the Android app.
   for (const asset of latestAndroid?.assets ?? []) {
-    for (const kind of ["apkArm", "apkX86"]) if (kinds[kind].test(asset.name)) files[kind] = asset.name;
+    for (const kind of ["apkArm", "apkX86", "apkArm7"]) if (kinds[kind].test(asset.name)) files[kind] = asset.name;
   }
   const version = (latest?.tag_name ?? "").replace(/^v/, "");
   const macVersion = files.dmg ? files.dmg.replace(/^Needle-/, "").replace(/-macos\.dmg$/, "") : version;

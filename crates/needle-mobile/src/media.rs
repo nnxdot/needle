@@ -189,9 +189,23 @@ impl Needle {
         }
     }
 
-    /// A song's moving cover: a video beside its file (cover.mp4, animated.mov, and so on).
+    /// A song's moving cover, only if it is here already: never downloads (for a phone on
+    /// mobile data with Moving covers on mobile data off).
+    pub fn animated_cover_kept(&self, id: String) -> Option<String> {
+        let track = self.library.track(&id).ok().flatten()?;
+        media::animated_cover(&self.library, &track).map(|p| p.to_string_lossy().to_string())
+    }
+
+    /// A song's moving cover: a video beside its file (cover.mp4, animated.mov, and so on),
+    /// or an animated WebP or GIF; for a music server's song, its album's moving cover, which
+    /// may be downloaded the first time (call it off the main thread).
     pub fn animated_cover(&self, id: String) -> Option<String> {
         let track = self.library.track(&id).ok().flatten()?;
+        // A music server's song: its album's cover as the server keeps it, when it moves.
+        if track.source().is_some() {
+            return media::fetch_server_moving_cover(&self.library, &track)
+                .map(|p| p.to_string_lossy().to_string());
+        }
         media::animated_cover(&self.library, &track).map(|p| p.to_string_lossy().to_string())
     }
 
@@ -267,15 +281,34 @@ impl Needle {
             .unwrap_or_default()
     }
 
-    /// The phone's output opens at this rate and format (for a bit-perfect USB DAC, whose
-    /// mixer takes only its own format), or as Android likes when `rate` is 0. The output
-    /// opens again at once if it plays on the phone.
+    /// The phone's output opens at this rate, in 32-bit float or 16-bit whole numbers, or as
+    /// Android likes when `rate` is 0. Kept for older callers: [`Self::set_usb_output`] also
+    /// knows 32-bit whole numbers.
     /// (`floating` rather than `float`: the C header of the iPhone's bindings cannot name a
     /// parameter after a C type.)
     pub fn set_usb_format(&self, rate: u32, floating: bool) -> Result<()> {
+        self.set_usb_output(
+            rate,
+            if floating {
+                UsbSample::Float32
+            } else {
+                UsbSample::Int16
+            },
+        )
+    }
+
+    /// The phone's output opens at this rate and sample format (for a bit-perfect USB DAC,
+    /// whose mixer takes only its own format), or as Android likes when `rate` is 0. The
+    /// output opens again at once if it plays on the phone.
+    pub fn set_usb_output(&self, rate: u32, sample: UsbSample) -> Result<()> {
+        use needle_core::audio::StreamSample;
         let format = (rate > 0).then_some(needle_core::audio::StreamFormat {
             rate,
-            float: floating,
+            sample: match sample {
+                UsbSample::Int16 => StreamSample::Int16,
+                UsbSample::Int32 => StreamSample::Int32,
+                UsbSample::Float32 => StreamSample::Float32,
+            },
         });
         needle_core::audio::set_stream_format(format);
         let settings = self.library.settings()?;
@@ -539,4 +572,14 @@ fn shown(l: media::Lyrics) -> Lyrics {
         plain: l.plain,
         instrumental: l.instrumental,
     }
+}
+
+/// How the phone's output stores each sample, for [`Needle::set_usb_output`]: what a
+/// bit-perfect USB DAC's mixer asks for (Android's ENCODING_PCM_16BIT, ENCODING_PCM_32BIT,
+/// ENCODING_PCM_FLOAT).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, uniffi::Enum)]
+pub enum UsbSample {
+    Int16,
+    Int32,
+    Float32,
 }

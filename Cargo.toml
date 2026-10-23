@@ -3,7 +3,7 @@ members = ["crates/needle-core", "crates/needle", "crates/needle-mobile"]
 resolver = "2"
 
 [workspace.package]
-version = "1.7.1"
+version = "1.8.0"
 edition = "2024"
 license = "LicenseRef-Proprietary"
 
@@ -32,6 +32,9 @@ strip = "debuginfo"
 # Pure-Rust Opus decoder with a faster MDCT FFT; see THIRD-PARTY-NOTICES.md.
 [patch.crates-io]
 opus-decoder = { path = "third-party/patched/opus-decoder-0.1.1" }
+# Android output also in 32-bit whole numbers, for bit-perfect USB DACs that ask for them; see
+# third-party/patched/cpal-0.16.0/NEEDLE.md.
+cpal = { path = "third-party/patched/cpal-0.16.0" }
 # Blends soft edges correctly on see-through (glass) windows; see third-party/patched/gpui-0.2.2.
 gpui = { path = "third-party/patched/gpui-0.2.2" }
 # The text input no longer asks for a new frame on every frame, and Linux resize

@@ -14,6 +14,8 @@ struct Shelf<Content: View>: View {
         .scrollTargetBehavior(.viewAligned)
         .scrollIndicators(.hidden)
         .contentMargins(.horizontal, 16, for: .scrollContent)
+        // The cards' shadows go past the row; cut off there, they made a band across the page.
+        .scrollClipDisabled()
     }
 }
 
@@ -37,10 +39,15 @@ struct ScanPill: View {
 
 // MARK: - Home
 
+/// Home: a greeting, a grid of quick picks, the big cards, your week, and shelves of albums,
+/// artists, and playlists, each with a line saying what it holds.
 struct HomeView: View {
     @Environment(Store.self) private var store
     @State private var home: Home?
     @State private var playlists: [Playlist] = []
+    @State private var week: Stats?
+    /// The artists played most this month, with their pictures.
+    @State private var artists: [TopArtist] = []
     @State private var importing = false
 
     var body: some View {
@@ -51,12 +58,24 @@ struct HomeView: View {
                     if home.recent.isEmpty && home.added.isEmpty && home.mostPlayed.isEmpty {
                         empty
                     } else {
+                        Text(greeting).font(.title3.weight(.semibold)).foregroundStyle(.secondary)
+                            .padding(.horizontal).padding(.top, 2)
+                        quickPicks(home)
                         picks(home)
-                        shelf("Recently Played", home.recent, route: nil)
-                        shelf("Recently Added", home.added, route: .albums)
-                        shelf("Most Played", home.mostPlayed, route: nil)
+                        shelf("Jump back in", "Albums you played last", home.recent, route: .history)
+                        if let week, week.plays > 0 { WeekCard(stats: week).padding(.top, 22) }
+                        shelf("New in your library", "Added most recently", home.added, route: .albums)
+                        shelf("On repeat", "Your most played albums", home.mostPlayed, route: nil)
+                        if !artists.isEmpty {
+                            SectionTitle(title: "Artists you play most", route: .artists, detail: "This month")
+                            Shelf {
+                                ForEach(artists) { artist in
+                                    ArtistBubble(name: artist.name, artwork: artist.artwork)
+                                }
+                            }
+                        }
                         if !playlists.isEmpty {
-                            SectionTitle(title: "Playlists", route: .playlists)
+                            SectionTitle(title: "Playlists", route: .playlists, detail: "Yours, and the smart ones")
                             Shelf {
                                 ForEach(playlists) { PlaylistTile(playlist: $0) }
                             }
@@ -79,8 +98,38 @@ struct HomeView: View {
         .task(id: store.libraryVersion) {
             home = await store.load { try $0.home() }
             playlists = await store.load { try $0.playlists() } ?? []
+            week = await store.load { try $0.stats(days: 7) }
+            artists = await store.load { core in
+                let top = try core.stats(days: 30).topArtists.filter { !$0.artist.isEmpty && !isPlaceholderArtist($0.artist) }.prefix(12)
+                let pictures = Dictionary(try core.artists().map { ($0.name, $0.artwork) }, uniquingKeysWith: { a, _ in a })
+                return top.map { TopArtist(name: $0.artist, artwork: (pictures[$0.artist] ?? nil) ?? $0.artwork) }
+            } ?? []
         }
         .refreshable { store.rescan() }
+    }
+
+    private var greeting: String {
+        switch Calendar.current.component(.hour, from: Date()) {
+        case 5..<12: "Good morning"
+        case 12..<18: "Good afternoon"
+        default: "Good evening"
+        }
+    }
+
+    /// Quick picks, two to a row, as small tiles: the albums played last and the playlists.
+    @ViewBuilder
+    private func quickPicks(_ home: Home) -> some View {
+        let albums = home.recent.prefix(playlists.isEmpty ? 6 : 4).map { QuickPick.album($0) }
+        let lists = playlists.prefix(6 - albums.count).map { QuickPick.playlist($0) }
+        let all = albums + lists
+        // Only when it adds picks beyond the big cards (a small library would show them twice).
+        if all.count >= 4 {
+            LazyVGrid(columns: [GridItem(.flexible(), spacing: 10), GridItem(.flexible(), spacing: 10)], spacing: 10) {
+                ForEach(all) { pick in QuickPickTile(pick: pick) }
+            }
+            .padding(.horizontal)
+            .padding(.top, 14)
+        }
     }
 
     /// The big cards at the top: the most played albums, or the newest when nothing has played.
@@ -100,9 +149,9 @@ struct HomeView: View {
     }
 
     @ViewBuilder
-    private func shelf(_ title: String, _ albums: [Album], route: Route?) -> some View {
+    private func shelf(_ title: String, _ detail: String, _ albums: [Album], route: Route?) -> some View {
         if !albums.isEmpty {
-            SectionTitle(title: title, route: route)
+            SectionTitle(title: title, route: route, detail: detail)
             Shelf {
                 ForEach(albums) { AlbumTile(album: $0) }
             }
@@ -114,7 +163,7 @@ struct HomeView: View {
             ContentUnavailableView {
                 Label("No music yet", systemImage: "music.note.house")
             } description: {
-                Text("Import songs from the Files app, or put them in Files › On My iPhone › Needle. Music servers and your computer are in Sources.")
+                Text("Import songs from the Files app, or put them in Files › On My iPhone › Needle. Music servers and your computer are in Settings.")
             }
             Button { importing = true } label: {
                 Label("Import from Files", systemImage: "folder").padding(.horizontal, 8).padding(.vertical, 4)
@@ -122,6 +171,116 @@ struct HomeView: View {
             .buttonStyle(.glassProminent)
         }
         .padding(.top, 60)
+    }
+}
+
+/// An artist played most, with their picture.
+struct TopArtist: Identifiable, Hashable, Sendable {
+    let name: String
+    let artwork: String?
+    var id: String { name }
+}
+
+/// A quick pick on Home: an album or a playlist.
+enum QuickPick: Identifiable {
+    case album(Album)
+    case playlist(Playlist)
+
+    var id: String {
+        switch self {
+        case .album(let a): "a:" + a.key
+        case .playlist(let p): "p:" + p.id
+        }
+    }
+}
+
+/// A quick pick as a small tile: its cover and name, on glass.
+struct QuickPickTile: View {
+    let pick: QuickPick
+
+    var body: some View {
+        let (route, name): (Route, String) = switch pick {
+        case .album(let a): (.album(a), a.title)
+        case .playlist(let p): (.playlist(p), p.name)
+        }
+        NavigationLink(value: route) {
+            HStack(spacing: 10) {
+                Group {
+                    switch pick {
+                    case .album(let a): Artwork(path: a.artwork, seed: a.title + a.artist, size: 160)
+                    case .playlist(let p): PlaylistCover(playlist: p)
+                    }
+                }
+                .frame(width: 52, height: 52)
+                .clipShape(.rect(cornerRadius: 9))
+                Text(name).font(.footnote.weight(.semibold)).lineLimit(2).multilineTextAlignment(.leading)
+                Spacer(minLength: 0)
+            }
+            .padding(5)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .glassEffect(.regular, in: .rect(cornerRadius: 14))
+            .contentShape(.rect)
+        }
+        .buttonStyle(Pressable())
+    }
+}
+
+/// Your week of listening, in short: time, plays, and the artist played most; a tap opens it all.
+struct WeekCard: View {
+    let stats: Stats
+
+    var body: some View {
+        NavigationLink(value: Route.stats) {
+            HStack(spacing: 14) {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("YOUR WEEK").font(.caption.weight(.bold)).kerning(0.6).foregroundStyle(.secondary)
+                    Text(hoursMinutes(stats.seconds)).font(.title.bold()).monospacedDigit()
+                    Text("\(count(Int(stats.plays), "play")) · \(count(Int(stats.artists), "artist"))")
+                        .font(.subheadline).foregroundStyle(.secondary)
+                    if let top = stats.topArtists.first, !top.artist.isEmpty {
+                        Text("Most: \(top.artist)").font(.subheadline.weight(.medium)).lineLimit(1)
+                    }
+                }
+                Spacer(minLength: 8)
+                // A bar for each day of the week.
+                HStack(alignment: .bottom, spacing: 4) {
+                    let most = max(stats.days.map(\.seconds).max() ?? 1, 1)
+                    ForEach(Array(stats.days.suffix(7).enumerated()), id: \.offset) { _, day in
+                        Capsule().fill(.tint).frame(width: 7, height: max(4, 54 * day.seconds / most))
+                    }
+                }
+                .frame(height: 56, alignment: .bottom)
+                .accessibilityHidden(true)
+                Image(systemName: "chevron.right").font(.footnote.weight(.bold)).foregroundStyle(.tertiary)
+            }
+            .padding(16)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .glassEffect(.regular, in: .rect(cornerRadius: 22))
+            .padding(.horizontal)
+            .contentShape(.rect)
+        }
+        .buttonStyle(Pressable())
+    }
+}
+
+/// An artist as a round picture with their name under it.
+struct ArtistBubble: View {
+    let name: String
+    let artwork: String?
+
+    var body: some View {
+        NavigationLink(value: Route.artist(name)) {
+            VStack(spacing: 7) {
+                Artwork(path: artwork, seed: name, size: 300)
+                    .frame(width: 104, height: 104)
+                    .clipShape(.circle)
+                    .shadow(color: .black.opacity(0.25), radius: 8, y: 4)
+                Text(name).font(.footnote.weight(.medium)).lineLimit(1)
+            }
+            .frame(width: 110)
+            .contentShape(.rect)
+        }
+        .buttonStyle(Pressable())
     }
 }
 
@@ -149,7 +308,9 @@ struct PlaylistCover: View {
     let playlist: Playlist
 
     var body: some View {
-        if playlist.artwork == nil || playlist.mosaic.count < 4 {
+        if let picture = playlist.picture {
+            Artwork(path: picture, seed: playlist.name, size: 400)
+        } else if playlist.artwork == nil || playlist.mosaic.count < 4 {
             Artwork(path: playlist.artwork, seed: playlist.name, size: 400)
                 .overlay {
                     if playlist.smart {
@@ -269,16 +430,19 @@ struct ArtistsView: View {
 
     var body: some View {
         List(shown) { artist in
-            NavigationLink(value: Route.artist(artist.name)) {
-                HStack(spacing: 14) {
-                    Artwork(path: artist.artwork, seed: artist.name, size: 160)
-                        .frame(width: 52, height: 52).clipShape(.circle)
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text(artist.name).lineLimit(1)
-                        Text(count(Int(artist.albums), "album") + " · " + count(Int(artist.songs), "song"))
-                            .font(.subheadline).foregroundStyle(.secondary)
-                    }
+            let row = HStack(spacing: 14) {
+                Artwork(path: artist.artwork, seed: artist.name, size: 160)
+                    .frame(width: 52, height: 52).clipShape(.circle)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(isPlaceholderArtist(artist.name) ? unknownArtist : artist.name).lineLimit(1)
+                    Text(count(Int(artist.albums), "album") + " · " + count(Int(artist.songs), "song"))
+                        .font(.subheadline).foregroundStyle(.secondary)
                 }
+            }
+            if isPlaceholderArtist(artist.name) {
+                row
+            } else {
+                NavigationLink(value: Route.artist(artist.name)) { row }
             }
         }
         .listStyle(.plain)
@@ -395,103 +559,181 @@ struct GenreView: View {
 
 // MARK: - An album, an artist, a playlist
 
+/// An album, after Apple Music's: the cover across the top fades into a page of its colour,
+/// with the album's name, Play and Shuffle over the fade, the songs on the colour, and more
+/// by the artist at the foot.
 struct AlbumView: View {
     @Environment(Store.self) private var store
     let album: Album
     @State private var songs: [Song]?
-    @State private var tint: Color?
+    @State private var more: [Album] = []
+    @State private var colors: PageColors?
     @State private var selecting = false
     @State private var selected = Set<String>()
+    @State private var pastHeader = false
+
+    init(album: Album) {
+        self.album = album
+        _colors = State(initialValue: PageColors.cached(album.artwork, seed: album.title + album.artist))
+    }
 
     var body: some View {
+        let look = store.app.coverColors ? colors ?? .plain(store.colors) : .plain(store.colors)
         List(selection: selecting ? $selected : nil) {
-            VStack(spacing: 6) {
-                Artwork(path: album.artwork, seed: album.title + album.artist, size: 900)
-                    .aspectRatio(1, contentMode: .fit)
-                    .frame(maxWidth: 270)
-                    .clipShape(.rect(cornerRadius: 18))
-                    .shadow(color: .black.opacity(0.45), radius: 22, y: 14)
-                    .padding(.bottom, 12)
-                Text(album.title).font(.title2.bold()).multilineTextAlignment(.center)
-                // A button, not a link: a link in a list row is laid out as a row, at the left
-                // with an arrow.
-                Button { store.opening = .artist(album.artist) } label: {
-                    Text(album.artist).font(.title3).foregroundStyle(.tint).multilineTextAlignment(.center)
-                }
-                .buttonStyle(.borderless)
-                Text(details).font(.footnote).foregroundStyle(.secondary)
-                if let songs { PlayButtons(songs: songs).padding(.top, 8) }
-            }
-            .frame(maxWidth: .infinity)
-            .listRowSeparator(.hidden)
-            .listRowBackground(Color.clear)
-            .selectionDisabled()
+            header(look)
+                .listRowInsets(EdgeInsets())
+                .listRowSeparator(.hidden)
+                .listRowBackground(Color.clear)
+                .selectionDisabled()
             ForEach(Array((songs ?? []).enumerated()), id: \.element.id) { i, song in
                 SongRow(song: song, number: Int(song.trackNumber > 0 ? song.trackNumber : Int64(i + 1))) {
                     store.play(songs ?? [], from: i)
                 }
                 .tag(song.id)
+                .listRowBackground(Color.clear)
+                .listRowSeparatorTint(look.line)
             }
+            footer(look)
+                .listRowInsets(EdgeInsets())
+                .listRowSeparator(.hidden)
+                .listRowBackground(Color.clear)
+                .selectionDisabled()
         }
         .listStyle(.plain)
-        .navigationBarTitleDisplayMode(.inline)
-        .themed()
-        .background {
-            if store.app.coverColors, let tint {
-                LinearGradient(colors: [tint.opacity(0.45), .clear], startPoint: .top, endPoint: .center).ignoresSafeArea()
-            }
+        .ignoresSafeArea(edges: .top)
+        .scrollEdgeEffectStyle(.soft, for: .top)
+        .onScrollGeometryChange(for: Bool.self) { $0.contentOffset.y > $0.containerSize.width * 0.8 } action: { _, past in
+            withAnimation(.easeOut(duration: 0.2)) { pastHeader = past }
         }
+        .paged(look)
+        // The name moves into the bar once the cover has scrolled away.
+        .navigationTitle(pastHeader ? album.title : "")
+        .navigationBarTitleDisplayMode(.inline)
         .environment(\.editMode, .constant(selecting ? .active : .inactive))
         .toolbar {
-            SelectToolbar(selecting: $selecting, selected: $selected, songs: songs ?? [])
+            SelectToolbar(selecting: $selecting, selected: $selected, songs: songs ?? [], tint: look.ink)
             if !selecting {
                 ToolbarItem(placement: .topBarTrailing) {
                     Menu { AlbumMenu(album: album) } label: { Image(systemName: "ellipsis") }
+                        .tint(look.ink)
                 }
             }
         }
         .task(id: store.libraryVersion) {
-            let key = album.key
+            let (key, artist) = (album.key, album.artist)
             songs = await store.load { try $0.albumSongs(key: key) } ?? []
+            more = (await store.load { try $0.artistAlbums(name: artist) } ?? []).filter { $0.key != key }
         }
-        .task { tint = await coverTint(album.artwork) }
+        .task { colors = await PageColors.of(album.artwork, seed: album.title + album.artist) }
+    }
+
+    private func header(_ look: PageColors) -> some View {
+        VStack(spacing: 0) {
+            Artwork(path: album.artwork, seed: album.title + album.artist, size: 1200)
+                .aspectRatio(1, contentMode: .fit)
+                .frame(maxWidth: .infinity)
+                .overlay(alignment: .bottom) { Fade(color: look.page).frame(height: 230) }
+                .modifier(Stretchy())
+            VStack(spacing: 5) {
+                Text(album.title).font(.title.bold()).multilineTextAlignment(.center)
+                // A button, not a link: a link in a list row is laid out as a row, at the left
+                // with an arrow.
+                Button { store.opening = .artist(album.artist) } label: {
+                    Text(album.artist).font(.title3.weight(.medium)).foregroundStyle(look.ink.opacity(0.82)).multilineTextAlignment(.center)
+                }
+                .buttonStyle(.borderless)
+                .disabled(isPlaceholderArtist(album.artist))
+                Text(details).font(.footnote.weight(.medium)).foregroundStyle(look.muted)
+                if let songs, !songs.isEmpty { PlayButtons(songs: songs, look: look).padding(.top, 10) }
+            }
+            .padding(.horizontal, 22)
+            // Over the foot of the fading cover.
+            .padding(.top, -86)
+            .padding(.bottom, 10)
+        }
+    }
+
+    @ViewBuilder
+    private func footer(_ look: PageColors) -> some View {
+        VStack(alignment: .leading, spacing: 0) {
+            Text(summary).font(.footnote).foregroundStyle(look.muted)
+                .padding(.horizontal).padding(.top, 14)
+            if !more.isEmpty, !isPlaceholderArtist(album.artist) {
+                SectionTitle(title: "More by \(album.artist)", route: .artist(album.artist))
+                ScrollView(.horizontal, showsIndicators: false) {
+                    LazyHStack(alignment: .top, spacing: 14) {
+                        ForEach(more) { AlbumTile(album: $0, width: 150) }
+                    }
+                    .padding(.horizontal)
+                    .padding(.vertical, 10)
+                }
+            }
+        }
+        .padding(.bottom, 30)
     }
 
     private var details: String {
         var parts: [String] = []
         if album.year > 0 { parts.append(String(album.year)) }
-        parts.append(count(Int(album.songs), "song"))
-        parts.append(clock(album.duration))
+        // The format, when every song has the same one.
+        if let songs, let format = songs.first?.format, !format.isEmpty, songs.allSatisfy({ $0.format == format }) {
+            parts.append(format.uppercased())
+        }
         return parts.joined(separator: " · ")
+    }
+
+    /// What the page lists (songs whose files are gone are left out).
+    private var summary: String {
+        guard let songs else { return "\(count(Int(album.songs), "song")), \(clock(album.duration))" }
+        if songs.isEmpty { return "These songs are not on this iPhone." }
+        return "\(count(songs.count, "song")), \(clock(songs.reduce(0) { $0 + $1.duration }))"
     }
 }
 
+/// A picture's foot fading into the page's colour.
+struct Fade: View {
+    let color: Color
+
+    var body: some View {
+        LinearGradient(stops: [
+            .init(color: color.opacity(0), location: 0),
+            .init(color: color.opacity(0.55), location: 0.45),
+            .init(color: color.opacity(0.9), location: 0.78),
+            .init(color: color, location: 1),
+        ], startPoint: .top, endPoint: .bottom)
+        .allowsHitTesting(false)
+    }
+}
+
+/// An artist, after Apple Music's: their picture across the top fades into a page of its
+/// colour, with the name large over it and Play, Shuffle, and Radio under it; then the newest
+/// album in its own box, the top songs, and the albums.
 struct ArtistView: View {
     @Environment(Store.self) private var store
     let name: String
     @State private var top: [Song] = []
     @State private var albums: [Album]?
+    @State private var photo: String?
+    @State private var logo: String?
+    /// A wide picture of them from fanart.tv, for the top of the page before their photo.
+    @State private var banner: String?
+    @State private var colors: PageColors?
+    @State private var pastHeader = false
+
+    init(name: String) {
+        self.name = name
+        _colors = State(initialValue: PageColors.cached(key: "artist:" + name))
+    }
+
+    /// Not a real artist: songs without one. Nothing is looked up for it.
+    private var placeholder: Bool { isPlaceholderArtist(name) }
 
     var body: some View {
+        let look = store.app.coverColors ? colors ?? .plain(store.colors) : .plain(store.colors)
         ScrollView {
             VStack(alignment: .leading, spacing: 0) {
-                HStack(spacing: 12) {
-                    Button { store.play(top) } label: {
-                        Label("Play", systemImage: "play.fill").frame(maxWidth: .infinity).padding(.vertical, 6)
-                    }
-                    .buttonStyle(.glassProminent)
-                    Button {
-                        let name = name
-                        store.run { $0.startArtistRadio(name: name) }
-                        store.message = "Starting radio from \(name)"
-                    } label: {
-                        Label("Radio", systemImage: "dot.radiowaves.left.and.right").frame(maxWidth: .infinity).padding(.vertical, 6)
-                    }
-                    .buttonStyle(.glass)
-                }
-                .font(.headline)
-                .padding(.horizontal)
-                .padding(.top, 8)
+                header(look)
+                if let latest { featured(latest, look) }
                 if !top.isEmpty {
                     SectionTitle(title: "Top Songs")
                     VStack(spacing: 10) {
@@ -509,22 +751,148 @@ struct ArtistView: View {
             }
             .padding(.bottom, 24)
         }
-        .navigationTitle(name)
-        .themed()
+        .ignoresSafeArea(edges: .top)
+        .scrollEdgeEffectStyle(.soft, for: .top)
+        .onScrollGeometryChange(for: Bool.self) { $0.contentOffset.y > 450 } action: { _, past in
+            withAnimation(.easeOut(duration: 0.2)) { pastHeader = past }
+        }
+        .paged(look)
+        .navigationTitle(pastHeader ? name : "")
+        .navigationBarTitleDisplayMode(.inline)
         .task(id: store.libraryVersion) {
             let name = name
             top = await store.load { try $0.artistSongs(name: name) } ?? []
             albums = await store.load { try $0.artistAlbums(name: name) } ?? []
+            // The colour at once, from their first album; the picture's when it comes (a first
+            // visit downloads it).
+            if colors == nil { colors = await PageColors.of(albums?.first?.artwork, seed: name) }
+            guard !placeholder else { return }
+            async let wide = store.load { $0.artistBanner(name: name) }
+            async let portrait = store.load { $0.artistPhoto(name: name) }
+            (banner, photo) = (await wide ?? nil, await portrait ?? nil)
+            colors = await PageColors.of(picture, seed: name)
+            if let colors { PageColors.keep(colors, as: "artist:" + name) }
+        }
+        // The logo on its own: it shows as soon as it is found, not after the pictures.
+        .task(id: store.libraryVersion) {
+            guard !placeholder else { return }
+            let name = name
+            let found = await store.load { $0.artistLogo(name: name) } ?? nil
+            if !Task.isCancelled { logo = found }
         }
     }
-}
 
-/// A cover's main colour, for pages that take it.
-func coverTint(_ path: String?) async -> Color? {
-    guard let path, let image = await Covers.load(path, size: 40), let cg = image.cgImage else { return nil }
-    var pixel = [UInt8](repeating: 0, count: 4)
-    guard let context = CGContext(data: &pixel, width: 1, height: 1, bitsPerComponent: 8, bytesPerRow: 4,
-                                  space: CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else { return nil }
-    context.draw(cg, in: CGRect(x: 0, y: 0, width: 1, height: 1))
-    return Color(red: Double(pixel[0]) / 255, green: Double(pixel[1]) / 255, blue: Double(pixel[2]) / 255)
+    /// All their songs, for Play and Shuffle (the page lists only the top ones).
+    private func playAll(shuffled: Bool) {
+        store.playArtist(name, shuffled: shuffled)
+    }
+
+    /// At the top: a wide picture of them, or their photo, or else their first album's cover.
+    private var picture: String? {
+        banner ?? photo ?? albums?.first?.artwork
+    }
+
+    /// The newest album, for the box under the name.
+    private var latest: Album? {
+        albums?.max { ($0.year, $0.title) < ($1.year, $1.title) }
+    }
+
+    /// As Apple Music's: the picture tall across the top, the logo (or name) in the middle
+    /// near its foot, and under it a large Play between Shuffle and Radio.
+    private func header(_ look: PageColors) -> some View {
+        // The page's width, whatever the picture's shape: a picture laid out at its own width
+        // made the whole page wider than the screen.
+        Color.clear
+            .frame(maxWidth: .infinity)
+            .frame(height: 590)
+            .overlay { Artwork(path: picture, seed: name, size: 1400) }
+            .clipped()
+            .overlay(alignment: .bottom) { Fade(color: look.page).frame(height: 330) }
+            .modifier(Stretchy())
+            .overlay(alignment: .bottom) {
+                VStack(spacing: 18) {
+                    // Their logo when fanart.tv has one, as Apple Music shows artists' own.
+                    if let logo {
+                        // Logos are mostly white: on a light page, the logo takes the page's ink.
+                        Logo(path: logo, ink: look.dark ? nil : look.ink)
+                            .frame(maxWidth: 300, maxHeight: 130)
+                            .shadow(color: look.page.opacity(0.5), radius: 16)
+                            .accessibilityLabel(name)
+                    } else {
+                        Text(name)
+                            .font(.system(size: 46, weight: .heavy))
+                            .tracking(-1)
+                            .multilineTextAlignment(.center)
+                            .lineLimit(2)
+                            .minimumScaleFactor(0.5)
+                            .shadow(color: look.page.opacity(0.4), radius: 12)
+                    }
+                    HStack(spacing: 26) {
+                        Button { playAll(shuffled: true) } label: {
+                            Image(systemName: "shuffle").font(.title3.weight(.semibold)).frame(width: 34, height: 34)
+                        }
+                        .buttonStyle(.glass)
+                        .buttonBorderShape(.circle)
+                        .accessibilityLabel("Shuffle")
+                        Button { playAll(shuffled: false) } label: {
+                            Image(systemName: "play.fill")
+                                .font(.system(size: 30, weight: .bold))
+                                .foregroundStyle(look.page)
+                                .offset(x: 2)
+                                .frame(width: 74, height: 74)
+                                .background(look.ink, in: .circle)
+                                .shadow(color: .black.opacity(0.2), radius: 10, y: 4)
+                        }
+                        .buttonStyle(Pressable())
+                        .accessibilityLabel("Play")
+                        Button {
+                            let name = name
+                            store.run { $0.startArtistRadio(name: name) }
+                            store.playedWhenReady()
+                            store.message = "Starting radio from \(name)"
+                        } label: {
+                            Image(systemName: "dot.radiowaves.left.and.right").font(.title3.weight(.semibold)).frame(width: 34, height: 34)
+                        }
+                        .buttonStyle(.glass)
+                        .buttonBorderShape(.circle)
+                        .accessibilityLabel("Radio")
+                    }
+                    .disabled(top.isEmpty)
+                }
+                .padding(.horizontal, 24)
+                .padding(.bottom, 4)
+            }
+    }
+
+    private func featured(_ album: Album, _ look: PageColors) -> some View {
+        NavigationLink(value: Route.album(album)) {
+            HStack(spacing: 16) {
+                Artwork(path: album.artwork, seed: album.title + album.artist, size: 300)
+                    .frame(width: 100, height: 100)
+                    .clipShape(.rect(cornerRadius: 10))
+                    .shadow(color: .black.opacity(0.3), radius: 8, y: 4)
+                VStack(alignment: .leading, spacing: 3) {
+                    if album.year > 0 {
+                        Text(String(album.year)).font(.subheadline).foregroundStyle(look.muted)
+                    }
+                    Text(album.title).font(.headline).lineLimit(2)
+                    Text(count(Int(album.songs), "Song")).font(.subheadline).foregroundStyle(look.muted)
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                Button { store.playAlbum(album) } label: {
+                    Image(systemName: "play.fill").frame(width: 30, height: 30)
+                }
+                .buttonStyle(.glass)
+                .buttonBorderShape(.circle)
+                .accessibilityLabel("Play \(album.title)")
+            }
+            .padding(14)
+            .glassEffect(.regular.tint(look.ink.opacity(0.05)).interactive(), in: .rect(cornerRadius: 28))
+            .contentShape(.rect)
+        }
+        .buttonStyle(Pressable())
+        .contextMenu { AlbumMenu(album: album) }
+        .padding(.horizontal)
+        .padding(.top, 22)
+    }
 }

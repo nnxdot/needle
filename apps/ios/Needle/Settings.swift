@@ -1,43 +1,149 @@
 import SwiftUI
 import UniformTypeIdentifiers
 
-/// Settings, by section, as on the desktop and Android.
+/// Settings, in groups as the iPhone's own: a card for Needle and your library at the top, then
+/// listening, the look, your music and where it comes from, and Needle itself.
 struct SettingsView: View {
+    @Environment(Store.self) private var store
+    /// This build has Discord's library.
+    @State private var discord = false
+    @State private var songs: UInt32?
+    /// What's new or About, opened from the card's buttons.
+    @State private var opened: Route?
+
     var body: some View {
         List {
             Section {
-                row("Library", "Music folders and online lookups", "music.note.house", .orange, .settingsLibrary)
-                row("Playback", "Crossfade and even loudness", "play.circle", .blue, .settingsPlayback)
+                header
+            }
+            Section("Listening") {
+                row("Playback", "Crossfade and even loudness", "play.fill", .blue, .settingsPlayback)
                 row("Sound", "Equalizer, balance, and headphones", "slider.vertical.3", .purple, .settingsSound)
-                row("Appearance", "Themes, colours, and the player", "paintpalette", .pink, .settingsAppearance)
                 row("Scrobbling", "Last.fm and ListenBrainz", "waveform", .red, .settingsScrobbling)
+                if discord {
+                    row("Discord", "Show what you play on your profile", "bubble.left.and.text.bubble.right.fill", .indigo, .settingsDiscord)
+                }
             }
-            Section {
-                row("Plugins", "Music servers, NetEase lyrics, effects", "puzzlepiece.extension", .teal, .plugins)
+            Section("Look and feel") {
+                row("Appearance", "Themes, colours, the player, and lyrics", "paintpalette.fill", .pink, .settingsAppearance)
+            }
+            Section("Your music") {
+                row("Sources", "This iPhone, your server, and your computer", "globe", .teal, .sources)
+                row("Library", "Music folders and online lookups", "music.note.house.fill", .orange, .settingsLibrary)
+                row("Music server", "Navidrome and other Subsonic servers", "server.rack", .cyan, .server("subsonic"))
                 row("Your computer", "Control Needle there, play its music here", "laptopcomputer", .indigo, .computer)
-                row("Sync", "Move history, ratings, and playlists", "arrow.triangle.2.circlepath", .yellow, .sync)
-                row("Fix my library", "Tags, duplicates, covers, and files", "wrench.and.screwdriver", .green, .fixLibrary)
-                row("Import", "Other players and listening history", "square.and.arrow.down", .cyan, .importing)
             }
-            Section {
-                row("What's new", "In this version of Needle", "sparkles", .pink, .whatsNew)
-                row("About", "Version, updates, and privacy", "info.circle", .gray, .about)
+            Section("Tools") {
+                row("Fix my library", "Tags, duplicates, covers, and files", "wrench.and.screwdriver.fill", .green, .fixLibrary)
+                row("Import", "Other players and listening history", "square.and.arrow.down.fill", .cyan, .importing)
+                row("Sync", "Move history, ratings, and playlists", "arrow.triangle.2.circlepath", .yellow, .sync)
+                row("Plugins", "NetEase lyrics, effects, and commands", "puzzlepiece.extension.fill", .teal, .plugins)
             }
         }
         .navigationTitle("Settings")
         .themed()
+        .navigationDestination(item: $opened) { route in
+            if route == .whatsNew { WhatsNewView() } else { AboutView() }
+        }
+        .task {
+            discord = await store.load { $0.discordAccount() }?.available ?? false
+            songs = await store.load { try $0.songCount() }
+        }
+    }
+
+    /// Needle, its version, and the size of your library, with What's new and About as two
+    /// buttons in the card (they were rows of their own at the foot).
+    private var header: some View {
+        let version = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? ""
+        return VStack(alignment: .leading, spacing: 14) {
+            HStack(spacing: 14) {
+                Image(systemName: "music.note")
+                    .font(.system(size: 28, weight: .bold))
+                    .foregroundStyle(.white)
+                    .frame(width: 60, height: 60)
+                    .background(LinearGradient(colors: [store.colors.accent, store.colors.accent.opacity(0.6)], startPoint: .topLeading, endPoint: .bottomTrailing),
+                                in: .rect(cornerRadius: 14))
+                    .accessibilityHidden(true)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Needle").font(.title2.bold())
+                    Text("Version \(version)").font(.subheadline).foregroundStyle(.secondary)
+                    if let songs {
+                        Text("\(count(Int(songs), "song")) in your library").font(.caption).foregroundStyle(.secondary)
+                    }
+                }
+                .accessibilityElement(children: .combine)
+            }
+            // Two buttons in one row, each opening its own page (links in a list row would all
+            // open with a tap anywhere on it).
+            HStack(spacing: 10) {
+                Button { opened = .whatsNew } label: {
+                    Label("What's new", systemImage: "sparkles").frame(maxWidth: .infinity)
+                }
+                Button { opened = .about } label: {
+                    Label("About", systemImage: "info.circle").frame(maxWidth: .infinity)
+                }
+            }
+            .buttonStyle(.bordered)
+            .buttonBorderShape(.capsule)
+            .font(.subheadline.weight(.medium))
+        }
+        .padding(.vertical, 6)
     }
 
     private func row(_ title: String, _ detail: String, _ symbol: String, _ tint: Color, _ route: Route) -> some View {
         NavigationLink(value: route) {
             HStack(spacing: 14) {
-                Image(systemName: symbol).font(.body.weight(.semibold)).foregroundStyle(.white)
+                Image(systemName: symbol).font(.system(size: 15, weight: .semibold)).foregroundStyle(.white)
                     .frame(width: 30, height: 30)
                     .background(tint.gradient, in: .rect(cornerRadius: 8))
+                    .accessibilityHidden(true)
                 VStack(alignment: .leading, spacing: 1) {
                     Text(title)
-                    Text(detail).font(.caption).foregroundStyle(.secondary)
+                    Text(detail).font(.caption).foregroundStyle(.secondary).lineLimit(1)
                 }
+            }
+            .padding(.vertical, 1)
+        }
+    }
+}
+
+/// A setting's label, as in the iPhone's own Settings: a small icon, its name, and one short
+/// line.
+struct SettingLabel: View {
+    let title: String
+    var detail: String = ""
+    let icon: String
+    var tint: Color = .gray
+
+    var body: some View {
+        HStack(spacing: 12) {
+            Image(systemName: icon).font(.system(size: 13, weight: .semibold)).foregroundStyle(.white)
+                .frame(width: 28, height: 28)
+                .background(tint.gradient, in: .rect(cornerRadius: 7))
+                .accessibilityHidden(true)
+            VStack(alignment: .leading, spacing: 1) {
+                Text(title)
+                if !detail.isEmpty { Text(detail).font(.caption).foregroundStyle(.secondary).lineLimit(1) }
+            }
+        }
+    }
+}
+
+/// A setting that opens in place to show more, with its current choice on the right.
+struct OpenRow<Content: View>: View {
+    let label: SettingLabel
+    let value: String
+    @ViewBuilder let content: Content
+    @State private var open = false
+
+    var body: some View {
+        DisclosureGroup(isExpanded: $open) {
+            content
+        } label: {
+            HStack {
+                label
+                Spacer(minLength: 8)
+                Text(value).font(.subheadline).foregroundStyle(.secondary).lineLimit(1)
             }
         }
     }
@@ -48,7 +154,7 @@ struct SettingsView: View {
 private func saved<T: Sendable>(_ value: Binding<T?>, _ store: Store, _ write: @escaping @Sendable (Needle, T) throws -> Void) -> (T) -> Void {
     { new in
         value.wrappedValue = new
-        store.run { try write($0, new) }
+        store.inOrder { try write($0, new) }
     }
 }
 
@@ -56,8 +162,12 @@ private func saved<T: Sendable>(_ value: Binding<T?>, _ store: Store, _ write: @
 
 struct LibrarySettingsView: View {
     @Environment(Store.self) private var store
+    /// Folders asked to be removed, waiting for a yes.
+    @State private var removing: [String] = []
     @State private var folders: [String] = []
     @State private var settings: PlaybackSettings?
+    @State private var hasFanart = false
+    @State private var fanartKey = ""
     @State private var measured: [UInt32] = []
     @State private var backup: URL?
     @State private var moving = false
@@ -67,18 +177,30 @@ struct LibrarySettingsView: View {
             Section {
                 ForEach(folders, id: \.self) { folder in
                     VStack(alignment: .leading, spacing: 2) {
-                        Text(folder == store.musicFolder.path ? "Needle's folder" : (folder as NSString).lastPathComponent)
-                        Text(folder == store.musicFolder.path ? "Files › On My iPhone › Needle" : folder)
+                        Text(Store.realPath(folder) == Store.realPath(store.musicFolder.path) ? "Needle's folder" : (folder as NSString).lastPathComponent)
+                        Text(Store.realPath(folder) == Store.realPath(store.musicFolder.path) ? "Files › On My iPhone › Needle" : folder)
                             .font(.caption).foregroundStyle(.secondary).lineLimit(1)
                     }
-                    .deleteDisabled(folder == store.musicFolder.path)
+                    .deleteDisabled(Store.realPath(folder) == Store.realPath(store.musicFolder.path))
                 }
                 .onDelete { rows in
-                    for folder in rows.map({ folders[$0] }) { store.run { try $0.removeFolder(path: folder) } }
-                    folders.remove(atOffsets: rows)
-                    store.libraryChanged()
+                    // Asked first: its songs leave the library, with their plays and stars.
+                    removing = rows.map { folders[$0] }
                 }
                 Button("Read the music again") { store.rescan() }.disabled(store.scan.running)
+                    .confirmationDialog("Stop reading this folder?", isPresented: Binding(get: { !removing.isEmpty }, set: { if !$0 { removing = [] } }), titleVisibility: .visible) {
+                        Button("Stop Reading It", role: .destructive) {
+                            let gone = removing
+                            removing = []
+                            folders.removeAll { gone.contains($0) }
+                            Task {
+                                for folder in gone { _ = await store.ask { try $0.removeFolder(path: folder) } }
+                                store.libraryChanged()
+                            }
+                        }
+                    } message: {
+                        Text("Its songs leave the library, with their plays, stars, and places in playlists. The files stay.")
+                    }
             } header: {
                 Text("Music folders")
             } footer: {
@@ -86,32 +208,52 @@ struct LibrarySettingsView: View {
             }
             if let settings {
                 let save = saved($settings, store) { try $0.setPlaybackSettings(value: $1) }
-                Section {
-                    Toggle("Look up online", isOn: Binding(get: { settings.onlineMedia }, set: { var s = settings; s.onlineMedia = $0; save(s) }))
-                } footer: {
-                    Text("Lyrics from LRCLIB when a song has none, and covers and artist photos from MusicBrainz and Wikidata. Off: Needle asks no one.")
+                Section("Artwork and lyrics") {
+                    Toggle(isOn: Binding(get: { settings.onlineMedia }, set: { var s = settings; s.onlineMedia = $0; save(s) })) {
+                        SettingLabel(title: "Look things up online", detail: "Covers, artist photos, and lyrics.", icon: "globe", tint: .blue)
+                    }
+                    OpenRow(label: SettingLabel(title: "Artists' logos", detail: "From fanart.tv.", icon: "signature", tint: .indigo),
+                            value: hasFanart ? "Your key" : "Needle's key") {
+                    if hasFanart {
+                        LabeledContent("fanart.tv key", value: "Your own")
+                        Button("Remove Your Key", role: .destructive) {
+                            Task {
+                                if await store.ask({ try $0.setFanartKey(key: "") }) != nil {
+                                    hasFanart = await store.load { $0.hasOwnFanartKey() } ?? false
+                                }
+                            }
+                        }
+                    } else {
+                        SecureField("fanart.tv key", text: $fanartKey).textInputAutocapitalization(.never).autocorrectionDisabled()
+                        Button("Save the Key") {
+                            let key = fanartKey
+                            Task {
+                                if await store.ask({ try $0.setFanartKey(key: key) }) != nil { fanartKey = ""; hasFanart = true }
+                            }
+                        }
+                        .disabled(fanartKey.trimmingCharacters(in: .whitespaces).isEmpty)
+                    }
+                    }
                 }
-                Section {
-                    Toggle("Measure songs for radio", isOn: Binding(get: { settings.soundAnalysis }, set: { var s = settings; s.soundAnalysis = $0; save(s) }))
+                Section("Radio") {
+                    Toggle(isOn: Binding(get: { settings.soundAnalysis }, set: { var s = settings; s.soundAnalysis = $0; save(s) })) {
+                        SettingLabel(title: "Measure songs for radio", detail: "Tempo, key, and energy, on this iPhone.", icon: "dot.radiowaves.left.and.right", tint: .orange)
+                    }
                     if measured.count == 2 {
                         LabeledContent("Measured", value: "\(measured[0].formatted()) of \(measured[1].formatted())")
                         Button("Measure now") { store.core.measureInBackground(); store.message = "Measuring in the background" }
                             .disabled(measured[0] >= measured[1])
                     }
-                } footer: {
-                    Text("Radio picks songs that sound like each other. Needle measures a few songs at a time.")
-                }
-                Section {
-                    TextField("For example: rating is at least 4", text: Binding(get: { settings.autoplayQuery }, set: { var s = settings; s.autoplayQuery = $0; save(s) }))
-                        .textInputAutocapitalization(.never)
-                } header: {
-                    Text("When nothing is up next")
-                } footer: {
-                    Text("Needle keeps playing songs that match this search. Empty: the music stops.")
+                    OpenRow(label: SettingLabel(title: "When nothing is up next", detail: "Keep playing songs that match.", icon: "sparkles", tint: .purple),
+                            value: settings.autoplayQuery.isEmpty ? "Off" : settings.autoplayQuery) {
+                        TextField("For example: rating is at least 4", text: Binding(get: { settings.autoplayQuery }, set: { var s = settings; s.autoplayQuery = $0; save(s) }))
+                            .textInputAutocapitalization(.never)
+                        Text("Empty: the music stops.").font(.caption).foregroundStyle(.secondary)
+                    }
                 }
             }
             Section {
-                Button("Back up the library") {
+                Button {
                     let path = FileManager.default.temporaryDirectory.appendingPathComponent("Needle library.needlebackup").path
                     Task {
                         if await store.ask({ try $0.backupLibrary(path: path) }) != nil {
@@ -119,9 +261,10 @@ struct LibrarySettingsView: View {
                             moving = true
                         }
                     }
+                } label: {
+                    SettingLabel(title: "Back up the library", detail: "Plays, stars, playlists, and settings. No music.", icon: "externaldrive.fill", tint: .gray)
                 }
-            } footer: {
-                Text("One file with your songs' plays, stars, playlists, and settings, but no music.")
+                .foregroundStyle(.primary)
             }
         }
         .navigationTitle("Library")
@@ -130,6 +273,7 @@ struct LibrarySettingsView: View {
         .task {
             folders = await store.load { try $0.folders() } ?? []
             settings = await store.load { try $0.playbackSettings() }
+            hasFanart = await store.load { $0.hasOwnFanartKey() } ?? false
             while !Task.isCancelled {
                 measured = await store.load { $0.measured() } ?? []
                 try? await Task.sleep(for: .seconds(2))
@@ -148,15 +292,18 @@ struct PlaybackSettingsView: View {
         Form {
             if let settings {
                 let save = saved($settings, store) { try $0.setPlaybackSettings(value: $1) }
-                Section {
-                    VStack(alignment: .leading) {
-                        LabeledContent("Crossfade", value: settings.crossfade < 0.5 ? "Off" : "\(Int(settings.crossfade.rounded())) s")
+                Section("Playing") {
+                    VStack(alignment: .leading, spacing: 8) {
+                        HStack {
+                            SettingLabel(title: "Crossfade", detail: "Songs overlap as one ends.", icon: "arrow.left.arrow.right", tint: .blue)
+                            Spacer()
+                            Text(settings.crossfade < 0.5 ? "Off" : "\(Int(settings.crossfade.rounded())) s").foregroundStyle(.secondary).monospacedDigit()
+                        }
                         Slider(value: Binding(get: { Double(settings.crossfade) }, set: { var s = settings; s.crossfade = Float($0.rounded()); save(s) }), in: 0...12, step: 1)
+                            .accessibilityLabel("Crossfade")
                     }
-                } footer: {
-                    Text("Songs overlap as one ends and the next begins. Albums that play on without a gap stay without one.")
-                }
-                Section {
+                    VStack(alignment: .leading, spacing: 8) {
+                        SettingLabel(title: "Even loudness", detail: "From the songs' ReplayGain tags.", icon: "waveform.path", tint: .teal)
                     Picker("Even loudness", selection: Binding(
                         get: { !settings.replayGain ? 0 : (settings.albumGain ? 2 : 1) },
                         set: { var s = settings; s.replayGain = $0 > 0; s.albumGain = $0 == 2; save(s) })) {
@@ -165,8 +312,7 @@ struct PlaybackSettingsView: View {
                         Text("Album").tag(2)
                     }
                     .pickerStyle(.segmented)
-                } footer: {
-                    Text("Uses the songs' ReplayGain tags. Album keeps an album's own quiet and loud songs as they are.")
+                    }
                 }
                 Section("Sleep timer") {
                     SleepMenu()
@@ -292,10 +438,11 @@ struct SoundView: View {
                         LabeledContent("Balance", value: balance(sound.balance))
                         Slider(value: Binding(get: { Double(sound.balance) }, set: { var s = sound; s.balance = Float(($0 * 20).rounded() / 20); save(s) }), in: -1...1)
                     }
-                    Toggle("Mono", isOn: Binding(get: { sound.mono }, set: { var s = sound; s.mono = $0; save(s) }))
+                    Toggle(isOn: Binding(get: { sound.mono }, set: { var s = sound; s.mono = $0; save(s) })) {
+                        SettingLabel(title: "Mono", detail: "Both channels in both ears.", icon: "speaker.fill", tint: .gray)
+                    }
                     Toggle(isOn: Binding(get: { sound.crossfeed }, set: { var s = sound; s.crossfeed = $0; save(s) })) {
-                        Text("Headphone crossfeed")
-                        Text("Mixes a little of each side into the other, as speakers do, for less tiring listening.")
+                        SettingLabel(title: "Headphone crossfeed", detail: "Blends the sides a little, as speakers do.", icon: "headphones", tint: .purple)
                     }
                 }
             }
@@ -434,92 +581,7 @@ struct EffectsSection: View {
 extension Effect: Identifiable {}
 extension EffectParam: Identifiable {}
 
-// MARK: - Appearance
-
-struct AppearanceView: View {
-    @Environment(Store.self) private var store
-    @State private var addingTheme = false
-
-    var body: some View {
-        let app = store.app
-        Form {
-            Section("Theme") {
-                Picker("Theme", selection: Binding(get: { app.theme }, set: { t in store.updateApp { $0.theme = t } })) {
-                    Text("Night").tag("night")
-                    Text("Midnight").tag("midnight")
-                    Text("Day").tag("day")
-                    ForEach(store.themes, id: \.id) { Text($0.name).tag($0.id) }
-                }
-                .pickerStyle(.inline)
-                .labelsHidden()
-                ForEach(store.themes.filter { !$0.readOnly }, id: \.id) { theme in
-                    NavigationLink(value: Route.themeEditor(theme.id)) { Label("Edit \(theme.name)", systemImage: "pencil") }
-                }
-                NavigationLink(value: Route.themeEditor(nil)) { Label("New theme", systemImage: "plus") }
-                Button("Add a theme file…", systemImage: "doc.badge.plus") { addingTheme = true }
-            }
-            Section {
-                ColorPicker("Accent", selection: Binding(
-                    get: { Color(hex: app.accentColor) ?? ThemeColors.pink },
-                    set: { c in store.updateApp { $0.accentColor = c.hex } }), supportsOpacity: false)
-                if !app.accentColor.isEmpty {
-                    Button("Use the theme's accent") { store.updateApp { $0.accentColor = "" } }
-                }
-                toggle("Colours from the song", "The whole app takes the colours of the song playing.", \.ambientColors)
-                toggle("Colours from covers", "Album, playlist, and artist pages take their cover's colours.", \.coverColors)
-            } header: {
-                Text("Colours")
-            }
-            Section("Player") {
-                toggle("Cover behind the player", "The player's background is the playing cover, blurred.", \.coverBackdrop)
-                if app.coverBackdrop {
-                    toggle("Moving cover", nil, \.movingBackdrop)
-                    VStack(alignment: .leading) {
-                        LabeledContent("Softness", value: "\(Int(app.backdropBlur))")
-                        Slider(value: Binding(get: { Double(app.backdropBlur) }, set: { v in store.updateApp { $0.backdropBlur = Float(v.rounded()) } }), in: 20...120)
-                    }
-                }
-                Picker("Cover", selection: Binding(get: { app.coverShape }, set: { v in store.updateApp { $0.coverShape = v } })) {
-                    Text("Square").tag("square")
-                    Text("Record").tag("round")
-                }
-                Picker("Beside play", selection: Binding(get: { app.sideButtons }, set: { v in store.updateApp { $0.sideButtons = v } })) {
-                    Text("Skip songs").tag("skip")
-                    Text("Jump 10 seconds").tag("jump")
-                }
-                toggle("Volume slider", nil, \.volumeSlider)
-                toggle("Swipe the cover to skip", nil, \.swipeCover)
-                toggle("Open the player on play", "The player opens by itself when you choose a song.", \.openPlayerOnPlay)
-            }
-            Section("Lyrics") {
-                toggle("Live lyrics", "Lyrics move with the song, the line playing lit.", \.liveLyrics)
-                toggle("Keep the screen on", "While the lyrics show.", \.keepScreenOnLyrics)
-            }
-            Section("Motion and touch") {
-                toggle("Haptics", "A little tap on play, pause, and long presses.", \.haptics)
-                toggle("Reduce motion", "Needle's own switch, besides the iPhone's.", \.reduceMotion)
-            }
-        }
-        .navigationTitle("Appearance")
-        .themed()
-        .fileImporter(isPresented: $addingTheme, allowedContentTypes: [UTType(filenameExtension: "toml") ?? .plainText, .plainText]) { result in
-            guard case .success(let url) = result, let path = store.copyIn(url) else { return }
-            Task {
-                if let id = await store.ask({ try $0.importTheme(path: path) }) {
-                    store.reloadThemes()
-                    store.updateApp { $0.theme = id }
-                }
-            }
-        }
-    }
-
-    private func toggle(_ title: String, _ detail: String?, _ key: WritableKeyPath<AppSettings, Bool>) -> some View {
-        Toggle(isOn: Binding(get: { store.app[keyPath: key] }, set: { v in store.updateApp { $0[keyPath: key] = v } })) {
-            Text(title)
-            if let detail { Text(detail) }
-        }
-    }
-}
+// MARK: - Appearance (the page is in AppearanceCards.swift)
 
 // MARK: - Scrobbling
 
@@ -532,60 +594,58 @@ struct ScrobblingView: View {
     @State private var apiKey = ""
     @State private var secret = ""
     @State private var token = ""
+    /// Sign-in forms, shown only after Connect, until Cancel or a sign-in.
+    @State private var connecting: Set<String> = []
 
     var body: some View {
         Form {
             if let a = accounts {
                 Section {
-                    if let user = a.lastfmUser {
-                        LabeledContent("Signed in", value: user.isEmpty ? "Yes" : user)
+                    // Needle's own key built in: nothing to fill in, so Connect opens Last.fm's
+                    // sign-in page at once.
+                    service("Last.fm", user: a.lastfmUser, icon: "music.note", tint: .red, id: "lastfm", busy: waitingForBrowser,
+                            direct: a.lastfmKeyBuiltIn ? { beginLastfm(key: "", secret: "") } : nil)
+                    if a.lastfmUser != nil {
                         Toggle("Send listens", isOn: Binding(get: { a.lastfmOn }, set: { on in
-                            store.run { try $0.setScrobbling(lastfm: on, listenbrainz: nil) }; Task { await reload() }
+                            accounts?.lastfmOn = on; Task { _ = await store.ask { try $0.setScrobbling(lastfm: on, listenbrainz: nil) }; await reload() }
                         }))
-                        Button("Sign out", role: .destructive) { store.run { try $0.signOut(service: "lastfm") }; Task { await reload() } }
+                        Button("Sign out", role: .destructive) { Task { _ = await store.ask { try $0.signOut(service: "lastfm") }; await reload() } }
                     } else if waitingForBrowser {
                         Text("Allow Needle on the Last.fm page, then come back.")
                         Button("I allowed Needle") {
                             Task {
-                                if await store.ask({ try $0.lastfmComplete() }) != nil { waitingForBrowser = false }
+                                if await store.ask({ try $0.lastfmComplete() }) != nil { waitingForBrowser = false; connecting.remove("lastfm") }
                                 await reload()
                             }
                         }
-                    } else {
+                        Button("Cancel", role: .cancel) { waitingForBrowser = false; connecting.remove("lastfm") }
+                    } else if connecting.contains("lastfm") {
                         if !a.lastfmKeyBuiltIn {
                             TextField("API key", text: $apiKey).textInputAutocapitalization(.never).autocorrectionDisabled()
                             SecureField("Shared secret", text: $secret)
                         }
-                        Button("Sign in to Last.fm") {
-                            let (k, s) = (apiKey, secret)
-                            Task {
-                                if let page = await store.ask({ try $0.lastfmBegin(apiKey: k, secret: s) }), let url = URL(string: page) {
-                                    waitingForBrowser = true
-                                    openURL(url)
-                                }
-                            }
-                        }
+                        Button("Sign in to Last.fm") { beginLastfm(key: apiKey, secret: secret) }
                         .disabled(!a.lastfmKeyBuiltIn && (apiKey.isEmpty || secret.isEmpty))
-                    }
-                } header: {
-                    Text("Last.fm")
-                } footer: {
-                    if a.lastfmUser == nil && !a.lastfmKeyBuiltIn {
-                        Text("This build has no Last.fm key: make one for free at last.fm/api/account/create.")
+                        if !a.lastfmKeyBuiltIn {
+                            Text("Make a free key at last.fm/api/account/create.").font(.caption).foregroundStyle(.secondary)
+                        }
                     }
                 }
-                Section("ListenBrainz") {
-                    if let user = a.listenbrainzUser {
-                        LabeledContent("Signed in", value: user)
+                Section {
+                    service("ListenBrainz", user: a.listenbrainzUser, icon: "brain.head.profile", tint: .orange, id: "listenbrainz", busy: false)
+                    if a.listenbrainzUser != nil {
                         Toggle("Send listens", isOn: Binding(get: { a.listenbrainzOn }, set: { on in
-                            store.run { try $0.setScrobbling(lastfm: nil, listenbrainz: on) }; Task { await reload() }
+                            accounts?.listenbrainzOn = on; Task { _ = await store.ask { try $0.setScrobbling(lastfm: nil, listenbrainz: on) }; await reload() }
                         }))
-                        Button("Sign out", role: .destructive) { store.run { try $0.signOut(service: "listenbrainz") }; Task { await reload() } }
-                    } else {
-                        SecureField("User token", text: $token)
+                        Button("Sign out", role: .destructive) { Task { _ = await store.ask { try $0.signOut(service: "listenbrainz") }; await reload() } }
+                    } else if connecting.contains("listenbrainz") {
+                        SecureField("User token, from listenbrainz.org/settings", text: $token)
                         Button("Sign in") {
                             let t = token
-                            Task { _ = await store.ask { try $0.listenbrainzSignIn(token: t) }; await reload() }
+                            Task {
+                                if await store.ask({ try $0.listenbrainzSignIn(token: t) }) != nil { connecting.remove("listenbrainz") }
+                                await reload()
+                            }
                         }
                         .disabled(token.isEmpty)
                     }
@@ -596,8 +656,7 @@ struct ScrobblingView: View {
                     if let settings {
                         let save = saved($settings, store) { try $0.setPlaybackSettings(value: $1) }
                         Toggle(isOn: Binding(get: { settings.scrobbleCorrections }, set: { var s = settings; s.scrobbleCorrections = $0; save(s) })) {
-                            Text("Artist names as Apple Music writes them")
-                            Text("키키 is sent as KiiiKiii, for example.")
+                            SettingLabel(title: "Fix artist names", detail: "Apple Music's spelling, such as KiiiKiii.", icon: "pencil", tint: .gray)
                         }
                     }
                 } footer: {
@@ -608,6 +667,10 @@ struct ScrobblingView: View {
         .navigationTitle("Scrobbling")
         .themed()
         .task {
+            #if DEBUG
+            // For testing from a shell: -open-connect lastfm|listenbrainz opens that form.
+            if let id = UserDefaults.standard.string(forKey: "open-connect") { connecting.insert(id) }
+            #endif
             await reload()
             settings = await store.load { try $0.playbackSettings() }
         }
@@ -615,6 +678,138 @@ struct ScrobblingView: View {
 
     private func reload() async {
         accounts = await store.load { $0.accounts() }
+    }
+
+    /// Opens Last.fm's page to allow Needle, then waits for the listener to come back.
+    private func beginLastfm(key: String, secret: String) {
+        Task {
+            if let page = await store.ask({ try $0.lastfmBegin(apiKey: key, secret: secret) }), let url = URL(string: page) {
+                waitingForBrowser = true
+                openURL(url)
+            }
+        }
+    }
+
+    /// A service's row: its name and whether it is connected, with Connect (or Cancel) while not.
+    private func service(_ name: String, user: String?, icon: String, tint: Color, id: String, busy: Bool, direct: (() -> Void)? = nil) -> some View {
+        HStack {
+            SettingLabel(title: name, detail: user.map { $0.isEmpty ? "Signed in" : "Signed in as \($0)" } ?? "Not connected", icon: icon, tint: tint)
+            Spacer()
+            if user == nil && !busy {
+                if connecting.contains(id) {
+                    Button("Cancel") { connecting.remove(id) }.buttonStyle(.borderless)
+                } else {
+                    Button("Connect") { if let direct { direct() } else { connecting.insert(id) } }
+                        .buttonStyle(.borderedProminent).buttonBorderShape(.capsule).controlSize(.small)
+                }
+            }
+        }
+    }
+}
+
+// MARK: - Discord
+
+/// Discord's "Listening to" status, as on Android, once the Discord account is linked.
+struct DiscordView: View {
+    @Environment(Store.self) private var store
+    @State private var settings: DiscordSettings?
+    @State private var account: DiscordAccount?
+
+    var body: some View {
+        Form {
+            if let account {
+                Section {
+                    if account.linked {
+                        LabeledContent("Discord account", value: "Linked")
+                        Button("Unlink", role: .destructive) {
+                            store.core.discordUnlink()
+                            Task { await reload() }
+                        }
+                    } else if account.linking {
+                        HStack(spacing: 10) {
+                            ProgressView()
+                            Text("Allow Needle on Discord's page.")
+                        }
+                        Button("Cancel", role: .cancel) {
+                            store.core.discordCancelLink()
+                        }
+                    } else {
+                        Button("Link Your Discord Account") {
+                            store.core.discordLink()
+                            Task { await follow() }
+                        }
+                    }
+                    if let problem = account.problem { Text(problem).foregroundStyle(.red) }
+                } footer: {
+                    Text("Discord asks you to allow Needle once.")
+                }
+            }
+            if let s = settings {
+                let save = saved($settings, store) { try $0.setDiscordSettings(value: $1) }
+                Section {
+                    Toggle(isOn: Binding(get: { s.on }, set: { var n = s; n.on = $0; save(n) })) {
+                        SettingLabel(title: "Show what you're playing", detail: "On your Discord profile.", icon: "bubble.left.and.text.bubble.right.fill", tint: .indigo)
+                    }
+                }
+                if s.on {
+                    Section("The card") {
+                        choice("Listening to …", [("song", "Song"), ("artist", "Artist"), ("needle", "Needle")], s.title) { var n = s; n.title = $0; save(n) }
+                        choice("First line", [("artist", "Artist"), ("song", "Song"), ("album", "Album")], s.top) { var n = s; n.top = $0; save(n) }
+                        choice("Second line", [("song", "Song"), ("artist", "Artist"), ("album", "Album"), ("none", "None")], s.middle) { var n = s; n.middle = $0; save(n) }
+                        choice("Third line", [("album", "Album"), ("song", "Song"), ("artist", "Artist"), ("none", "None")], s.bottom) { var n = s; n.bottom = $0; save(n) }
+                    }
+                    Section {
+                        Toggle(isOn: Binding(get: { s.covers }, set: { var n = s; n.covers = $0; save(n) })) {
+                            SettingLabel(title: "Look up covers", detail: "From Apple's iTunes catalog, by name.", icon: "photo.fill", tint: .orange)
+                        }
+                        Toggle(isOn: Binding(get: { s.logo }, set: { var n = s; n.logo = $0; save(n) })) {
+                            SettingLabel(title: "Show the Needle logo", detail: "A small badge on the cover.", icon: "seal.fill", tint: .pink)
+                        }
+                    } header: {
+                        Text("Picture")
+                    }
+                    Section {
+                        Toggle(isOn: Binding(get: { s.paused }, set: { var n = s; n.paused = $0; save(n) })) {
+                            SettingLabel(title: "Show while paused", detail: "The song stays, marked Paused.", icon: "pause.fill", tint: .gray)
+                        }
+                        Picker("Clear after", selection: Binding(get: { s.idleMinutes }, set: { var n = s; n.idleMinutes = $0; save(n) })) {
+                            Text("5 min").tag(UInt32(5))
+                            Text("10 min").tag(UInt32(10))
+                            Text("30 min").tag(UInt32(30))
+                            Text("1 h").tag(UInt32(60))
+                            Text("Never").tag(UInt32(0))
+                        }
+                    } header: {
+                        Text("When nothing plays")
+                    }
+                }
+            }
+        }
+        .navigationTitle("Discord")
+        .themed()
+        .task {
+            settings = await store.load { try $0.discordSettings() }
+            await follow()
+        }
+    }
+
+    private func choice(_ title: String, _ options: [(String, String)], _ current: String, _ change: @escaping (String) -> Void) -> some View {
+        Picker(title, selection: Binding(get: { current }, set: change)) {
+            ForEach(options, id: \.0) { Text($0.1).tag($0.0) }
+        }
+    }
+
+    private func reload() async {
+        account = await store.load { $0.discordAccount() }
+    }
+
+    /// Reads the link again while Discord's sign-in page is open.
+    private func follow() async {
+        await reload()
+        while account?.linking == true, !Task.isCancelled {
+            try? await Task.sleep(for: .milliseconds(500))
+            await reload()
+        }
     }
 }
 
@@ -639,7 +834,7 @@ struct PluginsView: View {
                     Task { await reload() }
                 }
             } footer: {
-                Text("Plugins add music servers (Navidrome, Subsonic), lyrics from NetEase, sound effects, and commands. They run inside Needle, with only the permissions they list.")
+                Text("Plugins add lyrics from NetEase, sound effects, and commands. They run inside Needle, with only the permissions they list. Music servers are built into Needle: see Sources.")
             }
             Section {
                 ForEach(plugins ?? [], id: \.id) { plugin in
@@ -662,7 +857,8 @@ struct PluginsView: View {
     }
 
     private func reload() async {
-        plugins = await store.load { $0.plugins() }
+        // Parts built into Needle (its music server) are not plugins here.
+        plugins = await store.load { $0.plugins().filter { !$0.builtIn } }
     }
 }
 
@@ -798,12 +994,25 @@ struct SyncView: View {
 
 /// The iPhone app's release notes (whats-new.md, in the app).
 struct WhatsNewView: View {
+    private struct Change: Identifiable {
+        let id: String
+        let title: String
+        let text: String
+        /// The note's picture tag ([player], [lyrics], …), "!" for a release's main change, or "".
+        let tag: String
+    }
+
     private struct Release: Identifiable {
         let version: String
         var tagline: String?
-        var lines: [(title: String, text: String)] = []
+        var changes: [Change] = []
         var id: String { version }
     }
+
+    /// Notes opened to their full text (a tap on a change).
+    @State private var opened: Set<String> = []
+    /// Older releases opened from their folded row.
+    @State private var unfolded: Set<String> = []
 
     private var releases: [Release] {
         guard let url = Bundle.main.url(forResource: "whats-new", withExtension: "md"),
@@ -815,13 +1024,18 @@ struct WhatsNewView: View {
             } else if !all.isEmpty {
                 var body = line
                 for prefix in ["! ", "- "] where body.hasPrefix(prefix) { body = String(body.dropFirst(prefix.count)) }
-                if body.hasPrefix("["), let end = body.firstIndex(of: "]") { body = String(body[body.index(after: end)...]).trimmingCharacters(in: .whitespaces) }
+                var tag = line.hasPrefix("! ") ? "!" : ""
+                if body.hasPrefix("["), let end = body.firstIndex(of: "]") {
+                    tag = String(body[body.index(after: body.startIndex)..<end])
+                    body = String(body[body.index(after: end)...]).trimmingCharacters(in: .whitespaces)
+                }
                 if line.hasPrefix("- ") || line.hasPrefix("! ") {
+                    let id = "\(all[all.count - 1].version)-\(all[all.count - 1].changes.count)"
                     if body.hasPrefix("**"), let close = body.range(of: "**", range: body.index(body.startIndex, offsetBy: 2)..<body.endIndex) {
                         let title = String(body[body.index(body.startIndex, offsetBy: 2)..<close.lowerBound]).trimmingCharacters(in: CharacterSet(charactersIn: "."))
-                        all[all.count - 1].lines.append((title, String(body[close.upperBound...]).trimmingCharacters(in: .whitespaces)))
+                        all[all.count - 1].changes.append(Change(id: id, title: title, text: String(body[close.upperBound...]).trimmingCharacters(in: .whitespaces), tag: tag))
                     } else {
-                        all[all.count - 1].lines.append(("", body))
+                        all[all.count - 1].changes.append(Change(id: id, title: "", text: body, tag: tag))
                     }
                 } else if all[all.count - 1].tagline == nil {
                     all[all.count - 1].tagline = body
@@ -832,21 +1046,104 @@ struct WhatsNewView: View {
     }
 
     var body: some View {
-        List(releases) { release in
-            Section {
-                if let tagline = release.tagline { Text(tagline).font(.headline) }
-                ForEach(Array(release.lines.enumerated()), id: \.offset) { _, line in
-                    VStack(alignment: .leading, spacing: 2) {
-                        if !line.title.isEmpty { Text(line.title).font(.subheadline.bold()) }
-                        Text(line.text).font(.subheadline).foregroundStyle(line.title.isEmpty ? .secondary : .primary)
+        let releases = releases
+        List {
+            ForEach(Array(releases.enumerated()), id: \.element.id) { index, release in
+                if index == 0 || unfolded.contains(release.version) {
+                    Section {
+                        if let tagline = release.tagline { Text(tagline).font(.subheadline) }
+                        ForEach(release.changes) { change in row(change) }
+                        if index > 0 {
+                            Button("Fold \(release.version)") { withAnimation { _ = unfolded.remove(release.version) } }
+                                .font(.subheadline)
+                        }
+                    } header: {
+                        Text(release.version)
+                    }
+                } else {
+                    Section {
+                        Button {
+                            withAnimation { _ = unfolded.insert(release.version) }
+                        } label: {
+                            HStack(spacing: 12) {
+                                VStack(alignment: .leading, spacing: 2) {
+                                    Text("\(release.version) · \(count(release.changes.count, "change"))").font(.body.weight(.semibold))
+                                    if let tagline = release.tagline {
+                                        Text(tagline).font(.subheadline).foregroundStyle(.secondary).lineLimit(1)
+                                    }
+                                }
+                                Spacer()
+                                Image(systemName: "chevron.down").font(.footnote.weight(.bold)).foregroundStyle(.tertiary)
+                            }
+                        }
+                        .foregroundStyle(.primary)
+                        .accessibilityHint("Shows the changes in \(release.version)")
                     }
                 }
-            } header: {
-                Text(release.version)
             }
         }
         .navigationTitle("What's new")
         .themed()
+    }
+
+    /// A change: its icon, its title in bold, and one short line; a tap shows all of it.
+    private func row(_ change: Change) -> some View {
+        let open = opened.contains(change.id)
+        let (symbol, tint) = Self.icon(change)
+        return Button {
+            withAnimation(.snappy(duration: 0.2)) { if open { opened.remove(change.id) } else { opened.insert(change.id) } }
+        } label: {
+            HStack(alignment: .top, spacing: 12) {
+                Image(systemName: symbol).font(.system(size: 13, weight: .semibold)).foregroundStyle(.white)
+                    .frame(width: 28, height: 28)
+                    .background(tint.gradient, in: .rect(cornerRadius: 7))
+                    .accessibilityHidden(true)
+                VStack(alignment: .leading, spacing: 2) {
+                    if change.title.isEmpty {
+                        // A small change: its words in full weight, two lines until opened.
+                        Text(change.text).font(.subheadline).lineLimit(open ? nil : 2)
+                    } else {
+                        Text(change.title).font(.subheadline.weight(.semibold))
+                        Text(change.text).font(.subheadline).foregroundStyle(.secondary).lineLimit(open ? nil : 1)
+                    }
+                    if !open && Self.long(change) {
+                        Text("More").font(.caption.weight(.semibold)).foregroundStyle(.tint)
+                    }
+                }
+                Spacer(minLength: 0)
+            }
+            .padding(.vertical, 2)
+            .contentShape(.rect)
+        }
+        .foregroundStyle(.primary)
+        .accessibilityElement(children: .combine)
+    }
+
+    /// Whether a change has more to show than its folded lines.
+    private static func long(_ change: Change) -> Bool {
+        change.title.isEmpty ? change.text.count > 90 : change.text.count > 45
+    }
+
+    /// The icon for a change, from its tag; a star for a release's main change, a wrench for a fix.
+    private static func icon(_ change: Change) -> (String, Color) {
+        switch change.tag {
+        case "!": ("star.fill", .pink)
+        case "player": ("play.fill", .blue)
+        case "lyrics": ("quote.bubble.fill", .orange)
+        case "discord": ("bubble.left.and.text.bubble.right.fill", .indigo)
+        case "widget": ("square.grid.2x2.fill", .teal)
+        case "computer": ("laptopcomputer", .indigo)
+        case "sound": ("slider.vertical.3", .purple)
+        case "playlist": ("music.note.list", .green)
+        case "albums": ("square.stack.fill", .orange)
+        case "palette", "theme": ("paintbrush.fill", .pink)
+        case "server": ("server.rack", .cyan)
+        case "radio": ("dot.radiowaves.left.and.right", .red)
+        case "signal": ("antenna.radiowaves.left.and.right", .green)
+        case "account": ("person.crop.circle.fill", .blue)
+        case "": change.title.isEmpty ? ("wrench.and.screwdriver.fill", .gray) : ("sparkles", .yellow)
+        default: ("sparkles", .yellow)
+        }
     }
 }
 
@@ -871,20 +1168,14 @@ struct AboutView: View {
                         }
                     }
                 }
-                if let settings {
-                    let save = saved($settings, store) { try $0.setPlaybackSettings(value: $1) }
-                    Toggle("Ask once a day", isOn: Binding(get: { settings.checkUpdates }, set: { var s = settings; s.checkUpdates = $0; save(s) }))
-                }
-            } footer: {
-                Text("Asking sends nothing but the request to needle.nnx.fyi.")
             }
             Section {
-                Toggle("Send crash reports", isOn: Binding(get: { crashReports }, set: { on in
+                Toggle(isOn: Binding(get: { crashReports }, set: { on in
                     crashReports = on
                     store.run { try $0.setCrashReports(on: on) }
-                }))
-            } footer: {
-                Text("When Needle stops by mistake, it sends what went wrong (no music, names, or files) the next time it opens.")
+                })) {
+                    SettingLabel(title: "Send crash reports", detail: "What went wrong. No music, names, or files.", icon: "exclamationmark.triangle.fill", tint: .orange)
+                }
             }
             Section("Privacy") {
                 Text("Needle has no account and no tracking. Your library stays on this iPhone. It talks to the internet only for what you turn on: online lookups, music servers, scrobbling, plugins, and update checks.")
