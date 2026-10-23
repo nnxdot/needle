@@ -473,6 +473,8 @@ pub struct AppView {
     /// The song whose heart was just filled, and a counter that replays the pop.
     heart_pop: Option<(String, usize)>,
     settings_tab: usize,
+    /// Settings cards opened with their arrow (by id).
+    settings_open: std::collections::HashSet<&'static str>,
     palette: palette::PaletteState,
     /// Changes whenever the visible page (or settings section) changes, to replay its fade.
     page_serial: usize,
@@ -994,6 +996,7 @@ impl AppView {
             menu_serial: 0,
             heart_pop: None,
             settings_tab: 0,
+            settings_open: Default::default(),
             speaker_timing: Default::default(),
             remote: None,
             welcome_step: None,

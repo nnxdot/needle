@@ -563,6 +563,25 @@ impl Needle {
         vec![count as u64, bytes]
     }
 
+    /// Songs of a server in the stream cache (played lately, not kept on purpose), and their
+    /// size in bytes.
+    pub fn stream_cache_usage(&self, plugin: String) -> Vec<u64> {
+        let (count, bytes) = sources::cache_usage(&plugin);
+        vec![count as u64, bytes]
+    }
+
+    /// Frees the space of a server's songs played lately (they stream again next time).
+    /// Kept songs stay. Returns how many songs went.
+    pub fn clear_stream_cache(&self, plugin: String) -> Result<u32> {
+        Ok(sources::clear_cache(&plugin)? as u32)
+    }
+
+    /// Stops keeping all of a server's songs on the phone: they move to the stream cache,
+    /// which frees them as it fills. Returns how many songs were kept.
+    pub fn forget_kept(&self, plugin: String) -> Result<u32> {
+        Ok(sources::forget_kept(&plugin)? as u32)
+    }
+
     // ---------- Speakers
 
     /// The speakers on the network and which play now, with their delays.
