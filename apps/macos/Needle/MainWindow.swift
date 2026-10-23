@@ -104,6 +104,9 @@ struct MainWindow: View {
     }
 
     #if DEBUG
+    /// The plain window behind Needle's for pictures (`--plain-backdrop`), kept while it shows.
+    @MainActor private static var backdrop: NSWindow?
+
     /// Test builds: `--show settings|mini|big|palette|panel-later|sidebar-flips` opens that at the start (the
     /// side panel two seconds later), to look at it.
     private func showForTest() {
@@ -139,6 +142,20 @@ struct MainWindow: View {
         if let name = value("--panel"), let panel = Store.Panel.allCases.first(where: { $0.rawValue.lowercased() == name }) {
             store.panel = panel
             store.set(["show_inspector": true])
+        }
+        // `--plain-backdrop`: a plain black window behind Needle's, so its glass shows nothing of
+        // the desktop (no wallpaper, no other windows) in a picture.
+        if arguments.contains("--plain-backdrop"), let screen = NSScreen.main {
+            Task {
+                try? await Task.sleep(for: .seconds(1))
+                guard let main = NSApp.windows.first(where: { $0.identifier?.rawValue.hasPrefix("main") == true }) else { return }
+                let backdrop = NSWindow(contentRect: screen.frame, styleMask: .borderless, backing: .buffered, defer: false)
+                backdrop.backgroundColor = .black
+                backdrop.isReleasedWhenClosed = false
+                backdrop.ignoresMouseEvents = true
+                backdrop.order(.below, relativeTo: main.windowNumber)
+                Self.backdrop = backdrop
+            }
         }
         if let title = value("--play-album") {
             let seek = value("--seek").flatMap(Double.init)
