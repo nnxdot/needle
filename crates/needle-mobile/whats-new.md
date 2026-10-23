@@ -8,7 +8,7 @@ Navidrome built in, moving covers, and calmer Settings.
 - [lyrics] **Lyrics in the mini player, on tablets.** On a tablet, the line being sung sits in the middle of the mini player, and the bar stays its usual height. On a phone, it shows in one line under the song. Turn it on in Settings › Appearance › Lyrics in the mini player.
 - [palette] **Calmer Settings.** Every setting is a row with a small icon and one short line. Themes are chosen by picture, and the player's cover, buttons, and seek bar by small sketches. Longer text and sign-in forms open only when you tap their row.
 - [account] **Last.fm in one click.** Tap Connect in Settings › Scrobbling, and Last.fm's page opens at once. You no longer need an API key of your own.
-- [usb] **Bit-perfect USB for more DACs.** DACs that take 32-bit music, such as the FiiO BTR17, now play bit-perfect. Turn it on in Settings › Sound › Bit-perfect USB. When a DAC cannot, the row says why.
+- [usb] **Bit-perfect USB for more DACs.** DACs that take 32-bit music now play bit-perfect. Turn it on in Settings › Sound › Bit-perfect USB. When a DAC cannot, the row says why.
 - What's new shows every version, with older versions folded into one row each.
 - The welcome guide shows the looks as pictures, and its music server choice opens Settings › Music servers.
 - When a song stops because of a problem, the player says why under the seek bar.
