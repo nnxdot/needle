@@ -99,7 +99,7 @@ private fun whyNot(audio: AudioManager, device: AudioDeviceInfo): String {
  * bit-perfect can then be answered from the log.
  */
 @RequiresApi(34)
-private fun logDac(context: Context, audio: AudioManager, device: AudioDeviceInfo) {
+private fun logDac(audio: AudioManager, device: AudioDeviceInfo) {
     val key = "${device.id}:${device.productName}"
     if (key == loggedDac) return
     loggedDac = key
@@ -112,7 +112,6 @@ private fun logDac(context: Context, audio: AudioManager, device: AudioDeviceInf
         ?.let { "${it.mixerBehavior} ${encodingName(it.format.encoding)} ${it.format.sampleRate} Hz" } ?: "none"
     val usable = bitPerfect(audio, device)?.let { "${encodingName(it.format.encoding)} ${it.format.sampleRate} Hz" } ?: "none"
     fyi.nnx.needle.NeedleLog.info(
-        context,
         "USB DAC ${device.productName} (type ${device.type}) on Android ${Build.VERSION.RELEASE} (API ${Build.VERSION.SDK_INT}), " +
             "${Build.MANUFACTURER} ${Build.MODEL}: rates ${device.sampleRates.joinToString(",").ifEmpty { "any" }}, " +
             "encodings ${device.encodings.joinToString(",") { encodingName(it) }.ifEmpty { "any" }}, " +
@@ -140,7 +139,7 @@ fun followUsbMixer(context: Context) {
     val audio = context.getSystemService(AudioManager::class.java) ?: return
     fun check() {
         val dac = usbOutput(audio)
-        dac?.let { logDac(context, audio, it) }
+        dac?.let { logDac(audio, it) }
         val mixer = dac?.let { device -> runCatching { audio.getPreferredMixerAttributes(MUSIC, device) }.getOrNull() }
         matchOutput(mixer?.takeIf { it.mixerBehavior == AudioMixerAttributes.MIXER_BEHAVIOR_BIT_PERFECT })
     }
@@ -178,7 +177,7 @@ fun UsbBitPerfect() {
     val connected = device
     val offer = remember(connected) { connected?.let { bitPerfect(audio, it) } }
     val why = remember(connected, offer) { if (connected != null && offer == null) whyNot(audio, connected) else null }
-    androidx.compose.runtime.LaunchedEffect(connected) { connected?.let { logDac(context, audio, it) } }
+    androidx.compose.runtime.LaunchedEffect(connected) { connected?.let { logDac(audio, it) } }
     var on by remember(connected) {
         mutableStateOf(
             connected != null && runCatching {
