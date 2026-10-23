@@ -607,6 +607,107 @@ fn musicbrainz_artist(name: &str) -> Result<Option<String>> {
         .map(String::from))
 }
 
+/// Whether picture bytes move: an animated WebP, or a GIF of more than one frame.
+fn moves(bytes: &[u8]) -> Option<&'static str> {
+    if bytes.len() > 20
+        && &bytes[0..4] == b"RIFF"
+        && &bytes[8..12] == b"WEBP"
+        && &bytes[12..16] == b"VP8X"
+        && bytes[20] & 0x02 != 0
+    {
+        return Some("webp");
+    }
+    (bytes.starts_with(b"GIF8")
+        && bytes
+            .windows(3)
+            .filter(|w| *w == [0x21, 0xF9, 0x04])
+            .nth(1)
+            .is_some())
+    .then_some("gif")
+}
+
+/// Where a music server's moving cover for this song's album is kept, without its
+/// extension, and whether it was looked for already: `(base, found)`. `found` is the kept
+/// picture, or `None` when the server's cover was still (or not looked for yet).
+fn server_moving_kept(
+    library: &Library,
+    track: &Track,
+) -> Option<(PathBuf, Option<PathBuf>, bool)> {
+    let (plugin, id) = track.source()?;
+    // One cover per album, as the covers are fetched; a song without an album has its own.
+    let key = if track.album.is_empty() {
+        format!("{plugin}/{id}")
+    } else {
+        format!(
+            "{plugin}/{}/{}",
+            track.album_artist.to_lowercase(),
+            track.album.to_lowercase()
+        )
+    };
+    let base = library
+        .directory
+        .join("artwork")
+        .join("moving")
+        .join(&blake3::hash(key.as_bytes()).to_hex()[..32]);
+    let found = ["webp", "gif"]
+        .iter()
+        .map(|kind| base.with_extension(kind))
+        .find(|p| p.is_file());
+    let known = found.is_some() || base.with_extension("still").is_file();
+    Some((base, found, known))
+}
+
+/// A music server song's moving cover: its album's cover as the server keeps it (not the
+/// smaller still copy Needle shows elsewhere), when that is an animated WebP or GIF. Asked
+/// once per album and kept; a still cover is remembered as still. This waits for the
+/// network the first time, so call it off the main thread.
+pub fn fetch_server_moving_cover(library: &Library, track: &Track) -> Option<PathBuf> {
+    let (base, found, known) = server_moving_kept(library, track)?;
+    if known {
+        return found;
+    }
+    let (plugin, id) = track.source()?;
+    if plugin != crate::subsonic::ID {
+        return None;
+    }
+    let link = crate::subsonic::Subsonic::new(library.clone())
+        .original_cover(&id)
+        .ok()?;
+    let bytes = (|| -> Result<Vec<u8>> {
+        let response = crate::integrations::client()?
+            .get(&link)
+            .timeout(std::time::Duration::from_secs(20))
+            .send()?
+            .error_for_status()?;
+        let mut bytes = vec![];
+        response.take(40 * 1024 * 1024).read_to_end(&mut bytes)?;
+        Ok(bytes)
+    })();
+    let folder = base.parent()?;
+    std::fs::create_dir_all(folder).ok()?;
+    match bytes {
+        Ok(bytes) => match moves(&bytes) {
+            Some(kind) => {
+                let path = base.with_extension(kind);
+                std::fs::write(&path, &bytes).ok()?;
+                Some(path)
+            }
+            None => {
+                let _ = std::fs::write(base.with_extension("still"), b"");
+                None
+            }
+        },
+        // No answer now (offline, say): ask again another time.
+        Err(_) => None,
+    }
+}
+
+/// A music server song's moving cover if it was fetched already, and whether it was looked
+/// for: `(picture, looked)`. Never waits for the network.
+pub fn server_moving_cover_kept(library: &Library, track: &Track) -> (Option<PathBuf>, bool) {
+    server_moving_kept(library, track).map_or((None, true), |(_, found, known)| (found, known))
+}
+
 /// Whether a picture moves: an animated WebP, or a GIF of more than one frame. A still WebP
 /// or GIF (a plain cover) does not.
 pub fn is_animated_image(path: &Path) -> bool {
@@ -657,7 +758,11 @@ pub fn animated_picture(library: &Library, track: &Track) -> Option<PathBuf> {
 }
 
 fn moving_cover(library: &Library, track: &Track, with_videos: bool) -> Option<PathBuf> {
-    if track.source().is_some() || track.path.starts_with("http") {
+    // A music server's song: the moving cover fetched from the server, if it was.
+    if track.source().is_some() {
+        return server_moving_cover_kept(library, track).0;
+    }
+    if track.path.starts_with("http") {
         return None;
     }
     let folder = Path::new(track.file_path()).parent()?;
