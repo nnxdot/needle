@@ -43,13 +43,7 @@ import kotlinx.coroutines.withContext
 @Composable
 fun ImmersiveCover(song: Song, animated: Boolean, wide: Boolean) {
     val tone = coverColor(song.artwork)
-    // The moving cover, looked up off the main thread; the last song's never plays over this one.
-    val video by produceState<String?>(null, song.id, animated) {
-        value = null
-        if (animated && !song.onComputer()) {
-            value = withContext(Dispatchers.IO) { runCatching { core.animatedCover(song.id) }.getOrNull() }
-        }
-    }
+    val video = movingCover(song, animated)
     BoxWithConstraints(Modifier.fillMaxSize().background(tone)) {
         val height = maxHeight
         val picture: @Composable (Modifier, Shade) -> Unit = { frame, shade ->
@@ -64,16 +58,7 @@ fun ImmersiveCover(song: Song, animated: Boolean, wide: Boolean) {
                 } else {
                     MadeUpCover(song.album + song.artist)
                 }
-                video?.let {
-                    if (isAnimatedPicture(it)) {
-                        // An animated WebP or GIF draws with Compose, under the fades below.
-                        AnimatedPicture(it, Modifier.fillMaxSize())
-                    } else {
-                        // The video draws in a layer of its own, over what Compose draws: its fades
-                        // are drawn in that layer too (shade), or it would show hard edges.
-                        LoopingVideo(it, shade, Modifier.fillMaxSize())
-                    }
-                }
+                video?.let { MovingCover(it, shade, Modifier.fillMaxSize()) }
             }
         }
         if (wide) {
@@ -111,6 +96,33 @@ fun ImmersiveCover(song: Song, animated: Boolean, wide: Boolean) {
 }
 
 /**
+ * The moving cover of the song (a video beside the songs, or an animated WebP or GIF), looked
+ * up off the main thread, or null: none, `animated` off (Moving covers off, or Reduce motion
+ * on), or the computer's song. The last song's never plays over this one.
+ */
+@Composable
+fun movingCover(song: Song, animated: Boolean): String? {
+    val path by produceState<String?>(null, song.id, animated) {
+        value = null
+        if (animated && !song.onComputer()) {
+            value = withContext(Dispatchers.IO) { runCatching { core.animatedCover(song.id) }.getOrNull() }
+        }
+    }
+    return path
+}
+
+/**
+ * A moving cover filling its frame (cut, not squeezed): an animated WebP or GIF drawn with
+ * Compose (under any fades drawn over it), or a video in a layer of its own, whose fades are
+ * drawn in that layer too ([shade]; null for none), or it would show hard edges.
+ */
+@Composable
+fun MovingCover(path: String, shade: Shade?, modifier: Modifier = Modifier) {
+    if (isAnimatedPicture(path)) AnimatedPicture(path, modifier)
+    else LoopingVideo(path, shade ?: Shade(Color.Transparent, right = 0f, foot = 0f), modifier, darkTop = shade != null)
+}
+
+/**
  * A short video over and over, silent, filling its frame (cut, not squeezed): a moving cover.
  * Android's own player, on a texture, so it moves and fades with the rest of the page.
  */
@@ -122,7 +134,7 @@ fun ImmersiveCover(song: Song, animated: Boolean, wide: Boolean) {
 data class Shade(val tone: Color, val right: Float, val foot: Float)
 
 @Composable
-fun LoopingVideo(path: String, shade: Shade, modifier: Modifier = Modifier) {
+fun LoopingVideo(path: String, shade: Shade, modifier: Modifier = Modifier, darkTop: Boolean = true) {
     val holder = remember(path) { arrayOfNulls<MediaPlayer>(1) }
     androidx.compose.runtime.DisposableEffect(path) {
         onDispose {
@@ -130,7 +142,7 @@ fun LoopingVideo(path: String, shade: Shade, modifier: Modifier = Modifier) {
             holder[0] = null
         }
     }
-    val top = with(androidx.compose.ui.platform.LocalDensity.current) { 200.dp.toPx() }
+    val top = if (darkTop) with(androidx.compose.ui.platform.LocalDensity.current) { 200.dp.toPx() } else 0f
     AndroidView(
         modifier = modifier,
         update = { frame -> (frame.getChildAt(1) as Fades).set(shade, top) },
@@ -207,7 +219,7 @@ private class Fades(context: android.content.Context) : android.view.View(contex
             fill(android.graphics.LinearGradient(from, 0f, w, 0f, intArrayOf(clear, mid, tone), floatArrayOf(0f, 0.6f, 1f), android.graphics.Shader.TileMode.CLAMP), from, 0f, w, h)
         }
         val end = minOf(top, h)
-        fill(
+        if (end > 0f) fill(
             android.graphics.LinearGradient(0f, 0f, 0f, end, intArrayOf(0x80000000.toInt(), 0x33000000, 0), floatArrayOf(0f, 0.5f, 1f), android.graphics.Shader.TileMode.CLAMP),
             0f, 0f, w, end,
         )

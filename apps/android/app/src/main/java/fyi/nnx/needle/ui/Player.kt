@@ -1070,6 +1070,23 @@ private fun PlayerCover(song: Song, playing: Boolean, haptics: (Boolean) -> Unit
             shape,
             seed = song.album + song.artist,
         )
+        // The moving cover (Settings › Appearance › Moving covers), over the still one in the
+        // same place, shape, size, and turn: only here and in the immersive cover, never in lists.
+        movingCover(song, app.animatedCovers && !reduce)?.let { path ->
+            MovingCover(
+                path,
+                shade = null,
+                modifier = Modifier
+                    .size(side)
+                    .graphicsLayer {
+                        scaleX = scale
+                        scaleY = scale
+                        rotationZ = if (still) 0f else if (playing) turn.value + from else from
+                        this.shape = shape
+                        clip = true
+                    },
+            )
+        }
         // A record's label hole.
         if (app.coverShape == "round") {
             Box(Modifier.size(34.dp).graphicsLayer { scaleX = scale; scaleY = scale }.clip(CircleShape).background(Color.Black.copy(alpha = 0.55f)))
