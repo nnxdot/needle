@@ -20,6 +20,9 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clipToBounds
+import androidx.compose.ui.graphics.drawscope.drawIntoCanvas
+import androidx.compose.ui.graphics.nativeCanvas
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
@@ -34,7 +37,8 @@ import kotlinx.coroutines.withContext
  * The player's cover as Apple Music shows it (Settings › Appearance › Immersive cover): across
  * the top, edge to edge, down to just above the song's name, fading into the cover's colour
  * (deep, as the player is always dark). Beside the controls on a wide screen, it fills the
- * left side instead. A moving cover beside the songs (cover.mp4) plays over it.
+ * left side instead. A moving cover beside the songs (cover.mp4, or an animated cover.webp or
+ * cover.gif) plays over it.
  */
 @Composable
 fun ImmersiveCover(song: Song, animated: Boolean, wide: Boolean) {
@@ -60,9 +64,16 @@ fun ImmersiveCover(song: Song, animated: Boolean, wide: Boolean) {
                 } else {
                     MadeUpCover(song.album + song.artist)
                 }
-                // The video draws in a layer of its own, over what Compose draws: its fades are
-                // drawn in that layer too (shade), or it would show hard edges.
-                video?.let { LoopingVideo(it, shade, Modifier.fillMaxSize()) }
+                video?.let {
+                    if (isAnimatedPicture(it)) {
+                        // An animated WebP or GIF draws with Compose, under the fades below.
+                        AnimatedPicture(it, Modifier.fillMaxSize())
+                    } else {
+                        // The video draws in a layer of its own, over what Compose draws: its fades
+                        // are drawn in that layer too (shade), or it would show hard edges.
+                        LoopingVideo(it, shade, Modifier.fillMaxSize())
+                    }
+                }
             }
         }
         if (wide) {
@@ -200,6 +211,63 @@ private class Fades(context: android.content.Context) : android.view.View(contex
             android.graphics.LinearGradient(0f, 0f, 0f, end, intArrayOf(0x80000000.toInt(), 0x33000000, 0), floatArrayOf(0f, 0.5f, 1f), android.graphics.Shader.TileMode.CLAMP),
             0f, 0f, w, end,
         )
+    }
+}
+
+/** A moving cover that is a picture (an animated WebP or GIF), not a video. */
+private fun isAnimatedPicture(path: String): Boolean =
+    path.substringAfterLast('.', "").lowercase() in setOf("webp", "gif")
+
+/**
+ * An animated WebP or GIF, over and over, filling its frame (cut, not squeezed). Android 9 and
+ * newer play it (AnimatedImageDrawable); older Android shows its first frame, still.
+ */
+@Composable
+private fun AnimatedPicture(path: String, modifier: Modifier = Modifier) {
+    val context = androidx.compose.ui.platform.LocalContext.current
+    val picture by produceState<android.graphics.drawable.Drawable?>(null, path) {
+        value = withContext(Dispatchers.IO) {
+            runCatching {
+                if (android.os.Build.VERSION.SDK_INT >= 28) {
+                    android.graphics.ImageDecoder.decodeDrawable(android.graphics.ImageDecoder.createSource(java.io.File(path)))
+                } else {
+                    android.graphics.BitmapFactory.decodeFile(path)?.let { android.graphics.drawable.BitmapDrawable(context.resources, it) }
+                }
+            }.getOrNull()
+        }
+    }
+    val drawable = picture ?: return
+    // Each new frame redraws the picture, and only it.
+    var frame by androidx.compose.runtime.remember(drawable) { androidx.compose.runtime.mutableIntStateOf(0) }
+    // Kept here: a drawable holds its callback weakly.
+    val callback = androidx.compose.runtime.remember(drawable) {
+        val handler = android.os.Handler(android.os.Looper.getMainLooper())
+        object : android.graphics.drawable.Drawable.Callback {
+            override fun invalidateDrawable(who: android.graphics.drawable.Drawable) { frame++ }
+            override fun scheduleDrawable(who: android.graphics.drawable.Drawable, what: Runnable, `when`: Long) { handler.postAtTime(what, who, `when`) }
+            override fun unscheduleDrawable(who: android.graphics.drawable.Drawable, what: Runnable) { handler.removeCallbacks(what, who) }
+        }
+    }
+    androidx.compose.runtime.DisposableEffect(drawable) {
+        drawable.callback = callback
+        if (android.os.Build.VERSION.SDK_INT >= 28 && drawable is android.graphics.drawable.AnimatedImageDrawable) {
+            drawable.repeatCount = android.graphics.drawable.AnimatedImageDrawable.REPEAT_INFINITE
+            drawable.start()
+        }
+        onDispose {
+            if (android.os.Build.VERSION.SDK_INT >= 28 && drawable is android.graphics.drawable.AnimatedImageDrawable) drawable.stop()
+            drawable.callback = null
+        }
+    }
+    androidx.compose.foundation.Canvas(modifier.clipToBounds()) {
+        frame.let { }
+        val width = drawable.intrinsicWidth.coerceAtLeast(1)
+        val height = drawable.intrinsicHeight.coerceAtLeast(1)
+        val scale = maxOf(size.width / width, size.height / height)
+        val left = (size.width - width * scale) / 2
+        val top = (size.height - height * scale) / 2
+        drawable.setBounds(left.toInt(), top.toInt(), (left + width * scale).toInt(), (top + height * scale).toInt())
+        drawIntoCanvas { drawable.draw(it.nativeCanvas) }
     }
 }
 
