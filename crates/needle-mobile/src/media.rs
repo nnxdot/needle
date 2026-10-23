@@ -189,7 +189,16 @@ impl Needle {
         }
     }
 
-    /// A song's moving cover: a video beside its file (cover.mp4, animated.mov, and so on).
+    /// A song's moving cover, only if it is here already: never downloads (for a phone on
+    /// mobile data with Moving covers on mobile data off).
+    pub fn animated_cover_kept(&self, id: String) -> Option<String> {
+        let track = self.library.track(&id).ok().flatten()?;
+        media::animated_cover(&self.library, &track).map(|p| p.to_string_lossy().to_string())
+    }
+
+    /// A song's moving cover: a video beside its file (cover.mp4, animated.mov, and so on),
+    /// or an animated WebP or GIF; for a music server's song, its album's moving cover, which
+    /// may be downloaded the first time (call it off the main thread).
     pub fn animated_cover(&self, id: String) -> Option<String> {
         let track = self.library.track(&id).ok().flatten()?;
         // A music server's song: its album's cover as the server keeps it, when it moves.
