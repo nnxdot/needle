@@ -430,8 +430,14 @@ private struct SourceCard: View {
     @State private var usage: [UInt64] = [0, 0]
     /// Songs played lately, kept for a while to play again without the network: count, bytes.
     @State private var cached: [UInt64] = [0, 0]
-    /// The sign-in form, shown only after Sign in….
-    @State private var signingIn = false
+    /// The sign-in form, shown only after Sign in… (test builds: `-open-signin YES` opens it).
+    @State private var signingIn: Bool = {
+        #if DEBUG
+        UserDefaults.standard.bool(forKey: "open-signin")
+        #else
+        false
+        #endif
+    }()
     /// The server's albums and artists, counted from its songs in the library.
     @State private var counts: (albums: Int, artists: Int)?
     @State private var confirmSignOut = false
@@ -542,7 +548,7 @@ private struct SourceCard: View {
     // MARK: Signed out
 
     private func signedOut(_ source: MusicSource) -> some View {
-        VStack(alignment: .leading, spacing: 8) {
+        VStack(alignment: .leading, spacing: 10) {
             HStack(spacing: 12) {
                 RowIcon(name: "server.rack")
                 VStack(alignment: .leading, spacing: 2) {
@@ -550,34 +556,69 @@ private struct SourceCard: View {
                     Text("Not signed in. Your server's songs show with your own.").font(.callout).foregroundStyle(.secondary).lineLimit(1)
                 }
                 Spacer()
-                if signingIn {
-                    Button("Cancel") { signingIn = false }
-                } else {
+                if !signingIn {
                     Button("Sign in…") { signingIn = true }.buttonStyle(.borderedProminent)
                 }
             }
             if signingIn {
-                Text("Navidrome, Airsonic, Gonic, and other Subsonic servers.").font(.callout).foregroundStyle(.secondary)
-                ForEach(source.fields, id: \.id) { field in
-                    if field.secret {
-                        SecureField(field.label, text: Binding(get: { fields[field.id] ?? "" }, set: { fields[field.id] = $0 }), prompt: Text(field.placeholder))
-                    } else {
-                        TextField(field.label, text: Binding(get: { fields[field.id] ?? "" }, set: { fields[field.id] = $0 }), prompt: Text(field.placeholder))
-                    }
-                }
-                .textFieldStyle(.roundedBorder)
-                Button("Sign in") {
-                    store.core.sourceSignIn(plugin: plugin.id, fields: fields)
-                    store.notify("Signing in to \(source.name)…")
-                    refresh()
-                }
-                .buttonStyle(.borderedProminent)
-                Text("Passwords are kept in the Keychain, not in Needle's files.").font(.caption).foregroundStyle(.secondary)
-            }
-            if let error = source.error {
+                signInForm(source)
+            } else if let error = source.error {
                 Text(error).font(.caption).foregroundStyle(store.plainColors.danger)
             }
         }
+    }
+
+    /// The sign-in form, as a Mac account sheet: one box, the labels right-aligned in a column
+    /// beside the fields, the notes small and grey, and Cancel and Sign In at the bottom right
+    /// (Return signs in).
+    private func signInForm(_ source: MusicSource) -> some View {
+        let p = store.plainColors
+        return VStack(alignment: .leading, spacing: 12) {
+            Text("Navidrome, Airsonic, Gonic, and other Subsonic servers.").font(.caption).foregroundStyle(.secondary)
+            Grid(alignment: .leading, horizontalSpacing: 10, verticalSpacing: 8) {
+                ForEach(source.fields, id: \.id) { field in
+                    GridRow {
+                        Text("\(field.label):")
+                            .foregroundStyle(.secondary)
+                            .gridColumnAlignment(.trailing)
+                        let binding = Binding(get: { fields[field.id] ?? "" }, set: { fields[field.id] = $0 })
+                        let hint = Text(field.placeholder.isEmpty ? field.label : field.placeholder)
+                        Group {
+                            if field.secret {
+                                SecureField(field.label, text: binding, prompt: hint)
+                            } else {
+                                TextField(field.label, text: binding, prompt: hint)
+                            }
+                        }
+                        .labelsHidden()
+                        .textFieldStyle(.roundedBorder)
+                        .multilineTextAlignment(.leading)
+                        .frame(maxWidth: 340)
+                        .onSubmit { signIn(source) }
+                    }
+                }
+            }
+            if let error = source.error {
+                Text(error).font(.caption).foregroundStyle(p.danger)
+            }
+            HStack(alignment: .center) {
+                Text("Passwords are kept in the Keychain, not in Needle's files.").font(.caption).foregroundStyle(.secondary)
+                Spacer(minLength: 12)
+                Button("Cancel") { signingIn = false }
+                    .keyboardShortcut(.cancelAction)
+                Button("Sign In") { signIn(source) }
+                    .keyboardShortcut(.defaultAction)
+            }
+        }
+        .padding(14)
+        .background(p.raised.opacity(0.55), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: 10, style: .continuous).strokeBorder(p.line.opacity(0.6), lineWidth: 1))
+    }
+
+    private func signIn(_ source: MusicSource) {
+        store.core.sourceSignIn(plugin: plugin.id, fields: fields)
+        store.notify("Signing in to \(source.name)…")
+        refresh()
     }
 
     private func refresh() {
