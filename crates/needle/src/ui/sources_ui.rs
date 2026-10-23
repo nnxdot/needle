@@ -90,6 +90,27 @@ impl AppView {
         let source = plugin.source.clone().filter(|_| plugin.enabled)?;
         let p = pal(cx);
         let id = plugin.manifest.id.clone();
+        // Not signed in: one card with a button; the form opens under it.
+        if plugin.builtin
+            && !source.signed_in
+            && source.error.is_none()
+            && !self.settings_open.contains("server-sign-in")
+        {
+            return Some(
+                super::widgets::setting_row(
+                    &source.name,
+                    "Not signed in. Your server's songs show with your own.",
+                    small_button("server-sign-in-open", "Sign in…")
+                        .primary()
+                        .on_click(cx.listener(|this, _, _, cx| {
+                            this.settings_open.insert("server-sign-in");
+                            cx.notify();
+                        })),
+                    cx,
+                )
+                .into_any_element(),
+            );
+        }
         let body = if source.signed_in {
             let status = if source.syncing {
                 "Getting the list of songs…".to_string()
@@ -260,12 +281,7 @@ impl AppView {
                 )
         };
         Some(
-            div()
-                .mt_1()
-                .p_3()
-                .rounded(px(8.))
-                .border_1()
-                .border_color(p.line_soft)
+            super::widgets::card(cx)
                 .flex()
                 .flex_col()
                 .gap_2()
