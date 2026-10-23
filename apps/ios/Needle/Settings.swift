@@ -107,6 +107,48 @@ struct SettingsView: View {
     }
 }
 
+/// A setting's label, as in the iPhone's own Settings: a small icon, its name, and one short
+/// line.
+struct SettingLabel: View {
+    let title: String
+    var detail: String = ""
+    let icon: String
+    var tint: Color = .gray
+
+    var body: some View {
+        HStack(spacing: 12) {
+            Image(systemName: icon).font(.system(size: 13, weight: .semibold)).foregroundStyle(.white)
+                .frame(width: 28, height: 28)
+                .background(tint.gradient, in: .rect(cornerRadius: 7))
+                .accessibilityHidden(true)
+            VStack(alignment: .leading, spacing: 1) {
+                Text(title)
+                if !detail.isEmpty { Text(detail).font(.caption).foregroundStyle(.secondary).lineLimit(1) }
+            }
+        }
+    }
+}
+
+/// A setting that opens in place to show more, with its current choice on the right.
+struct OpenRow<Content: View>: View {
+    let label: SettingLabel
+    let value: String
+    @ViewBuilder let content: Content
+    @State private var open = false
+
+    var body: some View {
+        DisclosureGroup(isExpanded: $open) {
+            content
+        } label: {
+            HStack {
+                label
+                Spacer(minLength: 8)
+                Text(value).font(.subheadline).foregroundStyle(.secondary).lineLimit(1)
+            }
+        }
+    }
+}
+
 /// Loads a record of settings, shows it to change, and saves each change.
 @MainActor
 private func saved<T: Sendable>(_ value: Binding<T?>, _ store: Store, _ write: @escaping @Sendable (Needle, T) throws -> Void) -> (T) -> Void {
@@ -166,12 +208,12 @@ struct LibrarySettingsView: View {
             }
             if let settings {
                 let save = saved($settings, store) { try $0.setPlaybackSettings(value: $1) }
-                Section {
-                    Toggle("Look up online", isOn: Binding(get: { settings.onlineMedia }, set: { var s = settings; s.onlineMedia = $0; save(s) }))
-                } footer: {
-                    Text("Lyrics from LRCLIB when a song has none, and covers and artist photos from MusicBrainz and Wikidata. Off: Needle asks none of these. Your own music server is still asked for its songs' lyrics.")
-                }
-                Section {
+                Section("Artwork and lyrics") {
+                    Toggle(isOn: Binding(get: { settings.onlineMedia }, set: { var s = settings; s.onlineMedia = $0; save(s) })) {
+                        SettingLabel(title: "Look things up online", detail: "Covers, artist photos, and lyrics.", icon: "globe", tint: .blue)
+                    }
+                    OpenRow(label: SettingLabel(title: "Artists' logos", detail: "From fanart.tv.", icon: "signature", tint: .indigo),
+                            value: hasFanart ? "Your key" : "Needle's key") {
                     if hasFanart {
                         LabeledContent("fanart.tv key", value: "Your own")
                         Button("Remove Your Key", role: .destructive) {
@@ -191,32 +233,27 @@ struct LibrarySettingsView: View {
                         }
                         .disabled(fanartKey.trimmingCharacters(in: .whitespaces).isEmpty)
                     }
-                } header: {
-                    Text("Artists' logos")
-                } footer: {
-                    Text("With online lookups on, artist pages show the artist's logo from fanart.tv. Needle asks MusicBrainz for the artist's ID by name, and sends fanart.tv only that ID. Needle has a key of its own; your own key, if you add one, stays in the iPhone Keychain.")
+                    }
                 }
-                Section {
-                    Toggle("Measure songs for radio", isOn: Binding(get: { settings.soundAnalysis }, set: { var s = settings; s.soundAnalysis = $0; save(s) }))
+                Section("Radio") {
+                    Toggle(isOn: Binding(get: { settings.soundAnalysis }, set: { var s = settings; s.soundAnalysis = $0; save(s) })) {
+                        SettingLabel(title: "Measure songs for radio", detail: "Tempo, key, and energy, on this iPhone.", icon: "dot.radiowaves.left.and.right", tint: .orange)
+                    }
                     if measured.count == 2 {
                         LabeledContent("Measured", value: "\(measured[0].formatted()) of \(measured[1].formatted())")
                         Button("Measure now") { store.core.measureInBackground(); store.message = "Measuring in the background" }
                             .disabled(measured[0] >= measured[1])
                     }
-                } footer: {
-                    Text("Radio picks songs that sound like each other. Needle measures a few songs at a time.")
-                }
-                Section {
-                    TextField("For example: rating is at least 4", text: Binding(get: { settings.autoplayQuery }, set: { var s = settings; s.autoplayQuery = $0; save(s) }))
-                        .textInputAutocapitalization(.never)
-                } header: {
-                    Text("When nothing is up next")
-                } footer: {
-                    Text("Needle keeps playing songs that match this search. Empty: the music stops.")
+                    OpenRow(label: SettingLabel(title: "When nothing is up next", detail: "Keep playing songs that match.", icon: "sparkles", tint: .purple),
+                            value: settings.autoplayQuery.isEmpty ? "Off" : settings.autoplayQuery) {
+                        TextField("For example: rating is at least 4", text: Binding(get: { settings.autoplayQuery }, set: { var s = settings; s.autoplayQuery = $0; save(s) }))
+                            .textInputAutocapitalization(.never)
+                        Text("Empty: the music stops.").font(.caption).foregroundStyle(.secondary)
+                    }
                 }
             }
             Section {
-                Button("Back up the library") {
+                Button {
                     let path = FileManager.default.temporaryDirectory.appendingPathComponent("Needle library.needlebackup").path
                     Task {
                         if await store.ask({ try $0.backupLibrary(path: path) }) != nil {
@@ -224,9 +261,10 @@ struct LibrarySettingsView: View {
                             moving = true
                         }
                     }
+                } label: {
+                    SettingLabel(title: "Back up the library", detail: "Plays, stars, playlists, and settings. No music.", icon: "externaldrive.fill", tint: .gray)
                 }
-            } footer: {
-                Text("One file with your songs' plays, stars, playlists, and settings, but no music.")
+                .foregroundStyle(.primary)
             }
         }
         .navigationTitle("Library")
@@ -254,15 +292,18 @@ struct PlaybackSettingsView: View {
         Form {
             if let settings {
                 let save = saved($settings, store) { try $0.setPlaybackSettings(value: $1) }
-                Section {
-                    VStack(alignment: .leading) {
-                        LabeledContent("Crossfade", value: settings.crossfade < 0.5 ? "Off" : "\(Int(settings.crossfade.rounded())) s")
+                Section("Playing") {
+                    VStack(alignment: .leading, spacing: 8) {
+                        HStack {
+                            SettingLabel(title: "Crossfade", detail: "Songs overlap as one ends.", icon: "arrow.left.arrow.right", tint: .blue)
+                            Spacer()
+                            Text(settings.crossfade < 0.5 ? "Off" : "\(Int(settings.crossfade.rounded())) s").foregroundStyle(.secondary).monospacedDigit()
+                        }
                         Slider(value: Binding(get: { Double(settings.crossfade) }, set: { var s = settings; s.crossfade = Float($0.rounded()); save(s) }), in: 0...12, step: 1)
+                            .accessibilityLabel("Crossfade")
                     }
-                } footer: {
-                    Text("Songs overlap as one ends and the next begins. Albums that play on without a gap stay without one.")
-                }
-                Section {
+                    VStack(alignment: .leading, spacing: 8) {
+                        SettingLabel(title: "Even loudness", detail: "From the songs' ReplayGain tags.", icon: "waveform.path", tint: .teal)
                     Picker("Even loudness", selection: Binding(
                         get: { !settings.replayGain ? 0 : (settings.albumGain ? 2 : 1) },
                         set: { var s = settings; s.replayGain = $0 > 0; s.albumGain = $0 == 2; save(s) })) {
@@ -271,8 +312,7 @@ struct PlaybackSettingsView: View {
                         Text("Album").tag(2)
                     }
                     .pickerStyle(.segmented)
-                } footer: {
-                    Text("Uses the songs' ReplayGain tags. Album keeps an album's own quiet and loud songs as they are.")
+                    }
                 }
                 Section("Sleep timer") {
                     SleepMenu()
@@ -398,10 +438,11 @@ struct SoundView: View {
                         LabeledContent("Balance", value: balance(sound.balance))
                         Slider(value: Binding(get: { Double(sound.balance) }, set: { var s = sound; s.balance = Float(($0 * 20).rounded() / 20); save(s) }), in: -1...1)
                     }
-                    Toggle("Mono", isOn: Binding(get: { sound.mono }, set: { var s = sound; s.mono = $0; save(s) }))
+                    Toggle(isOn: Binding(get: { sound.mono }, set: { var s = sound; s.mono = $0; save(s) })) {
+                        SettingLabel(title: "Mono", detail: "Both channels in both ears.", icon: "speaker.fill", tint: .gray)
+                    }
                     Toggle(isOn: Binding(get: { sound.crossfeed }, set: { var s = sound; s.crossfeed = $0; save(s) })) {
-                        Text("Headphone crossfeed")
-                        Text("Mixes a little of each side into the other, as speakers do, for less tiring listening.")
+                        SettingLabel(title: "Headphone crossfeed", detail: "Blends the sides a little, as speakers do.", icon: "headphones", tint: .purple)
                     }
                 }
             }
@@ -553,13 +594,15 @@ struct ScrobblingView: View {
     @State private var apiKey = ""
     @State private var secret = ""
     @State private var token = ""
+    /// Sign-in forms, shown only after Connect, until Cancel or a sign-in.
+    @State private var connecting: Set<String> = []
 
     var body: some View {
         Form {
             if let a = accounts {
                 Section {
-                    if let user = a.lastfmUser {
-                        LabeledContent("Signed in", value: user.isEmpty ? "Yes" : user)
+                    service("Last.fm", user: a.lastfmUser, icon: "music.note", tint: .red, id: "lastfm", busy: waitingForBrowser)
+                    if a.lastfmUser != nil {
                         Toggle("Send listens", isOn: Binding(get: { a.lastfmOn }, set: { on in
                             accounts?.lastfmOn = on; Task { _ = await store.ask { try $0.setScrobbling(lastfm: on, listenbrainz: nil) }; await reload() }
                         }))
@@ -568,11 +611,12 @@ struct ScrobblingView: View {
                         Text("Allow Needle on the Last.fm page, then come back.")
                         Button("I allowed Needle") {
                             Task {
-                                if await store.ask({ try $0.lastfmComplete() }) != nil { waitingForBrowser = false }
+                                if await store.ask({ try $0.lastfmComplete() }) != nil { waitingForBrowser = false; connecting.remove("lastfm") }
                                 await reload()
                             }
                         }
-                    } else {
+                        Button("Cancel", role: .cancel) { waitingForBrowser = false; connecting.remove("lastfm") }
+                    } else if connecting.contains("lastfm") {
                         if !a.lastfmKeyBuiltIn {
                             TextField("API key", text: $apiKey).textInputAutocapitalization(.never).autocorrectionDisabled()
                             SecureField("Shared secret", text: $secret)
@@ -587,26 +631,26 @@ struct ScrobblingView: View {
                             }
                         }
                         .disabled(!a.lastfmKeyBuiltIn && (apiKey.isEmpty || secret.isEmpty))
-                    }
-                } header: {
-                    Text("Last.fm")
-                } footer: {
-                    if a.lastfmUser == nil && !a.lastfmKeyBuiltIn {
-                        Text("This build has no Last.fm key: make one for free at last.fm/api/account/create.")
+                        if !a.lastfmKeyBuiltIn {
+                            Text("Make a free key at last.fm/api/account/create.").font(.caption).foregroundStyle(.secondary)
+                        }
                     }
                 }
-                Section("ListenBrainz") {
-                    if let user = a.listenbrainzUser {
-                        LabeledContent("Signed in", value: user)
+                Section {
+                    service("ListenBrainz", user: a.listenbrainzUser, icon: "brain.head.profile", tint: .orange, id: "listenbrainz", busy: false)
+                    if a.listenbrainzUser != nil {
                         Toggle("Send listens", isOn: Binding(get: { a.listenbrainzOn }, set: { on in
                             accounts?.listenbrainzOn = on; Task { _ = await store.ask { try $0.setScrobbling(lastfm: nil, listenbrainz: on) }; await reload() }
                         }))
                         Button("Sign out", role: .destructive) { Task { _ = await store.ask { try $0.signOut(service: "listenbrainz") }; await reload() } }
-                    } else {
-                        SecureField("User token", text: $token)
+                    } else if connecting.contains("listenbrainz") {
+                        SecureField("User token, from listenbrainz.org/settings", text: $token)
                         Button("Sign in") {
                             let t = token
-                            Task { _ = await store.ask { try $0.listenbrainzSignIn(token: t) }; await reload() }
+                            Task {
+                                if await store.ask({ try $0.listenbrainzSignIn(token: t) }) != nil { connecting.remove("listenbrainz") }
+                                await reload()
+                            }
                         }
                         .disabled(token.isEmpty)
                     }
@@ -617,8 +661,7 @@ struct ScrobblingView: View {
                     if let settings {
                         let save = saved($settings, store) { try $0.setPlaybackSettings(value: $1) }
                         Toggle(isOn: Binding(get: { settings.scrobbleCorrections }, set: { var s = settings; s.scrobbleCorrections = $0; save(s) })) {
-                            Text("Artist names as Apple Music writes them")
-                            Text("키키 is sent as KiiiKiii, for example.")
+                            SettingLabel(title: "Fix artist names", detail: "Apple Music's spelling, such as KiiiKiii.", icon: "pencil", tint: .gray)
                         }
                     }
                 } footer: {
@@ -629,6 +672,10 @@ struct ScrobblingView: View {
         .navigationTitle("Scrobbling")
         .themed()
         .task {
+            #if DEBUG
+            // For testing from a shell: -open-connect lastfm|listenbrainz opens that form.
+            if let id = UserDefaults.standard.string(forKey: "open-connect") { connecting.insert(id) }
+            #endif
             await reload()
             settings = await store.load { try $0.playbackSettings() }
         }
@@ -636,6 +683,22 @@ struct ScrobblingView: View {
 
     private func reload() async {
         accounts = await store.load { $0.accounts() }
+    }
+
+    /// A service's row: its name and whether it is connected, with Connect (or Cancel) while not.
+    private func service(_ name: String, user: String?, icon: String, tint: Color, id: String, busy: Bool) -> some View {
+        HStack {
+            SettingLabel(title: name, detail: user.map { $0.isEmpty ? "Signed in" : "Signed in as \($0)" } ?? "Not connected", icon: icon, tint: tint)
+            Spacer()
+            if user == nil && !busy {
+                if connecting.contains(id) {
+                    Button("Cancel") { connecting.remove(id) }.buttonStyle(.borderless)
+                } else {
+                    Button("Connect") { connecting.insert(id) }
+                        .buttonStyle(.borderedProminent).buttonBorderShape(.capsule).controlSize(.small)
+                }
+            }
+        }
     }
 }
 
@@ -673,13 +736,15 @@ struct DiscordView: View {
                     }
                     if let problem = account.problem { Text(problem).foregroundStyle(.red) }
                 } footer: {
-                    Text("Discord asks you to allow Needle once. Needle then sets your status itself, and keeps Discord's key in the iPhone Keychain. It sends Discord only what the card shows.")
+                    Text("Discord asks you to allow Needle once.")
                 }
             }
             if let s = settings {
                 let save = saved($settings, store) { try $0.setDiscordSettings(value: $1) }
                 Section {
-                    Toggle("Show what you're playing on Discord", isOn: Binding(get: { s.on }, set: { var n = s; n.on = $0; save(n) }))
+                    Toggle(isOn: Binding(get: { s.on }, set: { var n = s; n.on = $0; save(n) })) {
+                        SettingLabel(title: "Show what you're playing", detail: "On your Discord profile.", icon: "bubble.left.and.text.bubble.right.fill", tint: .indigo)
+                    }
                 }
                 if s.on {
                     Section("The card") {
@@ -689,20 +754,18 @@ struct DiscordView: View {
                         choice("Third line", [("album", "Album"), ("song", "Song"), ("artist", "Artist"), ("none", "None")], s.bottom) { var n = s; n.bottom = $0; save(n) }
                     }
                     Section {
-                        Toggle("Look up covers", isOn: Binding(get: { s.covers }, set: { var n = s; n.covers = $0; save(n) }))
+                        Toggle(isOn: Binding(get: { s.covers }, set: { var n = s; n.covers = $0; save(n) })) {
+                            SettingLabel(title: "Look up covers", detail: "From Apple's iTunes catalog, by name.", icon: "photo.fill", tint: .orange)
+                        }
                         Toggle(isOn: Binding(get: { s.logo }, set: { var n = s; n.logo = $0; save(n) })) {
-                            Text("Show the Needle logo")
-                            Text("A badge on the cover, and the picture when there is no cover")
+                            SettingLabel(title: "Show the Needle logo", detail: "A small badge on the cover.", icon: "seal.fill", tint: .pink)
                         }
                     } header: {
                         Text("Picture")
-                    } footer: {
-                        Text("Discord can only show pictures from the web, so Needle finds the cover in Apple's iTunes catalog by artist and song name. Your files never leave this iPhone. Without a picture, Discord hides the third line.")
                     }
                     Section {
                         Toggle(isOn: Binding(get: { s.paused }, set: { var n = s; n.paused = $0; save(n) })) {
-                            Text("Show while paused")
-                            Text("The song stays, marked Paused")
+                            SettingLabel(title: "Show while paused", detail: "The song stays, marked Paused.", icon: "pause.fill", tint: .gray)
                         }
                         Picker("Clear after", selection: Binding(get: { s.idleMinutes }, set: { var n = s; n.idleMinutes = $0; save(n) })) {
                             Text("5 min").tag(UInt32(5))
@@ -713,8 +776,6 @@ struct DiscordView: View {
                         }
                     } header: {
                         Text("When nothing plays")
-                    } footer: {
-                        Text("After this long paused or stopped, the status goes away. It comes back when you play again.")
                     }
                 }
             }
@@ -1001,16 +1062,14 @@ struct AboutView: View {
                         }
                     }
                 }
-            } footer: {
-                Text("Asking sends nothing but the request to needle.nnx.fyi.")
             }
             Section {
-                Toggle("Send crash reports", isOn: Binding(get: { crashReports }, set: { on in
+                Toggle(isOn: Binding(get: { crashReports }, set: { on in
                     crashReports = on
                     store.run { try $0.setCrashReports(on: on) }
-                }))
-            } footer: {
-                Text("When Needle stops by mistake, it sends what went wrong (no music, names, or files) the next time it opens.")
+                })) {
+                    SettingLabel(title: "Send crash reports", detail: "What went wrong. No music, names, or files.", icon: "exclamationmark.triangle.fill", tint: .orange)
+                }
             }
             Section("Privacy") {
                 Text("Needle has no account and no tracking. Your library stays on this iPhone. It talks to the internet only for what you turn on: online lookups, music servers, scrobbling, plugins, and update checks.")
