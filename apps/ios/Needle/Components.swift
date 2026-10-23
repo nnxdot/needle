@@ -30,7 +30,7 @@ enum Route: Hashable {
     case albums, artists, songs, playlists, genres, favorites, recent, folders
     case history, stats, wrapped
     case settings, settingsLibrary, settingsPlayback, settingsSound, settingsAppearance, settingsScrobbling, settingsDiscord
-    case plugins, plugin(String), server(String), computer, sync, whatsNew, about
+    case plugins, plugin(String), server(String), computer, sources, sync, whatsNew, about
     case fixLibrary, duplicates, missingCovers, albumProblems, tidy, importing
     case themeEditor(String?)
 }
@@ -68,6 +68,7 @@ extension View {
             case .plugin(let id): PluginView(id: id)
             case .server(let id): ServerView(plugin: id)
             case .computer: ComputerView()
+            case .sources: SourcesView()
             case .sync: SyncView()
             case .whatsNew: WhatsNewView()
             case .about: AboutView()
@@ -97,22 +98,30 @@ func count(_ n: Int, _ one: String, _ many: String? = nil) -> String {
 struct SectionTitle: View {
     let title: String
     var route: Route?
+    /// A short grey line under the title.
+    var detail: String?
 
     var body: some View {
-        Group {
-            if let route {
-                NavigationLink(value: route) {
-                    HStack(spacing: 4) {
-                        Text(title)
-                        Image(systemName: "chevron.right").font(.subheadline.weight(.bold)).foregroundStyle(.secondary)
+        VStack(alignment: .leading, spacing: 2) {
+            Group {
+                if let route {
+                    NavigationLink(value: route) {
+                        HStack(spacing: 4) {
+                            Text(title)
+                            Image(systemName: "chevron.right").font(.subheadline.weight(.bold)).foregroundStyle(.secondary)
+                        }
                     }
+                    .buttonStyle(.plain)
+                } else {
+                    Text(title)
                 }
-                .buttonStyle(.plain)
-            } else {
-                Text(title)
+            }
+            .font(.title2.bold())
+            .accessibilityAddTraits(.isHeader)
+            if let detail {
+                Text(detail).font(.subheadline).foregroundStyle(.secondary)
             }
         }
-        .font(.title2.bold())
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(.horizontal)
         .padding(.top, 22)

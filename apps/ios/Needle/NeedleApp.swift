@@ -22,7 +22,7 @@ struct NeedleApp: App {
 }
 
 enum Place: Hashable {
-    case home, library, sources, search
+    case home, library, radio, search
 }
 
 struct RootView: View {
@@ -41,8 +41,10 @@ struct RootView: View {
             Tab("Library", systemImage: "square.stack.fill", value: .library) {
                 NavigationStack(path: path(.library)) { LibraryView().routes() }
             }
-            Tab("Sources", systemImage: "globe", value: .sources) {
-                NavigationStack(path: path(.sources)) { SourcesView().routes() }
+            // Radio, not Sources: stations made from songs are Needle's own, and were hidden in
+            // songs' menus; where the music comes from is in Settings › Sources.
+            Tab("Radio", systemImage: "dot.radiowaves.left.and.right", value: .radio) {
+                NavigationStack(path: path(.radio)) { RadioView().routes() }
             }
             Tab(value: .search, role: .search) {
                 NavigationStack(path: path(.search)) { SearchView().routes() }
@@ -50,11 +52,16 @@ struct RootView: View {
         }
         .tabBarMinimizeBehavior(.onScrollDown)
         #if DEBUG
-        // For testing from a shell: -tab library|sources|search, and -albums opens Albums there.
+        // For testing from a shell: -tab library|radio|search, -albums opens Albums there, and
+        // -route settings|appearance|sources opens that page.
         .onAppear {
             let args = CommandLine.arguments
             if let i = args.firstIndex(of: "-tab"), args.indices.contains(i + 1) {
-                place = ["library": .library, "sources": .sources, "search": .search][args[i + 1]] ?? .home
+                place = ["library": .library, "radio": .radio, "search": .search][args[i + 1]] ?? .home
+            }
+            if let i = args.firstIndex(of: "-route"), args.indices.contains(i + 1),
+               let route = ["settings": [Route.settings], "appearance": [.settings, .settingsAppearance], "sources": [.settings, .sources]][args[i + 1]] {
+                paths[place] = NavigationPath(route)
             }
             if args.contains("-albums") { paths[place] = NavigationPath([Route.albums]) }
             // -artist <name>, -album <title>: open that page.

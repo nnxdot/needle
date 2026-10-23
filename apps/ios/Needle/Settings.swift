@@ -1,53 +1,92 @@
 import SwiftUI
 import UniformTypeIdentifiers
 
-/// Settings, by section, as on the desktop and Android.
+/// Settings, in groups as the iPhone's own: a card for Needle and your library at the top, then
+/// listening, the look, your music and where it comes from, and Needle itself.
 struct SettingsView: View {
     @Environment(Store.self) private var store
     /// This build has Discord's library.
     @State private var discord = false
+    @State private var songs: UInt32?
 
     var body: some View {
         List {
             Section {
-                row("Library", "Music folders and online lookups", "music.note.house", .orange, .settingsLibrary)
-                row("Playback", "Crossfade and even loudness", "play.circle", .blue, .settingsPlayback)
+                NavigationLink(value: Route.about) { header }
+            }
+            Section("Listening") {
+                row("Playback", "Crossfade and even loudness", "play.fill", .blue, .settingsPlayback)
                 row("Sound", "Equalizer, balance, and headphones", "slider.vertical.3", .purple, .settingsSound)
-                row("Appearance", "Themes, colours, and the player", "paintpalette", .pink, .settingsAppearance)
                 row("Scrobbling", "Last.fm and ListenBrainz", "waveform", .red, .settingsScrobbling)
                 if discord {
-                    row("Discord", "Show what you play on your profile", "bubble.left.and.text.bubble.right", .indigo, .settingsDiscord)
+                    row("Discord", "Show what you play on your profile", "bubble.left.and.text.bubble.right.fill", .indigo, .settingsDiscord)
                 }
             }
+            Section("Look and feel") {
+                row("Appearance", "Themes, colours, the player, and lyrics", "paintpalette.fill", .pink, .settingsAppearance)
+            }
             Section {
+                row("Sources", "This iPhone, your server, and your computer", "globe", .teal, .sources)
+                row("Library", "Music folders and online lookups", "music.note.house.fill", .orange, .settingsLibrary)
                 row("Music server", "Navidrome and other Subsonic servers", "server.rack", .cyan, .server("subsonic"))
-                row("Plugins", "NetEase lyrics, effects, and commands", "puzzlepiece.extension", .teal, .plugins)
                 row("Your computer", "Control Needle there, play its music here", "laptopcomputer", .indigo, .computer)
+            } header: {
+                Text("Your music")
+            } footer: {
+                Text("Where your songs come from, and how Needle reads them.")
+            }
+            Section("Tools") {
+                row("Fix my library", "Tags, duplicates, covers, and files", "wrench.and.screwdriver.fill", .green, .fixLibrary)
+                row("Import", "Other players and listening history", "square.and.arrow.down.fill", .cyan, .importing)
                 row("Sync", "Move history, ratings, and playlists", "arrow.triangle.2.circlepath", .yellow, .sync)
-                row("Fix my library", "Tags, duplicates, covers, and files", "wrench.and.screwdriver", .green, .fixLibrary)
-                row("Import", "Other players and listening history", "square.and.arrow.down", .cyan, .importing)
+                row("Plugins", "NetEase lyrics, effects, and commands", "puzzlepiece.extension.fill", .teal, .plugins)
             }
             Section {
                 row("What's new", "In this version of Needle", "sparkles", .pink, .whatsNew)
-                row("About", "Version, updates, and privacy", "info.circle", .gray, .about)
+                row("About", "Version, updates, and privacy", "info.circle.fill", .gray, .about)
             }
         }
         .navigationTitle("Settings")
         .themed()
-        .task { discord = await store.load { $0.discordAccount() }?.available ?? false }
+        .task {
+            discord = await store.load { $0.discordAccount() }?.available ?? false
+            songs = await store.load { try $0.songCount() }
+        }
+    }
+
+    /// Needle, its version, and the size of your library.
+    private var header: some View {
+        let version = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? ""
+        return HStack(spacing: 14) {
+            Image(systemName: "music.note")
+                .font(.system(size: 28, weight: .bold))
+                .foregroundStyle(.white)
+                .frame(width: 60, height: 60)
+                .background(LinearGradient(colors: [store.colors.accent, store.colors.accent.opacity(0.6)], startPoint: .topLeading, endPoint: .bottomTrailing),
+                            in: .rect(cornerRadius: 14))
+            VStack(alignment: .leading, spacing: 2) {
+                Text("Needle").font(.title2.bold())
+                Text(songs.map { "\(count(Int($0), "song")) in your library" } ?? " ").font(.subheadline).foregroundStyle(.secondary)
+                Text("Version \(version)").font(.caption).foregroundStyle(.secondary)
+            }
+        }
+        .padding(.vertical, 6)
+        .accessibilityElement(children: .combine)
     }
 
     private func row(_ title: String, _ detail: String, _ symbol: String, _ tint: Color, _ route: Route) -> some View {
         NavigationLink(value: route) {
             HStack(spacing: 14) {
-                Image(systemName: symbol).font(.body.weight(.semibold)).foregroundStyle(.white)
+                Image(systemName: symbol).font(.system(size: 15, weight: .semibold)).foregroundStyle(.white)
                     .frame(width: 30, height: 30)
                     .background(tint.gradient, in: .rect(cornerRadius: 8))
+                    .accessibilityHidden(true)
                 VStack(alignment: .leading, spacing: 1) {
                     Text(title)
-                    Text(detail).font(.caption).foregroundStyle(.secondary)
+                    Text(detail).font(.caption).foregroundStyle(.secondary).lineLimit(1)
                 }
             }
+            .padding(.vertical, 1)
         }
     }
 }
@@ -485,99 +524,7 @@ struct EffectsSection: View {
 extension Effect: Identifiable {}
 extension EffectParam: Identifiable {}
 
-// MARK: - Appearance
-
-struct AppearanceView: View {
-    @Environment(Store.self) private var store
-    @State private var addingTheme = false
-
-    var body: some View {
-        let app = store.app
-        Form {
-            Section("Theme") {
-                Picker("Theme", selection: Binding(get: { app.theme }, set: { t in store.updateApp { $0.theme = t } })) {
-                    Text("Night").tag("night")
-                    Text("Midnight").tag("midnight")
-                    Text("Day").tag("day")
-                    ForEach(store.themes, id: \.id) { Text($0.name).tag($0.id) }
-                }
-                .pickerStyle(.inline)
-                .labelsHidden()
-                ForEach(store.themes.filter { !$0.readOnly }, id: \.id) { theme in
-                    NavigationLink(value: Route.themeEditor(theme.id)) { Label("Edit \(theme.name)", systemImage: "pencil") }
-                }
-                NavigationLink(value: Route.themeEditor(nil)) { Label("New theme", systemImage: "plus") }
-                Button("Add a theme file…", systemImage: "doc.badge.plus") { addingTheme = true }
-            }
-            Section {
-                ColorPicker("Accent", selection: Binding(
-                    get: { Color(hex: app.accentColor) ?? ThemeColors.pink },
-                    set: { c in store.updateApp { $0.accentColor = c.hex } }), supportsOpacity: false)
-                if !app.accentColor.isEmpty {
-                    Button("Use the theme's accent") { store.updateApp { $0.accentColor = "" } }
-                }
-                toggle("Colours from the song", "The whole app takes the colours of the song playing.", \.ambientColors)
-                toggle("Colours from covers", "Album, playlist, and artist pages take their cover's colours.", \.coverColors)
-            } header: {
-                Text("Colours")
-            }
-            Section("Player") {
-                toggle("Immersive cover", "The cover fills the top of the player, edge to edge, as in Apple Music.", \.immersiveCover)
-                toggle("Lyrics under the mini player", "The line being sung, in the mini player under the song's name, in place of the artist.", \.miniPlayerLyrics)
-                toggle("Mark server songs", "Songs from your music server show a small server icon beside their artist.", \.serverMark)
-                toggle("Moving covers", "A video beside the songs, such as cover.mp4, plays as the cover.", \.animatedCovers)
-                toggle("Cover behind the player", app.immersiveCover ? "Behind the lyrics and the queue, the playing cover, blurred." : "The player's background is the playing cover, blurred.", \.coverBackdrop)
-                if app.coverBackdrop {
-                    toggle("Moving cover", nil, \.movingBackdrop)
-                    VStack(alignment: .leading) {
-                        LabeledContent("Softness", value: "\(Int(app.backdropBlur))")
-                        Slider(value: Binding(get: { Double(app.backdropBlur) }, set: { v in store.updateApp { $0.backdropBlur = Float(v.rounded()) } }), in: 20...120)
-                    }
-                }
-                // The immersive cover is always square, across the top.
-                if !app.immersiveCover {
-                    Picker("Cover", selection: Binding(get: { app.coverShape }, set: { v in store.updateApp { $0.coverShape = v } })) {
-                        Text("Square").tag("square")
-                        Text("Record").tag("round")
-                    }
-                }
-                Picker("Beside play", selection: Binding(get: { app.sideButtons }, set: { v in store.updateApp { $0.sideButtons = v } })) {
-                    Text("Skip songs").tag("skip")
-                    Text("Jump 10 seconds").tag("jump")
-                }
-                toggle("Volume slider", nil, \.volumeSlider)
-                toggle("Swipe the cover to skip", nil, \.swipeCover)
-                toggle("Open the player on play", "The player opens by itself when you choose a song.", \.openPlayerOnPlay)
-            }
-            Section("Lyrics") {
-                toggle("Live lyrics", "Lyrics move with the song, the line playing lit.", \.liveLyrics)
-                toggle("Keep the screen on", "While the lyrics show.", \.keepScreenOnLyrics)
-            }
-            Section("Motion and touch") {
-                toggle("Haptics", "A little tap on play, pause, and long presses.", \.haptics)
-                toggle("Reduce motion", "Needle's own switch, besides the iPhone's.", \.reduceMotion)
-            }
-        }
-        .navigationTitle("Appearance")
-        .themed()
-        .fileImporter(isPresented: $addingTheme, allowedContentTypes: [UTType(filenameExtension: "toml") ?? .plainText, .plainText]) { result in
-            guard case .success(let url) = result, let path = store.copyIn(url) else { return }
-            Task {
-                if let id = await store.ask({ try $0.importTheme(path: path) }) {
-                    store.reloadThemes()
-                    store.updateApp { $0.theme = id }
-                }
-            }
-        }
-    }
-
-    private func toggle(_ title: String, _ detail: String?, _ key: WritableKeyPath<AppSettings, Bool>) -> some View {
-        Toggle(isOn: Binding(get: { store.app[keyPath: key] }, set: { v in store.updateApp { $0[keyPath: key] = v } })) {
-            Text(title)
-            if let detail { Text(detail) }
-        }
-    }
-}
+// MARK: - Appearance (the page is in AppearanceCards.swift)
 
 // MARK: - Scrobbling
 
