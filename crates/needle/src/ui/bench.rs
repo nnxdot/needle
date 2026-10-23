@@ -356,6 +356,13 @@ impl AppView {
                         open(v, Page::Settings, window, cx);
                         let down: f32 = down.parse().unwrap_or(0.);
                         v.settings_scroll.set_offset(point(px(0.), px(-down)));
+                        // NEEDLE_SHOW_OPEN: settings cards to open, such as "output-device,lastfm".
+                        if let Ok(open) = std::env::var("NEEDLE_SHOW_OPEN") {
+                            for id in open.split(',') {
+                                v.settings_open
+                                    .insert(Box::leak(id.trim().to_string().into_boxed_str()));
+                            }
+                        }
                     }
                     _ if page == "home" => open(v, Page::Home, window, cx),
                     _ if page == "albums" => open(v, Page::Albums, window, cx),

@@ -537,6 +537,42 @@ pub fn kept_usage(plugin: &str) -> (usize, u64) {
         .fold((0, 0), |(n, size), m| (n + 1, size + m.len()))
 }
 
+/// Songs of a source in the stream cache (played lately, not kept on purpose), and their
+/// size in bytes. Parts still downloading are not counted.
+pub fn cache_usage(plugin: &str) -> (usize, u64) {
+    let Ok(cache) = cache_dir() else {
+        return (0, 0);
+    };
+    walkdir::WalkDir::new(cache.join(plugin))
+        .into_iter()
+        .flatten()
+        .filter(|e| e.file_type().is_file())
+        .filter(|e| e.path().extension().is_none_or(|x| x != "part"))
+        .filter_map(|e| e.metadata().ok())
+        .fold((0, 0), |(n, size), m| (n + 1, size + m.len()))
+}
+
+/// Empty a source's stream cache: songs played lately go (they stream again next time).
+/// Kept songs and songs downloading now stay. Returns how many files went.
+pub fn clear_cache(plugin: &str) -> Result<usize> {
+    let folder = cache_dir()?.join(plugin);
+    let active: Vec<PathBuf> = ACTIVE
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .keys()
+        .cloned()
+        .collect();
+    let mut removed = 0;
+    for entry in std::fs::read_dir(&folder).into_iter().flatten().flatten() {
+        let path = entry.path();
+        let busy = path.extension().is_some_and(|x| x == "part") || active.contains(&path);
+        if !busy && path.is_file() && std::fs::remove_file(&path).is_ok() {
+            removed += 1;
+        }
+    }
+    Ok(removed)
+}
+
 /// Stop keeping every song of a source; they move back to the cache, which can clear them.
 pub fn forget_kept(plugin: &str) -> Result<usize> {
     let cache = cache_dir()?;

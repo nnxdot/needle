@@ -66,7 +66,7 @@ pub fn strong(text: impl Into<SharedString>) -> Div {
 }
 pub fn heading(text: impl Into<SharedString>) -> Div {
     div()
-        .text_size(px(16.))
+        .text_size(px(15.))
         .font_weight(FontWeight::SEMIBOLD)
         .child(text.into())
 }
@@ -258,31 +258,109 @@ pub fn segmented(
         }))
 }
 
-/// One settings row: label and explanation on the left, control on the right.
-pub fn setting_row(title: &str, description: &str, control: impl IntoElement, cx: &App) -> Div {
+/// A settings card: a soft box with a thin line, as in Windows 11's Settings. Cards in a
+/// group sit close together, 3 px apart.
+pub fn card(cx: &App) -> Div {
+    let p = pal(cx);
     div()
-        .py_4()
+        .mt(px(3.))
+        .px(px(14.))
+        .py(px(12.))
+        .rounded(px(7.))
+        .bg(p.raised.opacity(0.5))
+        .border_1()
+        .border_color(p.line_soft)
+}
+
+/// The icon at the start of a settings row, by its title.
+pub fn row_icon(title: &str) -> Option<&'static str> {
+    Some(match title {
+        "Exclusive output" => "signal",
+        "Output device" => "speaker",
+        "ReplayGain" => "wave",
+        "Crossfade" => "blend",
+        "When the queue runs out" => "smart",
+        "Hide to tray" | "Keep in the menu bar" => "mini",
+        "Phone remote" => "cast",
+        "Balance" => "volume",
+        "Mono" => "volume-low",
+        "Headphone crossfeed" => "blend",
+        "Measure songs for radio" => "radio",
+        "Look things up online" => "globe",
+        "Find missing album covers" => "albums",
+        "Updates" => "arrow-down",
+        "Check for updates automatically" => "recent",
+        "What's new" => "star",
+        "Fix artist names for scrobbles" => "edit",
+        "Last.fm" | "ListenBrainz" => "signal",
+        "AcoustID" => "wave",
+        "Send crash reports" => "alert",
+        "Log file" => "info",
+        "Welcome guide" => "home",
+        "Back up the library" => "folder",
+        "Import a playlist" => "playlist",
+        "Move to another computer" => "external",
+        "Layout file" => "panel",
+        "Colors from the music" => "palette",
+        "Color" => "palette",
+        "Film grain" => "blank",
+        "Window glass" | "See-through" | "Glass behind the page" | "Liquid Glass" => "panel",
+        "Immersive cover" => "fullscreen",
+        "Moving covers" => "play",
+        "Lyrics under the player" => "lyrics",
+        "Mark server songs" => "server",
+        "Reduce motion" => "pause",
+        "Titles" => "tag",
+        "Show what you're playing on Discord" => "discord",
+        "Look up covers" => "albums",
+        "Show the Needle logo" => "logo",
+        "Show while paused" => "pause",
+        "Clear when nothing plays" => "recent",
+        "Navidrome / Subsonic" => "server",
+        _ => return None,
+    })
+}
+
+/// The start of a settings card: its icon (if it has one), its name, and one line about it.
+pub fn row_label(title: &str, description: &str, cx: &App) -> Div {
+    let p = pal(cx);
+    div()
+        .flex_1()
+        .min_w_0()
         .flex()
         .items_center()
-        .gap_6()
-        .border_b_1()
-        .border_color(pal(cx).line_soft)
+        .gap(px(14.))
+        .children(row_icon(title).map(|name| glyph(name).size(px(18.)).text_color(p.ink_2)))
         .child(
             div()
                 .flex_1()
                 .min_w_0()
                 .flex()
                 .flex_col()
-                .gap_1()
-                .child(strong(title.to_string()))
+                .gap(px(2.))
+                .child(
+                    div()
+                        .text_size(px(13.))
+                        .font_weight(FontWeight::MEDIUM)
+                        .child(title.to_string()),
+                )
                 .when(!description.is_empty(), |el| {
                     el.child(
                         meta(description.to_string(), cx)
                             .w_full()
-                            .line_height(relative(1.45)),
+                            .line_height(relative(1.4)),
                     )
                 }),
         )
+}
+
+/// One settings card: icon, name, and one line on the left; the control on the right.
+pub fn setting_row(title: &str, description: &str, control: impl IntoElement, cx: &App) -> Div {
+    card(cx)
+        .flex()
+        .items_center()
+        .gap_6()
+        .child(row_label(title, description, cx))
         .child(div().flex_shrink_0().child(control))
 }
 
