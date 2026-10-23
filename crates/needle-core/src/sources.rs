@@ -407,6 +407,9 @@ static RESOLVER: RwLock<Option<Arc<Resolver>>> = RwLock::new(None);
 static CACHE: RwLock<Option<PathBuf>> = RwLock::new(None);
 /// Downloads under way, by cache file.
 static ACTIVE: LazyLock<Mutex<HashMap<PathBuf, Arc<Download>>>> = LazyLock::new(Default::default);
+/// Songs (their cache files) whose stream gave up part way, until the player asks.
+static CUT_SHORT: LazyLock<Mutex<std::collections::HashSet<PathBuf>>> =
+    LazyLock::new(Default::default);
 /// How far ahead of a download a reader may wait before the download jumps to it.
 const JUMP_AFTER: u64 = 1 << 20;
 
@@ -475,6 +478,26 @@ fn kept_path_in(cache: &Path, track: &Track) -> Result<PathBuf> {
 /// not move then, but it is not stuck.
 pub fn waiting(track: &Track) -> bool {
     track.source().is_some() && cache_dir().is_ok_and(|cache| waiting_in(&cache, track))
+}
+
+/// Whether the song's stream gave up part way (the server stopped answering for `GIVE_UP`,
+/// or the download failed), so it ended short of its end. Asking forgets it.
+pub fn cut_short(track: &Track) -> bool {
+    track.source().is_some()
+        && !CUT_SHORT
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .is_empty()
+        && cache_dir().is_ok_and(|cache| cut_short_in(&cache, track))
+}
+
+fn cut_short_in(cache: &Path, track: &Track) -> bool {
+    cache_path_in(cache, track).is_ok_and(|target| {
+        CUT_SHORT
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .remove(&target)
+    })
 }
 
 fn waiting_in(cache: &Path, track: &Track) -> bool {
@@ -979,6 +1002,13 @@ impl Read for Growing {
             let mut progress = self.job.lock();
             progress.waiting = progress.waiting.saturating_sub(1);
         }
+        if arrived.is_err() {
+            // The song ends here, short of its end: the player pauses at this place.
+            CUT_SHORT
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .insert(self.job.target.clone());
+        }
         arrived?;
         let end = {
             let progress = self.job.lock();
@@ -1047,6 +1077,11 @@ pub fn open_with(
         return Ok(Box::new(crate::audio_file::decode(&kept)?));
     }
     let target = cache_path_in(cache, track)?;
+    // Opened again: an earlier stream of it that gave up is old news.
+    CUT_SHORT
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .remove(&target);
     if target.is_file() {
         // Played again: move it to the back of the queue for pruning.
         let _ = File::options()
@@ -1588,6 +1623,39 @@ mod tests {
         assert_eq!(reader.join().unwrap(), vec![7u8; 10]);
         assert!(!waiting_in(dir.path(), &track));
         ACTIVE.lock().unwrap().remove(&target);
+    }
+
+    /// A download that fails while a reader waits for its next part ends the song short, and
+    /// the song is reported once as cut short (for the player to pause there).
+    #[test]
+    fn a_failed_stream_is_reported_cut_short_once() {
+        let dir = tempfile::tempdir().unwrap();
+        let track = server_track("cut");
+        let target = cache_path_in(dir.path(), &track).unwrap();
+        std::fs::create_dir_all(target.parent().unwrap()).unwrap();
+        let part = target.with_extension("flac.part");
+        std::fs::write(&part, vec![7u8; 100]).unwrap();
+        let job = Arc::new(Download {
+            part,
+            target,
+            progress: Mutex::new(Progress {
+                ranges: vec![(0, 100)],
+                total: Some(1000),
+                error: Some("The server stopped answering".into()),
+                ..Default::default()
+            }),
+            changed: Condvar::new(),
+        });
+        assert!(!cut_short_in(dir.path(), &track));
+        job.add_reader();
+        let mut reader = Growing {
+            job: job.clone(),
+            file: None,
+            position: 500,
+        };
+        assert!(reader.read(&mut [0u8; 10]).is_err());
+        assert!(cut_short_in(dir.path(), &track));
+        assert!(!cut_short_in(dir.path(), &track), "reported once");
     }
 
     /// An empty answer fails the download and leaves nothing in the cache to fail again.
