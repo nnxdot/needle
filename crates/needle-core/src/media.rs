@@ -644,11 +644,9 @@ fn server_moving_kept(
             track.album.to_lowercase()
         )
     };
-    let base = library
-        .directory
-        .join("artwork")
-        .join("moving")
-        .join(&blake3::hash(key.as_bytes()).to_hex()[..32]);
+    let folder = library.directory.join("artwork").join("moving");
+    forget_old_still_marks(&folder);
+    let base = folder.join(&blake3::hash(key.as_bytes()).to_hex()[..32]);
     let found = ["webp", "gif"]
         .iter()
         .map(|kind| base.with_extension(kind))
@@ -662,6 +660,30 @@ fn server_moving_kept(
         });
     let known = found.is_some() || still_lately;
     Some((base, found, known))
+}
+
+/// "Still" marks made before Needle asked by the album's id (a song's id often gives the
+/// still picture inside the file) are forgotten once, so those albums are asked again now,
+/// not a week later. A small file in the folder says it was done.
+fn forget_old_still_marks(folder: &Path) {
+    static DONE: std::sync::Mutex<Vec<PathBuf>> = std::sync::Mutex::new(Vec::new());
+    let mut done = DONE.lock().unwrap_or_else(|e| e.into_inner());
+    if done.iter().any(|f| f == folder) {
+        return;
+    }
+    done.push(folder.to_path_buf());
+    let marker = folder.join("asked-by-album");
+    if marker.is_file() || !folder.is_dir() {
+        let _ = std::fs::create_dir_all(folder);
+        let _ = std::fs::write(&marker, b"");
+        return;
+    }
+    for entry in std::fs::read_dir(folder).into_iter().flatten().flatten() {
+        if entry.path().extension().is_some_and(|e| e == "still") {
+            let _ = std::fs::remove_file(entry.path());
+        }
+    }
+    let _ = std::fs::write(&marker, b"");
 }
 
 /// A music server song's moving cover: its album's cover as the server keeps it (not the
