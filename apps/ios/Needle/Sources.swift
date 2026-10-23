@@ -170,7 +170,9 @@ struct SourceCard: View {
     }
 }
 
-/// A music server: sign in, bring its songs in again, and its own switches.
+/// A music server: a card with its name and how it is doing, its numbers, what is kept on this
+/// iPhone, its actions and its own switches, and Sign out at the foot. Signed out: a sign-in
+/// card.
 struct ServerView: View {
     @Environment(Store.self) private var store
     let plugin: String
@@ -179,8 +181,19 @@ struct ServerView: View {
     @State private var kept: [UInt64] = []
     @State private var signingIn = false
     @State private var waiting: Task<Void, Never>?
-    /// The sign-in form, shown only after Sign in….
-    @State private var form = false
+    /// The server's songs, albums, and artists, counted from its songs in the library.
+    @State private var counts: (songs: Int, albums: Int, artists: Int)?
+    @State private var confirmSignOut = false
+
+    /// Test builds: `-server-signed-out` shows the sign-in card even while signed in (nothing
+    /// is signed out).
+    private var showSignedOut: Bool {
+        #if DEBUG
+        UserDefaults.standard.bool(forKey: "server-signed-out")
+        #else
+        false
+        #endif
+    }
 
     /// Signs in, and waits for the server's answer: signed in, or an error (even the same one
     /// as before), or a minute at most.
@@ -205,69 +218,10 @@ struct ServerView: View {
     var body: some View {
         Form {
             if let item, let source = item.source {
-                Section {
-                    if source.signedIn {
-                        LabeledContent("Songs", value: Int(source.songs).formatted())
-                        if let at = source.syncedAt {
-                            LabeledContent("Brought in", value: Date(timeIntervalSince1970: TimeInterval(at)).formatted(date: .abbreviated, time: .shortened))
-                        }
-                        if source.syncing {
-                            HStack {
-                                ProgressView()
-                                Text(source.received > 0 ? "Bringing in the song list… \(count(Int(source.received), "song")) so far" : "Asking the server for its songs…")
-                            }
-                        } else if source.coversLeft > 0 {
-                            Text("Bringing in covers… \(count(Int(source.coversLeft), "cover")) to go")
-                        }
-                        if kept.count == 2, kept[0] > 0 {
-                            LabeledContent("Kept offline", value: "\(count(Int(kept[0]), "song")), \(ByteCountFormatter.string(fromByteCount: Int64(kept[1]), countStyle: .file))")
-                        }
-                        Button("Bring in songs again") { store.core.sourceSync(plugin: plugin) }.disabled(source.syncing)
-                        Button("Sign out", role: .destructive) { store.core.sourceSignOut(plugin: plugin) }
-                    } else {
-                        HStack {
-                            SettingLabel(title: source.name, detail: "Not signed in", icon: "server.rack", tint: .cyan)
-                            Spacer()
-                            if form {
-                                Button("Cancel") { form = false }.buttonStyle(.borderless)
-                            } else {
-                                Button("Sign in…") { form = true }
-                                    .buttonStyle(.borderedProminent).buttonBorderShape(.capsule).controlSize(.small)
-                            }
-                        }
-                        if form {
-                        ForEach(source.fields, id: \.id) { field in
-                            let binding = Binding(get: { fields[field.id] ?? "" }, set: { fields[field.id] = $0 })
-                            if field.secret {
-                                SecureField(field.label, text: binding, prompt: Text(field.placeholder))
-                            } else {
-                                TextField(field.label, text: binding, prompt: Text(field.placeholder))
-                                    .textInputAutocapitalization(.never)
-                                    .autocorrectionDisabled()
-                                    .keyboardType(.URL)
-                            }
-                        }
-                        if signingIn {
-                            HStack(spacing: 10) { ProgressView(); Text("Signing in…") }
-                        } else {
-                            Button("Sign in") { signIn() }
-                        }
-                        Text("The whole address, with http:// or https://.").font(.caption).foregroundStyle(.secondary)
-                        }
-                    }
-                    if !signingIn, let error = source.error { Text(error).foregroundStyle(.red) }
-                } header: {
-                    if source.signedIn { Text(source.name) }
-                }
-                if !source.switches.isEmpty {
-                    Section {
-                        ForEach(source.switches, id: \.id) { s in
-                            Toggle(isOn: Binding(get: { s.on }, set: { store.core.sourceSwitch(plugin: plugin, id: s.id, on: $0) })) {
-                                Text(s.label)
-                                if !s.detail.isEmpty { Text(s.detail) }
-                            }
-                        }
-                    }
+                if source.signedIn && !showSignedOut {
+                    signedIn(item, source)
+                } else {
+                    signedOut(source)
                 }
                 // Needle's own server is part of Needle, not a plugin.
                 if !item.builtIn {
@@ -279,8 +233,14 @@ struct ServerView: View {
                 }
             }
         }
-        .navigationTitle(item?.name ?? "Server")
+        .navigationTitle(item?.source?.name ?? item?.name ?? "Server")
+        .navigationBarTitleDisplayMode(.inline)
         .themed()
+        .confirmationDialog("Sign out of \(item?.source?.name ?? "the server")?", isPresented: $confirmSignOut, titleVisibility: .visible) {
+            Button("Sign Out", role: .destructive) { store.core.sourceSignOut(plugin: plugin) }
+        } message: {
+            Text("Its songs stay in your library, marked missing, until you sign in again.")
+        }
         .task {
             while !Task.isCancelled {
                 let id = plugin
@@ -289,5 +249,198 @@ struct ServerView: View {
                 try? await Task.sleep(for: .seconds(1))
             }
         }
+        .task(id: "\(item?.source?.songs ?? 0)|\(item?.source?.syncing ?? false)") {
+            guard item?.source?.signedIn == true else { return }
+            let found = await store.load { core -> [Int] in
+                let songs = try core.songs().filter { $0.id.hasPrefix("src-") }
+                return [songs.count, Set(songs.map { $0.album + "\u{1}" + $0.artist }).count, Set(songs.map(\.artist)).count]
+            }
+            if let found, found.count == 3 { counts = (found[0], found[1], found[2]) }
+        }
+    }
+
+    // MARK: Signed in
+
+    @ViewBuilder
+    private func signedIn(_ item: PluginItem, _ source: MusicSource) -> some View {
+        Section {
+            header(source.name, status: status(source))
+                .listRowInsets(EdgeInsets())
+                .listRowBackground(Color.clear)
+        }
+        Section {
+            LazyVGrid(columns: [GridItem(.flexible(), spacing: 10), GridItem(.flexible(), spacing: 10)], spacing: 10) {
+                StatTile(value: Int(source.songs).formatted(), label: "Songs", symbol: "music.note")
+                StatTile(value: counts.map { $0.albums.formatted() } ?? "…", label: "Albums", symbol: "square.stack")
+                StatTile(value: counts.map { $0.artists.formatted() } ?? "…", label: "Artists", symbol: "music.microphone")
+                StatTile(value: source.syncedAt.map { Date(timeIntervalSince1970: TimeInterval($0)).formatted(.relative(presentation: .named)) } ?? "Not yet",
+                         label: "Updated", symbol: "clock")
+            }
+            .listRowInsets(EdgeInsets())
+            .listRowBackground(Color.clear)
+        }
+        Section {
+            NavigationLink {
+                SongList(title: source.name) { core in try core.songs().filter { $0.id.hasPrefix("src-") } }
+            } label: {
+                SettingLabel(title: "Show songs", detail: "Everything on your server, to play or keep.", icon: "music.note.list", tint: .cyan)
+            }
+            Button {
+                store.core.sourceSync(plugin: plugin)
+            } label: {
+                HStack {
+                    SettingLabel(title: source.syncing ? "Updating…" : "Update now", detail: "Ask the server for its songs again.", icon: "arrow.triangle.2.circlepath", tint: .blue)
+                    Spacer()
+                    if source.syncing { ProgressView() }
+                }
+            }
+            .foregroundStyle(.primary)
+            .disabled(source.syncing)
+            if source.coversLeft > 0 {
+                SettingLabel(title: "Bringing in covers", detail: "\(count(Int(source.coversLeft), "cover")) to go.", icon: "photo.on.rectangle", tint: .orange)
+            }
+        }
+        Section {
+            HStack {
+                SettingLabel(title: "Kept on this iPhone", detail: "They play without the network.", icon: "arrow.down.circle.fill", tint: .green)
+                Spacer()
+                VStack(alignment: .trailing, spacing: 1) {
+                    Text(count(Int(kept.first ?? 0), "song")).monospacedDigit()
+                    Text(ByteCountFormatter.string(fromByteCount: Int64(kept.last ?? 0), countStyle: .file)).font(.caption).foregroundStyle(.secondary)
+                }
+            }
+        } header: {
+            Text("On this iPhone")
+        } footer: {
+            Text("Keep a song, album, or playlist from its menu: Keep Offline. Songs you play stream, and the last ones stay for a while.")
+        }
+        if !source.switches.isEmpty {
+            Section("On the server") {
+                ForEach(source.switches, id: \.id) { s in
+                    Toggle(isOn: Binding(get: { s.on }, set: { store.core.sourceSwitch(plugin: plugin, id: s.id, on: $0) })) {
+                        SettingLabel(title: s.label, detail: s.detail, icon: "magnifyingglass", tint: .purple)
+                    }
+                }
+            }
+        }
+        Section {
+            Button("Sign Out", role: .destructive) { confirmSignOut = true }
+                .frame(maxWidth: .infinity)
+        }
+    }
+
+    // MARK: Signed out
+
+    @ViewBuilder
+    private func signedOut(_ source: MusicSource) -> some View {
+        Section {
+            VStack(alignment: .leading, spacing: 10) {
+                header(source.name, status: nil)
+                Text("Play the music on your own server, with your library: Navidrome, Airsonic, Gonic, and other Subsonic servers.")
+                    .font(.subheadline).foregroundStyle(.secondary)
+                    .padding(.horizontal, 16)
+            }
+            .listRowInsets(EdgeInsets())
+            .listRowBackground(Color.clear)
+        }
+        Section {
+            ForEach(source.fields, id: \.id) { field in
+                let binding = Binding(get: { fields[field.id] ?? "" }, set: { fields[field.id] = $0 })
+                // The field's name beside it, and its example (or its name) inside.
+                let hint = Text(field.placeholder.isEmpty ? field.label : field.placeholder)
+                HStack(spacing: 12) {
+                    Text(field.label).frame(width: 126, alignment: .leading).lineLimit(1).minimumScaleFactor(0.8)
+                    if field.secret {
+                        SecureField(field.label, text: binding, prompt: hint)
+                    } else {
+                        TextField(field.label, text: binding, prompt: hint)
+                            .textInputAutocapitalization(.never)
+                            .autocorrectionDisabled()
+                            .keyboardType(field.id.contains("server") || field.id.contains("url") ? .URL : .default)
+                    }
+                }
+            }
+        } header: {
+            Text("Your server")
+        } footer: {
+            Text("The whole address, with http:// or https://. Your password stays in the iPhone Keychain.")
+        }
+        Section {
+            if signingIn {
+                HStack(spacing: 10) { ProgressView(); Text("Signing in…") }
+            } else {
+                Button { signIn() } label: {
+                    Text("Sign In").font(.headline).frame(maxWidth: .infinity)
+                }
+                .buttonStyle(.borderedProminent)
+                .listRowInsets(EdgeInsets())
+                .listRowBackground(Color.clear)
+            }
+            if !signingIn, let error = source.error { Text(error).foregroundStyle(.red) }
+        }
+    }
+
+    // MARK: Pieces
+
+    private struct Status {
+        let text: String
+        let color: Color
+        var busy = false
+    }
+
+    private func status(_ source: MusicSource) -> Status {
+        if source.syncing {
+            return Status(text: source.received > 0 ? "Updating the song list… \(count(Int(source.received), "song")) so far" : "Asking the server for its songs…", color: .blue, busy: true)
+        }
+        if let error = source.error { return Status(text: "Can't reach the server · \(error)", color: .red) }
+        return Status(text: "Connected", color: .green)
+    }
+
+    /// The server's card: its icon and name in large type, and how it is doing.
+    private func header(_ name: String, status: Status?) -> some View {
+        HStack(spacing: 14) {
+            Image(systemName: "server.rack")
+                .font(.system(size: 26, weight: .semibold))
+                .foregroundStyle(.white)
+                .frame(width: 58, height: 58)
+                .background(LinearGradient(colors: [.cyan, .blue], startPoint: .topLeading, endPoint: .bottomTrailing), in: .rect(cornerRadius: 15))
+                .accessibilityHidden(true)
+            VStack(alignment: .leading, spacing: 4) {
+                Text(name).font(.title2.bold()).lineLimit(2)
+                if let status {
+                    HStack(spacing: 6) {
+                        if status.busy {
+                            ProgressView().controlSize(.mini)
+                        } else {
+                            Circle().fill(status.color).frame(width: 8, height: 8)
+                        }
+                        Text(status.text).font(.subheadline).foregroundStyle(status.color == .green ? .secondary : status.color).lineLimit(2)
+                    }
+                }
+            }
+            Spacer(minLength: 0)
+        }
+        .padding(16)
+        .glassEffect(.regular, in: .rect(cornerRadius: 22))
+        .accessibilityElement(children: .combine)
+    }
+}
+
+/// A number about the server, on glass: the number large, what it counts under it.
+private struct StatTile: View {
+    let value: String
+    let label: String
+    let symbol: String
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Image(systemName: symbol).font(.subheadline).foregroundStyle(.secondary)
+            Text(value).font(.title3.bold()).monospacedDigit().lineLimit(1).minimumScaleFactor(0.7)
+            Text(label).font(.caption).foregroundStyle(.secondary)
+        }
+        .padding(14)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .glassEffect(.regular, in: .rect(cornerRadius: 18))
+        .accessibilityElement(children: .combine)
     }
 }
