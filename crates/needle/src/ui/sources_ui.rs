@@ -124,6 +124,7 @@ impl AppView {
             };
             let (kept_songs, kept_bytes) = self.kept_usage.get(&id).copied().unwrap_or((0, 0));
             let (show, sync, out, unkeep) = (id.clone(), id.clone(), id.clone(), id.clone());
+            let refresh = id.clone();
             let name = source.name.clone();
             // The source's own switches, such as searching the server as you type.
             let switches = source.switches.iter().map(|switch| {
@@ -221,6 +222,19 @@ impl AppView {
                                 .on_click(cx.listener(move |this, _, _, cx| {
                                     this.plugins.send(PluginEvent::SourceSync(sync.clone()));
                                     cx.notify();
+                                })),
+                        )
+                        .child(
+                            small_button(SharedString::from(format!("source-refresh-{id}")), "Refresh everything")
+                                .ghost()
+                                .disabled(source.syncing)
+                                .tooltip("Get every song and cover again, look for moving covers again, and remove songs no longer on the server. Plays and ratings stay.")
+                                .on_click(cx.listener({
+                                    let refresh = refresh.clone();
+                                    move |this, _, _, cx| {
+                                        this.plugins.send(PluginEvent::SourceRefresh(refresh.clone()));
+                                        cx.notify();
+                                    }
                                 })),
                         )
                         .child(
