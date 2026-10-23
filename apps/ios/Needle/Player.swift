@@ -692,7 +692,8 @@ struct ImmersiveCover: View {
                 tone
                 ZStack {
                     Artwork(path: song?.artwork, seed: seed, size: 1400)
-                    if animated, let video { LoopingVideo(url: video) }
+                    // A video plays; an animated WebP or GIF shows its frames.
+                    if animated, let video { if AnimatedImage.isPicture(video) { AnimatedImage(url: video) } else { LoopingVideo(url: video) } }
                 }
                 .frame(width: side, height: tall)
                 .clipped()
@@ -709,6 +710,11 @@ struct ImmersiveCover: View {
             let colors = await PageColors.of(song?.artwork, seed: seed)
             guard !Task.isCancelled else { return }
             tone = colors.page.darkened(to: 0.3)
+            #if DEBUG
+            // Test builds: -animated-cover <file> plays that file as the moving cover (to check
+            // animated pictures without adding files beside anyone's music).
+            if animated, let test = UserDefaults.standard.string(forKey: "animated-cover") { video = URL(fileURLWithPath: test); return }
+            #endif
             guard animated, let id = song?.id, !(song?.onComputer ?? true) else { return }
             let found = (await store.load { $0.animatedCover(id: id) } ?? nil).map(URL.init(fileURLWithPath:))
             if !Task.isCancelled { video = found }

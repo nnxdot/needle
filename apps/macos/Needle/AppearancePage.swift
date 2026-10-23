@@ -125,7 +125,7 @@ struct AppearanceSettings: View {
             SettingRow(title: "Mark server songs", detail: "A small server icon beside their title.", icon: "server.rack") {
                 SettingSwitch(key: "server_mark", on: s.serverMark)
             }
-            SettingRow(title: "Moving covers", detail: "A cover.mp4 beside the songs plays as the cover.", icon: "play.rectangle") {
+            SettingRow(title: "Moving covers", detail: "A video, or an animated WebP or GIF, beside the songs.", icon: "play.rectangle") {
                 SettingSwitch(key: "animated_covers", on: s.animatedCovers)
             }
         } header: {

@@ -180,7 +180,8 @@ struct ImmersiveCover: View {
                 tone
                 ZStack {
                     Artwork(path: path, seed: seed, size: 1800)
-                    if animated, let video { LoopingVideo(url: video) }
+                    // A video plays; an animated WebP or GIF shows its frames.
+                    if animated, let video { if AnimatedImage.isPicture(video) { AnimatedImage(url: video) } else { LoopingVideo(url: video) } }
                 }
                 // Filled and cropped, centred on the window's height.
                 .frame(width: side, height: height)
