@@ -246,8 +246,19 @@ static STREAM_FORMAT: Mutex<Option<StreamFormat>> = Mutex::new(None);
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct StreamFormat {
     pub rate: u32,
-    /// 32-bit float samples; otherwise 16-bit whole numbers.
-    pub float: bool,
+    pub sample: StreamSample,
+}
+
+/// How each sample of a [`StreamFormat`] is stored.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum StreamSample {
+    /// 16-bit whole numbers.
+    Int16,
+    /// 32-bit whole numbers, which many USB DACs ask for (they carry 16- and 24-bit music
+    /// exactly).
+    Int32,
+    /// 32-bit float.
+    Float32,
 }
 
 /// Sets the format the system output opens at (it applies when the output next opens).
@@ -729,10 +740,10 @@ impl OutputOpener for SystemOutput {
             builder = builder
                 .with_channels(2)
                 .with_sample_rate(format.rate)
-                .with_sample_format(if format.float {
-                    rodio::cpal::SampleFormat::F32
-                } else {
-                    rodio::cpal::SampleFormat::I16
+                .with_sample_format(match format.sample {
+                    StreamSample::Int16 => rodio::cpal::SampleFormat::I16,
+                    StreamSample::Int32 => rodio::cpal::SampleFormat::I32,
+                    StreamSample::Float32 => rodio::cpal::SampleFormat::F32,
                 });
         }
         let mut stream = builder
@@ -1178,6 +1189,8 @@ impl Worker {
                 }
                 result.map_err(|e| anyhow::anyhow!("Seek failed: {e}"))
             }
+            // The song waits for that part of its stream: the seek ends when it comes.
+            Err(_) if self.stream_waiting() => Ok(()),
             Err(_) => {
                 self.lost = Some("Audio output stopped responding".into());
                 bail!("Audio output stopped responding")
@@ -1752,6 +1765,34 @@ impl Worker {
             }
         }
     }
+    /// A song from a server that stopped answering for good (its stream gave up after
+    /// minutes of asking again) ends short of its end: pause at that place, with the song
+    /// still there, rather than go on to the next songs, which would fail the same way. Play
+    /// asks the server again from there.
+    fn pause_cut_short(&mut self) {
+        let Some(active) = self
+            .queue
+            .active
+            .clone()
+            .filter(|item| item.track.is_streamed())
+        else {
+            return;
+        };
+        if !crate::sources::cut_short(&active.track) {
+            return;
+        }
+        // The place the song had reached at the last look (the output may have gone on to the
+        // next song since).
+        let position = self.state.lock().unwrap().position;
+        let mut items = vec![active];
+        items.extend(self.queue.tail());
+        self.finish_listen();
+        self.suspend(items, position);
+        self.state.lock().unwrap().error = Some(
+            "The music server stopped answering, so the song paused here. Press Play to try again."
+                .into(),
+        );
+    }
     /// A playing, unpaused output whose position does not move has stopped.
     fn stalled(&mut self) -> Option<String> {
         let sink = self.sink.as_ref()?;
@@ -1761,10 +1802,21 @@ impl Worker {
             self.progress = (position, Instant::now());
             return None;
         }
-        (self.progress.1.elapsed() > self.stall_timeout).then(|| {
-            self.progress.1 = Instant::now();
-            "Audio output stopped responding".into()
-        })
+        if self.progress.1.elapsed() <= self.stall_timeout {
+            return None;
+        }
+        self.progress.1 = Instant::now();
+        // A song waiting for its stream (a slow server, a dropped connection that is asked
+        // again) holds the output still: that is not a stuck device, and opening the output
+        // again would only wait on the stream too.
+        (!self.stream_waiting()).then(|| "Audio output stopped responding".into())
+    }
+    /// The playing song waits for a part of its stream that has not come yet.
+    fn stream_waiting(&self) -> bool {
+        self.queue
+            .active
+            .as_ref()
+            .is_some_and(|item| crate::sources::waiting(&item.track))
     }
     fn default_changed(&mut self) -> Option<String> {
         if self.settings.output_device.is_some()
@@ -1831,6 +1883,7 @@ impl Worker {
             self.progress.1 = Instant::now();
         }
         self.watch_output();
+        self.pause_cut_short();
         let elapsed = elapsed.min(0.25);
         self.last_tick = Instant::now();
         if self.playing
