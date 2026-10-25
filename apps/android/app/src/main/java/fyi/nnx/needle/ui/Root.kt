@@ -380,6 +380,9 @@ fun NeedleRoot() {
                         )
                     }
                 }
+                // The visualizer full screen, over everything, while a song is there.
+                val fullVisualizer by Ui.fullVisualizer.collectAsState()
+                if (fullVisualizer && hasSong) Box(Modifier.focusLayer()) { FullVisualizer { Ui.fullVisualizer.value = false } }
                 Overlays(snackbar)
                 if (welcoming) Box(Modifier.focusLayer()) { WelcomeGuide(open) }
             }

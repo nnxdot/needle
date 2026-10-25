@@ -73,6 +73,8 @@ object Ui {
     val welcome = MutableStateFlow(false)
     /** A tablet's side pane, open with the lyrics or what is up next; null while shut. */
     val pane = MutableStateFlow<SideKind?>(null)
+    /** The visualizer full screen (from the player's visualizer). */
+    val fullVisualizer = MutableStateFlow(false)
     /** Opens the player (Home's card of the song playing). */
     val showPlayer = kotlinx.coroutines.flow.MutableSharedFlow<Unit>(extraBufferCapacity = 1)
 }

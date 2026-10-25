@@ -62,6 +62,8 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.QueueMusic
 import androidx.compose.material.icons.rounded.Lyrics
+import androidx.compose.material.icons.rounded.GraphicEq
+import androidx.compose.material.icons.rounded.Fullscreen
 import androidx.compose.material.icons.rounded.Cast
 import androidx.compose.material.icons.automirrored.rounded.VolumeUp
 import androidx.compose.material.icons.automirrored.rounded.VolumeDown
@@ -412,7 +414,7 @@ private fun PlayerBackdrop(song: Song, reading: Boolean = false) {
     }
 }
 
-private enum class Panel { Cover, Lyrics, UpNext }
+private enum class Panel { Cover, Lyrics, UpNext, Visualizer }
 
 @Composable
 fun FullPlayer(onClose: () -> Unit, open: (Route) -> Unit) {
@@ -544,6 +546,13 @@ fun FullPlayer(onClose: () -> Unit, open: (Route) -> Unit) {
                     Panel.Cover -> if (immersive) SwipeSpace(look.swipeCover, haptics) else PlayerCover(song, playing, haptics)
                     Panel.Lyrics -> LyricsPanel(song, position) { open(Route.Timing(song.id)) }
                     Panel.UpNext -> UpNextPanel(queueVersion)
+                    // Light that moves with the music; full screen from its corner.
+                    Panel.Visualizer -> Box(Modifier.fillMaxSize()) {
+                        Visualizer(Modifier.fillMaxSize())
+                        IconButton(onClick = { Ui.fullVisualizer.value = true }, modifier = Modifier.align(Alignment.BottomEnd)) {
+                            Icon(Icons.Rounded.Fullscreen, contentDescription = "Full screen", tint = Color.White.copy(alpha = 0.8f))
+                        }
+                    }
                 }
             }
             // A name too long for the width slides slowly along, as in Apple Music; the heart
@@ -641,6 +650,13 @@ fun FullPlayer(onClose: () -> Unit, open: (Route) -> Unit) {
                     Row(Modifier.align(Alignment.CenterEnd).offset(x = 12.dp)) {
                         IconButton(onClick = { searching = true }) {
                             Icon(Icons.Rounded.Search, contentDescription = "Add songs", tint = Color.White.copy(alpha = 0.8f))
+                        }
+                        // The visualizer, in the cover's place.
+                        IconButton(
+                            onClick = { panel = if (panel == Panel.Visualizer) Panel.Cover else Panel.Visualizer },
+                            modifier = Modifier.semantics { stateDescription = if (panel == Panel.Visualizer) "Showing" else "Hidden" },
+                        ) {
+                            Icon(Icons.Rounded.GraphicEq, contentDescription = "Visualizer", tint = if (panel == Panel.Visualizer) MaterialTheme.colorScheme.primary else Color.White.copy(alpha = 0.8f))
                         }
                         // Beside the song's name instead, wherever its name shows.
                         if (!song.onComputer()) SongMenu(song, open)
