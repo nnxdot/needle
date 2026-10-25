@@ -1,3 +1,22 @@
+# 2.0.0
+A new Home and icon, and a lot more to see and hear.
+! **A new look.** Home is the Mac's: the greeting, the song playing now with a round Play button, then your albums and artists on shelves. Needle's colour is amber, its words are the Mac's, and its icon is new: Glass groove, an amber record of glass on charcoal.
+- [player] **Choose the player's buttons.** Put them in order, take some out, or add Shuffle and Repeat in Settings › Appearance › Player buttons.
+- [palette] **Fonts.** Choose a font for titles (eight of them, such as Fraunces, Poster, and Instrument Serif) and one for everything else (such as Inter and Atkinson Hyperlegible), or a font file from Files, in Settings › Appearance › Titles and Text.
+- [sound] **The visualizer.** Light that moves with the music, in the cover's colours, over the whole screen: choose Visualizer in the player's ••• menu.
+- [player] **A seek bar shaped like the song.** The player's seek bar shows the song's loud and quiet parts.
+- [lyrics] **Lyrics in your language.** Tap the translate button beside Lyrics, and each line shows translated under it, made on your iPhone by Apple's Translation.
+- [lyrics] **Lyric cards.** Hold a line of the lyrics and choose Share as Card for a picture of it in the cover's colours.
+- [watch] **Needle on your Apple Watch.** See the song playing on your iPhone, play or pause, skip, and star it from your wrist.
+- [artists] **Better artists.** Guests after "feat." and both halves of "A & B" get their own page, sort names from your tags are used, and accents sort where they belong. Sort artists by A–Z, Most played, Most songs, or Newest, show only album artists, and jump with the letters at the side.
+- [artists] **Your own artist pictures.** The picture button on an artist's page lets you choose their photo, wide picture, and logo: one from your photos, or any of fanart.tv's. With online lookups on, Needle finds every artist's pictures slowly on Wi-Fi, or all at once with Check all now (Settings › Library › Artist pictures).
+- [history] **On this day.** Home shows what you played one and five years ago today.
+- [albums] **Your library in numbers.** What your music is made of, in Library › Library in numbers.
+- [radio] **The mood map.** Every song by how it sounds: draw a circle over the map to play the songs in it (Radio › Mood map).
+- [albums] **A record crate.** Flip through your albums like records in a box: tap the crate at the top of Albums.
+- [player] **Moving covers on the album page.** An album with a moving cover shows it moving on its page too.
+- [sound] **Smart mixes.** With crossfade on, the fade starts where the music ends and lasts whole bars (Settings › Playback › Smart mixes).
+
 # 1.8.0
 Navidrome built in, a Radio tab, moving covers, and calmer Settings.
 ! **Navidrome and Subsonic, built in.** Sign in to your music server in Settings › Music server, with no plugin to add. Its songs show with your own, with a small server icon beside the artist (turn it off in Settings › Appearance › Mark server songs). Long lists load faster.

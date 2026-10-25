@@ -17,6 +17,25 @@ A new look, after the Mac's, and a lot more to see and hear.
 - [eq] **Smart mixes.** With crossfade on, the fade starts where the music ends and lasts whole bars.
 - Plugins can translate lyrics: a Translate button then shows under them.
 
+# 2.0.0 [macos]
+A new icon, and a lot more to see and hear.
+! **A new icon, and one look everywhere.** Needle's icon is now Glass groove: an amber record of glass with its arm, on charcoal. Needle on Windows, Linux, Android, and the iPhone now looks like Needle on the Mac.
+- [play] **Choose the player's buttons.** Drag buttons into the player, along it, and out of it in Settings › Appearance › Layout › Player buttons.
+- [tag] **Fonts.** Choose a font for titles (eight of them, such as Fraunces, Poster, and Instrument Serif) and one for everything else (such as Inter and Atkinson Hyperlegible), or a font on this Mac, in Settings › Appearance › Titles and Text.
+- [wave] **The visualizer.** Light that moves with the music, in the cover's colours. Turn it on with the new button in the big player; in full screen it fills the screen.
+- [signal] **A seek bar shaped like the song.** In the big player and full screen, the seek bar shows the song's loud and quiet parts.
+- [lyrics] **Lyrics in your language.** Press Translate under the lyrics, or right-click a line, and each line shows translated under it, made on this Mac by Apple's Translation.
+- [lyrics] **Lyric cards.** Right-click a line of the lyrics and choose Share as Card for a picture of it in the cover's colours, to share, copy, or save.
+- [artists] **Better artists.** Guests after "feat." and both halves of "A & B" get their own page, sort names from your tags are used, and accents sort where they belong. On the Artists page, sort by A–Z, Most played, Most songs, or Newest, show only album artists, and jump with the A–Z bar.
+- [edit] **Your own artist pictures.** The picture button on an artist's page lets you choose their photo, wide picture, and logo: a file of your own, or any of fanart.tv's. A photo in an artist's folder (artist.jpg) is used too, and so are a wide picture and a logo there (fanart.jpg, logo.png) when fanart.tv has none or online lookups are off.
+- [globe] **Pictures for every artist.** With online lookups on, Needle finds every artist's pictures slowly in the background, or all at once with Check all now (Settings › Library › Artist pictures).
+- [history] **On this day.** Home shows what you played one and five years ago today.
+- [albums] **Your library in numbers, and the mood map.** In the sidebar: what your music is made of, and every song by how it sounds; drag a circle over the map to play the songs in it.
+- [albums] **A record crate.** Flip through your albums like records in a box: choose the crate at the top of Albums, and drag or press the arrow keys.
+- [queue] **The queue in full screen.** A queue button beside the lyrics button, and queue rows light up under the pointer.
+- [play] **Moving covers on the album page.** An album with a moving cover shows it moving on its page too.
+- [eq] **Smart mixes.** With crossfade on, the fade starts where the music ends and lasts whole bars (Settings › Playback › Smart mixes).
+
 # 1.8.0 [macos]
 Navidrome built in, moving covers, and calmer Settings.
 ! **Navidrome and Subsonic, built in.** Sign in to your music server in Settings › Library › Music servers, with no plugin to add. Its songs show with your own, with a small server icon on them (turn it off in Settings › Appearance › Mark server songs). Long lists load faster.
