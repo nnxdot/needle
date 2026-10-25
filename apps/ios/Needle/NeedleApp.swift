@@ -19,6 +19,7 @@ struct NeedleApp: App {
                 .onOpenURL { store.open($0) }
                 .task {
                     WatchLink.shared.start(store)
+                    store.moveOldTitleFont()
                     store.allowPictures()
                 }
         }
