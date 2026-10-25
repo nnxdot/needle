@@ -292,14 +292,13 @@ private fun MiniPlayerBody(playing: Boolean, song: Song, onOpen: () -> Unit, col
                     horizontalArrangement = Arrangement.spacedBy(12.dp),
                 ) {
                     if (inBar) {
-                        // The song and the buttons take the same room, so the line sits in the
-                        // middle of the bar.
+                        // The buttons take the room they need (a floating player's five never
+                        // squeezed); the song and the line share the rest, the line in its middle.
                         info(Modifier.weight(1f))
                         Box(Modifier.weight(1.2f), contentAlignment = Alignment.Center) {
                             AtPosition { at -> MiniLyrics(lines, at, big = true) }
                         }
                         Row(
-                            Modifier.weight(1f),
                             horizontalArrangement = Arrangement.spacedBy(12.dp, Alignment.End),
                             verticalAlignment = Alignment.CenterVertically,
                         ) { buttons() }
