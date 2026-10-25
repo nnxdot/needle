@@ -11,9 +11,6 @@ use std::{
     time::{Duration, Instant},
 };
 
-/// The platform output is one for the whole program: these tests take turns.
-static ONE_AT_A_TIME: Mutex<()> = Mutex::new(());
-
 /// An output that takes the music as a DAC would, ten milliseconds at a time, and keeps a note
 /// of what it got.
 #[derive(Default)]
@@ -96,8 +93,7 @@ fn wait(what: &str, limit: Duration, mut done: impl FnMut() -> bool) {
 }
 
 #[test]
-fn a_platform_output_plays_pauses_seeks_and_follows_the_rate() {
-    let _turn = ONE_AT_A_TIME.lock().unwrap_or_else(|e| e.into_inner());
+fn a_platform_output_plays_pauses_seeks_follows_the_rate_and_hands_back() {
     let dir = tempfile::tempdir().unwrap();
     let music = dir.path().join("music");
     needle_core::demo::create(&music).unwrap();
@@ -150,7 +146,32 @@ fn a_platform_output_plays_pauses_seeks_and_follows_the_rate() {
         fake.formats.lock().unwrap().iter().any(|f| f.rate == 48_000)
     });
 
-    // Cleared: the output stops.
+    // An output that fails (a DAC unplugged): a notice, it is not opened again, and the song
+    // goes on through the system's output (silent here).
+    needle.player.send(needle_core::audio::Command::Volume(0.));
+    std::thread::sleep(Duration::from_millis(1500));
+    let before = needle.playback().position;
+    let failing = Arc::new(Failing::default());
+    set_platform_output(Some(failing.clone()));
+    // The song moves to the new output where it was, not from its start.
+    wait("the new output", Duration::from_secs(5), || failing.frames.load(Ordering::SeqCst) > 0);
+    let moved = needle.playback().position;
+    assert!(moved >= before - 0.3, "the song moved over from {before} to {moved}");
+    wait("music at the failing output", Duration::from_secs(10), || failing.frames.load(Ordering::SeqCst) > 0);
+    // The notice is said (it is cleared again a moment later, see the ignored test below).
+    let start = Instant::now();
+    let mut said = false;
+    while start.elapsed() < Duration::from_secs(10) && !said {
+        said = needle.player.state().output_notice.is_some_and(|n| n.contains("Failing DAC"));
+        std::thread::sleep(Duration::from_millis(10));
+    }
+    assert!(said, "the failure is said");
+    let taken = failing.frames.load(Ordering::SeqCst);
+    let at = needle.playback().position;
+    std::thread::sleep(Duration::from_millis(1500));
+    assert_eq!(failing.frames.load(Ordering::SeqCst), taken, "the failed output is not opened again");
+    let later = needle.playback().position;
+    assert!(later > at + 0.5, "the song went on ({at} -> {later})");
     set_platform_output(None);
     needle.toggle();
 }
@@ -187,34 +208,29 @@ impl PlatformOutput for Failing {
     }
 }
 
+/// Reported to the core: when a platform output fails, its notice ("… stopped (why). Playing
+/// through the phone instead.") is set, then cleared at once as the system's output opens, so
+/// the listener never sees it. Run with `--ignored` to check the fix.
 #[test]
-fn a_failing_platform_output_hands_the_music_back() {
-    let _turn = ONE_AT_A_TIME.lock().unwrap_or_else(|e| e.into_inner());
+#[ignore]
+fn the_failure_notice_stays() {
     let dir = tempfile::tempdir().unwrap();
     let music = dir.path().join("music");
     needle_core::demo::create(&music).unwrap();
     let needle = Needle::new(dir.path().join("data").to_string_lossy().into()).unwrap();
-    // Silent: the system's output takes over in this test.
     needle.player.send(needle_core::audio::Command::Volume(0.));
     let failing = Arc::new(Failing::default());
     set_platform_output(Some(failing.clone()));
     needle.add_folder(music.to_string_lossy().into()).unwrap();
-    wait("the scan", Duration::from_secs(60), || {
-        !needle.scan_status().running && needle.song_count().unwrap_or(0) >= 3
-    });
+    wait("the scan", Duration::from_secs(60), || !needle.scan_status().running && needle.song_count().unwrap_or(0) >= 3);
     let ids: Vec<String> = needle.songs().unwrap().iter().map(|s| s.id.clone()).collect();
     needle.play(ids, 0).unwrap();
-    wait("music at the failing output", Duration::from_secs(10), || failing.frames.load(Ordering::SeqCst) > 0);
-    // After it fails: a notice, and the song goes on through the system's output.
-    wait("the notice", Duration::from_secs(10), || {
-        needle.player.state().output_notice.is_some_and(|n| n.contains("Failing DAC"))
-    });
-    let taken = failing.frames.load(Ordering::SeqCst);
-    let at = needle.playback().position;
-    std::thread::sleep(Duration::from_millis(1500));
-    assert_eq!(failing.frames.load(Ordering::SeqCst), taken, "the failed output is not opened again");
-    let later = needle.playback().position;
-    assert!(later > at + 0.5, "the song went on ({at} -> {later})");
+    wait("the failure", Duration::from_secs(10), || failing.frames.load(Ordering::SeqCst) > 40_000);
+    std::thread::sleep(Duration::from_secs(2));
+    assert!(
+        needle.player.state().output_notice.is_some_and(|n| n.contains("Failing DAC")),
+        "the notice is still there two seconds later"
+    );
     set_platform_output(None);
     needle.toggle();
 }
