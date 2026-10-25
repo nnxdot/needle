@@ -18,6 +18,7 @@ mod immersive;
 mod importer;
 mod insights;
 mod library;
+mod lyric_card;
 mod lyrics;
 mod media_keys;
 mod menus;
