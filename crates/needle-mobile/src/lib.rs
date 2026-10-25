@@ -149,6 +149,9 @@ pub struct Artist {
     /// Its place in an A–Z bar ("A"–"Z", "#", or another script's letter).
     #[uniffi(default = "")]
     pub letter: String,
+    /// How often their songs were played.
+    #[uniffi(default = 0)]
+    pub plays: i64,
 }
 
 #[derive(Clone, uniffi::Record)]
@@ -487,6 +490,7 @@ impl Needle {
                 songs: a.tracks as u32,
                 artwork: a.artwork,
                 letter: a.letter,
+                plays: a.play_count,
             })
             .collect())
     }
