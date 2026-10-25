@@ -4977,6 +4977,7 @@ dependencies = [
  "anyhow",
  "chrono",
  "jni",
+ "libc",
  "ndk-context",
  "needle-core",
  "rand 0.8.8",
