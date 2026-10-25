@@ -56,19 +56,12 @@ xcodebuild -create-xcframework -library "$lib" -headers "$gen/headers" \
 rm -rf "$gen"
 [ "$kind" = core ] && exit 0
 
-# The icon, from the 1024 px picture, with the sizes macOS asks for; and the fonts.
+# The icon and the fonts, in the app's resources.
 resources="$mac/Needle/Resources"
 mkdir -p "$resources"
-if [ ! -f "$resources/Needle.icns" ] || [ crates/needle/assets/needle-1024.png -nt "$resources/Needle.icns" ]; then
-    iconset="$(mktemp -d /tmp/needle-icon.XXXXXX)/Needle.iconset"
-    mkdir -p "$iconset"
-    for size in 16 32 128 256 512; do
-        sips -z $size $size crates/needle/assets/needle-1024.png --out "$iconset/icon_${size}x${size}.png" > /dev/null
-        double=$((size * 2))
-        sips -z $double $double crates/needle/assets/needle-1024.png --out "$iconset/icon_${size}x${size}@2x.png" > /dev/null
-    done
-    iconutil -c icns "$iconset" -o "$resources/Needle.icns"
-    rm -rf "$(dirname "$iconset")"
+# The icon: apps/macos/Needle.iconset, made from assets/icon by scripts/make-apple-icons.py.
+if [ ! -f "$resources/Needle.icns" ] || [ -n "$(find "$mac/Needle.iconset" -newer "$resources/Needle.icns" -print -quit)" ]; then
+    iconutil -c icns "$mac/Needle.iconset" -o "$resources/Needle.icns"
 fi
 # Needle's fonts for titles and text (SIL Open Font License; see assets/fonts).
 cp assets/fonts/*.ttf assets/fonts/*-OFL.txt "$resources/"
