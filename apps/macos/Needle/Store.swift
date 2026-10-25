@@ -148,6 +148,8 @@ final class Store {
         if settings.showInspector { set(["show_inspector": false]) }
         refreshLook()
         core.startDesktop()
+        // The slow search for artists' pictures may look (it waits while the library is read).
+        core.artistPicturesAllow(may: true)
         reloadPlaylists()
         reloadPlugins()
         reloadThemes()
@@ -189,7 +191,11 @@ final class Store {
         if now.playing || ticks % 3 == 0 || now != playback { follow(now) }
         guard ticks % 5 == 0 else { return }
         let status = core.scanStatus()
-        if status != scan { scan = status }
+        if status != scan {
+            // The slow search for artists' pictures waits while the library is read.
+            if status.running != scan.running { core.artistPicturesAllow(may: !status.running) }
+            scan = status
+        }
         if status.finished != scansSeen {
             scansSeen = status.finished
             let changed = status.changes != changesSeen

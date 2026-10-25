@@ -283,22 +283,124 @@ struct AlbumsPage: View {
     }
 }
 
-/// Every artist, as photos; the search narrows them.
+/// Every artist, as photos, in the order chosen (by name with an A–Z bar at the side, most
+/// played, most songs, or recently added), and only album artists when asked; the search
+/// narrows them.
 struct ArtistsPage: View {
     private var store: Store { .shared }
     @State private var artists: [ArtistSummary]?
 
     var body: some View {
-        TileGrid(title: "Artists", summary: artists.map { count($0.count, "artist") }) {
-            ForEach(artists ?? []) { ArtistTile(artist: $0, side: 160) }
+        let s = store.settings
+        let letters = s.artistOrder == "name" ? Self.letters(artists ?? []) : []
+        ScrollViewReader { reader in
+            ScrollView {
+                VStack(alignment: .leading, spacing: 18) {
+                    HStack(alignment: .firstTextBaseline) {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(store.search.isEmpty ? "Artists" : "Artists matching “\(store.search)”").font(store.display(28))
+                            Text(artists.map { count($0.count, "artist") } ?? "Loading…").font(.callout).foregroundStyle(store.colors.ink2)
+                        }
+                        Spacer()
+                        Menu {
+                            Picker("Sort by", selection: Binding(get: { s.artistOrder }, set: { store.set(["artist_order": $0]) })) {
+                                Text("Name").tag("name")
+                                Text("Most played").tag("most_played")
+                                Text("Most songs").tag("most_songs")
+                                Text("Recently added").tag("recently_added")
+                            }
+                            .pickerStyle(.inline)
+                            Divider()
+                            Toggle("Only album artists", isOn: Binding(get: { s.albumArtistsOnly }, set: { store.set(["album_artists_only": $0]) }))
+                        } label: {
+                            Label(Self.orderName(s.artistOrder), systemImage: "arrow.up.arrow.down")
+                        }
+                        .menuStyle(.button)
+                        .fixedSize()
+                        .padding(.trailing, letters.isEmpty ? 0 : 22)
+                        .help("Sort artists")
+                    }
+                    LazyVGrid(columns: [GridItem(.adaptive(minimum: 160, maximum: 220), spacing: 22, alignment: .top)], spacing: 26) {
+                        ForEach(artists ?? []) { artist in
+                            ArtistTile(artist: artist, side: 160).id("artist:" + artist.name)
+                        }
+                    }
+                    .padding(.trailing, letters.isEmpty ? 0 : 22)
+                }
+                .padding(28)
+            }
+            .overlay(alignment: .trailing) {
+                if letters.count > 1 {
+                    LetterBar(letters: letters) { letter in
+                        guard let first = artists?.first(where: { $0.letter == letter }) else { return }
+                        withAnimation(store.motion ? .easeOut(duration: 0.25) : nil) { reader.scrollTo("artist:" + first.name, anchor: .top) }
+                    }
+                    .padding(.trailing, 6)
+                }
+            }
         }
-        .task(id: "\(store.search)\(store.libraryVersion)") {
+        .task(id: "\(store.search)\(store.libraryVersion)\(s.artistOrder)\(s.albumArtistsOnly)") {
             try? await Task.sleep(for: .milliseconds(store.search.isEmpty ? 0 : 150))
             guard !Task.isCancelled else { return }
             let q = store.search.trimmingCharacters(in: .whitespaces)
             let found = JSON.decode([ArtistSummary].self, await store.load { try $0.artistsJson(query: q) }) ?? []
             guard !Task.isCancelled else { return }
             artists = found
+        }
+    }
+
+    /// The letters the artists file under, in their order, each once.
+    private static func letters(_ artists: [ArtistSummary]) -> [String] {
+        var seen: [String] = []
+        for artist in artists where !artist.letter.isEmpty && !seen.contains(artist.letter) {
+            seen.append(artist.letter)
+        }
+        return seen
+    }
+
+    private static func orderName(_ order: String) -> String {
+        switch order {
+        case "most_played": "Most played"
+        case "most_songs": "Most songs"
+        case "recently_added": "Recently added"
+        default: "Name"
+        }
+    }
+}
+
+/// The A–Z bar: the letters down the page's side; a click, or a drag along it, goes to the
+/// first artist under that letter.
+struct LetterBar: View {
+    private var store: Store { .shared }
+    let letters: [String]
+    let go: (String) -> Void
+    @State private var last: String?
+
+    var body: some View {
+        VStack(spacing: 0) {
+            ForEach(letters, id: \.self) { letter in
+                Text(letter)
+                    .font(.system(size: 10, weight: .semibold))
+                    .foregroundStyle(last == letter ? store.colors.accent : store.colors.ink2)
+                    .frame(width: 18, height: 15)
+            }
+        }
+        .padding(.vertical, 6)
+        .background(Capsule().fill(store.colors.raised.opacity(0.6)))
+        .contentShape(Rectangle())
+        .gesture(DragGesture(minimumDistance: 0).onChanged { value in
+            let index = Int((value.location.y - 6) / 15)
+            guard letters.indices.contains(index), letters[index] != last else { return }
+            last = letters[index]
+            go(letters[index])
+        }.onEnded { _ in last = nil })
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("Go to a letter")
+        .accessibilityAdjustableAction { direction in
+            let at = last.flatMap { letters.firstIndex(of: $0) } ?? -1
+            let next = direction == .increment ? min(at + 1, letters.count - 1) : max(at - 1, 0)
+            last = letters[next]
+            go(letters[next])
         }
     }
 }
@@ -341,6 +443,8 @@ struct ArtistPage: View {
     @State private var logo: String?
     /// A wide picture of them from fanart.tv, for the top of the page before their photo.
     @State private var hero: String?
+    /// Goes up when one of their pictures is chosen or reset, to read them again.
+    @State private var pictures = 0
 
     var body: some View {
         let colors = store.colors
@@ -367,7 +471,7 @@ struct ArtistPage: View {
         // Under the bar's glass (and the side panel's: see MainWindow.runsUnder).
         .ignoresSafeArea(edges: .top)
         .foregroundStyle(colors.ink)
-        .task(id: "\(name)\(store.libraryVersion)") {
+        .task(id: "\(name)\(store.libraryVersion)\(pictures)") {
             let name = name
             // What the library has first: it never waits on the web.
             albums = JSON.decode([AlbumSummary].self, await store.load { try $0.artistAlbumsJson(name: name) }) ?? []
@@ -391,7 +495,7 @@ struct ArtistPage: View {
             similar = await store.load { $0.similarArtists(artist: name) } ?? []
         }
         // The logo on its own: it shows as soon as it is found, not after the pictures.
-        .task(id: "\(name)\(store.libraryVersion)") {
+        .task(id: "\(name)\(store.libraryVersion)\(pictures)") {
             guard !placeholder else { return }
             let name = name
             let found = await store.load { $0.artistLogo(name: name) } ?? nil
@@ -489,6 +593,12 @@ struct ArtistPage: View {
                         .glassButton()
                         .controlSize(.extraLarge)
                         .help("Blend with another artist")
+                        if !placeholder {
+                            ArtistPicturesMenu(name: name) {
+                                Photos.forget(name)
+                                pictures += 1
+                            }
+                        }
                     }
                     // Glass in the page's own ink, as Apple Music's.
                     .tint(colors.ink)
