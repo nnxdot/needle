@@ -97,6 +97,8 @@ struct NowPlayingView: View {
     @State private var pane = Pane.cover
     /// Translate in the lyrics (the lyrics pane reads the same switch).
     @AppStorage("translateLyrics") private var translateLyrics = false
+    /// The visualizer over the whole screen.
+    @State private var showVisualizer = false
     @State private var favorite = false
     @State private var favoriteTaps = 0
     /// A loop just set, shown until the core plays it (a moment later).
@@ -184,6 +186,7 @@ struct NowPlayingView: View {
         .onChange(of: store.playback?.loopStart) { _, _ in pendingLoop = nil }
         // Stars changed elsewhere (the Rate menu): read again, with no blink.
         .task(id: store.ratingVersion) { await readFavorite() }
+        .fullScreenCover(isPresented: $showVisualizer) { VisualizerScreen() }
         .onChange(of: song == nil) { _, gone in if gone { dismiss() } }
         .onChange(of: pane) { _, now in
             UIApplication.shared.isIdleTimerDisabled = now == .lyrics && app.keepScreenOnLyrics
@@ -231,6 +234,9 @@ struct NowPlayingView: View {
                 loopMenu(song)
             }
             if !store.onComputer { SleepMenu() }
+            if !store.onComputer {
+                Button("Visualizer", systemImage: "waveform.circle") { showVisualizer = true }
+            }
             Button("Play on…", systemImage: "hifispeaker.2") { store.sheet = .speakers }
         } label: {
             Image(systemName: "ellipsis").font(.title3.weight(.semibold))
@@ -552,6 +558,8 @@ struct SeekBar: View {
     let duration: Double
     var loop: [Double] = []
     @State private var dragged: Double?
+    /// The song's loud and quiet shape, once measured.
+    @State private var shape: [Float] = []
 
     var body: some View {
         let position = dragged ?? store.playback?.position ?? 0
@@ -559,16 +567,21 @@ struct SeekBar: View {
         VStack(spacing: 6) {
             GeometryReader { geo in
                 ZStack(alignment: .leading) {
-                    Capsule().fill(.white.opacity(0.18))
+                    if shape.isEmpty { Capsule().fill(.white.opacity(0.18)) }
                     if loop.count == 2, duration > 0 {
                         Capsule().fill(Color.accentColor.opacity(0.5))
                             .frame(width: max(4, geo.size.width * (loop[1] - loop[0]) / duration))
                             .offset(x: geo.size.width * loop[0] / duration)
+                            .frame(height: shape.isEmpty ? nil : 4)
                     }
-                    Capsule().fill(.white.opacity(dragged == nil ? 0.75 : 0.95))
-                        .frame(width: max(0, geo.size.width * part))
+                    if shape.isEmpty {
+                        Capsule().fill(.white.opacity(dragged == nil ? 0.75 : 0.95))
+                            .frame(width: max(0, geo.size.width * part))
+                    } else {
+                        WaveBars(heights: shape, part: part, held: dragged != nil)
+                    }
                 }
-                .frame(height: dragged == nil ? 7 : 12)
+                .frame(height: shape.isEmpty ? (dragged == nil ? 7 : 12) : (dragged == nil ? 24 : 30))
                 .frame(maxHeight: .infinity)
                 .contentShape(.rect)
                 .gesture(
@@ -581,7 +594,7 @@ struct SeekBar: View {
                         }
                 )
             }
-            .frame(height: 20)
+            .frame(height: shape.isEmpty ? 20 : 32)
             .animation(.spring(response: 0.3, dampingFraction: 0.7), value: dragged == nil)
             .accessibilityElement()
             .accessibilityLabel("Position")
@@ -605,6 +618,12 @@ struct SeekBar: View {
             }
             .font(.caption.weight(.semibold).monospacedDigit())
             .foregroundStyle(.secondary)
+        }
+        .task(id: store.playback?.current?.id) {
+            shape = []
+            guard let song = store.playback?.current, !song.onComputer else { return }
+            let found = await Waveforms.heights(song.id, store: store)
+            if !Task.isCancelled { withAnimation(.easeOut(duration: 0.3)) { shape = found } }
         }
     }
 }

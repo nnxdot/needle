@@ -45,6 +45,8 @@ struct HomeView: View {
     @Environment(Store.self) private var store
     @State private var home: Home?
     @State private var favorites: [Album] = []
+    /// What played on this day one and five years ago.
+    @State private var days: [DayPlayed] = []
     /// The artists played most this month, with their pictures.
     @State private var artists: [TopArtist] = []
     @State private var importing = false
@@ -63,6 +65,11 @@ struct HomeView: View {
                         shelf("New in your library", "Added most recently", home.added, route: .albums)
                         shelf("On repeat", "Your most played albums", home.mostPlayed, route: .albums)
                         shelf("Favorites", "Albums with the songs you love", favorites, route: .albums)
+                        ForEach(days, id: \.yearsAgo) { day in
+                            shelf(day.yearsAgo == 1 ? "A year ago today" : "\(day.yearsAgo) years ago today",
+                                  Date(timeIntervalSince1970: TimeInterval(day.day)).formatted(date: .long, time: .omitted) + " · " + count(Int(day.listens), "song"),
+                                  day.albums, route: nil)
+                        }
                         if !artists.isEmpty {
                             SectionTitle(title: "Artists you play most", route: .artists)
                             Shelf {
@@ -90,6 +97,8 @@ struct HomeView: View {
         .task(id: store.libraryVersion) {
             home = await store.load { try $0.home() }
             favorites = await store.load { try $0.homeFavorites() } ?? []
+            let offset = Int32(TimeZone.current.secondsFromGMT())
+            days = await store.load { try $0.onThisDay(offset: offset) } ?? []
             artists = await store.load { core in
                 let top = try core.stats(days: 30).topArtists.filter { !$0.artist.isEmpty && !isPlaceholderArtist($0.artist) }.prefix(12)
                 let pictures = Dictionary(try core.artists().map { ($0.name, $0.artwork) }, uniquingKeysWith: { a, _ in a })
@@ -256,6 +265,7 @@ struct LibraryView: View {
         ("Recently added", "clock", .recent),
         ("Folders", "folder", .folders),
         ("Listening history", "clock.arrow.circlepath", .history),
+        ("Library in numbers", "chart.bar", .numbers),
     ]
 
     var body: some View {

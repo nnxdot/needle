@@ -104,6 +104,10 @@ struct RadioView: View {
                     MixTileLabel(title: "Your listening", detail: "Top songs and artists", symbol: "chart.bar.fill", tint: .purple)
                 }
                 .buttonStyle(Pressable())
+                NavigationLink(value: Route.moodMap) {
+                    MixTileLabel(title: "Mood map", detail: "Draw a circle to play it", symbol: "circle.hexagongrid.fill", tint: .teal)
+                }
+                .buttonStyle(Pressable())
             }
             .padding(.horizontal)
             .padding(.top, 10)
