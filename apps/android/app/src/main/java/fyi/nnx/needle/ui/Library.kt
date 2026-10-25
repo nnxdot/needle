@@ -32,6 +32,9 @@ import androidx.compose.material.icons.automirrored.rounded.Sort
 import androidx.compose.material.icons.automirrored.rounded.KeyboardArrowRight
 import androidx.compose.material.icons.rounded.Add
 import androidx.compose.material.icons.rounded.AutoAwesome
+import androidx.compose.material.icons.rounded.Album
+import androidx.compose.material.icons.rounded.BarChart
+import androidx.compose.material.icons.rounded.BubbleChart
 import androidx.compose.material.icons.rounded.ArrowDropDown
 import androidx.compose.material.icons.rounded.Check
 import androidx.compose.material.icons.rounded.Close
@@ -197,6 +200,9 @@ private fun Pills(filter: Filter?, choose: (Filter?) -> Unit, sort: Sort, sortBy
                     DropdownMenu(expanded = more, onDismissRequest = { more = false }, shape = RoundedCornerShape(20.dp)) {
                         DropdownMenuItem(text = { Text("Genres") }, leadingIcon = { Icon(Icons.Rounded.Style, null) }, onClick = { more = false; open(Route.Genres) })
                         DropdownMenuItem(text = { Text("Folders") }, leadingIcon = { Icon(Icons.Rounded.Folder, null) }, onClick = { more = false; open(Route.Folder(null)) })
+                        DropdownMenuItem(text = { Text("Record crate") }, leadingIcon = { Icon(Icons.Rounded.Album, null) }, onClick = { more = false; open(Route.Crate) })
+                        DropdownMenuItem(text = { Text("Mood map") }, leadingIcon = { Icon(Icons.Rounded.BubbleChart, null) }, onClick = { more = false; open(Route.MoodMap) })
+                        DropdownMenuItem(text = { Text("Your library in numbers") }, leadingIcon = { Icon(Icons.Rounded.BarChart, null) }, onClick = { more = false; open(Route.Numbers) })
                         DropdownMenuItem(text = { Text("Your year") }, leadingIcon = { Icon(Icons.Rounded.AutoAwesome, null) }, onClick = { more = false; open(Route.Wrapped(null)) })
                     }
                 }
