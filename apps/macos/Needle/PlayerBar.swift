@@ -451,7 +451,7 @@ struct SeekBar: View {
                 Text(clock(p?.duration ?? 0)).monospacedDigit().frame(width: 42, alignment: .leading)
             }
         }
-        .font(.caption)
+        .font(.needle(.caption))
         .foregroundStyle(light ? .white.opacity(0.8) : store.colors.ink3)
         .task(id: small ? nil : store.current?.id) {
             shape = []
@@ -506,7 +506,7 @@ struct SignalPath: View {
             let (short, detail) = path(p, c)
             Button { openSettings() } label: {
                 Label(short, systemImage: "waveform.path")
-                    .font(.caption)
+                    .font(.needle(.caption))
                     .lineLimit(1)
                     .padding(.horizontal, 7)
                     .padding(.vertical, 2)
@@ -724,7 +724,7 @@ struct SpeakersPicker: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
-            Text(picking ? "Play together on" : "Play on").font(.headline)
+            Text(picking ? "Play together on" : "Play on").font(.needle(.headline))
             if picking {
                 Toggle("This Mac", isOn: $thisMac)
                 ForEach(found ?? [], id: \.id) { s in
@@ -747,7 +747,7 @@ struct SpeakersPicker: View {
                     ProgressView("Looking for speakers…").controlSize(.small)
                 } else if found?.isEmpty == true {
                     Text("No speakers answered. Needle looks for Chromecast, AirPlay, and DLNA speakers on this network.")
-                        .font(.caption).foregroundStyle(.secondary).frame(width: 260, alignment: .leading)
+                        .font(.needle(.caption)).foregroundStyle(.secondary).frame(width: 260, alignment: .leading)
                 }
                 Divider()
                 Button("Play on Several at Once…") { picking = true }.buttonStyle(.borderless)

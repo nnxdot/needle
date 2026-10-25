@@ -60,7 +60,7 @@ struct AppearanceView: View {
                     LabeledContent {
                         Text("\(PlayerButtons.chosen(store.more.playerButtons).count) of \(PlayerButtons.all.count)")
                     } label: {
-                        SettingLabel(title: "Player buttons", detail: "Which buttons the player shows, in order.", icon: "playpause.fill", tint: .orange)
+                        SettingLabel(title: "Player buttons", detail: "Which buttons the player shows, in which order.", icon: "playpause.fill", tint: .orange)
                     }
                 }
                 SketchRow(title: "Beside play", detail: "The two buttons either side.") {

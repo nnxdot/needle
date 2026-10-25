@@ -309,7 +309,7 @@ struct PlaybackSettingsView: View {
                     // A dependent row (SETTINGS-STYLE.md): only while Crossfade is on.
                     if settings.crossfade >= 0.5 {
                         Toggle(isOn: Binding(get: { store.more.smartMix }, set: { on in store.updateMore { $0.smartMix = on } })) {
-                            SettingLabel(title: "Smart mixes", detail: "Fades where the music ends, in whole bars.", icon: "metronome.fill", tint: .purple)
+                            SettingLabel(title: "Smart mixes", detail: "The fade starts where the music ends and lasts whole bars.", icon: "metronome.fill", tint: .purple)
                         }
                         .padding(.leading, 16)
                     }

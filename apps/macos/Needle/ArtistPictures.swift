@@ -114,7 +114,7 @@ struct FanartPicker: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
-            Text("\(name): \(kind.title.lowercased()) from fanart.tv").font(.headline)
+            Text("\(name): \(kind.title.lowercased()) from fanart.tv").font(.needle(.headline))
             Group {
                 if let choices, choices.isEmpty {
                     Text("fanart.tv has no \(kind.title.lowercased()) of \(name).")
@@ -206,10 +206,9 @@ struct ArtistPicturesRow: View {
     }
 
     private func detail(on: Bool) -> String {
-        guard on else { return "Finds every artist's photo in the background." }
-        guard let progress, progress.total > 0 else { return "Finds every artist's photo in the background." }
-        if progress.done >= progress.total { return "All \(progress.total.formatted()) artists checked." }
-        let counted = "\(progress.done.formatted()) of \(progress.total.formatted()) artists"
-        return progress.allowed ? counted : counted + " · waits while the library is read"
+        guard on else { return "Photos, logos, and wide pictures for every artist, found slowly." }
+        guard let progress, progress.total > 0 else { return "Finds every artist's photo, logo, and wide picture, one at a time." }
+        if progress.done >= progress.total { return "All \(progress.total.formatted()) artists looked for." }
+        return "\(progress.done.formatted()) of \(progress.total.formatted()) artists looked for."
     }
 }

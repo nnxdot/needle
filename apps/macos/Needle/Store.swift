@@ -23,6 +23,8 @@ final class Store {
     private(set) var colors = Palette.build(Palette.base("dark"), tint: nil, ambient: false)
     private(set) var motion = true
     private(set) var displayFont = "system"
+    /// The text font's setting (Settings › Appearance › Text); the window is drawn anew for it.
+    private(set) var textFont = "system"
     /// Song rows in the compact height.
     private(set) var compactRows = false
     private(set) var playback: MacPlayback?
@@ -463,6 +465,10 @@ final class Store {
         let still = settings.reduceMotion || NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
         if motion == still { motion = !still }
         if displayFont != settings.displayFont { displayFont = settings.displayFont }
+        if textFont != settings.textFont {
+            NeedleFonts.text = NeedleFonts.family(settings.textFont, in: NeedleFonts.texts)
+            textFont = settings.textFont
+        }
         let compact = settings.layout.rowHeight < 50
         if compactRows != compact { compactRows = compact }
     }

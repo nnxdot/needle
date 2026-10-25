@@ -111,7 +111,7 @@ struct RecordCrate: View {
                     .glassButton(prominent: false)
                     .controlSize(.large)
             }
-            Text("Drag down or press ↓ to flip").font(.caption).foregroundStyle(store.colors.ink3)
+            Text("Drag down or press ↓ to flip").font(.needle(.caption)).foregroundStyle(store.colors.ink3)
         }
         .animation(nil, value: index)
     }

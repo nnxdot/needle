@@ -128,7 +128,7 @@ struct PlayerButtonsEditor: View {
                 RoundedRectangle(cornerRadius: 6, style: .continuous)
                     .fill(Color.primary.opacity(0.07))
                     .frame(width: 120, height: 26)
-                    .overlay(Text("Song").font(.caption2).foregroundStyle(.tertiary))
+                    .overlay(Text("Song").font(.needle(.caption2)).foregroundStyle(.tertiary))
                     .dropDestination(for: String.self) { names, _ in
                         guard let name = names.first else { return false }
                         save(insert(name, at: before.count, into: list))
@@ -151,7 +151,7 @@ struct PlayerButtonsEditor: View {
             // The buttons not in the bar.
             HStack(spacing: 6) {
                 Text(unused.isEmpty ? "Every button is in the bar." : "Not in the bar:")
-                    .font(.callout).foregroundStyle(.secondary)
+                    .font(.needle(.callout)).foregroundStyle(.secondary)
                 ForEach(unused, id: \.self) { name in
                     icon(name)
                         .onTapGesture { save(list + [name]) }
@@ -173,7 +173,7 @@ struct PlayerButtonsEditor: View {
                 return true
             }
             Text("Drag buttons along the bar, or out of it. Play/Pause always stays.")
-                .font(.caption).foregroundStyle(.secondary)
+                .font(.needle(.caption)).foregroundStyle(.secondary)
         }
         .padding(.vertical, 4)
     }

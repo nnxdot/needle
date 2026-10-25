@@ -596,7 +596,7 @@ struct Onboarding: View {
                 Button("Try three demo recordings") { store.demo() }.glassButton()
             }
             .controlSize(.large)
-            Text("⌘O adds a folder at any time. No account needed.").font(.caption).foregroundStyle(store.colors.ink3)
+            Text("⌘O adds a folder at any time. No account needed.").font(.needle(.caption)).foregroundStyle(store.colors.ink3)
             Button { store.navigate(.importing) } label: {
                 Label("Coming from iTunes, Spotify, or Last.fm? Bring your history", systemImage: "square.and.arrow.down")
             }
@@ -617,7 +617,7 @@ struct ToastView: View {
                 Image(systemName: toast.error ? "exclamationmark.triangle.fill" : "info.circle.fill")
                     .foregroundStyle(toast.error ? store.colors.danger : store.colors.accent)
                 Text(toast.text).lineLimit(4).frame(maxWidth: 520, alignment: .leading)
-                Button { store.toast = nil } label: { Image(systemName: "xmark").font(.caption.bold()) }
+                Button { store.toast = nil } label: { Image(systemName: "xmark").font(.needle(.caption).bold()) }
                     .buttonStyle(.borderless)
                     .accessibilityLabel("Close the message")
             }

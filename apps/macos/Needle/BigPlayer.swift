@@ -52,7 +52,7 @@ struct BigPlayer: View {
                                 Text(p.title).font(store.display(store.immersive ? 34 : 28)).lineLimit(2).multilineTextAlignment(.center)
                                 Button(p.artist) { store.big = false; store.setImmersive(false); store.navigate(.artist(store.current?.artist ?? p.artist)) }
                                     .buttonStyle(.plain)
-                                    .font(.title3)
+                                    .font(.needle(.title3))
                                     .foregroundStyle(.white.opacity(0.75))
                             }
                             .foregroundStyle(.white)
@@ -115,7 +115,7 @@ struct BigPlayer: View {
 
     private var topBar: some View {
         HStack(spacing: 14) {
-            Button { store.big = false; store.setImmersive(false) } label: { Image(systemName: "chevron.down").font(.title3.weight(.semibold)) }
+            Button { store.big = false; store.setImmersive(false) } label: { Image(systemName: "chevron.down").font(.needle(.title3).weight(.semibold)) }
                 .help("Close the player · Esc")
                 .accessibilityLabel("Close the player")
             Spacer()
@@ -423,9 +423,9 @@ struct MiniPlayer: View {
             Spacer(minLength: 0)
             VStack(spacing: 8) {
                 VStack(spacing: 1) {
-                    Text(p?.hasSong == true ? p!.title : "Nothing playing").font(.headline).lineLimit(1)
+                    Text(p?.hasSong == true ? p!.title : "Nothing playing").font(.needle(.headline)).lineLimit(1)
                     if let p, p.hasSong {
-                        Text(p.artist).font(.callout).foregroundStyle(.white.opacity(0.75)).lineLimit(1)
+                        Text(p.artist).font(.needle(.callout)).foregroundStyle(.white.opacity(0.75)).lineLimit(1)
                     }
                 }
                 SeekBar(small: true, light: true)
@@ -533,11 +533,11 @@ struct MiniHistory: View {
                 Cover(path: item.song?.artwork, seed: item.album + item.artist, side: 30, corner: 4)
                 VStack(alignment: .leading, spacing: 1) {
                     Text(item.title).lineLimit(1)
-                    Text(item.artist).font(.caption).foregroundStyle(.secondary).lineLimit(1)
+                    Text(item.artist).font(.needle(.caption)).foregroundStyle(.secondary).lineLimit(1)
                 }
                 Spacer()
                 Text(Date(timeIntervalSince1970: TimeInterval(item.startedAt)), format: .relative(presentation: .named))
-                    .font(.caption2).foregroundStyle(.secondary)
+                    .font(.needle(.caption2)).foregroundStyle(.secondary)
             }
             .contentShape(Rectangle())
             .onTapGesture(count: 2) { if let song = item.song { store.play([song.asTrack], reason: "Played again from your history") } }

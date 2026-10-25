@@ -185,9 +185,11 @@ struct ArtistPicturesRow: View {
     }
 
     private var detail: String {
-        guard store.more.artistPictures, let progress, progress.total > 0 else { return "Finds every artist's photo, on Wi-Fi." }
-        if progress.done >= progress.total { return "All \(Int(progress.total).formatted()) artists checked." }
-        return "\(Int(progress.done).formatted()) of \(Int(progress.total).formatted()) artists" + (progress.allowed ? "" : ", waiting for Wi-Fi")
+        guard store.more.artistPictures else { return "Photos, logos, and wide pictures for every artist, found slowly." }
+        guard let progress, progress.total > 0 else { return "Finds every artist's photo, logo, and wide picture, one at a time." }
+        if progress.done >= progress.total { return "All \(Int(progress.total).formatted()) artists looked for." }
+        // On a phone it looks only on Wi-Fi.
+        return "\(Int(progress.done).formatted()) of \(Int(progress.total).formatted()) artists looked for." + (progress.allowed ? "" : " Waits for Wi-Fi.")
     }
 }
 
@@ -224,10 +226,10 @@ struct ArtistsView: View {
             ToolbarItem(placement: .topBarTrailing) {
                 Menu {
                     Picker("Sort by", selection: Binding(get: { store.more.artistOrder }, set: { order in store.updateMore { $0.artistOrder = order } })) {
-                        Text("Name").tag("name")
+                        Text("A–Z").tag("name")
                         Text("Most played").tag("most_played")
                         Text("Most songs").tag("most_songs")
-                        Text("Recently added").tag("recently_added")
+                        Text("Newest").tag("recently_added")
                     }
                     Toggle("Only album artists", isOn: Binding(get: { store.more.albumArtistsOnly }, set: { on in store.updateMore { $0.albumArtistsOnly = on } }))
                 } label: {

@@ -75,7 +75,7 @@ struct SongsPage: View {
                 if case .folder(let path) = route { FolderStrip(path: path) }
                 if let error = model.error, !model.tracks.isEmpty {
                     Label("\(error) · showing the last results", systemImage: "exclamationmark.triangle")
-                        .font(.callout).foregroundStyle(store.colors.danger)
+                        .font(.needle(.callout)).foregroundStyle(store.colors.danger)
                         .frame(maxWidth: .infinity, alignment: .leading).padding(.horizontal, 24).padding(.bottom, 6)
                 }
                 if !store.search.isEmpty { ServerSongs() }
@@ -136,7 +136,7 @@ struct SongsPage: View {
     private var pager: some View {
         HStack {
             Text("\((model.offset + 1).formatted())–\((model.offset + model.tracks.count).formatted()) of \(model.total.formatted()) tracks")
-                .font(.callout).foregroundStyle(store.colors.ink2)
+                .font(.needle(.callout)).foregroundStyle(store.colors.ink2)
             Spacer()
             Button { model.offset = max(0, model.offset - SongsModel.pageSize) } label: { Image(systemName: "chevron.left") }
                 .disabled(model.offset == 0).help("Previous 1,000").accessibilityLabel("Previous 1,000")
@@ -177,13 +177,13 @@ struct SongsHeader: View {
             Cover(path: album.artwork, seed: seed, side: 232, corner: 12)
                 .shadow(color: .black.opacity(colors.dark ? 0.45 : 0.25), radius: 30, y: 16)
             VStack(alignment: .leading, spacing: 5) {
-                Text("Album").font(.callout.weight(.semibold)).foregroundStyle(colors.ink2)
+                Text("Album").font(.needle(.callout).weight(.semibold)).foregroundStyle(colors.ink2)
                 Text(title).font(store.display(44)).lineLimit(2).foregroundStyle(colors.ink)
                 Button(album.displayAlbumArtist) { store.navigate(.artist(album.displayAlbumArtist)) }
                     .buttonStyle(.plain)
-                    .font(.title2.weight(.medium))
+                    .font(.needle(.title2).weight(.medium))
                     .foregroundStyle(colors.ink2)
-                Text(summary(album)).font(.callout).foregroundStyle(colors.ink3)
+                Text(summary(album)).font(.needle(.callout)).foregroundStyle(colors.ink3)
                 buttons.padding(.top, 12)
             }
             Spacer(minLength: 0)
@@ -221,14 +221,14 @@ struct SongsHeader: View {
                 if let album {
                     Button(album.displayAlbumArtist) { store.navigate(.artist(album.displayAlbumArtist)) }
                         .buttonStyle(.link)
-                        .font(.title3.weight(.medium))
+                        .font(.needle(.title3).weight(.medium))
                 }
-                Text(summary(album)).font(.callout).foregroundStyle(colors.ink2)
+                Text(summary(album)).font(.needle(.callout)).foregroundStyle(colors.ink2)
                 if let description = playlist?.description, !description.isEmpty {
-                    Text(description).font(.callout).foregroundStyle(colors.ink2).lineLimit(2)
+                    Text(description).font(.needle(.callout)).foregroundStyle(colors.ink2).lineLimit(2)
                 }
                 if let rule = ruleLine {
-                    Text(rule).font(.callout).foregroundStyle(colors.accent).lineLimit(1).truncationMode(.middle)
+                    Text(rule).font(.needle(.callout)).foregroundStyle(colors.accent).lineLimit(1).truncationMode(.middle)
                 }
                 if big { buttons.padding(.top, 10) }
             }
@@ -368,13 +368,13 @@ struct Breadcrumbs: View {
         HStack(spacing: 4) {
             Button("Folders") { store.navigate(.folders) }.buttonStyle(.link)
             ForEach(parts, id: \.self) { part in
-                Image(systemName: "chevron.right").font(.caption2).foregroundStyle(.secondary)
+                Image(systemName: "chevron.right").font(.needle(.caption2)).foregroundStyle(.secondary)
                 Button((part as NSString).lastPathComponent) { store.navigate(.folder(part)) }
                     .buttonStyle(.link)
                     .disabled(part == path)
             }
         }
-        .font(.callout)
+        .font(.needle(.callout))
         .task { roots = (try? store.core.folders()) ?? [] }
     }
 
@@ -411,7 +411,7 @@ struct FolderStrip: View {
                                 }
                                 VStack(alignment: .leading, spacing: 0) {
                                     Text(folder.name).lineLimit(1)
-                                    Text(count(Int(folder.songs), "song")).font(.caption).foregroundStyle(.secondary)
+                                    Text(count(Int(folder.songs), "song")).font(.needle(.caption)).foregroundStyle(.secondary)
                                 }
                             }
                             .padding(.vertical, 6).padding(.horizontal, 10)
@@ -440,8 +440,8 @@ struct ServerSongs: View {
             if !found.isEmpty {
                 VStack(alignment: .leading, spacing: 6) {
                     HStack {
-                        Text("On your server").font(.headline)
-                        Text("Not in your library yet. Playing one fetches it.").font(.caption).foregroundStyle(.secondary)
+                        Text("On your server").font(.needle(.headline))
+                        Text("Not in your library yet. Playing one fetches it.").font(.needle(.caption)).foregroundStyle(.secondary)
                     }
                     ScrollView(.horizontal, showsIndicators: false) {
                         HStack(spacing: 10) {
@@ -450,7 +450,7 @@ struct ServerSongs: View {
                                     Cover(path: song.artwork, seed: song.album, side: 36)
                                     VStack(alignment: .leading) {
                                         Text(song.title).lineLimit(1)
-                                        Text(song.artist).font(.caption).foregroundStyle(.secondary).lineLimit(1)
+                                        Text(song.artist).font(.needle(.caption)).foregroundStyle(.secondary).lineLimit(1)
                                     }
                                     .frame(maxWidth: 180, alignment: .leading)
                                     Button { store.core.playServerSongs(generation: generation, start: UInt32(index)) } label: { Image(systemName: "play.fill") }
@@ -509,7 +509,7 @@ struct Problem: View {
     var body: some View {
         VStack(spacing: 10) {
             Image(systemName: "magnifyingglass").font(.system(size: 28)).foregroundStyle(store.colors.ink3)
-            Text(title).font(.title3.weight(.medium)).multilineTextAlignment(.center)
+            Text(title).font(.needle(.title3).weight(.medium)).multilineTextAlignment(.center)
             Text(detail).foregroundStyle(store.colors.ink2).multilineTextAlignment(.center).frame(maxWidth: 460)
             HStack {
                 ForEach(Array(steps.enumerated()), id: \.offset) { i, step in

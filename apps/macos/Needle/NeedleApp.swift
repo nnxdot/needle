@@ -9,6 +9,9 @@ struct NeedleApp: App {
     var body: some Scene {
         Window("Needle", id: "main") {
             MainWindow()
+                // The text font chosen (Settings › Appearance › Text): drawn anew when it changes.
+                .font(.needle(.body))
+                .id(store.textFont)
                 .environment(store)
                 .onAppear { delegate.store = store }
         }
@@ -27,6 +30,7 @@ struct NeedleApp: App {
 
         Settings {
             SettingsWindow()
+                .font(.needle(.body))
                 .environment(store)
         }
 
