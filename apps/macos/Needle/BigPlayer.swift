@@ -10,6 +10,8 @@ struct BigPlayer: View {
     @State private var moved = Date()
     /// Full screen: what the side shows (the lyrics, or what plays next), or nothing.
     @State private var immersiveSide: Store.BigSide? = .lyrics
+    /// Light that moves with the music fills the player, in place of the cover.
+    @AppStorage("visualizer") private var visualizer = false
 
     var body: some View {
         @Bindable var store = store
@@ -19,7 +21,9 @@ struct BigPlayer: View {
             let wide = geo.size.width > 980
             ZStack {
                 Color.black
-                if let p, p.hasSong, immersive {
+                if visualizer, let p, p.hasSong {
+                    Visualizer().ignoresSafeArea()
+                } else if let p, p.hasSong, immersive {
                     // Alone when no pane shows beside it (too narrow for one, or lyrics hidden).
                     ImmersiveCover(path: p.artwork, seed: p.album + p.artist, songID: store.current?.id,
                                    animated: store.settings.animatedCovers && store.motion,
@@ -32,7 +36,7 @@ struct BigPlayer: View {
                 if let p, p.hasSong {
                     HStack(spacing: wide ? 60 : 32) {
                         VStack(spacing: 22) {
-                            if immersive {
+                            if immersive || visualizer {
                                 // The cover is the window's side itself: the words sit over its foot.
                                 Spacer(minLength: 0)
                             } else {
@@ -56,7 +60,7 @@ struct BigPlayer: View {
                                 .opacity(resting ? 0 : 1)
                         }
                         .frame(maxWidth: wide ? 480 : 360)
-                        if wide && (!store.immersive || immersiveSide != nil) {
+                        if wide && !visualizer && (!store.immersive || immersiveSide != nil) {
                             side
                                 .frame(maxWidth: 560)
                                 .frame(maxHeight: geo.size.height * 0.82)
@@ -115,7 +119,15 @@ struct BigPlayer: View {
                 .help("Close the player · Esc")
                 .accessibilityLabel("Close the player")
             Spacer()
-            if store.immersive {
+            Button { visualizer.toggle() } label: {
+                Image(systemName: "waveform.circle")
+                    .frame(width: 30, height: 30)
+                    .background(.white.opacity(visualizer ? 0.18 : 0), in: Circle())
+            }
+            .help(visualizer ? "Show the cover" : "Visualizer: light that moves with the music")
+            .accessibilityLabel(visualizer ? "Hide the visualizer" : "Show the visualizer")
+            .accessibilityAddTraits(visualizer ? .isSelected : [])
+            if store.immersive && !visualizer {
                 sideButton(.lyrics, icon: "quote.bubble", name: "the lyrics")
                 sideButton(.queue, icon: "list.bullet", name: "what plays next")
             }

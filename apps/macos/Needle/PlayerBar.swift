@@ -415,6 +415,8 @@ struct SeekBar: View {
     var small = false
     var light = false
     @State private var held: Double?
+    /// The song's loud and quiet shape (the big seek bar only), once measured.
+    @State private var shape: [Float] = []
 
     var body: some View {
         let p = store.playback
@@ -424,17 +426,26 @@ struct SeekBar: View {
             if !small {
                 Text(clock(p?.hasSong == true ? position : 0)).monospacedDigit().frame(width: 42, alignment: .trailing)
             }
-            Slider(value: Binding(get: { min(position, duration) }, set: { held = $0 }), in: 0...duration, onEditingChanged: { editing in
-                if editing {
-                    store.core.scrub(held: true)
+            Group {
+                if !small, !shape.isEmpty, p?.hasSong == true {
+                    WaveformSeek(heights: shape, fraction: min(position / duration, 1),
+                                 lit: light ? .white : store.colors.accent,
+                                 dim: light ? .white.opacity(0.28) : store.colors.ink3.opacity(0.45)) { place in
+                        if let place {
+                            if held == nil { store.core.scrub(held: true) }
+                            held = place * duration
+                        } else {
+                            scrubbing(false)
+                        }
+                    }
+                    .frame(height: 30)
+                    .accessibilityRepresentation { slider(position: position, duration: duration) }
                 } else {
-                    if let to = held { store.seek(to) }
-                    store.core.scrub(held: false)
-                    Task { try? await Task.sleep(for: .milliseconds(500)); held = nil }
+                    slider(position: position, duration: duration)
+                        .controlSize(small ? .mini : .small)
+                        .disabled(p?.hasSong != true)
                 }
-            })
-            .controlSize(small ? .mini : .small)
-            .disabled(p?.hasSong != true)
+            }
             .overlay { LoopMarks(duration: duration) }
             if !small {
                 Text(clock(p?.duration ?? 0)).monospacedDigit().frame(width: 42, alignment: .leading)
@@ -442,6 +453,26 @@ struct SeekBar: View {
         }
         .font(.caption)
         .foregroundStyle(light ? .white.opacity(0.8) : store.colors.ink3)
+        .task(id: small ? nil : store.current?.id) {
+            shape = []
+            guard !small, let id = store.current?.id else { return }
+            let found = await Waveforms.heights(id, store: store)
+            if !Task.isCancelled { shape = found }
+        }
+    }
+
+    private func slider(position: Double, duration: Double) -> some View {
+        Slider(value: Binding(get: { min(position, duration) }, set: { held = $0 }), in: 0...duration, onEditingChanged: { editing in
+            if editing { store.core.scrub(held: true) } else { scrubbing(false) }
+        })
+        .accessibilityLabel("Position")
+    }
+
+    /// Let go: jumps once to where it was left and plays on.
+    private func scrubbing(_ on: Bool) {
+        if let to = held { store.seek(to) }
+        store.core.scrub(held: false)
+        Task { try? await Task.sleep(for: .milliseconds(500)); held = nil }
     }
 }
 
