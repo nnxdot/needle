@@ -155,6 +155,9 @@ final class Store {
     @ObservationIgnored private var syncActivity: Activity<NeedleActivity>?
     @ObservationIgnored private var widgetSong: (String?, Bool) = (nil, false)
 
+    /// The one store, shared by the app's window and CarPlay, so there is one library.
+    static let main = Store()
+
     init() {
         let files = FileManager.default
         let support = files.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]

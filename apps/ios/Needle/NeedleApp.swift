@@ -2,7 +2,7 @@ import SwiftUI
 
 @main
 struct NeedleApp: App {
-    @State private var store = Store()
+    @State private var store = Store.main
     @Environment(\.scenePhase) private var phase
 
     var body: some Scene {
