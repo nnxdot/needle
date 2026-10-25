@@ -1,20 +1,36 @@
 ---
-// Needle's mark: an amber record with its grooves, and a cream tonearm.
-interface Props { class?: string; spin?: boolean }
-const { class: cls = "", spin = false } = Astro.props;
+// Needle 2.0's icon, "Glass groove": the amber record as glass with a soft glow behind it, the
+// cream tonearm, on a charcoal squircle. The same drawing as assets/icon/needle.svg
+// (scripts/make-icon.py). `plate={false}` leaves the squircle out; `grooves={false}` is for
+// small sizes. Each copy gets its own ids, so several can sit on one page.
+interface Props { class?: string; plate?: boolean; grooves?: boolean }
+const { class: cls = "", plate = true, grooves = true } = Astro.props;
+const id = `n${Math.random().toString(36).slice(2, 8)}`;
+const [cx, cy, r] = [236, 288, 150];
+const [px, py, ex, ey] = [cx + 184, cy - 190, cx + 82, cy - 64];
 ---
-<svg class={`logo ${cls}`} viewBox="0 0 100 100" aria-hidden="true">
-  <g class={spin ? "logo-record spin" : "logo-record"}>
-    <circle cx="45" cy="56" r="31" fill="#e1b36b" />
-    <g fill="none" stroke="#c6944e" stroke-width="1.7">
-      <circle cx="45" cy="56" r="26.5" /><circle cx="45" cy="56" r="22.3" /><circle cx="45" cy="56" r="18.1" />
-    </g>
-    <circle cx="45" cy="56" r="10.2" fill="#1b1816" />
-    <circle cx="45" cy="56" r="2.6" fill="#e1b36b" />
+<svg class={`logo ${cls}`} viewBox="0 0 512 512" aria-hidden="true">
+  <defs>
+    <filter id={`${id}sh`} x="-30%" y="-30%" width="160%" height="160%"><feDropShadow dx="0" dy="8" stdDeviation="10" flood-color="#000" flood-opacity=".35" /></filter>
+    <linearGradient id={`${id}bg`} x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#2d2926" /><stop offset="1" stop-color="#141211" /></linearGradient>
+    <radialGradient id={`${id}d`} cx=".36" cy=".3" r=".85"><stop offset="0" stop-color="#f6d9a4" /><stop offset=".55" stop-color="#e2b46c" /><stop offset="1" stop-color="#ad7a3c" /></radialGradient>
+    <linearGradient id={`${id}s`} x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#fff" stop-opacity=".6" /><stop offset=".42" stop-color="#fff" stop-opacity="0" /></linearGradient>
+    <radialGradient id={`${id}g`} cx=".5" cy=".5" r=".5"><stop offset="0" stop-color="#e2b46c" stop-opacity=".5" /><stop offset="1" stop-color="#e2b46c" stop-opacity="0" /></radialGradient>
+  </defs>
+  {plate && <rect width="512" height="512" rx="115" fill={`url(#${id}bg)`} />}
+  {plate && <rect x="2" y="2" width="508" height="508" rx="113" fill="none" stroke="#fff" stroke-opacity=".09" stroke-width="3" />}
+  <g class="logo-record">
+    <circle cx={cx} cy={cy} r={r * 1.45} fill={`url(#${id}g)`} />
+    <circle cx={cx} cy={cy} r={r} fill={`url(#${id}d)`} />
+    {grooves && [.86, .74, .62].map((k) => <circle cx={cx} cy={cy} r={r * k} fill="none" stroke="#7a5020" stroke-opacity=".35" stroke-width={r * .02} />)}
+    <circle cx={cx} cy={cy} r={r} fill={`url(#${id}s)`} opacity=".55" />
+    <circle cx={cx} cy={cy} r={r} fill="none" stroke="#fff" stroke-opacity=".25" stroke-width="2" />
+    <circle cx={cx} cy={cy} r={r * .36} fill="#1b1816" />
+    <circle cx={cx} cy={cy} r={r * .08} fill="#e2b46c" />
   </g>
-  <g class="logo-arm">
-    <path d="M61.5 41 81.5 17.5" stroke="#efe6d8" stroke-width="5.6" stroke-linecap="round" />
-    <circle cx="82" cy="17" r="6.8" fill="#efe6d8" />
-    <circle cx="82" cy="17" r="2.6" fill="#1b1816" />
+  <g class="logo-arm" filter={`url(#${id}sh)`}>
+    <line x1={px} y1={py} x2={ex} y2={ey} stroke="#f2e8d6" stroke-width="22" stroke-linecap="round" />
+    <circle cx={px} cy={py} r="30" fill="#f2e8d6" />
+    <circle cx={px} cy={py} r="12" fill="#1b1816" />
   </g>
 </svg>

@@ -41,7 +41,10 @@ pub struct FakeDac {
 
 impl FakeDac {
     pub fn new(trouble: Trouble) -> Self {
-        Self { trouble, state: Mutex::default() }
+        Self {
+            trouble,
+            state: Mutex::default(),
+        }
     }
 
     pub fn bytes(&self) -> usize {
@@ -70,7 +73,9 @@ pub fn descriptors() -> Vec<u8> {
     d.extend([9, 4, 0, 0, 0, 1, 1, 0x20, 0]);
     d.extend([9, 0x24, 1, 0x00, 0x02, 0, 0, 0, 0]);
     d.extend([8, 0x24, 0x0A, 0x29, 3, 7, 0, 0]);
-    d.extend([17, 0x24, 2, 2, 0x01, 0x01, 0, 0x29, 2, 3, 0, 0, 0, 0, 0, 0, 0]);
+    d.extend([
+        17, 0x24, 2, 2, 0x01, 0x01, 0, 0x29, 2, 3, 0, 0, 0, 0, 0, 0, 0,
+    ]);
     d.extend([18, 0x24, 6, 10, 2, 0x0C, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]);
     d.extend([9, 4, 1, 0, 0, 1, 2, 0x20, 0]);
     d.extend([9, 4, 1, 1, 2, 1, 2, 0x20, 0]);
@@ -101,7 +106,14 @@ impl Bus for FakeDac {
         Ok(())
     }
 
-    fn control(&self, request_type: u8, request: u8, value: u16, _index: u16, data: &mut [u8]) -> Result<usize> {
+    fn control(
+        &self,
+        request_type: u8,
+        request: u8,
+        value: u16,
+        _index: u16,
+        data: &mut [u8],
+    ) -> Result<usize> {
         let selector = (value >> 8) as u8;
         match (request_type, request, selector) {
             // The clock's rates: three subranges of one rate each.
@@ -128,7 +140,11 @@ impl Bus for FakeDac {
             }
             // Setting the rate.
             (0x21, 0x01, 0x01) => {
-                self.state.lock().unwrap().rates.push(u32::from_le_bytes([data[0], data[1], data[2], data[3]]));
+                self.state
+                    .lock()
+                    .unwrap()
+                    .rates
+                    .push(u32::from_le_bytes([data[0], data[1], data[2], data[3]]));
                 Ok(data.len())
             }
             _ => Ok(data.len()),
@@ -180,8 +196,16 @@ impl Bus for FakeDac {
                         let (_, id, endpoint) = s.queue.remove(i).unwrap();
                         s.done += 1;
                         // Feedback: the nominal 44.1 kHz in 16.16 per microframe.
-                        let data = if endpoint & 0x80 != 0 { super::packets::nominal(44_100, 8000).to_le_bytes().to_vec() } else { vec![] };
-                        return Ok(Some(Reaped { id, status: 0, data }));
+                        let data = if endpoint & 0x80 != 0 {
+                            super::packets::nominal(44_100, 8000).to_le_bytes().to_vec()
+                        } else {
+                            vec![]
+                        };
+                        return Ok(Some(Reaped {
+                            id,
+                            status: 0,
+                            data,
+                        }));
                     }
                 }
             }
@@ -225,12 +249,18 @@ pub mod checks {
         }
     }
 
-    /// The notice the core says when the driver gives up (it is cleared again soon, so it is
-    /// watched for closely).
+    /// The driver gave up (its own report, fresh) and the core said so in its notice.
     fn said(needle: &Needle, words: &str, limit: Duration) -> bool {
         let start = Instant::now();
         while start.elapsed() < limit {
-            if needle.player.state().output_notice.is_some_and(|n| n.contains(words)) {
+            let reported = super::super::STATUS.lock().unwrap().1.is_some();
+            if reported
+                && needle
+                    .player
+                    .state()
+                    .output_notice
+                    .is_some_and(|n| n.contains(words))
+            {
                 return true;
             }
             std::thread::sleep(Duration::from_millis(5));
@@ -240,39 +270,61 @@ pub mod checks {
 
     fn driver(trouble: Trouble) -> (Arc<FakeDac>, Arc<UsbDac>) {
         let fake = Arc::new(FakeDac::new(trouble));
-        let dac = Arc::new(UsbDac::new(fake.clone(), &descriptors(), "Pretend DAC".into()).unwrap());
+        let dac =
+            Arc::new(UsbDac::new(fake.clone(), &descriptors(), "Pretend DAC".into()).unwrap());
         (fake, dac)
     }
 
     /// The driver on a pretend DAC: it plays, rests while paused, and every trouble (a stall,
     /// the DAC gone, a panic, a rate it does not play) ends in an error within a second or two,
     /// with the song going on through the system's output. `ids` are songs at 44.1 kHz.
-    pub fn the_driver_plays_and_every_trouble_ends_in_an_error(needle: &Needle, music: &std::path::Path, ids: Vec<String>, fallback: bool) {
+    pub fn the_driver_plays_and_every_trouble_ends_in_an_error(
+        needle: &Needle,
+        music: &std::path::Path,
+        ids: Vec<String>,
+        fallback: bool,
+    ) {
         // Silent: after a trouble the system's output takes over.
         needle.player.send(needle_core::audio::Command::Volume(0.));
         let (fake, dac) = driver(Trouble::None);
         let info = dac.info();
-        assert_eq!((info.uac, info.bits, info.rates.clone(), info.volume), (2, 24, vec![44_100, 48_000, 96_000], true));
+        assert_eq!(
+            (info.uac, info.bits, info.rates.clone(), info.volume),
+            (2, 24, vec![44_100, 48_000, 96_000], true)
+        );
         set_platform_output(Some(dac));
 
         // It plays: 24-bit in 4-byte slots at the song's rate, in real time, and not silence.
         needle.play(ids.clone(), 0).unwrap();
         // (The song playing before moves over first, at its own rate.)
-        wait("the 44.1 kHz song at the DAC", Duration::from_secs(10), || fake.rates().last() == Some(&44_100));
-        wait("music at the DAC", Duration::from_secs(10), || fake.bytes() > 100_000);
+        wait(
+            "the 44.1 kHz song at the DAC",
+            Duration::from_secs(10),
+            || fake.rates().last() == Some(&44_100),
+        );
+        wait("music at the DAC", Duration::from_secs(10), || {
+            fake.bytes() > 100_000
+        });
         assert_eq!(fake.alts().last(), Some(&(1, 2)));
         assert!(fake.loudest() > 1000, "music, not silence");
         let before = fake.bytes();
         std::thread::sleep(Duration::from_secs(1));
         let second = fake.bytes() - before;
-        assert!((250_000..450_000).contains(&second), "{second} bytes a second (44.1 kHz × 8 = 352 800)");
+        assert!(
+            (250_000..450_000).contains(&second),
+            "{second} bytes a second (44.1 kHz × 8 = 352 800)"
+        );
         assert!(super::super::STATUS.lock().unwrap().0.as_deref() == Some("44.1 kHz, 24-bit"));
 
         // Paused: the DAC rests (setting 0), and plays again after.
         needle.toggle();
-        wait("the DAC resting", Duration::from_secs(3), || fake.alts().last() == Some(&(1, 0)));
+        wait("the DAC resting", Duration::from_secs(3), || {
+            fake.alts().last() == Some(&(1, 0))
+        });
         needle.toggle();
-        wait("playing again", Duration::from_secs(3), || fake.alts().last() == Some(&(1, 2)));
+        wait("playing again", Duration::from_secs(3), || {
+            fake.alts().last() == Some(&(1, 2))
+        });
 
         // Each trouble: an error within a second, and the song goes on through the system.
         for (trouble, words) in [
@@ -284,16 +336,31 @@ pub mod checks {
             let at = needle.playback().position;
             set_platform_output(Some(dac));
             let start = Instant::now();
-            assert!(said(needle, "Pretend DAC", Duration::from_secs(5)), "{trouble:?}: the failure is said");
-            assert!(start.elapsed() < Duration::from_secs(3), "{trouble:?}: it took {:?}", start.elapsed());
-            let why = super::super::STATUS.lock().unwrap().1.take().unwrap_or_default();
+            assert!(
+                said(needle, "Pretend DAC", Duration::from_secs(5)),
+                "{trouble:?}: the failure is said"
+            );
+            assert!(
+                start.elapsed() < Duration::from_secs(3),
+                "{trouble:?}: it took {:?}",
+                start.elapsed()
+            );
+            let why = super::super::STATUS
+                .lock()
+                .unwrap()
+                .1
+                .take()
+                .unwrap_or_default();
             assert!(words.iter().any(|w| why.contains(w)), "{trouble:?}: {why}");
             // Without the system's output (see FALLBACK), the first trouble is the last check.
             if !fallback {
                 return;
             }
             std::thread::sleep(Duration::from_millis(800));
-            assert!(needle.playback().position > at, "{trouble:?}: the song went on");
+            assert!(
+                needle.playback().position > at,
+                "{trouble:?}: the song went on"
+            );
         }
 
         // A song at a rate the DAC does not play: an error, not silence.
@@ -317,11 +384,31 @@ pub mod checks {
         wav.extend(vec![0u8; (frames * 4) as usize]);
         std::fs::write(&odd, wav).unwrap();
         needle.rescan();
-        wait("the odd song", Duration::from_secs(30), || needle.songs().unwrap_or_default().iter().any(|s| s.title.contains("Odd")));
-        let odd_id = needle.songs().unwrap().into_iter().find(|s| s.title.contains("Odd")).unwrap().id;
+        wait("the odd song", Duration::from_secs(30), || {
+            needle
+                .songs()
+                .unwrap_or_default()
+                .iter()
+                .any(|s| s.title.contains("Odd"))
+        });
+        let odd_id = needle
+            .songs()
+            .unwrap()
+            .into_iter()
+            .find(|s| s.title.contains("Odd"))
+            .unwrap()
+            .id;
         needle.play(vec![odd_id], 0).unwrap();
-        assert!(said(needle, "Pretend DAC", Duration::from_secs(5)), "32 kHz: the failure is said");
-        let why = super::super::STATUS.lock().unwrap().1.take().unwrap_or_default();
+        assert!(
+            said(needle, "Pretend DAC", Duration::from_secs(5)),
+            "32 kHz: the failure is said"
+        );
+        let why = super::super::STATUS
+            .lock()
+            .unwrap()
+            .1
+            .take()
+            .unwrap_or_default();
         assert!(why.contains("32000 Hz"), "{why}");
 
         set_platform_output(None);

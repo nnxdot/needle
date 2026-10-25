@@ -1972,12 +1972,19 @@ impl Worker {
             && self.sink.is_some()
         {
             let (position, playing) = (self.position(), self.playing);
+            let notice = self
+                .platform
+                .as_ref()
+                .and_then(|p| p.failure.lock().ok()?.take());
             let mut items = vec![];
             items.extend(self.queue.active.clone());
             items.extend(self.queue.tail());
             self.release();
-            if let Err(error) = self.restart(items, position, playing) {
-                self.state.lock().unwrap().error = Some(format!("{error:#}"));
+            match self.restart(items, position, playing) {
+                // Said after the system's output opened, which clears the notice.
+                Ok(()) if notice.is_some() => self.state.lock().unwrap().output_notice = notice,
+                Ok(()) => {}
+                Err(error) => self.state.lock().unwrap().error = Some(format!("{error:#}")),
             }
             return;
         }

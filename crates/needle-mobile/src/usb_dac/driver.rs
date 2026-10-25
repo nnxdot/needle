@@ -1,12 +1,7 @@
 //! The driver: the music from the core's feed to the DAC, through a [`Bus`]. Any trouble ends
 //! `render` with an error at once (a DAC gone, refusing, or no longer taking music within half
 //! a second; even a panic), so the core moves the music to Android's output with a notice.
-use super::{
-    UsbDacInfo,
-    bus::Bus,
-    descriptors::*,
-    packets::*,
-};
+use super::{UsbDacInfo, bus::Bus, descriptors::*, packets::*};
 use anyhow::{Result, anyhow, bail};
 use needle_core::platform_output::{Feed, FeedFormat, PlatformOutput};
 use std::{
@@ -71,7 +66,12 @@ impl UsbDac {
             dac,
         };
         if out.dac.uac == Uac::Two {
-            let clocks: Vec<u8> = out.dac.formats.iter().filter_map(|f| out.dac.clock_for(f.terminal)).collect();
+            let clocks: Vec<u8> = out
+                .dac
+                .formats
+                .iter()
+                .filter_map(|f| out.dac.clock_for(f.terminal))
+                .collect();
             for clock in clocks {
                 if out.clock_rates.iter().any(|(c, _)| *c == clock) {
                     continue;
@@ -85,7 +85,12 @@ impl UsbDac {
     }
 
     pub fn info(&self) -> UsbDacInfo {
-        let mut rates: Vec<u32> = self.dac.formats.iter().flat_map(|f| self.rates(f)).collect();
+        let mut rates: Vec<u32> = self
+            .dac
+            .formats
+            .iter()
+            .flat_map(|f| self.rates(f))
+            .collect();
         rates.sort_unstable();
         rates.dedup();
         UsbDacInfo {
@@ -111,7 +116,10 @@ impl UsbDac {
     }
 
     fn takes_dop(&self) -> bool {
-        self.dac.formats.iter().any(|f| f.bits >= 24 && f.channels == 2 && self.rates(f).iter().any(|r| *r >= 176_400))
+        self.dac
+            .formats
+            .iter()
+            .any(|f| f.bits >= 24 && f.channels == 2 && self.rates(f).iter().any(|r| *r >= 176_400))
     }
 
     fn index(&self, entity: u8) -> u16 {
@@ -126,10 +134,12 @@ impl UsbDac {
     fn clock_range(&self, clock: u8) -> Result<Vec<u32>> {
         let _one = self.one_at_a_time();
         let mut head = [0u8; 2];
-        self.bus.control(GET, RANGE, wvalue(0x01, 0), self.index(clock), &mut head)?;
+        self.bus
+            .control(GET, RANGE, wvalue(0x01, 0), self.index(clock), &mut head)?;
         let count = u16::from_le_bytes(head) as usize;
         let mut all = vec![0u8; 2 + count.min(32) * 12];
-        self.bus.control(GET, RANGE, wvalue(0x01, 0), self.index(clock), &mut all)?;
+        self.bus
+            .control(GET, RANGE, wvalue(0x01, 0), self.index(clock), &mut all)?;
         Ok(rates_in_ranges(&all))
     }
 
@@ -140,13 +150,40 @@ impl UsbDac {
         let (min, max) = match self.dac.uac {
             Uac::Two => {
                 let mut answer = [0u8; 8];
-                self.bus.control(GET, RANGE, wvalue(0x02, channel), self.index(v.unit), &mut answer).ok()?;
-                (i16::from_le_bytes([answer[2], answer[3]]), i16::from_le_bytes([answer[4], answer[5]]))
+                self.bus
+                    .control(
+                        GET,
+                        RANGE,
+                        wvalue(0x02, channel),
+                        self.index(v.unit),
+                        &mut answer,
+                    )
+                    .ok()?;
+                (
+                    i16::from_le_bytes([answer[2], answer[3]]),
+                    i16::from_le_bytes([answer[4], answer[5]]),
+                )
             }
             Uac::One => {
                 let (mut low, mut high) = ([0u8; 2], [0u8; 2]);
-                self.bus.control(GET, UAC1_GET_MIN, wvalue(0x02, channel), self.index(v.unit), &mut low).ok()?;
-                self.bus.control(GET, UAC1_GET_MAX, wvalue(0x02, channel), self.index(v.unit), &mut high).ok()?;
+                self.bus
+                    .control(
+                        GET,
+                        UAC1_GET_MIN,
+                        wvalue(0x02, channel),
+                        self.index(v.unit),
+                        &mut low,
+                    )
+                    .ok()?;
+                self.bus
+                    .control(
+                        GET,
+                        UAC1_GET_MAX,
+                        wvalue(0x02, channel),
+                        self.index(v.unit),
+                        &mut high,
+                    )
+                    .ok()?;
                 (i16::from_le_bytes(low), i16::from_le_bytes(high))
             }
         };
@@ -157,12 +194,18 @@ impl UsbDac {
         let (Some(v), Some((min, max))) = (self.dac.volume, self.volume_range) else {
             return;
         };
-        let steps = volume_steps(f32::from_bits(self.volume.load(Ordering::Relaxed)), min, max);
+        let steps = volume_steps(
+            f32::from_bits(self.volume.load(Ordering::Relaxed)),
+            min,
+            max,
+        );
         let _one = self.one_at_a_time();
         let channels: &[u8] = if v.master { &[0] } else { &[1, 2] };
         for c in channels {
             let mut data = steps.to_le_bytes();
-            let _ = self.bus.control(SET, CUR, wvalue(0x02, *c), self.index(v.unit), &mut data);
+            let _ = self
+                .bus
+                .control(SET, CUR, wvalue(0x02, *c), self.index(v.unit), &mut data);
         }
     }
 
@@ -171,13 +214,23 @@ impl UsbDac {
         let _one = self.one_at_a_time();
         match self.dac.uac {
             Uac::Two => {
-                let clock = self.dac.clock_for(f.terminal).ok_or_else(|| anyhow!("The DAC's clock was not found"))?;
+                let clock = self
+                    .dac
+                    .clock_for(f.terminal)
+                    .ok_or_else(|| anyhow!("The DAC's clock was not found"))?;
                 let mut data = rate.to_le_bytes();
-                self.bus.control(SET, CUR, wvalue(0x01, 0), self.index(clock), &mut data)?;
+                self.bus
+                    .control(SET, CUR, wvalue(0x01, 0), self.index(clock), &mut data)?;
             }
             Uac::One => {
                 let mut data = [rate as u8, (rate >> 8) as u8, (rate >> 16) as u8];
-                self.bus.control(SET_ENDPOINT, CUR, wvalue(0x01, 0), f.endpoint as u16, &mut data)?;
+                self.bus.control(
+                    SET_ENDPOINT,
+                    CUR,
+                    wvalue(0x01, 0),
+                    f.endpoint as u16,
+                    &mut data,
+                )?;
             }
         }
         Ok(())
@@ -189,7 +242,8 @@ impl UsbDac {
         let per_transfer = ((per_second * TRANSFER_MS / 1000) as usize).max(1);
         let frame = f.channels as usize * f.subslot as usize;
         // The most a packet may carry: the DAC's limit (with high speed's extra transactions).
-        let limit = ((f.max_packet & 0x7FF) as usize) * (1 + ((f.max_packet >> 11) & 0b11) as usize);
+        let limit =
+            ((f.max_packet & 0x7FF) as usize) * (1 + ((f.max_packet >> 11) & 0b11) as usize);
         let nominal = nominal(format.rate, per_second);
         if ((nominal >> 16) as usize + 2) * frame > limit {
             bail!("{} Hz is too fast for this setting of the DAC", format.rate);
@@ -201,23 +255,35 @@ impl UsbDac {
         let mut samples = vec![0f32; ((nominal >> 16) as usize + 2) * channels];
         let mut bytes = vec![0u8; per_transfer * limit];
         // Fill one transfer's packets from the feed; false once the music in this format ends.
-        let mut fill = |pacer: &mut Pacer, feed: &mut Feed, bytes: &mut [u8]| -> (Vec<usize>, usize, bool) {
-            let mut lengths = Vec::with_capacity(per_transfer);
-            let mut at = 0;
-            let mut more = true;
-            for _ in 0..per_transfer {
-                let wanted = pacer.next() * channels;
-                let got = if more { feed.read(&mut samples[..wanted]) } else { 0 };
-                if got < wanted {
-                    samples[got..wanted].fill(0.);
-                    more = false;
+        let mut fill =
+            |pacer: &mut Pacer, feed: &mut Feed, bytes: &mut [u8]| -> (Vec<usize>, usize, bool) {
+                let mut lengths = Vec::with_capacity(per_transfer);
+                let mut at = 0;
+                let mut more = true;
+                for _ in 0..per_transfer {
+                    let wanted = pacer.next() * channels;
+                    let got = if more {
+                        feed.read(&mut samples[..wanted])
+                    } else {
+                        0
+                    };
+                    if got < wanted {
+                        samples[got..wanted].fill(0.);
+                        more = false;
+                    }
+                    let n = pack(
+                        &samples[..wanted],
+                        channels,
+                        f.channels as usize,
+                        f.subslot as usize,
+                        f.bits,
+                        &mut bytes[at..],
+                    );
+                    at += n;
+                    lengths.push(n);
                 }
-                let n = pack(&samples[..wanted], channels, f.channels as usize, f.subslot as usize, f.bits, &mut bytes[at..]);
-                at += n;
-                lengths.push(n);
-            }
-            (lengths, at, more)
-        };
+                (lengths, at, more)
+            };
         let mut ending = false;
         let mut result = Ok(());
         for id in 0..TRANSFERS {
@@ -275,7 +341,10 @@ impl UsbDac {
                 continue;
             }
             let (lengths, used, more) = fill(&mut pacer, feed, &mut bytes);
-            if let Err(e) = self.bus.submit(back.id, f.endpoint, &bytes[..used], &lengths) {
+            if let Err(e) = self
+                .bus
+                .submit(back.id, f.endpoint, &bytes[..used], &lengths)
+            {
                 result = Err(e);
                 break;
             }
@@ -314,7 +383,11 @@ impl UsbDac {
             }
             let format = feed.format();
             let Some(f) = choose(&self.dac.formats, format.channels, 24) else {
-                break Err(anyhow!("{} takes no {}-channel music", self.name, format.channels));
+                break Err(anyhow!(
+                    "{} takes no {}-channel music",
+                    self.name,
+                    format.channels
+                ));
             };
             if !self.rates(f).contains(&format.rate) {
                 break Err(anyhow!("{} does not play {} Hz", self.name, format.rate));
@@ -323,12 +396,20 @@ impl UsbDac {
                 if let Some((interface, ..)) = open.take() {
                     let _ = self.bus.set_interface(interface, 0);
                 }
-                if let Err(e) = self.bus.set_interface(f.interface, f.alt).and_then(|_| self.set_rate(f, format.rate)) {
+                if let Err(e) = self
+                    .bus
+                    .set_interface(f.interface, f.alt)
+                    .and_then(|_| self.set_rate(f, format.rate))
+                {
                     break Err(e);
                 }
                 open = Some((f.interface, f.alt, format.rate, format.channels));
                 feed.playing_at(format);
-                let khz = if format.rate % 1000 == 0 { format!("{}", format.rate / 1000) } else { format!("{:.1}", format.rate as f64 / 1000.) };
+                let khz = if format.rate % 1000 == 0 {
+                    format!("{}", format.rate / 1000)
+                } else {
+                    format!("{:.1}", format.rate as f64 / 1000.)
+                };
                 super::status_playing(Some(format!("{khz} kHz, {}-bit", f.bits)));
                 needle_core::logfile::warn(format!(
                     "{}: {} Hz, {} bits in {}-byte slots, {} channels (setting {} of interface {})",
@@ -365,11 +446,16 @@ impl PlatformOutput for UsbDac {
 
     fn render(&self, feed: &mut Feed) -> Result<()> {
         // A panic is an error too: the core then plays through Android at once.
-        let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| self.render_inner(feed)))
-            .unwrap_or_else(|panic| {
-                let why = panic.downcast_ref::<&str>().map(|s| s.to_string()).or_else(|| panic.downcast_ref::<String>().cloned()).unwrap_or_default();
-                Err(anyhow!("the driver stopped ({why})"))
-            });
+        let result =
+            std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| self.render_inner(feed)))
+                .unwrap_or_else(|panic| {
+                    let why = panic
+                        .downcast_ref::<&str>()
+                        .map(|s| s.to_string())
+                        .or_else(|| panic.downcast_ref::<String>().cloned())
+                        .unwrap_or_default();
+                    Err(anyhow!("the driver stopped ({why})"))
+                });
         match &result {
             Ok(()) => super::status_playing(None),
             Err(e) => super::status_failed(e.to_string()),
@@ -378,7 +464,8 @@ impl PlatformOutput for UsbDac {
     }
 
     fn set_volume(&self, volume: f32) {
-        self.volume.store(volume.clamp(0., 1.).to_bits(), Ordering::Relaxed);
+        self.volume
+            .store(volume.clamp(0., 1.).to_bits(), Ordering::Relaxed);
         self.apply_volume();
     }
 }

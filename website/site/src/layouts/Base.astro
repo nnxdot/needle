@@ -8,6 +8,7 @@ const { title, description, path, home = false } = Astro.props;
 const url = `https://needle.nnx.fyi${path}`;
 const download = home ? "#download" : "/#download";
 const links = [
+  { href: home ? "#new" : "/#new", label: "What's new" },
   { href: home ? "#features" : "/#features", label: "Features" },
   { href: home ? "#private" : "/#private", label: "Privacy" },
   { href: "/plugins", label: "Plugins" },
@@ -26,13 +27,14 @@ const links = [
 <meta property="og:description" content={description}>
 <meta property="og:url" content={url}>
 <meta property="og:image" content="https://needle.nnx.fyi/icon-512.png">
-<meta name="theme-color" content="#0b0b0c" media="(prefers-color-scheme: dark)">
-<meta name="theme-color" content="#fbfbfd" media="(prefers-color-scheme: light)">
-<meta name="color-scheme" content="dark light">
+<meta name="theme-color" content="#131110">
+<meta name="color-scheme" content="dark">
 <link rel="canonical" href={url}>
 <link rel="icon" href="/favicon-64.png" type="image/png">
+<link rel="icon" href="/icon.svg" type="image/svg+xml">
 <link rel="apple-touch-icon" href="/apple-touch-icon.png">
 <link rel="preload" href="/fonts/Geist.woff2" as="font" type="font/woff2" crossorigin>
+<script is:inline>document.documentElement.classList.add("js")</script>
 <slot name="head" />
 </head>
 <body class={home ? "is-home" : "is-doc"}>
@@ -47,7 +49,7 @@ const links = [
     <nav class="bar-links" aria-label="Main">
       {links.map((l) => <a href={l.href} aria-current={path === l.href ? "page" : undefined}>{l.label}</a>)}
     </nav>
-    <a class="bar-cta" href={download}>Download</a>
+    <a class="btn btn-primary bar-cta" href={download}>Download</a>
     <button class="bar-menu" type="button" aria-expanded="false" aria-controls="menu" aria-label="Menu" data-menu-button>
       <span></span><span></span>
     </button>
@@ -64,7 +66,7 @@ const links = [
   <div class="wrap foot-in">
     <div class="foot-brand">
       <Logo class="foot-mark" />
-      <p>Needle is a music player for the music you own. Made at NNX.</p>
+      <p>A fast, private music player for the songs you own. Made at NNX.</p>
     </div>
     <nav class="foot-links" aria-label="Footer">
       <div>
@@ -88,7 +90,13 @@ const links = [
   </div>
   <div class="wrap">
     <p class="foot-word" aria-hidden="true">Needle</p>
-    <p class="foot-line">© 2026 NNX</p>
+    <ul class="meta">
+      <li>© 2026 NNX</li>
+      <li>No account</li>
+      <li>No ads</li>
+      <li>No tracking</li>
+      <li>Windows · Mac · Linux · Android · iPhone</li>
+    </ul>
   </div>
 </footer>
 

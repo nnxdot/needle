@@ -6,9 +6,9 @@
 //! Android again (the core's `platform_output`).
 // Used only on Android; tested everywhere.
 #[cfg_attr(not(target_os = "android"), allow(dead_code))]
-pub mod descriptors;
-#[cfg_attr(not(target_os = "android"), allow(dead_code))]
 mod bus;
+#[cfg_attr(not(target_os = "android"), allow(dead_code))]
+pub mod descriptors;
 #[cfg(target_os = "android")]
 mod device;
 #[cfg_attr(not(target_os = "android"), allow(dead_code))]
@@ -78,11 +78,21 @@ impl Needle {
         #[cfg(not(target_os = "android"))]
         {
             let _ = (fd, name);
-            let dac = descriptors::parse(&descriptors).ok_or_else(|| crate::NeedleError::from(anyhow::anyhow!("Not a USB audio device")))?;
+            let dac = descriptors::parse(&descriptors).ok_or_else(|| {
+                crate::NeedleError::from(anyhow::anyhow!("Not a USB audio device"))
+            })?;
             Ok(UsbDacInfo {
                 name: String::new(),
-                uac: if dac.uac == descriptors::Uac::Two { 2 } else { 1 },
-                rates: dac.formats.iter().flat_map(descriptors::listed_rates).collect(),
+                uac: if dac.uac == descriptors::Uac::Two {
+                    2
+                } else {
+                    1
+                },
+                rates: dac
+                    .formats
+                    .iter()
+                    .flat_map(descriptors::listed_rates)
+                    .collect(),
                 bits: dac.formats.iter().map(|f| f.bits).max().unwrap_or(16),
                 dop: false,
                 volume: dac.volume.is_some(),

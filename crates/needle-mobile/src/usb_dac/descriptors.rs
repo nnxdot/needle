@@ -73,7 +73,11 @@ pub struct Dac {
 impl Dac {
     /// The clock (a clock source) that sets the rate of music entering at `terminal`.
     pub fn clock_for(&self, terminal: u8) -> Option<u8> {
-        let mut id = self.clocks.iter().find(|(t, _)| *t == terminal).map(|(_, c)| *c)?;
+        let mut id = self
+            .clocks
+            .iter()
+            .find(|(t, _)| *t == terminal)
+            .map(|(_, c)| *c)?;
         // A selector: follow it to its first source (as Linux does unless told otherwise).
         for _ in 0..4 {
             match self.selectors.iter().find(|(s, _)| *s == id) {
@@ -93,12 +97,14 @@ const CONTROL: u8 = 0x01;
 const STREAMING: u8 = 0x02;
 
 fn u16_at(d: &[u8], i: usize) -> u16 {
-    d.get(i..i + 2).map_or(0, |b| u16::from_le_bytes([b[0], b[1]]))
+    d.get(i..i + 2)
+        .map_or(0, |b| u16::from_le_bytes([b[0], b[1]]))
 }
 
 fn u24_at(d: &[u8], i: usize) -> u32 {
-    d.get(i..i + 3)
-        .map_or(0, |b| b[0] as u32 | (b[1] as u32) << 8 | (b[2] as u32) << 16)
+    d.get(i..i + 3).map_or(0, |b| {
+        b[0] as u32 | (b[1] as u32) << 8 | (b[2] as u32) << 16
+    })
 }
 
 fn u32_at(d: &[u8], i: usize) -> u32 {
@@ -162,7 +168,13 @@ pub fn parse(raw: &[u8]) -> Option<Dac> {
             CS_INTERFACE if len >= 3 => match here {
                 Some((_, _, AUDIO, CONTROL)) => match d[2] {
                     // HEADER: bcdADC.
-                    0x01 => uac = Some(if u16_at(d, 3) >= 0x0200 { Uac::Two } else { Uac::One }),
+                    0x01 => {
+                        uac = Some(if u16_at(d, 3) >= 0x0200 {
+                            Uac::Two
+                        } else {
+                            Uac::One
+                        })
+                    }
                     // INPUT_TERMINAL (UAC2: its clock source).
                     0x02 if uac == Some(Uac::Two) && len >= 8 => clocks.push((d[3], d[7])),
                     // FEATURE_UNIT: the first with a volume control.
@@ -176,7 +188,10 @@ pub fn parse(raw: &[u8]) -> Option<Dac> {
                                 if master & 0b1100 != 0 {
                                     volume = Some(Volume { unit, master: true });
                                 } else if first & 0b1100 != 0 {
-                                    volume = Some(Volume { unit, master: false });
+                                    volume = Some(Volume {
+                                        unit,
+                                        master: false,
+                                    });
                                 }
                             }
                             _ => {
@@ -187,7 +202,10 @@ pub fn parse(raw: &[u8]) -> Option<Dac> {
                                 if master & 0b10 != 0 {
                                     volume = Some(Volume { unit, master: true });
                                 } else if first & 0b10 != 0 {
-                                    volume = Some(Volume { unit, master: false });
+                                    volume = Some(Volume {
+                                        unit,
+                                        master: false,
+                                    });
                                 }
                             }
                         }
@@ -231,7 +249,10 @@ pub fn parse(raw: &[u8]) -> Option<Dac> {
                                 if count == 0 {
                                     f.range = Some((u24_at(d, 8), u24_at(d, 11)));
                                 } else {
-                                    f.rates = (0..count).map(|k| u24_at(d, 8 + k * 3)).filter(|r| *r > 0).collect();
+                                    f.rates = (0..count)
+                                        .map(|k| u24_at(d, 8 + k * 3))
+                                        .filter(|r| *r > 0)
+                                        .collect();
                                 }
                             }
                             _ => {}
@@ -303,7 +324,11 @@ pub fn rates_in_ranges(answer: &[u8]) -> Vec<u32> {
         if at + 12 > answer.len() {
             break;
         }
-        let (min, max, res) = (u32_at(answer, at), u32_at(answer, at + 4), u32_at(answer, at + 8));
+        let (min, max, res) = (
+            u32_at(answer, at),
+            u32_at(answer, at + 4),
+            u32_at(answer, at + 8),
+        );
         if min == max {
             out.push(min);
             continue;
@@ -322,7 +347,11 @@ pub fn rates_in_ranges(answer: &[u8]) -> Vec<u32> {
 /// A format's rates, from its own list or range (UAC1).
 pub fn listed_rates(f: &Format) -> Vec<u32> {
     match f.range {
-        Some((low, high)) => RATES.iter().copied().filter(|r| *r >= low && *r <= high).collect(),
+        Some((low, high)) => RATES
+            .iter()
+            .copied()
+            .filter(|r| *r >= low && *r <= high)
+            .collect(),
         None => f.rates.clone(),
     }
 }
@@ -331,13 +360,15 @@ pub fn listed_rates(f: &Format) -> Vec<u32> {
 /// mono; the deepest samples (music of 16 bits goes out as it is in a deeper slot too).
 pub fn choose(formats: &[Format], channels: u16, wanted_bits: u8) -> Option<&Format> {
     let fits = |f: &&Format| f.channels as u16 == channels || (channels == 1 && f.channels == 2);
-    formats
-        .iter()
-        .filter(fits)
-        .max_by_key(|f| {
-            // Deep enough first, then deeper, then the one Linux would pick (the lowest alt).
-            ((f.bits >= wanted_bits) as u8, f.bits, f.subslot, 255 - f.alt)
-        })
+    formats.iter().filter(fits).max_by_key(|f| {
+        // Deep enough first, then deeper, then the one Linux would pick (the lowest alt).
+        (
+            (f.bits >= wanted_bits) as u8,
+            f.bits,
+            f.subslot,
+            255 - f.alt,
+        )
+    })
 }
 
 #[cfg(test)]
@@ -360,7 +391,9 @@ mod tests {
         // Clock source 0x29.
         d.extend([8, 0x24, 0x0A, 0x29, 3, 7, 0, 0]);
         // Input terminal 2, USB streaming, clock 0x29.
-        d.extend([17, 0x24, 2, 2, 0x01, 0x01, 0, 0x29, 2, 3, 0, 0, 0, 0, 0, 0, 0]);
+        d.extend([
+            17, 0x24, 2, 2, 0x01, 0x01, 0, 0x29, 2, 3, 0, 0, 0, 0, 0, 0, 0,
+        ]);
         // Feature unit 10 from 2: master volume read/write (0x0C).
         d.extend([18, 0x24, 6, 10, 2, 0x0C, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]);
         // Interface 1 alt 0: no endpoints.
@@ -391,10 +424,28 @@ mod tests {
         assert_eq!(dac.control, 0);
         assert_eq!(dac.formats.len(), 2);
         let deep = &dac.formats[1];
-        assert_eq!((deep.interface, deep.alt, deep.channels, deep.subslot, deep.bits), (1, 2, 2, 4, 24));
-        assert_eq!((deep.endpoint, deep.max_packet, deep.sync, deep.feedback), (0x01, 784, Sync::Async, Some(0x81)));
+        assert_eq!(
+            (
+                deep.interface,
+                deep.alt,
+                deep.channels,
+                deep.subslot,
+                deep.bits
+            ),
+            (1, 2, 2, 4, 24)
+        );
+        assert_eq!(
+            (deep.endpoint, deep.max_packet, deep.sync, deep.feedback),
+            (0x01, 784, Sync::Async, Some(0x81))
+        );
         assert_eq!(dac.clock_for(deep.terminal), Some(0x29));
-        assert_eq!(dac.volume, Some(Volume { unit: 10, master: true }));
+        assert_eq!(
+            dac.volume,
+            Some(Volume {
+                unit: 10,
+                master: true
+            })
+        );
         assert!(dac.native_dsd);
         assert_eq!(choose(&dac.formats, 2, 24).map(|f| f.alt), Some(2));
         assert_eq!(choose(&dac.formats, 1, 16).map(|f| f.alt), Some(2));
@@ -411,15 +462,26 @@ mod tests {
         d.extend([9, 4, 1, 1, 1, 1, 2, 0, 0]);
         d.extend([7, 0x24, 1, 1, 1, 0x01, 0x00]);
         // Type I, 2 channels, 3 bytes, 24 bits, two rates.
-        d.extend([14, 0x24, 2, 1, 2, 3, 24, 2, 0x44, 0xAC, 0x00, 0x80, 0xBB, 0x00]);
+        d.extend([
+            14, 0x24, 2, 1, 2, 3, 24, 2, 0x44, 0xAC, 0x00, 0x80, 0xBB, 0x00,
+        ]);
         // Endpoint 0x02 OUT, iso adaptive (0x09), 9-byte audio endpoint.
         d.extend([9, 5, 0x02, 0x09, 0x20, 0x01, 1, 0, 0]);
         let dac = parse(&d).expect("a DAC");
         assert_eq!(dac.uac, Uac::One);
         let f = &dac.formats[0];
-        assert_eq!((f.channels, f.subslot, f.bits, f.sync), (2, 3, 24, Sync::Adaptive));
+        assert_eq!(
+            (f.channels, f.subslot, f.bits, f.sync),
+            (2, 3, 24, Sync::Adaptive)
+        );
         assert_eq!(listed_rates(f), vec![44_100, 48_000]);
-        assert_eq!(dac.volume, Some(Volume { unit: 2, master: true }));
+        assert_eq!(
+            dac.volume,
+            Some(Volume {
+                unit: 2,
+                master: true
+            })
+        );
     }
 
     #[test]
@@ -434,12 +496,17 @@ mod tests {
         answer.extend(0u32.to_le_bytes());
         assert_eq!(
             rates_in_ranges(&answer),
-            vec![44_100, 48_000, 88_200, 96_000, 176_400, 192_000, 352_800, 384_000, 768_000]
+            vec![
+                44_100, 48_000, 88_200, 96_000, 176_400, 192_000, 352_800, 384_000, 768_000
+            ]
         );
     }
 
     #[test]
     fn something_else_is_not_a_dac() {
-        assert_eq!(parse(&[9, 4, 0, 0, 1, 3, 1, 1, 0, 7, 5, 0x81, 3, 8, 0, 10]), None);
+        assert_eq!(
+            parse(&[9, 4, 0, 0, 1, 3, 1, 1, 0, 7, 5, 0x81, 3, 8, 0, 10]),
+            None
+        );
     }
 }
