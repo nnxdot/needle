@@ -16,6 +16,7 @@ mod history;
 mod home;
 mod immersive;
 mod importer;
+mod insights;
 mod library;
 mod lyrics;
 mod media_keys;
@@ -218,6 +219,10 @@ pub enum Page {
     Wrapped(i32),
     /// Fix my library: duplicates, covers, tags, and tidy files.
     Doctor,
+    /// Your library: what it is made of.
+    Numbers,
+    /// Every measured song by how it sounds.
+    MoodMap,
     /// The songs of a music source (a server a plugin connects to).
     Source {
         plugin: String,
@@ -252,6 +257,8 @@ impl Page {
             Self::Timing => "Lyric timing".into(),
             Self::Wrapped(year) => format!("{year} in music"),
             Self::Doctor => "Fix my library".into(),
+            Self::Numbers => "Your library".into(),
+            Self::MoodMap => "Mood map".into(),
             Self::Source { name, .. } => name.clone(),
         }
     }
@@ -284,6 +291,8 @@ impl Page {
                 | Self::Timing
                 | Self::Wrapped(_)
                 | Self::Doctor
+                | Self::Numbers
+                | Self::MoodMap
         )
     }
     pub fn is_grid(&self) -> bool {
@@ -395,6 +404,8 @@ enum Event {
     ArtistPicturesChanged(String),
     /// What played on this day in earlier years, for Home.
     OnThisDay(Vec<needle_core::numbers::OnThisDay>),
+    Numbers(Box<needle_core::numbers::LibraryNumbers>),
+    MoodMap(Vec<needle_core::radio::MoodPoint>),
     ArtFetched,
     MediaKey(media_keys::Key),
     ImportProgress(String),
@@ -439,6 +450,12 @@ pub struct AppView {
     picture_sweep: needle_core::media::pictures::PictureSweep,
     /// Home's On this day shelves.
     on_this_day: Vec<needle_core::numbers::OnThisDay>,
+    /// Your library's numbers, and the mood map's songs, the spot clicked on it, and where it
+    /// was drawn.
+    numbers: Option<Box<needle_core::numbers::LibraryNumbers>>,
+    mood_points: std::rc::Rc<Vec<needle_core::radio::MoodPoint>>,
+    mood_pick: Option<(f32, f32)>,
+    mood_bounds: insights::MapBounds,
     page: Page,
     back: Vec<Page>,
     /// Pages left by going back, for going forward again (a new page clears it).
@@ -1066,6 +1083,10 @@ impl AppView {
             history_loading: false,
             picture_sweep: needle_core::media::pictures::PictureSweep::start(library.clone()),
             on_this_day: vec![],
+            numbers: None,
+            mood_points: Default::default(),
+            mood_pick: None,
+            mood_bounds: Default::default(),
             library,
             player,
             playback,
@@ -1533,6 +1554,8 @@ impl AppView {
                 Event::Look(path, look) => self.set_look(path, look),
                 Event::Home(home) => self.home = Some(home),
                 Event::OnThisDay(days) => self.on_this_day = days,
+                Event::Numbers(numbers) => self.numbers = Some(numbers),
+                Event::MoodMap(points) => self.mood_points = std::rc::Rc::new(points),
                 Event::Subfolders(path, list) => self.subfolders = Some((path, list)),
                 Event::Wrapped(wrapped, years) => self.wrapped_loaded(*wrapped, years),
                 Event::Doctor(msg) => self.doctor_message(msg),
@@ -2033,6 +2056,9 @@ impl AppView {
         }
         if self.page == Page::Doctor {
             self.doctor_load();
+        }
+        if matches!(self.page, Page::Numbers | Page::MoodMap) {
+            self.load_insights();
         }
         if self.page == Page::Settings {
             self.glass_system = (glass::system_allows_transparency(), glass::windows_11());

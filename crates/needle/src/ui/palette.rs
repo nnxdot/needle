@@ -231,6 +231,22 @@ impl AppView {
             ),
             item(
                 "Go to",
+                "albums",
+                "Your library in numbers",
+                "Formats, hi-res, decades, genres, and albums to fix",
+                None,
+                |this, window, cx| this.navigate(Page::Numbers, window, cx),
+            ),
+            item(
+                "Go to",
+                "radio",
+                "Mood map",
+                "Every song by how it sounds; play an area of it",
+                None,
+                |this, window, cx| this.navigate(Page::MoodMap, window, cx),
+            ),
+            item(
+                "Go to",
                 "history",
                 "Your year in music",
                 "Your top artists, songs, and albums of the year",

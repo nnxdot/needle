@@ -368,6 +368,8 @@ impl AppView {
                     _ if page == "albums" => open(v, Page::Albums, window, cx),
                     _ if page == "artists" => open(v, Page::Artists, window, cx),
                     _ if page == "history" => open(v, Page::History, window, cx),
+                    _ if page == "numbers" => open(v, Page::Numbers, window, cx),
+                    _ if page == "mood" => open(v, Page::MoodMap, window, cx),
                     _ if page == "server" => open(
                         v,
                         Page::Source {
