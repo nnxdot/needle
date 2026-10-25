@@ -30,7 +30,7 @@ enum class SeekStyle(val id: String, val label: String) {
     Shape("shape", "Shape");
 
     companion object {
-        fun of(id: String) = entries.firstOrNull { it.id == id } ?: Wave
+        fun of(id: String) = entries.firstOrNull { it.id == id } ?: Shape
     }
 }
 
