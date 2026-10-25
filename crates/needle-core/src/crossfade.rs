@@ -332,7 +332,7 @@ mod tests {
         // At 120 BPM a bar is 2 s: 6 s is three bars.
         assert!((fade - 6.).abs() < 1e-9);
         let (_, fade) = smart_ending(5., 100., None, Some(128.));
-        assert!((fade - 3.75).abs() < 1e-9, "two bars at 128 BPM: {fade}");
+        assert!((fade - 5.625).abs() < 1e-9, "three bars at 128 BPM: {fade}");
         assert_eq!(smart_ending(5., 100., None, None), (100., 5.));
     }
 
