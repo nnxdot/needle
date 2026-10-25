@@ -49,6 +49,7 @@
     <application
         android:name=".NeedleApp"
         android:icon="@mipmap/ic_launcher"
+        android:roundIcon="@mipmap/ic_launcher_round"
         android:banner="@drawable/tv_banner"
         android:label="@string/app_name"
         android:theme="@style/Theme.Needle"
