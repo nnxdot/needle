@@ -648,6 +648,29 @@ struct Marked<S> {
     started: bool,
     epoch: u64,
     tx: Sender<(u64, QueueItem)>,
+    /// For the visualizer: mono samples gathered since the last hand-over, the frame being
+    /// summed, and how many samples until it is asked again whether anyone is looking.
+    scope: Vec<f32>,
+    frame: f32,
+    channel: u16,
+    look_in: u32,
+    looking: bool,
+}
+impl<S: Source> Marked<S> {
+    fn new(inner: S, item: QueueItem, epoch: u64, tx: Sender<(u64, QueueItem)>) -> Self {
+        Self {
+            inner,
+            item,
+            started: false,
+            epoch,
+            tx,
+            scope: Vec::with_capacity(512),
+            frame: 0.,
+            channel: 0,
+            look_in: 0,
+            looking: false,
+        }
+    }
 }
 impl<S: Source> Iterator for Marked<S> {
     type Item = f32;
@@ -656,6 +679,27 @@ impl<S: Source> Iterator for Marked<S> {
         if sample.is_some() && !self.started {
             self.started = true;
             let _ = self.tx.send((self.epoch, self.item.clone()));
+        }
+        if let Some(value) = sample {
+            if self.look_in == 0 {
+                self.looking = crate::scope::wanted();
+                self.look_in = 4096;
+            }
+            self.look_in -= 1;
+            if self.looking {
+                let channels = self.inner.channels().max(1);
+                self.frame += value;
+                self.channel += 1;
+                if self.channel >= channels {
+                    self.scope.push(self.frame / channels as f32);
+                    self.frame = 0.;
+                    self.channel = 0;
+                    if self.scope.len() >= 512 {
+                        crate::scope::push(&self.scope, self.inner.sample_rate());
+                        self.scope.clear();
+                    }
+                }
+            }
         }
         sample
     }
@@ -1335,13 +1379,7 @@ impl Worker {
                 ))
             };
         let processed = self.crossfade(&item.track, processed);
-        let marked = Marked {
-            inner: processed,
-            item: item.clone(),
-            started: false,
-            epoch: self.epoch,
-            tx: self.started_tx.clone(),
-        };
+        let marked = Marked::new(processed, item.clone(), self.epoch, self.started_tx.clone());
         self.queue.staged.push_back(item);
         self.sink.as_ref().unwrap().append(marked);
     }
