@@ -98,7 +98,7 @@ fun ConnectScreen() {
         else withContext(Dispatchers.IO) { runCatching { core.pcSearch(query) }.getOrDefault(emptyList()) }
     }
 
-    LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = 32.dp)) {
+    LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = 32.dp + LocalBottomInset.current)) {
         item { LargeTitle("Your computer") }
         if (!connected) {
             item {

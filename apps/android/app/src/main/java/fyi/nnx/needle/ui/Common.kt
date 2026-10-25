@@ -463,7 +463,9 @@ fun LargeTitle(text: String, modifier: Modifier = Modifier, action: @Composable 
     ) {
         Text(
             text,
-            style = MaterialTheme.typography.headlineLarge,
+            // One bold title, 28 on a phone (DESIGN.md).
+            style = MaterialTheme.typography.headlineMedium,
+            fontWeight = FontWeight.Bold,
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
             modifier = Modifier.weight(1f).semantics { heading() },
@@ -484,7 +486,7 @@ fun SectionHeader(text: String, modifier: Modifier = Modifier, top: Dp = 28.dp, 
             .padding(start = Edge, end = 12.dp, top = top, bottom = 12.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Text(text, style = MaterialTheme.typography.titleLargeEmphasized, modifier = Modifier.semantics { heading() })
+        Text(text, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.SemiBold, modifier = Modifier.semantics { heading() })
         if (onMore != null) {
             Icon(
                 Icons.AutoMirrored.Rounded.KeyboardArrowRight,
@@ -608,11 +610,15 @@ fun SongRow(
                 if (place == null) {
                     Modifier.background(if (chosen) colors.primaryContainer.copy(alpha = 0.45f) else Color.Transparent)
                 } else {
-                    Modifier.segment(place, when {
-                        chosen -> colors.primaryContainer
-                        playing -> colors.secondaryContainer
-                        else -> groupColor()
-                    })
+                    Modifier.segment(
+                        place,
+                        when {
+                            chosen -> colors.primaryContainer.copy(alpha = 0.55f)
+                            playing -> colors.onSurface.copy(alpha = 0.06f)
+                            else -> groupColor()
+                        },
+                        lineStart = 14.dp + (if (number) 22.dp else rows.cover) + rows.gap,
+                    )
                 },
             )
             // TalkBack hears what only colour shows: the song playing, a song chosen.

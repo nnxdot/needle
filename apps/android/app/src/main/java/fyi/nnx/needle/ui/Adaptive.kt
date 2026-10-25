@@ -65,14 +65,13 @@ internal fun LazyGridScope.edgeToEdge(side: Dp, key: Any? = null, content: @Comp
     item(key = key, span = { GridItemSpan(maxLineSpan) }) { Box(Modifier.bleed(side)) { content() } }
 
 /**
- * A tablet's page pane: clear of the status and navigation bars, with a margin from the frame
- * and Material's large rounded corners. The bars' space is taken here, so pages inside keep
- * no room for them again.
+ * A tablet's page beside the side bar: clear of the status and navigation bars, on the same
+ * background (no frame, no line). The bars' space is taken here, so pages inside keep no room
+ * for them again.
  */
 @Composable
 fun Modifier.pane(): Modifier = this
     .windowInsetsPadding(WindowInsets.systemBars.union(WindowInsets.displayCutout).only(WindowInsetsSides.Top + WindowInsetsSides.Bottom + WindowInsetsSides.End))
     // A navigation bar on the left is the side bar's to clear, not the pages' again.
     .consumeWindowInsets(WindowInsets.systemBars.union(WindowInsets.displayCutout).only(WindowInsetsSides.Start))
-    .padding(top = 8.dp, end = 12.dp, bottom = 12.dp)
-    .clip(RoundedCornerShape(28.dp))
+

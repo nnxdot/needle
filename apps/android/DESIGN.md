@@ -1,83 +1,101 @@
 # Needle for Android: design rules
 
-One system on every screen. When a screen needs something new, it uses these first.
+The Needle look, after Needle for the Mac (NEEDLE-2.0.md). One system on every screen. When a
+screen needs something new, it uses these first.
 
 ## Idea
 
-The music is the colour. The page is quiet charcoal (or black, or light, per theme); covers carry
-the colour, and the playing or opened cover tints the page around it. Amber (the theme's accent)
-marks only what plays, the main action, and links.
+The music is the colour. The page is one quiet background (Night, Midnight, or Day); covers
+carry the colour, and album, artist, and player pages take their cover's colour. Amber (the
+theme's accent, `#e2b46c` on dark, `#8c5a12` on light) or the cover's colour marks only what
+plays and the one main button.
+
+## The six rules
+
+1. **What plays floats.** On a phone, the mini player and the tabs are one small dock of
+   frosted glass over the foot of the page (`Dock.kt`); the page runs on under it. On a tablet
+   or TV, the player alone floats over the page's foot, at most 820 dp wide.
+2. **Panels float.** On a tablet or TV, the queue, the lyrics, and the details sit in a rounded
+   pane (22 dp corners, 320 dp wide) over the page's right side, not in a column with a line.
+3. **One quiet background.** Behind everything, tinted by the cover where the page is a
+   cover's. No lines between the parts of the screen (no frame, no band behind a scrolled
+   title); only soft lines between rows.
+4. **The music is the colour.** Album, artist, and playlist pages and the player take their
+   cover's colours (`CoverTheme`) and the blurred cover at their top (`CoverBackdrop`).
+5. **Big title, small text.** One bold title per page (28 on a phone, `headlineMedium`), with
+   the rows' text small and their second lines grey.
+6. **Soft covers.** 6–8 dp corners and a soft shadow; 12 in the player. Artists are circles
+   everywhere.
+
+## Glass
+
+- One surface floats: frosted glass (`Modifier.glass`). On Android 12 and newer the page under
+  it is blurred (Haze, RenderEffect) and tinted with the page's raised colour; before that, the
+  raised colour, solid. A thin light line runs round it, and a soft shadow under it.
+- Glass is for what floats over the page (the dock, the floating player, the pane, a page's
+  Shuffle pill). Nothing else is filled: no tiles, no filled groups.
 
 ## Structure
 
-- **Page:** a large title that shrinks as the page scrolls (Material's flexible top bar), actions
-  at its right, and under the title a line of what the page holds (Home: songs and albums;
-  Library: albums, artists, playlists). The tabs' pages and the music pages opened from them
-  (Search, Albums, Artists, Songs, Genres, Playlists) have it. Settings, tools, documents, and
-  the listening pages (Folders, History, Favorites) have a large title that scrolls with their
-  list instead (`LargeTitle`), with the way back above it.
-- **Covers and tiles sit on the page.** Rows sit in groups (`segment` in Design.kt), as Android
-  16's own lists: one tone a step above the page (`groupColor`), the rows 2 dp apart, the group's
-  ends rounded 24 dp and the corners between rows 6 dp. No hairlines. The playing song's row
-  takes the secondary container, chosen songs the primary container. Settings' groups are the
-  same, their rows a gap of the page apart.
-- **Tiles** (Home, Library): each on its own tone, Material's secondary or tertiary container,
-  its icon's cookie in the tone's strong colour.
-- **Lists:** 60 dp rows; cover 48 dp; title and one line under it; the row's menu at the
-  right. Long press opens the same menu. Settings › Appearance › Density makes them 48 or 76 dp.
-- **Home:** the first shelf is Material's carousel (multi-browse from three covers; with fewer,
-  each keeps one card's width); then the tiles, recently added, your playlists, most played, and
-  the artists with the most songs.
-- **Grids:** two covers across on phones, a title and one line under each; on tablets as many as
-  fit (`gridColumns` in Adaptive.kt).
-- **Tablets** (pages 560 dp wide or more) use the room, never a phone's layout stretched: album
-  and playlist pages put the cover at the left with the name and buttons beside it; an artist's
-  photo is a wide band; the player on its side puts the cover (or the lyrics, or the queue) at the
-  left and the controls at the right; Settings shows its list and the chosen section side by side
-  from 840 dp.
-- **Side bar** on tablets, in place of the tabs at the foot (`SideBar.kt`): the tabs, your
-  playlists, the albums played last, and Settings at its foot, as Spotify's. It folds to icons and
-  covers; it starts open on screens 840 dp wide or more. It sits on a frame (`surfaceContainer`), and
-  the pages in a pane with 28 dp corners beside it (`Modifier.pane()`), as Google's apps on a
-  tablet. The open tab's icon is filled, the others outlined.
+- **Page:** a bold title at the top left (`Page` in Design.kt shrinks it into a bar as the
+  page scrolls, on the page's own colour; `LargeTitle` scrolls with the list), actions at its
+  right. A page opened from another has a back button above or beside its title, besides the
+  back gesture.
+- **Rows:** plain, on the page. A soft line under each row but the last, from where the row's
+  words start (`segment`, `softLine`). The playing song's row: its title in the accent and a
+  faint tint; chosen rows: a soft accent tint. A row lit has 10 dp corners (`RowShape`).
+- **Lists:** 60 dp rows; cover 48 dp; title and one grey line; the row's menu at the right.
+  Long press opens the same menu. Settings › Appearance › Density makes them 48 or 76 dp.
+- **Home** is the Mac's Home: a greeting, the song playing now (a card with its cover, "Playing
+  now" in the accent, and a round Play/Pause), then shelves of covers ("Jump back in", "New in
+  your library", "On repeat", "Favorites") and "Artists you play most" in circles, each shelf
+  with a grey line under its title and See all where there is a page of it.
 - **Library** is one page with filter pills at the top (Playlists, Albums, Artists, Songs, and
-  More), as Spotify and Apple Music do, not a list of places to go.
+  More). With no pill chosen: Favorites and History as plain rows, then what came in lately.
+- **Grids:** two covers across on phones, a title and one grey line under each; on tablets as
+  many as fit (`gridColumns` in Adaptive.kt).
+- **Settings:** rows under short headings on the page itself, a soft line between rows
+  (SETTINGS-STYLE.md).
+
+## Tablets and TVs: the desktop layout
+
+- Pages 560 dp wide or more use the room, never a phone's layout stretched: album and playlist
+  pages put the cover at the left with the name and buttons beside it; an artist's picture is a
+  wide band.
+- The side bar (`SideBar.kt`) in place of the dock's tabs: the tabs, your playlists, the albums
+  played last, and Settings at its foot. It shares the page's background; no frame, no line.
+- The player floats over the page's foot (`FloatingPlayer`), and the side pane over its right.
 
 ## Shapes (each means one thing)
 
-- Covers of albums, songs, and playlists: rounded squares, 8 dp (6 dp when small), so the
-  picture stays the picture.
-- Artists: Material's arch (`artistShape`), as a portrait's frame.
-- Icons in a shape: the scalloped "cookie", always the same one (Settings' sections too).
-- Buttons: pills; the main Play is the one large filled button. On a page, Shuffle, Play, and
-  the page's own button are one connected group (Material's button group): round at its ends,
-  small corners where they meet.
-- Waiting: Material's shape-changing loading indicator (pull to refresh, loading dialogs).
-- Choosing songs: Material's floating toolbar, in its vibrant colours, Play its one filled button.
+- Covers of albums, songs, and playlists: soft squares, 8 dp (6 dp when small), so the picture
+  stays the picture; 12 dp in the player.
+- Artists: circles.
+- Round buttons and icons in a shape: circles. No scalloped "cookie" shapes and no arch.
+- Buttons: pills. A page's buttons are a filled **Play** pill in the page's colour and a glass
+  **Shuffle** pill beside it; the page's own button (Add to a playlist, Edit, Radio) is a round
+  glass button.
+- Choosing songs: a floating bar of the chosen songs' actions, Play its one filled button.
 
 ## Colour
 
-- Album, playlist, and artist pages, the player, and the mini player take the cover's whole
-  Material colour scheme (`CoverTheme`: Material's colour maths on the cover's colour). The page
-  is tinted with the cover's hue; buttons, menus, and the playing song use its colours; a
-  change of cover blends over, never snaps.
+- Album, playlist, and artist pages, the player, and the mini player (Settings › Appearance)
+  take the cover's whole colour scheme (`CoverTheme`: Material's colour maths on the cover's
+  colour). A change of cover blends over, never snaps.
 - The top of those pages and the player: the cover, huge, blurred, and slowly drifting
-  (`CoverBackdrop`). The pages run up under the status bar and down behind the mini player.
-- Everything else: the theme's own surfaces; with "Colours from what's playing" on, the whole
-  app takes the playing song's scheme.
-- Settings › Appearance chooses: cover colours on pages, colours from what is playing, the mini
-  player's colour, the moving backdrop and its softness, the seek bar (wave, line, thick), and
-  the player's cover (square, a turning record, a Material shape).
+  (`CoverBackdrop`). The pages run up under the status bar and down behind the dock.
+- Everything else: the theme's own background; with "Colours from what's playing" on, the
+  whole app takes the playing song's scheme.
 
-## Navigation
+## Stays Android
 
-- Every page opened from another has a back button at its top left, besides the back gesture.
-- Covers fly between pages of one tab only; switching tabs cross-fades.
+- The back gesture, the touch ripple, Roboto (Roboto Flex for titles), the system's share sheet,
+  and the system's media controls (notification, lock screen, Android Auto, widgets).
 
 ## TV and keys
 
-- On Android TV the app is the tablet's: the side bar, the pane, the wide player. A remote
-  moves the focus (`TvFocus.kt`).
+- On Android TV the app is the tablet's: the side bar, the floating player, the wide player.
+  A remote moves the focus (`TvFocus.kt`).
 - What has the focus shows plainly, from across a room: cards grow a little and take a ring in
   the text colour (`pressScale`, `focusRing`); other buttons take a ring or a deeper shade.
 - The player and the welcome guide keep the focus while they are open (`focusLayer`). A page
@@ -87,28 +105,24 @@ marks only what plays, the main action, and links.
 
 ## Type
 
-- Roboto Flex, one variable font. Text at its usual width; display and headline sizes narrow
-  and heavy (`titleFamily`), as posters are. Big titles grow narrower as their page scrolls.
-- Section titles use the emphasized styles (`titleLargeEmphasized`): the title font, a step
-  heavier.
+- Roboto for text; Roboto Flex for titles (Settings › Appearance › Titles chooses another).
+- Titles bold; section titles semibold; rows' text small with a grey second line.
 
 ## Menus
 
 - A song's menu is a sheet from the bottom: the song at the top with its stars, then its actions
-  in rounded groups with gaps between them (Material 3 Expressive menus).
+  as plain rows, a soft line between groups.
 - Albums and playlists have the same kind of sheet: a long press on a cover, or More at the top
   right of their page.
-- Small choices (sort, view) are Expressive dropdown menus.
+- Small choices (sort, view) are dropdown menus.
 
 ## Motion
 
 - Pages slide a little and fade; covers move between the grid, the page, and the player.
-- Rows and tiles come in one after another as a page opens (`entrance`), never when scrolled to.
-- On album and playlist pages, the cover shrinks toward its top and fades as the page
-  scrolls; the artist photo moves slower than the page. A bar with the name fades in once
-  the top has gone.
-- Buttons change shape (Material 3 Expressive): pressed ones square their corners a little;
-  play is round while paused and a softer square while playing.
-- Progress is a wave while music plays and a flat line while it rests (Android 16).
+- Rows and covers come in one after another as a page opens (`entrance`), never when scrolled to.
+- On album and playlist pages, the cover shrinks toward its top and fades as the page scrolls;
+  the artist picture moves slower than the page. A bar with the name fades in once the top has
+  gone.
+- Progress is a wave while music plays and a flat line while it rests.
 - Presses shrink a little and spring back. Nothing bounces for show.
 - "Reduce motion" (or Android's own setting) turns it into cross-fades.

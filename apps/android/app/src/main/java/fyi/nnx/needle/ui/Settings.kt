@@ -216,7 +216,7 @@ fun SettingsScreen(open: (Route) -> Unit) {
         TwoPaneSettings(open)
         return
     }
-    LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = 24.dp)) {
+    LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = 24.dp + LocalBottomInset.current)) {
         item { LargeTitle("Settings") }
         item { SectionList(null) { open(it.route()) } }
     }
@@ -230,7 +230,7 @@ fun SettingsScreen(open: (Route) -> Unit) {
 private fun TwoPaneSettings(open: (Route) -> Unit) {
     var chosen by rememberSaveable { mutableStateOf(SettingsSection.Library) }
     Row(Modifier.fillMaxSize()) {
-        LazyColumn(Modifier.width(380.dp).fillMaxHeight(), contentPadding = PaddingValues(bottom = 24.dp)) {
+        LazyColumn(Modifier.width(380.dp).fillMaxHeight(), contentPadding = PaddingValues(bottom = 24.dp + LocalBottomInset.current)) {
             item { LargeTitle("Settings") }
             item { SectionList(chosen) { chosen = it } }
         }
@@ -291,7 +291,7 @@ private fun SectionList(chosen: SettingsSection?, onChoose: (SettingsSection) ->
 
 @Composable
 fun SettingsSectionScreen(section: SettingsSection, open: (Route) -> Unit) {
-    LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = 32.dp)) {
+    LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = 32.dp + LocalBottomInset.current)) {
         item { LargeTitle(section.title) }
         item {
             when (section) {
@@ -312,9 +312,8 @@ fun SettingsSectionScreen(section: SettingsSection, open: (Route) -> Unit) {
 // ---------- Building blocks
 
 /**
- * Rows grouped on one rounded surface, as in Android 16's own Settings: the group's ends are
- * rounded, and its rows stand a hair apart (each [Divider] is a gap the page shows through).
- * Its heading is plain: colour is kept for what is chosen.
+ * Rows under one short heading, on the page itself (the Needle look has no filled groups): a
+ * soft line between two rows ([Divider]). The heading is plain: colour is kept for what is chosen.
  */
 @Composable
 internal fun Group(title: String? = null, footer: String? = null, content: @Composable () -> Unit) {
@@ -331,8 +330,7 @@ internal fun Group(title: String? = null, footer: String? = null, content: @Comp
         Column(
             Modifier
                 .fillMaxWidth()
-                .clip(RoundedCornerShape(24.dp))
-                .background(groupColor())
+                .clip(RowShape)
                 .animateContentSize(),
         ) { content() }
         if (footer != null) {
@@ -346,9 +344,9 @@ internal fun Group(title: String? = null, footer: String? = null, content: @Comp
     }
 }
 
-/** Between two rows of a [Group]: a gap of the page, rather than a line. */
+/** Between two rows of a [Group]: a soft line from where the rows' words start. */
 @Composable
-internal fun Divider() = Box(Modifier.fillMaxWidth().height(2.dp).background(MaterialTheme.colorScheme.background))
+internal fun Divider() = androidx.compose.material3.HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant, modifier = Modifier.padding(start = 68.dp))
 
 /** A setting that is on or off: the whole row is the one switch, one stop for a remote, and TalkBack says on or off. */
 @Composable
@@ -961,15 +959,10 @@ private fun AppearanceSettings(open: (Route) -> Unit) {
         SketchRow(Icons.Rounded.Album, "Cover", "Its shape in the player", listOf(
             Sketch("square", "Square") { accent, grey -> PlayerSketch(grey) { Box(Modifier.size(22.dp).clip(RoundedCornerShape(4.dp)).background(accent)) } },
             Sketch("round", "Record") { accent, grey -> PlayerSketch(grey) { Box(Modifier.size(22.dp).clip(CircleShape).background(accent)) } },
-            Sketch("shape", "Shape") { accent, grey -> PlayerSketch(grey) { Box(Modifier.size(22.dp).clip(androidx.compose.material3.MaterialShapes.Cookie12Sided.toShape()).background(accent)) } },
-        ), app.coverShape) { id -> update { it.copy(coverShape = id) } }
+            // The Needle look has no scalloped shapes: an older "shape" choice shows as Square.
+        ), if (app.coverShape == "shape") "square" else app.coverShape) { id -> update { it.copy(coverShape = id) } }
         Divider()
         SketchRow(Icons.Rounded.PlayCircle, "Buttons", "Play, pause, and skip", listOf(
-            Sketch("expressive", "Expressive") { accent, grey ->
-                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(3.dp)) {
-                    SketchBar(12, 10, grey, 5); SketchBar(20, 16, accent, 5); SketchBar(12, 10, grey, 5)
-                }
-            },
             Sketch("round", "Round") { accent, grey ->
                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(3.dp)) {
                     SketchBar(11, 11, grey, 6); SketchBar(18, 18, accent, 9); SketchBar(11, 11, grey, 6)
@@ -982,7 +975,8 @@ private fun AppearanceSettings(open: (Route) -> Unit) {
                     Icon(Icons.Rounded.SkipNext, null, Modifier.size(14.dp), tint = grey)
                 }
             },
-        ), app.controlStyle) { id -> update { it.copy(controlStyle = id) } }
+            // The Needle look's buttons are round: the older Expressive shows as Round.
+        ), if (app.controlStyle == "minimal") "minimal" else "round") { id -> update { it.copy(controlStyle = id) } }
         Divider()
         SketchRow(Icons.Rounded.SkipNext, "Beside play", "Skip a song, or jump 10 seconds", listOf(
             Sketch("skip", "Skip songs") { accent, grey ->
