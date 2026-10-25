@@ -134,7 +134,10 @@ Listen together was dropped by the user on 2026-10-25: not in 2.0, on any system
 - **Your own artist pictures.** On an artist's page, the photo, the banner, and the logo each
   have **Choose picture…**, **Pick from fanart.tv** (all of fanart.tv's choices), and
   **Reset**. A chosen picture is kept and never replaced. Pictures in the artist's folder are
-  used too: `artist.jpg` or `folder.jpg`, `fanart.jpg`, `banner.jpg`, `logo.png`.
+  used too: `artist.jpg` or `folder.jpg` for the photo, before any found online. For the wide
+  picture and the logo the order is: the listener's choice, then fanart.tv's (while online
+  lookups are on and a fanart.tv key is set), then `fanart.jpg`/`backdrop.jpg`/`banner.jpg`
+  and `logo.png`/`clearlogo.png` in the artist's folder (the user's call, 2026-10-25).
 
 ### Fonts
 
