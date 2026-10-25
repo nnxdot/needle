@@ -79,7 +79,7 @@ pub fn display(text: impl Into<SharedString>, size: f32) -> Div {
         .font_family(display_font())
         .text_size(px(size))
         .line_height(px(size * 1.18))
-        .font_weight(FontWeight::SEMIBOLD)
+        .font_weight(super::theme::display_weight())
         .child(text.into())
 }
 
@@ -180,7 +180,13 @@ pub fn moving_cover(id: &'static str, path: &str, size: f32) -> Option<AnyElemen
             .flex_shrink_0()
             .rounded(px((size * 0.06).clamp(3., 8.)))
             .overflow_hidden()
-            .child(img(frames).id(id).size_full().object_fit(ObjectFit::Cover))
+            .child(
+                img(frames)
+                    .id(id)
+                    .size_full()
+                    .rounded(px((size * 0.06).clamp(3., 8.)))
+                    .object_fit(ObjectFit::Cover),
+            )
             .into_any_element(),
     )
 }
@@ -203,7 +209,12 @@ pub fn cover(path: Option<&str>, seed: &str, size: f32, cx: &App) -> AnyElement 
             .flex_shrink_0()
             .rounded(radius)
             .overflow_hidden()
-            .child(img(file).size_full().object_fit(ObjectFit::Cover))
+            .child(
+                img(file)
+                    .size_full()
+                    .rounded(radius)
+                    .object_fit(ObjectFit::Cover),
+            )
             .into_any_element();
     }
     let _ = radius;
@@ -327,6 +338,7 @@ pub fn row_icon(title: &str) -> Option<&'static str> {
         "Mark server songs" => "server",
         "Reduce motion" => "pause",
         "Titles" => "tag",
+        "Text" => "tag",
         "Show what you're playing on Discord" => "discord",
         "Look up covers" => "albums",
         "Show the Needle logo" => "logo",

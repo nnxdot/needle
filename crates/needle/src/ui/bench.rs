@@ -368,6 +368,8 @@ impl AppView {
                     _ if page == "albums" => open(v, Page::Albums, window, cx),
                     _ if page == "artists" => open(v, Page::Artists, window, cx),
                     _ if page == "history" => open(v, Page::History, window, cx),
+                    _ if page == "numbers" => open(v, Page::Numbers, window, cx),
+                    _ if page == "mood" => open(v, Page::MoodMap, window, cx),
                     _ if page == "server" => open(
                         v,
                         Page::Source {
@@ -421,6 +423,17 @@ impl AppView {
         }
         // For screenshots: the big player, once the window is up ("moving": held as it is while
         // it grows, over the page and under the usual title bar).
+        // For screenshots: full screen (NEEDLE_SHOW_IMMERSIVE: "queue" shows what plays next).
+        if let Ok(how) = std::env::var("NEEDLE_SHOW_IMMERSIVE") {
+            cx.spawn_in(window, async move |view, cx| {
+                cx.background_executor().timer(Duration::from_secs(3)).await;
+                let _ = view.update_in(cx, |v, window, cx| {
+                    v.immersive_queue = how == "queue";
+                    v.set_immersive(true, window, cx);
+                });
+            })
+            .detach();
+        }
         if let Ok(how) = std::env::var("NEEDLE_SHOW_BIG") {
             cx.spawn_in(window, async move |view, cx| {
                 cx.background_executor().timer(Duration::from_secs(3)).await;
@@ -430,6 +443,8 @@ impl AppView {
                         v.big_was = true;
                         v.big_moving = true;
                     }
+                    // "visualizer": with the visualizer on.
+                    v.visualizer = how == "visualizer";
                     // "alone": with no pane beside it.
                     if how == "alone" {
                         v.big_side = super::now_playing::Side::None;

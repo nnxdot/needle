@@ -24,6 +24,12 @@ impl AppView {
                 Err(e) => Event::Error(format!("{e:#}")),
             };
             let _ = sender.send(event);
+            // On this day: what played one and five years ago today.
+            let now = chrono::Local::now();
+            let offset = now.offset().local_minus_utc();
+            if let Ok(days) = library.on_this_day(now.timestamp(), offset, &[1, 5], SHELF) {
+                let _ = sender.send(Event::OnThisDay(days));
+            }
         });
     }
 
@@ -37,7 +43,30 @@ impl AppView {
         };
         let empty = Home::default();
         let home = self.home.as_deref().unwrap_or(&empty);
-        let shelves: Vec<(&str, &str, Vec<Group>, bool, Page)> = [
+        let days: Vec<(String, String, Vec<Group>, bool, Page)> = self
+            .on_this_day
+            .iter()
+            .map(|day| {
+                let date = chrono::DateTime::from_timestamp(day.day, 0)
+                    .map(|d| {
+                        d.with_timezone(&chrono::Local)
+                            .format("%-d %B %Y")
+                            .to_string()
+                    })
+                    .unwrap_or_default();
+                (
+                    match day.years_ago {
+                        1 => "One year ago today".to_string(),
+                        n => format!("{n} years ago today"),
+                    },
+                    date,
+                    album_groups(day.albums.clone()),
+                    false,
+                    Page::History,
+                )
+            })
+            .collect();
+        let shelves: Vec<(String, String, Vec<Group>, bool, Page)> = [
             (
                 "Jump back in",
                 "Albums you played last",
@@ -75,6 +104,18 @@ impl AppView {
             ),
         ]
         .into_iter()
+        .map(|(title, note, groups, round, page)| {
+            (title.to_string(), note.to_string(), groups, round, page)
+        })
+        .enumerate()
+        .flat_map(|(i, shelf)| {
+            // On this day comes right after Jump back in.
+            let mut out = vec![shelf];
+            if i == 0 {
+                out.extend(days.clone());
+            }
+            out
+        })
         .filter(|s| !s.2.is_empty())
         .collect();
         div()

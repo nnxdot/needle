@@ -338,18 +338,25 @@ impl AppView {
                                 el.child(
                                     div()
                                         .rounded(px(10.))
-                                        .shadow(vec![BoxShadow {
-                                            color: gpui::black().opacity(if p.dark {
-                                                0.55
+                                        .map(|el| {
+                                            // The visualizer: a glow that breathes with the music.
+                                            if self.visualizer {
+                                                el.shadow(self.visualizer_glow(cx))
                                             } else {
-                                                // Softer on light backgrounds, where the shadow's
-                                                // steps would show.
-                                                0.14
-                                            }),
-                                            offset: point(px(0.), px(18.)),
-                                            blur_radius: px(48.),
-                                            spread_radius: px(-6.),
-                                        }])
+                                                el.shadow(vec![BoxShadow {
+                                                    color: gpui::black().opacity(if p.dark {
+                                                        0.55
+                                                    } else {
+                                                        // Softer on light backgrounds, where the
+                                                        // shadow's steps would show.
+                                                        0.14
+                                                    }),
+                                                    offset: point(px(0.), px(18.)),
+                                                    blur_radius: px(48.),
+                                                    spread_radius: px(-6.),
+                                                }])
+                                            }
+                                        })
                                         // Settings › Appearance › Moving covers: the cover
                                         // moves here too with Immersive cover off.
                                         .child(
@@ -371,6 +378,9 @@ impl AppView {
                                                 }),
                                         ),
                                 )
+                            })
+                            .when(self.visualizer && cover_side.is_none(), |el| {
+                                el.child(self.visualizer_strip(art, 56., cx))
                             })
                             .child(match &current {
                                 None => div()
@@ -458,7 +468,12 @@ impl AppView {
                                         .w(px(40.))
                                         .text_right(),
                                     )
-                                    .child(self.seek_bar("big-seek", current.is_none(), cx))
+                                    .child(self.wave_seek_bar(
+                                        "big-seek",
+                                        current.is_none(),
+                                        34.,
+                                        cx,
+                                    ))
                                     .child(
                                         faint(
                                             current
@@ -703,6 +718,22 @@ impl AppView {
                         cx,
                     ))
                     .child(side_button("big-stems", "stems", "Stems", Side::Stems, cx))
+                    .child(
+                        icon_button(
+                            "big-visualizer",
+                            "wave",
+                            if self.visualizer {
+                                "Hide the visualizer"
+                            } else {
+                                "Visualizer"
+                            },
+                        )
+                        .when(self.visualizer, |b| b.text_color(p.accent))
+                        .on_click(cx.listener(|this, _, _, cx| {
+                            this.visualizer = !this.visualizer;
+                            cx.notify();
+                        })),
+                    )
                     .child(
                         icon_button("big-full", "fullscreen", "Full screen · F11").on_click(
                             cx.listener(|this, _, window, cx| this.set_immersive(true, window, cx)),

@@ -57,6 +57,27 @@ impl AppView {
                 track.clone(),
             )));
         self.lookup_media(track);
+        self.load_waveform(track);
+    }
+
+    /// The song's shape for the waveform seek bar, measured once (about a second) and kept.
+    pub(super) fn load_waveform(&mut self, track: &Track) {
+        if self
+            .waveform
+            .as_ref()
+            .is_some_and(|(id, _)| *id == track.id)
+        {
+            return;
+        }
+        self.waveform = None;
+        let (library, sender, track) = (self.library.clone(), self.sender.clone(), track.clone());
+        std::thread::spawn(move || {
+            if let Ok(shape) = library.waveform_now(&track)
+                && !shape.loudness.is_empty()
+            {
+                let _ = sender.send(Event::Waveform(track.id.clone(), shape.heights(120)));
+            }
+        });
     }
 
     /// Find lyrics and any missing cover for `track`, in the background.
@@ -428,6 +449,18 @@ impl AppView {
                     };
                     let line_el = line_el.on_click(
                         cx.listener(move |this, _, _, _| this.player.send(Command::Seek(time))),
+                    );
+                    // Right-click: the line as a picture to share.
+                    let words = line.text.clone();
+                    let line_el = line_el.on_mouse_down(
+                        MouseButton::Right,
+                        cx.listener(move |this, _, _, _| {
+                            if let Some(item) = this.playback.current.clone()
+                                && !words.trim().is_empty()
+                            {
+                                this.share_lyric(item.track, words.clone());
+                            }
+                        }),
                     );
                     if state == 0 && karaoke.is_none() {
                         // The new line brightens in as it arrives.
