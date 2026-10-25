@@ -112,6 +112,21 @@ class NeedleApp : Application() {
         scope.launch(saves) { runCatching { core.setMoreSettings(next) } }
     }
 
+    /**
+     * Tells the core whether the background search for artists' pictures may look now: online
+     * lookups and Artist pictures on, on Wi-Fi (or another network that is not metered), and no
+     * library being read. Asked again when any of those change.
+     */
+    fun artistPicturesAllowed() {
+        scope.launch(kotlinx.coroutines.Dispatchers.IO) {
+            val online = runCatching { core.playbackSettings().onlineMedia }.getOrDefault(false)
+            val connectivity = getSystemService(android.net.ConnectivityManager::class.java)
+            val unmetered = connectivity?.activeNetwork != null && connectivity.isActiveNetworkMetered == false
+            val allowed = online && _more.value.artistPictures && unmetered && !scan.value.running
+            runCatching { core.setArtistPicturesAllowed(allowed) }
+        }
+    }
+
     /** Asks the screens to open the full player (when a song is chosen, if that is on). */
     val openPlayer = MutableSharedFlow<Unit>(extraBufferCapacity = 1)
 
@@ -135,6 +150,11 @@ class NeedleApp : Application() {
         core = Needle(File(filesDir, "needle").absolutePath)
         _app.value = core.appSettings()
         runCatching { core.moreSettings() }.getOrNull()?.let { _more.value = it }
+        // The background search for artists' pictures follows the network and the settings.
+        getSystemService(android.net.ConnectivityManager::class.java)?.registerDefaultNetworkCallback(object : android.net.ConnectivityManager.NetworkCallback() {
+            override fun onCapabilitiesChanged(network: android.net.Network, capabilities: android.net.NetworkCapabilities) = artistPicturesAllowed()
+            override fun onLost(network: android.net.Network) = artistPicturesAllowed()
+        })
         core.setDecoder(File(applicationInfo.nativeLibraryDir, "libneedle_ffmpeg.so").absolutePath)
         // The Discord status, when this build can show it and Discord is on the phone.
         Discord.load(this)
@@ -185,6 +205,7 @@ class NeedleApp : Application() {
                     ScanNotice.hide(this@NeedleApp)
                     launch { updateWidgets(this@NeedleApp) }
                 }
+                if (wasScanning != scan.running) artistPicturesAllowed()
                 wasScanning = scan.running
                 // Nothing to follow closely while Needle is out of sight and nothing plays.
                 // Just after a widget's press too, so the widget shows it at once.

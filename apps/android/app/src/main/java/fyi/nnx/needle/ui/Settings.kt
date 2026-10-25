@@ -21,6 +21,7 @@ import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.material.icons.rounded.Check
+import androidx.compose.material.icons.rounded.Face
 import androidx.compose.material.icons.rounded.TextFields
 import androidx.compose.material.icons.rounded.Forward10
 import androidx.compose.material.icons.rounded.PlayArrow
@@ -531,13 +532,15 @@ private fun LibrarySettings(open: (Route) -> Unit) {
             SwitchRow("Look up lyrics and artists", "LRCLIB for lyrics, fanart.tv for artists", p.onlineMedia, icon = Icons.Rounded.Language) {
                 val next = p.copy(onlineMedia = it)
                 playback = next
-                background { core.setPlaybackSettings(next) }
+                background { core.setPlaybackSettings(next); NeedleApp.instance.artistPicturesAllowed() }
             }
             Divider()
             ExpandRow(Icons.Rounded.Info, "What is sent", "Only what a lookup needs") {
                 MoreText("When a song has no lyrics of its own, Needle asks LRCLIB for them with the song's title, artist, album, and length. For an artist's page, Needle asks MusicBrainz for the artist's ID by name, and sends fanart.tv only that ID. Nothing else is sent.")
             }
             if (p.onlineMedia) {
+                Divider()
+                ArtistPicturesRow()
                 Divider()
                 FanartKeyRow()
             }
@@ -1097,6 +1100,48 @@ private fun AppearanceSettings(open: (Route) -> Unit) {
         SwitchRow("Keep the screen on", "While the lyrics show", app.keepScreenOnLyrics, icon = Icons.Rounded.LightMode) { on -> update { it.copy(keepScreenOnLyrics = on) } }
         Divider()
         SwitchRow("Lyrics in the mini player", "Mid-bar on a tablet, under it on a phone", app.miniPlayerLyrics, icon = Icons.Rounded.Subtitles) { on -> update { it.copy(miniPlayerLyrics = on) } }
+    }
+}
+
+/**
+ * Artist pictures (a dependent row of the online lookups): every artist's photo, logo, and wide
+ * picture found slowly in the background, on Wi-Fi only; its line says how far it is, and
+ * Check all now looks for every artist at once.
+ */
+@Composable
+private fun ArtistPicturesRow() {
+    val more by NeedleApp.instance.more.collectAsState()
+    var progress by remember { mutableStateOf<fyi.nnx.needle.core.PictureProgress?>(null) }
+    LaunchedEffect(more.artistPictures) {
+        while (true) {
+            progress = withContext(Dispatchers.IO) { runCatching { core.artistPicturesProgress() }.getOrNull() }
+            kotlinx.coroutines.delay(2000)
+        }
+    }
+    val p = progress
+    val line = when {
+        !more.artistPictures -> "Finds every artist's picture, slowly, on Wi-Fi"
+        p == null || p.total == 0u -> "Finds every artist's picture, slowly, on Wi-Fi"
+        p.done >= p.total -> "All ${p.total} artists looked for"
+        !p.allowed -> "${p.done} of ${p.total} artists · waiting for Wi-Fi"
+        else -> "${p.done} of ${p.total} artists"
+    }
+    DependentRow {
+        Column {
+            SwitchRow("Artist pictures", line, more.artistPictures, icon = Icons.Rounded.Face) { on ->
+                NeedleApp.instance.updateMore { it.copy(artistPictures = on) }
+                NeedleApp.instance.artistPicturesAllowed()
+            }
+            if (more.artistPictures && (p == null || p.done < p.total)) {
+                TextButton(
+                    onClick = {
+                        background { core.checkAllArtistPictures() }
+                        showMessage("Looking for every artist's pictures")
+                    },
+                    modifier = Modifier.padding(start = 60.dp, bottom = 6.dp),
+                ) { Text("Check all now") }
+            }
+        }
     }
 }
 

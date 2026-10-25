@@ -202,6 +202,7 @@ private fun Pills(filter: Filter?, choose: (Filter?) -> Unit, sort: Sort, sortBy
                 }
             }
         }
+        if (filter == Filter.Artists) ArtistSortButton()
         if (filter == Filter.Albums || filter == Filter.Songs) {
             // Songs carry no date they were added, so they sort by name or artist only.
             val orders = if (filter == Filter.Songs) Sort.entries - Sort.Recent else Sort.entries
@@ -370,17 +371,7 @@ private fun Albums(sort: Sort, open: (Route) -> Unit, scroll: Modifier) {
 
 @Composable
 private fun Artists(open: (Route) -> Unit, scroll: Modifier) {
-    val artistsLoad = rememberLoaded { artists() }
-    val artists by artistsLoad
-    LazyVerticalGrid(
-        columns = GridCells.Adaptive(104.dp),
-        contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 8.dp, bottom = 32.dp + LocalBottomInset.current),
-        horizontalArrangement = Arrangement.spacedBy(12.dp),
-        verticalArrangement = Arrangement.spacedBy(LocalRows.current.grid),
-        modifier = Modifier.fillMaxSize().then(scroll),
-    ) {
-        items(artists.orEmpty(), key = { it.name }) { artist -> ArtistTile(artist, Modifier, open) }
-    }
+    ArtistGrid(open, scroll)
 }
 
 @Composable
