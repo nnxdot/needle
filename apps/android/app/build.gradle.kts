@@ -52,6 +52,9 @@ android {
 
     // The website's Privacy and Help pages ship inside the app, read in its own pages.
     sourceSets["main"].assets.directories.add(layout.buildDirectory.dir("generated/site-assets").get().asFile.path)
+    // Needle's fonts and their licences, from assets/fonts (see copyFonts).
+    sourceSets["main"].res.directories.add(layout.buildDirectory.dir("generated/needle-fonts-res").get().asFile.path)
+    sourceSets["main"].assets.directories.add(layout.buildDirectory.dir("generated/font-licences").get().asFile.path)
 
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
@@ -108,6 +111,26 @@ dependencies {
     val discordSdk = file("libs/discord_partner_sdk.aar")
     if (discordSdk.exists()) implementation(files(discordSdk))
 }
+
+// The fonts every Needle has (assets/fonts, fetched by scripts/fetch-fonts.py), as Android
+// resources (lowercase names: Inter-400.ttf is R.font.inter_400), and their licences in the
+// app's assets. Poster stays Roboto Flex on Android (res/font/roboto_flex.ttf).
+val copyFonts by tasks.registering(Copy::class) {
+    from(rootProject.file("../../assets/fonts")) {
+        include("*.ttf")
+        exclude("Poster-*")
+        rename { it.lowercase().replace(Regex("[^a-z0-9.]"), "_") }
+    }
+    into(layout.buildDirectory.dir("generated/needle-fonts-res/font"))
+}
+val copyFontLicences by tasks.registering(Copy::class) {
+    from(rootProject.file("../../assets/fonts")) {
+        include("*-OFL.txt")
+        exclude("Poster-*")
+    }
+    into(layout.buildDirectory.dir("generated/font-licences/licenses"))
+}
+tasks.named("preBuild") { dependsOn(copyFonts, copyFontLicences) }
 
 // Copies the website's Privacy and Help pages in, so the app always has the current words.
 val copySitePages by tasks.registering(Copy::class) {
