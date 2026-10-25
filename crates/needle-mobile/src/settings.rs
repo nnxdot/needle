@@ -142,6 +142,10 @@ pub struct AppSettings {
     /// choice as the computer's `server_mark`).
     #[uniffi(default = true)]
     pub server_mark: bool,
+    /// Settings › Sound › Bit-perfect USB: Needle's own driver plays to a USB DAC, Android's
+    /// bit-perfect mixer where it cannot.
+    #[uniffi(default = false)]
+    pub usb_bit_perfect: bool,
 }
 
 impl Default for AppSettings {
@@ -178,6 +182,7 @@ impl Default for AppSettings {
             animated_covers: true,
             moving_covers_on_mobile_data: false,
             server_mark: true,
+            usb_bit_perfect: false,
         }
     }
 }
