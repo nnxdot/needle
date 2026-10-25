@@ -125,22 +125,7 @@ impl Drop for Endpoint {
     }
 }
 
-pub(crate) fn pcm24(sample: f32, bytes: &mut [u8]) {
-    // f32 represents 16- and 24-bit integer PCM exactly. Keep 24 valid bits,
-    // left-aligned in 32-bit containers when the driver asks for that layout.
-    let sample = if sample.is_finite() { sample } else { 0. };
-    let value = ((sample as f64 * 8_388_608.)
-        .round()
-        .clamp(-8_388_608., 8_388_607.) as i32)
-        << 8;
-    let raw = value.to_le_bytes();
-    match bytes.len() {
-        4 => bytes.copy_from_slice(&raw),
-        3 => bytes.copy_from_slice(&raw[1..]),
-        2 => bytes.copy_from_slice(&raw[2..]),
-        _ => bytes.fill(0),
-    }
-}
+pub(crate) use crate::platform_output::pcm24;
 
 fn render(
     mut source: SourcesQueueOutput,

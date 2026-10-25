@@ -148,6 +148,9 @@ pub fn decode(path: &Path) -> Result<Decoded> {
     let other: Option<Box<dyn Source + Send>> = match extension.as_str() {
         "wv" => Some(Box::new(crate::formats::WavPack::open(path)?)),
         "ape" => Some(Box::new(crate::formats::Ape::open(path)?)),
+        "dsf" if crate::platform_output::dop() => {
+            Some(Box::new(crate::formats::Dsf::open_dop(path)?))
+        }
         "dsf" => Some(Box::new(crate::formats::Dsf::open(path)?)),
         _ => None,
     };

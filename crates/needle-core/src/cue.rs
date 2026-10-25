@@ -348,7 +348,7 @@ pub fn import_sheet(library: &Library, cue: &Path) -> Result<usize> {
                 start: entry.start,
                 end,
             }),
-            metadata_version: 2,
+            metadata_version: crate::scan::METADATA_VERSION,
             ..Default::default()
         };
         if let Some(previous) = &previous
