@@ -8,7 +8,8 @@ struct NeedleWatchApp: App {
 
     var body: some Scene {
         WindowGroup {
-            NowPlayingView().environment(phone)
+            // The bar at the top (the Favorite star) needs a navigation stack on the watch.
+            NavigationStack { NowPlayingView() }.environment(phone)
         }
     }
 }
@@ -38,6 +39,17 @@ final class PhoneLink: NSObject, WCSessionDelegate {
         guard WCSession.isSupported() else { return }
         WCSession.default.delegate = self
         WCSession.default.activate()
+        #if DEBUG
+        // Test builds: -send next|previous|toggle|favorite presses that button after a moment.
+        let args = CommandLine.arguments
+        if let i = args.firstIndex(of: "-send"), args.indices.contains(i + 1) {
+            let action = args[i + 1]
+            Task { @MainActor [weak self] in
+                try? await Task.sleep(for: .seconds(5))
+                self?.send(action)
+            }
+        }
+        #endif
     }
 
     /// A button pressed here: Needle on the iPhone does it.

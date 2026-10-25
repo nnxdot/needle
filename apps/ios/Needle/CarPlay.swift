@@ -34,7 +34,7 @@ final class CarPlaySceneDelegate: UIResponder, CPTemplateApplicationSceneDelegat
     /// The Mac's Home shelves, as lists.
     private func fillHome(_ template: CPListTemplate) async {
         guard let home = await store.load({ try $0.home() }) else { return }
-        let favorites = await store.load { try $0.homeFavorites() } ?? []
+        let favorites = await store.load { try $0.homeShelves(limit: 20).favorites } ?? []
         let room = CPListTemplate.maximumItemCount
         let shelves: [(String, [Album])] = [
             ("Jump back in", home.recent), ("New in your library", home.added),

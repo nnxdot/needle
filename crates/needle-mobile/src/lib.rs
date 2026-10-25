@@ -449,17 +449,6 @@ impl Needle {
         })
     }
 
-    /// Home's Favorites shelf, as on the Mac: the albums with the songs you love.
-    pub fn home_favorites(&self) -> Result<Vec<Album>> {
-        Ok(self
-            .library
-            .home(20)?
-            .favorites
-            .into_iter()
-            .map(Album::from)
-            .collect())
-    }
-
     pub fn albums(&self) -> Result<Vec<Album>> {
         Ok(self
             .library
