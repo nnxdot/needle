@@ -257,6 +257,9 @@ pub struct Settings {
     pub ambient: bool,
     /// Seconds songs overlap as one ends and the next begins (0 = off).
     pub crossfade: f32,
+    /// Smart mixes: the crossfade starts where a song's music ends (not in its silent tail)
+    /// and lasts whole bars of its tempo.
+    pub smart_mix: bool,
     /// The song table's columns, in order, with their widths.
     pub columns: Vec<ColumnSetting>,
     /// Send crash reports (without file paths or names) to needle.nnx.fyi.
@@ -356,6 +359,7 @@ impl Default for Settings {
             accent_color: String::new(),
             ambient: false,
             crossfade: 0.,
+            smart_mix: true,
             columns: [("album", 220.), ("quality", 92.), ("time", 52.)]
                 .into_iter()
                 .map(|(key, width)| ColumnSetting {
