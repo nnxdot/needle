@@ -50,6 +50,7 @@ mod thumbs;
 mod timing;
 mod tray;
 mod updates;
+mod visualizer;
 mod welcome;
 mod whats_new;
 mod widgets;
@@ -454,6 +455,8 @@ pub struct AppView {
     on_this_day: Vec<needle_core::numbers::OnThisDay>,
     /// The playing song's shape, for the waveform seek bar: its id and heights.
     waveform: Option<(String, Vec<f32>)>,
+    /// The visualizer shows in the big player and full screen.
+    visualizer: bool,
     /// Your library's numbers, and the mood map's songs, the spot clicked on it, and where it
     /// was drawn.
     numbers: Option<Box<needle_core::numbers::LibraryNumbers>>,
@@ -1090,6 +1093,7 @@ impl AppView {
             picture_sweep: needle_core::media::pictures::PictureSweep::start(library.clone()),
             on_this_day: vec![],
             waveform: None,
+            visualizer: false,
             numbers: None,
             mood_points: Default::default(),
             mood_pick: None,
