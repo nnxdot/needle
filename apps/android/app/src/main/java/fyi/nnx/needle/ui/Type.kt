@@ -20,6 +20,8 @@ import fyi.nnx.needle.R
  * Fraunces, Instrument Serif, DM Serif Display, Space Grotesk, Bricolage Grotesque, and Outfit.
  * Text: Inter, Atkinson Hyperlegible, Lexend, and IBM Plex Mono. "system" is Android's own font
  * (Plain), and "own:<path>" a .ttf or .otf file chosen on the phone (Settings › Appearance).
+ * The files come from assets/fonts, as every Needle's (copied in by Gradle, see copyFonts);
+ * Poster on Android is Roboto Flex, narrow and heavy (res/font).
  */
 
 @OptIn(ExperimentalTextApi::class)
@@ -38,41 +40,29 @@ val Flex = FontFamily(
     flex(400), flex(500), flex(600), flex(700), flex(800), flex(900),
 )
 
-private val Fraunces = FontFamily(
-    Font(R.font.fraunces_semibold, FontWeight.SemiBold),
-    Font(R.font.fraunces_bold, FontWeight.Bold),
-    Font(R.font.fraunces_bold, FontWeight.ExtraBold),
-    Font(R.font.fraunces_bold, FontWeight.Black),
-)
+/**
+ * A family from Needle's static fonts (assets/fonts): each weight from 400 to 1000 takes the
+ * nearest file at or below it (else the lightest), declared at that weight so nothing is
+ * drawn bolder than the file is. A family with one weight is never made bold.
+ */
+private fun family(vararg files: Pair<Int, Int>): FontFamily {
+    val sorted = files.sortedBy { it.first }
+    return FontFamily((400..1000 step 100).map { w ->
+        val file = sorted.lastOrNull { it.first <= w } ?: sorted.first()
+        Font(file.second, FontWeight(w))
+    })
+}
 
-/** A variable font at each weight from 400 to 900, each held to `max`, its heaviest. */
-@OptIn(ExperimentalTextApi::class)
-private fun variable(res: Int, max: Int = 900, min: Int = 400) = FontFamily(
-    (400..900 step 100).map { w ->
-        val at = w.coerceIn(min, max)
-        Font(res, FontWeight(w), variationSettings = FontVariation.Settings(FontVariation.weight(at)))
-    },
-)
-
-/** A font with one weight, used for every weight (no made-up bold). */
-private fun single(res: Int) = FontFamily((400..900 step 100).map { Font(res, FontWeight(it)) })
-
-private val InstrumentSerif = single(R.font.instrument_serif)
-private val DmSerif = single(R.font.dm_serif_display)
-private val SpaceGrotesk by lazy { variable(R.font.space_grotesk, max = 700) }
-private val Bricolage by lazy { variable(R.font.bricolage_grotesque, max = 800) }
-private val Outfit by lazy { variable(R.font.outfit) }
-private val Inter by lazy { variable(R.font.inter) }
-private val Atkinson by lazy { variable(R.font.atkinson_hyperlegible, max = 800) }
-private val Lexend by lazy { variable(R.font.lexend) }
-private val PlexMono = FontFamily(
-    Font(R.font.plex_mono_regular, FontWeight.Normal),
-    Font(R.font.plex_mono_medium, FontWeight.Medium),
-    Font(R.font.plex_mono_semibold, FontWeight.SemiBold),
-    Font(R.font.plex_mono_bold, FontWeight.Bold),
-    Font(R.font.plex_mono_bold, FontWeight.ExtraBold),
-    Font(R.font.plex_mono_bold, FontWeight.Black),
-)
+private val Fraunces = family(600 to R.font.fraunces72ptsoft_semibold, 700 to R.font.fraunces72ptsoft_bold)
+private val InstrumentSerif = family(400 to R.font.instrumentserif_400)
+private val DmSerif = family(400 to R.font.dmserifdisplay_400)
+private val SpaceGrotesk = family(600 to R.font.spacegrotesk_600, 700 to R.font.spacegrotesk_700)
+private val Bricolage = family(600 to R.font.bricolagegrotesque_600, 800 to R.font.bricolagegrotesque_800)
+private val Outfit = family(600 to R.font.outfit_600, 700 to R.font.outfit_700)
+private val Inter = family(400 to R.font.inter_400, 500 to R.font.inter_500, 600 to R.font.inter_600, 700 to R.font.inter_700)
+private val Atkinson = family(400 to R.font.atkinsonhyperlegible_400, 700 to R.font.atkinsonhyperlegible_700)
+private val Lexend = family(400 to R.font.lexend_400, 500 to R.font.lexend_500, 600 to R.font.lexend_600, 700 to R.font.lexend_700)
+private val PlexMono = family(400 to R.font.ibmplexmono_400, 700 to R.font.ibmplexmono_700)
 
 private val ownFonts = HashMap<String, FontFamily>()
 
