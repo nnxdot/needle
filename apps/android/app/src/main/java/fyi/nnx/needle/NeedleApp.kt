@@ -97,6 +97,21 @@ class NeedleApp : Application() {
     /** The app's own look and behaviour (Settings › Appearance). */
     val app: StateFlow<AppSettings> = _app
 
+    private val _more = MutableStateFlow(
+        fyi.nnx.needle.core.MoreSettings(
+            playerButtons = listOf("shuffle", "previous", "play", "next", "repeat", "favorite", "lyrics", "queue", "speakers"),
+            artistOrder = "name", albumArtistsOnly = false, artistPictures = true, smartMix = true,
+        ),
+    )
+    /** Needle 2.0's settings kept in the core, shared with the computer: the player's buttons, the artists' order, Smart mixes. */
+    val more: StateFlow<fyi.nnx.needle.core.MoreSettings> = _more
+
+    fun updateMore(change: (fyi.nnx.needle.core.MoreSettings) -> fyi.nnx.needle.core.MoreSettings) {
+        val next = change(_more.value)
+        _more.value = next
+        scope.launch(saves) { runCatching { core.setMoreSettings(next) } }
+    }
+
     /** Asks the screens to open the full player (when a song is chosen, if that is on). */
     val openPlayer = MutableSharedFlow<Unit>(extraBufferCapacity = 1)
 
@@ -119,6 +134,7 @@ class NeedleApp : Application() {
         NativeBridge.initAndroid(this)
         core = Needle(File(filesDir, "needle").absolutePath)
         _app.value = core.appSettings()
+        runCatching { core.moreSettings() }.getOrNull()?.let { _more.value = it }
         core.setDecoder(File(applicationInfo.nativeLibraryDir, "libneedle_ffmpeg.so").absolutePath)
         // The Discord status, when this build can show it and Discord is on the phone.
         Discord.load(this)

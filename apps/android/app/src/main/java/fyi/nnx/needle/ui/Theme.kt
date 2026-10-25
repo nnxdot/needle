@@ -193,7 +193,7 @@ fun NeedleTheme(content: @Composable () -> Unit) {
         }
         else -> base
     }
-    val type = remember(app.titleFont, app.textScale) { needleType(app.titleFont, app.textScale) }
+    val type = remember(app.titleFont, app.textScale, app.textFont) { needleType(app.titleFont, app.textScale, app.textFont) }
     // The clock and icons at the top follow Needle's page, not the phone's own light or dark mode.
     val view = androidx.compose.ui.platform.LocalView.current
     // The player is always dark, whatever the theme.

@@ -572,7 +572,6 @@ fun FullPlayer(onClose: () -> Unit, open: (Route) -> Unit) {
                         )
                         if (song.onComputer()) OnComputerChip(Modifier.padding(top = 8.dp))
                     }
-                    if (!song.onComputer()) FavoriteButton(favorite, toggleFavorite, Modifier.offset(x = 12.dp), large = true)
                 }
             }
             val controls: @Composable () -> Unit = {
@@ -586,10 +585,15 @@ fun FullPlayer(onClose: () -> Unit, open: (Route) -> Unit) {
                         modifier = Modifier.fillMaxWidth().padding(top = 8.dp).semantics { liveRegion = androidx.compose.ui.semantics.LiveRegionMode.Polite },
                     )
                 }
-                PlayerControls(playing, position, song.duration, haptics)
                 val app by NeedleApp.instance.app.collectAsState()
+                val more by NeedleApp.instance.more.collectAsState()
+                val buttons = chosenButtons(more.playerButtons)
+                PlayerControls(buttons.take(MainButtons), playing, position, song.duration, haptics, repeat, panel, { panel = if (panel == it) Panel.Cover else it }, favorite.takeIf { !song.onComputer() }, toggleFavorite)
                 if (song.onComputer() || app.volumeSlider) VolumeRow(song.onComputer())
                 PlayerToolbar(
+                    buttons = buttons.drop(MainButtons),
+                    favorite = favorite.takeIf { !song.onComputer() },
+                    toggleFavorite = toggleFavorite,
                     panel = panel,
                     onPanel = { panel = if (panel == it) Panel.Cover else it },
                     repeat = repeat,
@@ -638,7 +642,6 @@ fun FullPlayer(onClose: () -> Unit, open: (Route) -> Unit) {
                             Icon(Icons.Rounded.Search, contentDescription = "Add songs", tint = Color.White.copy(alpha = 0.8f))
                         }
                         // Beside the song's name instead, wherever its name shows.
-                        if (!song.onComputer() && !wide && !short && panel != Panel.Cover) FavoriteButton(favorite, toggleFavorite)
                         if (!song.onComputer()) SongMenu(song, open)
                     }
                 }
@@ -727,26 +730,24 @@ fun SidePane(kind: SideKind, open: (Route) -> Unit, modifier: Modifier = Modifie
     }
 }
 
-/** The heart: in favorites or not. */
-@Composable
-private fun FavoriteButton(favorite: Boolean, onClick: () -> Unit, modifier: Modifier = Modifier, large: Boolean = false) {
-    IconButton(onClick = onClick, modifier = modifier) {
-        Icon(
-            if (favorite) Icons.Rounded.Favorite else Icons.Rounded.FavoriteBorder,
-            contentDescription = if (favorite) "Take out of favorites" else "Add to favorites",
-            tint = if (favorite) MaterialTheme.colorScheme.primary else Color.White.copy(alpha = 0.8f),
-            modifier = Modifier.size(if (large) 28.dp else 24.dp),
-        )
-    }
-}
-
 /**
  * Previous, play or pause, and next: three circles, the middle one large and in the cover's
  * colour; or, Minimal, the icons alone.
  */
 @OptIn(androidx.compose.material3.ExperimentalMaterial3ExpressiveApi::class)
 @Composable
-private fun PlayerControls(playing: Boolean, position: () -> Double, duration: Double, haptics: (Boolean) -> Unit) {
+private fun PlayerControls(
+    buttons: List<String>,
+    playing: Boolean,
+    position: () -> Double,
+    duration: Double,
+    haptics: (Boolean) -> Unit,
+    repeat: RepeatMode,
+    panel: Panel,
+    onPanel: (Panel) -> Unit,
+    favorite: Boolean?,
+    toggleFavorite: () -> Unit,
+) {
     val app by NeedleApp.instance.app.collectAsState()
     val jump = app.sideButtons == "jump"
     val back = { haptics(false); if (jump) Controls.seek((position() - 10).coerceAtLeast(0.0)) else Controls.previous() }
@@ -757,37 +758,87 @@ private fun PlayerControls(playing: Boolean, position: () -> Double, duration: D
     val backLabel = if (jump) "Back 10 seconds" else "Previous"
     val aheadLabel = if (jump) "Ahead 10 seconds" else "Next"
     val middle = remember { androidx.compose.foundation.interaction.MutableInteractionSource() }
+    val minimal = app.controlStyle == "minimal"
+    val side = androidx.compose.material3.IconButtonDefaults.filledTonalIconButtonColors(containerColor = Color.White.copy(alpha = 0.14f), contentColor = Color.White)
+    // Previous and next as circles (Round) or large icons (Minimal); Play/Pause the one large
+    // button in the cover's colour; any other chosen button a plain toggle between them.
+    val skip: @Composable (Boolean) -> Unit = { forward ->
+        val onClick = if (forward) ahead else back
+        val icon = if (forward) aheadIcon else backIcon
+        val label = if (forward) aheadLabel else backLabel
+        if (minimal) {
+            IconButton(onClick = onClick, modifier = Modifier.size(64.dp)) { Icon(icon, contentDescription = label, modifier = Modifier.size(44.dp)) }
+        } else {
+            androidx.compose.material3.FilledTonalIconButton(onClick = onClick, colors = side, shape = CircleShape, modifier = Modifier.size(if (buttons.size > 3) 56.dp else 60.dp)) {
+                Icon(icon, contentDescription = label, modifier = Modifier.size(28.dp))
+            }
+        }
+    }
     Row(
         Modifier.fillMaxWidth().padding(top = 14.dp, bottom = 18.dp),
-        horizontalArrangement = Arrangement.spacedBy(if (app.controlStyle == "minimal") 36.dp else 14.dp, Alignment.CenterHorizontally),
+        horizontalArrangement = if (buttons.size <= 3) Arrangement.spacedBy(if (minimal) 36.dp else 14.dp, Alignment.CenterHorizontally) else Arrangement.SpaceEvenly,
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        when (app.controlStyle) {
-            // Minimal: the icons alone, large and white, as in Apple Music.
-            "minimal" -> {
-                IconButton(onClick = back, modifier = Modifier.size(64.dp)) { Icon(backIcon, contentDescription = backLabel, modifier = Modifier.size(44.dp)) }
-                IconButton(onClick = toggle, interactionSource = middle, modifier = Modifier.size(80.dp)) { PlayPauseIcon(playing, 64.dp) }
-                IconButton(onClick = ahead, modifier = Modifier.size(64.dp)) { Icon(aheadIcon, contentDescription = aheadLabel, modifier = Modifier.size(44.dp)) }
-            }
-            // Round (and the older Expressive): three circles, the middle one large and in the
-            // cover's colour.
-            else -> {
-                val side = androidx.compose.material3.IconButtonDefaults.filledTonalIconButtonColors(containerColor = Color.White.copy(alpha = 0.14f), contentColor = Color.White)
-                androidx.compose.material3.FilledTonalIconButton(onClick = back, colors = side, shape = CircleShape, modifier = Modifier.size(60.dp)) {
-                    Icon(backIcon, contentDescription = backLabel, modifier = Modifier.size(28.dp))
+        buttons.forEach { name ->
+            when (name) {
+                "previous" -> skip(false)
+                "next" -> skip(true)
+                "play" -> if (minimal) {
+                    IconButton(onClick = toggle, interactionSource = middle, modifier = Modifier.size(80.dp).playPauseSemantics(playing) { toggle() }) { PlayPauseIcon(playing, 64.dp) }
+                } else {
+                    androidx.compose.material3.FilledIconButton(
+                        onClick = toggle,
+                        shape = CircleShape,
+                        colors = androidx.compose.material3.IconButtonDefaults.filledIconButtonColors(containerColor = MaterialTheme.colorScheme.primary, contentColor = MaterialTheme.colorScheme.onPrimary),
+                        interactionSource = middle,
+                        modifier = Modifier.size(if (buttons.size > 3) 76.dp else 80.dp).playPauseSemantics(playing) { toggle() },
+                    ) { PlayPauseIcon(playing, 38.dp) }
                 }
-                androidx.compose.material3.FilledIconButton(
-                    onClick = toggle,
-                    shape = CircleShape,
-                    colors = androidx.compose.material3.IconButtonDefaults.filledIconButtonColors(containerColor = MaterialTheme.colorScheme.primary, contentColor = MaterialTheme.colorScheme.onPrimary),
-                    interactionSource = middle,
-                    modifier = Modifier.size(80.dp).playPauseSemantics(playing) { toggle() },
-                ) { PlayPauseIcon(playing, 38.dp) }
-                androidx.compose.material3.FilledTonalIconButton(onClick = ahead, colors = side, shape = CircleShape, modifier = Modifier.size(60.dp)) {
-                    Icon(aheadIcon, contentDescription = aheadLabel, modifier = Modifier.size(28.dp))
+                else -> Box(Modifier.size(48.dp), contentAlignment = Alignment.Center) {
+                    ChosenToggle(name, repeat, panel, onPanel, favorite, toggleFavorite)
                 }
             }
         }
+    }
+}
+
+/**
+ * A chosen player button other than the transport: Shuffle, Repeat, Favorite, Lyrics, Queue,
+ * or Speakers, as a toggle with a soft circle while on.
+ */
+@Composable
+private fun ChosenToggle(name: String, repeat: RepeatMode, panel: Panel, onPanel: (Panel) -> Unit, favorite: Boolean?, toggleFavorite: () -> Unit) {
+    Row { ChosenToggleIn(name, repeat, panel, onPanel, favorite, toggleFavorite) }
+}
+
+@Composable
+private fun RowScope.ChosenToggleIn(name: String, repeat: RepeatMode, panel: Panel, onPanel: (Panel) -> Unit, favorite: Boolean?, toggleFavorite: () -> Unit) {
+    when (name) {
+        "lyrics" -> RoundToggle(panel == Panel.Lyrics, { onPanel(Panel.Lyrics) }, if (panel == Panel.Lyrics) "Showing" else "Hidden") { Icon(Icons.Rounded.Lyrics, contentDescription = "Lyrics") }
+        "shuffle" -> RoundToggle(false, { Controls.shuffle(); showMessage("Shuffled what is up next") }) { Icon(Icons.Rounded.Shuffle, contentDescription = "Shuffle what is up next") }
+        "repeat" -> RoundToggle(repeat != RepeatMode.OFF, {
+            Controls.setRepeat(
+                when (repeat) {
+                    RepeatMode.OFF -> RepeatMode.ALL
+                    RepeatMode.ALL -> RepeatMode.ONE
+                    RepeatMode.ONE -> RepeatMode.OFF
+                },
+            )
+        }, when (repeat) {
+            RepeatMode.OFF -> "Off"
+            RepeatMode.ALL -> "All songs"
+            RepeatMode.ONE -> "This song"
+        }) { Icon(if (repeat == RepeatMode.ONE) Icons.Rounded.RepeatOne else Icons.Rounded.Repeat, contentDescription = "Repeat") }
+        // Not for a song on the computer: its favorites are the computer's.
+        "favorite" -> if (favorite != null) RoundToggle(favorite, toggleFavorite, if (favorite) "In favorites" else "Not in favorites") {
+            Icon(
+                if (favorite) Icons.Rounded.Favorite else Icons.Rounded.FavoriteBorder,
+                contentDescription = "Favorite",
+                tint = if (favorite) MaterialTheme.colorScheme.primary else Color.White.copy(alpha = 0.8f),
+            )
+        }
+        "speakers" -> RoundToggle(false, { Ui.sheet.value = Sheet.PlayOn }) { Icon(Icons.Rounded.Cast, contentDescription = "Play on") }
+        "queue" -> RoundToggle(panel == Panel.UpNext, { onPanel(Panel.UpNext) }, if (panel == Panel.UpNext) "Showing" else "Hidden") { Icon(Icons.AutoMirrored.Rounded.QueueMusic, contentDescription = "Up next") }
     }
 }
 
@@ -928,6 +979,9 @@ private fun PlayerSearch(computer: Boolean, onDismiss: () -> Unit) {
  */
 @Composable
 private fun PlayerToolbar(
+    buttons: List<String>,
+    favorite: Boolean?,
+    toggleFavorite: () -> Unit,
     panel: Panel,
     onPanel: (Panel) -> Unit,
     repeat: RepeatMode,
@@ -945,21 +999,15 @@ private fun PlayerToolbar(
         horizontalArrangement = Arrangement.SpaceBetween,
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        RoundToggle(panel == Panel.Lyrics, { onPanel(Panel.Lyrics) }, if (panel == Panel.Lyrics) "Showing" else "Hidden") { Icon(Icons.Rounded.Lyrics, contentDescription = "Lyrics") }
-        RoundToggle(false, { Controls.shuffle(); showMessage("Shuffled what is up next") }) { Icon(Icons.Rounded.Shuffle, contentDescription = "Shuffle what is up next") }
-        RoundToggle(repeat != RepeatMode.OFF, {
-            Controls.setRepeat(
-                when (repeat) {
-                    RepeatMode.OFF -> RepeatMode.ALL
-                    RepeatMode.ALL -> RepeatMode.ONE
-                    RepeatMode.ONE -> RepeatMode.OFF
-                },
-            )
-        }, when (repeat) {
-            RepeatMode.OFF -> "Off"
-            RepeatMode.ALL -> "All songs"
-            RepeatMode.ONE -> "This song"
-        }) { Icon(if (repeat == RepeatMode.ONE) Icons.Rounded.RepeatOne else Icons.Rounded.Repeat, contentDescription = "Repeat") }
+        // The chosen buttons past the main row's, in their order; Previous, Play, or Next
+        // placed here play as they would in the main row.
+        buttons.forEach { name ->
+            when (name) {
+                "previous" -> RoundToggle(false, { Controls.previous() }) { Icon(Icons.Rounded.SkipPrevious, contentDescription = "Previous") }
+                "next" -> RoundToggle(false, { Controls.next() }) { Icon(Icons.Rounded.SkipNext, contentDescription = "Next") }
+                else -> ChosenToggleIn(name, repeat, panel, onPanel, favorite, toggleFavorite)
+            }
+        }
         RoundToggle(looping || loopStarted, onLoop, if (looping) "Looping" else if (loopStarted) "Start marked" else "Off") {
             Text(
                 if (loopStarted) "A…" else "A-B",
@@ -971,8 +1019,6 @@ private fun PlayerToolbar(
                 modifier = Modifier.semantics { contentDescription = "A-B loop" },
             )
         }
-        RoundToggle(false, { Ui.sheet.value = Sheet.PlayOn }) { Icon(Icons.Rounded.Cast, contentDescription = "Play on") }
-        RoundToggle(panel == Panel.UpNext, { onPanel(Panel.UpNext) }, if (panel == Panel.UpNext) "Showing" else "Hidden") { Icon(Icons.AutoMirrored.Rounded.QueueMusic, contentDescription = "Up next") }
     }
 }
 

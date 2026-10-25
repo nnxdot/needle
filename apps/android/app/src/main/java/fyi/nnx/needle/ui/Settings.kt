@@ -21,6 +21,7 @@ import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.material.icons.rounded.Check
+import androidx.compose.material.icons.rounded.TextFields
 import androidx.compose.material.icons.rounded.Forward10
 import androidx.compose.material.icons.rounded.PlayArrow
 import androidx.compose.material.icons.rounded.SkipNext
@@ -956,6 +957,12 @@ private fun AppearanceSettings(open: (Route) -> Unit) {
         }
     }
     Group("Player") {
+        val more by NeedleApp.instance.more.collectAsState()
+        val chosen = chosenButtons(more.playerButtons)
+        ExpandRow(Icons.Rounded.Tune, "Player buttons", "Which buttons the player shows", value = count(chosen.size, "button")) {
+            PlayerButtonsEditor(chosen) { list -> NeedleApp.instance.updateMore { it.copy(playerButtons = list) } }
+        }
+        Divider()
         SketchRow(Icons.Rounded.Album, "Cover", "Its shape in the player", listOf(
             Sketch("square", "Square") { accent, grey -> PlayerSketch(grey) { Box(Modifier.size(22.dp).clip(RoundedCornerShape(4.dp)).background(accent)) } },
             Sketch("round", "Record") { accent, grey -> PlayerSketch(grey) { Box(Modifier.size(22.dp).clip(CircleShape).background(accent)) } },
@@ -1060,11 +1067,9 @@ private fun AppearanceSettings(open: (Route) -> Unit) {
         SwitchRow("Mark server songs", "A small server icon beside the artist", app.serverMark, icon = Icons.Rounded.Dns) { on -> update { it.copy(serverMark = on) } }
     }
     Group("Text and motion") {
-        SketchRow(Icons.Rounded.Title, "Titles", "The font of page titles", listOf("flex" to "Poster", "fraunces" to "Serif", "system" to "Plain").map { (id, label) ->
-            Sketch(id, label) { accent, _ ->
-                Text("Aa", color = accent, style = MaterialTheme.typography.titleLarge.copy(fontFamily = titleFamilyFor(id), fontWeight = FontWeight.Black))
-            }
-        }, app.titleFont) { id -> update { it.copy(titleFont = id) } }
+        FontRow(Icons.Rounded.Title, "Titles", "The font of page titles", TitleFonts, titleFontId(app.titleFont), { titleFamilyFor(it) }, bold = true) { id -> update { it.copy(titleFont = id) } }
+        Divider()
+        FontRow(Icons.Rounded.TextFields, "Text", "The font of everything else", TextFonts, app.textFont, { textFamilyFor(it) }) { id -> update { it.copy(textFont = id) } }
         Divider()
         var scale by remember(app.textScale) { mutableFloatStateOf(app.textScale) }
         SliderRow(
@@ -1093,6 +1098,73 @@ private fun AppearanceSettings(open: (Route) -> Unit) {
         Divider()
         SwitchRow("Lyrics in the mini player", "Mid-bar on a tablet, under it on a phone", app.miniPlayerLyrics, icon = Icons.Rounded.Subtitles) { on -> update { it.copy(miniPlayerLyrics = on) } }
     }
+}
+
+/**
+ * A font to choose (Titles, Text): closed, the font in use; open, every font Needle carries,
+ * each name in its own font, and a font file on this phone (.ttf or .otf).
+ */
+@Composable
+private fun FontRow(
+    icon: ImageVector,
+    title: String,
+    summary: String,
+    fonts: List<Pair<String, String>>,
+    current: String,
+    family: (String) -> androidx.compose.ui.text.font.FontFamily,
+    bold: Boolean = false,
+    onChange: (String) -> Unit,
+) {
+    val context = androidx.compose.ui.platform.LocalContext.current
+    val own = current.takeIf { it.startsWith("own:") }
+    val ownName = own?.substringAfterLast('/')?.substringBeforeLast('.')
+    val name = fonts.firstOrNull { it.first == current }?.second ?: ownName ?: fonts.first().second
+    val pick = androidx.activity.compose.rememberLauncherForActivityResult(androidx.activity.result.contract.ActivityResultContracts.OpenDocument()) { uri ->
+        pickedFile(context, uri, { temp -> keepFont(context, uri, temp) }) { kept -> onChange("own:$kept") }
+    }
+    ExpandRow(icon, title, summary, value = name) { close ->
+        val weight = if (bold) FontWeight.Bold else FontWeight.Normal
+        fonts.forEach { (id, label) ->
+            FontChoice(label, family(id), weight, id == current) { onChange(id); close() }
+        }
+        if (own != null) FontChoice(ownName.orEmpty(), family(own), weight, true) {}
+        TextButton(onClick = { pick.launchTypes("font/ttf", "font/otf", "font/sfnt", "application/x-font-ttf", "application/x-font-otf", "application/octet-stream") }) {
+            Text("A font on this phone…")
+        }
+    }
+}
+
+private fun androidx.activity.compose.ManagedActivityResultLauncher<Array<String>, android.net.Uri?>.launchTypes(vararg types: String) = launch(arrayOf(*types))
+
+/** One font in a [FontRow]: its name in itself, and a check when it is the one in use. */
+@Composable
+private fun FontChoice(label: String, family: androidx.compose.ui.text.font.FontFamily, weight: FontWeight, chosen: Boolean, onClick: () -> Unit) {
+    Row(
+        Modifier.fillMaxWidth().heightIn(min = 48.dp).clip(RowShape).selectable(chosen, role = Role.RadioButton, onClick = onClick).padding(horizontal = 8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text(label, style = MaterialTheme.typography.titleMedium.copy(fontFamily = family, fontWeight = weight), modifier = Modifier.weight(1f))
+        if (chosen) Icon(Icons.Rounded.Check, contentDescription = "Chosen", tint = MaterialTheme.colorScheme.primary)
+    }
+}
+
+/**
+ * Keeps a chosen font file in Needle's own files, under its own name, after checking Android
+ * can read it as a font. Returns where it is kept.
+ */
+private fun keepFont(context: android.content.Context, uri: android.net.Uri?, temp: String): String {
+    val shown = uri?.let { u ->
+        context.contentResolver.query(u, arrayOf(android.provider.OpenableColumns.DISPLAY_NAME), null, null, null)?.use { c ->
+            if (c.moveToFirst()) c.getString(0) else null
+        }
+    } ?: "font.ttf"
+    val safe = shown.replace(Regex("[^A-Za-z0-9 ._-]"), "_").let { if (it.lowercase().endsWith(".otf") || it.lowercase().endsWith(".ttf")) it else "$it.ttf" }
+    runCatching { android.graphics.Typeface.createFromFile(temp) }.getOrNull()?.takeIf { it != android.graphics.Typeface.DEFAULT }
+        ?: error("That file is not a font Android can read")
+    val dir = java.io.File(context.filesDir, "fonts").apply { mkdirs() }
+    val kept = java.io.File(dir, safe)
+    java.io.File(temp).copyTo(kept, overwrite = true)
+    return kept.absolutePath
 }
 
 /** A tiny player for a sketch: grey lines of words, and [cover] (the part that changes). */
