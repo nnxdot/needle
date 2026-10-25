@@ -73,6 +73,33 @@ impl AppView {
     /// The song's moving cover, an animated WebP or GIF beside its file, looked up once per
     /// song (Settings › Appearance › Moving covers). The computer plays no cover videos.
     pub(super) fn moving_cover(&mut self, track: &needle_core::model::Track) -> Option<String> {
+        let mut kept = self.moving_cover.take();
+        let found = self.moving_cover_in(&mut kept, track);
+        self.moving_cover = kept;
+        found
+    }
+
+    /// The album page's moving cover: its first song's, kept while the page shows.
+    pub(super) fn update_album_moving(&mut self) {
+        let first = match self.page {
+            super::Page::Album { .. } => self.tracks.first().cloned(),
+            _ => None,
+        };
+        let Some(track) = first else {
+            self.album_moving = None;
+            return;
+        };
+        let mut kept = self.album_moving.take();
+        let found = self.moving_cover_in(&mut kept, &track);
+        self.album_moving = Some((track.id.clone(), found));
+    }
+
+    /// A moving cover, looked up once for each song kept in `kept`.
+    fn moving_cover_in(
+        &mut self,
+        kept: &mut Option<(String, Option<String>)>,
+        track: &needle_core::model::Track,
+    ) -> Option<String> {
         // With Reduce motion on (in Needle or in the system), the cover keeps still.
         if !self.settings.animated_covers
             || self.settings.reduce_motion
@@ -99,18 +126,12 @@ impl AppView {
                 })
                 .map(|p| p.to_string_lossy().to_string());
         }
-        if self
-            .moving_cover
-            .as_ref()
-            .is_none_or(|(id, _)| *id != track.id)
-        {
+        if kept.as_ref().is_none_or(|(id, _)| *id != track.id) {
             let found = needle_core::media::animated_picture(&self.library, track)
                 .map(|p| p.to_string_lossy().to_string());
-            self.moving_cover = Some((track.id.clone(), found));
+            *kept = Some((track.id.clone(), found));
         }
-        self.moving_cover
-            .as_ref()
-            .and_then(|(_, path)| path.clone())
+        kept.as_ref().and_then(|(_, path)| path.clone())
     }
 
     pub(super) fn immersive_view(

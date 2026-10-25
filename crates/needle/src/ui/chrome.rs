@@ -1537,12 +1537,9 @@ impl AppView {
                     // Each group claims the mouse, or Windows takes presses there (on the
                     // sliders too) as the title bar's, and never reports letting go.
                     .occlude()
-                    .child(
-                        icon_button("back", "chevron-left", "Back · Alt+Left")
-                            .small()
-                            .disabled(self.back.is_empty())
-                            .on_click(cx.listener(|this, _, window, cx| this.go_back(window, cx))),
-                    )
+                    // Back, Forward, and the palette in their group, as without the player here.
+                    .child(self.nav_group(!wide, cx))
+                    .child(div().w(px(6.)))
                     .child(self.transport_buttons(32., cx)),
             )
             .child(
