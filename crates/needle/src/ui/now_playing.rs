@@ -379,7 +379,7 @@ impl AppView {
                                         ),
                                 )
                             })
-                            .when(self.visualizer && cover_side.is_none(), |el| {
+                            .when(self.visualizer, |el| {
                                 el.child(self.visualizer_strip(art, 56., cx))
                             })
                             .child(match &current {
