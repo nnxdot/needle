@@ -28,14 +28,14 @@ struct PlaylistView: View {
                     .clipShape(.rect(cornerRadius: 18))
                     .shadow(color: .black.opacity(0.4), radius: 20, y: 12)
                     .padding(.bottom, 10)
-                Text(detail?.name ?? playlist.name).font(.title2.bold()).multilineTextAlignment(.center)
+                Text(detail?.name ?? playlist.name).font(.needle(.title2).bold()).multilineTextAlignment(.center)
                 if let words = detail?.description, !words.isEmpty {
-                    Text(words).font(.subheadline).foregroundStyle(.secondary).multilineTextAlignment(.center)
+                    Text(words).font(.needle(.subheadline)).foregroundStyle(.secondary).multilineTextAlignment(.center)
                 }
                 if let rule = detail?.rule {
-                    Label(rule, systemImage: "gearshape.2").font(.caption).foregroundStyle(.secondary)
+                    Label(rule, systemImage: "gearshape.2").font(.needle(.caption)).foregroundStyle(.secondary)
                 }
-                Text(count(songs.count, "song") + " · " + clock(songs.reduce(0) { $0 + $1.duration })).font(.footnote).foregroundStyle(.secondary)
+                Text(count(songs.count, "song") + " · " + clock(songs.reduce(0) { $0 + $1.duration })).font(.needle(.footnote)).foregroundStyle(.secondary)
                 if !songs.isEmpty { PlayButtons(songs: songs).padding(.top, 8) }
             }
             .frame(maxWidth: .infinity)
@@ -179,7 +179,7 @@ struct PlaylistEditor: View {
                         TextField("rating is at least 4", text: $rule, axis: .vertical)
                             .textInputAutocapitalization(.never)
                             .autocorrectionDisabled()
-                            .font(.body.monospaced())
+                            .font(.needle(.body).monospaced())
                         if !hints.isEmpty {
                             ScrollView(.horizontal) {
                                 HStack {
@@ -191,7 +191,7 @@ struct PlaylistEditor: View {
                             }
                             .scrollIndicators(.hidden)
                         }
-                        if let problem { Text(problem).font(.caption).foregroundStyle(.red) }
+                        if let problem { Text(problem).font(.needle(.caption)).foregroundStyle(.red) }
                     }
                 } footer: {
                     if smart || detail?.rule != nil {

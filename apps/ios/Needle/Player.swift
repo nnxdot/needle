@@ -26,18 +26,18 @@ struct MiniPlayer: View {
                     }
                 }
             VStack(alignment: .leading, spacing: 0) {
-                Text(song?.title ?? "Not Playing").font(.subheadline.weight(.semibold)).lineLimit(1)
+                Text(song?.title ?? "Not Playing").font(.needle(.subheadline).weight(.semibold)).lineLimit(1)
                 if placement != .inline, let song {
                     if let sung {
                         // Fades in at each new line; a faint ♪ while none is sung.
                         Text(sung.text.isEmpty ? "♪" : sung.text)
-                            .font(.caption.weight(.medium))
+                            .font(.needle(.caption).weight(.medium))
                             .foregroundStyle(sung.text.isEmpty ? AnyShapeStyle(.tertiary) : AnyShapeStyle(.primary))
                             .lineLimit(1)
                             .id(sung.index)
                             .transition(.opacity)
                     } else {
-                        Text(store.onComputer ? "On your computer" : song.artist).font(.caption).foregroundStyle(.secondary).lineLimit(1)
+                        Text(store.onComputer ? "On your computer" : song.artist).font(.needle(.caption)).foregroundStyle(.secondary).lineLimit(1)
                     }
                 }
             }
@@ -45,7 +45,7 @@ struct MiniPlayer: View {
             .frame(maxWidth: .infinity, alignment: .leading)
             Button { store.toggle() } label: {
                 Image(systemName: playing ? "pause.fill" : "play.fill")
-                    .font(.title3)
+                    .font(.needle(.title3))
                     .contentTransition(.symbolEffect(.replace))
                     .frame(width: 36, height: 36)
             }
@@ -53,7 +53,7 @@ struct MiniPlayer: View {
             .sensoryFeedback(.impact(weight: .light), trigger: playing) { _, _ in store.app.haptics }
             if placement != .inline {
                 Button { store.next() } label: {
-                    Image(systemName: "forward.fill").font(.title3).frame(width: 36, height: 36)
+                    Image(systemName: "forward.fill").font(.needle(.title3)).frame(width: 36, height: 36)
                 }
                 .disabled(song == nil)
             }
@@ -210,7 +210,7 @@ struct NowPlayingView: View {
         VStack(spacing: 6) {
             Capsule().fill(.white.opacity(0.4)).frame(width: 38, height: 5)
             if store.onComputer {
-                Text("Playing on your computer").font(.caption.weight(.semibold)).foregroundStyle(.white.opacity(0.7))
+                Text("Playing on your computer").font(.needle(.caption).weight(.semibold)).foregroundStyle(.white.opacity(0.7))
             }
         }
         .frame(maxWidth: .infinity)
@@ -239,7 +239,7 @@ struct NowPlayingView: View {
             }
             Button("Play on…", systemImage: "hifispeaker.2") { store.sheet = .speakers }
         } label: {
-            Image(systemName: "ellipsis").font(.title3.weight(.semibold))
+            Image(systemName: "ellipsis").font(.needle(.title3).weight(.semibold))
                 .frame(width: 36, height: 36)
                 .contentShape(.circle)
         }
@@ -297,8 +297,8 @@ struct NowPlayingView: View {
     private func title(_ song: Song?) -> some View {
         HStack(alignment: .center, spacing: 12) {
             VStack(alignment: .leading, spacing: 2) {
-                Text(song?.title ?? "").font(.title3.bold()).lineLimit(1)
-                artistButton(song).font(.title3)
+                Text(song?.title ?? "").font(.needle(.title3).bold()).lineLimit(1)
+                artistButton(song).font(.needle(.title3))
             }
             .frame(maxWidth: .infinity, alignment: .leading)
             if !(song?.onComputer ?? false), chosen.contains("favorite") { favoriteButton(song) }
@@ -352,7 +352,7 @@ struct NowPlayingView: View {
             }
         } label: {
             // A plain sign, as Apple Music's.
-            Image(systemName: favorite ? "star.fill" : "star").font(.title3.weight(.semibold))
+            Image(systemName: favorite ? "star.fill" : "star").font(.needle(.title3).weight(.semibold))
                 .foregroundStyle(.white)
                 .frame(width: 36, height: 36)
                 .contentShape(.circle)
@@ -372,8 +372,8 @@ struct NowPlayingView: View {
                 .clipShape(.rect(cornerRadius: 10))
                 .shadow(color: .black.opacity(0.3), radius: 8, y: 4)
             VStack(alignment: .leading, spacing: 2) {
-                Text(song?.title ?? "").font(.title3.weight(.semibold)).lineLimit(1)
-                artistButton(song).font(.body)
+                Text(song?.title ?? "").font(.needle(.title3).weight(.semibold)).lineLimit(1)
+                artistButton(song).font(.needle(.body))
             }
             .frame(maxWidth: .infinity, alignment: .leading)
             if !(song?.onComputer ?? false), chosen.contains("favorite") { favoriteButton(song) }
@@ -458,7 +458,7 @@ struct NowPlayingView: View {
             if pane == .lyrics {
                 Button { translateLyrics.toggle() } label: {
                     Image(systemName: "translate")
-                        .font(.title3.weight(translateLyrics ? .semibold : .regular))
+                        .font(.needle(.title3).weight(translateLyrics ? .semibold : .regular))
                         .foregroundStyle(.white.opacity(translateLyrics ? 1 : 0.7))
                         .frame(width: 44, height: 44)
                         .background(.white.opacity(translateLyrics ? 0.2 : 0), in: .circle)
@@ -475,7 +475,7 @@ struct NowPlayingView: View {
         let on = pane == which
         return Button { pane = on ? .cover : which } label: {
             Image(systemName: on && which == .lyrics ? "quote.bubble.fill" : symbol)
-                .font(.title3.weight(on ? .semibold : .regular))
+                .font(.needle(.title3).weight(on ? .semibold : .regular))
                 .foregroundStyle(.white.opacity(on ? 1 : 0.7))
                 .frame(width: 44, height: 44)
                 .background(.white.opacity(on ? 0.2 : 0), in: .circle)
@@ -610,13 +610,13 @@ struct SeekBar: View {
                 Text(clock(position))
                 Spacer()
                 if let format = store.playback?.current?.format, !format.isEmpty {
-                    Text(format).font(.caption2.weight(.bold)).padding(.horizontal, 6).padding(.vertical, 2)
+                    Text(format).font(.needle(.caption2).weight(.bold)).padding(.horizontal, 6).padding(.vertical, 2)
                         .overlay(Capsule().stroke(.secondary, lineWidth: 1))
                 }
                 Spacer()
                 Text("-" + clock(max(0, duration - position)))
             }
-            .font(.caption.weight(.semibold).monospacedDigit())
+            .font(.needle(.caption).weight(.semibold).monospacedDigit())
             .foregroundStyle(.secondary)
         }
         .task(id: store.playback?.current?.id) {
@@ -633,9 +633,9 @@ struct SeekBar: View {
 struct VolumeBar: View {
     var body: some View {
         HStack(spacing: 12) {
-            Image(systemName: "speaker.fill").font(.caption)
+            Image(systemName: "speaker.fill").font(.needle(.caption))
             SystemVolume().frame(height: 34)
-            Image(systemName: "speaker.wave.3.fill").font(.caption)
+            Image(systemName: "speaker.wave.3.fill").font(.needle(.caption))
         }
         .foregroundStyle(.white.opacity(0.6))
     }
@@ -693,7 +693,7 @@ struct ComputerVolume: View {
 
     var body: some View {
         HStack(spacing: 12) {
-            Image(systemName: "speaker.fill").font(.caption)
+            Image(systemName: "speaker.fill").font(.needle(.caption))
             LineSlider(value: value ?? Double(store.pc?.volume ?? 1)) { value = $0 } done: {
                 guard let value else { return }
                 store.setComputerVolume(Float(value))
@@ -703,7 +703,7 @@ struct ComputerVolume: View {
                     if self.value == value { self.value = nil }
                 }
             }
-            Image(systemName: "speaker.wave.3.fill").font(.caption)
+            Image(systemName: "speaker.wave.3.fill").font(.needle(.caption))
         }
         .foregroundStyle(.white.opacity(0.6))
     }
@@ -911,7 +911,7 @@ struct LyricsPane: View {
                     ContentUnavailableView(lyrics?.instrumental == true ? "Instrumental" : "No lyrics for this song", systemImage: "quote.bubble")
                     if !online, lyrics?.instrumental != true {
                         Text("Online lookups are off, so Needle only looks in the song's own files and your music server.")
-                            .font(.footnote).foregroundStyle(.secondary).multilineTextAlignment(.center)
+                            .font(.needle(.footnote)).foregroundStyle(.secondary).multilineTextAlignment(.center)
                         Button("Look Up Lyrics Online") {
                             Task {
                                 _ = await store.ask { core in
@@ -1002,7 +1002,7 @@ struct LyricsPane: View {
 
     private func plain(_ text: String) -> some View {
         ScrollView {
-            Text(text).font(.title3.weight(.semibold)).frame(maxWidth: .infinity, alignment: .leading)
+            Text(text).font(.needle(.title3).weight(.semibold)).frame(maxWidth: .infinity, alignment: .leading)
                 .padding(.vertical, 20)
         }
         .mask(fade)
@@ -1087,9 +1087,9 @@ struct QueuePane: View {
                 .accessibilityValue(store.playback?.repeat == .one ? "One" : store.playback?.repeat == .all ? "All" : "Off")
             }
             VStack(alignment: .leading, spacing: 2) {
-                Text(store.onComputer ? "Up Next on Your Computer" : "Continue Playing").font(.headline)
+                Text(store.onComputer ? "Up Next on Your Computer" : "Continue Playing").font(.needle(.headline))
                 if let album = store.playback?.current?.album, !album.isEmpty {
-                    Text("From \(album)").font(.subheadline).foregroundStyle(.white.opacity(0.6)).lineLimit(1)
+                    Text("From \(album)").font(.needle(.subheadline)).foregroundStyle(.white.opacity(0.6)).lineLimit(1)
                 }
             }
             QueueList()
@@ -1116,7 +1116,7 @@ private struct QueueList: View {
                                     .frame(width: 50, height: 50).clipShape(.rect(cornerRadius: 6))
                                 VStack(alignment: .leading, spacing: 2) {
                                     Text(song.title).lineLimit(1)
-                                    Text(song.artist).font(.subheadline).foregroundStyle(.secondary).lineLimit(1)
+                                    Text(song.artist).font(.needle(.subheadline)).foregroundStyle(.secondary).lineLimit(1)
                                 }
                                 Spacer()
                             }
@@ -1144,7 +1144,7 @@ struct Pill: View {
 
     var body: some View {
         Image(systemName: symbol)
-            .font(.body.weight(.semibold))
+            .font(.needle(.body).weight(.semibold))
             .foregroundStyle(on ? Color.black.opacity(0.8) : .white)
             .frame(maxWidth: .infinity)
             .frame(height: 40)
@@ -1161,7 +1161,7 @@ struct PlainSign: View {
 
     var body: some View {
         Image(systemName: symbol)
-            .font(.body.weight(.semibold))
+            .font(.needle(.body).weight(.semibold))
             .foregroundStyle(on ? Color.black : .white.opacity(0.85))
             .frame(width: 34, height: 34)
             .background(.white.opacity(on ? 0.9 : 0.12), in: .circle)
@@ -1272,7 +1272,7 @@ struct TimingView: View {
             List {
                 Section {
                     Text(!thisSong ? "Play this song, then tap as each line starts." : lines.isEmpty ? "This song has no lyrics to time. Paste them below, one line per line." : "Tap the big button as each line starts. Tap a line to go back to it.")
-                        .font(.subheadline).foregroundStyle(.secondary)
+                        .font(.needle(.subheadline)).foregroundStyle(.secondary)
                     if !thisSong {
                         Button("Play it from the start", systemImage: "play.fill") { store.play([song]) }
                     }
@@ -1289,7 +1289,7 @@ struct TimingView: View {
                 ForEach(Array(lines.enumerated()), id: \.offset) { i, line in
                     Button { next = i } label: {
                         HStack {
-                            Text(line.time >= 0 ? clock(line.time) : "–").font(.subheadline.monospacedDigit()).foregroundStyle(.tint).frame(width: 52, alignment: .leading)
+                            Text(line.time >= 0 ? clock(line.time) : "–").font(.needle(.subheadline).monospacedDigit()).foregroundStyle(.tint).frame(width: 52, alignment: .leading)
                             Text(line.text).fontWeight(i == next ? .bold : .regular).foregroundStyle(.primary)
                         }
                     }

@@ -182,7 +182,9 @@ final class Store {
         } catch {
             fatalError("Needle could not open its library: \(error)")
         }
-        app = core.appSettings()
+        let appSettings = core.appSettings()
+        app = appSettings
+        NeedleFonts.apply(title: appSettings.titleFont, text: appSettings.textFont)
         more = (try? core.moreSettings())
             ?? MoreSettings(playerButtons: PlayerButtons.all, artistOrder: "name", albumArtistsOnly: false, artistPictures: true, smartMix: true)
         themes = core.themes()
@@ -417,6 +419,9 @@ final class Store {
     func updateApp(_ change: (inout AppSettings) -> Void) {
         var next = app
         change(&next)
+        if next.titleFont != app.titleFont || next.textFont != app.textFont {
+            NeedleFonts.apply(title: next.titleFont, text: next.textFont)
+        }
         app = next
         let saved = next
         inOrder { try $0.setAppSettings(value: saved) }

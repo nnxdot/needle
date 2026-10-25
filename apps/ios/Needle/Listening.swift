@@ -32,13 +32,13 @@ struct HistoryView: View {
                                 .frame(width: 44, height: 44).clipShape(.rect(cornerRadius: 7))
                             VStack(alignment: .leading, spacing: 2) {
                                 Text(item.title).lineLimit(1).foregroundStyle(item.song == nil ? .secondary : .primary)
-                                Text(item.artist).font(.subheadline).foregroundStyle(.secondary).lineLimit(1)
+                                Text(item.artist).font(.needle(.subheadline)).foregroundStyle(.secondary).lineLimit(1)
                             }
                             Spacer()
                             VStack(alignment: .trailing, spacing: 2) {
                                 Text(Date(timeIntervalSince1970: TimeInterval(item.startedAt)), format: .relative(presentation: .named))
-                                    .font(.caption).foregroundStyle(.secondary)
-                                if !item.counted { Text("skipped").font(.caption2).foregroundStyle(.tertiary) }
+                                    .font(.needle(.caption)).foregroundStyle(.secondary)
+                                if !item.counted { Text("skipped").font(.needle(.caption2)).foregroundStyle(.tertiary) }
                             }
                         }
                     }
@@ -89,7 +89,7 @@ struct StatsView: View {
                         figure(s.artists.formatted(), "artists")
                     }
                     if s.days.count > 1 {
-                        Text("Each day").font(.headline)
+                        Text("Each day").font(.needle(.headline))
                         Chart(s.days, id: \.date) { day in
                             BarMark(x: .value("Day", day.date), y: .value("Minutes", day.seconds / 60))
                                 .foregroundStyle(.tint)
@@ -98,7 +98,7 @@ struct StatsView: View {
                         .frame(height: 140)
                     }
                     if s.hours.contains(where: { $0 > 0 }) {
-                        Text("By hour").font(.headline)
+                        Text("By hour").font(.needle(.headline))
                         Chart(Array(s.hours.enumerated()), id: \.offset) { hour, seconds in
                             BarMark(x: .value("Hour", hour), y: .value("Minutes", seconds / 60))
                                 .foregroundStyle(.tint.opacity(0.8))
@@ -126,8 +126,8 @@ struct StatsView: View {
 
     private func figure(_ value: String, _ label: String) -> some View {
         VStack(alignment: .leading, spacing: 2) {
-            Text(value).font(.title2.bold())
-            Text(label).font(.subheadline).foregroundStyle(.secondary)
+            Text(value).font(.needle(.title2).bold())
+            Text(label).font(.needle(.subheadline)).foregroundStyle(.secondary)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(14)
@@ -137,20 +137,20 @@ struct StatsView: View {
     @ViewBuilder
     private func ranked(_ title: String, _ list: [Ranked], route: @escaping (Ranked) -> Route?) -> some View {
         if !list.isEmpty {
-            Text(title).font(.headline).padding(.top, 6)
+            Text(title).font(.needle(.headline)).padding(.top, 6)
             VStack(spacing: 10) {
                 ForEach(Array(list.prefix(10).enumerated()), id: \.offset) { i, r in
                     let row = HStack(spacing: 12) {
-                        Text("\(i + 1)").font(.subheadline.monospacedDigit()).foregroundStyle(.secondary).frame(width: 22)
+                        Text("\(i + 1)").font(.needle(.subheadline).monospacedDigit()).foregroundStyle(.secondary).frame(width: 22)
                         Artwork(path: r.artwork, seed: r.album + r.artist, size: 120)
                             .frame(width: 40, height: 40).clipShape(.rect(cornerRadius: 6))
                         VStack(alignment: .leading, spacing: 1) {
                             let name = !r.title.isEmpty ? r.title : !r.album.isEmpty ? r.album : r.artist
                             Text(name).lineLimit(1)
-                            if r.artist != name && !r.artist.isEmpty { Text(r.artist).font(.caption).foregroundStyle(.secondary).lineLimit(1) }
+                            if r.artist != name && !r.artist.isEmpty { Text(r.artist).font(.needle(.caption)).foregroundStyle(.secondary).lineLimit(1) }
                         }
                         Spacer()
-                        Text("\(r.plays)×").font(.caption).foregroundStyle(.secondary)
+                        Text("\(r.plays)×").font(.needle(.caption)).foregroundStyle(.secondary)
                     }
                     if let route = route(r) {
                         NavigationLink(value: route) { row }.buttonStyle(.plain)
@@ -222,9 +222,9 @@ struct WrappedView: View {
     private func card(_ kicker: String, _ title: String, _ detail: String) -> some View {
         let p = Palette(kicker + title)
         return VStack(alignment: .leading, spacing: 6) {
-            Text(kicker.uppercased()).font(.caption.bold()).kerning(0.8).foregroundStyle(.white.opacity(0.8))
-            Text(title).font(.largeTitle.bold()).foregroundStyle(.white).lineLimit(3).minimumScaleFactor(0.6)
-            if !detail.isEmpty { Text(detail).font(.headline).foregroundStyle(.white.opacity(0.85)) }
+            Text(kicker.uppercased()).font(.needle(.caption).bold()).kerning(0.8).foregroundStyle(.white.opacity(0.8))
+            Text(title).font(.needle(.largeTitle).bold()).foregroundStyle(.white).lineLimit(3).minimumScaleFactor(0.6)
+            if !detail.isEmpty { Text(detail).font(.needle(.headline)).foregroundStyle(.white.opacity(0.85)) }
         }
         .frame(maxWidth: .infinity, minHeight: 150, alignment: .bottomLeading)
         .padding(20)
@@ -249,7 +249,7 @@ struct FoldersView: View {
                             .overlay { if folder.artwork == nil { Image(systemName: "folder.fill").foregroundStyle(.white) } }
                         VStack(alignment: .leading, spacing: 2) {
                             Text(folder.name)
-                            Text(count(Int(folder.songs), "song")).font(.caption).foregroundStyle(.secondary)
+                            Text(count(Int(folder.songs), "song")).font(.needle(.caption)).foregroundStyle(.secondary)
                         }
                     }
                 }

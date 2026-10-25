@@ -22,8 +22,8 @@ struct SearchView: View {
                             ForEach(Array(hints.prefix(10).enumerated()), id: \.offset) { _, hint in
                                 Button { query = apply(hint, to: query) } label: {
                                     VStack(alignment: .leading, spacing: 0) {
-                                        Text(hint.label).font(.subheadline.weight(.medium))
-                                        if !hint.detail.isEmpty { Text(hint.detail).font(.caption2).foregroundStyle(.secondary) }
+                                        Text(hint.label).font(.needle(.subheadline).weight(.medium))
+                                        if !hint.detail.isEmpty { Text(hint.detail).font(.needle(.caption2)).foregroundStyle(.secondary) }
                                     }
                                 }
                                 .buttonStyle(.glass)
@@ -93,7 +93,7 @@ struct SearchView: View {
                         VStack(spacing: 6) {
                             Artwork(path: artist.artwork, seed: artist.name, size: 240)
                                 .frame(width: 96, height: 96).clipShape(.circle)
-                            Text(artist.name).font(.footnote.weight(.medium)).lineLimit(1)
+                            Text(artist.name).font(.needle(.footnote).weight(.medium)).lineLimit(1)
                         }
                         .frame(width: 100)
                     }

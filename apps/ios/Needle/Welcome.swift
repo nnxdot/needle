@@ -29,16 +29,16 @@ struct WelcomeView: View {
                         }
                         .frame(width: 72, height: 72).clipShape(.rect(cornerRadius: 17))
                         .accessibilityHidden(true)
-                        Text("Welcome to Needle").font(.largeTitle.bold())
+                        Text("Welcome to Needle").font(.needle(.largeTitle).bold())
                         Text("Your music, from this iPhone, your server, and your computer.")
-                            .font(.title3)
+                            .font(.needle(.title3))
                         Text("No account. Nothing leaves your phone unless you ask.")
-                            .font(.subheadline).foregroundStyle(.secondary)
+                            .font(.needle(.subheadline)).foregroundStyle(.secondary)
                     }
                     .padding(.top, 50)
 
                     VStack(alignment: .leading, spacing: 8) {
-                        Text("Where is your music?").font(.footnote.weight(.semibold)).foregroundStyle(.secondary)
+                        Text("Where is your music?").font(.needle(.footnote).weight(.semibold)).foregroundStyle(.secondary)
                             .textCase(.uppercase).padding(.leading, 16)
                         VStack(spacing: 0) {
                             choice("folder.fill", .orange, "Import from Files", "Songs on this iPhone or in iCloud Drive.") { importing = true }
@@ -51,7 +51,7 @@ struct WelcomeView: View {
                     }
 
                     Button { finish(.home, nil) } label: {
-                        Text("Look Around First").font(.headline).frame(maxWidth: .infinity).padding(.vertical, 6)
+                        Text("Look Around First").font(.needle(.headline)).frame(maxWidth: .infinity).padding(.vertical, 6)
                     }
                     .buttonStyle(.glassProminent)
                     .foregroundStyle(store.colors.onAccent)
@@ -84,11 +84,11 @@ struct WelcomeView: View {
                     .background(tint.gradient, in: .rect(cornerRadius: 8))
                     .accessibilityHidden(true)
                 VStack(alignment: .leading, spacing: 2) {
-                    Text(title).font(.body.weight(.semibold))
-                    Text(detail).font(.subheadline).foregroundStyle(.secondary).lineLimit(1)
+                    Text(title).font(.needle(.body).weight(.semibold))
+                    Text(detail).font(.needle(.subheadline)).foregroundStyle(.secondary).lineLimit(1)
                 }
                 Spacer(minLength: 8)
-                Image(systemName: "chevron.right").font(.footnote.weight(.bold)).foregroundStyle(.tertiary)
+                Image(systemName: "chevron.right").font(.needle(.footnote).weight(.bold)).foregroundStyle(.tertiary)
             }
             .padding(.horizontal, 14).padding(.vertical, 13)
             .contentShape(.rect)

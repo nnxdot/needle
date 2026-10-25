@@ -15,7 +15,7 @@ struct SourcesView: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 12) {
                 phone
-                Text("Music servers").font(.title3.bold()).padding(.top, 14).padding(.horizontal, 4)
+                Text("Music servers").font(.needle(.title3).bold()).padding(.top, 14).padding(.horizontal, 4)
                 if servers.isEmpty {
                     Card {
                         Text("Needle is getting ready to sign in to music servers.").foregroundStyle(.secondary)
@@ -31,7 +31,7 @@ struct SourcesView: View {
                         .buttonStyle(Pressable())
                     }
                 }
-                Text("Your computer").font(.title3.bold()).padding(.top, 14).padding(.horizontal, 4)
+                Text("Your computer").font(.needle(.title3).bold()).padding(.top, 14).padding(.horizontal, 4)
                 NavigationLink {
                     ComputerView()
                 } label: {
@@ -62,14 +62,14 @@ struct SourcesView: View {
                 HStack(spacing: 14) {
                     Icon(symbol: "iphone", tint: .white)
                     VStack(alignment: .leading, spacing: 2) {
-                        Text("This iPhone").font(.headline)
-                        Text(count(Int(songs), "song")).font(.subheadline).foregroundStyle(.secondary)
+                        Text("This iPhone").font(.needle(.headline))
+                        Text(count(Int(songs), "song")).font(.needle(.subheadline)).foregroundStyle(.secondary)
                         if store.scan.running {
-                            Text("Reading… \(count(Int(store.scan.imported), "song")) so far").font(.caption).foregroundStyle(Color.accentColor)
+                            Text("Reading… \(count(Int(store.scan.imported), "song")) so far").font(.needle(.caption)).foregroundStyle(Color.accentColor)
                         } else if let error = store.scan.error {
-                            Text(error).font(.caption).foregroundStyle(.red)
+                            Text(error).font(.needle(.caption)).foregroundStyle(.red)
                         } else {
-                            Text("● Ready").font(.caption).foregroundStyle(.green)
+                            Text("● Ready").font(.needle(.caption)).foregroundStyle(.green)
                         }
                     }
                 }
@@ -88,7 +88,7 @@ struct SourcesView: View {
                     }
                 }
                 Text("You can also put music in Files › On My iPhone › Needle, or copy it from a computer in Finder.")
-                    .font(.footnote).foregroundStyle(.secondary)
+                    .font(.needle(.footnote)).foregroundStyle(.secondary)
             }
         }
     }
@@ -141,7 +141,7 @@ struct Icon: View {
     let tint: Color
 
     var body: some View {
-        Image(systemName: symbol).font(.title3).foregroundStyle(tint)
+        Image(systemName: symbol).font(.needle(.title3)).foregroundStyle(tint)
             .frame(width: 46, height: 46)
             .glassEffect(.regular, in: .rect(cornerRadius: 14))
     }
@@ -159,13 +159,13 @@ struct SourceCard: View {
             HStack(spacing: 14) {
                 Icon(symbol: symbol, tint: tint)
                 VStack(alignment: .leading, spacing: 2) {
-                    Text(title).font(.headline).foregroundStyle(.primary)
-                    Text(detail).font(.subheadline).foregroundStyle(.secondary).lineLimit(2)
-                    if let status { Text(status.0).font(.caption).foregroundStyle(status.1).lineLimit(2) }
+                    Text(title).font(.needle(.headline)).foregroundStyle(.primary)
+                    Text(detail).font(.needle(.subheadline)).foregroundStyle(.secondary).lineLimit(2)
+                    if let status { Text(status.0).font(.needle(.caption)).foregroundStyle(status.1).lineLimit(2) }
                 }
                 .multilineTextAlignment(.leading)
                 Spacer()
-                Image(systemName: "chevron.right").font(.footnote.weight(.bold)).foregroundStyle(.tertiary)
+                Image(systemName: "chevron.right").font(.needle(.footnote).weight(.bold)).foregroundStyle(.tertiary)
             }
         }
     }
@@ -235,7 +235,7 @@ struct ServerView: View {
                     Section("About") {
                         LabeledContent("Plugin", value: "\(item.name) \(item.version)")
                         if !item.author.isEmpty { LabeledContent("By", value: item.author) }
-                        ForEach(item.permissions, id: \.self) { Text("• \($0)").font(.footnote) }
+                        ForEach(item.permissions, id: \.self) { Text("• \($0)").font(.needle(.footnote)) }
                     }
                 }
             }
@@ -394,7 +394,7 @@ struct ServerView: View {
             VStack(alignment: .leading, spacing: 10) {
                 header(source.name, status: nil)
                 Text("Play the music on your own server, with your library: Navidrome, Airsonic, Gonic, and other Subsonic servers.")
-                    .font(.subheadline).foregroundStyle(.secondary)
+                    .font(.needle(.subheadline)).foregroundStyle(.secondary)
                     .padding(.horizontal, 16)
             }
             .listRowInsets(EdgeInsets())
@@ -427,7 +427,7 @@ struct ServerView: View {
                 HStack(spacing: 10) { ProgressView(); Text("Signing in…") }
             } else {
                 Button { signIn() } label: {
-                    Text("Sign In").font(.headline).frame(maxWidth: .infinity)
+                    Text("Sign In").font(.needle(.headline)).frame(maxWidth: .infinity)
                 }
                 .buttonStyle(.borderedProminent)
                 .foregroundStyle(store.colors.onAccent)
@@ -447,7 +447,7 @@ struct ServerView: View {
             Spacer()
             VStack(alignment: .trailing, spacing: 1) {
                 Text(count(Int(numbers.first ?? 0), "song")).monospacedDigit()
-                Text(ByteCountFormatter.string(fromByteCount: Int64(numbers.last ?? 0), countStyle: .file)).font(.caption).foregroundStyle(.secondary)
+                Text(ByteCountFormatter.string(fromByteCount: Int64(numbers.last ?? 0), countStyle: .file)).font(.needle(.caption)).foregroundStyle(.secondary)
             }
         }
     }
@@ -476,7 +476,7 @@ struct ServerView: View {
                 .background(LinearGradient(colors: [.cyan, .blue], startPoint: .topLeading, endPoint: .bottomTrailing), in: .rect(cornerRadius: 15))
                 .accessibilityHidden(true)
             VStack(alignment: .leading, spacing: 4) {
-                Text(name).font(.title2.bold()).lineLimit(2)
+                Text(name).font(.needle(.title2).bold()).lineLimit(2)
                 if let status {
                     HStack(spacing: 6) {
                         if status.busy {
@@ -484,7 +484,7 @@ struct ServerView: View {
                         } else {
                             Circle().fill(status.color).frame(width: 8, height: 8)
                         }
-                        Text(status.text).font(.subheadline).foregroundStyle(status.color == .green ? .secondary : status.color).lineLimit(2)
+                        Text(status.text).font(.needle(.subheadline)).foregroundStyle(status.color == .green ? .secondary : status.color).lineLimit(2)
                     }
                 }
             }
@@ -504,9 +504,9 @@ private struct StatTile: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
-            Image(systemName: symbol).font(.subheadline).foregroundStyle(.secondary)
-            Text(value).font(.title3.bold()).monospacedDigit().lineLimit(1).minimumScaleFactor(0.7)
-            Text(label).font(.caption).foregroundStyle(.secondary)
+            Image(systemName: symbol).font(.needle(.subheadline)).foregroundStyle(.secondary)
+            Text(value).font(.needle(.title3).bold()).monospacedDigit().lineLimit(1).minimumScaleFactor(0.7)
+            Text(label).font(.needle(.caption)).foregroundStyle(.secondary)
         }
         .padding(14)
         .frame(maxWidth: .infinity, alignment: .leading)

@@ -118,12 +118,12 @@ struct VisualizerScreen: View {
             Visualizer().ignoresSafeArea()
             HStack(spacing: 14) {
                 VStack(alignment: .leading, spacing: 2) {
-                    Text(song?.title ?? "").font(.headline).lineLimit(1)
-                    Text(song?.artist ?? "").font(.subheadline).foregroundStyle(.secondary).lineLimit(1)
+                    Text(song?.title ?? "").font(.needle(.headline)).lineLimit(1)
+                    Text(song?.artist ?? "").font(.needle(.subheadline)).foregroundStyle(.secondary).lineLimit(1)
                 }
                 Spacer()
                 Button { store.toggle() } label: {
-                    Image(systemName: store.playback?.playing == true ? "pause.fill" : "play.fill").font(.title2).frame(width: 50, height: 50)
+                    Image(systemName: store.playback?.playing == true ? "pause.fill" : "play.fill").font(.needle(.title2)).frame(width: 50, height: 50)
                 }
                 .buttonStyle(.glass)
                 .buttonBorderShape(.circle)
@@ -197,8 +197,8 @@ struct NumbersView: View {
 
     private func tile(_ value: String, _ label: String) -> some View {
         VStack(alignment: .leading, spacing: 2) {
-            Text(value).font(.title2.bold()).monospacedDigit().lineLimit(1).minimumScaleFactor(0.6)
-            Text(label).font(.subheadline).foregroundStyle(.secondary)
+            Text(value).font(.needle(.title2).bold()).monospacedDigit().lineLimit(1).minimumScaleFactor(0.6)
+            Text(label).font(.needle(.subheadline)).foregroundStyle(.secondary)
         }
         .padding(14)
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -277,7 +277,7 @@ struct MoodMapView: View {
                                        description: Text("Needle measures each song's sound for radio first. The map fills in as it goes."))
             } else {
                 Text("Draw a circle to play that part of your music.")
-                    .font(.subheadline).foregroundStyle(.secondary)
+                    .font(.needle(.subheadline)).foregroundStyle(.secondary)
                 GeometryReader { geo in
                     let side = min(geo.size.width, geo.size.height)
                     map(points ?? [], side: side)
@@ -320,11 +320,11 @@ struct MoodMapView: View {
                 }
                 .onEnded { _ in play() })
             VStack { Text("Lively"); Spacer(); Text("Calm") }
-                .font(.caption.weight(.semibold)).foregroundStyle(.secondary)
+                .font(.needle(.caption).weight(.semibold)).foregroundStyle(.secondary)
                 .padding(.vertical, -22)
                 .allowsHitTesting(false)
             HStack { Text("Dark").rotationEffect(.degrees(-90)).fixedSize(); Spacer(); Text("Bright").rotationEffect(.degrees(90)).fixedSize() }
-                .font(.caption.weight(.semibold)).foregroundStyle(.secondary)
+                .font(.needle(.caption).weight(.semibold)).foregroundStyle(.secondary)
                 .padding(.horizontal, -28)
                 .allowsHitTesting(false)
         }
