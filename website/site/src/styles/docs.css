@@ -37,7 +37,7 @@
 .doc p, .doc li, .doc dd { color: var(--mist); }
 .doc p { margin: 0 0 16px; max-width: 68ch; }
 .doc b, .doc strong { color: var(--hi); font-weight: 560; }
-.doc-head h1 em { font-family: var(--serif); font-style: normal; font-weight: 400; color: var(--amber-2); letter-spacing: -.01em; }
+.doc-head h1 em { font-style: normal; color: var(--amber-2); }
 .doc-body a { color: var(--amber-2); text-underline-offset: 3px; text-decoration-thickness: 1px; }
 .doc-body a code { color: inherit; }
 .doc :not(pre) > code {
