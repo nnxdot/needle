@@ -29,7 +29,7 @@ struct CommandPalette: View {
                     Image(systemName: "command").foregroundStyle(.secondary)
                     TextField("Go to, play, or change anything…", text: $text)
                         .textFieldStyle(.plain)
-                        .font(.title3)
+                        .font(.needle(.title3))
                         .focused($focused)
                         .onSubmit { run(items) }
                 }
@@ -44,7 +44,7 @@ struct CommandPalette: View {
                             // By place: the items are made anew on each look, and new ids remade every row.
                             ForEach(Array(items.enumerated()), id: \.offset) { index, item in
                                 if index == 0 || items[index - 1].section != item.section {
-                                    Text(item.section).font(.caption.weight(.semibold)).foregroundStyle(.secondary)
+                                    Text(item.section).font(.needle(.caption).weight(.semibold)).foregroundStyle(.secondary)
                                         .padding(.horizontal, 16).padding(.top, 10).padding(.bottom, 4)
                                 }
                                 row(item, active: index == active)
@@ -59,9 +59,9 @@ struct CommandPalette: View {
                 }
                 Divider()
                 HStack(spacing: 14) {
-                    Text("↑ ↓ choose").font(.caption)
-                    Text("↩ open").font(.caption)
-                    Text("Esc close").font(.caption)
+                    Text("↑ ↓ choose").font(.needle(.caption))
+                    Text("↩ open").font(.needle(.caption))
+                    Text("Esc close").font(.needle(.caption))
                     Spacer()
                 }
                 .foregroundStyle(.secondary)
@@ -98,7 +98,7 @@ struct CommandPalette: View {
             }
             VStack(alignment: .leading, spacing: 1) {
                 Text(item.title).lineLimit(1)
-                if !item.detail.isEmpty { Text(item.detail).font(.caption).foregroundStyle(.secondary).lineLimit(1) }
+                if !item.detail.isEmpty { Text(item.detail).font(.needle(.caption)).foregroundStyle(.secondary).lineLimit(1) }
             }
             Spacer()
         }

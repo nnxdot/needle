@@ -39,7 +39,7 @@ struct HistoryPage: View {
                 if let s = stats {
                     if s.listens == 0 {
                         VStack(spacing: 8) {
-                            Text("Your listening story starts here").font(.title3.weight(.medium))
+                            Text("Your listening story starts here").font(.needle(.title3).weight(.medium))
                             Text("Play something. Every listen is recorded on this Mac, even offline.").foregroundStyle(.secondary)
                         }
                         .frame(maxWidth: .infinity)
@@ -54,7 +54,7 @@ struct HistoryPage: View {
                         HStack(alignment: .top, spacing: 20) {
                             if s.days.count > 1 {
                                 VStack(alignment: .leading, spacing: 8) {
-                                    Text(s.days.count > 60 ? "Listening per week" : "Listening per day").font(.headline)
+                                    Text(s.days.count > 60 ? "Listening per week" : "Listening per day").font(.needle(.headline))
                                     Chart(s.days, id: \.date) { day in
                                         BarMark(x: .value("Day", day.date), y: .value("Minutes", day.seconds / 60))
                                             .foregroundStyle(colors.accent.gradient)
@@ -66,7 +66,7 @@ struct HistoryPage: View {
                             }
                             if s.hours.contains(where: { $0 > 0 }) {
                                 VStack(alignment: .leading, spacing: 8) {
-                                    Text("Time of day").font(.headline)
+                                    Text("Time of day").font(.needle(.headline))
                                     Chart(Array(s.hours.enumerated()), id: \.offset) { hour, seconds in
                                         BarMark(x: .value("Hour", hour), y: .value("Minutes", seconds / 60))
                                             .foregroundStyle(colors.accent.opacity(0.75))
@@ -93,7 +93,7 @@ struct HistoryPage: View {
                     ProgressView().frame(maxWidth: .infinity).padding(30)
                 }
                 if !items.isEmpty {
-                    Text("Every listen, newest first").font(.title3.weight(.semibold))
+                    Text("Every listen, newest first").font(.needle(.title3).weight(.semibold))
                     LazyVStack(alignment: .leading, spacing: 2) {
                         ForEach(Array(runs.enumerated()), id: \.offset) { i, run in
                             listen(run.item, plays: run.count)
@@ -160,13 +160,13 @@ struct HistoryPage: View {
             VStack(alignment: .leading, spacing: 1) {
                 HStack(spacing: 6) {
                     Text(item.title).lineLimit(1).foregroundStyle(item.song == nil ? .secondary : .primary)
-                    if plays > 1 { Text("×\(plays)").font(.caption).foregroundStyle(.secondary) }
+                    if plays > 1 { Text("×\(plays)").font(.needle(.caption)).foregroundStyle(.secondary) }
                 }
-                Text("\(item.artist) · \(item.album)").font(.caption).foregroundStyle(store.colors.ink2).lineLimit(1)
+                Text("\(item.artist) · \(item.album)").font(.needle(.caption)).foregroundStyle(store.colors.ink2).lineLimit(1)
             }
             Spacer()
-            if !item.counted { Text("skipped").font(.caption2).foregroundStyle(.tertiary) }
-            Text(when(item.startedAt)).font(.caption).foregroundStyle(.secondary)
+            if !item.counted { Text("skipped").font(.needle(.caption2)).foregroundStyle(.tertiary) }
+            Text(when(item.startedAt)).font(.needle(.caption)).foregroundStyle(.secondary)
         }
         .padding(.vertical, 4)
         .contentShape(Rectangle())
@@ -187,8 +187,8 @@ struct HistoryPage: View {
 
     private func figure(_ value: String, _ label: String) -> some View {
         VStack(alignment: .leading, spacing: 2) {
-            Text(value).font(.title2.bold())
-            Text(label).font(.callout).foregroundStyle(.secondary)
+            Text(value).font(.needle(.title2).bold())
+            Text(label).font(.needle(.callout)).foregroundStyle(.secondary)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(14)
@@ -213,17 +213,17 @@ struct HistoryPage: View {
     private func ranked(_ title: String, _ list: [Ranked], play: ((Ranked) -> Void)?) -> some View {
         if !list.isEmpty {
             VStack(alignment: .leading, spacing: 8) {
-                Text(title).font(.headline)
+                Text(title).font(.needle(.headline))
                 ForEach(Array(list.prefix(10).enumerated()), id: \.offset) { i, r in
                     HStack(spacing: 10) {
-                        Text("\(i + 1)").font(.callout.monospacedDigit()).foregroundStyle(.secondary).frame(width: 20)
+                        Text("\(i + 1)").font(.needle(.callout).monospacedDigit()).foregroundStyle(.secondary).frame(width: 20)
                         Cover(path: r.artwork, seed: r.album + r.artist, side: 34, corner: 4)
                         VStack(alignment: .leading, spacing: 1) {
                             Text(name(r)).lineLimit(1)
-                            if r.artist != name(r) && !r.artist.isEmpty { Text(r.artist).font(.caption).foregroundStyle(.secondary).lineLimit(1) }
+                            if r.artist != name(r) && !r.artist.isEmpty { Text(r.artist).font(.needle(.caption)).foregroundStyle(.secondary).lineLimit(1) }
                         }
                         Spacer()
-                        Text("\(r.plays)×").font(.caption).foregroundStyle(.secondary)
+                        Text("\(r.plays)×").font(.needle(.caption)).foregroundStyle(.secondary)
                     }
                     .contentShape(Rectangle())
                     .onTapGesture(count: 2) { open(r, play) }
@@ -284,7 +284,7 @@ struct WrappedPage: View {
                     if !w.topSongs.isEmpty {
                         VStack(alignment: .leading, spacing: 8) {
                             HStack {
-                                Text("Top songs of \(String(w.year))").font(.title3.weight(.semibold))
+                                Text("Top songs of \(String(w.year))").font(.needle(.title3).weight(.semibold))
                                 Spacer()
                                 Button { store.play(w.topSongs.map(\.asTrack), reason: "One of your songs of the year") } label: {
                                     Label("Play your top \(w.topSongs.count)", systemImage: "play.fill")
@@ -298,7 +298,7 @@ struct WrappedPage: View {
                                     Cover(path: song.artwork, seed: song.album + song.artist, side: 36, corner: 4)
                                     VStack(alignment: .leading, spacing: 1) {
                                         Text(song.title).lineLimit(1)
-                                        Text(song.artist).font(.caption).foregroundStyle(.secondary).lineLimit(1)
+                                        Text(song.artist).font(.needle(.caption)).foregroundStyle(.secondary).lineLimit(1)
                                     }
                                     Spacer()
                                 }
@@ -334,9 +334,9 @@ struct WrappedPage: View {
     private func card(_ kicker: String, _ title: String, _ detail: String) -> some View {
         let p = SeedPalette(kicker + title)
         return VStack(alignment: .leading, spacing: 6) {
-            Text(kicker.uppercased()).font(.caption.bold()).kerning(0.8).foregroundStyle(.white.opacity(0.8))
+            Text(kicker.uppercased()).font(.needle(.caption).bold()).kerning(0.8).foregroundStyle(.white.opacity(0.8))
             Text(title).font(store.display(28)).foregroundStyle(.white).lineLimit(3).minimumScaleFactor(0.6)
-            if !detail.isEmpty { Text(detail).font(.headline).foregroundStyle(.white.opacity(0.85)) }
+            if !detail.isEmpty { Text(detail).font(.needle(.headline)).foregroundStyle(.white.opacity(0.85)) }
         }
         .frame(maxWidth: .infinity, minHeight: 160, alignment: .bottomLeading)
         .padding(20)

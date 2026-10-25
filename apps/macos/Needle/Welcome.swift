@@ -18,7 +18,7 @@ struct ImportPage: View {
                     Text("Ratings, play counts, listening history, and playlists come across. Your files are never changed, and importing again skips what is already here.")
                         .foregroundStyle(colors.ink2)
                     Text("Listens for songs you don't have are kept in your history, so your statistics stay complete. Imported listens are never sent to Last.fm or ListenBrainz.")
-                        .font(.callout).foregroundStyle(colors.ink3)
+                        .font(.needle(.callout)).foregroundStyle(colors.ink3)
                 }
                 if let progress = store.importProgress {
                     HStack {
@@ -31,14 +31,14 @@ struct ImportPage: View {
                     .background(colors.raised, in: RoundedRectangle(cornerRadius: 10))
                 }
                 if !found.isEmpty {
-                    Text("Found on this Mac").font(.headline)
+                    Text("Found on this Mac").font(.needle(.headline))
                     ForEach(found) { d in
                         source(d.label, d.detail, "sparkle.magnifyingglass") {
                             Button("Import") { run(kind(d.kind), d.path) }
                         }
                     }
                 }
-                Text("Choose a source").font(.headline).padding(.top, 6)
+                Text("Choose a source").font(.needle(.headline)).padding(.top, 6)
                 source("Library XML", "Star ratings, play counts, last played and date added, and your playlists. Export first. Apple Music: File › Library › Export Library. MusicBee: Preferences › Library › export an iTunes XML file.", "music.note.house") {
                     Button("Choose library XML…") { pick("itunes", types: [.xml], folders: false) }
                 }
@@ -67,7 +67,7 @@ struct ImportPage: View {
                     Button("Choose folder…") { pick("folder", types: [], folders: true) }
                 }
                 if !results.isEmpty {
-                    Text("Done").font(.headline).padding(.top, 6)
+                    Text("Done").font(.needle(.headline)).padding(.top, 6)
                     ForEach(results, id: \.self) { Label($0, systemImage: "checkmark.circle").foregroundStyle(colors.success) }
                 }
             }
@@ -89,10 +89,10 @@ struct ImportPage: View {
 
     private func source<Action: View>(_ title: String, _ detail: String, _ icon: String, @ViewBuilder action: () -> Action) -> some View {
         HStack(alignment: .top, spacing: 14) {
-            Image(systemName: icon).font(.title2).foregroundStyle(store.colors.accent).frame(width: 30)
+            Image(systemName: icon).font(.needle(.title2)).foregroundStyle(store.colors.accent).frame(width: 30)
             VStack(alignment: .leading, spacing: 4) {
-                Text(title).font(.body.weight(.semibold))
-                Text(detail).font(.callout).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+                Text(title).font(.needle(.body).weight(.semibold))
+                Text(detail).font(.needle(.callout)).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
             }
             Spacer()
             action()
@@ -142,7 +142,7 @@ struct Welcome: View {
                     Button("Try three demo songs") { store.demo() }
                 }
                 if store.scan.running {
-                    Text("Reading \(store.scan.scanned.formatted()) songs… \(store.scan.current)").font(.caption).foregroundStyle(.secondary).lineLimit(1)
+                    Text("Reading \(store.scan.scanned.formatted()) songs… \(store.scan.current)").font(.needle(.caption)).foregroundStyle(.secondary).lineLimit(1)
                 }
             case 1:
                 Text("Your privacy").font(store.display(28))
@@ -151,25 +151,25 @@ struct Welcome: View {
                 Toggle(isOn: Binding(get: { s.onlineMedia }, set: { store.set(["online_media": $0]) })) {
                     VStack(alignment: .leading) {
                         Text("Look up lyrics, covers, and artist photos")
-                        Text("Sends only the artist, album, and song title.").font(.caption).foregroundStyle(.secondary)
+                        Text("Sends only the artist, album, and song title.").font(.needle(.caption)).foregroundStyle(.secondary)
                     }
                 }
                 Toggle(isOn: Binding(get: { s.checkUpdates }, set: { store.set(["check_updates": $0]) })) {
                     VStack(alignment: .leading) {
                         Text("Check for new versions")
-                        Text("Once a day, asks needle.nnx.fyi for the newest version number.").font(.caption).foregroundStyle(.secondary)
+                        Text("Once a day, asks needle.nnx.fyi for the newest version number.").font(.needle(.caption)).foregroundStyle(.secondary)
                     }
                 }
                 Toggle(isOn: Binding(get: { s.discordPresence }, set: { store.set(["discord_presence": $0]) })) {
                     VStack(alignment: .leading) {
                         Text("Show what you play on Discord")
-                        Text("While Discord runs on this Mac, your profile shows the song. Finding its cover asks Apple's iTunes catalog by artist and title.").font(.caption).foregroundStyle(.secondary)
+                        Text("While Discord runs on this Mac, your profile shows the song. Finding its cover asks Apple's iTunes catalog by artist and title.").font(.needle(.caption)).foregroundStyle(.secondary)
                     }
                 }
                 Toggle(isOn: Binding(get: { s.crashReports }, set: { store.set(["crash_reports": $0]) })) {
                     VStack(alignment: .leading) {
                         Text("Send crash reports")
-                        Text("If Needle crashes, it tells us where, without file paths, your name, or anything about your music.").font(.caption).foregroundStyle(.secondary)
+                        Text("If Needle crashes, it tells us where, without file paths, your name, or anything about your music.").font(.needle(.caption)).foregroundStyle(.secondary)
                     }
                 }
             case 2:
@@ -177,7 +177,7 @@ struct Welcome: View {
                 LazyVGrid(columns: [GridItem(.adaptive(minimum: 150), spacing: 14)], spacing: 14) {
                     ForEach(Palette.bases, id: \.0) { mode, name, about in ThemeCard(mode: mode, name: name, about: about, theme: nil) }
                 }
-                Text("You can change it, and much more, in Settings › Appearance.").font(.callout).foregroundStyle(.secondary)
+                Text("You can change it, and much more, in Settings › Appearance.").font(.needle(.callout)).foregroundStyle(.secondary)
             default:
                 Text("A few things to know").font(store.display(28))
                 tip("command", "⌘K", "Go anywhere, run anything, and find songs, albums, and artists.")
@@ -185,7 +185,7 @@ struct Welcome: View {
                 tip("slider.vertical.3", "Sound", "The equalizer button next to the volume opens the equalizer and effects.")
                 tip("airplayaudio", "Play on", "Play on Chromecast, AirPlay, and DLNA speakers, one or several at once.")
                 tip("iphone", "Phone", "Turn on the phone remote in Settings › Playback to control Needle from your phone.")
-                Link("Help and answers: needle.nnx.fyi/help", destination: URL(string: "https://needle.nnx.fyi/help")!).font(.callout)
+                Link("Help and answers: needle.nnx.fyi/help", destination: URL(string: "https://needle.nnx.fyi/help")!).font(.needle(.callout))
             }
             Spacer(minLength: 0)
             HStack {
@@ -205,8 +205,8 @@ struct Welcome: View {
         HStack(alignment: .top, spacing: 12) {
             Image(systemName: icon).foregroundStyle(store.colors.accent).frame(width: 24)
             VStack(alignment: .leading, spacing: 1) {
-                Text(title).font(.callout.weight(.semibold))
-                Text(text).font(.callout).foregroundStyle(.secondary)
+                Text(title).font(.needle(.callout).weight(.semibold))
+                Text(text).font(.needle(.callout)).foregroundStyle(.secondary)
             }
         }
     }
@@ -261,7 +261,7 @@ struct WhatsNew: View {
                     let releases = releases
                     ForEach(releases) { release in
                         VStack(alignment: .leading, spacing: 8) {
-                            if releases.count > 1 { Text(release.version).font(.title3.weight(.semibold)) }
+                            if releases.count > 1 { Text(release.version).font(.needle(.title3).weight(.semibold)) }
                             let text = shown(release)
                             Text((try? AttributedString(markdown: text, options: .init(interpretedSyntax: .inlineOnlyPreservingWhitespace))) ?? AttributedString(text))
                                 .frame(maxWidth: .infinity, alignment: .leading)
@@ -290,8 +290,8 @@ struct PluginQuestion: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Text(question.title).font(.title3.weight(.semibold))
-            Text("Asked by \(store.plugins.first { $0.id == question.plugin }?.name ?? question.plugin)").font(.caption).foregroundStyle(.secondary)
+            Text(question.title).font(.needle(.title3).weight(.semibold))
+            Text("Asked by \(store.plugins.first { $0.id == question.plugin }?.name ?? question.plugin)").font(.needle(.caption)).foregroundStyle(.secondary)
             if !question.prompt.isEmpty { Text(question.prompt) }
             TextField("", text: $answer).textFieldStyle(.roundedBorder)
             HStack {

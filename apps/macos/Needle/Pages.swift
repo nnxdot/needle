@@ -63,8 +63,8 @@ private struct NowCard: View {
                 Button { store.big = true } label: { Cover(path: p.artwork, seed: p.album + p.artist, side: 96, corner: 8) }
                     .buttonStyle(.plain)
                 VStack(alignment: .leading, spacing: 4) {
-                    Text(p.playing ? "Playing now" : "Paused").font(.caption.weight(.semibold)).foregroundStyle(colors.accent)
-                    Text(p.title).font(.title2.weight(.semibold)).lineLimit(1)
+                    Text(p.playing ? "Playing now" : "Paused").font(.needle(.caption).weight(.semibold)).foregroundStyle(colors.accent)
+                    Text(p.title).font(.needle(.title2).weight(.semibold)).lineLimit(1)
                     Text("\(p.artist) · \(p.album)").foregroundStyle(colors.ink2).lineLimit(1)
                 }
                 .frame(minWidth: 0)
@@ -91,8 +91,8 @@ struct ShelfTitle: View {
     var body: some View {
         HStack(alignment: .firstTextBaseline) {
             VStack(alignment: .leading, spacing: 2) {
-                Text(title).font(.title3.weight(.semibold))
-                if let detail { Text(detail).font(.callout).foregroundStyle(store.colors.ink2) }
+                Text(title).font(.needle(.title3).weight(.semibold))
+                if let detail { Text(detail).font(.needle(.callout)).foregroundStyle(store.colors.ink2) }
             }
             Spacer()
             if let all { Button("See all") { store.navigate(all) }.buttonStyle(.link) }
@@ -205,9 +205,9 @@ struct AlbumTile: View {
                     .transition(.scale.combined(with: .opacity))
                 }
             }
-            Text(album.title).font(.callout.weight(.medium)).lineLimit(1)
+            Text(album.title).font(.needle(.callout).weight(.medium)).lineLimit(1)
             Text(album.year > 0 ? "\(album.artist) · \(album.year)" : album.artist)
-                .font(.caption).foregroundStyle(store.colors.ink2).lineLimit(1)
+                .font(.needle(.caption)).foregroundStyle(store.colors.ink2).lineLimit(1)
         }
         .frame(width: side)
         .contentShape(Rectangle())
@@ -236,9 +236,9 @@ struct ArtistTile: View {
         VStack(spacing: 6) {
             ArtistPhoto(name: artist.name, side: side)
                 .shadow(color: .black.opacity(0.15), radius: 6, y: 3)
-            Text(artist.title).font(.callout.weight(.medium)).lineLimit(1)
+            Text(artist.title).font(.needle(.callout).weight(.medium)).lineLimit(1)
             Text(artist.albums == 1 ? count(artist.tracks, "track") : "\(artist.albums) albums · \(count(artist.tracks, "track"))")
-                .font(.caption).foregroundStyle(store.colors.ink2).lineLimit(1)
+                .font(.needle(.caption)).foregroundStyle(store.colors.ink2).lineLimit(1)
         }
         .frame(width: side)
         .contentShape(Rectangle())
@@ -306,15 +306,15 @@ struct ArtistsPage: View {
                     HStack(alignment: .firstTextBaseline) {
                         VStack(alignment: .leading, spacing: 2) {
                             Text(store.search.isEmpty ? "Artists" : "Artists matching “\(store.search)”").font(store.display(28))
-                            Text(artists.map { count($0.count, "artist") } ?? "Loading…").font(.callout).foregroundStyle(store.colors.ink2)
+                            Text(artists.map { count($0.count, "artist") } ?? "Loading…").font(.needle(.callout)).foregroundStyle(store.colors.ink2)
                         }
                         Spacer()
                         Menu {
                             Picker("Sort by", selection: Binding(get: { s.artistOrder }, set: { store.set(["artist_order": $0]) })) {
-                                Text("Name").tag("name")
+                                Text("A–Z").tag("name")
                                 Text("Most played").tag("most_played")
                                 Text("Most songs").tag("most_songs")
-                                Text("Recently added").tag("recently_added")
+                                Text("Newest").tag("recently_added")
                             }
                             .pickerStyle(.inline)
                             Divider()
@@ -369,8 +369,8 @@ struct ArtistsPage: View {
         switch order {
         case "most_played": "Most played"
         case "most_songs": "Most songs"
-        case "recently_added": "Recently added"
-        default: "Name"
+        case "recently_added": "Newest"
+        default: "A–Z"
         }
     }
 }
@@ -424,7 +424,7 @@ struct TileGrid<Content: View>: View {
             VStack(alignment: .leading, spacing: 18) {
                 VStack(alignment: .leading, spacing: 2) {
                     Text(store.search.isEmpty ? title : "\(title) matching “\(store.search)”").font(store.display(28))
-                    Text(summary ?? "Loading…").font(.callout).foregroundStyle(store.colors.ink2)
+                    Text(summary ?? "Loading…").font(.needle(.callout)).foregroundStyle(store.colors.ink2)
                 }
                 LazyVGrid(columns: [GridItem(.adaptive(minimum: 160, maximum: 220), spacing: 22, alignment: .top)], spacing: 26) {
                     content
@@ -464,7 +464,7 @@ struct ArtistPage: View {
                         if !top.isEmpty { topSongs }
                     }
                     VStack(alignment: .leading, spacing: 12) {
-                        Text("Albums").font(.title3.weight(.semibold))
+                        Text("Albums").font(.needle(.title3).weight(.semibold))
                         LazyVGrid(columns: [GridItem(.adaptive(minimum: 160, maximum: 220), spacing: 22, alignment: .top)], spacing: 26) {
                             ForEach(albums ?? []) { AlbumTile(album: $0, side: 172) }
                         }
@@ -632,13 +632,13 @@ struct ArtistPage: View {
     private func featured(_ album: AlbumSummary) -> some View {
         let colors = store.colors
         return VStack(alignment: .leading, spacing: 12) {
-            Text("Latest Release").font(.title3.weight(.semibold))
+            Text("Latest Release").font(.needle(.title3).weight(.semibold))
             HStack(alignment: .center, spacing: 18) {
                 Cover(path: album.artwork, seed: album.album + album.artist, side: 190, corner: 10)
                     .shadow(color: .black.opacity(0.25), radius: 12, y: 6)
                 VStack(alignment: .leading, spacing: 4) {
                     if album.year > 0 {
-                        Text(String(album.year)).font(.callout.weight(.semibold)).foregroundStyle(colors.ink2)
+                        Text(String(album.year)).font(.needle(.callout).weight(.semibold)).foregroundStyle(colors.ink2)
                     }
                     Text(album.title).font(store.display(20, weight: .semibold)).lineLimit(3)
                     Text(count(album.tracks, "song")).foregroundStyle(colors.ink2)
@@ -660,17 +660,17 @@ struct ArtistPage: View {
     private var topSongs: some View {
         let colors = store.colors
         return VStack(alignment: .leading, spacing: 8) {
-            Text("Top Songs").font(.title3.weight(.semibold))
+            Text("Top Songs").font(.needle(.title3).weight(.semibold))
             LazyVGrid(columns: [GridItem(.adaptive(minimum: 280), spacing: 18)], alignment: .leading, spacing: 4) {
                 ForEach(Array(top.prefix(8).enumerated()), id: \.element.id) { index, song in
                     HStack(spacing: 12) {
                         Cover(path: song.artwork, seed: song.album + name, side: 44, corner: 5)
                         VStack(alignment: .leading, spacing: 1) {
                             Text(song.title).lineLimit(1)
-                            Text(song.album).font(.caption).foregroundStyle(colors.ink2).lineLimit(1)
+                            Text(song.album).font(.needle(.caption)).foregroundStyle(colors.ink2).lineLimit(1)
                         }
                         Spacer()
-                        Text(clock(song.duration)).font(.caption).monospacedDigit().foregroundStyle(colors.ink3)
+                        Text(clock(song.duration)).font(.needle(.caption)).monospacedDigit().foregroundStyle(colors.ink3)
                     }
                     .padding(.vertical, 5)
                     .overlay(alignment: .bottom) { Rectangle().fill(colors.lineSoft).frame(height: 1).padding(.leading, 56) }
@@ -714,10 +714,10 @@ struct FoldersPage: View {
                 ForEach(roots, id: \.self) { root in
                     VStack(alignment: .leading, spacing: 10) {
                         Button { store.navigate(.folder(root)) } label: {
-                            Label((root as NSString).lastPathComponent, systemImage: "folder.fill").font(.title3.weight(.semibold))
+                            Label((root as NSString).lastPathComponent, systemImage: "folder.fill").font(.needle(.title3).weight(.semibold))
                         }
                         .buttonStyle(.plain)
-                        Text(root).font(.caption).foregroundStyle(.secondary)
+                        Text(root).font(.needle(.caption)).foregroundStyle(.secondary)
                         LazyVGrid(columns: [GridItem(.adaptive(minimum: 140, maximum: 180), spacing: 18, alignment: .top)], spacing: 20) {
                             ForEach(inside[root] ?? [], id: \.path) { folder in
                                 VStack(alignment: .leading, spacing: 4) {
@@ -726,11 +726,11 @@ struct FoldersPage: View {
                                             Cover(path: art, seed: folder.name, side: 140, corner: 8)
                                         } else {
                                             RoundedRectangle(cornerRadius: 8).fill(store.colors.raised).frame(width: 140, height: 140)
-                                                .overlay { Image(systemName: "folder").font(.largeTitle).foregroundStyle(store.colors.ink3) }
+                                                .overlay { Image(systemName: "folder").font(.needle(.largeTitle)).foregroundStyle(store.colors.ink3) }
                                         }
                                     }
-                                    Text(folder.name).font(.callout.weight(.medium)).lineLimit(1)
-                                    Text(count(Int(folder.songs), "song")).font(.caption).foregroundStyle(.secondary)
+                                    Text(folder.name).font(.needle(.callout).weight(.medium)).lineLimit(1)
+                                    Text(count(Int(folder.songs), "song")).font(.needle(.caption)).foregroundStyle(.secondary)
                                 }
                                 .frame(width: 140)
                                 .contentShape(Rectangle())

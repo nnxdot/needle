@@ -85,10 +85,10 @@ struct LyricsView: View {
 
     private var missing: some View {
         VStack(spacing: 10) {
-            Text("No lyrics for this song").font(.headline).foregroundStyle(light ? .white : store.colors.ink)
+            Text("No lyrics for this song").font(.needle(.headline)).foregroundStyle(light ? .white : store.colors.ink)
             if !store.settings.onlineMedia {
                 Text("Turn on Look things up online in Settings › Library to find lyrics on LRCLIB.")
-                    .font(.callout).foregroundStyle(.secondary).multilineTextAlignment(.center)
+                    .font(.needle(.callout)).foregroundStyle(.secondary).multilineTextAlignment(.center)
             }
             HStack {
                 if !store.plugins.contains(where: { $0.id == "netease-lyrics" && $0.enabled }) {
@@ -175,11 +175,11 @@ struct LyricsView: View {
     private func footer(_ lyrics: Lyrics) -> some View {
         if kind == .side || kind == .big {
             HStack(spacing: 10) {
-                Text(source(lyrics.source)).font(.caption).foregroundStyle(light ? .white.opacity(0.6) : .secondary)
+                Text(source(lyrics.source)).font(.needle(.caption)).foregroundStyle(light ? .white.opacity(0.6) : .secondary)
                 Button(translate ? "Hide translation" : "Translate") { translate.toggle() }
-                    .buttonStyle(.link).font(.caption)
+                    .buttonStyle(.link).font(.needle(.caption))
                 Button("Time these lyrics") { store.big = false; store.navigate(.timing) }
-                    .buttonStyle(.link).font(.caption)
+                    .buttonStyle(.link).font(.needle(.caption))
             }
             .padding(.top, 20)
         }
@@ -296,7 +296,7 @@ struct TimingPage: View {
                     Button { start() } label: { Label("Start timing", systemImage: "play.fill") }
                         .glassButton(prominent: true)
                         .disabled(lines.isEmpty)
-                    Text("Play this song, then tap along.").font(.caption).foregroundStyle(.secondary)
+                    Text("Play this song, then tap along.").font(.needle(.caption)).foregroundStyle(.secondary)
                 }
             } else {
                 Text(words ? "Press Space as each word starts. Backspace undoes. ← and → move the last one by a twentieth of a second."
@@ -333,7 +333,7 @@ struct TimingPage: View {
                     Button("Close") { timing = false; stamps = [] }.glassButton()
                     Spacer()
                     if stamps.count >= units.count {
-                        Text("All stamped. Save, or click a line to redo it.").font(.caption).foregroundStyle(.secondary)
+                        Text("All stamped. Save, or click a line to redo it.").font(.needle(.caption)).foregroundStyle(.secondary)
                     }
                 }
             }

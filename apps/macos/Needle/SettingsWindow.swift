@@ -45,7 +45,7 @@ struct SettingsWindow: View {
                         Text("Needle \(store.version) · nnx")
                         Text("Library data: \(store.core.dataDirectory())").textSelection(.enabled)
                     }
-                    .font(.caption)
+                    .font(.needle(.caption))
                     .foregroundStyle(.secondary)
                     .frame(maxWidth: .infinity, alignment: .leading)
                 }
@@ -74,7 +74,7 @@ struct SettingRow<Control: View>: View {
             VStack(alignment: .leading, spacing: 2) {
                 Text(title)
                 if !detail.isEmpty {
-                    Text(detail).font(.callout).foregroundStyle(.secondary).lineLimit(1).truncationMode(.tail)
+                    Text(detail).font(.needle(.callout)).foregroundStyle(.secondary).lineLimit(1).truncationMode(.tail)
                         .help(detail)
                 }
             }
@@ -125,7 +125,7 @@ struct OpenRow<Content: View>: View {
                 if let icon { RowIcon(name: icon) }
                 VStack(alignment: .leading, spacing: 2) {
                     Text(title)
-                    if !detail.isEmpty { Text(detail).font(.callout).foregroundStyle(.secondary).lineLimit(1) }
+                    if !detail.isEmpty { Text(detail).font(.needle(.callout)).foregroundStyle(.secondary).lineLimit(1) }
                 }
                 Spacer(minLength: 12)
                 Text(value).foregroundStyle(.secondary).lineLimit(1).truncationMode(.middle)
@@ -147,7 +147,7 @@ struct GroupHeader: View {
         VStack(alignment: .leading, spacing: 2) {
             Text(title)
             if !detail.isEmpty {
-                Text(detail).font(.callout).fontWeight(.regular).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+                Text(detail).font(.needle(.callout)).fontWeight(.regular).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
             }
         }
     }
@@ -247,14 +247,14 @@ struct PlaybackSettingsView: View {
                 .frame(width: 260)
             }
             if s.crossfade > 0 {
-                SettingRow(title: "Smart mixes", detail: "Fades where the music ends, in whole bars.", icon: "metronome") {
+                SettingRow(title: "Smart mixes", detail: "The fade starts where the music ends and lasts whole bars.", icon: "metronome") {
                     SettingSwitch(key: "smart_mix", on: s.smartMix)
                 }
             }
             OpenRow(title: "When the queue runs out", detail: "Keep playing songs that match a rule.", icon: "sparkles",
                     value: s.autoplayQuery.isEmpty ? "Off" : s.autoplayQuery) {
                 VStack(alignment: .leading, spacing: 6) {
-                    Text("Leave it empty to stop when the queue ends.").font(.callout).foregroundStyle(.secondary)
+                    Text("Leave it empty to stop when the queue ends.").font(.needle(.callout)).foregroundStyle(.secondary)
                     HStack {
                         TextField("Rule", text: $autoplay, prompt: Text("rating >= 4 and not played(7d) shuffle limit 20")).labelsHidden()
                             .textFieldStyle(.roundedBorder)
@@ -288,10 +288,10 @@ struct PlaybackSettingsView: View {
                 HStack(alignment: .top, spacing: 18) {
                     QRCode(text: address).frame(width: 150, height: 150)
                     VStack(alignment: .leading, spacing: 8) {
-                        Text("Point the phone's camera at the code").font(.body.weight(.medium))
+                        Text("Point the phone's camera at the code").font(.needle(.body).weight(.medium))
                         Text("Or type this address in the phone's browser. Add it to the home screen to open it like an app.")
-                            .font(.callout).foregroundStyle(.secondary)
-                        Text(address).font(.callout.monospaced()).textSelection(.enabled)
+                            .font(.needle(.callout)).foregroundStyle(.secondary)
+                        Text(address).font(.needle(.callout).monospaced()).textSelection(.enabled)
                             .padding(6).background(store.plainColors.raised, in: RoundedRectangle(cornerRadius: 6))
                         HStack {
                             Button("Copy address") { store.copy(address); store.notify("Address copied.") }
@@ -302,7 +302,7 @@ struct PlaybackSettingsView: View {
                             }
                         }
                         Text("Anyone who has the address and can reach this Mac on a private network (your Wi-Fi, or a VPN) can control Needle and play its music. The address travels unencrypted, so use the remote only on networks you trust. Choose New address to lock others out.")
-                            .font(.caption).foregroundStyle(.secondary)
+                            .font(.needle(.caption)).foregroundStyle(.secondary)
                     }
                 }
                 .padding(.vertical, 6)
@@ -520,8 +520,8 @@ struct ThemeCard: View {
                 .background(look.chrome, in: RoundedRectangle(cornerRadius: 10))
                 .overlay(RoundedRectangle(cornerRadius: 10).strokeBorder(active ? store.plainColors.accent : store.plainColors.line, lineWidth: 2))
                 .overlay(alignment: .topTrailing) { if active { CheckBadge().offset(x: 7, y: -7) } }
-                Text(name).font(.callout.weight(active ? .semibold : .regular)).lineLimit(1)
-                Text(about).font(.caption).foregroundStyle(.secondary).lineLimit(1)
+                Text(name).font(.needle(.callout).weight(active ? .semibold : .regular)).lineLimit(1)
+                Text(about).font(.needle(.caption)).foregroundStyle(.secondary).lineLimit(1)
             }
             .frame(width: 150, alignment: .leading)
         }
@@ -548,9 +548,9 @@ struct ThemeEditor: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Text(theme == nil ? "New theme" : theme!.readOnly ? "A copy of \(theme!.name)" : "Editing \(theme!.name)").font(.title2.weight(.semibold))
+            Text(theme == nil ? "New theme" : theme!.readOnly ? "A copy of \(theme!.name)" : "Editing \(theme!.name)").font(.needle(.title2).weight(.semibold))
             Text("Colors you leave alone follow the base look and the colors you set. The same theme files work in Needle on every computer.")
-                .font(.callout).foregroundStyle(.secondary)
+                .font(.needle(.callout)).foregroundStyle(.secondary)
             Form {
                 TextField("Theme name", text: $name)
                 TextField("Your name (optional)", text: $author)
@@ -722,16 +722,16 @@ struct DiscordSettingsView: View {
             }
         }
         return VStack(alignment: .leading, spacing: 8) {
-            Text("Listening to \(text(s.discordTitle) ?? "Needle")").font(.caption.weight(.medium)).foregroundStyle(.secondary)
+            Text("Listening to \(text(s.discordTitle) ?? "Needle")").font(.needle(.caption).weight(.medium)).foregroundStyle(.secondary)
             HStack(spacing: 12) {
                 if s.discordCovers, let art = p?.artwork {
                     Cover(path: art, seed: album, side: 64, corner: 8)
                 } else if s.discordLogo {
                     RoundedRectangle(cornerRadius: 8).fill(Color(hex: "#1e1b18")!).frame(width: 64, height: 64)
-                        .overlay { Image(systemName: "music.note").font(.title).foregroundStyle(Color(hex: "#e2b46c")!) }
+                        .overlay { Image(systemName: "music.note").font(.needle(.title)).foregroundStyle(Color(hex: "#e2b46c")!) }
                 }
                 VStack(alignment: .leading, spacing: 2) {
-                    if let t = text(s.discordTop) { Text(t).font(.headline).lineLimit(1) }
+                    if let t = text(s.discordTop) { Text(t).font(.needle(.headline)).lineLimit(1) }
                     if let t = text(s.discordMiddle) { Text(t).foregroundStyle(.secondary).lineLimit(1) }
                     if s.discordCovers || s.discordLogo, let t = text(s.discordBottom) { Text(t).foregroundStyle(.secondary).lineLimit(1) }
                 }
@@ -773,7 +773,7 @@ struct StemsSettings: View {
             GroupHeader(title: "Stems")
         } footer: {
             Text("Split a song from its menu. It runs on this Mac; nothing is uploaded.")
-                .font(.callout).foregroundStyle(.secondary)
+                .font(.needle(.callout)).foregroundStyle(.secondary)
         }
         .task { refresh() }
     }
@@ -831,7 +831,7 @@ struct DataSettings: View {
         Section {
             OpenRow(title: "Move to another computer", detail: "History, ratings, and playlists, encrypted.", icon: "arrow.right.arrow.left", value: "") {
                 VStack(alignment: .leading, spacing: 6) {
-                    Text("Import it where the same music files are, with the same passphrase.").font(.callout).foregroundStyle(.secondary)
+                    Text("Import it where the same music files are, with the same passphrase.").font(.needle(.callout)).foregroundStyle(.secondary)
                     HStack {
                         SecureField("Passphrase", text: $phrase, prompt: Text("Passphrase, at least 12 characters")).labelsHidden().textFieldStyle(.roundedBorder)
                         Button("Export…") { transfer(export: true) }
@@ -879,7 +879,7 @@ struct KeyboardSettings: View {
         Section {
             ForEach(keys, id: \.1) { key, what in
                 LabeledContent(what) {
-                    Text(key).font(.callout.monospaced())
+                    Text(key).font(.needle(.callout).monospaced())
                         .padding(.horizontal, 7).padding(.vertical, 2)
                         .background(.quaternary, in: RoundedRectangle(cornerRadius: 4))
                 }

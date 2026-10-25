@@ -158,7 +158,7 @@ struct SongTable: View {
             .width(min: 40, ideal: 56)
             .customizationID("year")
             .defaultVisibility(.hidden)
-        TableColumn("Quality", value: \.format) { row in Text(row.track.quality).font(.callout).foregroundStyle(colors.ink3) }
+        TableColumn("Quality", value: \.format) { row in Text(row.track.quality).font(.needle(.callout)).foregroundStyle(colors.ink3) }
             .width(min: 60, ideal: 92)
             .customizationID("quality")
     }
@@ -273,13 +273,13 @@ struct TitleCell: View {
                     .lineLimit(1)
                 if track.streamed && store.settings.serverMark {
                     Image(systemName: "server.rack")
-                        .font(.caption2)
+                        .font(.needle(.caption2))
                         .foregroundStyle(colors.ink3)
                         .help("From your music server")
                         .accessibilityLabel("From your music server")
                 }
                 if track.missing {
-                    Text("Missing file").font(.caption2).padding(.horizontal, 5).padding(.vertical, 1)
+                    Text("Missing file").font(.needle(.caption2)).padding(.horizontal, 5).padding(.vertical, 1)
                         .background(colors.danger.opacity(0.14), in: RoundedRectangle(cornerRadius: 3))
                         .foregroundStyle(colors.danger)
                 }
@@ -292,7 +292,7 @@ struct TitleCell: View {
             } else {
                 VStack(alignment: .leading, spacing: 2) {
                     title
-                    if showArtist { Text(track.displayArtist).font(.callout).foregroundStyle(colors.ink2).lineLimit(1) }
+                    if showArtist { Text(track.displayArtist).font(.needle(.callout)).foregroundStyle(colors.ink2).lineLimit(1) }
                 }
             }
         }

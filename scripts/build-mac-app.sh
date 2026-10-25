@@ -56,7 +56,7 @@ xcodebuild -create-xcframework -library "$lib" -headers "$gen/headers" \
 rm -rf "$gen"
 [ "$kind" = core ] && exit 0
 
-# The icon, from the 1024 px picture, with the sizes macOS asks for; and the title fonts.
+# The icon, from the 1024 px picture, with the sizes macOS asks for; and the fonts.
 resources="$mac/Needle/Resources"
 mkdir -p "$resources"
 if [ ! -f "$resources/Needle.icns" ] || [ crates/needle/assets/needle-1024.png -nt "$resources/Needle.icns" ]; then
@@ -70,7 +70,8 @@ if [ ! -f "$resources/Needle.icns" ] || [ crates/needle/assets/needle-1024.png -
     iconutil -c icns "$iconset" -o "$resources/Needle.icns"
     rm -rf "$(dirname "$iconset")"
 fi
-cp crates/needle/fonts/Fraunces72ptSoft-SemiBold.ttf crates/needle/fonts/Fraunces72ptSoft-Bold.ttf "$resources/"
+# Needle's fonts for titles and text (SIL Open Font License; see assets/fonts).
+cp assets/fonts/*.ttf "$resources/"
 
 config=$([ "$kind" = debug ] && echo Debug || echo Release)
 out="$mac/build/$config"

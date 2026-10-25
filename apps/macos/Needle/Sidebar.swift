@@ -64,7 +64,7 @@ struct Sidebar: View {
                 }
                 if store.playlists.isEmpty && !rail {
                     Text("Save a search or a set of tracks and it will appear here.")
-                        .font(.caption)
+                        .font(.needle(.caption))
                         .foregroundStyle(.secondary)
                         .selectionDisabled()
                 }
@@ -120,8 +120,8 @@ struct Sidebar: View {
                     if !rail {
                         VStack(alignment: .leading, spacing: 1) {
                             Text(store.scan.scanned == 0 ? "Importing…" : "Importing · \(store.scan.scanned.formatted()) files")
-                                .font(.callout.weight(.medium))
-                            Text(store.scan.current).font(.caption).foregroundStyle(.secondary).lineLimit(1).truncationMode(.middle)
+                                .font(.needle(.callout).weight(.medium))
+                            Text(store.scan.current).font(.needle(.caption)).foregroundStyle(.secondary).lineLimit(1).truncationMode(.middle)
                         }
                     }
                 }
@@ -176,7 +176,7 @@ struct SidebarLabel: LabelStyle {
     let rail: Bool
     func makeBody(configuration: Configuration) -> some View {
         if rail {
-            configuration.icon.font(.title3).frame(maxWidth: .infinity)
+            configuration.icon.font(.needle(.title3)).frame(maxWidth: .infinity)
         } else {
             Label(configuration)
         }
@@ -197,7 +197,7 @@ struct PlaylistRow: View {
                 Text(playlist.name).lineLimit(1)
                 if playlist.smart {
                     Spacer()
-                    Image(systemName: "sparkles").font(.caption2).foregroundStyle(.secondary)
+                    Image(systemName: "sparkles").font(.needle(.caption2)).foregroundStyle(.secondary)
                 }
             }
         }

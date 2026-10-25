@@ -109,7 +109,7 @@ struct AppearanceSettings: View {
                 SketchChoice(caption: "Sidebar", chosen: !s.layout.searchHidden, kind: .searchSidebar) { store.setLayout(["search_hidden": false]) }
                 SketchChoice(caption: "⌘K", chosen: s.layout.searchHidden, kind: .searchPalette) { store.setLayout(["search_hidden": true]) }
             }
-            OpenRow(title: "Player buttons", detail: "Which buttons the player shows, in order.", icon: "playpause",
+            OpenRow(title: "Player buttons", detail: "Which buttons the player shows, in which order.", icon: "playpause",
                     value: "\(PlayerButtons.chosen(s.playerButtons).count) of \(PlayerButtons.all.count)") {
                 PlayerButtonsEditor()
             }
@@ -136,14 +136,8 @@ struct AppearanceSettings: View {
             GroupHeader(title: "While music plays")
         }
         Section {
-            SettingRow(title: "Titles", detail: "Page titles, names, and the big player.", icon: "textformat") {
-                Picker("", selection: Binding(get: { s.displayFont }, set: { store.set(["display_font": $0]) })) {
-                    Text("System").tag("system")
-                    Text("Condensed").tag("bahnschrift")
-                    Text("Fraunces").tag("fraunces")
-                }
-                .pickerStyle(.segmented).labelsHidden().frame(width: 250)
-            }
+            FontRow(titles: true)
+            FontRow(titles: false)
             SettingRow(title: "Reduce motion",
                        detail: NSWorkspace.shared.accessibilityDisplayShouldReduceMotion ? "Your Mac has animations turned down." : "No fades, slides, or other animations.",
                        icon: "figure.walk.motion") {
@@ -249,8 +243,8 @@ private struct PickCard<Picture: View>: View {
                     .overlay(RoundedRectangle(cornerRadius: 8, style: .continuous).strokeBorder(chosen ? p.accent : p.line.opacity(0.7), lineWidth: chosen ? 2 : 1))
                     .overlay(alignment: .topTrailing) { if chosen { CheckBadge().offset(x: 7, y: -7) } }
                 VStack(alignment: .leading, spacing: 1) {
-                    Text(title).font(.callout.weight(chosen ? .semibold : .regular)).lineLimit(1)
-                    if let note { Text(note).font(.caption).foregroundStyle(.secondary).lineLimit(1) }
+                    Text(title).font(.needle(.callout).weight(chosen ? .semibold : .regular)).lineLimit(1)
+                    if let note { Text(note).font(.needle(.caption)).foregroundStyle(.secondary).lineLimit(1) }
                 }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
@@ -272,7 +266,7 @@ private struct LayoutRow<Choices: View>: View {
         HStack(spacing: 12) {
             VStack(alignment: .leading, spacing: 2) {
                 Text(title)
-                Text(detail).font(.callout).foregroundStyle(.secondary).lineLimit(1)
+                Text(detail).font(.needle(.callout)).foregroundStyle(.secondary).lineLimit(1)
             }
             Spacer(minLength: 12)
             HStack(spacing: 10) { choices }
@@ -298,7 +292,7 @@ private struct SketchChoice: View {
                     .frame(width: 76, height: 48)
                     .clipShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
                     .overlay(RoundedRectangle(cornerRadius: 6, style: .continuous).strokeBorder(chosen ? p.accent : p.line.opacity(0.6), lineWidth: chosen ? 2 : 1))
-                Text(caption).font(.caption).foregroundStyle(chosen ? .primary : .secondary)
+                Text(caption).font(.needle(.caption)).foregroundStyle(chosen ? .primary : .secondary)
             }
             .contentShape(Rectangle())
         }

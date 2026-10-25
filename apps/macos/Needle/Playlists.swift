@@ -24,7 +24,7 @@ struct PlaylistEditor: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
-            Text(playlist.id.isEmpty ? "New playlist" : "Edit playlist").font(.title2.weight(.semibold))
+            Text(playlist.id.isEmpty ? "New playlist" : "Edit playlist").font(.needle(.title2).weight(.semibold))
             HStack(alignment: .top, spacing: 16) {
                 VStack(spacing: 6) {
                     Group {
@@ -44,7 +44,7 @@ struct PlaylistEditor: View {
                     }
                 }
                 VStack(alignment: .leading, spacing: 8) {
-                    TextField("Name your playlist", text: $name).textFieldStyle(.roundedBorder).font(.title3)
+                    TextField("Name your playlist", text: $name).textFieldStyle(.roundedBorder).font(.needle(.title3))
                     TextField("Add a description (optional)", text: $description, axis: .vertical)
                         .textFieldStyle(.roundedBorder).lineLimit(2...3)
                     Picker("", selection: $smart) {
@@ -59,11 +59,11 @@ struct PlaylistEditor: View {
                 Text(playlist.trackIds.isEmpty
                      ? "An empty playlist. Add songs from any song's menu (Add to Playlist), or drag them onto it in the sidebar."
                      : "\(count(playlist.trackIds.count, "song")) to start with.")
-                    .font(.callout).foregroundStyle(.secondary)
+                    .font(.needle(.callout)).foregroundStyle(.secondary)
             }
             Spacer(minLength: 0)
             HStack {
-                if let problem { Text(problem).font(.caption).foregroundStyle(store.colors.danger).lineLimit(2) }
+                if let problem { Text(problem).font(.needle(.caption)).foregroundStyle(store.colors.danger).lineLimit(2) }
                 Spacer()
                 Button("Cancel") { dismiss() }.keyboardShortcut(.cancelAction)
                 Button(playlist.id.isEmpty ? "Make playlist" : "Save") { save() }
@@ -92,8 +92,8 @@ struct PlaylistEditor: View {
     private var rules: some View {
         VStack(alignment: .leading, spacing: 10) {
             if typed {
-                Text("A rule typed by hand, in the same language as the search box.").font(.callout).foregroundStyle(.secondary)
-                TextField("Type a rule, such as  rating >= 4", text: $rule).textFieldStyle(.roundedBorder).font(.body.monospaced())
+                Text("A rule typed by hand, in the same language as the search box.").font(.needle(.callout)).foregroundStyle(.secondary)
+                TextField("Type a rule, such as  rating >= 4", text: $rule).textFieldStyle(.roundedBorder).font(.needle(.body).monospaced())
                 Button("Build it with menus instead") { typed = false; if builder.rules.isEmpty { builder.rules = [Rule(field: "Artist", op: "contains", value: "")] } }
                     .buttonStyle(.link)
             } else if let kinds {
@@ -132,7 +132,7 @@ struct PlaylistEditor: View {
                 .buttonStyle(.link)
             }
             Text(matching.map { $0 == 0 ? "No songs match." : "\(count($0, "song")) match now." } ?? "Counting…")
-                .font(.callout).foregroundStyle(.secondary)
+                .font(.needle(.callout)).foregroundStyle(.secondary)
         }
     }
 
@@ -248,14 +248,14 @@ struct AddSongs: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Text("Add songs to “\(playlist.name)”").font(.title2.weight(.semibold))
+            Text("Add songs to “\(playlist.name)”").font(.needle(.title2).weight(.semibold))
             TextField("Search your songs, or type a rule", text: $text).textFieldStyle(.roundedBorder)
             List(found) { track in
                 HStack(spacing: 10) {
                     Cover(path: track.artwork, seed: track.album + track.displayAlbumArtist, side: 32, corner: 4)
                     VStack(alignment: .leading) {
                         Text(track.title).lineLimit(1)
-                        Text("\(track.displayArtist) · \(track.displayAlbum)").font(.caption).foregroundStyle(.secondary).lineLimit(1)
+                        Text("\(track.displayArtist) · \(track.displayAlbum)").font(.needle(.caption)).foregroundStyle(.secondary).lineLimit(1)
                     }
                     Spacer()
                     if added.contains(track.id) || playlist.trackIds.contains(track.id) {
@@ -267,7 +267,7 @@ struct AddSongs: View {
             }
             .listStyle(.inset)
             HStack {
-                Text(found.isEmpty ? (text.isEmpty ? "" : "No songs match.") : "\(count(found.count, "song")) shown").font(.caption).foregroundStyle(.secondary)
+                Text(found.isEmpty ? (text.isEmpty ? "" : "No songs match.") : "\(count(found.count, "song")) shown").font(.needle(.caption)).foregroundStyle(.secondary)
                 Spacer()
                 Button("Add all \(found.count)") { add(found.map(\.id)) }.disabled(found.isEmpty)
                 Button("Done") { dismiss() }.buttonStyle(.borderedProminent).keyboardShortcut(.defaultAction)

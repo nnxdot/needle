@@ -14,7 +14,7 @@ struct Inspector: View {
                     let on = store.panel == panel
                     Button { withAnimation(.snappy(duration: 0.25)) { store.panel = panel } } label: {
                         Text(panel.rawValue)
-                            .font(.callout.weight(.semibold))
+                            .font(.needle(.callout).weight(.semibold))
                             .foregroundStyle(on ? colors.ink : colors.ink2)
                             .padding(.horizontal, 14)
                             .padding(.vertical, 6)
@@ -61,7 +61,7 @@ struct Details: View {
             one(track)
         } else {
             VStack(alignment: .leading, spacing: 6) {
-                Text("Nothing selected").font(.headline)
+                Text("Nothing selected").font(.needle(.headline))
                 Text("Select a track to see its details, rate it, or fix its tags.").foregroundStyle(.secondary)
             }
             .padding(16)
@@ -72,7 +72,7 @@ struct Details: View {
     private func many(_ tracks: [Track]) -> some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 12) {
-                Text("\(tracks.count) tracks selected").font(.title3.weight(.semibold))
+                Text("\(tracks.count) tracks selected").font(.needle(.title3).weight(.semibold))
                 Text(clock(tracks.reduce(0) { $0 + $1.duration })).foregroundStyle(.secondary)
                 HStack {
                     Button { store.play(tracks) } label: { Label("Play", systemImage: "play.fill") }.glassButton(prominent: true)
@@ -81,7 +81,7 @@ struct Details: View {
                 Button { store.tagging = tracks.map(\.id) } label: { Label("Edit tags on \(tracks.count) tracks", systemImage: "pencil") }
                     .glassButton()
                 Text("Shift-click selects a range. ⌘-click adds or removes one track. Right-click for more.")
-                    .font(.caption).foregroundStyle(.secondary)
+                    .font(.needle(.caption)).foregroundStyle(.secondary)
             }
             .padding(16)
             .frame(maxWidth: .infinity, alignment: .leading)
@@ -97,7 +97,7 @@ struct Details: View {
                     .frame(maxWidth: .infinity)
                     .shadow(color: colors.glow.opacity(0.3), radius: 18, y: 8)
                 VStack(alignment: .leading, spacing: 3) {
-                    Text(track.title).font(.title3.weight(.semibold)).textSelection(.enabled)
+                    Text(track.title).font(.needle(.title3).weight(.semibold)).textSelection(.enabled)
                     Button(track.displayArtist) { store.navigate(.artist(track.artist)) }.buttonStyle(.link)
                     Button(track.displayAlbum) { store.navigate(track.albumRoute) }.buttonStyle(.link).foregroundStyle(colors.ink2)
                 }
@@ -115,7 +115,7 @@ struct Details: View {
                 }
                 if source == nil {
                     Divider()
-                    Text("Stems").font(.caption).foregroundStyle(.secondary)
+                    Text("Stems").font(.needle(.caption)).foregroundStyle(.secondary)
                     StemsPanel(track: track, big: false)
                 }
                 Divider()
@@ -135,7 +135,7 @@ struct Details: View {
                             store.notify("Measuring loudness in the background…")
                             store.job { try $0.measureLoudness(id: id) }
                         }
-                        .buttonStyle(.borderless).font(.caption)
+                        .buttonStyle(.borderless).font(.needle(.caption))
                     }
                     HStack {
                         fact("Album gain", track.albumReplayGain.map { String(format: "%+.2f dB", $0) } ?? "Not measured")
@@ -144,7 +144,7 @@ struct Details: View {
                             store.notify("Measuring the whole album in the background…")
                             store.job { try $0.measureAlbumLoudness(id: id) }
                         }
-                        .buttonStyle(.borderless).font(.caption).help("Measure the whole album")
+                        .buttonStyle(.borderless).font(.needle(.caption)).help("Measure the whole album")
                     }
                     if let source {
                         let kept = store.core.keptState(id: track.id)
@@ -160,7 +160,7 @@ struct Details: View {
                     }
                 }
                 Divider()
-                Text("Fix metadata online").font(.caption).foregroundStyle(.secondary)
+                Text("Fix metadata online").font(.needle(.caption)).foregroundStyle(.secondary)
                 HStack {
                     Button { lookUp(track, sound: false) } label: { Label(looking ? "Looking up…" : "MusicBrainz", systemImage: "globe") }
                         .disabled(looking)
@@ -174,8 +174,8 @@ struct Details: View {
                 .controlSize(.small)
                 ForEach(matchesFor == track.id ? matches : []) { m in
                     VStack(alignment: .leading, spacing: 3) {
-                        Text(m.title).font(.callout.weight(.semibold))
-                        Text("\(m.artist) · \(m.album)").font(.caption).foregroundStyle(.secondary)
+                        Text(m.title).font(.needle(.callout).weight(.semibold))
+                        Text("\(m.artist) · \(m.album)").font(.needle(.caption)).foregroundStyle(.secondary)
                         HStack {
                             Button("Use these tags") { useTags(track, m) }
                             if let release = m.releaseId {
@@ -203,8 +203,8 @@ struct Details: View {
 
     private func fact(_ key: String, _ value: String) -> some View {
         HStack(alignment: .firstTextBaseline, spacing: 10) {
-            Text(key).font(.caption).foregroundStyle(.secondary).frame(width: 82, alignment: .leading)
-            Text(value).font(.callout).lineLimit(1).truncationMode(.middle).textSelection(.enabled)
+            Text(key).font(.needle(.caption)).foregroundStyle(.secondary).frame(width: 82, alignment: .leading)
+            Text(value).font(.needle(.callout)).lineLimit(1).truncationMode(.middle).textSelection(.enabled)
             Spacer(minLength: 0)
         }
         .padding(.vertical, 4)
@@ -261,10 +261,10 @@ struct QueuePanel: View {
                 HStack(spacing: 10) {
                     Cover(path: p.artwork, seed: p.album + p.artist, side: 46, corner: 5)
                     VStack(alignment: .leading, spacing: 1) {
-                        Text("Now playing").font(.caption).foregroundStyle(.secondary)
-                        Text(p.title).font(.callout.weight(.semibold)).foregroundStyle(colors.accent).lineLimit(1)
-                        Text(p.artist).font(.caption).foregroundStyle(colors.ink2).lineLimit(1)
-                        Text(p.reason).font(.caption2).foregroundStyle(colors.ink3).lineLimit(1)
+                        Text("Now playing").font(.needle(.caption)).foregroundStyle(.secondary)
+                        Text(p.title).font(.needle(.callout).weight(.semibold)).foregroundStyle(colors.accent).lineLimit(1)
+                        Text(p.artist).font(.needle(.caption)).foregroundStyle(colors.ink2).lineLimit(1)
+                        Text(p.reason).font(.needle(.caption2)).foregroundStyle(colors.ink3).lineLimit(1)
                     }
                 }
                 .padding(10)
@@ -273,13 +273,13 @@ struct QueuePanel: View {
                 .padding(.horizontal, 14)
             }
             HStack(alignment: .firstTextBaseline) {
-                Text("Next up").font(.headline)
+                Text("Next up").font(.needle(.headline))
                 if let n = store.playback?.queue, n > 0 {
-                    Text("\(n.formatted()) · \(clock(store.queueSeconds))").font(.caption).foregroundStyle(.secondary)
+                    Text("\(n.formatted()) · \(clock(store.queueSeconds))").font(.needle(.caption)).foregroundStyle(.secondary)
                 }
                 Spacer()
                 if store.playback?.queue ?? 0 > 0 {
-                    Button("Clear") { store.core.clearQueue() }.buttonStyle(.borderless).font(.caption)
+                    Button("Clear") { store.core.clearQueue() }.buttonStyle(.borderless).font(.needle(.caption))
                 }
             }
             .padding(.horizontal, 16)
@@ -287,7 +287,7 @@ struct QueuePanel: View {
                 Text(store.settings.autoplayQuery.trimmingCharacters(in: .whitespaces).isEmpty
                      ? "Nothing queued. Right-click any track and choose Add to Queue."
                      : "Nothing queued. Your autoplay rule picks what comes next.")
-                    .font(.callout).foregroundStyle(.secondary).padding(.horizontal, 16)
+                    .font(.needle(.callout)).foregroundStyle(.secondary).padding(.horizontal, 16)
                 Spacer()
             } else {
                 List {
@@ -299,7 +299,7 @@ struct QueuePanel: View {
                         store.core.moveUpNext(from: UInt32(first), to: UInt32(to > first ? to - 1 : to))
                     }
                     if let n = store.playback?.queue, n > UInt32(store.queue.count) {
-                        Text("And \((Int(n) - store.queue.count).formatted()) more").font(.caption).foregroundStyle(.secondary)
+                        Text("And \((Int(n) - store.queue.count).formatted()) more").font(.needle(.caption)).foregroundStyle(.secondary)
                     }
                 }
                 .listStyle(.plain)
@@ -324,7 +324,7 @@ private struct QueueRow: View {
             Cover(path: entry.artwork, seed: entry.album + entry.artist, side: 32, corner: 4)
             VStack(alignment: .leading, spacing: 1) {
                 Text(entry.title).lineLimit(1)
-                Text(entry.artist).font(.caption).foregroundStyle(store.colors.ink2).lineLimit(1)
+                Text(entry.artist).font(.needle(.caption)).foregroundStyle(store.colors.ink2).lineLimit(1)
             }
             Spacer()
             if hover {
@@ -333,7 +333,7 @@ private struct QueueRow: View {
                 Button { store.core.removeUpNext(index: UInt32(index)) } label: { Image(systemName: "xmark") }
                     .buttonStyle(.borderless).help("Remove").accessibilityLabel("Remove")
             } else {
-                Text(clock(entry.duration)).font(.caption).monospacedDigit().foregroundStyle(store.colors.ink3)
+                Text(clock(entry.duration)).font(.needle(.caption)).monospacedDigit().foregroundStyle(store.colors.ink3)
             }
         }
         .contentShape(Rectangle())

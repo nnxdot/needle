@@ -62,7 +62,7 @@ struct NumbersPage: View {
                 VStack(alignment: .leading, spacing: 2) {
                     Text("Your library in numbers").font(store.display(28))
                     Text(numbers.map { "\(count($0.songs, "song")) · \(hours($0.duration))" } ?? "Counting…")
-                        .font(.callout).foregroundStyle(colors.ink2)
+                        .font(.needle(.callout)).foregroundStyle(colors.ink2)
                 }
                 if let n = numbers {
                     HStack(spacing: 14) {
@@ -107,8 +107,8 @@ struct NumbersPage: View {
 
     private func tile(_ value: String, _ label: String) -> some View {
         VStack(alignment: .leading, spacing: 2) {
-            Text(value).font(.title2.weight(.semibold)).monospacedDigit()
-            Text(label).font(.callout).foregroundStyle(store.colors.ink2)
+            Text(value).font(.needle(.title2).weight(.semibold)).monospacedDigit()
+            Text(label).font(.needle(.callout)).foregroundStyle(store.colors.ink2)
         }
         .padding(14)
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -117,7 +117,7 @@ struct NumbersPage: View {
 
     private func section<Content: View>(_ title: String, @ViewBuilder _ content: () -> Content) -> some View {
         VStack(alignment: .leading, spacing: 10) {
-            Text(title).font(.title3.weight(.semibold))
+            Text(title).font(.needle(.title3).weight(.semibold))
             content()
         }
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -209,7 +209,7 @@ struct MoodMapPage: View {
             VStack(alignment: .leading, spacing: 2) {
                 Text("Mood map").font(store.display(28))
                 Text(points.map { $0.isEmpty ? "No songs measured yet" : "\(count($0.count, "song")) · drag a circle to play an area" } ?? "Loading…")
-                    .font(.callout).foregroundStyle(colors.ink2)
+                    .font(.needle(.callout)).foregroundStyle(colors.ink2)
             }
             if let points, points.isEmpty {
                 Text("Needle measures each song's sound first. Turn on Settings › Library › Measure songs for radio, and the map fills in as it goes.")
@@ -265,7 +265,7 @@ struct MoodMapPage: View {
                 Spacer()
                 Text("Calm")
             }
-            .font(.caption.weight(.semibold)).foregroundStyle(colors.ink3)
+            .font(.needle(.caption).weight(.semibold)).foregroundStyle(colors.ink3)
             .padding(.vertical, -22)
             .allowsHitTesting(false)
             HStack {
@@ -273,7 +273,7 @@ struct MoodMapPage: View {
                 Spacer()
                 Text("Bright").rotationEffect(.degrees(90)).fixedSize()
             }
-            .font(.caption.weight(.semibold)).foregroundStyle(colors.ink3)
+            .font(.needle(.caption).weight(.semibold)).foregroundStyle(colors.ink3)
             .padding(.horizontal, -30)
             .allowsHitTesting(false)
         }
