@@ -79,6 +79,7 @@ struct SourcesView: View {
                             Label("Import from Files", systemImage: "folder.badge.plus").frame(maxWidth: .infinity)
                         }
                         .buttonStyle(.glassProminent)
+                        .foregroundStyle(store.colors.onAccent)
                         Button { store.rescan() } label: {
                             Label("Read again", systemImage: "arrow.clockwise").labelStyle(.iconOnly).frame(width: 24)
                         }
@@ -429,6 +430,7 @@ struct ServerView: View {
                     Text("Sign In").font(.headline).frame(maxWidth: .infinity)
                 }
                 .buttonStyle(.borderedProminent)
+                .foregroundStyle(store.colors.onAccent)
                 .listRowInsets(EdgeInsets())
                 .listRowBackground(Color.clear)
             }

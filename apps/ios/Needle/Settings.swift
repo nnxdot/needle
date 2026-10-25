@@ -701,6 +701,7 @@ struct ScrobblingView: View {
                 } else {
                     Button("Connect") { if let direct { direct() } else { connecting.insert(id) } }
                         .buttonStyle(.borderedProminent).buttonBorderShape(.capsule).controlSize(.small)
+                        .foregroundStyle(store.colors.onAccent)
                 }
             }
         }

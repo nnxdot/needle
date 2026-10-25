@@ -48,7 +48,7 @@ struct HistoryView: View {
             }
         }
         .overlay { if done && items.isEmpty { ContentUnavailableView("Nothing played yet", systemImage: "clock") } }
-        .navigationTitle("History")
+        .navigationTitle("Listening history")
         .themed()
         .task(id: store.libraryVersion) { generation += 1; loading = false; items = []; done = false; await more() }
     }
@@ -199,6 +199,7 @@ struct WrappedView: View {
                             Label("Play your top songs", systemImage: "play.fill").frame(maxWidth: .infinity).padding(.vertical, 6)
                         }
                         .buttonStyle(.glassProminent)
+                        .foregroundStyle(store.colors.onAccent)
                     }
                 } else if years.isEmpty {
                     ContentUnavailableView("Nothing played yet", systemImage: "gift").padding(.top, 60)

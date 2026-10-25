@@ -54,6 +54,7 @@ struct WelcomeView: View {
                         Text("Look Around First").font(.headline).frame(maxWidth: .infinity).padding(.vertical, 6)
                     }
                     .buttonStyle(.glassProminent)
+                    .foregroundStyle(store.colors.onAccent)
 
                     Toggle(isOn: $crashReports) {
                         SettingLabel(title: "Send crash reports", detail: "What went wrong. No music, names, or files.",

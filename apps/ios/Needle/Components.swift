@@ -161,7 +161,7 @@ struct AlbumMenu: View {
         Button("Shuffle", systemImage: "shuffle") { store.playAlbum(album, shuffled: true) }
         Button("Play Next", systemImage: "text.line.first.and.arrowtriangle.forward") { withSongs(store.playNext) }
         Button("Add to Queue", systemImage: "text.line.last.and.arrowtriangle.forward") { withSongs(store.enqueue) }
-        Button("Add to a Playlist", systemImage: "music.note.list") { withSongs { store.sheet = .addToPlaylist($0) } }
+        Button("Add to Playlist", systemImage: "music.note.list") { withSongs { store.sheet = .addToPlaylist($0) } }
         Button("Edit Tags", systemImage: "tag") {
             withSongs { songs in
                 let own = songs.filter { !$0.fromServer }.map(\.id)
@@ -176,48 +176,6 @@ struct AlbumMenu: View {
     private func withSongs(_ then: @escaping ([Song]) -> Void) {
         let key = album.key
         Task { if let songs = await store.load({ try $0.albumSongs(key: key) }), !songs.isEmpty { then(songs) } }
-    }
-}
-
-/// The large card at the top of Home: a cover with its name on a pane of glass.
-struct BigCard: View {
-    @Environment(Store.self) private var store
-    let album: Album
-    let kicker: String
-
-    var body: some View {
-        NavigationLink(value: Route.album(album)) {
-            Artwork(path: album.artwork, seed: album.title + album.artist, size: 800)
-                .frame(width: 270, height: 340)
-                .overlay(alignment: .topLeading) {
-                    Text(kicker.uppercased())
-                        .font(.caption.weight(.bold)).kerning(0.6)
-                        .padding(.horizontal, 10).padding(.vertical, 5)
-                        .glassEffect(.regular, in: .capsule)
-                        .padding(14)
-                }
-                .overlay(alignment: .bottom) {
-                    HStack(spacing: 10) {
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text(album.title).font(.headline).lineLimit(1)
-                            Text(album.artist).font(.subheadline).foregroundStyle(.secondary).lineLimit(1)
-                        }
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        Button { store.playAlbum(album) } label: {
-                            Image(systemName: "play.fill").font(.body).frame(width: 30, height: 30)
-                        }
-                        .buttonStyle(.glass)
-                        .buttonBorderShape(.circle)
-                    }
-                    .padding(.leading, 16).padding(.trailing, 8).padding(.vertical, 8)
-                    .glassEffect(.regular, in: .rect(cornerRadius: 22))
-                    .padding(10)
-                }
-                .clipShape(.rect(cornerRadius: 28))
-                .shadow(color: .black.opacity(0.45), radius: 18, y: 12)
-        }
-        .buttonStyle(Pressable())
-        .contextMenu { AlbumMenu(album: album) }
     }
 }
 
@@ -284,7 +242,7 @@ struct SongMenu: View {
                 Button("Play Next", systemImage: "text.line.first.and.arrowtriangle.forward") { store.playNext([song]) }
                 Button("Add to Queue", systemImage: "text.line.last.and.arrowtriangle.forward") { store.enqueue([song]) }
             }
-            Button("Add to a Playlist", systemImage: "music.note.list") { store.sheet = .addToPlaylist([song]) }
+            Button("Add to Playlist", systemImage: "music.note.list") { store.sheet = .addToPlaylist([song]) }
             Button("Start Radio", systemImage: "dot.radiowaves.left.and.right") {
                 let id = song.id
                 store.run { try $0.startRadio(id: id) }
@@ -428,6 +386,7 @@ struct PagedSongs: View {
                         Label("Play", systemImage: "play.fill").frame(maxWidth: .infinity).padding(.vertical, 6)
                     }
                     .buttonStyle(.glassProminent)
+                    .foregroundStyle(store.colors.onAccent)
                     Button { playAll(shuffled: true) } label: {
                         Label("Shuffle", systemImage: "shuffle").frame(maxWidth: .infinity).padding(.vertical, 6)
                     }

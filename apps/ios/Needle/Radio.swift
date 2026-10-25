@@ -93,7 +93,7 @@ struct RadioView: View {
                 MixTile(title: "Shuffle all", detail: count(Int(songs), "song"), symbol: "shuffle", tint: .orange) {
                     store.playIDs({ try $0.songs().map(\.id) }, shuffled: true)
                 }
-                MixTile(title: "Favourites", detail: favourites > 0 ? "\(count(favourites, "song")), shuffled" : "Star songs to fill it", symbol: "star.fill", tint: .pink) {
+                MixTile(title: "Favorites", detail: favourites > 0 ? "\(count(favourites, "song")), shuffled" : "Star songs to fill it", symbol: "star.fill", tint: .pink) {
                     store.playIDs({ try $0.favorites().map(\.id) }, shuffled: true)
                 }
                 .disabled(favourites == 0)

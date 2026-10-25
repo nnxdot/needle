@@ -89,7 +89,7 @@ struct PlaylistView: View {
                         }
                         Button("Export as a playlist file", systemImage: "square.and.arrow.up") { export() }
                         Divider()
-                        Button("Delete playlist", systemImage: "trash", role: .destructive) { deleting = true }
+                        Button("Delete Playlist", systemImage: "trash", role: .destructive) { deleting = true }
                     } label: { Image(systemName: "ellipsis") }
                 }
             }
@@ -112,7 +112,7 @@ struct PlaylistView: View {
         }
         .fileMover(isPresented: $moving, file: exported) { _ in }
         .confirmationDialog("Delete “\(playlist.name)”?", isPresented: $deleting, titleVisibility: .visible) {
-            Button("Delete playlist", role: .destructive) {
+            Button("Delete Playlist", role: .destructive) {
                 let id = playlist.id
                 Task {
                     if await store.ask({ try $0.deletePlaylist(id: id) }) != nil {
@@ -282,7 +282,7 @@ struct AddToPlaylistView: View {
                 }
             }
         }
-        .navigationTitle(songs.count == 1 ? "Add to a playlist" : "Add \(songs.count) songs")
+        .navigationTitle(songs.count == 1 ? "Add to Playlist" : "Add \(songs.count) songs")
         .navigationBarTitleDisplayMode(.inline)
         .themed()
         .toolbar { ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } } }
@@ -302,14 +302,14 @@ struct SelectionActions: ToolbarContent {
             Button("Play Next", systemImage: "text.line.first.and.arrowtriangle.forward") { store.playNext(songs) }
             Button("Add to Queue", systemImage: "text.line.last.and.arrowtriangle.forward") { store.enqueue(songs) }
             Menu {
-                Button("Add to a playlist", systemImage: "music.note.list") { store.sheet = .addToPlaylist(songs) }
-                Button("Favourite", systemImage: "star") {
+                Button("Add to Playlist", systemImage: "music.note.list") { store.sheet = .addToPlaylist(songs) }
+                Button("Favorite", systemImage: "star") {
                     let ids = songs.map(\.id)
                     Task {
                         _ = await store.ask { core in for id in ids where !core.isFavorite(id: id) { _ = try core.toggleFavorite(id: id) } }
                         store.ratingsChanged()
                     }
-                    store.message = "Added to Favourites"
+                    store.message = "Added to Favorites"
                 }
                 if songs.contains(where: \.fromServer) {
                     Button("Keep offline", systemImage: "arrow.down.circle") { store.keepOffline(songs.filter(\.fromServer), keep: true) }
