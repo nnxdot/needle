@@ -376,6 +376,11 @@ impl AppView {
         } else {
             let active = self.lyric_line;
             let position = self.playback.position + 0.1;
+            let translated: Option<Vec<String>> = self
+                .translation
+                .as_ref()
+                .filter(|(id, _)| self.translate_lyrics && Some(id) == current.as_ref())
+                .map(|(_, lines)| lines.clone());
             lyrics
                 .lines
                 .iter()
@@ -447,6 +452,24 @@ impl AppView {
                             line.text.clone()
                         }),
                     };
+                    // Translated, under the line, while Translate is on.
+                    let line_el = line_el.when_some(
+                        translated
+                            .as_ref()
+                            .and_then(|t| t.get(i))
+                            .filter(|t| !t.trim().is_empty())
+                            .cloned(),
+                        |el, words| {
+                            el.child(
+                                div()
+                                    .text_size(px((size * 0.62).max(12.)))
+                                    .font_weight(FontWeight::NORMAL)
+                                    .italic()
+                                    .text_color(p.ink_3)
+                                    .child(words),
+                            )
+                        },
+                    );
                     let line_el = line_el.on_click(
                         cx.listener(move |this, _, _, _| this.player.send(Command::Seek(time))),
                     );
@@ -514,6 +537,67 @@ impl AppView {
                     .items_center()
                     .gap_3()
                     .child(faint(source, cx))
+                    // A plugin translates lyrics: Translate shows each line in the listener's
+                    // language under it.
+                    .when(
+                        !mini && !lyrics.lines.is_empty() && self.plugins.translates(),
+                        |el| {
+                            let lines: Vec<String> =
+                                lyrics.lines.iter().map(|l| l.text.clone()).collect();
+                            let id = current.clone().unwrap_or_default();
+                            el.child(
+                                small_button(
+                                    "translate-lyrics",
+                                    if self.translate_lyrics {
+                                        "Original only"
+                                    } else {
+                                        "Translate"
+                                    },
+                                )
+                                .ghost()
+                                .on_click(cx.listener(
+                                    move |this, _, _, cx| {
+                                        this.translate_lyrics = !this.translate_lyrics;
+                                        if this.translate_lyrics
+                                            && this
+                                                .translation
+                                                .as_ref()
+                                                .is_none_or(|(t, _)| *t != id)
+                                        {
+                                            let (plugins, sender, lines, id) = (
+                                                this.plugins.clone(),
+                                                this.sender.clone(),
+                                                lines.clone(),
+                                                id.clone(),
+                                            );
+                                            let language = sys_locale::get_locale()
+                                                .and_then(|l| {
+                                                    l.split(['-', '_'])
+                                                        .next()
+                                                        .map(str::to_lowercase)
+                                                })
+                                                .unwrap_or_else(|| "en".into());
+                                            std::thread::spawn(move || {
+                                                let _ = sender.send(
+                                                    match plugins.translate(&lines, &language) {
+                                                        Ok(Some(out)) => Event::Translated(id, out),
+                                                        Ok(None) => Event::Notice(
+                                                            "No plugin translated the lyrics."
+                                                                .into(),
+                                                        ),
+                                                        Err(e) => Event::Error(format!(
+                                                            "Translating: {e:#}"
+                                                        )),
+                                                    },
+                                                );
+                                            });
+                                        }
+                                        cx.notify();
+                                    },
+                                )),
+                            )
+                        },
+                    )
                     .when(!mini, |el| {
                         el.child(
                             small_button(
