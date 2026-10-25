@@ -50,15 +50,22 @@ impl Features {
             if self.minor { "minor" } else { "major" }
         )
     }
-    /// A word for the feel: how lively crossed with how bright or dark.
-    pub fn mood(&self) -> &'static str {
+    /// How lively the song feels, 0 (calm) to 1: its energy and its tempo.
+    pub fn liveliness(&self) -> f32 {
         let tempo = if self.tempo > 0. {
             ((self.tempo - 70.) / 90.).clamp(0., 1.)
         } else {
             0.4
         };
-        let lively = 0.65 * self.energy + 0.35 * tempo;
-        let bright = 0.55 * self.brightness + if self.minor { 0.1 } else { 0.35 };
+        0.65 * self.energy + 0.35 * tempo
+    }
+    /// How bright the song feels, from dark (0.1) to bright (0.9): its sound and its key.
+    pub fn lightness(&self) -> f32 {
+        0.55 * self.brightness + if self.minor { 0.1 } else { 0.35 }
+    }
+    /// A word for the feel: how lively crossed with how bright or dark.
+    pub fn mood(&self) -> &'static str {
+        let (lively, bright) = (self.liveliness(), self.lightness());
         match (lively > 0.55, bright > 0.5) {
             (true, true) => "Upbeat",
             (true, false) => "Intense",
@@ -455,6 +462,78 @@ impl Library {
     }
 }
 
+// ---------------------------------------------------------------- the mood map
+
+/// A song on the mood map. `x` runs from dark (0) to bright (1) and `y` from calm (0) to
+/// lively (1), each spread by rank so the songs fill the map.
+#[derive(Clone, Debug, PartialEq, Serialize)]
+pub struct MoodPoint {
+    pub id: String,
+    pub x: f32,
+    pub y: f32,
+    pub mood: &'static str,
+}
+
+/// Ranks as 0-to-1 places: the lowest 0, the highest 1, ties together.
+fn spread(values: &[f32]) -> Vec<f32> {
+    let mut order: Vec<usize> = (0..values.len()).collect();
+    order.sort_by(|&a, &b| values[a].total_cmp(&values[b]));
+    let mut places = vec![0f32; values.len()];
+    let last = values.len().saturating_sub(1).max(1) as f32;
+    let mut i = 0;
+    while i < order.len() {
+        let mut j = i;
+        while j + 1 < order.len() && values[order[j + 1]] == values[order[i]] {
+            j += 1;
+        }
+        let place = (i + j) as f32 / 2. / last;
+        for &k in &order[i..=j] {
+            places[k] = place;
+        }
+        i = j + 1;
+    }
+    places
+}
+
+impl Library {
+    /// Every measured song on the mood map.
+    pub fn mood_map(&self) -> Result<Vec<MoodPoint>> {
+        let mut all: Vec<(String, Features)> = self.all_features()?.into_iter().collect();
+        all.sort_by(|a, b| a.0.cmp(&b.0));
+        let xs = spread(&all.iter().map(|(_, f)| f.lightness()).collect::<Vec<_>>());
+        let ys = spread(&all.iter().map(|(_, f)| f.liveliness()).collect::<Vec<_>>());
+        Ok(all
+            .into_iter()
+            .zip(xs.into_iter().zip(ys))
+            .map(|((id, f), (x, y))| MoodPoint {
+                id,
+                x,
+                y,
+                mood: f.mood(),
+            })
+            .collect())
+    }
+
+    /// The songs inside a circle on the mood map (centre and radius in the map's 0-to-1
+    /// places), nearest the centre first, at most `limit`.
+    pub fn mood_area(&self, x: f32, y: f32, radius: f32, limit: usize) -> Result<Vec<Track>> {
+        let mut inside: Vec<(f32, String)> = self
+            .mood_map()?
+            .into_iter()
+            .filter_map(|p| {
+                let d = ((p.x - x).powi(2) + (p.y - y).powi(2)).sqrt();
+                (d <= radius).then_some((d, p.id))
+            })
+            .collect();
+        inside.sort_by(|a, b| a.0.total_cmp(&b.0));
+        inside.truncate(limit);
+        let ids: Vec<String> = inside.into_iter().map(|(_, id)| id).collect();
+        let mut tracks = self.tracks_by_ids(&ids)?;
+        tracks.sort_by_key(|t| ids.iter().position(|id| *id == t.id));
+        Ok(tracks)
+    }
+}
+
 // ---------------------------------------------------------------- stations
 
 /// Walk from `start` through the songs nearest `aim`: each next song close to the last one
@@ -657,6 +736,14 @@ impl Library {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_mood_map_spreads_songs_by_rank() {
+        assert_eq!(spread(&[0.9, 0.1, 0.5]), [1., 0., 0.5]);
+        assert_eq!(spread(&[0.2, 0.2, 0.8]), [0.25, 0.25, 1.]);
+        assert!(spread(&[]).is_empty());
+        assert_eq!(spread(&[3.]), [0.]);
+    }
 
     const RATE: u32 = 22_050;
 
