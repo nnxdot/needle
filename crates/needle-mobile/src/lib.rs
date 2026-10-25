@@ -37,7 +37,6 @@ mod plugins;
 mod settings;
 mod tools;
 mod usb_dac;
-mod v2;
 
 /// Android's log (logcat), for crashes on the Rust side, which would otherwise go nowhere.
 #[cfg(target_os = "android")]

@@ -31,7 +31,9 @@ pub fn feedback(bytes: &[u8], nominal: u32) -> Option<u32> {
         return None;
     }
     let candidates = [raw, raw << 2, raw >> 2, raw << 1];
-    let best = candidates.into_iter().min_by_key(|c| (*c as i64 - nominal as i64).unsigned_abs())?;
+    let best = candidates
+        .into_iter()
+        .min_by_key(|c| (*c as i64 - nominal as i64).unsigned_abs())?;
     // Within a quarter of the nominal: anything else is a misreading.
     ((best as i64 - nominal as i64).unsigned_abs() <= nominal as u64 / 4).then_some(best)
 }
@@ -48,7 +50,12 @@ pub struct Pacer {
 
 impl Pacer {
     pub fn new(rate: u32, per_second: u32) -> Self {
-        Self { rate, per_second: per_second.max(1), rest: 0, feedback: None }
+        Self {
+            rate,
+            per_second: per_second.max(1),
+            rest: 0,
+            feedback: None,
+        }
     }
 
     /// The DAC's own rate, from its feedback endpoint (16.16 samples per packet).
@@ -79,7 +86,14 @@ impl Pacer {
 /// Lay `samples` (interleaved, -1 to 1, `from` channels) into `out` as `to` channels of
 /// `subslot` bytes each, little-endian, the music `bits` deep and left-aligned in its slot.
 /// Mono goes to both sides of a stereo DAC. Returns the bytes written.
-pub fn pack(samples: &[f32], from: usize, to: usize, subslot: usize, bits: u8, out: &mut [u8]) -> usize {
+pub fn pack(
+    samples: &[f32],
+    from: usize,
+    to: usize,
+    subslot: usize,
+    bits: u8,
+    out: &mut [u8],
+) -> usize {
     let frames = samples.len() / from.max(1);
     let mut at = 0;
     for f in 0..frames {
@@ -95,11 +109,14 @@ pub fn pack(samples: &[f32], from: usize, to: usize, subslot: usize, bits: u8, o
 
 fn write_sample(sample: f32, bits: u8, slot: &mut [u8]) {
     match slot.len() {
-        2 => slot.copy_from_slice(&(needle_core::platform_output::to_int(sample, 16) as i16).to_le_bytes()),
+        2 => slot.copy_from_slice(
+            &(needle_core::platform_output::to_int(sample, 16) as i16).to_le_bytes(),
+        ),
         3 => needle_core::platform_output::pcm24(sample, slot),
         4 => {
             // The music's depth, left-aligned in the 32-bit slot.
-            let v = needle_core::platform_output::to_int(sample, bits.clamp(16, 32) as u32) << (32 - bits.clamp(16, 32) as u32);
+            let v = needle_core::platform_output::to_int(sample, bits.clamp(16, 32) as u32)
+                << (32 - bits.clamp(16, 32) as u32);
             slot.copy_from_slice(&v.to_le_bytes());
         }
         _ => slot.fill(0),

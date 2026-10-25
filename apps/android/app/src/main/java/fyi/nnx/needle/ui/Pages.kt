@@ -856,7 +856,7 @@ private fun LatestRelease(album: Album, open: (Route) -> Unit) {
  */
 @Composable
 fun HomeScreen(open: (Route) -> Unit) {
-    val homeLoad = rememberLoaded { homeShelves() }
+    val homeLoad = rememberLoaded { homeShelves(20u) }
     val home by homeLoad
     val countLoad = rememberLoaded { songCount() }
     val count by countLoad

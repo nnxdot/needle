@@ -121,54 +121,100 @@ fn a_platform_output_plays_pauses_seeks_follows_the_rate_and_hands_back() {
     });
     let mut songs = needle.songs().unwrap();
     songs.sort_by(|a, b| a.title.cmp(&b.title));
-    let first = songs.iter().position(|s| s.title.contains("room")).expect("a demo song");
-    let faster = songs.iter().position(|s| s.title.contains("Faster")).expect("the 48 kHz song");
+    let first = songs
+        .iter()
+        .position(|s| s.title.contains("room"))
+        .expect("a demo song");
+    let faster = songs
+        .iter()
+        .position(|s| s.title.contains("Faster"))
+        .expect("the 48 kHz song");
     let ids: Vec<String> = songs.iter().map(|s| s.id.clone()).collect();
 
     needle.play(ids.clone(), first as u32).unwrap();
-    wait("music at the fake output", Duration::from_secs(10), || fake.frames.load(Ordering::SeqCst) > 20_000);
+    wait("music at the fake output", Duration::from_secs(10), || {
+        fake.frames.load(Ordering::SeqCst) > 20_000
+    });
     assert!(needle.playback().playing, "the player says it plays");
-    assert_eq!(fake.formats.lock().unwrap().first().map(|f| (f.rate, f.channels)), Some((44_100, 2)));
+    assert_eq!(
+        fake.formats
+            .lock()
+            .unwrap()
+            .first()
+            .map(|f| (f.rate, f.channels)),
+        Some((44_100, 2))
+    );
     assert!(*fake.loudest.lock().unwrap() > 0.01, "music, not silence");
     // Real time: about a second of music in about a second.
     let before = fake.frames.load(Ordering::SeqCst);
     std::thread::sleep(Duration::from_secs(1));
     let second = fake.frames.load(Ordering::SeqCst) - before;
-    assert!((30_000..60_000).contains(&second), "{second} frames in a second");
+    assert!(
+        (30_000..60_000).contains(&second),
+        "{second} frames in a second"
+    );
 
     // Paused: nothing more is taken.
     needle.toggle();
     std::thread::sleep(Duration::from_millis(400));
     let paused = fake.frames.load(Ordering::SeqCst);
     std::thread::sleep(Duration::from_millis(800));
-    assert!(fake.frames.load(Ordering::SeqCst) - paused < 2_000, "the output was idle while paused");
+    assert!(
+        fake.frames.load(Ordering::SeqCst) - paused < 2_000,
+        "the output was idle while paused"
+    );
     assert!(!needle.playback().playing);
 
     // A seek while paused, then on again from there.
     needle.seek(15.);
     std::thread::sleep(Duration::from_millis(300));
     needle.toggle();
-    wait("playing again", Duration::from_secs(5), || needle.playback().playing);
+    wait("playing again", Duration::from_secs(5), || {
+        needle.playback().playing
+    });
     std::thread::sleep(Duration::from_millis(600));
     let at = needle.playback().position;
-    assert!((14.5..18.).contains(&at), "after the seek the song is at {at}");
+    assert!(
+        (14.5..18.).contains(&at),
+        "after the seek the song is at {at}"
+    );
 
     // Another song at another rate: the output is told the new format.
     needle.play(ids, faster as u32).unwrap();
     wait("the 48 kHz song", Duration::from_secs(10), || {
-        fake.formats.lock().unwrap().iter().any(|f| f.rate == 48_000)
+        fake.formats
+            .lock()
+            .unwrap()
+            .iter()
+            .any(|f| f.rate == 48_000)
     });
 
     // Needle's USB driver on a pretend DAC, with the same player.
-    let ids: Vec<String> = needle.songs().unwrap().iter().filter(|s| !s.title.contains("Faster")).map(|s| s.id.clone()).collect();
-    crate::usb_dac::fake::checks::the_driver_plays_and_every_trouble_ends_in_an_error(&needle, &music, ids, FALLBACK);
+    let ids: Vec<String> = needle
+        .songs()
+        .unwrap()
+        .iter()
+        .filter(|s| !s.title.contains("Faster"))
+        .map(|s| s.id.clone())
+        .collect();
+    crate::usb_dac::fake::checks::the_driver_plays_and_every_trouble_ends_in_an_error(
+        &needle, &music, ids, FALLBACK,
+    );
     if !FALLBACK {
         return;
     }
     // Playing again (the driver checks end paused), on the system's output.
-    let ids: Vec<String> = needle.songs().unwrap().iter().filter(|s| !s.title.contains("Odd")).map(|s| s.id.clone()).collect();
+    let ids: Vec<String> = needle
+        .songs()
+        .unwrap()
+        .iter()
+        .filter(|s| !s.title.contains("Odd"))
+        .map(|s| s.id.clone())
+        .collect();
     needle.play(ids, 0).unwrap();
-    wait("playing", Duration::from_secs(5), || needle.playback().playing);
+    wait("playing", Duration::from_secs(5), || {
+        needle.playback().playing
+    });
 
     // An output that fails (a DAC unplugged): a notice, it is not opened again, and the song
     // goes on through the system's output (silent here).
@@ -178,24 +224,50 @@ fn a_platform_output_plays_pauses_seeks_follows_the_rate_and_hands_back() {
     let failing = Arc::new(Failing::default());
     set_platform_output(Some(failing.clone()));
     // The song moves to the new output where it was, not from its start.
-    wait("the new output", Duration::from_secs(5), || failing.frames.load(Ordering::SeqCst) > 0);
+    wait("the new output", Duration::from_secs(5), || {
+        failing.frames.load(Ordering::SeqCst) > 0
+    });
     let moved = needle.playback().position;
-    assert!(moved >= before - 0.3, "the song moved over from {before} to {moved}");
-    wait("music at the failing output", Duration::from_secs(10), || failing.frames.load(Ordering::SeqCst) > 0);
-    // The notice is said (it is cleared again a moment later, see the ignored test below).
+    assert!(
+        moved >= before - 0.3,
+        "the song moved over from {before} to {moved}"
+    );
+    wait(
+        "music at the failing output",
+        Duration::from_secs(10),
+        || failing.frames.load(Ordering::SeqCst) > 0,
+    );
+    // The notice is said.
     let start = Instant::now();
     let mut said = false;
     while start.elapsed() < Duration::from_secs(10) && !said {
-        said = needle.player.state().output_notice.is_some_and(|n| n.contains("Failing DAC"));
+        said = needle
+            .player
+            .state()
+            .output_notice
+            .is_some_and(|n| n.contains("Failing DAC"));
         std::thread::sleep(Duration::from_millis(10));
     }
     assert!(said, "the failure is said");
     let taken = failing.frames.load(Ordering::SeqCst);
     let at = needle.playback().position;
     std::thread::sleep(Duration::from_millis(1500));
-    assert_eq!(failing.frames.load(Ordering::SeqCst), taken, "the failed output is not opened again");
+    assert_eq!(
+        failing.frames.load(Ordering::SeqCst),
+        taken,
+        "the failed output is not opened again"
+    );
     let later = needle.playback().position;
     assert!(later > at + 0.5, "the song went on ({at} -> {later})");
+    // The notice stays once the system's output has opened, so the listener sees why.
+    assert!(
+        needle
+            .player
+            .state()
+            .output_notice
+            .is_some_and(|n| n.contains("Failing DAC")),
+        "the notice is still there"
+    );
 }
 
 /// An output that takes music for a moment, then fails as an unplugged DAC does.
@@ -228,31 +300,4 @@ impl PlatformOutput for Failing {
         }
         Ok(())
     }
-}
-
-/// Reported to the core: when a platform output fails, its notice ("… stopped (why). Playing
-/// through the phone instead.") is set, then cleared at once as the system's output opens, so
-/// the listener never sees it. Run with `--ignored` to check the fix.
-#[test]
-#[ignore]
-fn the_failure_notice_stays() {
-    let dir = tempfile::tempdir().unwrap();
-    let music = dir.path().join("music");
-    needle_core::demo::create(&music).unwrap();
-    let needle = Needle::new(dir.path().join("data").to_string_lossy().into()).unwrap();
-    needle.player.send(needle_core::audio::Command::Volume(0.));
-    let failing = Arc::new(Failing::default());
-    set_platform_output(Some(failing.clone()));
-    needle.add_folder(music.to_string_lossy().into()).unwrap();
-    wait("the scan", Duration::from_secs(60), || !needle.scan_status().running && needle.song_count().unwrap_or(0) >= 3);
-    let ids: Vec<String> = needle.songs().unwrap().iter().map(|s| s.id.clone()).collect();
-    needle.play(ids, 0).unwrap();
-    wait("the failure", Duration::from_secs(10), || failing.frames.load(Ordering::SeqCst) > 40_000);
-    std::thread::sleep(Duration::from_secs(2));
-    assert!(
-        needle.player.state().output_notice.is_some_and(|n| n.contains("Failing DAC")),
-        "the notice is still there two seconds later"
-    );
-    set_platform_output(None);
-    needle.toggle();
 }

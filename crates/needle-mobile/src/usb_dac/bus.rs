@@ -19,7 +19,14 @@ pub trait Bus: Send + Sync {
     fn claim(&self, interface: u8);
     fn set_interface(&self, interface: u8, alt: u8) -> Result<()>;
     /// A control request; for one that reads (`request_type` & 0x80), `data` is filled.
-    fn control(&self, request_type: u8, request: u8, value: u16, index: u16, data: &mut [u8]) -> Result<usize>;
+    fn control(
+        &self,
+        request_type: u8,
+        request: u8,
+        value: u16,
+        index: u16,
+        data: &mut [u8],
+    ) -> Result<usize>;
     /// Hand over an isochronous transfer: `bytes` laid out packet after packet, each
     /// `lengths[i]` long (for a transfer from the device, the room for each packet).
     fn submit(&self, id: usize, endpoint: u8, bytes: &[u8], lengths: &[usize]) -> Result<()>;

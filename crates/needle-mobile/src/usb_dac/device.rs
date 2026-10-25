@@ -72,7 +72,11 @@ const SPEED_HIGH: i32 = 3;
 fn ioctl(fd: i32, request: u32, arg: *mut c_void) -> std::io::Result<i32> {
     // SAFETY: each caller passes a pointer to the structure `request` names, alive for the call.
     let r = unsafe { libc::ioctl(fd, request as _, arg) };
-    if r < 0 { Err(std::io::Error::last_os_error()) } else { Ok(r) }
+    if r < 0 {
+        Err(std::io::Error::last_os_error())
+    } else {
+        Ok(r)
+    }
 }
 
 /// One isochronous transfer: the request the kernel reads, its packets, and its buffer, kept in
@@ -93,7 +97,11 @@ impl Transfer {
     fn packets(&mut self, count: usize) -> &mut [IsoPacket] {
         // SAFETY: room for `count` packets after the Urb was made when `mem` was sized.
         unsafe {
-            std::slice::from_raw_parts_mut((self.mem.as_mut_ptr() as *mut u8).add(std::mem::size_of::<Urb>()) as *mut IsoPacket, count)
+            std::slice::from_raw_parts_mut(
+                (self.mem.as_mut_ptr() as *mut u8).add(std::mem::size_of::<Urb>())
+                    as *mut IsoPacket,
+                count,
+            )
         }
     }
 }
@@ -110,9 +118,15 @@ impl Usbfs {
         // SAFETY: dup of a file the caller holds open.
         let own = unsafe { libc::dup(fd) };
         if own < 0 {
-            bail!("The DAC's USB connection could not be used ({})", std::io::Error::last_os_error());
+            bail!(
+                "The DAC's USB connection could not be used ({})",
+                std::io::Error::last_os_error()
+            );
         }
-        Ok(Self { fd: own, transfers: Mutex::new(HashMap::new()) })
+        Ok(Self {
+            fd: own,
+            transfers: Mutex::new(HashMap::new()),
+        })
     }
 }
 
@@ -120,7 +134,8 @@ impl Drop for Usbfs {
     fn drop(&mut self) {
         // Every transfer back from the kernel before its memory goes; one the kernel keeps
         // (it should not) is let go rather than freed under it.
-        let mut transfers = std::mem::take(&mut *self.transfers.lock().unwrap_or_else(|e| e.into_inner()));
+        let mut transfers =
+            std::mem::take(&mut *self.transfers.lock().unwrap_or_else(|e| e.into_inner()));
         for t in transfers.values_mut().filter(|t| t.busy) {
             let _ = ioctl(self.fd, DISCARDURB, t.mem.as_mut_ptr() as *mut c_void);
         }
@@ -129,7 +144,11 @@ impl Drop for Usbfs {
                 break;
             }
             let mut back: *mut c_void = std::ptr::null_mut();
-            match ioctl(self.fd, REAPURBNDELAY, &mut back as *mut *mut c_void as *mut c_void) {
+            match ioctl(
+                self.fd,
+                REAPURBNDELAY,
+                &mut back as *mut *mut c_void as *mut c_void,
+            ) {
                 Ok(_) => {
                     // SAFETY: the kernel hands back one of the Urbs submitted.
                     let id = unsafe { (*(back as *mut Urb)).context as usize };
@@ -137,7 +156,9 @@ impl Drop for Usbfs {
                         t.busy = false;
                     }
                 }
-                Err(e) if e.raw_os_error() == Some(libc::EAGAIN) => std::thread::sleep(std::time::Duration::from_millis(2)),
+                Err(e) if e.raw_os_error() == Some(libc::EAGAIN) => {
+                    std::thread::sleep(std::time::Duration::from_millis(2))
+                }
                 Err(_) => break,
             }
         }
@@ -160,13 +181,27 @@ impl Bus for Usbfs {
     }
 
     fn set_interface(&self, interface: u8, alt: u8) -> Result<()> {
-        let mut s = SetInterface { interface: interface as u32, alt: alt as u32 };
-        ioctl(self.fd, SETINTERFACE, &mut s as *mut SetInterface as *mut c_void)
-            .with_context(|| format!("The DAC refused setting {alt} of interface {interface}"))?;
+        let mut s = SetInterface {
+            interface: interface as u32,
+            alt: alt as u32,
+        };
+        ioctl(
+            self.fd,
+            SETINTERFACE,
+            &mut s as *mut SetInterface as *mut c_void,
+        )
+        .with_context(|| format!("The DAC refused setting {alt} of interface {interface}"))?;
         Ok(())
     }
 
-    fn control(&self, request_type: u8, request: u8, value: u16, index: u16, data: &mut [u8]) -> Result<usize> {
+    fn control(
+        &self,
+        request_type: u8,
+        request: u8,
+        value: u16,
+        index: u16,
+        data: &mut [u8],
+    ) -> Result<usize> {
         let mut t = CtrlTransfer {
             request_type,
             request,
@@ -183,7 +218,12 @@ impl Bus for Usbfs {
     fn submit(&self, id: usize, endpoint: u8, bytes: &[u8], lengths: &[usize]) -> Result<()> {
         let mut transfers = self.transfers.lock().unwrap_or_else(|e| e.into_inner());
         let need = std::mem::size_of::<Urb>() + lengths.len() * std::mem::size_of::<IsoPacket>();
-        let t = transfers.entry(id).or_insert_with(|| Transfer { mem: vec![], buffer: vec![], endpoint, busy: false });
+        let t = transfers.entry(id).or_insert_with(|| Transfer {
+            mem: vec![],
+            buffer: vec![],
+            endpoint,
+            busy: false,
+        });
         if t.busy {
             bail!("A transfer was handed over twice");
         }
@@ -198,7 +238,10 @@ impl Bus for Usbfs {
         t.buffer[..bytes.len().min(total)].copy_from_slice(&bytes[..bytes.len().min(total)]);
         t.endpoint = endpoint;
         for (p, len) in t.packets(lengths.len()).iter_mut().zip(lengths) {
-            *p = IsoPacket { length: *len as u32, ..Default::default() };
+            *p = IsoPacket {
+                length: *len as u32,
+                ..Default::default()
+            };
         }
         let buffer = t.buffer.as_mut_ptr() as *mut c_void;
         let urb = t.urb();
@@ -224,7 +267,11 @@ impl Bus for Usbfs {
 
     fn reap(&self, wait_ms: u32) -> Result<Option<Reaped>> {
         // usbfs says "writable" when a transfer is back to reap.
-        let mut fds = libc::pollfd { fd: self.fd, events: libc::POLLOUT | libc::POLLWRNORM, revents: 0 };
+        let mut fds = libc::pollfd {
+            fd: self.fd,
+            events: libc::POLLOUT | libc::POLLWRNORM,
+            revents: 0,
+        };
         // SAFETY: one pollfd, alive for the call.
         let ready = unsafe { libc::poll(&mut fds, 1, wait_ms as i32) };
         if ready < 0 {
@@ -238,12 +285,18 @@ impl Bus for Usbfs {
             bail!("The DAC is gone");
         }
         let mut back: *mut c_void = std::ptr::null_mut();
-        match ioctl(self.fd, REAPURBNDELAY, &mut back as *mut *mut c_void as *mut c_void) {
+        match ioctl(
+            self.fd,
+            REAPURBNDELAY,
+            &mut back as *mut *mut c_void as *mut c_void,
+        ) {
             Ok(_) => {
                 // SAFETY: the kernel hands back one of the Urbs submitted, unchanged in place.
                 let id = unsafe { (*(back as *mut Urb)).context as usize };
                 let mut transfers = self.transfers.lock().unwrap_or_else(|e| e.into_inner());
-                let Some(t) = transfers.get_mut(&id) else { return Ok(None) };
+                let Some(t) = transfers.get_mut(&id) else {
+                    return Ok(None);
+                };
                 t.busy = false;
                 let status = t.urb().status;
                 let data = if t.endpoint & 0x80 != 0 {
@@ -254,7 +307,12 @@ impl Bus for Usbfs {
                 };
                 Ok(Some(Reaped { id, status, data }))
             }
-            Err(e) if e.raw_os_error() == Some(libc::EAGAIN) || e.raw_os_error() == Some(libc::EINTR) => Ok(None),
+            Err(e)
+                if e.raw_os_error() == Some(libc::EAGAIN)
+                    || e.raw_os_error() == Some(libc::EINTR) =>
+            {
+                Ok(None)
+            }
             Err(e) => Err(e).context("The DAC is gone"),
         }
     }
@@ -267,6 +325,11 @@ impl Bus for Usbfs {
     }
 
     fn busy(&self) -> usize {
-        self.transfers.lock().unwrap_or_else(|e| e.into_inner()).values().filter(|t| t.busy).count()
+        self.transfers
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .values()
+            .filter(|t| t.busy)
+            .count()
     }
 }
