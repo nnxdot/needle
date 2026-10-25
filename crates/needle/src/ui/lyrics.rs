@@ -450,6 +450,18 @@ impl AppView {
                     let line_el = line_el.on_click(
                         cx.listener(move |this, _, _, _| this.player.send(Command::Seek(time))),
                     );
+                    // Right-click: the line as a picture to share.
+                    let words = line.text.clone();
+                    let line_el = line_el.on_mouse_down(
+                        MouseButton::Right,
+                        cx.listener(move |this, _, _, _| {
+                            if let Some(item) = this.playback.current.clone()
+                                && !words.trim().is_empty()
+                            {
+                                this.share_lyric(item.track, words.clone());
+                            }
+                        }),
+                    );
                     if state == 0 && karaoke.is_none() {
                         // The new line brightens in as it arrives.
                         let (dim, ink) = (p.ink.opacity(0.4), p.ink);
