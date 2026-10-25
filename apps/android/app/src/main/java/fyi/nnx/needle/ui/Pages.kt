@@ -668,7 +668,8 @@ fun ArtistScreen(name: String, open: (Route) -> Unit) {
     val photo by photoLoad
     // Songs without an artist: nothing to look up online for them.
     val real = name.isNotBlank() && name != "Unknown artist"
-    // From fanart.tv (with online lookups on), or chosen: a wide picture of them, and their logo.
+    // A wide picture of them and their logo: the one chosen, then fanart.tv's (online lookups on,
+    // with a key), then the files in their folder (fanart.jpg, backdrop.jpg, banner.jpg; logo.png, clearlogo.png).
     val bannerLoad = rememberLoaded(name, "banner", pictureVersion) { if (real) artistBanner(name) else null }
     val banner by bannerLoad
     val logoLoad = rememberLoaded(name, "logo", pictureVersion) { if (real) artistLogo(name) else null }
