@@ -146,6 +146,8 @@ impl AppView {
             Page::Timing => self.timing_view(cx),
             Page::Wrapped(year) => self.wrapped_view(year, width, cx),
             Page::Doctor => self.doctor_view(width, cx),
+            Page::Numbers => self.numbers_view(width, cx),
+            Page::MoodMap => self.mood_view(width, cx),
             _ if self.total == 0 && self.scan.is_none() && !self.loading => {
                 self.onboarding(cx).into_any_element()
             }
