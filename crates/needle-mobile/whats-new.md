@@ -15,7 +15,7 @@ A new look, after the Mac's, and a lot more to see and hear.
 - [eq] **Smart mixes.** With crossfade on, the fade starts where the music ends and lasts whole bars. Turn it on under Settings › Playback › Crossfade.
 - [artists] **Better artists.** Guests after "feat." and both halves of "A & B" get their own page, sort names from your tags are used, and accents sort where they belong. Sort artists by name, most played, most songs, or recently added, show only album artists, and jump with the A–Z bar.
 - [edit] **Your own artist pictures.** On an artist's page, More lets you choose their photo, wide picture, and logo: a picture on your phone, or any of fanart.tv's. Pictures in the artist's folder are used too: artist.jpg, and fanart.jpg and logo.png when fanart.tv has none.
-- [globe] **Pictures for every artist.** With online lookups on, Needle finds every artist's pictures slowly in the background, on Wi-Fi (Settings › Library › Artist pictures).
+- [globe] **Pictures for every artist.** With online lookups on, Needle finds every artist's pictures slowly in the background, on Wi-Fi, or all at once with Check all now (Settings › Library › Artist pictures).
 - [tag] **Fonts.** Choose a font for titles (such as Fraunces, Instrument Serif, and DM Serif Display) and one for everything else (such as Inter and Atkinson Hyperlegible), or a font file on your phone, in Settings › Appearance.
 - [video] **Moving covers on the album page.** An album with a moving cover shows it moving at the top of its page too.
 - [record] **A new icon.** An amber record and its arm, also when Needle starts.
