@@ -273,10 +273,68 @@ impl Source for Blend {
     }
 }
 
+/// Smart mixes: where a song's music really ends (before a silent or fading tail), and a
+/// fade that lasts a whole number of bars at its tempo. `fade` is the crossfade setting,
+/// `duration` the song's length, `shape` its waveform, `bpm` its tempo when known. Returns
+/// (where the ending ends, how long it fades), in seconds.
+pub fn smart_ending(
+    fade: f64,
+    duration: f64,
+    shape: Option<&crate::waveform::Waveform>,
+    bpm: Option<f64>,
+) -> (f64, f64) {
+    let mut end = duration;
+    if let Some(shape) = shape.filter(|s| !s.loudness.is_empty()) {
+        let mut sorted: Vec<u8> = shape.loudness.iter().copied().filter(|&v| v > 0).collect();
+        sorted.sort_unstable();
+        if let Some(&median) = sorted.get(sorted.len() / 2) {
+            let quiet = (median as f64 * 0.25).max(1.);
+            let bins = shape.loudness.len();
+            if let Some(last) = shape.loudness.iter().rposition(|&v| v as f64 >= quiet) {
+                let music_end = (last + 1) as f64 / bins as f64 * duration;
+                // A second or more of near silence at the end is left out; never more than
+                // half the song.
+                if duration - music_end >= 1. {
+                    end = music_end.max(duration * 0.5);
+                }
+            }
+        }
+    }
+    let mut length = fade;
+    if let Some(bpm) = bpm.filter(|b| (60.0..=200.0).contains(b)) {
+        let bar = 4. * 60. / bpm;
+        let bars = (fade / bar).round().max(1.);
+        let barred = bars * bar;
+        if (fade * 0.5..=fade * 1.6).contains(&barred) {
+            length = barred;
+        }
+    }
+    (end, length.min(end * 0.4))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use rodio::buffer::SamplesBuffer;
+
+    #[test]
+    fn smart_endings_leave_out_the_silent_tail_and_fade_in_bars() {
+        let mut loudness = vec![200u8; 240];
+        // The last 24 parts (a tenth of a 100 s song) are near silent.
+        loudness[216..].iter_mut().for_each(|v| *v = 3);
+        let shape = crate::waveform::Waveform {
+            version: 1,
+            peaks: loudness.clone(),
+            loudness,
+        };
+        let (end, fade) = smart_ending(6., 100., Some(&shape), Some(120.));
+        assert!((end - 90.).abs() < 0.5, "{end}");
+        // At 120 BPM a bar is 2 s: 6 s is three bars.
+        assert!((fade - 6.).abs() < 1e-9);
+        let (_, fade) = smart_ending(5., 100., None, Some(128.));
+        assert!((fade - 5.625).abs() < 1e-9, "three bars at 128 BPM: {fade}");
+        assert_eq!(smart_ending(5., 100., None, None), (100., 5.));
+    }
 
     fn tone(value: f32, seconds: f32) -> Boxed {
         Box::new(SamplesBuffer::new(

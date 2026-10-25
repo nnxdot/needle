@@ -1,4 +1,5 @@
 pub mod analysis;
+pub mod artists;
 pub mod audio;
 pub mod audio_file;
 pub mod browse;
@@ -25,13 +26,16 @@ pub mod media;
 pub mod mediafoundation;
 pub mod model;
 mod mp4_trim;
+pub mod numbers;
 mod opus;
+pub mod platform_output;
 pub mod plugins;
 pub mod query;
 pub mod radio;
 pub mod remote;
 pub mod rules;
 pub mod scan;
+pub mod scope;
 mod secrets;
 /// Secrets kept in the system store (the Keychain on iPhone), by owner and key.
 pub use secrets::plugin as secret_store;
@@ -45,4 +49,5 @@ pub mod stems;
 pub mod subsonic;
 pub mod sync;
 pub mod update;
+pub mod waveform;
 pub mod wrapped;
