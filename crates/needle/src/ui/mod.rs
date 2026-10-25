@@ -6,6 +6,7 @@ mod assets;
 mod bench;
 mod chrome;
 mod columns;
+mod crate_view;
 mod discord;
 mod doctor;
 mod files;
@@ -458,6 +459,11 @@ pub struct AppView {
     waveform: Option<(String, Vec<f32>)>,
     /// The visualizer shows in the big player and full screen.
     visualizer: bool,
+    /// Albums show as a record crate, not a grid; the record in front, and the wheel's part
+    /// turn.
+    albums_crate: bool,
+    crate_index: usize,
+    crate_scroll: f32,
     /// Your library's numbers, and the mood map's songs, the spot clicked on it, and where it
     /// was drawn.
     numbers: Option<Box<needle_core::numbers::LibraryNumbers>>,
@@ -1095,6 +1101,9 @@ impl AppView {
             on_this_day: vec![],
             waveform: None,
             visualizer: false,
+            albums_crate: false,
+            crate_index: 0,
+            crate_scroll: 0.,
             numbers: None,
             mood_points: Default::default(),
             mood_pick: None,
