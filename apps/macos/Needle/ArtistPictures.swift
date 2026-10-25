@@ -11,14 +11,6 @@ struct FanartChoice: Decodable, Identifiable, Hashable {
     var id: String { url }
 }
 
-/// How far the slow search for artists' pictures is.
-struct SweepProgress: Decodable, Equatable {
-    var done: Int
-    var total: Int
-    var allowed: Bool
-    var hurry: Bool
-}
-
 /// An artist's three pictures, as the core names them.
 enum PictureKind: String, CaseIterable, Identifiable {
     case photo, banner, logo
@@ -74,7 +66,9 @@ struct ArtistPicturesMenu: View {
 
     private func readOwn() async {
         let name = name
-        own = await store.load { $0.artistOwnPictures(name: name) } ?? []
+        own = await store.load { core in
+            PictureKind.allCases.filter { (try? core.ownArtistPicture(name: name, kind: $0.rawValue)) ?? nil != nil }.map(\.rawValue)
+        } ?? []
     }
 
     private func choose(_ kind: PictureKind) {
@@ -170,7 +164,7 @@ struct FanartPicker: View {
         busy = choice.url
         let (name, kind, url) = (name, kind.rawValue, choice.url)
         Task {
-            let done = await store.ask { try $0.pickArtistFanart(name: name, kind: kind, url: url) } != nil
+            let done = await store.ask { try $0.pickFanart(name: name, kind: kind, url: url) } != nil
             busy = nil
             if done {
                 picked()
@@ -184,14 +178,14 @@ struct FanartPicker: View {
 /// wide picture, with how far it is and Check all now.
 struct ArtistPicturesRow: View {
     private var store: Store { .shared }
-    @State private var progress: SweepProgress?
+    @State private var progress: PictureSweepProgress?
 
     var body: some View {
         let s = store.settings
         SettingRow(title: "Artist pictures", detail: detail(on: s.artistPictures), icon: "person.crop.square") {
             HStack {
                 if s.artistPictures {
-                    Button("Check all now") { store.core.artistPicturesCheckAllNow() }
+                    Button("Check all now") { store.core.checkAllArtistPictures() }
                         .disabled(progress?.hurry == true)
                 }
                 SettingSwitch(key: "artist_pictures", on: s.artistPictures)
@@ -199,7 +193,7 @@ struct ArtistPicturesRow: View {
         }
         .task {
             while !Task.isCancelled {
-                progress = JSON.decode(SweepProgress.self, await store.load { try $0.artistPicturesProgressJson() })
+                progress = await store.load { $0.pictureSweepProgress() }
                 try? await Task.sleep(for: .seconds(2))
             }
         }
@@ -208,7 +202,7 @@ struct ArtistPicturesRow: View {
     private func detail(on: Bool) -> String {
         guard on else { return "Photos, logos, and wide pictures for every artist, found slowly." }
         guard let progress, progress.total > 0 else { return "Finds every artist's photo, logo, and wide picture, one at a time." }
-        if progress.done >= progress.total { return "All \(progress.total.formatted()) artists looked for." }
-        return "\(progress.done.formatted()) of \(progress.total.formatted()) artists looked for."
+        if progress.done >= progress.total { return "All \(Int(progress.total).formatted()) artists looked for." }
+        return "\(Int(progress.done).formatted()) of \(Int(progress.total).formatted()) artists looked for."
     }
 }

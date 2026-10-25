@@ -384,7 +384,7 @@ struct NowPlayingView: View {
     }
 
     /// The player's buttons chosen in Settings › Appearance › Player buttons.
-    private var chosen: [String] { PlayerButtons.chosen(store.more.playerButtons) }
+    private var chosen: [String] { PlayerButtons.chosen(store.choices.playerButtons) }
 
     private var controls: some View {
         HStack {

@@ -10,7 +10,7 @@ enum Waveforms {
     static func heights(_ id: String, store: Store) async -> [Float] {
         if let known = kept[id] { return known }
         let core = store.core
-        let found = await Task.detached { core.waveformHeights(id: id, count: 64) }.value
+        let found = await Task.detached { (try? core.waveform(id: id, count: 64)) ?? [] }.value
         kept[id] = found
         if kept.count > 200 { kept.removeAll() }
         return found
@@ -219,7 +219,7 @@ struct NumbersView: View {
         .accessibilityElement(children: .combine)
     }
 
-    private func bars(_ items: [Counted]) -> some View {
+    private func bars(_ items: [Count]) -> some View {
         let most = max(items.map(\.count).max() ?? 1, 1)
         return VStack(spacing: 10) {
             ForEach(items.prefix(10), id: \.name) { item in
@@ -266,7 +266,7 @@ struct NumbersView: View {
 /// finger over an area to play the songs in it.
 struct MoodMapView: View {
     @Environment(Store.self) private var store
-    @State private var points: [MoodDot]?
+    @State private var points: [MoodPoint]?
     /// The circle being drawn: its centre and edge, in the map's 0-to-1 places.
     @State private var circle: (CGPoint, CGPoint)?
 
@@ -293,7 +293,7 @@ struct MoodMapView: View {
         .task(id: store.libraryVersion) { points = await store.load { try $0.moodMap() } ?? [] }
     }
 
-    private func map(_ points: [MoodDot], side: CGFloat) -> some View {
+    private func map(_ points: [MoodPoint], side: CGFloat) -> some View {
         ZStack {
             RoundedRectangle(cornerRadius: 18).fill(store.colors.card)
             Canvas { context, size in
@@ -346,9 +346,9 @@ struct MoodMapView: View {
         // The map's y runs from lively at the top; the core's from calm (0) to lively (1).
         let (x, y, r) = (Float(center.x), Float(1 - center.y), Float(radius))
         Task {
-            let played = await store.ask { try $0.playMoodArea(x: x, y: y, radius: r) } ?? 0
-            store.message = played > 0 ? "Playing \(count(Int(played), "song")) from the mood map" : "No songs there yet"
-            if played > 0 { store.playedWhenReady() }
+            let songs = await store.ask { try $0.moodArea(x: x, y: y, radius: r, limit: 200) } ?? []
+            store.message = songs.isEmpty ? "No songs there yet" : "Playing \(count(songs.count, "song")) from the mood map"
+            if !songs.isEmpty { store.play(songs) }
         }
     }
 }

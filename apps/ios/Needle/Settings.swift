@@ -209,7 +209,7 @@ struct LibrarySettingsView: View {
             if let settings {
                 let save = saved($settings, store) { try $0.setPlaybackSettings(value: $1) }
                 Section("Artwork and lyrics") {
-                    Toggle(isOn: Binding(get: { settings.onlineMedia }, set: { var s = settings; s.onlineMedia = $0; save(s) })) {
+                    Toggle(isOn: Binding(get: { settings.onlineMedia }, set: { var s = settings; s.onlineMedia = $0; save(s); store.allowPictures() })) {
                         SettingLabel(title: "Look things up online", detail: "Covers, artist photos, and lyrics.", icon: "globe", tint: .blue)
                     }
                     // A dependent row: only while online lookups are on.
@@ -308,7 +308,7 @@ struct PlaybackSettingsView: View {
                     }
                     // A dependent row (SETTINGS-STYLE.md): only while Crossfade is on.
                     if settings.crossfade >= 0.5 {
-                        Toggle(isOn: Binding(get: { store.more.smartMix }, set: { on in store.updateMore { $0.smartMix = on } })) {
+                        Toggle(isOn: Binding(get: { store.choices.smartMix }, set: { on in store.updateChoices { $0.smartMix = on } })) {
                             SettingLabel(title: "Smart mixes", detail: "The fade starts where the music ends and lasts whole bars.", icon: "metronome.fill", tint: .purple)
                         }
                         .padding(.leading, 16)

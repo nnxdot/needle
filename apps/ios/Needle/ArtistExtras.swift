@@ -65,7 +65,9 @@ struct ArtistPicturesMenu: View {
 
     private func readOwn() async {
         let name = name
-        own = await store.load { $0.artistOwnPictures(name: name) } ?? []
+        own = await store.load { core in
+            PictureKind.allCases.filter { (try? core.ownArtistPicture(name: name, kind: $0.rawValue)) ?? nil != nil }.map(\.rawValue)
+        } ?? []
     }
 
     /// The chosen photo, through a file the core copies.
@@ -128,7 +130,7 @@ struct FanartPickerView: View {
                         }
                         .buttonStyle(Pressable())
                         .disabled(busy != nil)
-                        .accessibilityLabel("A \(kind.title.lowercased()) from fanart.tv, \(choice.likes) likes")
+                        .accessibilityLabel("A \(kind.title.lowercased()) from fanart.tv")
                     }
                 }
                 .padding()
@@ -141,7 +143,7 @@ struct FanartPickerView: View {
         .toolbar { ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } } }
         .task {
             let (name, kind) = (name, kind.rawValue)
-            choices = await store.load { try $0.artistFanartChoices(name: name, kind: kind) } ?? []
+            choices = await store.load { try $0.fanartChoices(name: name, kind: kind) } ?? []
         }
     }
 
@@ -149,7 +151,7 @@ struct FanartPickerView: View {
         busy = choice.url
         let (name, kind, url) = (name, kind.rawValue, choice.url)
         Task {
-            let done = await store.ask { try $0.pickArtistFanart(name: name, kind: kind, url: url) } != nil
+            let done = await store.ask { try $0.pickFanart(name: name, kind: kind, url: url) } != nil
             busy = nil
             if done {
                 picked()
@@ -163,29 +165,29 @@ struct FanartPickerView: View {
 /// wide picture (on Wi-Fi only), with how far it is and Check all now.
 struct ArtistPicturesRow: View {
     @Environment(Store.self) private var store
-    @State private var progress: PictureProgress?
+    @State private var progress: PictureSweepProgress?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
-            Toggle(isOn: Binding(get: { store.more.artistPictures }, set: { on in store.updateMore { $0.artistPictures = on } })) {
+            Toggle(isOn: Binding(get: { store.choices.artistPictures }, set: { on in store.updateChoices { $0.artistPictures = on } })) {
                 SettingLabel(title: "Artist pictures", detail: detail, icon: "person.crop.square.fill", tint: .pink)
             }
-            if store.more.artistPictures, let progress, progress.total > 0, progress.done < progress.total {
-                Button("Check all now") { store.core.artistPicturesCheckAllNow() }
+            if store.choices.artistPictures, let progress, progress.total > 0, progress.done < progress.total {
+                Button("Check all now") { store.core.checkAllArtistPictures() }
                     .disabled(progress.hurry)
                     .font(.needle(.subheadline))
             }
         }
         .task {
             while !Task.isCancelled {
-                progress = await store.load { $0.artistPicturesProgress() }
+                progress = await store.load { $0.pictureSweepProgress() }
                 try? await Task.sleep(for: .seconds(2))
             }
         }
     }
 
     private var detail: String {
-        guard store.more.artistPictures else { return "Photos, logos, and wide pictures for every artist, found slowly." }
+        guard store.choices.artistPictures else { return "Photos, logos, and wide pictures for every artist, found slowly." }
         guard let progress, progress.total > 0 else { return "Finds every artist's photo, logo, and wide picture, one at a time." }
         if progress.done >= progress.total { return "All \(Int(progress.total).formatted()) artists looked for." }
         // On a phone it looks only on Wi-Fi.
@@ -197,11 +199,11 @@ struct ArtistPicturesRow: View {
 /// most songs, or recently added), and only album artists when asked.
 struct ArtistsView: View {
     @Environment(Store.self) private var store
-    @State private var artists: [ListedArtist]?
+    @State private var artists: [Artist]?
     @State private var filter = ""
 
     var body: some View {
-        let byName = store.more.artistOrder == "name" && filter.isEmpty
+        let byName = store.choices.artistOrder == "name" && filter.isEmpty
         List {
             if byName {
                 ForEach(sections, id: \.0) { letter, group in
@@ -225,25 +227,26 @@ struct ArtistsView: View {
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {
                 Menu {
-                    Picker("Sort by", selection: Binding(get: { store.more.artistOrder }, set: { order in store.updateMore { $0.artistOrder = order } })) {
+                    Picker("Sort by", selection: Binding(get: { store.choices.artistOrder }, set: { order in store.updateChoices { $0.artistOrder = order } })) {
                         Text("A–Z").tag("name")
                         Text("Most played").tag("most_played")
                         Text("Most songs").tag("most_songs")
                         Text("Newest").tag("recently_added")
                     }
-                    Toggle("Only album artists", isOn: Binding(get: { store.more.albumArtistsOnly }, set: { on in store.updateMore { $0.albumArtistsOnly = on } }))
+                    Toggle("Only album artists", isOn: Binding(get: { store.choices.albumArtistsOnly }, set: { on in store.updateChoices { $0.albumArtistsOnly = on } }))
                 } label: {
                     Image(systemName: "arrow.up.arrow.down")
                 }
                 .accessibilityLabel("Sort artists")
             }
         }
-        .task(id: "\(store.libraryVersion)|\(store.more.artistOrder)|\(store.more.albumArtistsOnly)") {
-            artists = await store.load { try $0.listedArtists() } ?? []
+        .task(id: "\(store.libraryVersion)|\(store.choices.artistOrder)|\(store.choices.albumArtistsOnly)") {
+            let (order, albumArtists) = (store.choices.artistOrder, store.choices.albumArtistsOnly)
+            artists = await store.load { try $0.artistsBy(query: "", order: order, albumArtistsOnly: albumArtists) } ?? []
         }
     }
 
-    private func row(_ artist: ListedArtist) -> some View {
+    private func row(_ artist: Artist) -> some View {
         let row = HStack(spacing: 14) {
             Artwork(path: artist.artwork, seed: artist.name, size: 160)
                 .frame(width: 52, height: 52).clipShape(.circle)
@@ -262,15 +265,15 @@ struct ArtistsView: View {
         }
     }
 
-    private var shown: [ListedArtist] {
+    private var shown: [Artist] {
         let all = artists ?? []
         return filter.isEmpty ? all : all.filter { $0.name.localizedCaseInsensitiveContains(filter) }
     }
 
     /// The artists under each letter, in the order the core gives.
-    private var sections: [(String, [ListedArtist])] {
+    private var sections: [(String, [Artist])] {
         var order: [String] = []
-        var groups: [String: [ListedArtist]] = [:]
+        var groups: [String: [Artist]] = [:]
         for artist in shown {
             let letter = artist.letter.isEmpty ? "#" : artist.letter
             if groups[letter] == nil { order.append(letter) }

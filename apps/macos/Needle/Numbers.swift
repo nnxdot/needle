@@ -34,8 +34,9 @@ struct NumbersData: Decodable {
     var lowQuality: [AlbumSummary]
 }
 
-/// What was playing on this day some years ago.
-struct OnThisDay: Decodable, Identifiable {
+/// What was playing on this day some years ago (the core's `OnThisDay`, with the Mac's
+/// album summaries).
+struct PastDay: Decodable, Identifiable {
     var yearsAgo: Int
     var day: Int
     var albums: [AlbumSummary]
@@ -187,14 +188,6 @@ struct NumbersPage: View {
     }
 }
 
-/// A song on the mood map: `x` dark (0) to bright (1), `y` calm (0) to lively (1).
-struct MoodPoint: Decodable, Hashable {
-    var id: String
-    var x: Double
-    var y: Double
-    var mood: String
-}
-
 /// Every measured song as a dot, by dark ↔ bright and calm ↔ lively; drag a circle over an
 /// area to play the songs in it.
 struct MoodMapPage: View {
@@ -227,7 +220,7 @@ struct MoodMapPage: View {
         }
         .padding(28)
         .task(id: store.libraryVersion) {
-            points = JSON.decode([MoodPoint].self, await store.load { try $0.moodMapJson() }) ?? []
+            points = await store.load { try $0.moodMap() } ?? []
         }
     }
 
@@ -237,9 +230,10 @@ struct MoodMapPage: View {
             RoundedRectangle(cornerRadius: 16, style: .continuous).fill(colors.raised.opacity(0.6))
             Canvas { context, size in
                 for p in points {
-                    let at = CGPoint(x: p.x * size.width, y: (1 - p.y) * size.height)
+                    let (x, y) = (Double(p.x), Double(p.y))
+                    let at = CGPoint(x: x * size.width, y: (1 - y) * size.height)
                     // Colour by place: dark and calm deep blue, bright and lively warm.
-                    let color = Color(hue: 0.62 - 0.55 * p.x, saturation: 0.55 + 0.3 * p.y, brightness: 0.55 + 0.4 * p.x)
+                    let color = Color(hue: 0.62 - 0.55 * x, saturation: 0.55 + 0.3 * y, brightness: 0.55 + 0.4 * x)
                     context.fill(Path(ellipseIn: CGRect(x: at.x - 2.5, y: at.y - 2.5, width: 5, height: 5)), with: .color(color.opacity(0.85)))
                 }
                 if let (center, edge) = circle {
