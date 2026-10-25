@@ -25,7 +25,9 @@ import fyi.nnx.needle.NeedleApp
 enum class SeekStyle(val id: String, val label: String) {
     Wave("wave", "Wave"),
     Line("line", "Line"),
-    Thick("thick", "Thick");
+    Thick("thick", "Thick"),
+    /** The song's own loud and quiet shape (its waveform, measured once by the core). */
+    Shape("shape", "Shape");
 
     companion object {
         fun of(id: String) = entries.firstOrNull { it.id == id } ?: Wave
@@ -53,9 +55,13 @@ fun ProgressLine(
     modifier: Modifier = Modifier,
     big: Boolean = true,
     style: SeekStyle = seekStyle(),
+    /** The song's shape (0 to 1 each), for [SeekStyle.Shape]; empty while it is measured. */
+    heights: List<Float> = emptyList(),
 ) {
     val moving = playing && !reduceMotion()
     when (style) {
+        // The mini player is too small for the shape: a fine line there.
+        SeekStyle.Shape -> if (big) Shape(progress, heights, color, track, modifier) else Bar(progress, 3.dp, color, track, modifier)
         SeekStyle.Wave -> {
             val wave by animateFloatAsState(if (moving) 1f else 0f, tween(400), label = "wave")
             LinearWavyProgressIndicator(
@@ -81,6 +87,52 @@ fun ProgressLine(
             Bar(progress, size, color, track, modifier)
         }
     }
+}
+
+/**
+ * The song's shape as the seek bar: thin rounded bars, loud parts tall and quiet ones short,
+ * the part played in `color`. Until the shape is known, a fine line.
+ */
+@Composable
+fun Shape(progress: Float, heights: List<Float>, color: Color, track: Color, modifier: Modifier = Modifier) {
+    if (heights.isEmpty()) {
+        Bar(progress, 4.dp, color, track, modifier)
+        return
+    }
+    androidx.compose.foundation.Canvas(modifier.fillMaxWidth().height(36.dp)) {
+        val step = size.width / heights.size
+        val bar = (step * 0.62f).coerceAtLeast(1f)
+        val played = progress.coerceIn(0f, 1f) * size.width
+        heights.forEachIndexed { i, h ->
+            val x = i * step + step / 2
+            val tall = (0.12f + h.coerceIn(0f, 1f) * 0.88f) * size.height
+            drawLine(
+                if (x <= played) color else track,
+                androidx.compose.ui.geometry.Offset(x, (size.height - tall) / 2),
+                androidx.compose.ui.geometry.Offset(x, (size.height + tall) / 2),
+                strokeWidth = bar,
+                cap = androidx.compose.ui.graphics.StrokeCap.Round,
+            )
+        }
+    }
+}
+
+/**
+ * The shape of `song` for the seek bar, `count` parts: measured by the core the first time (a
+ * moment, off the main thread) and kept. None for songs on a server or on the computer.
+ */
+@Composable
+fun rememberShape(song: fyi.nnx.needle.core.Song, count: Int = 90): List<Float> {
+    val wanted = seekStyle() == SeekStyle.Shape && !song.fromServer() && !song.onComputer()
+    val shape by androidx.compose.runtime.produceState(emptyList<Float>(), song.id, wanted) {
+        value = emptyList()
+        if (wanted) {
+            value = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                runCatching { NeedleApp.instance.core.waveform(song.id, count.toUInt()) }.getOrDefault(emptyList())
+            }
+        }
+    }
+    return shape
 }
 
 /** A flat bar: the track, and the part played over it. */
