@@ -80,6 +80,7 @@ extension Font {
 struct FontRow: View {
     private var store: Store { .shared }
     let titles: Bool
+    @State private var own = ""
 
     var body: some View {
         let list = titles ? NeedleFonts.titles : NeedleFonts.texts
@@ -93,35 +94,49 @@ struct FontRow: View {
                 ForEach(list, id: \.key) { choice in
                     let chosen = key == choice.key || (key == "bahnschrift" && choice.key == "poster")
                     Button { store.set([setting: choice.key]) } label: {
-                        HStack {
-                            Text(choice.name)
+                        HStack(spacing: 12) {
+                            Text(titles ? "Good evening" : "Harbor Lights · Mara Quinn · 3:48")
                                 .font(sample(choice.family, titles: titles))
-                            Spacer()
-                            if chosen { Image(systemName: "checkmark").foregroundStyle(store.colors.accent) }
+                                .lineLimit(1)
+                            Spacer(minLength: 8)
+                            Text(choice.name).font(.system(size: 11)).foregroundStyle(chosen ? store.colors.accent : store.colors.ink3)
                         }
-                        .padding(.vertical, 5)
+                        .padding(.horizontal, 10)
+                        .padding(.vertical, 6)
+                        .background(chosen ? store.colors.accentSoft : .clear, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
                         .contentShape(Rectangle())
                     }
                     .buttonStyle(.plain)
+                    .accessibilityLabel(choice.name)
                     .accessibilityAddTraits(chosen ? .isSelected : [])
                 }
                 HStack {
-                    Menu(key.hasPrefix("own:") ? "On this Mac: \(NeedleFonts.name(key, in: list))" : "A font on this Mac…") {
-                        ForEach(NeedleFonts.installed, id: \.self) { family in
-                            Button(family) { store.set([setting: "own:" + family]) }
-                        }
-                    }
-                    .fixedSize()
-                    Spacer()
+                    TextField("A font on this Mac", text: $own, prompt: Text("A font on this Mac, by its name"))
+                        .textFieldStyle(.roundedBorder)
+                        .onSubmit { useOwn(setting) }
+                    Button("Use This Font") { useOwn(setting) }
+                        .disabled(own.trimmingCharacters(in: .whitespaces).isEmpty)
                 }
                 .padding(.top, 6)
+                .onAppear { own = key.hasPrefix("own:") ? String(key.dropFirst(4)) : "" }
             }
         }
     }
 
     private func sample(_ family: String?, titles: Bool) -> Font {
-        guard let family else { return titles ? .system(size: 17, weight: .bold) : .system(size: 14) }
-        let weight: Font.Weight = titles ? (NeedleFonts.singleWeight.contains(family) ? .regular : .bold) : .regular
-        return .custom(family, size: titles ? 17 : 14).weight(weight)
+        guard let family else { return titles ? .system(size: 22, weight: .semibold) : .system(size: 15) }
+        let weight: Font.Weight = titles ? (NeedleFonts.singleWeight.contains(family) ? .regular : .semibold) : .regular
+        return .custom(family, size: titles ? 22 : 15).weight(weight)
+    }
+
+    /// A family on this Mac, as typed: used when the Mac has it.
+    private func useOwn(_ setting: String) {
+        let typed = own.trimmingCharacters(in: .whitespaces)
+        guard !typed.isEmpty else { return }
+        guard let family = NeedleFonts.installed.first(where: { $0.caseInsensitiveCompare(typed) == .orderedSame }) else {
+            store.fail("This Mac has no font named \(typed).")
+            return
+        }
+        store.set([setting: "own:" + family])
     }
 }

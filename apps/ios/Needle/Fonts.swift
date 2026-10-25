@@ -147,14 +147,18 @@ struct FontsView: View {
                 ForEach(list, id: \.key) { choice in
                     let chosen = key == choice.key || (titles && key == "flex" && choice.key == "system")
                     Button { choose(choice.key) } label: {
-                        HStack {
-                            Text(choice.name).font(sample(choice.family))
-                            Spacer()
-                            if chosen { Image(systemName: "checkmark").foregroundStyle(.tint) }
+                        HStack(spacing: 12) {
+                            Text(titles ? "Good evening" : "Harbor Lights · Mara Quinn · 3:48")
+                                .font(sample(choice.family))
+                                .lineLimit(1)
+                            Spacer(minLength: 8)
+                            Text(choice.name).font(.caption).foregroundStyle(chosen ? AnyShapeStyle(.tint) : AnyShapeStyle(.secondary))
                         }
                         .contentShape(.rect)
                     }
                     .foregroundStyle(.primary)
+                    .listRowBackground(chosen ? store.colors.accent.opacity(0.15) : nil)
+                    .accessibilityLabel(choice.name)
                     .accessibilityAddTraits(chosen ? .isSelected : [])
                 }
             }
@@ -185,8 +189,8 @@ struct FontsView: View {
     }
 
     private func sample(_ family: String?) -> Font {
-        guard let family else { return titles ? .title3.bold() : .body }
-        if titles { return .custom(family, size: 20).weight(NeedleFonts.singleWeight.contains(family) ? .regular : .bold) }
-        return .custom(family, size: 17)
+        guard let family else { return titles ? .system(size: 22, weight: .semibold) : .system(size: 15) }
+        if titles { return .custom(family, size: 22).weight(NeedleFonts.singleWeight.contains(family) ? .regular : .semibold) }
+        return .custom(family, size: 15)
     }
 }
