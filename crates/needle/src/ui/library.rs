@@ -415,6 +415,24 @@ impl AppView {
         };
         let beside = beside
             .or_else(|| (self.page == Page::Artists).then(|| self.artist_sort_controls(tight, cx)));
+        // Albums: a grid, or a record crate to flip through.
+        let beside = beside.or_else(|| {
+            (self.page == Page::Albums).then(|| {
+                let weak = cx.entity().downgrade();
+                div().flex_shrink_0().child(super::widgets::segmented(
+                    "albums-view",
+                    &["Grid", "Crate"],
+                    self.albums_crate as usize,
+                    cx,
+                    move |index, _, cx| {
+                        let _ = weak.update(cx, |this, cx| {
+                            this.albums_crate = index == 1;
+                            cx.notify();
+                        });
+                    },
+                ))
+            })
+        });
         div()
             .flex_shrink_0()
             .px_6()
@@ -1336,7 +1354,10 @@ impl AppView {
         div().w_full().px_4().child(row)
     }
 
-    fn grid(&self, width: f32, cx: &mut Context<Self>) -> impl IntoElement {
+    fn grid(&self, width: f32, cx: &mut Context<Self>) -> AnyElement {
+        if self.page == Page::Albums && self.albums_crate {
+            return self.crate_view(width, cx);
+        }
         let artists = self.page == Page::Artists;
         let gap = 22.;
         let inner = (width - 48.).max(200.);
@@ -1368,6 +1389,7 @@ impl AppView {
             .flex_col()
             .child(with_scrollbar(list, &self.grid_scroll))
             .children(self.letter_bar(columns, cx))
+            .into_any_element()
     }
 
     pub(super) fn tile(

@@ -6,6 +6,7 @@ mod assets;
 mod bench;
 mod chrome;
 mod columns;
+mod crate_view;
 mod discord;
 mod doctor;
 mod files;
@@ -408,6 +409,8 @@ enum Event {
     OnThisDay(Vec<needle_core::numbers::OnThisDay>),
     /// A song's shape for the waveform seek bar: its id and 120 heights, 0 to 1.
     Waveform(String, Vec<f32>),
+    /// A song's lyrics translated, one line for each line: its id and the lines.
+    Translated(String, Vec<String>),
     Numbers(Box<needle_core::numbers::LibraryNumbers>),
     MoodMap(Vec<needle_core::radio::MoodPoint>),
     ArtFetched,
@@ -456,8 +459,16 @@ pub struct AppView {
     on_this_day: Vec<needle_core::numbers::OnThisDay>,
     /// The playing song's shape, for the waveform seek bar: its id and heights.
     waveform: Option<(String, Vec<f32>)>,
+    /// Lyrics translated by a plugin, shown under each line while Translate is on.
+    translate_lyrics: bool,
+    translation: Option<(String, Vec<String>)>,
     /// The visualizer shows in the big player and full screen.
     visualizer: bool,
+    /// Albums show as a record crate, not a grid; the record in front, and the wheel's part
+    /// turn.
+    albums_crate: bool,
+    crate_index: usize,
+    crate_scroll: f32,
     /// Your library's numbers, and the mood map's songs, the spot clicked on it, and where it
     /// was drawn.
     numbers: Option<Box<needle_core::numbers::LibraryNumbers>>,
@@ -1094,7 +1105,12 @@ impl AppView {
             picture_sweep: needle_core::media::pictures::PictureSweep::start(library.clone()),
             on_this_day: vec![],
             waveform: None,
+            translate_lyrics: false,
+            translation: None,
             visualizer: false,
+            albums_crate: false,
+            crate_index: 0,
+            crate_scroll: 0.,
             numbers: None,
             mood_points: Default::default(),
             mood_pick: None,
@@ -1568,6 +1584,7 @@ impl AppView {
                 Event::Home(home) => self.home = Some(home),
                 Event::OnThisDay(days) => self.on_this_day = days,
                 Event::Waveform(id, heights) => self.waveform = Some((id, heights)),
+                Event::Translated(id, lines) => self.translation = Some((id, lines)),
                 Event::Numbers(numbers) => self.numbers = Some(numbers),
                 Event::MoodMap(points) => self.mood_points = std::rc::Rc::new(points),
                 Event::Subfolders(path, list) => self.subfolders = Some((path, list)),
