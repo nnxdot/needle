@@ -38,6 +38,8 @@ class PlaybackService : MediaLibraryService() {
         super.onCreate()
         val core = NeedleApp.instance.core
         val player = NeedlePlayer(Looper.getMainLooper(), core)
+        // The player's buttons chosen in Settings, in the notification as far as Android allows.
+        player.onTick = { refreshButtons() }
         val callback = Library(core)
         library = callback
         // Tapping the notification, the lock screen's player, or a TV's "now playing" opens Needle.
@@ -51,6 +53,52 @@ class PlaybackService : MediaLibraryService() {
     }
 
     override fun onGetSession(controllerInfo: MediaSession.ControllerInfo) = session
+
+    /** What the notification's own buttons were last made from. */
+    private var buttonsKey: String? = null
+
+    /**
+     * The notification's buttons (Settings › Appearance › Player buttons): Shuffle, Repeat, and
+     * Favorite where chosen, in the chosen order. Where Previous or Next is not chosen, the first
+     * of them takes its place; the rest go in the notification's overflow, as Android allows.
+     * Previous and Next stay as commands for headphones and cars. Lyrics, the queue, and
+     * speakers have no place there.
+     */
+    private fun refreshButtons() {
+        val s = session ?: return
+        val chosen = fyi.nnx.needle.ui.chosenButtons(NeedleApp.instance.more.value.playerButtons)
+        val playback = runCatching { NeedleApp.instance.core.playback() }.getOrNull()
+        val repeat = playback?.repeat ?: fyi.nnx.needle.core.RepeatMode.OFF
+        val favorite = (playback?.current?.rating?.toInt() ?: 0) >= 4
+        val key = "$chosen/$repeat/$favorite"
+        if (key == buttonsKey) return
+        buttonsKey = key
+        // The places Previous and Next leave free, in order.
+        val free = ArrayDeque(listOfNotNull(
+            androidx.media3.session.CommandButton.SLOT_BACK.takeIf { "previous" !in chosen },
+            androidx.media3.session.CommandButton.SLOT_FORWARD.takeIf { "next" !in chosen },
+        ))
+        val buttons = chosen.mapNotNull { name ->
+            when (name) {
+                "shuffle" -> androidx.media3.session.CommandButton.Builder(androidx.media3.session.CommandButton.ICON_SHUFFLE_OFF)
+                    .setDisplayName("Shuffle")
+                    .setSessionCommand(androidx.media3.session.SessionCommand(SHUFFLE, android.os.Bundle.EMPTY))
+                "repeat" -> androidx.media3.session.CommandButton.Builder(
+                    when (repeat) {
+                        fyi.nnx.needle.core.RepeatMode.ALL -> androidx.media3.session.CommandButton.ICON_REPEAT_ALL
+                        fyi.nnx.needle.core.RepeatMode.ONE -> androidx.media3.session.CommandButton.ICON_REPEAT_ONE
+                        else -> androidx.media3.session.CommandButton.ICON_REPEAT_OFF
+                    },
+                ).setDisplayName("Repeat").setSessionCommand(androidx.media3.session.SessionCommand(REPEAT, android.os.Bundle.EMPTY))
+                "favorite" -> androidx.media3.session.CommandButton.Builder(
+                    if (favorite) androidx.media3.session.CommandButton.ICON_HEART_FILLED else androidx.media3.session.CommandButton.ICON_HEART_UNFILLED,
+                ).setDisplayName(if (favorite) "Take out of favorites" else "Add to favorites")
+                    .setSessionCommand(androidx.media3.session.SessionCommand(FAVORITE, android.os.Bundle.EMPTY))
+                else -> null
+            }?.setSlots(free.removeFirstOrNull() ?: androidx.media3.session.CommandButton.SLOT_OVERFLOW)?.build()
+        }
+        s.setMediaButtonPreferences(buttons)
+    }
 
     override fun onDestroy() {
         focus?.stop()
@@ -67,6 +115,11 @@ class PlaybackService : MediaLibraryService() {
         super.onDestroy()
     }
 }
+
+/** The notification's own buttons (see [PlaybackService.refreshButtons]). */
+private const val SHUFFLE = "fyi.nnx.needle.SHUFFLE"
+private const val REPEAT = "fyi.nnx.needle.REPEAT"
+private const val FAVORITE = "fyi.nnx.needle.FAVORITE"
 
 private const val ROOT = "root"
 private const val ALBUMS = "albums"
@@ -126,6 +179,43 @@ private class Library(private val core: Needle) : MediaLibraryService.MediaLibra
             if (next.size < 1000) break
         }
         return all
+    }
+
+    // The notification's (and a watch's) own buttons: Shuffle, Repeat, and Favorite.
+    override fun onConnect(session: MediaSession, controller: MediaSession.ControllerInfo): MediaSession.ConnectionResult {
+        val commands = MediaSession.ConnectionResult.DEFAULT_SESSION_AND_LIBRARY_COMMANDS.buildUpon()
+            .add(androidx.media3.session.SessionCommand(SHUFFLE, android.os.Bundle.EMPTY))
+            .add(androidx.media3.session.SessionCommand(REPEAT, android.os.Bundle.EMPTY))
+            .add(androidx.media3.session.SessionCommand(FAVORITE, android.os.Bundle.EMPTY))
+            .build()
+        return MediaSession.ConnectionResult.AcceptedResultBuilder(session).setAvailableSessionCommands(commands).build()
+    }
+
+    override fun onCustomCommand(
+        session: MediaSession,
+        controller: MediaSession.ControllerInfo,
+        customCommand: androidx.media3.session.SessionCommand,
+        args: android.os.Bundle,
+    ): ListenableFuture<androidx.media3.session.SessionResult> {
+        val playback = runCatching { core.playback() }.getOrNull()
+        when (customCommand.customAction) {
+            SHUFFLE -> fyi.nnx.needle.ui.Controls.shuffle()
+            REPEAT -> fyi.nnx.needle.ui.Controls.setRepeat(
+                when (playback?.repeat) {
+                    fyi.nnx.needle.core.RepeatMode.OFF, null -> fyi.nnx.needle.core.RepeatMode.ALL
+                    fyi.nnx.needle.core.RepeatMode.ALL -> fyi.nnx.needle.core.RepeatMode.ONE
+                    fyi.nnx.needle.core.RepeatMode.ONE -> fyi.nnx.needle.core.RepeatMode.OFF
+                },
+            )
+            FAVORITE -> playback?.current?.let { song ->
+                executor.execute {
+                    runCatching { core.toggleFavorite(song.id) }
+                    NeedleApp.instance.libraryChanged()
+                }
+            }
+            else -> return Futures.immediateFuture(androidx.media3.session.SessionResult(androidx.media3.session.SessionError.ERROR_NOT_SUPPORTED))
+        }
+        return Futures.immediateFuture(androidx.media3.session.SessionResult(androidx.media3.session.SessionResult.RESULT_SUCCESS))
     }
 
     override fun onGetLibraryRoot(
@@ -316,9 +406,13 @@ fun songItem(song: Song, id: String, queued: Boolean = false, playing: Boolean =
 @UnstableApi
 private class NeedlePlayer(looper: Looper, private val core: Needle) : SimpleBasePlayer(looper) {
     private val handler = Handler(looper)
+    /** Called at each tick, on the player's thread (the notification's buttons follow). */
+    var onTick: (() -> Unit)? = null
+
     private val tick = object : Runnable {
         override fun run() {
             invalidateState()
+            onTick?.invoke()
             handler.postDelayed(this, 500)
         }
     }

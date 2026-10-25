@@ -99,9 +99,14 @@ pub struct AppSettings {
     pub mini_player_lyrics: bool,
     /// The player's cover: "square", "round" (a turning record), or "shape" (Material's shapes).
     pub cover_shape: String,
-    /// Font for titles: "flex" (Roboto Flex, narrow and heavy), "fraunces" (a soft serif, as
-    /// on the desktop), or "system".
+    /// Font for titles: "poster" (Roboto Flex, narrow and heavy; "flex" before 2.0), "system",
+    /// "fraunces", "instrument_serif", "dm_serif", "space_grotesk", "bricolage", "outfit", or
+    /// "own:<path>" for a .ttf or .otf file (the same names as the core's `display_font`).
     pub title_font: String,
+    /// Font for all other text: "system", "inter", "atkinson", "lexend", "plex_mono", or
+    /// "own:<path>" (the same names as the core's `text_font`).
+    #[uniffi(default = "system")]
+    pub text_font: String,
     /// All text larger or smaller: 0.85 to 1.3.
     pub text_scale: f32,
     /// How close lists sit: "compact", "comfortable", or "spacious".
@@ -159,6 +164,7 @@ impl Default for AppSettings {
             mini_player_lyrics: false,
             cover_shape: "square".into(),
             title_font: "flex".into(),
+            text_font: "system".into(),
             text_scale: 1.0,
             density: "comfortable".into(),
             accent_color: String::new(),
