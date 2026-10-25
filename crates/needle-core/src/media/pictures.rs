@@ -564,4 +564,69 @@ mod tests {
         std::fs::write(&text, "hello").unwrap();
         assert!(set_own_picture(&library, "Night Owls", ArtistPicture::Logo, &text).is_err());
     }
+
+    /// The wide picture and the logo: the listener's choice, then fanart.tv's while Needle may
+    /// ask it, then the artist's folder.
+    #[test]
+    fn fanart_comes_before_the_folder_while_online() {
+        let dir = tempfile::tempdir().unwrap();
+        let library = Library::open(dir.path().join("data")).unwrap();
+        let music = dir
+            .path()
+            .join("Music")
+            .join("Night Owls")
+            .join("First Album");
+        std::fs::create_dir_all(&music).unwrap();
+        let jpeg = [0xFF, 0xD8, 0xFF, 0];
+        let in_folder = music.parent().unwrap().join("fanart.jpg");
+        std::fs::write(&in_folder, jpeg).unwrap();
+        library
+            .upsert(&crate::model::Track {
+                id: "s1".into(),
+                path: music.join("01.flac").to_string_lossy().into(),
+                title: "One".into(),
+                artist: "Night Owls".into(),
+                album_artist: "Night Owls".into(),
+                album: "First Album".into(),
+                ..Default::default()
+            })
+            .unwrap();
+        // fanart.tv's picture, fetched before, with its answer still fresh.
+        let from_fanart = kept_file(&library, "Night Owls", ArtistPicture::Banner);
+        std::fs::create_dir_all(from_fanart.parent().unwrap()).unwrap();
+        std::fs::write(&from_fanart, jpeg).unwrap();
+        crate::media::remember(
+            &library,
+            &crate::media::fanart_kept("Night Owls"),
+            &serde_json::json!({}),
+            3_600,
+        )
+        .unwrap();
+
+        // Online lookups off: the folder's picture.
+        assert_eq!(
+            crate::media::artist_banner(&library, "Night Owls", false).unwrap(),
+            Some(in_folder.clone())
+        );
+        // While fanart.tv may be asked: its picture, though the folder has one.
+        let banner = |may_ask| {
+            crate::media::picture_in_order(
+                &library,
+                "Night Owls",
+                may_ask,
+                may_ask,
+                "banner",
+                |_| None,
+            )
+            .unwrap()
+        };
+        assert_eq!(banner(true), Some(from_fanart.clone()));
+        assert_eq!(banner(false), Some(in_folder.clone()));
+        // The listener's choice beats both.
+        let chosen = dir.path().join("mine.jpg");
+        std::fs::write(&chosen, jpeg).unwrap();
+        let own = set_own_picture(&library, "Night Owls", ArtistPicture::Banner, &chosen).unwrap();
+        assert_eq!(banner(true), Some(own.clone()));
+        assert_eq!(banner(false), Some(own));
+    }
 }

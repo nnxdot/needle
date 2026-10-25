@@ -6,7 +6,7 @@ A new look, after the Mac's, and a lot more to see and hear.
 - [wave] **The visualizer.** Bars that move with the music, in its colours, under the cover, with a glow that breathes with it. Turn it on with the new button in the big player.
 - [signal] **A seek bar shaped like the song.** In the big player and full screen, the seek bar shows the song's loud and quiet parts.
 - [artists] **Better artists.** Guests after "feat." and both halves of "A & B" get their own page, sort names from your tags are used, and accents sort where they belong. Sort artists by name, plays, songs, or newest, show only album artists, and jump with the A–Z bar.
-- [edit] **Your own artist pictures.** The pencil on an artist's page lets you choose their photo, wide picture, and logo: your own file, or any of fanart.tv's. Pictures in an artist's folder (artist.jpg, fanart.jpg, logo.png) are used too.
+- [edit] **Your own artist pictures.** The pencil on an artist's page lets you choose their photo, wide picture, and logo: your own file, or any of fanart.tv's. A photo in an artist's folder (artist.jpg) is used too, and so are a wide picture and a logo there (fanart.jpg, logo.png) when fanart.tv has none or online lookups are off.
 - [globe] **Pictures for every artist.** With online lookups on, Needle finds every artist's pictures slowly in the background, or all at once with Check all now (Settings › Artwork and lyrics).
 - [history] **On this day.** Home shows what you played one and five years ago today.
 - [albums] **Your library in numbers, and the mood map.** From Listening history: what your music is made of, and every song by how it sounds; click a spot to play the songs around it.
