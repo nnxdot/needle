@@ -896,6 +896,7 @@ impl Needle {
             "replay_gain",
             "album_gain",
             "crossfade",
+            "smart_mix",
             "autoplay_query",
         ]) {
             self.player

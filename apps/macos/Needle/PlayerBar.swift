@@ -9,18 +9,20 @@ struct PlayerBar: View {
     var body: some View {
         GeometryReader { geo in
             let narrow = geo.size.width < 600, wide = geo.size.width > 720
+            // The buttons chosen in Settings › Appearance › Layout; a narrow bar keeps the main ones.
+            let dropped = ["shuffle", "repeat", "favorite", "speakers"].filter { narrow || (!wide && $0 == "speakers") }
+            let (before, after) = PlayerButtons.split(store.settings.playerButtons.filter { !dropped.contains($0) })
             HStack(spacing: narrow ? 10 : 18) {
-                Transport(play: 30, compact: narrow, bare: true)
-                    .fixedSize()
+                HStack(spacing: narrow ? 10 : 14) {
+                    ForEach(before, id: \.self) { PlayerButton(name: $0) }
+                }
+                .font(.system(size: 16))
+                .foregroundStyle(store.colors.ink)
+                .fixedSize()
                 NowScreen()
                     .frame(maxWidth: .infinity)
                 HStack(spacing: narrow ? 10 : 14) {
-                    if !narrow, let c = store.current {
-                        Heart(on: c.favorite, size: 14) { store.toggleFavorite([c]) }
-                    }
-                    PanelButton(panel: .lyrics, icon: "quote.bubble", help: "Lyrics · ⌘L")
-                    QueueButton()
-                    if wide { SpeakersButton() }
+                    ForEach(after, id: \.self) { PlayerButton(name: $0) }
                     MoreButton(all: true)
                     VolumeControl(width: wide ? 64 : 0)
                 }
@@ -45,18 +47,18 @@ struct TopPlayer: View {
 
     var body: some View {
         HStack(spacing: 16) {
-            Transport(play: 24, compact: true, bare: true, icons: 13)
-                .fixedSize()
+            // The buttons chosen in Settings › Appearance › Layout (no speakers: the bar is narrow).
+            let (before, after) = PlayerButtons.split(store.settings.playerButtons.filter { $0 != "speakers" })
+            HStack(spacing: 11) {
+                ForEach(before, id: \.self) { PlayerButton(name: $0, play: 24) }
+            }
+            .font(.system(size: 13))
+            .foregroundStyle(store.colors.ink)
+            .fixedSize()
             TopScreen()
                 .frame(width: TopPlayer.screen)
             HStack(spacing: 14) {
-                // Always there (dimmed with nothing playing), so the bar keeps its width.
-                Heart(on: store.current?.favorite ?? false, size: 13) {
-                    if let c = store.current { store.toggleFavorite([c]) }
-                }
-                .disabled(store.current == nil)
-                PanelButton(panel: .lyrics, icon: "quote.bubble", help: "Lyrics · ⌘L")
-                QueueButton()
+                ForEach(after, id: \.self) { PlayerButton(name: $0, play: 24) }
                 MoreButton(all: true)
                 VolumeControl(width: 60)
             }
