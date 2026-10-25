@@ -112,8 +112,9 @@ holds the DAC, other apps play from the phone.
    albums with missing covers or low quality. All systems; the core counts.
 9. **On this day.** A Home shelf of what you played one year and five years ago. All
     systems; the core finds them.
-10. **Smart mixes.** Crossfade that lines up the beats of the two songs (each song's BPM is
-    known) and fades at the right moment. All systems where Needle mixes the sound.
+10. **Smart mixes.** The crossfade ends where a song's music ends (not in its silent tail)
+    and lasts whole bars at its tempo (core `smart_mix`, `crossfade::smart_ending`). It does
+    not line up the beat phase. All systems where Needle mixes the sound.
 11. **Record crate.** Flip through albums like records in a box. All systems.
 
 Listen together was dropped by the user on 2026-10-25: not in 2.0, on any system.
