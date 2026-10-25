@@ -247,10 +247,30 @@ struct ArtistTile: View {
 struct AlbumsPage: View {
     private var store: Store { .shared }
     @State private var albums: [AlbumSummary]?
+    /// The albums as a record crate to flip through, not a grid.
+    @AppStorage("albumsAsCrate") private var crate = false
 
     var body: some View {
-        TileGrid(title: "Albums", summary: albums.map { count($0.count, "album") }) {
-            ForEach(albums ?? []) { AlbumTile(album: $0, side: 172) }
+        Group {
+            if crate {
+                RecordCrate(albums: albums ?? [])
+            } else {
+                TileGrid(title: "Albums", summary: albums.map { count($0.count, "album") }) {
+                    ForEach(albums ?? []) { AlbumTile(album: $0, side: 172) }
+                }
+            }
+        }
+        .overlay(alignment: .topTrailing) {
+            Picker("View", selection: $crate) {
+                Image(systemName: "square.grid.2x2").help("Grid").tag(false)
+                Image(systemName: "square.stack.3d.down.forward").help("Record crate").tag(true)
+            }
+            .pickerStyle(.segmented)
+            .labelsHidden()
+            .fixedSize()
+            .padding(.top, 34)
+            .padding(.trailing, 28)
+            .accessibilityLabel("Show albums as")
         }
         .task(id: "\(store.search)\(store.libraryVersion)") {
             try? await Task.sleep(for: .milliseconds(store.search.isEmpty ? 0 : 150))
