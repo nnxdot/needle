@@ -254,6 +254,7 @@ final class Store {
         if shown != onComputer { onComputer = shown }
         let next = shown ? pc.map(Self.playback(of:)) ?? now : now
         if next != playback { playback = next }
+        WatchLink.shared.update(next)
         if next.current?.id != playingID { playingID = next.current?.id }
         if now.playing, !audioTaken { activateAudio() }
         audioTaken = now.playing

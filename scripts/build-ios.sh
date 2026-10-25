@@ -74,6 +74,12 @@ for framework in "$app"/Frameworks/*.framework; do
     fi
 done
 codesign --force --sign - --timestamp=none --entitlements NeedleWidgets.entitlements "$app/PlugIns/NeedleWidgets.appex"
+# The Apple Watch app, inside the iPhone app.
+for watch in "$app"/Watch/*.app; do
+    if [ -e "$watch" ]; then
+        codesign --force --sign - --timestamp=none "$watch"
+    fi
+done
 codesign --force --sign - --timestamp=none --entitlements Needle.entitlements "$app"
 (cd build/ipa && zip -qry ../Needle.ipa Payload)
 rm -rf build/ipa
