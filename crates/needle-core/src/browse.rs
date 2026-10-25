@@ -141,6 +141,22 @@ impl Library {
         Ok(rows.collect::<std::result::Result<_, _>>()?)
     }
 
+    /// Summaries of the albums with these (album artist, album) keys, in this order.
+    pub(crate) fn albums_for_keys(&self, keys: &[(String, String)]) -> Result<Vec<AlbumSummary>> {
+        let db = self.connection()?;
+        let mut out = vec![];
+        for (album_artist, album) in keys {
+            out.extend(self.album_rows(
+                &db,
+                "tracks t WHERE t.album_artist=? COLLATE NOCASE AND t.album=? COLLATE NOCASE",
+                &[
+                    Value::Text(album_artist.clone()),
+                    Value::Text(album.clone()),
+                ],
+            )?);
+        }
+        Ok(out)
+    }
     fn album_rows(
         &self,
         db: &Connection,
