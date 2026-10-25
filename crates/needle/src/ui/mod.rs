@@ -404,6 +404,8 @@ enum Event {
     ArtistPicturesChanged(String),
     /// What played on this day in earlier years, for Home.
     OnThisDay(Vec<needle_core::numbers::OnThisDay>),
+    /// A song's shape for the waveform seek bar: its id and 120 heights, 0 to 1.
+    Waveform(String, Vec<f32>),
     Numbers(Box<needle_core::numbers::LibraryNumbers>),
     MoodMap(Vec<needle_core::radio::MoodPoint>),
     ArtFetched,
@@ -450,6 +452,8 @@ pub struct AppView {
     picture_sweep: needle_core::media::pictures::PictureSweep,
     /// Home's On this day shelves.
     on_this_day: Vec<needle_core::numbers::OnThisDay>,
+    /// The playing song's shape, for the waveform seek bar: its id and heights.
+    waveform: Option<(String, Vec<f32>)>,
     /// Your library's numbers, and the mood map's songs, the spot clicked on it, and where it
     /// was drawn.
     numbers: Option<Box<needle_core::numbers::LibraryNumbers>>,
@@ -1085,6 +1089,7 @@ impl AppView {
             history_loading: false,
             picture_sweep: needle_core::media::pictures::PictureSweep::start(library.clone()),
             on_this_day: vec![],
+            waveform: None,
             numbers: None,
             mood_points: Default::default(),
             mood_pick: None,
@@ -1557,6 +1562,7 @@ impl AppView {
                 Event::Look(path, look) => self.set_look(path, look),
                 Event::Home(home) => self.home = Some(home),
                 Event::OnThisDay(days) => self.on_this_day = days,
+                Event::Waveform(id, heights) => self.waveform = Some((id, heights)),
                 Event::Numbers(numbers) => self.numbers = Some(numbers),
                 Event::MoodMap(points) => self.mood_points = std::rc::Rc::new(points),
                 Event::Subfolders(path, list) => self.subfolders = Some((path, list)),
@@ -2629,6 +2635,79 @@ impl AppView {
                 }))
             })
             .child(gpui_component::slider::Slider::new(&self.seek).disabled(disabled))
+    }
+
+    /// The seek bar over the song's shape: its loud and quiet parts as bars, the part played in
+    /// the accent; the bar itself is see-through on top, for clicking and dragging. A plain seek
+    /// bar until the shape is measured.
+    pub(super) fn wave_seek_bar(
+        &self,
+        id: &'static str,
+        disabled: bool,
+        height: f32,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
+        let current = self.playback.current.as_ref().map(|c| c.track.id.clone());
+        let Some(heights) = self
+            .waveform
+            .as_ref()
+            .filter(|(id, _)| Some(id) == current.as_ref())
+            .map(|(_, h)| h.clone())
+        else {
+            return self.seek_bar(id, disabled, cx).into_any_element();
+        };
+        let p = pal(cx);
+        let duration = self
+            .playback
+            .current
+            .as_ref()
+            .map_or(0., |c| c.track.duration);
+        let played = if duration > 0. {
+            (self.playback.position / duration).clamp(0., 1.) as f32
+        } else {
+            0.
+        };
+        let (accent, rest) = (p.accent, p.ink.opacity(0.22));
+        div()
+            .flex_1()
+            .h(px(height))
+            .relative()
+            .child(
+                canvas(
+                    |_, _, _| {},
+                    move |b, _, window, _| {
+                        let count = heights.len().max(1);
+                        let step = b.size.width / count as f32;
+                        let bar = (step * 0.62).max(px(1.));
+                        for (i, h) in heights.iter().enumerate() {
+                            let tall = (b.size.height * h.max(0.06)).max(px(2.));
+                            let x = b.left() + step * i as f32;
+                            let y = b.top() + (b.size.height - tall) / 2.;
+                            let color = if (i as f32 + 0.5) / count as f32 <= played {
+                                accent
+                            } else {
+                                rest
+                            };
+                            window.paint_quad(
+                                fill(Bounds::new(point(x, y), size(bar, tall)), color)
+                                    .corner_radii(bar / 2.),
+                            );
+                        }
+                    },
+                )
+                .absolute()
+                .inset_0(),
+            )
+            .child(
+                div()
+                    .absolute()
+                    .inset_0()
+                    .flex()
+                    .items_center()
+                    .opacity(0.)
+                    .child(self.seek_bar(id, disabled, cx)),
+            )
+            .into_any_element()
     }
 
     /// The seek bar as a thin line (its knob shows under the pointer), for the floating
