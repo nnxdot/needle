@@ -175,6 +175,11 @@ struct SongsHeader: View {
         let seed = album.album + album.displayAlbumArtist
         return HStack(alignment: .bottom, spacing: 28) {
             Cover(path: album.artwork, seed: seed, side: 232, corner: 12)
+                // The album's moving cover (beside its songs or on the server), as in the big player.
+                .overlay {
+                    MovingCoverLayer(songID: album.id, on: store.settings.animatedCovers && store.motion)
+                        .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+                }
                 .shadow(color: .black.opacity(colors.dark ? 0.45 : 0.25), radius: 30, y: 16)
             VStack(alignment: .leading, spacing: 5) {
                 Text("Album").font(.needle(.callout).weight(.semibold)).foregroundStyle(colors.ink2)
