@@ -31,6 +31,21 @@ pub struct LibraryChoices {
     pub smart_mix: bool,
 }
 
+/// Home's shelves, as on the computers.
+#[derive(Clone, uniffi::Record)]
+pub struct HomeShelves {
+    /// Albums played most recently, newest first.
+    pub recent: Vec<Album>,
+    /// Albums most recently added.
+    pub added: Vec<Album>,
+    /// Albums with the most favorite songs.
+    pub favorites: Vec<Album>,
+    /// Albums with the most plays.
+    pub most_played: Vec<Album>,
+    /// Artists with the most plays.
+    pub artists: Vec<Artist>,
+}
+
 /// One of fanart.tv's pictures of an artist: the full picture's address (for
 /// [`Needle::pick_fanart`]) and a small copy on this device to show.
 #[derive(Clone, uniffi::Record)]
@@ -148,6 +163,32 @@ impl Needle {
         })?;
         self.player.send(Command::Configure(Box::new(s)));
         Ok(())
+    }
+
+    /// Home's shelves, `limit` covers each (On this day is [`Needle::on_this_day`]).
+    pub fn home_shelves(&self, limit: u32) -> Result<HomeShelves> {
+        let home = self.library.home(limit.max(1) as usize)?;
+        let albums = |list: Vec<needle_core::browse::AlbumSummary>| -> Vec<Album> {
+            list.into_iter().map(Album::from).collect()
+        };
+        Ok(HomeShelves {
+            recent: albums(home.recent),
+            added: albums(home.added),
+            favorites: albums(home.favorites),
+            most_played: albums(home.most_played),
+            artists: home
+                .artists
+                .into_iter()
+                .map(|a| Artist {
+                    name: a.name,
+                    albums: a.albums as u32,
+                    songs: a.tracks as u32,
+                    artwork: a.artwork,
+                    letter: a.letter,
+                    plays: a.play_count,
+                })
+                .collect(),
+        })
     }
 
     /// Every button the player can show, in Needle's own order.
