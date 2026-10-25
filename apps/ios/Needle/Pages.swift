@@ -96,7 +96,7 @@ struct HomeView: View {
         }
         .task(id: store.libraryVersion) {
             home = await store.load { try $0.home() }
-            favorites = await store.load { try $0.homeFavorites() } ?? []
+            favorites = await store.load { try $0.homeShelves(limit: 20).favorites } ?? []
             let offset = Int32(TimeZone.current.secondsFromGMT())
             days = await store.load { try $0.onThisDay(utcOffset: offset, limit: 12) } ?? []
             artists = await store.load { core in
