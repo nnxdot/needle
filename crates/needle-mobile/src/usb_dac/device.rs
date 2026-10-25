@@ -131,10 +131,6 @@ impl Device {
         };
         Ok(ioctl(self.fd, CONTROL, &mut t as *mut CtrlTransfer as *mut c_void)? as usize)
     }
-
-    pub fn fd(&self) -> i32 {
-        self.fd
-    }
 }
 
 /// One isochronous transfer: the request the kernel reads, its packets, and its buffer, kept
