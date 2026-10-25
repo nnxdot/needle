@@ -338,8 +338,273 @@ fn short_path(path: &str) -> String {
     path.split(" → ").next().unwrap_or(path).trim().to_string()
 }
 
+/// A button being dragged in the Player buttons editor (Settings › Appearance › Layout).
+#[derive(Clone)]
+pub(super) struct DraggedButton(pub &'static str);
+
+struct ButtonGhost(&'static str);
+
+impl Render for ButtonGhost {
+    fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        let p = pal(cx);
+        div()
+            .size(px(36.))
+            .rounded(px(10.))
+            .bg(p.raised)
+            .border_1()
+            .border_color(p.accent.opacity(0.6))
+            .shadow_lg()
+            .flex()
+            .items_center()
+            .justify_center()
+            .child(glyph(button_glyph(self.0)).size(px(18.)).text_color(p.ink))
+    }
+}
+
+/// Every button the player can show: its settings name, icon, and name for people.
+const BUTTONS: [(&str, &str, &str); 9] = [
+    ("shuffle", "shuffle", "Shuffle"),
+    ("previous", "previous", "Previous"),
+    ("play", "play", "Play and pause"),
+    ("next", "next", "Next"),
+    ("repeat", "repeat", "Repeat"),
+    ("favorite", "heart", "Favorite"),
+    ("lyrics", "lyrics", "Lyrics"),
+    ("queue", "queue", "Queue"),
+    ("speakers", "cast", "Speakers"),
+];
+
+fn button_glyph(name: &str) -> &'static str {
+    BUTTONS
+        .iter()
+        .find(|b| b.0 == name)
+        .map_or("blank", |b| b.1)
+}
+
+fn button_label(name: &str) -> &'static str {
+    BUTTONS.iter().find(|b| b.0 == name).map_or("", |b| b.2)
+}
+
+/// `list` with `name` moved (or added) just before `before`, or at the end without one.
+fn place(list: &[&'static str], name: &'static str, before: Option<&'static str>) -> Vec<String> {
+    let mut out: Vec<&'static str> = list.iter().copied().filter(|b| *b != name).collect();
+    let at = before
+        .and_then(|b| out.iter().position(|x| *x == b))
+        .unwrap_or(out.len());
+    out.insert(at, name);
+    out.into_iter().map(String::from).collect()
+}
+
+impl AppView {
+    /// Settings › Appearance › Layout › Player buttons: a small copy of the player bar to drag
+    /// buttons in, along, and out of, with the unused ones below it.
+    pub(super) fn player_buttons_row(&self, cx: &mut Context<Self>) -> Div {
+        let chosen = self.settings.player_buttons();
+        let count = chosen.len();
+        self.expander(
+            "player-buttons",
+            "Player buttons",
+            "Which buttons the player shows, in which order.",
+            Some(
+                div()
+                    .text_size(px(12.5))
+                    .text_color(pal(cx).ink_2)
+                    .child(format!("{count} buttons"))
+                    .into_any_element(),
+            ),
+            move |cx| {
+                let p = pal(cx);
+                let unused: Vec<&'static str> = BUTTONS
+                    .iter()
+                    .map(|b| b.0)
+                    .filter(|b| !chosen.contains(b))
+                    .collect();
+                let chip = |name: &'static str, in_bar: bool, cx: &mut Context<AppView>| {
+                    let list = chosen.clone();
+                    div()
+                        .id(SharedString::from(format!(
+                            "button-{}-{name}",
+                            if in_bar { "bar" } else { "spare" }
+                        )))
+                        .size(px(36.))
+                        .rounded(px(10.))
+                        .flex()
+                        .items_center()
+                        .justify_center()
+                        .cursor_grab()
+                        .bg(if in_bar {
+                            gpui::transparent_black()
+                        } else {
+                            p.raised
+                        })
+                        .hover(|s| s.bg(p.raised_hover))
+                        .drag_over::<DraggedButton>(move |s, _, _, _| {
+                            s.border_l_2().border_color(p.accent)
+                        })
+                        .child(glyph(button_glyph(name)).size(px(18.)).text_color(p.ink))
+                        .tooltip(move |window, cx| {
+                            gpui_component::tooltip::Tooltip::new(button_label(name))
+                                .build(window, cx)
+                        })
+                        .on_drag(DraggedButton(name), |drag: &DraggedButton, _, _, cx| {
+                            cx.new(|_| ButtonGhost(drag.0))
+                        })
+                        .when(in_bar, |el| {
+                            el.on_drop(cx.listener(move |this, dragged: &DraggedButton, _, cx| {
+                                this.settings.player_buttons = place(&list, dragged.0, Some(name));
+                                this.persist_settings();
+                                cx.notify();
+                            }))
+                        })
+                };
+                let bar_list = chosen.clone();
+                let spare_list = chosen.clone();
+                div()
+                    .px(px(14.))
+                    .pb(px(14.))
+                    .flex()
+                    .flex_col()
+                    .gap_3()
+                    .child(
+                        div()
+                            .id("player-buttons-bar")
+                            .h(px(52.))
+                            .px(px(10.))
+                            .map(|el| frosted(el, 26., cx))
+                            .flex()
+                            .items_center()
+                            .gap(px(4.))
+                            .drag_over::<DraggedButton>(move |s, _, _, _| s.border_color(p.accent))
+                            .on_drop(cx.listener(move |this, dragged: &DraggedButton, _, cx| {
+                                this.settings.player_buttons = place(&bar_list, dragged.0, None);
+                                this.persist_settings();
+                                cx.notify();
+                            }))
+                            .children(
+                                chosen
+                                    .iter()
+                                    .filter(|b| TRANSPORT.contains(b))
+                                    .map(|b| chip(b, true, cx)),
+                            )
+                            // Where the song shows.
+                            .child(
+                                div()
+                                    .flex_1()
+                                    .mx_2()
+                                    .h(px(32.))
+                                    .rounded(px(8.))
+                                    .bg(if p.dark {
+                                        hsla(0., 0., 1., 0.045)
+                                    } else {
+                                        hsla(0., 0., 0., 0.035)
+                                    })
+                                    .flex()
+                                    .items_center()
+                                    .justify_center()
+                                    .text_size(px(11.5))
+                                    .text_color(p.ink_3)
+                                    .child("The song"),
+                            )
+                            .children(
+                                chosen
+                                    .iter()
+                                    .filter(|b| !TRANSPORT.contains(b))
+                                    .map(|b| chip(b, true, cx)),
+                            ),
+                    )
+                    .child(
+                        div()
+                            .id("player-buttons-spare")
+                            .min_h(px(52.))
+                            .p(px(8.))
+                            .rounded(px(12.))
+                            .border_1()
+                            .border_dashed()
+                            .border_color(p.line)
+                            .flex()
+                            .items_center()
+                            .gap(px(6.))
+                            .drag_over::<DraggedButton>(move |s, _, _, _| {
+                                s.border_color(p.accent).bg(p.accent_soft)
+                            })
+                            .on_drop(cx.listener(move |this, dragged: &DraggedButton, _, cx| {
+                                // Play and pause always stays.
+                                if dragged.0 == "play" {
+                                    return;
+                                }
+                                this.settings.player_buttons = spare_list
+                                    .iter()
+                                    .filter(|b| **b != dragged.0)
+                                    .map(|b| b.to_string())
+                                    .collect();
+                                this.persist_settings();
+                                cx.notify();
+                            }))
+                            .children(unused.iter().map(|b| chip(b, false, cx)))
+                            .when(unused.is_empty(), |el| {
+                                el.child(
+                                    div()
+                                        .text_size(px(12.))
+                                        .text_color(p.ink_3)
+                                        .child("Drag a button here to take it out of the player."),
+                                )
+                            }),
+                    )
+                    .child(
+                        div()
+                            .flex()
+                            .items_center()
+                            .justify_between()
+                            .child(
+                                div()
+                                    .text_size(px(12.))
+                                    .text_color(p.ink_3)
+                                    .child("Drag to move a button, add one, or take one out."),
+                            )
+                            .child(
+                                super::widgets::small_button(
+                                    "player-buttons-reset",
+                                    "Put back Needle's buttons",
+                                )
+                                .on_click(cx.listener(
+                                    |this, _, _, cx| {
+                                        this.settings.player_buttons =
+                                            needle_core::model::PLAYER_BUTTONS
+                                                .iter()
+                                                .map(|b| b.to_string())
+                                                .collect();
+                                        this.persist_settings();
+                                        cx.notify();
+                                    },
+                                )),
+                            ),
+                    )
+                    .into_any_element()
+            },
+            cx,
+        )
+    }
+}
+
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn buttons_move_and_join() {
+        let list = ["shuffle", "play", "next"];
+        assert_eq!(
+            super::place(&list, "next", Some("shuffle")),
+            ["next", "shuffle", "play"]
+        );
+        assert_eq!(
+            super::place(&list, "lyrics", None),
+            ["shuffle", "play", "next", "lyrics"]
+        );
+        assert_eq!(
+            super::place(&list, "shuffle", Some("next")),
+            ["play", "shuffle", "next"]
+        );
+    }
+
     #[test]
     fn the_chip_shows_the_file_part() {
         assert_eq!(
