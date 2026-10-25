@@ -11,9 +11,14 @@ enum PlayerButtons {
     static let transport: Set<String> = ["shuffle", "previous", "play", "next", "repeat"]
     /// The ones at the foot.
     static let foot: Set<String> = ["lyrics", "speakers", "queue"]
+    /// The iPhone's own first choice, as Apple Music's: Previous, Play, and Next in the middle,
+    /// no Shuffle or Repeat (they are in Up Next).
+    static let phoneDefault = all.filter { $0 != "shuffle" && $0 != "repeat" }
 
-    /// The chosen buttons, known ones only, each once, with Play always there.
+    /// The chosen buttons, known ones only, each once, with Play always there. The core's
+    /// untouched default (every button, for the computers) is the iPhone's own default here.
     static func chosen(_ list: [String]) -> [String] {
+        if list == all { return phoneDefault }
         var seen: [String] = []
         for name in list where all.contains(name) && !seen.contains(name) { seen.append(name) }
         if !seen.contains("play") { seen.insert("play", at: 0) }
@@ -93,7 +98,7 @@ struct PlayerButtonsView: View {
             }
             Section {
                 Button("Reset") { save(PlayerButtons.all) }
-                    .disabled(list == PlayerButtons.all)
+                    .disabled(list == PlayerButtons.phoneDefault)
             }
         }
         .environment(\.editMode, .constant(.active))
