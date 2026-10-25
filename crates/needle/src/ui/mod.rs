@@ -1,6 +1,7 @@
 mod ambient;
 mod appearance;
 mod artist;
+mod artists_ui;
 mod assets;
 mod bench;
 mod chrome;
@@ -1825,6 +1826,7 @@ impl AppView {
     }
 
     fn refresh(&mut self, cx: &mut Context<Self>) {
+        let choice = self.artist_choice();
         let _slow = bench::Slow::new("refresh");
         if !self.page.is_tracks() {
             return;
@@ -1876,7 +1878,9 @@ impl AppView {
             std::thread::spawn(move || {
                 let result = match &page {
                     Page::Albums => library.albums(&expression).map(library::album_groups),
-                    Page::Artists => library.artists(&expression).map(library::artist_groups),
+                    Page::Artists => library
+                        .artists_by(&expression, choice)
+                        .map(library::artist_groups),
                     Page::Artist(name) => library.artist_albums(name).map(library::album_groups),
                     _ => Ok(vec![]),
                 };

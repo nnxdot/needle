@@ -180,7 +180,13 @@ pub fn moving_cover(id: &'static str, path: &str, size: f32) -> Option<AnyElemen
             .flex_shrink_0()
             .rounded(px((size * 0.06).clamp(3., 8.)))
             .overflow_hidden()
-            .child(img(frames).id(id).size_full().object_fit(ObjectFit::Cover))
+            .child(
+                img(frames)
+                    .id(id)
+                    .size_full()
+                    .rounded(px((size * 0.06).clamp(3., 8.)))
+                    .object_fit(ObjectFit::Cover),
+            )
             .into_any_element(),
     )
 }
