@@ -403,6 +403,16 @@ final class Store {
 
     // MARK: - Settings
 
+    /// A title font saved in the app's own settings (test builds before 2.0's core) moves once
+    /// to the core's display_font, where every system keeps it; "flex", Android's first one,
+    /// never meant anything on the iPhone and stays Plain.
+    func moveOldTitleFont() {
+        let old = app.titleFont
+        guard old != "flex", NeedleFonts.titles.contains(where: { $0.key == old }) || old.hasPrefix("own:") else { return }
+        updateChoices { if $0.displayFont == "system" { $0.displayFont = old } }
+        updateApp { $0.titleFont = "flex" }
+    }
+
     func updateChoices(_ change: (inout LibraryChoices) -> Void) {
         var next = choices
         change(&next)
