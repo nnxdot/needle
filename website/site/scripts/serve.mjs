@@ -6,7 +6,7 @@ import { extname, join, normalize } from "node:path";
 
 const root = new URL("../../public/", import.meta.url).pathname.replace(/^\/(\w:)/, "$1");
 const port = Number(process.argv[2] ?? 4321);
-const types = { ".html": "text/html; charset=utf-8", ".css": "text/css", ".js": "text/javascript", ".json": "application/json", ".png": "image/png", ".webp": "image/webp", ".woff2": "font/woff2", ".sh": "text/plain; charset=utf-8", ".txt": "text/plain; charset=utf-8", ".svg": "image/svg+xml" };
+const types = { ".html": "text/html; charset=utf-8", ".css": "text/css", ".js": "text/javascript", ".json": "application/json", ".png": "image/png", ".webp": "image/webp", ".woff2": "font/woff2", ".ttf": "font/ttf", ".sh": "text/plain; charset=utf-8", ".txt": "text/plain; charset=utf-8", ".svg": "image/svg+xml" };
 
 createServer(async (req, res) => {
   const path = decodeURIComponent(new URL(req.url, "http://x").pathname);
