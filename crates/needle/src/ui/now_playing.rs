@@ -458,7 +458,12 @@ impl AppView {
                                         .w(px(40.))
                                         .text_right(),
                                     )
-                                    .child(self.seek_bar("big-seek", current.is_none(), cx))
+                                    .child(self.wave_seek_bar(
+                                        "big-seek",
+                                        current.is_none(),
+                                        34.,
+                                        cx,
+                                    ))
                                     .child(
                                         faint(
                                             current

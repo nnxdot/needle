@@ -275,7 +275,7 @@ impl AppView {
                 .w(px(40.))
                 .text_right(),
             )
-            .child(self.seek_bar("imm-seek", current.is_none(), cx))
+            .child(self.wave_seek_bar("imm-seek", current.is_none(), 30., cx))
             .child(
                 faint(
                     current
