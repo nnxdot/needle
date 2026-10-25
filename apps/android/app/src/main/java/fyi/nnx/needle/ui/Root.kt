@@ -286,6 +286,24 @@ fun NeedleRoot() {
                         }
                     }
                 }
+                // A tablet's side pane, floating over the page's right side above the player.
+                if (wide) {
+                    val pane by Ui.pane.collectAsState()
+                    val shown = pane
+                    Column(Modifier.align(androidx.compose.ui.Alignment.TopEnd)) {
+                    AnimatedVisibility(
+                        visible = shown != null && hasSong && !playerOpen,
+                        enter = fadeIn(tween(200)) + slideInHorizontally(tween(260)) { it / 3 },
+                        exit = fadeOut(tween(150)) + slideOutHorizontally(tween(200)) { it / 3 },
+                    ) {
+                        val bars = with(LocalDensity.current) { barHeight.toDp() }
+                        // The last kind shown stays while the pane slides away.
+                        var last by remember { mutableStateOf(SideKind.Lyrics) }
+                        if (shown != null) last = shown
+                        SidePane(last, open, Modifier.padding(top = 12.dp, end = 20.dp, bottom = bars + 8.dp))
+                    }
+                    }
+                }
                 // The bar of chosen songs, and under it the dock: the mini player and the tabs as
                 // one floating glass bar on a phone; on a tablet or TV, the player alone.
                 val typing = androidx.compose.foundation.layout.WindowInsets.isImeVisible

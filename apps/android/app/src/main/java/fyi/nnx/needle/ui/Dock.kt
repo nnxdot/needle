@@ -143,7 +143,7 @@ private fun DockTabs(tab: Tab, choose: (Tab) -> Unit) {
 @Composable
 fun FloatingPlayer(onOpenPlayer: () -> Unit, modifier: Modifier = Modifier) {
     Box(modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
-        Box(Modifier.fillMaxWidth().widthIn(max = 820.dp).glass(DockShape)) {
+        Box(Modifier.widthIn(max = 820.dp).fillMaxWidth().glass(DockShape)) {
             MiniPlayer(onOpen = onOpenPlayer, docked = true)
         }
     }

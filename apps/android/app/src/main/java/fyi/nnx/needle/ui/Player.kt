@@ -41,6 +41,10 @@ import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.border
+import androidx.compose.material.icons.rounded.Close
+import androidx.compose.ui.semantics.selected
+import androidx.compose.ui.semantics.heading
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
@@ -258,6 +262,20 @@ private fun MiniPlayerBody(playing: Boolean, song: Song, onOpen: () -> Unit, col
             ) { PlayPauseIcon(playing, 26.dp) }
             IconButton(onClick = { Controls.next() }) {
                 Icon(Icons.Rounded.SkipNext, contentDescription = "Next", modifier = Modifier.size(30.dp))
+            }
+            // A tablet's floating player opens the side pane: the lyrics, or what is up next.
+            if (docked && wide) {
+                val pane by Ui.pane.collectAsState()
+                SideKind.entries.forEach { kind ->
+                    val on = pane == kind
+                    IconButton(onClick = { Ui.pane.value = if (on) null else kind }, modifier = Modifier.semantics { selected = on }) {
+                        Icon(
+                            if (kind == SideKind.Lyrics) Icons.Rounded.Lyrics else Icons.AutoMirrored.Rounded.QueueMusic,
+                            contentDescription = if (kind == SideKind.Lyrics) "Lyrics" else "Up next",
+                            tint = if (on) MaterialTheme.colorScheme.primary else LocalContentColor.current,
+                        )
+                    }
+                }
             }
         }
         Box {
@@ -661,6 +679,51 @@ fun FullPlayer(onClose: () -> Unit, open: (Route) -> Unit) {
             }
         }
     }
+    }
+}
+
+/**
+ * A tablet's (or a TV's) side pane (DESIGN.md): the lyrics or what is up next, in a rounded pane
+ * floating over the page's right side, dark on the blurred cover as the player is.
+ */
+@Composable
+fun SidePane(kind: SideKind, open: (Route) -> Unit, modifier: Modifier = Modifier) {
+    val playbackState = NeedleApp.instance.playback.collectAsState()
+    val current by remember { derivedStateOf { playbackState.value?.current } }
+    val queueVersion by remember { derivedStateOf { playbackState.value?.queueVersion ?: 0uL } }
+    val song = remember(current) { current } ?: return
+    val position = { playbackState.value?.position ?: 0.0 }
+    val shape = RoundedCornerShape(22.dp)
+    CoverTheme(song.artwork) {
+        Box(
+            modifier
+                .width(320.dp)
+                .fillMaxHeight()
+                .shadow(18.dp, shape, ambientColor = Color.Black.copy(alpha = 0.4f), spotColor = Color.Black.copy(alpha = 0.4f))
+                .clip(shape)
+                .border(0.5.dp, Color.White.copy(alpha = 0.1f), shape),
+        ) {
+            PlayerBackdrop(song, reading = true)
+            CompositionLocalProvider(LocalContentColor provides Color.White) {
+                Column(Modifier.fillMaxSize().padding(start = 20.dp, end = 8.dp, top = 8.dp, bottom = 12.dp)) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text(
+                            if (kind == SideKind.Lyrics) "Lyrics" else "Up next",
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.Bold,
+                            modifier = Modifier.weight(1f).semantics { heading() },
+                        )
+                        IconButton(onClick = { Ui.pane.value = null }) { Icon(Icons.Rounded.Close, contentDescription = "Close") }
+                    }
+                    Box(Modifier.weight(1f).padding(end = 12.dp)) {
+                        when (kind) {
+                            SideKind.Lyrics -> LyricsPanel(song, position, compact = true) { open(Route.Timing(song.id)) }
+                            SideKind.Queue -> UpNextPanel(queueVersion, titled = false)
+                        }
+                    }
+                }
+            }
+        }
     }
 }
 
@@ -1174,7 +1237,7 @@ private fun SeekBar(position: Double, duration: Double, playing: Boolean) {
 }
 
 @Composable
-private fun LyricsPanel(song: Song, position: () -> Double, time: () -> Unit) {
+private fun LyricsPanel(song: Song, position: () -> Double, compact: Boolean = false, time: () -> Unit) {
     // Looked up again after NetEase is added.
     var retry by remember(song.id) { androidx.compose.runtime.mutableIntStateOf(0) }
     var askingNetEase by remember(song.id) { mutableStateOf(false) }
@@ -1248,7 +1311,7 @@ private fun LyricsPanel(song: Song, position: () -> Double, time: () -> Unit) {
                 } else null
                 Text(
                     sung ?: androidx.compose.ui.text.AnnotatedString(line.text.ifBlank { "♪" }),
-                    style = MaterialTheme.typography.headlineMedium,
+                    style = if (compact) MaterialTheme.typography.titleLarge else MaterialTheme.typography.headlineMedium,
                     fontWeight = FontWeight.Bold,
                     color = Color.White.copy(alpha = alpha),
                     modifier = Modifier
@@ -1266,7 +1329,7 @@ private fun LyricsPanel(song: Song, position: () -> Double, time: () -> Unit) {
 
 @OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
 @Composable
-private fun UpNextPanel(version: ULong) {
+private fun UpNextPanel(version: ULong, titled: Boolean = true) {
     // Read again at each change of the queue, with the old list kept on screen until the new
     // one is in: no blank moment, and the list keeps its place as songs are moved or taken out.
     var songs by remember { mutableStateOf<List<Song>?>(null) }
@@ -1289,7 +1352,7 @@ private fun UpNextPanel(version: ULong) {
     // Up next on this phone can be put in order by dragging a song's handle.
     val reorder = rememberReorder(list.size) { from, to -> move(from, to) }
     Column(Modifier.fillMaxHeight()) {
-        Text("Up next", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, modifier = Modifier.padding(vertical = 8.dp))
+        if (titled) Text("Up next", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, modifier = Modifier.padding(vertical = 8.dp))
         if (songs != null && list.isEmpty()) {
             Text("Nothing up next", color = Color.White.copy(alpha = 0.6f))
             return@Column
