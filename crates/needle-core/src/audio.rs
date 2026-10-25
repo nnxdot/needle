@@ -1967,10 +1967,11 @@ impl Worker {
             .platform
             .as_ref()
             .is_some_and(|p| p.failed.load(std::sync::atomic::Ordering::SeqCst));
-        if (failed
-            || crate::platform_output::CHANGED.swap(false, std::sync::atomic::Ordering::SeqCst))
-            && self.sink.is_some()
-        {
+        // Both read every time: a failure also marks the output changed, and that mark left
+        // standing would restart the output again a moment later (and clear the notice).
+        let changed =
+            crate::platform_output::CHANGED.swap(false, std::sync::atomic::Ordering::SeqCst);
+        if (failed || changed) && self.sink.is_some() {
             let (position, playing) = (self.position(), self.playing);
             let notice = self
                 .platform

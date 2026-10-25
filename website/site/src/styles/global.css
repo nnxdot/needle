@@ -1,9 +1,11 @@
-/* Needle's site, 2.0. Warm charcoal, never pure black; one colour that calls, the amber of the
-   record in the icon. Geist for words, Geist Mono for small labels, Instrument Serif for a
-   few words that lean in. Text steps down in four warm tones: --hi, --glow, --mist, --fog.
-   Corners: buttons and the bar are pills, pictures 28px, cards 16px. An 8px grid. */
+/* Needle's site, 2.0. Warm charcoal at night and a soft grey by day, never pure black or
+   white; one colour that calls, the amber of the record in the icon. Geist for words (the
+   amber words too), Geist Mono for small labels. Text steps down in four tones: --hi, --glow,
+   --mist, --fog. Corners: anything you press is a pill; cards 16px; pictures of the app 20px,
+   pictures inside a card 12px; phones are drawn as phones. An 8px grid. */
 @font-face { font-family: "Geist"; src: url("/fonts/Geist.woff2") format("woff2"); font-weight: 100 900; font-display: swap; }
 @font-face { font-family: "Geist Mono"; src: url("/fonts/GeistMono.woff2") format("woff2"); font-weight: 100 900; font-display: swap; }
+/* Only the fonts card shows a serif: Instrument Serif is one of Needle's own title fonts. */
 @font-face { font-family: "Instrument Serif"; src: url("/fonts/InstrumentSerif.ttf") format("truetype"); font-weight: 400; font-display: swap; }
 
 :root {
@@ -27,6 +29,9 @@
   --paper-ink-2: #62584e;
   --paper-hair: rgb(41 35 30 / .12);
   --glass: rgb(27 24 22 / .58);
+  /* What washes and lines are made of: light on the dark page, dark on the light one. */
+  --wash: 255 255 255;
+  --frame: #0c0b0a;
   /* Raycast's keycap: a lit top edge, a hairline ring, a dark bottom edge. */
   --keycap: rgb(255 255 255 / .05) 0 1px 0 0 inset, rgb(244 237 227 / .09) 0 0 0 1px, rgb(0 0 0 / .25) 0 -1px 0 0 inset;
   /* Authkit's frosted glass, for things that float. */
@@ -39,6 +44,28 @@
   --mono: "Geist Mono", ui-monospace, "Cascadia Code", Consolas, monospace;
   --serif: "Instrument Serif", "Iowan Old Style", Georgia, serif;
   color-scheme: dark;
+}
+@media (prefers-color-scheme: light) {
+  :root {
+    --canvas: #f6f6f4;
+    --canvas-2: #eeeeeb;
+    --raised: #fcfcfb;
+    --raised-2: #fdfdfc;
+    --hair: rgb(28 26 24 / .09);
+    --hair-2: rgb(28 26 24 / .15);
+    --hi: #181716;
+    --glow: #353230;
+    --mist: #5c5853;
+    --fog: #716c66;
+    --amber-2: #8a5a14;
+    --amber-soft: rgb(176 112 20 / .1);
+    --glass: rgb(250 250 248 / .72);
+    --wash: 28 26 24;
+    --keycap: rgb(255 255 255 / .8) 0 1px 0 0 inset, rgb(28 26 24 / .1) 0 0 0 1px, rgb(28 26 24 / .05) 0 -1px 0 0 inset;
+    --frost: inset 0 1px 1px rgb(255 255 255 / .7), 0 16px 32px rgb(40 32 24 / .1);
+    --lift: rgb(40 32 24 / .16) 0 28px 70px, rgb(40 32 24 / .1) 0 14px 32px;
+    color-scheme: light;
+  }
 }
 
 * { box-sizing: border-box; }
@@ -60,7 +87,8 @@ code, kbd { font-family: var(--mono); font-size: .88em; }
 /* Headlines: a light weight, drawn close together, as Superhuman sets them. */
 h1, h2, h3 { margin: 0; color: var(--hi); font-weight: 460; line-height: 1.04; letter-spacing: -.035em; text-wrap: balance; }
 h3 { letter-spacing: -.02em; line-height: 1.2; font-weight: 520; }
-.serif { font-family: var(--serif); font-weight: 400; letter-spacing: -.01em; color: var(--amber-2); }
+/* An amber word in a headline: the same font, only its colour changes. */
+.em { color: var(--amber-2); }
 p { text-wrap: pretty; }
 .icon { width: 1.2em; height: 1.2em; flex: none; }
 
@@ -137,11 +165,11 @@ p { text-wrap: pretty; }
 .btn:active { transform: scale(.98); }
 .btn-primary {
   background: linear-gradient(180deg, #ecc283, var(--amber)); color: var(--amber-ink);
-  box-shadow: inset 0 1px 0 rgb(255 255 255 / .45), inset 0 -1px 0 rgb(0 0 0 / .18), 0 0 0 1px rgb(120 80 30 / .5), 0 8px 24px -10px rgb(226 180 108 / .6);
+  box-shadow: inset 0 1px 0 rgb(255 255 255 / .45), inset 0 -1px 0 rgb(0 0 0 / .18), 0 0 0 1px rgb(120 80 30 / .5);
 }
-.btn-primary:hover { transform: translateY(-1px); box-shadow: inset 0 1px 0 rgb(255 255 255 / .45), inset 0 -1px 0 rgb(0 0 0 / .18), 0 0 0 1px rgb(120 80 30 / .5), 0 14px 32px -12px rgb(226 180 108 / .8); }
-.btn-quiet { background: rgb(255 255 255 / .06); color: var(--hi); box-shadow: inset 0 0 0 1px var(--hair-2), inset 0 1px 0 rgb(255 255 255 / .06); }
-.btn-quiet:hover { background: rgb(255 255 255 / .1); }
+.btn-primary:hover { transform: translateY(-1px); background: linear-gradient(180deg, #f0c98e, #e6ba76); }
+.btn-quiet { background: rgb(var(--wash) / .06); color: var(--hi); box-shadow: inset 0 0 0 1px var(--hair-2), inset 0 1px 0 rgb(var(--wash) / .06); }
+.btn-quiet:hover { background: rgb(var(--wash) / .1); }
 
 /* A link whose underline fades in. */
 .link {
@@ -159,7 +187,7 @@ p { text-wrap: pretty; }
 .card p { margin: 0; font-size: 15px; color: var(--mist); }
 .disc {
   display: grid; place-items: center; width: 40px; height: 40px; border-radius: 50%; margin-bottom: 16px;
-  background: rgb(255 255 255 / .05); box-shadow: var(--keycap); color: var(--amber-2);
+  background: rgb(var(--wash) / .05); box-shadow: var(--keycap); color: var(--amber-2);
 }
 .disc .icon { width: 20px; height: 20px; }
 
@@ -177,7 +205,7 @@ p { text-wrap: pretty; }
 .foot-word {
   margin: 72px 0 0; font-size: clamp(5rem, 23vw, 20rem); line-height: .78; font-weight: 500; letter-spacing: -.075em;
   text-align: center; user-select: none;
-  background: linear-gradient(180deg, rgb(244 237 227 / .14), transparent 80%); -webkit-background-clip: text; background-clip: text; color: transparent;
+  background: linear-gradient(180deg, rgb(var(--wash) / .12), transparent 80%); -webkit-background-clip: text; background-clip: text; color: transparent;
 }
 /* Raycast's strip of small facts, split by bars. */
 .meta {
