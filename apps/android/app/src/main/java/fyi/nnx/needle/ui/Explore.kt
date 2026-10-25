@@ -94,7 +94,7 @@ fun NumbersScreen(open: (Route) -> Unit) {
         countSection("Formats", "Songs in each", numbers.formats, songs)
         countSection("Decades", "When the songs came out", numbers.decades, songs)
         countSection("Genres", "The ten with the most songs", numbers.genres, songs)
-        countSection("Artists", "The ten with the most songs", numbers.topArtists, songs) { open(Route.Artist(it)) }
+        countSection("Artists", "The ten with the most songs", numbers.artistsBySongs, songs) { open(Route.Artist(it)) }
         if (numbers.albumsWithoutCover > 0u) {
             item { ShelfTitle("Without a cover", count(numbers.albumsWithoutCover.toInt(), "album")) }
             item { AlbumRow(numbers.withoutCover, open) }
@@ -118,7 +118,7 @@ private fun BigNumber(value: Int, label: String) {
 private fun androidx.compose.foundation.lazy.LazyListScope.countSection(
     title: String,
     detail: String,
-    counts: List<fyi.nnx.needle.core.NamedCount>,
+    counts: List<fyi.nnx.needle.core.Count>,
     total: Int,
     onClick: ((String) -> Unit)? = null,
 ) {

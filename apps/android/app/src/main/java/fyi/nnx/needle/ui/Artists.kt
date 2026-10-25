@@ -51,13 +51,10 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import fyi.nnx.needle.NeedleApp
 import fyi.nnx.needle.core.Artist
-import fyi.nnx.needle.core.ArtistEntry
 import kotlinx.coroutines.launch
 
 /** The orders the Artists list can take (the core's `artist_order`), as people see them. */
 val ArtistOrders = listOf("name" to "Name", "most_played" to "Most played", "most_songs" to "Most songs", "recently_added" to "Recently added")
-
-private fun ArtistEntry.asArtist() = Artist(name, albums, songs, artwork)
 
 /**
  * Sort and Only album artists for the Artists list: a menu from the sort button, as the other
@@ -95,7 +92,7 @@ fun ArtistSortButton() {
 @Composable
 fun ArtistGrid(open: (Route) -> Unit, modifier: Modifier = Modifier, top: androidx.compose.ui.unit.Dp = 8.dp) {
     val more by NeedleApp.instance.more.collectAsState()
-    val listLoad = rememberLoaded(more.artistOrder, more.albumArtistsOnly) { artistList() }
+    val listLoad = rememberLoaded(more.artistOrder, more.albumArtistsOnly) { artistsBy("", more.artistOrder, more.albumArtistsOnly) }
     val loaded by listLoad
     val list = loaded.orEmpty()
     val state = rememberLazyGridState()
@@ -116,7 +113,7 @@ fun ArtistGrid(open: (Route) -> Unit, modifier: Modifier = Modifier, top: androi
             verticalArrangement = Arrangement.spacedBy(LocalRows.current.grid),
             modifier = Modifier.fillMaxSize(),
         ) {
-            items(list.size, key = { list[it].name }) { i -> ArtistTile(list[i].asArtist(), Modifier, open) }
+            items(list.size, key = { list[it].name }) { i -> ArtistTile(list[i], Modifier, open) }
         }
         if (alphabetical) {
             AlphabetBar(
@@ -183,7 +180,7 @@ fun ArtistPictures(name: String, shown: Boolean, onShown: (Boolean) -> Unit, onC
     var choosing by remember { mutableStateOf<String?>(null) }
     var fanart by remember { mutableStateOf<String?>(null) }
     // Which kinds have a picture of their own now (Reset only for those).
-    val ownLoad = rememberLoaded(name, shown, cache = false) { PictureKinds.map { it.first }.filter { ownArtistPicture(name, it) != null } }
+    val ownLoad = rememberLoaded(name, shown, cache = false) { PictureKinds.map { it.first }.filter { runCatching { ownArtistPicture(name, it) }.getOrNull() != null } }
     val own by ownLoad
     val pick = androidx.activity.compose.rememberLauncherForActivityResult(androidx.activity.result.contract.ActivityResultContracts.OpenDocument()) { uri ->
         val kind = choosing ?: return@rememberLauncherForActivityResult
@@ -212,7 +209,7 @@ fun ArtistPictures(name: String, shown: Boolean, onShown: (Boolean) -> Unit, onC
 /** All of fanart.tv's pictures of one kind for an artist, best first: a tap keeps one. */
 @Composable
 private fun FanartPicker(name: String, kind: String, onChanged: () -> Unit, onDismiss: () -> Unit) {
-    val choicesLoad = rememberLoaded(name, kind, cache = false) { artistFanartChoices(name, kind) }
+    val choicesLoad = rememberLoaded(name, kind, cache = false) { fanartChoices(name, kind) }
     val choices by choicesLoad
     var saving by remember { mutableStateOf(false) }
     androidx.compose.material3.AlertDialog(
@@ -233,7 +230,7 @@ private fun FanartPicker(name: String, kind: String, onChanged: () -> Unit, onDi
                         val c = list[i]
                         coil3.compose.AsyncImage(
                             model = c.preview,
-                            contentDescription = "Picture ${i + 1}, ${c.likes} likes",
+                            contentDescription = "Picture ${i + 1}",
                             contentScale = if (kind == "logo") androidx.compose.ui.layout.ContentScale.Fit else androidx.compose.ui.layout.ContentScale.Crop,
                             modifier = Modifier
                                 .fillMaxWidth()
@@ -243,7 +240,7 @@ private fun FanartPicker(name: String, kind: String, onChanged: () -> Unit, onDi
                                 .clickable(enabled = !saving) {
                                     saving = true
                                     var kept: Result<String>? = null
-                                    offMain({ kept = runCatching { core.pickArtistFanart(name, kind, c.url) } }) {
+                                    offMain({ kept = runCatching { core.pickFanart(name, kind, c.url) } }) {
                                         kept?.onSuccess { showMessage("Picture kept for $name"); onChanged() }
                                             ?.onFailure { showMessage(it.message ?: "Could not keep that picture") }
                                         onDismiss()
