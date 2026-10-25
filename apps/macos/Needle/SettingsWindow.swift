@@ -246,6 +246,11 @@ struct PlaybackSettingsView: View {
                 .labelsHidden()
                 .frame(width: 260)
             }
+            if s.crossfade > 0 {
+                SettingRow(title: "Smart mixes", detail: "Fades where the music ends, in whole bars.", icon: "metronome") {
+                    SettingSwitch(key: "smart_mix", on: s.smartMix)
+                }
+            }
             OpenRow(title: "When the queue runs out", detail: "Keep playing songs that match a rule.", icon: "sparkles",
                     value: s.autoplayQuery.isEmpty ? "Off" : s.autoplayQuery) {
                 VStack(alignment: .leading, spacing: 6) {

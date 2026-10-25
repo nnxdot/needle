@@ -244,9 +244,15 @@ struct NeedleSettings: Decodable, Equatable {
     var discordPaused = true
     var discordIdleMinutes = 10
     var displayFont = "system"
+    var textFont = "system"
+    var playerButtons = PlayerButtons.all
+    var artistOrder = "name"
+    var albumArtistsOnly = false
+    var artistPictures = true
     var accentColor = ""
     var ambient = false
     var crossfade: Float = 0
+    var smartMix = true
     var crashReports = true
     var welcomed = false
     var whatsNewSeen = ""

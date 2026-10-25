@@ -109,6 +109,10 @@ struct AppearanceSettings: View {
                 SketchChoice(caption: "Sidebar", chosen: !s.layout.searchHidden, kind: .searchSidebar) { store.setLayout(["search_hidden": false]) }
                 SketchChoice(caption: "⌘K", chosen: s.layout.searchHidden, kind: .searchPalette) { store.setLayout(["search_hidden": true]) }
             }
+            OpenRow(title: "Player buttons", detail: "Which buttons the player shows, in order.", icon: "playpause",
+                    value: "\(PlayerButtons.chosen(s.playerButtons).count) of \(PlayerButtons.all.count)") {
+                PlayerButtonsEditor()
+            }
             SettingRow(title: "Fold the sidebar now", detail: "The same as the sidebar button.", icon: "sidebar.left") {
                 RowToggle(isOn: Binding(get: { s.layout.sidebarHidden }, set: { store.setLayout(["sidebar_hidden": $0]) })).toggleStyle(.switch).labelsHidden()
             }
