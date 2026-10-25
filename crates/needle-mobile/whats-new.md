@@ -1,3 +1,26 @@
+# 2.0.0
+A new look, after the Mac's, and a lot more to see and hear.
+! **A new look.** The mini player and the tabs float together at the foot of the screen as one small bar of frosted glass, and the page runs on under it. Lists are plain rows with a soft line between them. Home opens with a greeting, the song playing now, and shelves of your albums.
+- [panel] **A sidebar on tablets and TVs.** As on the Mac: a search field at the top, small rows for Home, Songs, Albums, Artists, and Folders, then your collections and playlists, and Settings at the foot. The player floats over the page, and the lyrics or Up next open in a pane beside it. On a TV, the sidebar shows only its icons until you move left into it.
+- [player] **Choose the player's buttons.** Drag buttons in, out, and along in Settings › Appearance › Player buttons. The notification shows Shuffle, Repeat, and the heart too when you choose them.
+- [usb] **Needle's own USB driver.** With Settings › Sound › Bit-perfect USB on, Needle plays to a USB DAC itself, at each song's own rate, without Android's mixer. When a DAC cannot play this way, Needle plays through Android as before.
+- [watch] **Needle on your watch.** A Wear OS app shows the song playing on your phone, with its cover. Play, pause, skip, give it a heart, and turn the crown for the volume.
+- [signal] **A seek bar shaped like the song.** The player's seek bar shows the song's loud and quiet parts. Choose another in Settings › Appearance › Seek bar.
+- [wave] **The visualizer.** Light that moves with the music, in the cover's colours. Tap Visualizer at the top of the player, and open it full screen from its corner.
+- [translate] **Translate lyrics.** Tap Translate above the lyrics, and each line shows in your phone's language under it. The translation happens on your phone. Each language downloads once, on Wi-Fi.
+- [image] **Lyric cards.** Long-press a line of the lyrics for a picture of it in the cover's colours, to share.
+- [chart] **Your library in numbers, and the mood map.** From Library › More: what your music is made of, and every song by how it sounds. Circle or tap an area of the map to play it.
+- [album] **A record crate.** Flip through your albums like records in a box (Library › More › Record crate).
+- [history] **On this day.** Home shows what you played one and five years ago today.
+- [eq] **Smart mixes.** With crossfade on, the fade starts where the music ends and lasts whole bars. Turn it on under Settings › Playback › Crossfade.
+- [artists] **Better artists.** Guests after "feat." and both halves of "A & B" get their own page, sort names from your tags are used, and accents sort where they belong. Sort artists by name, most played, most songs, or recently added, show only album artists, and jump with the A–Z bar.
+- [edit] **Your own artist pictures.** On an artist's page, More lets you choose their photo, wide picture, and logo: a picture on your phone, or any of fanart.tv's. Pictures in the artist's folder are used too: artist.jpg, and fanart.jpg and logo.png when fanart.tv has none.
+- [globe] **Pictures for every artist.** With online lookups on, Needle finds every artist's pictures slowly in the background, on Wi-Fi (Settings › Library › Artist pictures).
+- [tag] **Fonts.** Choose a font for titles (such as Fraunces, Instrument Serif, and DM Serif Display) and one for everything else (such as Inter and Atkinson Hyperlegible), or a font file on your phone, in Settings › Appearance.
+- [video] **Moving covers on the album page.** An album with a moving cover shows it moving at the top of its page too.
+- [record] **A new icon.** An amber record and its arm, also when Needle starts.
+- In Up next, a row lights up under a mouse pointer.
+
 # 1.8.0
 Navidrome built in, moving covers, and calmer Settings.
 ! **Navidrome and Subsonic, built in.** Sign in to your music server in Settings › Music servers, with no plugin to add. The page shows whether the server is connected, how many songs, albums, and artists it has, and when it last updated. Bring in songs again gets new songs, and Refresh everything gets every song and cover again and removes songs the server no longer has. On this phone shows the songs you kept and the songs played lately, and frees their space after a question.

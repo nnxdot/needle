@@ -45,6 +45,16 @@ import androidx.compose.material.icons.rounded.Lyrics
 import androidx.compose.material.icons.rounded.Menu
 import androidx.compose.material.icons.rounded.PictureInPicture
 import androidx.compose.material.icons.rounded.ViewAgenda
+import androidx.compose.material.icons.rounded.Watch
+import androidx.compose.material.icons.rounded.Waves
+import androidx.compose.material.icons.rounded.Translate
+import androidx.compose.material.icons.rounded.Image
+import androidx.compose.material.icons.rounded.BarChart
+import androidx.compose.material.icons.rounded.History
+import androidx.compose.material.icons.rounded.Equalizer
+import androidx.compose.material.icons.rounded.Person
+import androidx.compose.material.icons.rounded.Edit
+import androidx.compose.material.icons.rounded.TextFields
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -108,6 +118,17 @@ private fun noteIcon(name: String): ImageVector = when (name) {
     "signal" -> Icons.Rounded.SignalCellularAlt
     "usb" -> Icons.Rounded.Usb
     "account" -> Icons.Rounded.AccountCircle
+    "watch" -> Icons.Rounded.Watch
+    "wave" -> Icons.Rounded.Waves
+    "translate" -> Icons.Rounded.Translate
+    "image" -> Icons.Rounded.Image
+    "chart" -> Icons.Rounded.BarChart
+    "history" -> Icons.Rounded.History
+    "eq" -> Icons.Rounded.Equalizer
+    "artists" -> Icons.Rounded.Person
+    "edit" -> Icons.Rounded.Edit
+    "tag" -> Icons.Rounded.TextFields
+    "record" -> Icons.Rounded.Album
     else -> Icons.Rounded.AutoAwesome
 }
 
