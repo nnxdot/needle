@@ -1967,17 +1967,25 @@ impl Worker {
             .platform
             .as_ref()
             .is_some_and(|p| p.failed.load(std::sync::atomic::Ordering::SeqCst));
-        if (failed
-            || crate::platform_output::CHANGED.swap(false, std::sync::atomic::Ordering::SeqCst))
-            && self.sink.is_some()
-        {
+        // Both read every time: a failure also marks the output changed, and that mark left
+        // standing would restart the output again a moment later (and clear the notice).
+        let changed =
+            crate::platform_output::CHANGED.swap(false, std::sync::atomic::Ordering::SeqCst);
+        if (failed || changed) && self.sink.is_some() {
             let (position, playing) = (self.position(), self.playing);
+            let notice = self
+                .platform
+                .as_ref()
+                .and_then(|p| p.failure.lock().ok()?.take());
             let mut items = vec![];
             items.extend(self.queue.active.clone());
             items.extend(self.queue.tail());
             self.release();
-            if let Err(error) = self.restart(items, position, playing) {
-                self.state.lock().unwrap().error = Some(format!("{error:#}"));
+            match self.restart(items, position, playing) {
+                // Said after the system's output opened, which clears the notice.
+                Ok(()) if notice.is_some() => self.state.lock().unwrap().output_notice = notice,
+                Ok(()) => {}
+                Err(error) => self.state.lock().unwrap().error = Some(format!("{error:#}")),
             }
             return;
         }

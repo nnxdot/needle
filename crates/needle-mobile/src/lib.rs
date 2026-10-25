@@ -31,6 +31,8 @@ mod ios;
 mod mac;
 mod media;
 mod more;
+#[cfg(test)]
+mod platform_output_tests;
 mod plugins;
 mod settings;
 mod tools;

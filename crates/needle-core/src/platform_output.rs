@@ -152,10 +152,13 @@ impl Feed {
     }
 }
 
-/// A running platform output: its thread, and whether it failed.
+/// A running platform output: its thread, and whether it failed and why.
 pub(crate) struct Running {
     stop: Arc<AtomicBool>,
     pub failed: Arc<AtomicBool>,
+    /// What to tell the listener when it failed. The player shows it once it plays on through
+    /// the system's output: opening that output clears the notice, so it cannot be set here.
+    pub failure: Arc<Mutex<Option<String>>>,
     thread: Option<std::thread::JoinHandle<()>>,
 }
 
@@ -168,7 +171,9 @@ impl Running {
     ) -> Self {
         let stop = Arc::new(AtomicBool::new(false));
         let failed = Arc::new(AtomicBool::new(false));
-        let (stop_worker, failed_worker) = (stop.clone(), failed.clone());
+        let failure = Arc::new(Mutex::new(None));
+        let (stop_worker, failed_worker, failure_worker) =
+            (stop.clone(), failed.clone(), failure.clone());
         let thread = std::thread::Builder::new()
             .name("needle-platform-output".into())
             .spawn(move || {
@@ -185,18 +190,19 @@ impl Running {
                     crate::logfile::warn(format!("{name}: {error:#}"));
                     FAILED.store(true, Ordering::SeqCst);
                     CHANGED.store(true, Ordering::SeqCst);
-                    failed_worker.store(true, Ordering::SeqCst);
-                    if let Ok(mut state) = state.lock() {
-                        state.output_notice = Some(format!(
+                    if let Ok(mut failure) = failure_worker.lock() {
+                        *failure = Some(format!(
                             "{name} stopped ({error}). Playing through the phone instead."
                         ));
                     }
+                    failed_worker.store(true, Ordering::SeqCst);
                 }
             })
             .ok();
         Self {
             stop,
             failed,
+            failure,
             thread,
         }
     }
