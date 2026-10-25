@@ -393,6 +393,8 @@ enum Event {
     ),
     /// An artist's chosen pictures changed: show them again.
     ArtistPicturesChanged(String),
+    /// What played on this day in earlier years, for Home.
+    OnThisDay(Vec<needle_core::numbers::OnThisDay>),
     ArtFetched,
     MediaKey(media_keys::Key),
     ImportProgress(String),
@@ -435,6 +437,8 @@ pub struct AppView {
     settings: Settings,
     /// Finds every artist's pictures slowly in the background (Settings › Artwork and lyrics).
     picture_sweep: needle_core::media::pictures::PictureSweep,
+    /// Home's On this day shelves.
+    on_this_day: Vec<needle_core::numbers::OnThisDay>,
     page: Page,
     back: Vec<Page>,
     /// Pages left by going back, for going forward again (a new page clears it).
@@ -1061,6 +1065,7 @@ impl AppView {
             history_range: 1,
             history_loading: false,
             picture_sweep: needle_core::media::pictures::PictureSweep::start(library.clone()),
+            on_this_day: vec![],
             library,
             player,
             playback,
@@ -1527,6 +1532,7 @@ impl AppView {
                 }
                 Event::Look(path, look) => self.set_look(path, look),
                 Event::Home(home) => self.home = Some(home),
+                Event::OnThisDay(days) => self.on_this_day = days,
                 Event::Subfolders(path, list) => self.subfolders = Some((path, list)),
                 Event::Wrapped(wrapped, years) => self.wrapped_loaded(*wrapped, years),
                 Event::Doctor(msg) => self.doctor_message(msg),
