@@ -148,6 +148,11 @@ fun NeedleRoot() {
         kept.clear()
         kept += live
     }
+    // A place chosen in a tablet's side bar: the page alone in its tab, as the Mac's side bar does.
+    val show: (Tab, Route) -> Unit = { t, r ->
+        stacks[t] = listOf(r)
+        tab = t
+    }
     val chooseTab: (Tab) -> Unit = { t ->
         // Tapping the open tab again goes back to its first page.
         if (t == tab) stacks[t] = listOf(t.root) else tab = t
@@ -212,11 +217,11 @@ fun NeedleRoot() {
     SharedTransitionLayout(Modifier.fillMaxSize()) {
         CompositionLocalProvider(LocalShared provides this) {
             Box(Modifier.fillMaxSize().onPreviewKeyEvent { lastKey = android.os.SystemClock.uptimeMillis(); false }) {
-                // On tablets the side bar and the pages share one quiet background, as on the Mac;
-                // the player and the side pane float over the page.
                 // The keyboard takes room from the pages, so a text box low on a page shows above it.
-                Row(Modifier.fillMaxSize().imePadding().focusCovered(covered).background(MaterialTheme.colorScheme.background)) {
-                if (wide) SideBar(tab, stack.last(), chooseTab, open)
+                // On a tablet the side bar sits on the window, a shade darker, and the pages on a
+                // sheet beside it with one round corner, as the Mac's and the computer's.
+                Row(Modifier.fillMaxSize().imePadding().focusCovered(covered).background(if (wide) MaterialTheme.colorScheme.surfaceContainerLowest else MaterialTheme.colorScheme.background)) {
+                if (wide) SideBar(tab, stack.last(), chooseTab, open, show)
                 // Pages lay out by the room they have (see Adaptive.kt).
                 androidx.compose.foundation.layout.BoxWithConstraints(Modifier.weight(1f).then(if (wide) Modifier.pane() else Modifier).focusRequester(pageFocus).onFocusChanged {
                     if (inPage && !it.hasFocus && android.os.SystemClock.uptimeMillis() - lastKey > 250) toPage++

@@ -19,7 +19,8 @@ plays and the one main button.
    pane (22 dp corners, 320 dp wide) over the page's right side, not in a column with a line.
 3. **One quiet background.** Behind everything, tinted by the cover where the page is a
    cover's. No lines between the parts of the screen (no frame, no band behind a scrolled
-   title); only soft lines between rows.
+   title); only soft lines between rows. On a tablet or TV the side bar sits on the window's
+   darker colour and the page is a sheet beside it (see below).
 4. **The music is the colour.** Album, artist, and playlist pages and the player take their
    cover's colours (`CoverTheme`) and the blurred cover at their top (`CoverBackdrop`).
 5. **Big title, small text.** One bold title per page (28 on a phone, `headlineMedium`), with
@@ -62,8 +63,20 @@ plays and the one main button.
 - Pages 560 dp wide or more use the room, never a phone's layout stretched: album and playlist
   pages put the cover at the left with the name and buttons beside it; an artist's picture is a
   wide band.
-- The side bar (`SideBar.kt`) in place of the dock's tabs: the tabs, your playlists, the albums
-  played last, and Settings at its foot. It shares the page's background; no frame, no line.
+- The side bar (`SideBar.kt`) in place of the dock's tabs, as on the Mac and the computer:
+  - 240 dp wide, on the window's colour (`surfaceContainerLowest`). No logo.
+  - At its top, a rounded search field ("Search"); it opens the Search page.
+  - Home, Songs, Albums, Artists, Folders. Then a grey "Collections" label: Favorites,
+    Recently added, Listening history. Then a grey "Playlists" label with a +, and the
+    playlists, each with an 18 dp cover.
+  - At its foot: Add music folder, Fix my library, Import, Settings.
+  - Small rows (34 dp): an 18 dp grey icon and 14 sp text. The row open has a soft rounded
+    highlight (the text colour at 8 %, 8 dp corners) and an amber icon.
+  - Where the list is longer than the screen, its cut edges fade (`fadeCut`).
+  - Below 840 dp it starts folded to its icons (64 dp); the button beside the search field
+    folds and opens it.
+- The page is a sheet beside the side bar: the page's background, with one round top-left
+  corner (18 dp; `Modifier.pane` in Adaptive.kt).
 - The player floats over the page's foot (`FloatingPlayer`), and the side pane over its right.
 
 ## Shapes (each means one thing)
@@ -96,6 +109,9 @@ plays and the one main button.
 
 - On Android TV the app is the tablet's: the side bar, the floating player, the wide player.
   A remote moves the focus (`TvFocus.kt`).
+- The side bar is folded to its icons and opens while the focus is in it (move left from the
+  page). Its focus ring follows the highlight's shape: a 2 dp ring inside the row's 8 dp
+  corners (`softRing`).
 - What has the focus shows plainly, from across a room: cards grow a little and take a ring in
   the text colour (`pressScale`, `focusRing`); other buttons take a ring or a deeper shade.
 - The player and the welcome guide keep the focus while they are open (`focusLayer`). A page
