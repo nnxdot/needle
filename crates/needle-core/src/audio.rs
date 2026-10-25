@@ -648,6 +648,29 @@ struct Marked<S> {
     started: bool,
     epoch: u64,
     tx: Sender<(u64, QueueItem)>,
+    /// For the visualizer: mono samples gathered since the last hand-over, the frame being
+    /// summed, and how many samples until it is asked again whether anyone is looking.
+    scope: Vec<f32>,
+    frame: f32,
+    channel: u16,
+    look_in: u32,
+    looking: bool,
+}
+impl<S: Source> Marked<S> {
+    fn new(inner: S, item: QueueItem, epoch: u64, tx: Sender<(u64, QueueItem)>) -> Self {
+        Self {
+            inner,
+            item,
+            started: false,
+            epoch,
+            tx,
+            scope: Vec::with_capacity(512),
+            frame: 0.,
+            channel: 0,
+            look_in: 0,
+            looking: false,
+        }
+    }
 }
 impl<S: Source> Iterator for Marked<S> {
     type Item = f32;
@@ -656,6 +679,27 @@ impl<S: Source> Iterator for Marked<S> {
         if sample.is_some() && !self.started {
             self.started = true;
             let _ = self.tx.send((self.epoch, self.item.clone()));
+        }
+        if let Some(value) = sample {
+            if self.look_in == 0 {
+                self.looking = crate::scope::wanted();
+                self.look_in = 4096;
+            }
+            self.look_in -= 1;
+            if self.looking {
+                let channels = self.inner.channels().max(1);
+                self.frame += value;
+                self.channel += 1;
+                if self.channel >= channels {
+                    self.scope.push(self.frame / channels as f32);
+                    self.frame = 0.;
+                    self.channel = 0;
+                    if self.scope.len() >= 512 {
+                        crate::scope::push(&self.scope, self.inner.sample_rate());
+                        self.scope.clear();
+                    }
+                }
+            }
         }
         sample
     }
@@ -780,6 +824,8 @@ struct Worker {
     queue: Queue,
     #[cfg(windows)]
     exclusive: Option<crate::exclusive::Output>,
+    /// An output the app brought (see `platform_output`), while it plays.
+    platform: Option<crate::platform_output::Running>,
     started_tx: Sender<(u64, QueueItem)>,
     started_rx: Receiver<(u64, QueueItem)>,
     /// A song from a server being opened on a helper thread (see `fill`).
@@ -855,7 +901,15 @@ impl Worker {
     /// Whether output is exclusive. That is WASAPI's, so elsewhere the setting (kept as it is,
     /// for when the library is opened on Windows again) is ignored.
     fn exclusive(&self) -> bool {
-        cfg!(windows) && self.settings.exclusive
+        cfg!(windows) && self.settings.exclusive || self.platform_output().is_some()
+    }
+    /// The output the app brought, when it is set, has not failed, and no speaker on the
+    /// network is chosen.
+    fn platform_output(&self) -> Option<Arc<dyn crate::platform_output::PlatformOutput>> {
+        if self.speaker() {
+            return None;
+        }
+        crate::platform_output::active()
     }
     fn new(
         library: Library,
@@ -925,6 +979,7 @@ impl Worker {
             last_default_check: Instant::now(),
             #[cfg(windows)]
             exclusive: None,
+            platform: None,
         }
     }
     fn position(&self) -> f64 {
@@ -994,6 +1049,7 @@ impl Worker {
         {
             self.exclusive = None;
         }
+        self.platform = None;
         self.output = None;
     }
     /// Act on the songs the output has started since last time: the listen, the speaker's
@@ -1073,6 +1129,26 @@ impl Worker {
         self.output.as_ref().and_then(|o| o.network.clone())
     }
     fn open(&mut self) -> Result<()> {
+        // An output the app brought (Needle's own USB driver on Android) plays everything
+        // while it is set, bit-perfect, as exclusive output does.
+        if let Some(output) = self.platform_output() {
+            if self.platform.is_some() {
+                return Ok(());
+            }
+            crate::platform_output::CHANGED.store(false, std::sync::atomic::Ordering::SeqCst);
+            let (sink, source) = Sink::new();
+            let sink = Arc::new(sink);
+            output.set_volume(self.settings.volume);
+            self.platform = Some(crate::platform_output::Running::start(
+                output,
+                source,
+                Arc::downgrade(&sink),
+                self.state.clone(),
+            ));
+            self.sink = Some(sink);
+            self.progress = (Duration::ZERO, Instant::now());
+            return Ok(());
+        }
         // Exclusive output is WASAPI's; elsewhere the setting (synced from Windows, say) is
         // ignored and Needle plays through the shared output.
         #[cfg(windows)]
@@ -1323,7 +1399,12 @@ impl Worker {
     }
     /// Puts a decoded song on the output, with its gain, sound tools, and crossfade.
     fn append(&mut self, item: QueueItem, source: Box<dyn Source + Send>) {
-        let gain = replay_gain_factor(&item.track, &self.settings);
+        // The app's own output stays bit-exact: no ReplayGain (DoP would be broken by it).
+        let gain = if self.platform.is_some() {
+            1.0
+        } else {
+            replay_gain_factor(&item.track, &self.settings)
+        };
         // Exclusive output stays bit-exact; the sound tools only apply to shared output.
         let processed: Box<dyn Source + Send> =
             if self.exclusive() || self.settings.dsp.is_transparent() && !self.settings.dsp.eq {
@@ -1335,13 +1416,7 @@ impl Worker {
                 ))
             };
         let processed = self.crossfade(&item.track, processed);
-        let marked = Marked {
-            inner: processed,
-            item: item.clone(),
-            started: false,
-            epoch: self.epoch,
-            tx: self.started_tx.clone(),
-        };
+        let marked = Marked::new(processed, item.clone(), self.epoch, self.started_tx.clone());
         self.queue.staged.push_back(item);
         self.sink.as_ref().unwrap().append(marked);
     }
@@ -1368,8 +1443,33 @@ impl Worker {
                 source = Box::new(crate::crossfade::blend(ending, source));
             }
         }
-        if track.duration > fade * 3. {
-            let (head, ending) = crate::crossfade::split(source, track.duration, fade);
+        // Smart mixes: end where the music ends and fade for whole bars. The shape comes from
+        // the seek bar's measuring; the next song's is measured now, ahead of its turn.
+        let (end, fade) = if self.settings.smart_mix {
+            let shape = self.library.waveform(&track.id).ok().flatten();
+            let bpm = track.bpm.or_else(|| {
+                self.library
+                    .features(&track.id)
+                    .ok()
+                    .flatten()
+                    .map(|f| f.tempo as f64)
+                    .filter(|t| *t > 0.)
+            });
+            if let Some(next) = self.queue.pending.front().map(|i| i.track.clone())
+                && !next.is_streamed()
+                && self.library.waveform(&next.id).ok().flatten().is_none()
+            {
+                let library = self.library.clone();
+                std::thread::spawn(move || {
+                    let _ = library.waveform_now(&next);
+                });
+            }
+            crate::crossfade::smart_ending(fade, track.duration, shape.as_ref(), bpm)
+        } else {
+            (track.duration, fade)
+        };
+        if end > fade * 3. {
+            let (head, ending) = crate::crossfade::split(source, end, fade);
             if self.endings.len() >= 32 {
                 self.endings.remove(0);
             }
@@ -1572,6 +1672,9 @@ impl Worker {
                     } else {
                         self.settings.volume
                     });
+                }
+                if let Some(output) = self.platform_output() {
+                    output.set_volume(self.settings.volume);
                 }
                 self.library
                     .update_settings(|s| s.volume = self.settings.volume)?;
@@ -1858,6 +1961,26 @@ impl Worker {
         (default != current).then(|| format!("System default output changed to {default}"))
     }
     fn watch_output(&mut self) {
+        // The app's own output failed, or was set or taken away: play on from here through
+        // whichever output is right now.
+        let failed = self
+            .platform
+            .as_ref()
+            .is_some_and(|p| p.failed.load(std::sync::atomic::Ordering::SeqCst));
+        if (failed
+            || crate::platform_output::CHANGED.swap(false, std::sync::atomic::Ordering::SeqCst))
+            && self.sink.is_some()
+        {
+            let (position, playing) = (self.position(), self.playing);
+            let mut items = vec![];
+            items.extend(self.queue.active.clone());
+            items.extend(self.queue.tail());
+            self.release();
+            if let Err(error) = self.restart(items, position, playing) {
+                self.state.lock().unwrap().error = Some(format!("{error:#}"));
+            }
+            return;
+        }
         #[cfg(windows)]
         if self
             .exclusive
