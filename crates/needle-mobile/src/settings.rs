@@ -137,6 +137,10 @@ pub struct AppSettings {
     /// choice as the computer's `server_mark`).
     #[uniffi(default = true)]
     pub server_mark: bool,
+    /// Font for everything but titles: "system", "inter", "atkinson", "lexend", "plex_mono",
+    /// or "own:<file>" for a font file on the phone (the computer's `text_font` names).
+    #[uniffi(default = "system")]
+    pub text_font: String,
 }
 
 impl Default for AppSettings {
@@ -172,6 +176,7 @@ impl Default for AppSettings {
             animated_covers: true,
             moving_covers_on_mobile_data: false,
             server_mark: true,
+            text_font: "system".into(),
         }
     }
 }
