@@ -98,6 +98,8 @@ dependencies {
     implementation("com.google.mlkit:translate:17.0.3")
     implementation("com.google.mlkit:language-id:17.0.6")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-play-services:1.11.0")
+    // Needle on a Wear OS watch (the wear app): what plays, to the watch; its presses, back.
+    implementation("com.google.android.gms:play-services-wearable:20.0.1")
     // Home screen widgets.
     implementation("androidx.glance:glance-appwidget:1.2.0")
     implementation("androidx.glance:glance-material3:1.2.0")

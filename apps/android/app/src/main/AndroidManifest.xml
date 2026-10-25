@@ -87,6 +87,19 @@
             </intent-filter>
         </activity>
 
+        <!-- A Wear OS watch's presses (play, pause, skip, the heart, the volume). -->
+        <service
+            android:name=".NeedleWearService"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="com.google.android.gms.wearable.MESSAGE_RECEIVED" />
+                <data
+                    android:host="*"
+                    android:pathPrefix="/needle"
+                    android:scheme="wear" />
+            </intent-filter>
+        </service>
+
         <!-- Hands a downloaded update to Android's installer. -->
         <provider
             android:name="androidx.core.content.FileProvider"
