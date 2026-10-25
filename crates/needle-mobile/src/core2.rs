@@ -180,6 +180,7 @@ impl Needle {
                 songs: a.tracks as u32,
                 artwork: a.artwork,
                 letter: a.letter,
+                plays: a.play_count,
             })
             .collect())
     }
