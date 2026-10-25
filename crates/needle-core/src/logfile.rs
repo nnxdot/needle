@@ -230,7 +230,11 @@ pub fn pending(data: &Path) -> Vec<PathBuf> {
             entries
                 .filter_map(|e| e.ok().map(|e| e.path()))
                 .filter(|p| p.extension().is_some_and(|e| e == "txt"))
-                .filter(|p| p.file_name().and_then(|n| n.to_str()).is_some_and(|n| n.starts_with("crash-")))
+                .filter(|p| {
+                    p.file_name()
+                        .and_then(|n| n.to_str())
+                        .is_some_and(|n| n.starts_with("crash-"))
+                })
                 .collect()
         })
         .unwrap_or_default();
@@ -368,7 +372,13 @@ pub fn collect_mac_crashes(data: &Path) -> usize {
     let old_file = crash_folder(data).join("system-seen.txt");
     let mut seen: Vec<String> = [&seen_file, &old_file]
         .iter()
-        .flat_map(|f| fs::read_to_string(f).unwrap_or_default().lines().map(str::to_string).collect::<Vec<_>>())
+        .flat_map(|f| {
+            fs::read_to_string(f)
+                .unwrap_or_default()
+                .lines()
+                .map(str::to_string)
+                .collect::<Vec<_>>()
+        })
         .collect();
     let _ = fs::remove_file(&old_file);
     let mut new = 0;
@@ -562,8 +572,16 @@ mod tests {
         assert_eq!(send_pending(dir.path(), false), 0);
         assert_eq!(pending(dir.path()).len(), 1);
         // The list of macOS reports already kept is never a report.
-        fs::write(crash_folder(dir.path()).join("system-seen.list"), "Needle-1.ips").unwrap();
-        fs::write(crash_folder(dir.path()).join("system-seen.txt"), "Needle-1.ips").unwrap();
+        fs::write(
+            crash_folder(dir.path()).join("system-seen.list"),
+            "Needle-1.ips",
+        )
+        .unwrap();
+        fs::write(
+            crash_folder(dir.path()).join("system-seen.txt"),
+            "Needle-1.ips",
+        )
+        .unwrap();
         assert_eq!(pending(dir.path()).len(), 1);
         let long = "a".repeat(MAX_REPORT * 2);
         assert!(prepare(&long).len() <= MAX_REPORT + 4);

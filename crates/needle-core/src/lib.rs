@@ -1,4 +1,5 @@
 pub mod analysis;
+pub mod artists;
 pub mod audio;
 pub mod audio_file;
 pub mod browse;

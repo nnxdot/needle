@@ -325,6 +325,10 @@ pub fn import_one(library: &Library, path: &Path) -> Result<bool> {
     }
 }
 
+/// The version of what Needle reads from a file's tags: a song read by an older one is read
+/// again (3: sort names and MusicBrainz artist ids).
+pub const METADATA_VERSION: u32 = 3;
+
 /// Read a file's details; `None` when the library already has it as it is.
 fn read_track(library: &Library, db: &rusqlite::Connection, path: &Path) -> Result<Option<Track>> {
     let path = path.canonicalize()?;
@@ -341,7 +345,7 @@ fn read_track(library: &Library, db: &rusqlite::Connection, path: &Path) -> Resu
         t.modified_at == modified
             && t.file_size == metadata.len() as i64
             && !t.missing
-            && t.metadata_version == 2
+            && t.metadata_version == METADATA_VERSION
             // A song with no cover is read again once a cover image sits beside it: one added
             // since, or one Needle may only now see (Android asks for pictures separately).
             && (t.artwork.is_some() || folder_cover(path.parent().unwrap_or(&path)).is_none())
@@ -396,7 +400,7 @@ fn read_track(library: &Library, db: &rusqlite::Connection, path: &Path) -> Resu
         rating: previous.as_ref().map(|t| t.rating).unwrap_or(0),
         play_count: previous.as_ref().map(|t| t.play_count).unwrap_or(0),
         last_played: previous.as_ref().and_then(|t| t.last_played),
-        metadata_version: 2,
+        metadata_version: METADATA_VERSION,
         ..Default::default()
     };
     if let Some(tag) = tagged.primary_tag().or_else(|| tagged.first_tag()) {
@@ -437,6 +441,25 @@ fn read_track(library: &Library, db: &rusqlite::Connection, path: &Path) -> Resu
         track.musicbrainz_id = tag
             .get_string(ItemKey::MusicBrainzRecordingId)
             .map(String::from);
+        let text = |key: ItemKey| {
+            tag.get_string(key)
+                .map(str::trim)
+                .filter(|s| !s.is_empty())
+                .map(String::from)
+        };
+        track.artist_sort = text(ItemKey::TrackArtistSortOrder);
+        track.album_artist_sort = text(ItemKey::AlbumArtistSortOrder);
+        // Several ids are one per credited artist: the first is the main one.
+        let first_id = |key: ItemKey| {
+            text(key).and_then(|s| {
+                s.split(['/', ';', ','])
+                    .map(str::trim)
+                    .find(|id| id.len() == 36)
+                    .map(String::from)
+            })
+        };
+        track.musicbrainz_artist_id = first_id(ItemKey::MusicBrainzArtistId);
+        track.musicbrainz_album_artist_id = first_id(ItemKey::MusicBrainzReleaseArtistId);
         // Prefer the front cover when a file carries several pictures.
         let pictures = tag.pictures();
         if let Some(picture) = pictures
