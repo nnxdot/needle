@@ -1171,7 +1171,8 @@ private fun PlayerCover(song: Song, playing: Boolean, haptics: (Boolean) -> Unit
             seed = song.album + song.artist,
         )
         // The moving cover (Settings › Appearance › Moving covers), over the still one in the
-        // same place, shape, size, and turn: only here and in the immersive cover, never in lists.
+        // same place, shape, size, and turn: here, in the immersive cover, and on the album's
+        // page (HeaderCover), never in lists.
         movingCover(song, app.animatedCovers && !reduce)?.let { path ->
             MovingCover(
                 path,
