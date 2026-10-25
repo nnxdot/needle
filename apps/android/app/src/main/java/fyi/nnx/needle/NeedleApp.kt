@@ -160,6 +160,8 @@ class NeedleApp : Application() {
             if (_more.value.displayFont == "system") updateMore { it.copy(displayFont = fyi.nnx.needle.ui.titleFontId(old)) }
             updateApp { it.copy(titleFont = "") }
         }
+        // A Wear OS watch, when one is paired: what plays goes to it.
+        runCatching { WearLink.start(this) }
         // The background search for artists' pictures follows the network and the settings.
         getSystemService(android.net.ConnectivityManager::class.java)?.registerDefaultNetworkCallback(object : android.net.ConnectivityManager.NetworkCallback() {
             override fun onCapabilitiesChanged(network: android.net.Network, capabilities: android.net.NetworkCapabilities) = artistPicturesAllowed()

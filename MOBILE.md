@@ -41,6 +41,18 @@ on Android, **Liquid Glass** (iOS 26) on iPhone.
 - Library: albums, artists, songs, as on desktop.
 - Settings: the desktop sections, shorter.
 
+### Wear OS
+
+- `apps/android/wear`: a watch app that controls Needle on the phone: the song with its cover,
+  Previous, Play/Pause, Next, the heart, the time as a ring round the edge, the crown for the
+  phone's volume. Wear OS 3 and newer.
+- It talks to the phone through Google's Wearable Data Layer: the phone puts what plays at
+  `/needle/now` (`WearLink.kt`), the watch sends its presses to `/needle/do`
+  (`NeedleWearService`). Both apps have the application id `fyi.nnx.needle` and must be signed
+  with the same key, or they do not find each other.
+- `./gradlew :wear:assembleRelease` builds it (shrunk); sign it as the phone's APKs. A debug
+  build opened with `--ez demo true` shows a made-up song, for a look without a paired phone.
+
 ## Needle's features on a phone
 
 ### Carry over well
