@@ -611,6 +611,7 @@ impl AppView {
         let searchless = s.layout.search_hidden;
         page = page
             .child(self.group_title("Layout", cx))
+            .child(self.player_buttons_row(cx))
             .child(setting_row(
                 "The player",
                 "At the foot of the window, or in the title bar.",
