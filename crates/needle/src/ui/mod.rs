@@ -27,6 +27,7 @@ mod pages;
 mod palette;
 mod panel;
 mod pickers;
+mod player2;
 mod playlist_art;
 mod playlist_editor;
 mod plugin_ask;
@@ -813,9 +814,7 @@ impl AppView {
         let player = Player::new(library.clone());
         // The player's state holds the saved volume, which saving settings keeps.
         let playback = player.state();
-        let search = cx.new(|cx| {
-            InputState::new(window, cx).placeholder("Search, or write a rule like  rating >= 4")
-        });
+        let search = cx.new(|cx| InputState::new(window, cx).placeholder("Search"));
         let autoplay = cx.new(|cx| {
             InputState::new(window, cx)
                 .placeholder("rating >= 4 and not played(7d) shuffle limit 20")
@@ -2482,6 +2481,28 @@ impl AppView {
             .child(gpui_component::slider::Slider::new(&self.seek).disabled(disabled))
     }
 
+    /// The seek bar as a thin line (its knob shows under the pointer), for the floating
+    /// player's small screen.
+    pub(super) fn thin_seek_bar(&self, disabled: bool, cx: &mut Context<Self>) -> impl IntoElement {
+        div()
+            .id("thin-seek-bar")
+            .flex_1()
+            .when(!disabled, |el| {
+                el.capture_any_mouse_down(cx.listener(|this, event: &MouseDownEvent, _, _| {
+                    if event.button == MouseButton::Left && !this.seek_held {
+                        this.seek_held = true;
+                        this.seek_to = None;
+                        this.player.send(Command::Scrub(true));
+                    }
+                }))
+            })
+            .child(
+                gpui_component::slider::Slider::new(&self.seek)
+                    .thin()
+                    .disabled(disabled),
+            )
+    }
+
     /// Lets go of a held seek bar: one jump, if the same song still plays, then the sound
     /// comes back. The whole window listens for the button, so this works even when the bar
     /// itself is gone, for example after F11 while it was held.
@@ -2944,6 +2965,7 @@ impl Render for AppView {
                         // layer), with the sidebar, the player, and the side panel floating on it;
                         // the player sits beside the sidebar, which runs the window's height.
                         let floating = self.floating();
+                        let on_glass = self.on_glass();
                         let sheet = div()
                             .id("sheet")
                             .flex_1()
@@ -2955,25 +2977,49 @@ impl Render for AppView {
                             // Elsewhere, the content surface: flush with the window's right edge
                             // and the player, one hairline and a rounded corner where it meets
                             // the sidebar and title bar, like Windows 11's own apps.
-                            .when(!floating, |el| {
-                                el.rounded_tl(px(10.))
+                            .when(!on_glass, |el| {
+                                el.rounded_tl(px(if floating { 12. } else { 10. }))
                                     .bg(p.canvas)
                                     .border_t_1()
                                     .border_l_1()
                                     .border_color(if p.dark { p.line_soft } else { p.line })
                             })
+                            .when(floating && !on_glass, |el| el.size_full())
                             // macOS Liquid Glass: the page is drawn under the glass, so the
                             // floating player shows the songs passing beneath it.
-                            .when(floating, |el| el.size_full().under_glass())
+                            .when(on_glass, |el| el.size_full().under_glass())
                             .child(backdrop)
-                            .child(self.main(content_width, window, cx))
+                            // With the side panel floating over the sheet, the page stops beside it
+                            // (wide shelves would run on under it).
+                            .map(|el| {
+                                if floating && !on_glass && show_panel {
+                                    el.child(
+                                        div()
+                                            .w(px(content_width))
+                                            .h_full()
+                                            .flex_shrink_0()
+                                            .overflow_hidden()
+                                            .child(self.main(content_width, window, cx)),
+                                    )
+                                } else {
+                                    el.child(self.main(content_width, window, cx))
+                                }
+                            })
                             .when(show_panel && !floating, |el| {
                                 el.child(self.panel(panel_width, window, cx))
                             });
                         // The player at the bottom; or, with it in the title bar, the search
                         // field there (unless hidden too).
                         let player_foot = !self.settings.layout.player_on_top;
-                        let foot = if player_foot {
+                        let foot = if player_foot && floating && !on_glass {
+                            // Needle 2.0: the Mac's floating bar, centred over the page's foot
+                            // and clear of the side panel.
+                            let room = f32::from(width)
+                                - sidebar
+                                - if show_panel { panel_width } else { 0. }
+                                - 40.;
+                            Some(self.floating_player(room, cx).into_any_element())
+                        } else if player_foot {
                             Some(
                                 self.player_bar(
                                     if floating { width - px(sidebar) } else { width },
@@ -2992,8 +3038,64 @@ impl Render for AppView {
                             .min_h_0()
                             .flex()
                             .bg(p.back)
-                            .when(sidebar > 0., |el| el.child(self.sidebar(sidebar, cx)));
-                        if floating {
+                            .when(sidebar > 0., |el| {
+                                el.child(self.sidebar(sidebar, window, cx))
+                            });
+                        if floating && !on_glass {
+                            // Needle 2.0 on Windows and Linux: the page is a sheet with one
+                            // round corner; the side panel floats over its right side and the
+                            // player over its foot, both frosted.
+                            let (over, below) = if player_foot {
+                                (foot, None)
+                            } else {
+                                (None, foot)
+                            };
+                            el.child(
+                                row.child(
+                                    div()
+                                        .flex_1()
+                                        .min_w_0()
+                                        .flex()
+                                        .flex_col()
+                                        .child(
+                                            div()
+                                                .flex_1()
+                                                .min_h_0()
+                                                .relative()
+                                                .child(sheet)
+                                                .when(show_panel, |el| {
+                                                    el.child(
+                                                        div()
+                                                            .absolute()
+                                                            .top(px(6.))
+                                                            .right(px(10.))
+                                                            .bottom(px(10.))
+                                                            .child(self.panel(
+                                                                panel_width,
+                                                                window,
+                                                                cx,
+                                                            )),
+                                                    )
+                                                })
+                                                .children(over.map(|player| {
+                                                    div()
+                                                        .absolute()
+                                                        .left_0()
+                                                        .right(px(if show_panel {
+                                                            panel_width
+                                                        } else {
+                                                            0.
+                                                        }))
+                                                        .bottom(px(14.))
+                                                        .flex()
+                                                        .justify_center()
+                                                        .child(player)
+                                                })),
+                                        )
+                                        .children(below),
+                                ),
+                            )
+                        } else if floating {
                             // The page fills the column; the player floats over its foot (the
                             // page leaves room to scroll its end out from under it), and the side
                             // panel floats beside it.
