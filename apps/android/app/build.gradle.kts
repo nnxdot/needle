@@ -93,6 +93,11 @@ dependencies {
     // Frosted glass for the dock and the floating player: the page behind blurred (Android 12+).
     implementation("dev.chrisbanes.haze:haze:2.0.1")
     implementation("dev.chrisbanes.haze:haze-blur:2.0.1")
+    // Lyrics translated on the phone (Google's ML Kit: the language found, then translated
+    // on the device; each language's model downloads once, on Wi-Fi).
+    implementation("com.google.mlkit:translate:17.0.3")
+    implementation("com.google.mlkit:language-id:17.0.6")
+    implementation("org.jetbrains.kotlinx:kotlinx-coroutines-play-services:1.11.0")
     // Home screen widgets.
     implementation("androidx.glance:glance-appwidget:1.2.0")
     implementation("androidx.glance:glance-material3:1.2.0")
