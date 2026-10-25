@@ -71,9 +71,14 @@ object Ui {
     val sheet = MutableStateFlow<Sheet?>(null)
     /** The welcome guide, asked for again from Settings › About. */
     val welcome = MutableStateFlow(false)
+    /** A tablet's side pane, open with the lyrics or what is up next; null while shut. */
+    val pane = MutableStateFlow<SideKind?>(null)
     /** Opens the player (Home's card of the song playing). */
     val showPlayer = kotlinx.coroutines.flow.MutableSharedFlow<Unit>(extraBufferCapacity = 1)
 }
+
+/** What a tablet's side pane shows. */
+enum class SideKind { Lyrics, Queue }
 
 sealed interface Sheet {
     data class AddToPlaylist(val ids: List<String>) : Sheet
