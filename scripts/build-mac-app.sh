@@ -71,7 +71,7 @@ if [ ! -f "$resources/Needle.icns" ] || [ crates/needle/assets/needle-1024.png -
     rm -rf "$(dirname "$iconset")"
 fi
 # Needle's fonts for titles and text (SIL Open Font License; see assets/fonts).
-cp assets/fonts/*.ttf "$resources/"
+cp assets/fonts/*.ttf assets/fonts/*-OFL.txt "$resources/"
 
 config=$([ "$kind" = debug ] && echo Debug || echo Release)
 out="$mac/build/$config"
