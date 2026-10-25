@@ -549,6 +549,8 @@ struct PageView: View {
             case .artist(let name): ArtistPage(name: name)
             case .folders: FoldersPage()
             case .history: HistoryPage()
+            case .numbers: library { NumbersPage() }
+            case .moodMap: library { MoodMapPage() }
             case .wrapped(let year): WrappedPage(year: year)
             case .sound:
                 Form { SoundPane() }

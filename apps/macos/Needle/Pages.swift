@@ -4,6 +4,8 @@ import SwiftUI
 struct HomePage: View {
     private var store: Store { .shared }
     @State private var home: HomeData?
+    /// What played on this day one and five years ago.
+    @State private var days: [OnThisDay] = []
 
     var body: some View {
         ScrollView {
@@ -15,6 +17,9 @@ struct HomePage: View {
                     Shelf(title: "New in your library", detail: "Added most recently", albums: home.added)
                     Shelf(title: "On repeat", detail: "Your most played albums", albums: home.mostPlayed)
                     Shelf(title: "Favorites", detail: "Albums with the songs you love", albums: home.favorites)
+                    ForEach(days) { day in
+                        Shelf(title: day.title, detail: day.detail, albums: day.albums)
+                    }
                     if !home.artists.isEmpty {
                         VStack(alignment: .leading, spacing: 10) {
                             ShelfTitle(title: "Artists you play most", detail: nil, all: .artists)
@@ -33,6 +38,8 @@ struct HomePage: View {
         .scrollContentBackground(.hidden)
         .task(id: store.libraryVersion) {
             home = JSON.decode(HomeData.self, await store.load { try $0.homeJson() })
+            let offset = Int32(TimeZone.current.secondsFromGMT())
+            days = JSON.decode([OnThisDay].self, await store.load { try $0.onThisDayJson(offset: offset) }) ?? []
         }
     }
 
