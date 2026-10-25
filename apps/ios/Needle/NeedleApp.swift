@@ -66,7 +66,7 @@ struct RootView: View {
                let route = ["settings": [Route.settings], "appearance": [.settings, .settingsAppearance], "sources": [.settings, .sources],
                              "scrobbling": [.settings, .settingsScrobbling], "library": [.settings, .settingsLibrary],
                              "playback": [.settings, .settingsPlayback], "server": [.settings, .server("subsonic")],
-                             "whatsnew": [.settings, .whatsNew]][args[i + 1]] {
+                             "whatsnew": [.settings, .whatsNew], "crate": [.albums, .crate]][args[i + 1]] {
                 paths[place] = NavigationPath(route)
             }
             if args.contains("-albums") { paths[place] = NavigationPath([Route.albums]) }
