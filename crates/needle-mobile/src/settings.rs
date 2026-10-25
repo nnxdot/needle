@@ -91,7 +91,8 @@ pub struct AppSettings {
     pub moving_backdrop: bool,
     /// How soft that blurred cover is, 20 to 120.
     pub backdrop_blur: f32,
-    /// The seek bar and the mini player's progress: "wave", "line", or "thick".
+    /// The seek bar and the mini player's progress: "shape" (the song's waveform), "wave",
+    /// "line", or "thick".
     pub seek_style: String,
     /// The mini player takes the playing cover's colour, rather than the page's.
     pub mini_player_colored: bool,
@@ -159,7 +160,9 @@ impl Default for AppSettings {
             ambient_colors: false,
             moving_backdrop: true,
             backdrop_blur: 70.0,
-            seek_style: "wave".into(),
+            // The song's own shape (its waveform) from 2.0 on, for new installs; a style kept
+            // from before stays.
+            seek_style: "shape".into(),
             mini_player_colored: true,
             mini_player_lyrics: false,
             cover_shape: "square".into(),
