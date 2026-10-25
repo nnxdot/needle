@@ -33,6 +33,8 @@ pub struct ArtistSummary {
     pub duration: f64,
     pub artwork: Option<String>,
     pub play_count: i64,
+    /// The letter the artist is filed under in an A–Z bar ("A"–"Z", "#", or another script's).
+    pub letter: String,
 }
 
 /// What the Home page shows.
@@ -80,6 +82,10 @@ pub(crate) fn migrate(db: &Connection) -> Result<()> {
 
 /// Fields whose distinct values can be listed by [`Library::field_values`].
 pub const VALUE_FIELDS: &[&str] = &["artist", "album", "album_artist", "genre", "format"];
+
+pub(crate) fn filtered_source(expression: &str) -> Result<(String, Vec<Value>)> {
+    filtered(expression)
+}
 
 fn filtered(expression: &str) -> Result<(String, Vec<Value>)> {
     let q = query::compile(expression, chrono::Utc::now().timestamp())?;
@@ -243,13 +249,15 @@ impl Library {
         let rows = stmt.query_map(params![album_artist, album], Self::row_track)?;
         Ok(rows.collect::<std::result::Result<_, _>>()?)
     }
-    /// Albums containing a track by `name`, as artist or album artist, with whole-album totals.
+    /// Albums containing a track by `name` (as the artist, a guest, one half of "A & B", or the
+    /// album artist), with whole-album totals.
     pub fn artist_albums(&self, name: &str) -> Result<Vec<AlbumSummary>> {
+        let keys: Vec<(String, String)> = self
+            .credited(name)?
+            .into_iter()
+            .map(|c| (c.album_artist, c.album))
+            .collect();
         let db = self.connection()?;
-        let mut stmt = db.prepare("SELECT DISTINCT album_artist, album FROM tracks WHERE artist=?1 COLLATE NOCASE OR album_artist=?1 COLLATE NOCASE")?;
-        let keys: Vec<(String, String)> = stmt
-            .query_map([name], |r| Ok((r.get(0)?, r.get(1)?)))?
-            .collect::<std::result::Result<_, _>>()?;
         let mut seen = HashSet::new();
         let mut albums = vec![];
         for (album_artist, album) in keys {
@@ -264,30 +272,10 @@ impl Library {
         Self::sort_albums(&mut albums);
         Ok(albums)
     }
-    /// One row per track artist, optionally filtered by an expression. Sorted by name,
-    /// case-insensitively and ignoring a leading "The ".
+    /// One row per artist a song credits (see [`Library::artists_by`]), optionally filtered by
+    /// an expression, A to Z by sort name.
     pub fn artists(&self, expression: &str) -> Result<Vec<ArtistSummary>> {
-        let (source, parameters) = filtered(expression)?;
-        let db = self.connection()?;
-        let mut stmt = db.prepare(&format!(
-            "SELECT min(t.artist), count(DISTINCT t.album COLLATE NOCASE), count(*), sum(t.duration), sum(t.play_count),
-                (SELECT a FROM (SELECT json_extract(x.data,'$.artwork') a FROM tracks x WHERE x.artist=t.artist COLLATE NOCASE LIMIT 20) WHERE a IS NOT NULL LIMIT 1)
-             FROM {source} GROUP BY t.artist COLLATE NOCASE"
-        ))?;
-        let mut artists: Vec<ArtistSummary> = stmt
-            .query_map(rusqlite::params_from_iter(parameters), |r| {
-                Ok(ArtistSummary {
-                    name: r.get(0)?,
-                    albums: r.get::<_, i64>(1)? as usize,
-                    tracks: r.get::<_, i64>(2)? as usize,
-                    duration: r.get(3)?,
-                    play_count: r.get(4)?,
-                    artwork: r.get(5)?,
-                })
-            })?
-            .collect::<std::result::Result<_, _>>()?;
-        artists.sort_by_cached_key(|a| (sort_name(&a.name), a.name.clone()));
-        Ok(artists)
+        self.artists_by(expression, crate::artists::ArtistChoice::default())
     }
     /// Shelves for the Home page, `limit` items each. Empty shelves are left empty.
     ///
@@ -394,6 +382,7 @@ impl Library {
                     duration: r.get(3)?,
                     play_count: r.get(4)?,
                     artwork: r.get(5)?,
+                    letter: String::new(),
                 })
             })?);
         }
@@ -451,11 +440,16 @@ impl Library {
         folders.sort_by_cached_key(|f| f.name.to_lowercase());
         Ok(folders)
     }
-    /// An artist's most played tracks, then highest rated.
+    /// An artist's most played tracks (theirs, and those they are a guest on), then highest
+    /// rated.
     pub fn top_tracks(&self, artist: &str, limit: usize) -> Result<Vec<Track>> {
+        let ids: Vec<String> = self.credited(artist)?.into_iter().map(|c| c.id).collect();
         let db = self.connection()?;
-        let mut stmt = db.prepare("SELECT data,rating,play_count,last_played,missing FROM tracks WHERE artist=? COLLATE NOCASE ORDER BY play_count DESC, rating DESC, title COLLATE NOCASE, id LIMIT ?")?;
-        let rows = stmt.query_map(params![artist, limit.min(500_000) as i64], Self::row_track)?;
+        let mut stmt = db.prepare("SELECT data,rating,play_count,last_played,missing FROM tracks WHERE id IN (SELECT value FROM json_each(?1)) ORDER BY play_count DESC, rating DESC, title COLLATE NOCASE, id LIMIT ?2")?;
+        let rows = stmt.query_map(
+            params![serde_json::to_string(&ids)?, limit.min(500_000) as i64],
+            Self::row_track,
+        )?;
         Ok(rows.collect::<std::result::Result<_, _>>()?)
     }
     /// Non-empty genres with track counts, sorted by name.

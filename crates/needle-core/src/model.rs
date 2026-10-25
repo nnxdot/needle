@@ -33,6 +33,16 @@ pub struct Track {
     /// Decoded recording identity behind library loudness measurements.
     pub analysis_audio_hash: Option<String>,
     pub musicbrainz_id: Option<String>,
+    /// The file's sort names for the artist and album artist ("Bowie, David").
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub artist_sort: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub album_artist_sort: Option<String>,
+    /// The artist's and album artist's MusicBrainz ids, from the tags.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub musicbrainz_artist_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub musicbrainz_album_artist_id: Option<String>,
     pub play_count: i64,
     pub last_played: Option<i64>,
     pub missing: bool,
