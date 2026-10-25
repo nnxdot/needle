@@ -337,42 +337,6 @@ struct AlbumsView: View {
     }
 }
 
-struct ArtistsView: View {
-    @Environment(Store.self) private var store
-    @State private var artists: [Artist]?
-    @State private var filter = ""
-
-    var body: some View {
-        List(shown) { artist in
-            let row = HStack(spacing: 14) {
-                Artwork(path: artist.artwork, seed: artist.name, size: 160)
-                    .frame(width: 52, height: 52).clipShape(.circle)
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(isPlaceholderArtist(artist.name) ? unknownArtist : artist.name).lineLimit(1)
-                    Text(count(Int(artist.albums), "album") + " · " + count(Int(artist.songs), "song"))
-                        .font(.subheadline).foregroundStyle(.secondary)
-                }
-            }
-            if isPlaceholderArtist(artist.name) {
-                row
-            } else {
-                NavigationLink(value: Route.artist(artist.name)) { row }
-            }
-        }
-        .listStyle(.plain)
-        .overlay { if artists == nil { ProgressView() } }
-        .navigationTitle("Artists")
-        .themed()
-        .searchable(text: $filter, placement: .navigationBarDrawer, prompt: "Find in Artists")
-        .task(id: store.libraryVersion) { artists = await store.load { try $0.artists() } ?? [] }
-    }
-
-    private var shown: [Artist] {
-        let all = artists ?? []
-        return filter.isEmpty ? all : all.filter { $0.name.localizedCaseInsensitiveContains(filter) }
-    }
-}
-
 struct PlaylistsView: View {
     @Environment(Store.self) private var store
     @State private var playlists: [Playlist]?
@@ -633,6 +597,8 @@ struct ArtistView: View {
     @State private var banner: String?
     @State private var colors: PageColors?
     @State private var pastHeader = false
+    /// Goes up when one of their pictures is chosen or reset, to read them again.
+    @State private var pictures = 0
 
     init(name: String) {
         self.name = name
@@ -673,7 +639,14 @@ struct ArtistView: View {
         .paged(look)
         .navigationTitle(pastHeader ? name : "")
         .navigationBarTitleDisplayMode(.inline)
-        .task(id: store.libraryVersion) {
+        .toolbar {
+            if !placeholder {
+                ToolbarItem(placement: .topBarTrailing) {
+                    ArtistPicturesMenu(name: name) { pictures += 1 }
+                }
+            }
+        }
+        .task(id: "\(store.libraryVersion)|\(pictures)") {
             let name = name
             top = await store.load { try $0.artistSongs(name: name) } ?? []
             albums = await store.load { try $0.artistAlbums(name: name) } ?? []
@@ -688,7 +661,7 @@ struct ArtistView: View {
             if let colors { PageColors.keep(colors, as: "artist:" + name) }
         }
         // The logo on its own: it shows as soon as it is found, not after the pictures.
-        .task(id: store.libraryVersion) {
+        .task(id: "\(store.libraryVersion)|\(pictures)") {
             guard !placeholder else { return }
             let name = name
             let found = await store.load { $0.artistLogo(name: name) } ?? nil

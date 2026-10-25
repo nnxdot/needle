@@ -56,6 +56,13 @@ struct AppearanceView: View {
                         SketchChoice(caption: "Record", chosen: app.coverShape == "round", part: .record) { store.updateApp { $0.coverShape = "round" } }
                     }
                 }
+                NavigationLink(value: Route.playerButtons) {
+                    LabeledContent {
+                        Text("\(PlayerButtons.chosen(store.more.playerButtons).count) of \(PlayerButtons.all.count)")
+                    } label: {
+                        SettingLabel(title: "Player buttons", detail: "Which buttons the player shows, in order.", icon: "playpause.fill", tint: .orange)
+                    }
+                }
                 SketchRow(title: "Beside play", detail: "The two buttons either side.") {
                     SketchChoice(caption: "Skip", chosen: app.sideButtons != "jump", part: .skip) { store.updateApp { $0.sideButtons = "skip" } }
                     SketchChoice(caption: "10 s", chosen: app.sideButtons == "jump", part: .jump) { store.updateApp { $0.sideButtons = "jump" } }

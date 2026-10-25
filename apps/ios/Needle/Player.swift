@@ -295,7 +295,7 @@ struct NowPlayingView: View {
                 artistButton(song).font(.title3)
             }
             .frame(maxWidth: .infinity, alignment: .leading)
-            if !(song?.onComputer ?? false) { favoriteButton(song) }
+            if !(song?.onComputer ?? false), chosen.contains("favorite") { favoriteButton(song) }
             moreMenu(song)
         }
     }
@@ -370,37 +370,85 @@ struct NowPlayingView: View {
                 artistButton(song).font(.body)
             }
             .frame(maxWidth: .infinity, alignment: .leading)
-            if !(song?.onComputer ?? false) { favoriteButton(song) }
+            if !(song?.onComputer ?? false), chosen.contains("favorite") { favoriteButton(song) }
             moreMenu(song)
         }
         .padding(.vertical, 14)
         .transition(.opacity)
     }
 
+    /// The player's buttons chosen in Settings › Appearance › Player buttons.
+    private var chosen: [String] { PlayerButtons.chosen(store.more.playerButtons) }
+
     private var controls: some View {
-        let playing = store.playback?.playing == true
-        let jump = store.app.sideButtons == "jump"
-        return HStack {
+        HStack {
             Spacer()
-            if jump { BigButton(symbol: "gobackward.10", size: 32) { store.jumpBy(-10) } }
-            else { BigButton(symbol: "backward.fill", size: 34) { store.previous() } }
-            Spacer()
-            BigButton(symbol: playing ? "pause.fill" : "play.fill", size: 46) { store.toggle() }
-                .sensoryFeedback(.impact(weight: .medium), trigger: playing) { _, _ in store.app.haptics }
-            Spacer()
-            if jump { BigButton(symbol: "goforward.10", size: 32) { store.jumpBy(10) } }
-            else { BigButton(symbol: "forward.fill", size: 34) { store.next() } }
-            Spacer()
+            ForEach(chosen.filter { PlayerButtons.transport.contains($0) }, id: \.self) { name in
+                transportButton(name)
+                Spacer()
+            }
         }
         .padding(.top, 10)
+    }
+
+    @ViewBuilder
+    private func transportButton(_ name: String) -> some View {
+        let playing = store.playback?.playing == true
+        let jump = store.app.sideButtons == "jump"
+        let repeatMode = store.playback?.repeat ?? .off
+        switch name {
+        case "previous":
+            if jump { BigButton(symbol: "gobackward.10", size: 32) { store.jumpBy(-10) }.accessibilityLabel("Back 10 seconds") }
+            else { BigButton(symbol: "backward.fill", size: 34) { store.previous() }.accessibilityLabel("Previous") }
+        case "next":
+            if jump { BigButton(symbol: "goforward.10", size: 32) { store.jumpBy(10) }.accessibilityLabel("On 10 seconds") }
+            else { BigButton(symbol: "forward.fill", size: 34) { store.next() }.accessibilityLabel("Next") }
+        case "shuffle":
+            BigButton(symbol: "shuffle", size: 22) { store.shuffle() }
+                .opacity(0.8)
+                .accessibilityLabel("Shuffle up next")
+        case "repeat":
+            BigButton(symbol: repeatMode == .one ? "repeat.1" : "repeat", size: 22) { store.cycleRepeat() }
+                .opacity(repeatMode == .off ? 0.55 : 1)
+                .accessibilityLabel("Repeat")
+                .accessibilityValue(repeatMode == .off ? "Off" : repeatMode == .all ? "All" : "One")
+        default:
+            BigButton(symbol: playing ? "pause.fill" : "play.fill", size: 46) { store.toggle() }
+                .sensoryFeedback(.impact(weight: .medium), trigger: playing) { _, _ in store.app.haptics }
+                .accessibilityLabel(playing ? "Pause" : "Play")
+        }
     }
 
     /// Lyrics, speakers, and the queue: plain signs, as Apple Music's, the one open lit; with
     /// the lyrics open, Translate beside them.
     private var bottom: some View {
+        let foot = chosen.filter { PlayerButtons.foot.contains($0) }
+        return HStack {
+            ForEach(Array(foot.enumerated()), id: \.element) { i, name in
+                if i > 0 { Spacer() }
+                footButton(name)
+            }
+            if foot.isEmpty { Spacer() }
+        }
+        .padding(.horizontal, 40)
+    }
+
+    @ViewBuilder
+    private func footButton(_ name: String) -> some View {
+        switch name {
+        case "lyrics":
+            HStack {
+                paneButton(.lyrics, symbol: "quote.bubble")
+                if pane == .lyrics { translateButton }
+            }
+        case "queue": paneButton(.queue, symbol: "list.bullet")
+        default: RoutePicker().frame(width: 44, height: 44).opacity(0.75)
+        }
+    }
+
+    /// Beside the lyrics while they are open: each line in your language under it.
+    private var translateButton: some View {
         HStack {
-            paneButton(.lyrics, symbol: "quote.bubble")
-            Spacer()
             if pane == .lyrics {
                 Button { translateLyrics.toggle() } label: {
                     Image(systemName: "translate")
@@ -413,13 +461,8 @@ struct NowPlayingView: View {
                 .buttonStyle(.plain)
                 .accessibilityLabel(translateLyrics ? "Hide the translation" : "Translate the lyrics")
                 .accessibilityAddTraits(translateLyrics ? .isSelected : [])
-                Spacer()
             }
-            RoutePicker().frame(width: 44, height: 44).opacity(0.75)
-            Spacer()
-            paneButton(.queue, symbol: "list.bullet")
         }
-        .padding(.horizontal, 40)
     }
 
     private func paneButton(_ which: Pane, symbol: String) -> some View {

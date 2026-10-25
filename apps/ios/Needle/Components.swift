@@ -28,7 +28,7 @@ enum Route: Hashable {
     case genre(String)
     case folder(String)
     case albums, artists, songs, playlists, genres, favorites, recent, folders
-    case history, stats, wrapped, crate
+    case history, stats, wrapped, crate, playerButtons
     case settings, settingsLibrary, settingsPlayback, settingsSound, settingsAppearance, settingsScrobbling, settingsDiscord
     case plugins, plugin(String), server(String), computer, sources, sync, whatsNew, about
     case fixLibrary, duplicates, missingCovers, albumProblems, tidy, importing
@@ -58,6 +58,7 @@ extension View {
             case .stats: StatsView()
             case .wrapped: WrappedView()
             case .crate: RecordCrateView()
+            case .playerButtons: PlayerButtonsView()
             case .settings: SettingsView()
             case .settingsLibrary: LibrarySettingsView()
             case .settingsPlayback: PlaybackSettingsView()

@@ -31,6 +31,9 @@ final class Store {
     private(set) var libraryVersion = 0
     /// The app's own look and behaviour (Settings › Appearance).
     private(set) var app: AppSettings
+    /// Needle 2.0's settings kept with the library: the player's buttons, the artists' order,
+    /// artist pictures, and smart mixes.
+    private(set) var more: MoreSettings
     /// Themes made in the app or added from files.
     private(set) var themes: [ThemeInfo] = []
     /// The playing cover's main colour.
@@ -180,6 +183,8 @@ final class Store {
             fatalError("Needle could not open its library: \(error)")
         }
         app = core.appSettings()
+        more = (try? core.moreSettings())
+            ?? MoreSettings(playerButtons: PlayerButtons.all, artistOrder: "name", albumArtistsOnly: false, artistPictures: true, smartMix: true)
         themes = core.themes()
         startAudio()
         startRemoteCommands()
@@ -216,7 +221,12 @@ final class Store {
         }
         network.pathUpdateHandler = { [weak self] path in
             let costly = path.isExpensive || path.usesInterfaceType(.cellular)
-            Task { @MainActor in if self?.onMobileData != costly { self?.onMobileData = costly } }
+            Task { @MainActor in
+                if self?.onMobileData != costly {
+                    self?.onMobileData = costly
+                    self?.allowPictures()
+                }
+            }
         }
         network.start(queue: DispatchQueue(label: "needle.network"))
         timer = Timer.scheduledTimer(withTimeInterval: 0.25, repeats: true) { [weak self] _ in
@@ -287,7 +297,11 @@ final class Store {
         // The rest changes slowly: twice a second is enough.
         guard ticks % 2 == 0 else { return }
         let status = core.scanStatus()
-        if status != scan { scan = status }
+        if status != scan {
+            let changed = status.running != scan.running
+            scan = status
+            if changed { allowPictures() }
+        }
         if status.changes != scansSeen {
             scansSeen = status.changes
             libraryChanged()
@@ -385,6 +399,20 @@ final class Store {
     }
 
     // MARK: - Settings
+
+    func updateMore(_ change: (inout MoreSettings) -> Void) {
+        var next = more
+        change(&next)
+        more = next
+        let saved = next
+        inOrder { try $0.setMoreSettings(value: saved) }
+    }
+
+    /// The slow search for artists' pictures looks only on Wi-Fi and while no scan runs (it
+    /// also needs online lookups and Artist pictures on).
+    func allowPictures() {
+        core.artistPicturesAllow(may: !onMobileData && !scan.running)
+    }
 
     func updateApp(_ change: (inout AppSettings) -> Void) {
         var next = app

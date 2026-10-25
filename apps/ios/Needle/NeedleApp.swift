@@ -10,7 +10,10 @@ struct NeedleApp: App {
             RootView()
                 .environment(store)
                 .onOpenURL { store.open($0) }
-                .task { WatchLink.shared.start(store) }
+                .task {
+                    WatchLink.shared.start(store)
+                    store.allowPictures()
+                }
         }
         .onChange(of: phase) { _, now in
             // Songs added in the Files app or from a computer while Needle was away.
