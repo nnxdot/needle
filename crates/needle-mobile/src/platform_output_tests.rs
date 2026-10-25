@@ -11,6 +11,10 @@ use std::{
     time::{Duration, Instant},
 };
 
+/// Whether the system's output can open in this test program: not in a bare program on Android
+/// (no Java context; the app has one), so there only what comes before a fallback is checked.
+const FALLBACK: bool = cfg!(not(target_os = "android"));
+
 /// An output that takes the music as a DAC would, ten milliseconds at a time, and keeps a note
 /// of what it got.
 #[derive(Default)]
@@ -30,8 +34,11 @@ impl PlatformOutput for Fake {
     fn render(&self, feed: &mut Feed) -> Result<()> {
         self.rendering.store(true, Ordering::SeqCst);
         let mut buf = vec![0f32; 48_000];
+        // Keeps time as a DAC's clock does: each read waits until the music before it has played.
+        let mut clock: Option<(Instant, f64)> = None;
         while !feed.stopped() {
             if !feed.playing() {
+                clock = None;
                 feed.idle();
                 continue;
             }
@@ -50,8 +57,14 @@ impl PlatformOutput for Fake {
                 let mut l = self.loudest.lock().unwrap();
                 *l = l.max(loud);
             }
-            self.frames.fetch_add((n / f.channels.max(1) as usize) as u64, Ordering::SeqCst);
-            std::thread::sleep(Duration::from_millis(10));
+            let frames = (n / f.channels.max(1) as usize) as u64;
+            self.frames.fetch_add(frames, Ordering::SeqCst);
+            let (start, played) = clock.get_or_insert((Instant::now(), 0.));
+            *played += frames as f64 / f.rate.max(1) as f64;
+            let due = *start + Duration::from_secs_f64(*played);
+            if let Some(wait) = due.checked_duration_since(Instant::now()) {
+                std::thread::sleep(wait);
+            }
         }
         self.rendering.store(false, Ordering::SeqCst);
         Ok(())
@@ -146,6 +159,17 @@ fn a_platform_output_plays_pauses_seeks_follows_the_rate_and_hands_back() {
         fake.formats.lock().unwrap().iter().any(|f| f.rate == 48_000)
     });
 
+    // Needle's USB driver on a pretend DAC, with the same player.
+    let ids: Vec<String> = needle.songs().unwrap().iter().filter(|s| !s.title.contains("Faster")).map(|s| s.id.clone()).collect();
+    crate::usb_dac::fake::checks::the_driver_plays_and_every_trouble_ends_in_an_error(&needle, &music, ids, FALLBACK);
+    if !FALLBACK {
+        return;
+    }
+    // Playing again (the driver checks end paused), on the system's output.
+    let ids: Vec<String> = needle.songs().unwrap().iter().filter(|s| !s.title.contains("Odd")).map(|s| s.id.clone()).collect();
+    needle.play(ids, 0).unwrap();
+    wait("playing", Duration::from_secs(5), || needle.playback().playing);
+
     // An output that fails (a DAC unplugged): a notice, it is not opened again, and the song
     // goes on through the system's output (silent here).
     needle.player.send(needle_core::audio::Command::Volume(0.));
@@ -172,8 +196,6 @@ fn a_platform_output_plays_pauses_seeks_follows_the_rate_and_hands_back() {
     assert_eq!(failing.frames.load(Ordering::SeqCst), taken, "the failed output is not opened again");
     let later = needle.playback().position;
     assert!(later > at + 0.5, "the song went on ({at} -> {later})");
-    set_platform_output(None);
-    needle.toggle();
 }
 
 /// An output that takes music for a moment, then fails as an unplugged DAC does.
