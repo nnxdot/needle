@@ -89,7 +89,7 @@ DSD for known chips), on Android 8 and newer. It runs behind the existing **Bit-
 switch, with Android's mixer as the fallback when a DAC does not work with it. While Needle
 holds the DAC, other apps play from the phone.
 
-### Twelve new things
+### Eleven new things
 
 1. **Visualizer.** Light that moves with the music in the cover's colours: in the big player,
    and as a full-screen mode (parties, a TV). All systems. The core gives the spectrum of what
@@ -97,28 +97,26 @@ holds the DAC, other apps play from the phone.
 2. **Waveform seek bar.** The song's real loud and quiet shape in the seek bar. All systems.
    The core measures and keeps each song's peaks.
 3. **Word-by-word lyrics and translation.** Words light up as they are sung, from word-timed
-   lyrics (enhanced LRC `<mm:ss.xx>` word stamps; LRCLIB has only lines). A translated line
+   lyrics (enhanced LRC `<mm:ss.xx>` word stamps; LRCLIB has only lines); every app already
+   does this. A translated line
    can show under each line: on the device on Apple (Translation) and Android (ML Kit);
    Windows and Linux need another way. The core parses word timing.
-4. **Listen together.** Friends hear the same song at the same moment, each from their own
-   library or server. A Discord activity invite carries the room (presence scopes, no lobby
-   approval); a small room service of Needle's own on Cloudflare passes play, pause, and seek.
-   (Discord lobbies were checked: limited access, 100 joins and 100 messages per 2 hours for
-   all users together.)
-5. **CarPlay.** iPhone. Needs Apple's CarPlay audio entitlement (the paid developer account).
+4. **CarPlay.** iPhone. Needs Apple's CarPlay audio entitlement (the paid developer account).
    Android Auto exists already.
-6. **Watch app.** Apple Watch and Wear OS: control Needle; later, songs kept on the watch.
-7. **Mood map.** Every song a dot, by calm ↔ lively and dark ↔ bright (`radio.rs` already
+5. **Watch app.** Apple Watch and Wear OS: control Needle; later, songs kept on the watch.
+6. **Mood map.** Every song a dot, by calm ↔ lively and dark ↔ bright (`radio.rs` already
    measures this); circle an area to play it. All systems.
-8. **Lyric cards to share.** A picture of a chosen lyric line in the cover's colours. All
+7. **Lyric cards to share.** A picture of a chosen lyric line in the cover's colours. All
    systems.
-9. **Your library in numbers.** Formats, hi-res share, decades, genres, top artists, and
+8. **Your library in numbers.** Formats, hi-res share, decades, genres, top artists, and
    albums with missing covers or low quality. All systems; the core counts.
-10. **On this day.** A Home shelf of what you played one year and five years ago. All
+9. **On this day.** A Home shelf of what you played one year and five years ago. All
     systems; the core finds them.
-11. **Smart mixes.** Crossfade that lines up the beats of the two songs (each song's BPM is
+10. **Smart mixes.** Crossfade that lines up the beats of the two songs (each song's BPM is
     known) and fades at the right moment. All systems where Needle mixes the sound.
-12. **Record crate.** Flip through albums like records in a box. All systems.
+11. **Record crate.** Flip through albums like records in a box. All systems.
+
+Listen together was dropped by the user on 2026-10-25: not in 2.0, on any system.
 
 ### Artists
 
