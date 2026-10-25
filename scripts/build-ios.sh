@@ -52,7 +52,7 @@ rm -rf "$gen"
 
 # Needle's fonts for titles and text (SIL Open Font License; see assets/fonts).
 mkdir -p "$ios/Needle/Fonts"
-cp "$here/assets/fonts/"*.ttf "$ios/Needle/Fonts/"
+cp "$here/assets/fonts/"*.ttf "$here/assets/fonts/"*-OFL.txt "$ios/Needle/Fonts/"
 
 cd "$ios"
 if [ "$kind" = device ] || [ "$kind" = ipa ]; then
