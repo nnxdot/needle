@@ -28,7 +28,7 @@ enum Route: Hashable {
     case genre(String)
     case folder(String)
     case albums, artists, songs, playlists, genres, favorites, recent, folders
-    case history, stats, wrapped, crate, playerButtons, numbers, moodMap
+    case history, stats, wrapped, crate, playerButtons, numbers, moodMap, fonts(Bool)
     case settings, settingsLibrary, settingsPlayback, settingsSound, settingsAppearance, settingsScrobbling, settingsDiscord
     case plugins, plugin(String), server(String), computer, sources, sync, whatsNew, about
     case fixLibrary, duplicates, missingCovers, albumProblems, tidy, importing
@@ -61,6 +61,7 @@ extension View {
             case .playerButtons: PlayerButtonsView()
             case .numbers: NumbersView()
             case .moodMap: MoodMapView()
+            case .fonts(let titles): FontsView(titles: titles)
             case .settings: SettingsView()
             case .settingsLibrary: LibrarySettingsView()
             case .settingsPlayback: PlaybackSettingsView()
@@ -112,7 +113,7 @@ struct SectionTitle: View {
                     NavigationLink(value: route) {
                         HStack(spacing: 4) {
                             Text(title)
-                            Image(systemName: "chevron.right").font(.subheadline.weight(.bold)).foregroundStyle(.secondary)
+                            Image(systemName: "chevron.right").font(.needle(.subheadline).weight(.bold)).foregroundStyle(.secondary)
                         }
                     }
                     .buttonStyle(.plain)
@@ -120,10 +121,10 @@ struct SectionTitle: View {
                     Text(title)
                 }
             }
-            .font(.title2.bold())
+            .font(.needleTitle(size: 22))
             .accessibilityAddTraits(.isHeader)
             if let detail {
-                Text(detail).font(.subheadline).foregroundStyle(.secondary)
+                Text(detail).font(.needle(.subheadline)).foregroundStyle(.secondary)
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -145,8 +146,8 @@ struct AlbumTile: View {
                     .clipShape(.rect(cornerRadius: 14))
                     .shadow(color: .black.opacity(0.35), radius: 10, y: 6)
                     .padding(.bottom, 5)
-                Text(album.title).font(.subheadline.weight(.medium)).lineLimit(1)
-                Text(album.artist).font(.footnote).foregroundStyle(.secondary).lineLimit(1)
+                Text(album.title).font(.needle(.subheadline).weight(.medium)).lineLimit(1)
+                Text(album.artist).font(.needle(.footnote)).foregroundStyle(.secondary).lineLimit(1)
             }
             .frame(width: width)
             .contentShape(.rect)
@@ -203,7 +204,7 @@ struct SongRow: View {
                         if playing { Image(systemName: "waveform").symbolEffect(.variableColor.iterative, isActive: store.isPlaying) }
                         else { Text("\(number)") }
                     }
-                    .font(.subheadline.monospacedDigit()).foregroundStyle(playing ? lit : AnyShapeStyle(.secondary))
+                    .font(.needle(.subheadline).monospacedDigit()).foregroundStyle(playing ? lit : AnyShapeStyle(.secondary))
                     .frame(width: 24)
                 } else if showCover {
                     Artwork(path: song.artwork, seed: song.album + song.artist, size: 120)
@@ -214,10 +215,10 @@ struct SongRow: View {
                     Text(song.title).foregroundStyle(playing ? lit : AnyShapeStyle(.primary)).lineLimit(1)
                     if number == nil {
                         HStack(spacing: 4) {
-                            if song.fromServer && store.app.serverMark { Image(systemName: "server.rack").font(.caption2) }
+                            if song.fromServer && store.app.serverMark { Image(systemName: "server.rack").font(.needle(.caption2)) }
                             Text(song.artist).lineLimit(1)
                         }
-                        .font(.subheadline).foregroundStyle(.secondary)
+                        .font(.needle(.subheadline)).foregroundStyle(.secondary)
                     }
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
@@ -396,7 +397,7 @@ struct PagedSongs: View {
                     }
                     .buttonStyle(.glass)
                 }
-                .font(.headline)
+                .font(.needle(.headline))
                 .listRowSeparator(.hidden).listRowBackground(Color.clear).selectionDisabled()
             }
             ForEach(Array(songs.enumerated()), id: \.element.id) { i, song in
@@ -464,7 +465,7 @@ struct PlayButtons: View {
                 .buttonStyle(.glass)
             }
         }
-        .font(.headline)
+        .font(.needle(.headline))
         .padding(.vertical, 6)
     }
 }
@@ -485,7 +486,7 @@ struct Toast: View {
     var body: some View {
         if let text = store.message {
             Text(text)
-                .font(.subheadline.weight(.medium))
+                .font(.needle(.subheadline).weight(.medium))
                 .padding(.horizontal, 18).padding(.vertical, 12)
                 .glassEffect(.regular, in: .capsule)
                 .padding(.top, 8)

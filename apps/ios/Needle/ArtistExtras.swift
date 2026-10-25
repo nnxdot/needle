@@ -173,7 +173,7 @@ struct ArtistPicturesRow: View {
             if store.more.artistPictures, let progress, progress.total > 0, progress.done < progress.total {
                 Button("Check all now") { store.core.artistPicturesCheckAllNow() }
                     .disabled(progress.hurry)
-                    .font(.subheadline)
+                    .font(.needle(.subheadline))
             }
         }
         .task {
@@ -250,7 +250,7 @@ struct ArtistsView: View {
             VStack(alignment: .leading, spacing: 2) {
                 Text(isPlaceholderArtist(artist.name) ? unknownArtist : artist.name).lineLimit(1)
                 Text(count(Int(artist.albums), "album") + " · " + count(Int(artist.songs), "song"))
-                    .font(.subheadline).foregroundStyle(.secondary)
+                    .font(.needle(.subheadline)).foregroundStyle(.secondary)
             }
         }
         return Group {

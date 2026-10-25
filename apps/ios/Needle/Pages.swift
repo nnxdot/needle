@@ -28,7 +28,7 @@ struct ScanPill: View {
             HStack(spacing: 8) {
                 ProgressView().controlSize(.small)
                 Text(store.scan.imported > 0 ? "Reading your music… \(count(Int(store.scan.imported), "song"))" : "Reading your music…")
-                    .font(.footnote.weight(.medium))
+                    .font(.needle(.footnote).weight(.medium))
             }
             .padding(.horizontal, 14).padding(.vertical, 9)
             .glassEffect(.regular, in: .capsule)
@@ -160,10 +160,10 @@ struct NowCard: View {
                             .clipShape(.rect(cornerRadius: 8))
                             .shadow(color: .black.opacity(0.25), radius: 8, y: 4)
                         VStack(alignment: .leading, spacing: 3) {
-                            Text(playing ? "Playing now" : "Paused").font(.caption.weight(.semibold)).foregroundStyle(colors.accent)
-                            Text(song.title).font(.headline).lineLimit(1)
+                            Text(playing ? "Playing now" : "Paused").font(.needle(.caption).weight(.semibold)).foregroundStyle(colors.accent)
+                            Text(song.title).font(.needle(.headline)).lineLimit(1)
                             Text([song.artist, song.album].filter { !$0.isEmpty }.joined(separator: " · "))
-                                .font(.subheadline).foregroundStyle(.secondary).lineLimit(1)
+                                .font(.needle(.subheadline)).foregroundStyle(.secondary).lineLimit(1)
                         }
                         Spacer(minLength: 0)
                     }
@@ -173,7 +173,7 @@ struct NowCard: View {
                 .accessibilityHint("Opens the player")
                 Button { store.toggle() } label: {
                     Image(systemName: playing ? "pause.fill" : "play.fill")
-                        .font(.title3)
+                        .font(.needle(.title3))
                         .foregroundStyle(colors.onAccent)
                         .contentTransition(.symbolEffect(.replace))
                         .frame(width: 48, height: 48)
@@ -211,7 +211,7 @@ struct ArtistBubble: View {
                     .frame(width: 104, height: 104)
                     .clipShape(.circle)
                     .shadow(color: .black.opacity(0.25), radius: 8, y: 4)
-                Text(name).font(.footnote.weight(.medium)).lineLimit(1)
+                Text(name).font(.needle(.footnote).weight(.medium)).lineLimit(1)
             }
             .frame(width: 110)
             .contentShape(.rect)
@@ -231,7 +231,7 @@ struct PlaylistCover: View {
             Artwork(path: playlist.artwork, seed: playlist.name, size: 400)
                 .overlay {
                     if playlist.smart {
-                        Image(systemName: "gearshape.2.fill").font(.title).foregroundStyle(.white.opacity(0.85))
+                        Image(systemName: "gearshape.2.fill").font(.needle(.title)).foregroundStyle(.white.opacity(0.85))
                     }
                 }
         } else {
@@ -276,10 +276,10 @@ struct LibraryView: View {
                     ForEach(Array(rows.enumerated()), id: \.offset) { i, row in
                         NavigationLink(value: row.2) {
                             HStack(spacing: 14) {
-                                Image(systemName: row.1).font(.title3).foregroundStyle(Color.accentColor).frame(width: 28)
-                                Text(row.0).font(.body)
+                                Image(systemName: row.1).font(.needle(.title3)).foregroundStyle(Color.accentColor).frame(width: 28)
+                                Text(row.0).font(.needle(.body))
                                 Spacer()
-                                Image(systemName: "chevron.right").font(.footnote.weight(.bold)).foregroundStyle(.tertiary)
+                                Image(systemName: "chevron.right").font(.needle(.footnote).weight(.bold)).foregroundStyle(.tertiary)
                             }
                             .padding(.horizontal, 16).padding(.vertical, 14)
                             .contentShape(.rect)
@@ -360,7 +360,7 @@ struct PlaylistsView: View {
                     VStack(alignment: .leading, spacing: 2) {
                         Text(playlist.name).lineLimit(1)
                         Text(playlist.smart ? "Smart playlist" : count(Int(playlist.songs), "song"))
-                            .font(.subheadline).foregroundStyle(.secondary)
+                            .font(.needle(.subheadline)).foregroundStyle(.secondary)
                     }
                 }
             }
@@ -411,7 +411,7 @@ struct GenreTiles: View {
                         .frame(height: 104)
                         .frame(maxWidth: .infinity)
                         .overlay(alignment: .bottomLeading) {
-                            Text(genre.name).font(.subheadline.bold()).lineLimit(1)
+                            Text(genre.name).font(.needle(.subheadline).bold()).lineLimit(1)
                                 .padding(.horizontal, 12).padding(.vertical, 7)
                                 .glassEffect(.regular, in: .rect(cornerRadius: 12))
                                 .padding(8)
@@ -523,15 +523,15 @@ struct AlbumView: View {
                 .overlay(alignment: .bottom) { Fade(color: look.page).frame(height: 230) }
                 .modifier(Stretchy())
             VStack(spacing: 5) {
-                Text(album.title).font(.title.bold()).multilineTextAlignment(.center)
+                Text(album.title).font(.needle(.title).bold()).multilineTextAlignment(.center)
                 // A button, not a link: a link in a list row is laid out as a row, at the left
                 // with an arrow.
                 Button { store.opening = .artist(album.artist) } label: {
-                    Text(album.artist).font(.title3.weight(.medium)).foregroundStyle(look.ink.opacity(0.82)).multilineTextAlignment(.center)
+                    Text(album.artist).font(.needle(.title3).weight(.medium)).foregroundStyle(look.ink.opacity(0.82)).multilineTextAlignment(.center)
                 }
                 .buttonStyle(.borderless)
                 .disabled(isPlaceholderArtist(album.artist))
-                Text(details).font(.footnote.weight(.medium)).foregroundStyle(look.muted)
+                Text(details).font(.needle(.footnote).weight(.medium)).foregroundStyle(look.muted)
                 if let songs, !songs.isEmpty { PlayButtons(songs: songs, look: look).padding(.top, 10) }
             }
             .padding(.horizontal, 22)
@@ -544,7 +544,7 @@ struct AlbumView: View {
     @ViewBuilder
     private func footer(_ look: PageColors) -> some View {
         VStack(alignment: .leading, spacing: 0) {
-            Text(summary).font(.footnote).foregroundStyle(look.muted)
+            Text(summary).font(.needle(.footnote)).foregroundStyle(look.muted)
                 .padding(.horizontal).padding(.top, 14)
             if !more.isEmpty, !isPlaceholderArtist(album.artist) {
                 SectionTitle(title: "More by \(album.artist)", route: .artist(album.artist))
@@ -717,7 +717,7 @@ struct ArtistView: View {
                             .accessibilityLabel(name)
                     } else {
                         Text(name)
-                            .font(.system(size: 46, weight: .heavy))
+                            .font(.needleTitle(size: 46, relativeTo: .largeTitle))
                             .tracking(-1)
                             .multilineTextAlignment(.center)
                             .lineLimit(2)
@@ -726,7 +726,7 @@ struct ArtistView: View {
                     }
                     HStack(spacing: 26) {
                         Button { playAll(shuffled: true) } label: {
-                            Image(systemName: "shuffle").font(.title3.weight(.semibold)).frame(width: 34, height: 34)
+                            Image(systemName: "shuffle").font(.needle(.title3).weight(.semibold)).frame(width: 34, height: 34)
                         }
                         .buttonStyle(.glass)
                         .buttonBorderShape(.circle)
@@ -748,7 +748,7 @@ struct ArtistView: View {
                             store.playedWhenReady()
                             store.message = "Starting radio from \(name)"
                         } label: {
-                            Image(systemName: "dot.radiowaves.left.and.right").font(.title3.weight(.semibold)).frame(width: 34, height: 34)
+                            Image(systemName: "dot.radiowaves.left.and.right").font(.needle(.title3).weight(.semibold)).frame(width: 34, height: 34)
                         }
                         .buttonStyle(.glass)
                         .buttonBorderShape(.circle)
@@ -770,10 +770,10 @@ struct ArtistView: View {
                     .shadow(color: .black.opacity(0.3), radius: 8, y: 4)
                 VStack(alignment: .leading, spacing: 3) {
                     if album.year > 0 {
-                        Text(String(album.year)).font(.subheadline).foregroundStyle(look.muted)
+                        Text(String(album.year)).font(.needle(.subheadline)).foregroundStyle(look.muted)
                     }
-                    Text(album.title).font(.headline).lineLimit(2)
-                    Text(count(Int(album.songs), "Song")).font(.subheadline).foregroundStyle(look.muted)
+                    Text(album.title).font(.needle(.headline)).lineLimit(2)
+                    Text(count(Int(album.songs), "Song")).font(.needle(.subheadline)).foregroundStyle(look.muted)
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
                 Button { store.playAlbum(album) } label: {

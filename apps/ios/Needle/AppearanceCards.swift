@@ -57,10 +57,11 @@ struct AppearanceView: View {
                     }
                 }
                 NavigationLink(value: Route.playerButtons) {
-                    LabeledContent {
-                        Text("\(PlayerButtons.chosen(store.more.playerButtons).count) of \(PlayerButtons.all.count)")
-                    } label: {
+                    HStack {
                         SettingLabel(title: "Player buttons", detail: "Which buttons the player shows, in which order.", icon: "playpause.fill", tint: .orange)
+                        Spacer(minLength: 8)
+                        Text("\(PlayerButtons.chosen(store.more.playerButtons).count) of \(PlayerButtons.all.count)")
+                            .foregroundStyle(.secondary).fixedSize()
                     }
                 }
                 SketchRow(title: "Beside play", detail: "The two buttons either side.") {
@@ -98,6 +99,24 @@ struct AppearanceView: View {
             Section("Lyrics") {
                 toggle("Live lyrics", "They move with the song, the line playing lit.", "text.quote", .orange, \.liveLyrics)
                 toggle("Keep the screen on", "While the lyrics show.", "sun.max.fill", .yellow, \.keepScreenOnLyrics)
+            }
+            Section("Text") {
+                NavigationLink(value: Route.fonts(true)) {
+                    HStack {
+                        SettingLabel(title: "Titles", detail: "The font of page titles and big names.", icon: "textformat.size.larger", tint: .indigo)
+                        Spacer(minLength: 8)
+                        Text(NeedleFonts.name(app.titleFont == "flex" ? "system" : app.titleFont, in: NeedleFonts.titles))
+                            .foregroundStyle(.secondary).fixedSize()
+                    }
+                }
+                NavigationLink(value: Route.fonts(false)) {
+                    HStack {
+                        SettingLabel(title: "Text", detail: "The font of lists, menus, and everything else.", icon: "textformat", tint: .indigo)
+                        Spacer(minLength: 8)
+                        Text(NeedleFonts.name(app.textFont, in: NeedleFonts.texts))
+                            .foregroundStyle(.secondary).fixedSize()
+                    }
+                }
             }
             Section("Motion and touch") {
                 toggle("Haptics", "A little tap on play, pause, and long presses.", "hand.tap.fill", .green, \.haptics)
@@ -179,8 +198,8 @@ private struct LookCard: View {
                     .overlay(RoundedRectangle(cornerRadius: 12).strokeBorder(chosen ? store.colors.accent : Color.secondary.opacity(0.25), lineWidth: chosen ? 2 : 1))
                     .overlay(alignment: .topTrailing) { if chosen { CheckBadge().offset(x: 6, y: -6) } }
                 VStack(alignment: .leading, spacing: 1) {
-                    Text(name).font(.subheadline.weight(.semibold)).lineLimit(1)
-                    Text(note).font(.caption).foregroundStyle(.secondary).lineLimit(1)
+                    Text(name).font(.needle(.subheadline).weight(.semibold)).lineLimit(1)
+                    Text(note).font(.needle(.caption)).foregroundStyle(.secondary).lineLimit(1)
                 }
             }
             .contentShape(.rect)
@@ -202,7 +221,7 @@ private struct SketchRow<Choices: View>: View {
         HStack(spacing: 10) {
             VStack(alignment: .leading, spacing: 1) {
                 Text(title)
-                Text(detail).font(.caption).foregroundStyle(.secondary).lineLimit(2)
+                Text(detail).font(.needle(.caption)).foregroundStyle(.secondary).lineLimit(2)
             }
             Spacer(minLength: 8)
             HStack(spacing: 8) { choices }
@@ -226,7 +245,7 @@ private struct SketchChoice: View {
                     .frame(width: 58, height: 52)
                     .clipShape(.rect(cornerRadius: 8))
                     .overlay(RoundedRectangle(cornerRadius: 8).strokeBorder(chosen ? store.colors.accent : Color.secondary.opacity(0.25), lineWidth: chosen ? 2 : 1))
-                Text(caption).font(.caption2).foregroundStyle(chosen ? .primary : .secondary)
+                Text(caption).font(.needle(.caption2)).foregroundStyle(chosen ? .primary : .secondary)
             }
             .contentShape(.rect)
         }

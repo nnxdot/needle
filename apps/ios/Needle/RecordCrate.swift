@@ -111,8 +111,8 @@ struct RecordCrateView: View {
     private func info(_ album: Album) -> some View {
         VStack(spacing: 12) {
             VStack(spacing: 3) {
-                Text(album.title).font(.title3.bold()).lineLimit(1)
-                Text(album.artist).font(.subheadline).foregroundStyle(.secondary).lineLimit(1)
+                Text(album.title).font(.needle(.title3).bold()).lineLimit(1)
+                Text(album.artist).font(.needle(.subheadline)).foregroundStyle(.secondary).lineLimit(1)
             }
             .padding(.horizontal)
             HStack(spacing: 12) {

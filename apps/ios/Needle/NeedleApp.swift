@@ -3,11 +3,18 @@ import SwiftUI
 @main
 struct NeedleApp: App {
     @State private var store = Store.main
+
+    init() {
+        NeedleFonts.registerAll()
+    }
     @Environment(\.scenePhase) private var phase
 
     var body: some Scene {
         WindowGroup {
             RootView()
+                // The text font chosen (Settings › Appearance › Text): drawn anew when it changes.
+                .font(.needle(.body))
+                .id("\(store.app.titleFont)|\(store.app.textFont)")
                 .environment(store)
                 .onOpenURL { store.open($0) }
                 .task {

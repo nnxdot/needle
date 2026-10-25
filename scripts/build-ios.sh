@@ -50,6 +50,10 @@ xcodebuild -create-xcframework "${args[@]}" -output "$ios/NeedleCore.xcframework
 rm -rf "$gen"
 [ "$kind" = core ] && exit 0
 
+# Needle's fonts for titles and text (SIL Open Font License; see assets/fonts).
+mkdir -p "$ios/Needle/Fonts"
+cp "$here/assets/fonts/"*.ttf "$ios/Needle/Fonts/"
+
 cd "$ios"
 if [ "$kind" = device ] || [ "$kind" = ipa ]; then
     xcodebuild -project Needle.xcodeproj -scheme Needle -configuration Release \

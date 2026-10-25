@@ -16,7 +16,7 @@ struct RadioView: View {
                 if let seeds, !seeds.isEmpty {
                     SectionTitle(title: "Stations from your favourites")
                     Text("Each starts with the song, then plays songs that flow from it.")
-                        .font(.footnote).foregroundStyle(.secondary)
+                        .font(.needle(.footnote)).foregroundStyle(.secondary)
                         .padding(.horizontal).padding(.top, 2)
                     Shelf {
                         ForEach(Array(seeds.prefix(12).enumerated()), id: \.offset) { _, seed in
@@ -62,14 +62,14 @@ struct RadioView: View {
                     }
                 HStack(alignment: .bottom) {
                     VStack(alignment: .leading, spacing: 3) {
-                        Text("YOUR STATION").font(.caption.weight(.bold)).kerning(0.6).foregroundStyle(.white.opacity(0.8))
+                        Text("YOUR STATION").font(.needle(.caption).weight(.bold)).kerning(0.6).foregroundStyle(.white.opacity(0.8))
                         Text(seed.map { "From \($0.title)" } ?? "From anything in your library")
-                            .font(.title2.bold()).foregroundStyle(.white).lineLimit(2)
+                            .font(.needle(.title2).bold()).foregroundStyle(.white).lineLimit(2)
                         Text(seed.map { $0.artist } ?? "Needle picks a song to start")
-                            .font(.subheadline).foregroundStyle(.white.opacity(0.8)).lineLimit(1)
+                            .font(.needle(.subheadline)).foregroundStyle(.white.opacity(0.8)).lineLimit(1)
                     }
                     Spacer()
-                    Image(systemName: "play.fill").font(.title3).foregroundStyle(.black)
+                    Image(systemName: "play.fill").font(.needle(.title3)).foregroundStyle(.black)
                         .frame(width: 52, height: 52)
                         .background(.white, in: .circle)
                 }
@@ -143,15 +143,15 @@ private struct StationCard: View {
                     .clipShape(.rect(cornerRadius: 14))
                     .overlay(alignment: .bottomLeading) {
                         Label("Radio", systemImage: "dot.radiowaves.left.and.right")
-                            .font(.caption2.weight(.bold))
+                            .font(.needle(.caption2).weight(.bold))
                             .padding(.horizontal, 8).padding(.vertical, 4)
                             .glassEffect(.regular, in: .capsule)
                             .padding(8)
                     }
                     .shadow(color: .black.opacity(0.3), radius: 10, y: 6)
                     .padding(.bottom, 5)
-                Text(seed.title).font(.subheadline.weight(.medium)).lineLimit(1)
-                Text(seed.artist).font(.footnote).foregroundStyle(.secondary).lineLimit(1)
+                Text(seed.title).font(.needle(.subheadline).weight(.medium)).lineLimit(1)
+                Text(seed.artist).font(.needle(.footnote)).foregroundStyle(.secondary).lineLimit(1)
             }
             .frame(width: 150)
             .contentShape(.rect)
@@ -185,12 +185,12 @@ private struct MixTileLabel: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
-            Image(systemName: symbol).font(.title3.weight(.semibold)).foregroundStyle(.white)
+            Image(systemName: symbol).font(.needle(.title3).weight(.semibold)).foregroundStyle(.white)
                 .frame(width: 40, height: 40)
                 .background(tint.gradient, in: .rect(cornerRadius: 11))
             VStack(alignment: .leading, spacing: 1) {
-                Text(title).font(.subheadline.weight(.semibold)).lineLimit(1)
-                Text(detail).font(.caption).foregroundStyle(.secondary).lineLimit(1)
+                Text(title).font(.needle(.subheadline).weight(.semibold)).lineLimit(1)
+                Text(detail).font(.needle(.caption)).foregroundStyle(.secondary).lineLimit(1)
             }
         }
         .padding(14)
