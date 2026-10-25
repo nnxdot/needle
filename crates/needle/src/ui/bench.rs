@@ -443,6 +443,8 @@ impl AppView {
                         v.big_was = true;
                         v.big_moving = true;
                     }
+                    // "visualizer": with the visualizer on.
+                    v.visualizer = how == "visualizer";
                     // "alone": with no pane beside it.
                     if how == "alone" {
                         v.big_side = super::now_playing::Side::None;

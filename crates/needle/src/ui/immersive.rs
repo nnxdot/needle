@@ -359,6 +359,9 @@ impl AppView {
             .flex_col()
             .when(!lyrics, |el| el.items_center())
             .gap_4()
+            .when(self.visualizer, |el| {
+                el.child(self.visualizer_strip(column_w, 48., cx))
+            })
             .child(seek)
             .child(buttons)
             .child(volume);
