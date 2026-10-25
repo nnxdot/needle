@@ -454,11 +454,20 @@ impl AppView {
                 )))
             })
             .when_some(album_art.clone(), |el, track| {
-                el.child(div().rounded(px(8.)).shadow_lg().child(artwork(
-                    Some(&track),
-                    cover_size,
-                    cx,
-                )))
+                // The album's moving cover when it has one (Settings › Appearance › Moving
+                // covers), else its still one.
+                let moving = self
+                    .album_moving
+                    .as_ref()
+                    .filter(|(id, _)| *id == track.id)
+                    .and_then(|(_, path)| path.as_deref())
+                    .and_then(|path| super::widgets::moving_cover("album-cover", path, cover_size));
+                el.child(
+                    div()
+                        .rounded(px(8.))
+                        .shadow_lg()
+                        .child(moving.unwrap_or_else(|| artwork(Some(&track), cover_size, cx))),
+                )
             })
             .when_some(artist.clone(), |el, name| {
                 el.child(div().rounded_full().shadow_lg().child(self.artist_photo(
