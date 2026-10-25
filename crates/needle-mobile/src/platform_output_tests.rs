@@ -85,6 +85,9 @@ fn wav(path: &std::path::Path, rate: u32, seconds: u32) {
     std::fs::write(path, out).unwrap();
 }
 
+/// The platform output is one global: the tests that set it take turns.
+static ONE_AT_A_TIME: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
 fn wait(what: &str, limit: Duration, mut done: impl FnMut() -> bool) {
     let start = Instant::now();
     while !done() {
@@ -95,6 +98,7 @@ fn wait(what: &str, limit: Duration, mut done: impl FnMut() -> bool) {
 
 #[test]
 fn a_platform_output_plays_pauses_seeks_follows_the_rate_and_hands_back() {
+    let _turn = ONE_AT_A_TIME.lock().unwrap_or_else(|e| e.into_inner());
     let dir = tempfile::tempdir().unwrap();
     let music = dir.path().join("music");
     needle_core::demo::create(&music).unwrap();
@@ -260,6 +264,7 @@ impl PlatformOutput for Failing {
 /// instead.") stays after the system's output opens (opening it clears older notices).
 #[test]
 fn the_failure_notice_stays() {
+    let _turn = ONE_AT_A_TIME.lock().unwrap_or_else(|e| e.into_inner());
     let dir = tempfile::tempdir().unwrap();
     let music = dir.path().join("music");
     needle_core::demo::create(&music).unwrap();
@@ -281,15 +286,28 @@ fn the_failure_notice_stays() {
     wait("the failure", Duration::from_secs(10), || {
         failing.frames.load(Ordering::SeqCst) > 40_000
     });
-    std::thread::sleep(Duration::from_secs(2));
-    assert!(
+    // Said once the system's output plays, and still there for a while after (a second
+    // restart would clear it).
+    wait("the notice", Duration::from_secs(5), || {
         needle
             .player
             .state()
             .output_notice
-            .is_some_and(|n| n.contains("Failing DAC")),
-        "the notice is still there two seconds later"
-    );
+            .is_some_and(|n| n.contains("Failing DAC"))
+    });
+    let start = Instant::now();
+    while start.elapsed() < Duration::from_secs(3) {
+        assert!(
+            needle
+                .player
+                .state()
+                .output_notice
+                .is_some_and(|n| n.contains("Failing DAC")),
+            "the notice is still there after {:?}",
+            start.elapsed()
+        );
+        std::thread::sleep(Duration::from_millis(20));
+    }
     set_platform_output(None);
     needle.toggle();
 }
