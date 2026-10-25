@@ -9,7 +9,7 @@ enum Waveforms {
     static func heights(_ id: String, store: Store) async -> [Float] {
         if let known = kept[id] { return known }
         let core = store.core
-        let found = await Task.detached { core.waveformHeights(id: id, count: 140) }.value
+        let found = await Task.detached { (try? core.waveform(id: id, count: 140)) ?? [] }.value
         kept[id] = found
         if kept.count > 200 { kept.removeAll() }
         return found

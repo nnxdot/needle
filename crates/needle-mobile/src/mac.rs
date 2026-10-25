@@ -2128,13 +2128,28 @@ fn sort_by_query(tracks: &mut [Track], query: &str) {
     });
 }
 
-// ---------- Needle 2.0, as JSON for the Mac (the shared parts are in v2.rs)
+// ---------- Needle 2.0 on the Mac, beyond the phones' (core2.rs)
+
+/// The Mac lets the picture sweep look now (no library scan runs).
+static SWEEP_MAY: AtomicBool = AtomicBool::new(false);
+
+impl Needle {
+    /// The sweep looks while the Mac lets it and online lookups and Artist pictures are on.
+    fn refresh_sweep(&self) {
+        let settings = self.library.settings().unwrap_or_default();
+        self.allow_picture_sweep(
+            SWEEP_MAY.load(Ordering::SeqCst) && settings.online_media && settings.artist_pictures,
+        );
+    }
+}
 
 #[uniffi::export]
 impl Needle {
-    /// How far the slow search for artists' pictures is, as JSON: done, total, allowed, hurry.
-    pub fn artist_pictures_progress_json(&self) -> Result<String> {
-        to_json(&self.sweep_progress())
+    /// Whether the picture sweep may look now (`may`: no library scan runs); it also needs
+    /// online lookups and Artist pictures on.
+    pub fn artist_pictures_allow(&self, may: bool) {
+        SWEEP_MAY.store(may, Ordering::SeqCst);
+        self.refresh_sweep();
     }
 
     /// Every picture fanart.tv has of this kind for the artist, best first, as JSON (url,
@@ -2149,7 +2164,7 @@ impl Needle {
         to_json(&media::pictures::fanart_choices(&self.library, &name, kind, online)?)
     }
 
-    /// Your library in numbers, as JSON (`LibraryNumbers`).
+    /// Your library in numbers, as JSON (`LibraryNumbers`, with the Mac's album summaries).
     pub fn library_numbers_json(&self) -> Result<String> {
         to_json(&self.library.numbers()?)
     }
@@ -2164,10 +2179,23 @@ impl Needle {
         to_json(&self.library.on_this_day(now, offset, &[1, 5], 12)?)
     }
 
-    /// Every measured song on the mood map, as JSON (id, x dark to bright, y calm to lively,
-    /// mood).
-    pub fn mood_map_json(&self) -> Result<String> {
-        to_json(&self.library.mood_map()?)
+    /// Plays the songs inside a circle on the mood map (places 0 to 1). Returns how many.
+    pub fn play_mood_area(&self, x: f32, y: f32, radius: f32) -> Result<u32> {
+        let reason = "From the mood map".to_string();
+        let items: Vec<QueueItem> = self
+            .library
+            .mood_area(x, y, radius, 200)?
+            .into_iter()
+            .map(|track| QueueItem {
+                track,
+                reason: reason.clone(),
+            })
+            .collect();
+        let count = items.len() as u32;
+        if count > 0 {
+            self.player.send(Command::Play(items));
+        }
+        Ok(count)
     }
 }
 

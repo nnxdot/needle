@@ -5,7 +5,7 @@ struct HomePage: View {
     private var store: Store { .shared }
     @State private var home: HomeData?
     /// What played on this day one and five years ago.
-    @State private var days: [OnThisDay] = []
+    @State private var days: [PastDay] = []
 
     var body: some View {
         ScrollView {
@@ -39,7 +39,7 @@ struct HomePage: View {
         .task(id: store.libraryVersion) {
             home = JSON.decode(HomeData.self, await store.load { try $0.homeJson() })
             let offset = Int32(TimeZone.current.secondsFromGMT())
-            days = JSON.decode([OnThisDay].self, await store.load { try $0.onThisDayJson(offset: offset) }) ?? []
+            days = JSON.decode([PastDay].self, await store.load { try $0.onThisDayJson(offset: offset) }) ?? []
         }
     }
 

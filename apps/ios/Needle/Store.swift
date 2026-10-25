@@ -31,9 +31,9 @@ final class Store {
     private(set) var libraryVersion = 0
     /// The app's own look and behaviour (Settings › Appearance).
     private(set) var app: AppSettings
-    /// Needle 2.0's settings kept with the library: the player's buttons, the artists' order,
-    /// artist pictures, and smart mixes.
-    private(set) var more: MoreSettings
+    /// Needle 2.0's choices kept with the library's settings (the computer's names): the fonts,
+    /// the player's buttons, the artists' order, artist pictures, and smart mixes.
+    private(set) var choices: LibraryChoices
     /// Themes made in the app or added from files.
     private(set) var themes: [ThemeInfo] = []
     /// The playing cover's main colour.
@@ -182,11 +182,12 @@ final class Store {
         } catch {
             fatalError("Needle could not open its library: \(error)")
         }
-        let appSettings = core.appSettings()
-        app = appSettings
-        NeedleFonts.apply(title: appSettings.titleFont, text: appSettings.textFont)
-        more = (try? core.moreSettings())
-            ?? MoreSettings(playerButtons: PlayerButtons.all, artistOrder: "name", albumArtistsOnly: false, artistPictures: true, smartMix: true)
+        app = core.appSettings()
+        let chosen = (try? core.libraryChoices())
+            ?? LibraryChoices(displayFont: "system", textFont: "system", playerButtons: PlayerButtons.all, artistOrder: "name",
+                              albumArtistsOnly: false, artistPictures: true, smartMix: true)
+        choices = chosen
+        NeedleFonts.apply(title: chosen.displayFont, text: chosen.textFont)
         themes = core.themes()
         startAudio()
         startRemoteCommands()
@@ -402,26 +403,32 @@ final class Store {
 
     // MARK: - Settings
 
-    func updateMore(_ change: (inout MoreSettings) -> Void) {
-        var next = more
+    func updateChoices(_ change: (inout LibraryChoices) -> Void) {
+        var next = choices
         change(&next)
-        more = next
+        if next.displayFont != choices.displayFont || next.textFont != choices.textFont {
+            NeedleFonts.apply(title: next.displayFont, text: next.textFont)
+        }
+        let picturesChanged = next.artistPictures != choices.artistPictures
+        choices = next
         let saved = next
-        inOrder { try $0.setMoreSettings(value: saved) }
+        inOrder { try $0.setLibraryChoices(value: saved) }
+        if picturesChanged { allowPictures() }
     }
 
-    /// The slow search for artists' pictures looks only on Wi-Fi and while no scan runs (it
-    /// also needs online lookups and Artist pictures on).
+    /// The slow search for artists' pictures looks only with online lookups and Artist
+    /// pictures on, on Wi-Fi, and while no scan runs.
     func allowPictures() {
-        core.artistPicturesAllow(may: !onMobileData && !scan.running)
+        let (wifi, scanning, pictures) = (!onMobileData, scan.running, choices.artistPictures)
+        run { core in
+            let online = (try? core.playbackSettings().onlineMedia) ?? false
+            core.allowPictureSweep(allowed: online && pictures && wifi && !scanning)
+        }
     }
 
     func updateApp(_ change: (inout AppSettings) -> Void) {
         var next = app
         change(&next)
-        if next.titleFont != app.titleFont || next.textFont != app.textFont {
-            NeedleFonts.apply(title: next.titleFont, text: next.textFont)
-        }
         app = next
         let saved = next
         inOrder { try $0.setAppSettings(value: saved) }

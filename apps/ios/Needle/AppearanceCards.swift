@@ -60,7 +60,7 @@ struct AppearanceView: View {
                     HStack {
                         SettingLabel(title: "Player buttons", detail: "Which buttons the player shows, in which order.", icon: "playpause.fill", tint: .orange)
                         Spacer(minLength: 8)
-                        Text("\(PlayerButtons.chosen(store.more.playerButtons).count) of \(PlayerButtons.all.count)")
+                        Text("\(PlayerButtons.chosen(store.choices.playerButtons).count) of \(PlayerButtons.all.count)")
                             .foregroundStyle(.secondary).fixedSize()
                     }
                 }
@@ -105,7 +105,7 @@ struct AppearanceView: View {
                     HStack {
                         SettingLabel(title: "Titles", detail: "The font of page titles and big names.", icon: "textformat.size.larger", tint: .indigo)
                         Spacer(minLength: 8)
-                        Text(NeedleFonts.name(app.titleFont == "flex" ? "system" : app.titleFont, in: NeedleFonts.titles))
+                        Text(NeedleFonts.name(store.choices.displayFont, in: NeedleFonts.titles))
                             .foregroundStyle(.secondary).fixedSize()
                     }
                 }
@@ -113,7 +113,7 @@ struct AppearanceView: View {
                     HStack {
                         SettingLabel(title: "Text", detail: "The font of lists, menus, and everything else.", icon: "textformat", tint: .indigo)
                         Spacer(minLength: 8)
-                        Text(NeedleFonts.name(app.textFont, in: NeedleFonts.texts))
+                        Text(NeedleFonts.name(store.choices.textFont, in: NeedleFonts.texts))
                             .foregroundStyle(.secondary).fixedSize()
                     }
                 }

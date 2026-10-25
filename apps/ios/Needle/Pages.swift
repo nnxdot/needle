@@ -46,7 +46,7 @@ struct HomeView: View {
     @State private var home: Home?
     @State private var favorites: [Album] = []
     /// What played on this day one and five years ago.
-    @State private var days: [DayPlayed] = []
+    @State private var days: [OnThisDay] = []
     /// The artists played most this month, with their pictures.
     @State private var artists: [TopArtist] = []
     @State private var importing = false
@@ -98,7 +98,7 @@ struct HomeView: View {
             home = await store.load { try $0.home() }
             favorites = await store.load { try $0.homeFavorites() } ?? []
             let offset = Int32(TimeZone.current.secondsFromGMT())
-            days = await store.load { try $0.onThisDay(offset: offset) } ?? []
+            days = await store.load { try $0.onThisDay(utcOffset: offset, limit: 12) } ?? []
             artists = await store.load { core in
                 let top = try core.stats(days: 30).topArtists.filter { !$0.artist.isEmpty && !isPlaceholderArtist($0.artist) }.prefix(12)
                 let pictures = Dictionary(try core.artists().map { ($0.name, $0.artwork) }, uniquingKeysWith: { a, _ in a })

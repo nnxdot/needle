@@ -55,7 +55,7 @@ struct PlayerButtonsView: View {
     @Environment(Store.self) private var store
 
     var body: some View {
-        let list = PlayerButtons.chosen(store.more.playerButtons)
+        let list = PlayerButtons.chosen(store.choices.playerButtons)
         let unused = PlayerButtons.all.filter { !list.contains($0) }
         List {
             Section {
@@ -103,6 +103,6 @@ struct PlayerButtonsView: View {
     }
 
     private func save(_ list: [String]) {
-        store.updateMore { $0.playerButtons = PlayerButtons.chosen(list) }
+        store.updateChoices { $0.playerButtons = PlayerButtons.chosen(list) }
     }
 }

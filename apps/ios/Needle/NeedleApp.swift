@@ -14,7 +14,7 @@ struct NeedleApp: App {
             RootView()
                 // The text font chosen (Settings › Appearance › Text): drawn anew when it changes.
                 .font(.needle(.body))
-                .id("\(store.app.titleFont)|\(store.app.textFont)")
+                .id("\(store.choices.displayFont)|\(store.choices.textFont)")
                 .environment(store)
                 .onOpenURL { store.open($0) }
                 .task {

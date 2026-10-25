@@ -4,8 +4,8 @@ import UIKit
 import UniformTypeIdentifiers
 
 /// Needle's fonts (assets/fonts, SIL Open Font License, carried inside the app), by the
-/// settings' names, as on every system: `titleFont` for titles, `textFont` for the rest, and
-/// "own:<family>" for a font file added on this iPhone.
+/// settings' names, as on every system: `display_font` for titles, `text_font` for the rest,
+/// and "own:<family>" for a font file added on this iPhone.
 enum NeedleFonts {
     typealias Choice = (key: String, name: String, family: String?)
 
@@ -31,18 +31,19 @@ enum NeedleFonts {
     /// Title fonts with one weight only: they are not made bold.
     static let singleWeight: Set<String> = ["Instrument Serif", "DM Serif Display"]
 
-    /// A setting's family, or nil for Plain. ("flex", Android's first title font, never meant
-    /// anything on the iPhone: Plain.)
+    /// A setting's family, or nil for Plain. "bahnschrift" from before 2.0 is Poster.
     static func family(_ key: String, in list: [Choice]) -> String? {
         if key.hasPrefix("own:") {
             let own = key.dropFirst(4).trimmingCharacters(in: .whitespaces)
             return own.isEmpty ? nil : own
         }
+        let key = key == "bahnschrift" ? "poster" : key
         return list.first { $0.key == key }?.family
     }
 
     static func name(_ key: String, in list: [Choice]) -> String {
         if key.hasPrefix("own:") { return String(key.dropFirst(4)) }
+        let key = key == "bahnschrift" ? "poster" : key
         return list.first { $0.key == key }?.name ?? list[0].name
     }
 
@@ -141,11 +142,11 @@ struct FontsView: View {
 
     var body: some View {
         let list = titles ? NeedleFonts.titles : NeedleFonts.texts
-        let key = titles ? store.app.titleFont : store.app.textFont
+        let key = titles ? store.choices.displayFont : store.choices.textFont
         List {
             Section {
                 ForEach(list, id: \.key) { choice in
-                    let chosen = key == choice.key || (titles && key == "flex" && choice.key == "system")
+                    let chosen = key == choice.key || (titles && key == "bahnschrift" && choice.key == "poster")
                     Button { choose(choice.key) } label: {
                         HStack(spacing: 12) {
                             Text(titles ? "Good evening" : "Harbor Lights · Mara Quinn · 3:48")
@@ -185,7 +186,7 @@ struct FontsView: View {
     }
 
     private func choose(_ key: String) {
-        store.updateApp { if titles { $0.titleFont = key } else { $0.textFont = key } }
+        store.updateChoices { if titles { $0.displayFont = key } else { $0.textFont = key } }
     }
 
     private func sample(_ family: String?) -> Font {
