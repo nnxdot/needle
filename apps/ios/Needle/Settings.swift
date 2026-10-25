@@ -212,6 +212,10 @@ struct LibrarySettingsView: View {
                     Toggle(isOn: Binding(get: { settings.onlineMedia }, set: { var s = settings; s.onlineMedia = $0; save(s) })) {
                         SettingLabel(title: "Look things up online", detail: "Covers, artist photos, and lyrics.", icon: "globe", tint: .blue)
                     }
+                    // A dependent row: only while online lookups are on.
+                    if settings.onlineMedia {
+                        ArtistPicturesRow().padding(.leading, 16)
+                    }
                     OpenRow(label: SettingLabel(title: "Artists' logos", detail: "From fanart.tv.", icon: "signature", tint: .indigo),
                             value: hasFanart ? "Your key" : "Needle's key") {
                     if hasFanart {
@@ -301,6 +305,13 @@ struct PlaybackSettingsView: View {
                         }
                         Slider(value: Binding(get: { Double(settings.crossfade) }, set: { var s = settings; s.crossfade = Float($0.rounded()); save(s) }), in: 0...12, step: 1)
                             .accessibilityLabel("Crossfade")
+                    }
+                    // A dependent row (SETTINGS-STYLE.md): only while Crossfade is on.
+                    if settings.crossfade >= 0.5 {
+                        Toggle(isOn: Binding(get: { store.more.smartMix }, set: { on in store.updateMore { $0.smartMix = on } })) {
+                            SettingLabel(title: "Smart mixes", detail: "Fades where the music ends, in whole bars.", icon: "metronome.fill", tint: .purple)
+                        }
+                        .padding(.leading, 16)
                     }
                     VStack(alignment: .leading, spacing: 8) {
                         SettingLabel(title: "Even loudness", detail: "From the songs' ReplayGain tags.", icon: "waveform.path", tint: .teal)
