@@ -229,7 +229,7 @@ private fun Round(icon: Int, label: String, action: androidx.glance.action.Actio
 @Composable
 private fun Mark() {
     Row(verticalAlignment = Alignment.CenterVertically) {
-        Image(ImageProvider(R.drawable.needle_logo), contentDescription = null, modifier = GlanceModifier.size(18.dp).cornerRadius(5.dp))
+        Image(ImageProvider(R.drawable.needle_logo_small), contentDescription = null, modifier = GlanceModifier.size(18.dp).cornerRadius(5.dp))
         Spacer(GlanceModifier.width(6.dp))
         Text("Needle", style = TextStyle(color = Faint, fontSize = 12.sp, fontWeight = FontWeight.Medium))
     }
@@ -406,7 +406,7 @@ class RecentWidget : GlanceAppWidget() {
                     Column(GlanceModifier.fillMaxSize().padding(14.dp)) {
                         Row(GlanceModifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                             Text("Recently added", style = TextStyle(color = White, fontSize = 16.sp, fontWeight = FontWeight.Bold), modifier = GlanceModifier.defaultWeight())
-                            Image(ImageProvider(R.drawable.needle_logo), contentDescription = null, modifier = GlanceModifier.size(18.dp).cornerRadius(5.dp))
+                            Image(ImageProvider(R.drawable.needle_logo_small), contentDescription = null, modifier = GlanceModifier.size(18.dp).cornerRadius(5.dp))
                         }
                         Spacer(GlanceModifier.height(10.dp))
                         if (albums.isEmpty()) Text("Your new albums show here.", style = TextStyle(color = Soft, fontSize = 13.sp))
