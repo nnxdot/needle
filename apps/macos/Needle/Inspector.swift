@@ -337,7 +337,12 @@ private struct QueueRow: View {
             }
         }
         .contentShape(Rectangle())
-        .onHover { hover = $0 }
+        .onHover { inside in withAnimation(store.motion ? .easeOut(duration: 0.12) : nil) { hover = inside } }
+        // The soft highlight under the pointer, as on Windows: in the side panel, the big
+        // player, and the mini player alike.
+        .listRowBackground(RoundedRectangle(cornerRadius: 6, style: .continuous)
+            .fill(hover ? Color.primary.opacity(0.08) : .clear)
+            .padding(.horizontal, 6))
         .onTapGesture(count: 2) { store.core.jumpTo(id: entry.id, index: UInt32(index)) }
         .help(entry.reason)
         .contextMenu {

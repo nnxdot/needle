@@ -350,7 +350,7 @@ struct NowPlayingView: View {
                 .contentTransition(.symbolEffect(.replace))
         }
         .buttonStyle(.plain)
-        .accessibilityLabel(favorite ? "Unfavourite" : "Favourite")
+        .accessibilityLabel(favorite ? "Unfavorite" : "Favorite")
         // Only for a tap: not when the star is read for a song that is a favourite.
         .sensoryFeedback(.success, trigger: favoriteTaps) { _, _ in store.app.haptics }
     }
@@ -1178,6 +1178,7 @@ struct TimingView: View {
                     Text(next < lines.count ? "Tap: line \(next + 1) starts" : "All timed").frame(maxWidth: .infinity).padding(.vertical, 10)
                 }
                 .buttonStyle(.glassProminent)
+                .foregroundStyle(store.colors.onAccent)
                 .disabled(!thisSong || next >= lines.count)
                 .sensoryFeedback(.impact(weight: .light), trigger: next)
                 Button("Save") {

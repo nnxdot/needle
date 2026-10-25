@@ -40,7 +40,7 @@ struct AppearanceView: View {
                 toggle("Colours from the song", "The app takes the playing song's colours.", "paintpalette.fill", .pink, \.ambientColors)
                 toggle("Colours from covers", "Pages take their cover's colours.", "square.on.circle", .orange, \.coverColors)
                 ColorPicker(selection: Binding(
-                    get: { Color(hex: app.accentColor) ?? ThemeColors.pink },
+                    get: { Color(hex: app.accentColor) ?? ThemeColors.amber },
                     set: { c in store.updateApp { $0.accentColor = c.hex } }), supportsOpacity: false) {
                     SettingLabel(title: "Accent", detail: app.accentColor.isEmpty ? "The theme's own" : "Your colour", icon: "circle.lefthalf.filled", tint: .blue)
                 }
@@ -146,7 +146,7 @@ private struct CheckBadge: View {
     var body: some View {
         Image(systemName: "checkmark")
             .font(.system(size: 10, weight: .heavy))
-            .foregroundStyle(.white)
+            .foregroundStyle(store.colors.onAccent)
             .frame(width: 22, height: 22)
             .background(store.colors.accent, in: .circle)
             .overlay(Circle().strokeBorder(store.colors.card, lineWidth: 2))

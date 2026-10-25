@@ -8,7 +8,8 @@ struct BigPlayer: View {
     @Environment(\.openWindow) private var openWindow
     @State private var resting = false
     @State private var moved = Date()
-    @State private var showLyrics = true
+    /// Full screen: what the side shows (the lyrics, or what plays next), or nothing.
+    @State private var immersiveSide: Store.BigSide? = .lyrics
 
     var body: some View {
         @Bindable var store = store
@@ -22,7 +23,7 @@ struct BigPlayer: View {
                     // Alone when no pane shows beside it (too narrow for one, or lyrics hidden).
                     ImmersiveCover(path: p.artwork, seed: p.album + p.artist, songID: store.current?.id,
                                    animated: store.settings.animatedCovers && store.motion,
-                                   alone: !(wide && (!store.immersive || showLyrics)))
+                                   alone: !(wide && (!store.immersive || immersiveSide != nil)))
                 } else if let p, p.hasSong {
                     CoverBackdrop(path: p.artwork, seed: p.album + p.artist, moving: store.motion)
                 } else {
@@ -55,7 +56,7 @@ struct BigPlayer: View {
                                 .opacity(resting ? 0 : 1)
                         }
                         .frame(maxWidth: wide ? 480 : 360)
-                        if wide && (!store.immersive || showLyrics) {
+                        if wide && (!store.immersive || immersiveSide != nil) {
                             side
                                 .frame(maxWidth: 560)
                                 .frame(maxHeight: geo.size.height * 0.82)
@@ -115,9 +116,8 @@ struct BigPlayer: View {
                 .accessibilityLabel("Close the player")
             Spacer()
             if store.immersive {
-                Button { showLyrics.toggle() } label: { Image(systemName: showLyrics ? "quote.bubble.fill" : "quote.bubble") }
-                    .help(showLyrics ? "Hide the lyrics" : "Show the lyrics")
-                    .accessibilityLabel(showLyrics ? "Hide the lyrics" : "Show the lyrics")
+                sideButton(.lyrics, icon: "quote.bubble", name: "the lyrics")
+                sideButton(.queue, icon: "list.bullet", name: "what plays next")
             }
             Button { openWindow(id: "mini"); store.big = false } label: { Image(systemName: "pip") }.help("Mini player").accessibilityLabel("Mini player")
             Button { store.setImmersive(!store.immersive) } label: {
@@ -133,6 +133,19 @@ struct BigPlayer: View {
         .padding(.top, 44)
     }
 
+    /// Full screen: shows the lyrics or the queue beside the cover; pressed again, hides it.
+    private func sideButton(_ kind: Store.BigSide, icon: String, name: String) -> some View {
+        let on = immersiveSide == kind
+        return Button { immersiveSide = on ? nil : kind } label: {
+            Image(systemName: on && kind == .lyrics ? icon + ".fill" : icon)
+                .frame(width: 30, height: 30)
+                .background(.white.opacity(on ? 0.18 : 0), in: Circle())
+        }
+        .help(on ? "Hide \(name)" : "Show \(name)")
+        .accessibilityLabel(on ? "Hide \(name)" : "Show \(name)")
+        .accessibilityAddTraits(on ? .isSelected : [])
+    }
+
     private var side: some View {
         @Bindable var store = store
         return VStack(spacing: 12) {
@@ -145,7 +158,7 @@ struct BigPlayer: View {
                 .frame(width: 300)
             }
             Group {
-                switch store.immersive ? .lyrics : store.bigSide {
+                switch store.immersive ? immersiveSide ?? .lyrics : store.bigSide {
                 case .lyrics: LyricsView(kind: store.immersive ? .immersive : .big, light: true)
                 case .queue: QueuePanel()
                 case .stems:
