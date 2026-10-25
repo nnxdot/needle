@@ -79,7 +79,7 @@ pub fn display(text: impl Into<SharedString>, size: f32) -> Div {
         .font_family(display_font())
         .text_size(px(size))
         .line_height(px(size * 1.18))
-        .font_weight(FontWeight::SEMIBOLD)
+        .font_weight(super::theme::display_weight())
         .child(text.into())
 }
 
@@ -332,6 +332,7 @@ pub fn row_icon(title: &str) -> Option<&'static str> {
         "Mark server songs" => "server",
         "Reduce motion" => "pause",
         "Titles" => "tag",
+        "Text" => "tag",
         "Show what you're playing on Discord" => "discord",
         "Look up covers" => "albums",
         "Show the Needle logo" => "logo",

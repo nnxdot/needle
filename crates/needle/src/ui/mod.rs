@@ -424,6 +424,8 @@ pub struct AppView {
     player: Player,
     playback: PlaybackState,
     settings: Settings,
+    /// Finds every artist's pictures slowly in the background (Settings › Artwork and lyrics).
+    picture_sweep: needle_core::media::pictures::PictureSweep,
     page: Page,
     back: Vec<Page>,
     /// Pages left by going back, for going forward again (a new page clears it).
@@ -486,6 +488,10 @@ pub struct AppView {
     page_offset: usize,
     loop_start: Option<f64>,
     search: Entity<InputState>,
+    /// The names of fonts on this computer, for the title and the text font (Settings ›
+    /// Appearance).
+    own_font: Entity<InputState>,
+    own_text_font: Entity<InputState>,
     autoplay: Entity<InputState>,
     sync_phrase: Entity<InputState>,
     tags: TagFields,
@@ -680,12 +686,87 @@ pub fn run(library: Library, files: Vec<std::path::PathBuf>) -> Result<()> {
         .run(move |cx| {
             gpui_component::init(cx);
             cx.text_system()
+                // Needle's own fonts (assets/fonts): the title and text choices.
                 .add_fonts(vec![
                     std::borrow::Cow::Borrowed(
-                        include_bytes!("../../fonts/Fraunces72ptSoft-SemiBold.ttf").as_slice(),
+                        include_bytes!("../../../../assets/fonts/AtkinsonHyperlegible-400.ttf")
+                            .as_slice(),
                     ),
                     std::borrow::Cow::Borrowed(
-                        include_bytes!("../../fonts/Fraunces72ptSoft-Bold.ttf").as_slice(),
+                        include_bytes!("../../../../assets/fonts/AtkinsonHyperlegible-700.ttf")
+                            .as_slice(),
+                    ),
+                    std::borrow::Cow::Borrowed(
+                        include_bytes!("../../../../assets/fonts/BricolageGrotesque-600.ttf")
+                            .as_slice(),
+                    ),
+                    std::borrow::Cow::Borrowed(
+                        include_bytes!("../../../../assets/fonts/BricolageGrotesque-800.ttf")
+                            .as_slice(),
+                    ),
+                    std::borrow::Cow::Borrowed(
+                        include_bytes!("../../../../assets/fonts/DMSerifDisplay-400.ttf")
+                            .as_slice(),
+                    ),
+                    std::borrow::Cow::Borrowed(
+                        include_bytes!("../../../../assets/fonts/Fraunces72ptSoft-Bold.ttf")
+                            .as_slice(),
+                    ),
+                    std::borrow::Cow::Borrowed(
+                        include_bytes!("../../../../assets/fonts/Fraunces72ptSoft-SemiBold.ttf")
+                            .as_slice(),
+                    ),
+                    std::borrow::Cow::Borrowed(
+                        include_bytes!("../../../../assets/fonts/IBMPlexMono-400.ttf").as_slice(),
+                    ),
+                    std::borrow::Cow::Borrowed(
+                        include_bytes!("../../../../assets/fonts/IBMPlexMono-700.ttf").as_slice(),
+                    ),
+                    std::borrow::Cow::Borrowed(
+                        include_bytes!("../../../../assets/fonts/InstrumentSerif-400.ttf")
+                            .as_slice(),
+                    ),
+                    std::borrow::Cow::Borrowed(
+                        include_bytes!("../../../../assets/fonts/Inter-400.ttf").as_slice(),
+                    ),
+                    std::borrow::Cow::Borrowed(
+                        include_bytes!("../../../../assets/fonts/Inter-500.ttf").as_slice(),
+                    ),
+                    std::borrow::Cow::Borrowed(
+                        include_bytes!("../../../../assets/fonts/Inter-600.ttf").as_slice(),
+                    ),
+                    std::borrow::Cow::Borrowed(
+                        include_bytes!("../../../../assets/fonts/Inter-700.ttf").as_slice(),
+                    ),
+                    std::borrow::Cow::Borrowed(
+                        include_bytes!("../../../../assets/fonts/Lexend-400.ttf").as_slice(),
+                    ),
+                    std::borrow::Cow::Borrowed(
+                        include_bytes!("../../../../assets/fonts/Lexend-500.ttf").as_slice(),
+                    ),
+                    std::borrow::Cow::Borrowed(
+                        include_bytes!("../../../../assets/fonts/Lexend-600.ttf").as_slice(),
+                    ),
+                    std::borrow::Cow::Borrowed(
+                        include_bytes!("../../../../assets/fonts/Lexend-700.ttf").as_slice(),
+                    ),
+                    std::borrow::Cow::Borrowed(
+                        include_bytes!("../../../../assets/fonts/Outfit-600.ttf").as_slice(),
+                    ),
+                    std::borrow::Cow::Borrowed(
+                        include_bytes!("../../../../assets/fonts/Outfit-700.ttf").as_slice(),
+                    ),
+                    std::borrow::Cow::Borrowed(
+                        include_bytes!("../../../../assets/fonts/Poster-800.ttf").as_slice(),
+                    ),
+                    std::borrow::Cow::Borrowed(
+                        include_bytes!("../../../../assets/fonts/Poster-900.ttf").as_slice(),
+                    ),
+                    std::borrow::Cow::Borrowed(
+                        include_bytes!("../../../../assets/fonts/SpaceGrotesk-600.ttf").as_slice(),
+                    ),
+                    std::borrow::Cow::Borrowed(
+                        include_bytes!("../../../../assets/fonts/SpaceGrotesk-700.ttf").as_slice(),
                     ),
                 ])
                 .ok();
@@ -693,6 +774,7 @@ pub fn run(library: Library, files: Vec<std::path::PathBuf>) -> Result<()> {
             cx.set_global(themes::load(&themes::sources(&library)));
             set_theme(&settings.theme, None, cx);
             theme::set_display_font(&settings.display_font);
+            theme::set_text_font(&settings.text_font, cx);
             cx.set_global(motion::Motion {
                 enabled: !settings.reduce_motion && motion::system_allows_animation(),
             });
@@ -815,6 +897,10 @@ impl AppView {
         // The player's state holds the saved volume, which saving settings keeps.
         let playback = player.state();
         let search = cx.new(|cx| InputState::new(window, cx).placeholder("Search"));
+        let own_font =
+            cx.new(|cx| InputState::new(window, cx).placeholder("A font's name, such as Georgia"));
+        let own_text_font =
+            cx.new(|cx| InputState::new(window, cx).placeholder("A font's name, such as Verdana"));
         let autoplay = cx.new(|cx| {
             InputState::new(window, cx)
                 .placeholder("rating >= 4 and not played(7d) shuffle limit 20")
@@ -965,6 +1051,7 @@ impl AppView {
             history_stats: None,
             history_range: 1,
             history_loading: false,
+            picture_sweep: needle_core::media::pictures::PictureSweep::start(library.clone()),
             library,
             player,
             playback,
@@ -1016,6 +1103,8 @@ impl AppView {
             page_offset: 0,
             loop_start: None,
             search,
+            own_font,
+            own_text_font,
             autoplay,
             sync_phrase,
             tags,
@@ -2616,6 +2705,11 @@ fn shown_playback(p: &needle_core::audio::PlaybackState) -> impl PartialEq + use
 impl Render for AppView {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let _slow = bench::Slow::new("render");
+        // The artist pictures sweep looks only with online lookups and its setting on, and not
+        // while a library scan runs.
+        self.picture_sweep.set_allowed(
+            self.settings.online_media && self.settings.artist_pictures && self.scan.is_none(),
+        );
         self.update_palette(window, cx);
         self.update_glass(window, cx);
         if self.page == Page::Settings && self.settings_tab == 0 {
