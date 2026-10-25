@@ -280,6 +280,9 @@ struct ArtistPhoto: View {
 enum Photos {
     private static var found: [String: String?] = [:]
 
+    /// Forgets the artist's photo (a picture was chosen or reset), so it is read again.
+    static func forget(_ name: String) { found[name] = nil }
+
     static func find(_ name: String, online: Bool, store: Store) async -> String? {
         if let known = found[name], known != nil || !online { return known }
         let core = store.core

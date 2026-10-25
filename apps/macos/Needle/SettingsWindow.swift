@@ -408,6 +408,7 @@ struct LibrarySettings: View {
                 SettingSwitch(key: "online_media", on: s.onlineMedia)
             }
             if s.onlineMedia {
+                ArtistPicturesRow()
                 SettingRow(title: "Find missing album covers", detail: "Every album without one. Large libraries take a while.", icon: "photo.on.rectangle") {
                     Button("Find covers") {
                         store.notify("Looking for missing album covers in the background…")

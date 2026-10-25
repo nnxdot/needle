@@ -131,6 +131,8 @@ struct ArtistSummary: Codable, Identifiable, Hashable {
     var albums: Int
     var tracks: Int
     var artwork: String?
+    /// The letter the artist files under in the A–Z bar ("A"–"Z", "#", or another script's).
+    var letter: String
     var id: String { name }
     var title: String { name.isEmpty ? "Unknown artist" : name }
 }
