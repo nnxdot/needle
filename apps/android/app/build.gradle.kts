@@ -90,6 +90,9 @@ dependencies {
     implementation("net.java.dev.jna:jna:5.19.1@aar")
     // Scans the QR code of Needle on a computer (Google's scanner: no camera permission).
     implementation("com.google.android.gms:play-services-code-scanner:16.1.0")
+    // Frosted glass for the dock and the floating player: the page behind blurred (Android 12+).
+    implementation("dev.chrisbanes.haze:haze:2.0.1")
+    implementation("dev.chrisbanes.haze:haze-blur:2.0.1")
     // Home screen widgets.
     implementation("androidx.glance:glance-appwidget:1.2.0")
     implementation("androidx.glance:glance-material3:1.2.0")

@@ -79,7 +79,7 @@ fun RecentlyAddedScreen(open: (Route) -> Unit) {
 fun TitledSongs(title: String, songs: List<Song>?, open: (Route) -> Unit, empty: String = "", loading: Boolean = false) {
     val playing = playingSongId()
     val list = songs.orEmpty()
-    LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = 24.dp)) {
+    LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = 24.dp + LocalBottomInset.current)) {
         item { LargeTitle(title) }
         if (loading) items(8) { SongPlaceholder() }
         if (songs != null && list.isEmpty() && empty.isNotEmpty()) {
@@ -108,7 +108,7 @@ fun FoldersScreen(path: String?, open: (Route) -> Unit) {
     val title = path?.substringAfterLast('/')?.ifBlank { path } ?: "Folders"
     // Every song in this folder and the folders in it, so a whole folder can be played.
     val here = songs.orEmpty()
-    LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = 24.dp)) {
+    LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = 24.dp + LocalBottomInset.current)) {
         item { LargeTitle(title) }
         if (path == null) {
             val list = roots.orEmpty()
@@ -143,7 +143,7 @@ fun FoldersScreen(path: String?, open: (Route) -> Unit) {
 
 @Composable
 private fun FolderRow(name: String, detail: String, artwork: String?, place: Place, onClick: () -> Unit) {
-    Column(Modifier.fillMaxWidth().segment(place, groupColor()).clickable(onClick = onClick)) {
+    Column(Modifier.fillMaxWidth().segment(place, groupColor(), lineStart = 76.dp).clickable(onClick = onClick)) {
         Row(
             Modifier.fillMaxWidth().heightIn(min = LocalRows.current.height + 4.dp).padding(horizontal = 14.dp, vertical = LocalRows.current.pad / 1.5f),
             verticalAlignment = Alignment.CenterVertically,
@@ -184,7 +184,7 @@ private fun Listens(open: (Route) -> Unit) {
     val history by historyLoad
     val format = DateFormat.getDateTimeInstance(DateFormat.MEDIUM, DateFormat.SHORT)
     val list = history.orEmpty()
-    LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = 24.dp)) {
+    LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = 24.dp + LocalBottomInset.current)) {
         if (historyLoad.loading) items(8) { SongPlaceholder() }
         if (history != null && list.isEmpty()) {
             item { Text("What you play shows here.", color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(Edge)) }
@@ -220,7 +220,7 @@ private fun Numbers(open: (Route) -> Unit) {
     var span by rememberSaveable { mutableStateOf(30) }
     val statsLoad = rememberLoaded(span) { stats(if (span == 0) null else span.toUInt()) }
     val stats by statsLoad
-    LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = 24.dp)) {
+    LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = 24.dp + LocalBottomInset.current)) {
         item {
             // Onto a second line with large text on a narrow phone, rather than squeezed.
             androidx.compose.foundation.layout.FlowRow(Modifier.padding(horizontal = Edge, vertical = 8.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {

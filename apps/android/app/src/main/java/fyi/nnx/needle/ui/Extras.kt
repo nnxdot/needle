@@ -86,7 +86,7 @@ fun SyncScreen() {
                 if (report.songsNotFound > 0u) ". ${count(report.songsNotFound.toInt(), "song")} not on this phone." else "."
         }
     }
-    LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = 32.dp)) {
+    LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = 32.dp + LocalBottomInset.current)) {
         item { LargeTitle("Sync") }
         item {
             Column(Modifier.padding(horizontal = Edge), verticalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -136,7 +136,7 @@ fun TimingScreen(songId: String) {
     val position = playback?.position ?: 0.0
     val thisSong = playback?.current?.id == songId
     Column(Modifier.fillMaxSize()) {
-        LazyColumn(Modifier.weight(1f), state = state, contentPadding = PaddingValues(bottom = 16.dp)) {
+        LazyColumn(Modifier.weight(1f), state = state, contentPadding = PaddingValues(bottom = 16.dp + LocalBottomInset.current)) {
             item { LargeTitle("Time the lyrics") }
             item {
                 Text(

@@ -66,6 +66,8 @@ import androidx.compose.ui.semantics.selected
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.composed
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.nestedscroll.nestedScroll
@@ -76,10 +78,9 @@ import fyi.nnx.needle.NeedleApp
 import fyi.nnx.needle.core.Song
 import kotlinx.coroutines.launch
 
-/** The one shape for icons set in a shape (see DESIGN.md). */
-@OptIn(ExperimentalMaterial3ExpressiveApi::class)
+/** The one shape for icons set in a shape (see DESIGN.md): a circle. */
 @Composable
-fun iconShape(): androidx.compose.ui.graphics.Shape = MaterialShapes.Cookie9Sided.toShape()
+fun iconShape(): androidx.compose.ui.graphics.Shape = androidx.compose.foundation.shape.CircleShape
 
 /** A control's name (and value) for TalkBack, where its words sit beside it, not in it. */
 fun Modifier.named(name: String, value: String? = null): Modifier = semantics {
@@ -90,48 +91,57 @@ fun Modifier.named(name: String, value: String? = null): Modifier = semantics {
 /** The album whose page this is, if any: its menus need not offer to go to it. */
 val LocalAlbumHere = androidx.compose.runtime.compositionLocalOf<String?> { null }
 
-/** The shape for artists: Material's arch, as a portrait's frame. */
-@OptIn(ExperimentalMaterial3ExpressiveApi::class)
+/** The shape for artists: a circle, on every screen (DESIGN.md). */
 @Composable
-fun artistShape(): androidx.compose.ui.graphics.Shape = MaterialShapes.Arch.toShape()
+fun artistShape(): androidx.compose.ui.graphics.Shape = androidx.compose.foundation.shape.CircleShape
 
-/** Where a row sits in its group (see [segment]): its place and how many rows there are. */
+/** Where a row sits in its list (see [segment]): its place and how many rows there are. */
 @androidx.compose.runtime.Immutable
 data class Place(val index: Int, val count: Int) {
     val first get() = index == 0
     val last get() = index == count - 1
 
-    /** The group's ends round large; the corners between its rows, small. */
-    fun shape(): androidx.compose.ui.graphics.Shape {
-        val big = 24.dp
-        val small = 6.dp
-        return RoundedCornerShape(
-            topStart = if (first) big else small,
-            topEnd = if (first) big else small,
-            bottomStart = if (last) big else small,
-            bottomEnd = if (last) big else small,
-        )
+    /** A row's own corners, for its touch and its tint when lit. */
+    fun shape(): androidx.compose.ui.graphics.Shape = RowShape
+}
+
+/** A lit row's corners (the song playing, a row chosen). */
+val RowShape = RoundedCornerShape(10.dp)
+
+/**
+ * One row of a plain list, as on the Mac: no filled group, a soft line under every row but the
+ * last, starting where the row's words do (`lineStart`, from the row's own edge). A row lit
+ * (playing, chosen) takes a soft tint with small corners; its ripple keeps them.
+ */
+fun Modifier.segment(
+    place: Place,
+    color: Color,
+    inset: androidx.compose.ui.unit.Dp = 8.dp,
+    lineStart: androidx.compose.ui.unit.Dp = 72.dp,
+): Modifier = this
+    .padding(horizontal = inset)
+    .then(if (place.last) Modifier else Modifier.softLine(lineStart))
+    .clip(RowShape)
+    .then(if (color.alpha > 0f) Modifier.background(color) else Modifier)
+
+/** A soft line along a row's foot, from `start` to its end: the only lines between rows. */
+fun Modifier.softLine(start: androidx.compose.ui.unit.Dp = 0.dp, end: androidx.compose.ui.unit.Dp = 0.dp): Modifier = composed {
+    val line = MaterialTheme.colorScheme.outlineVariant
+    drawBehind {
+        val y = size.height - 0.5.dp.toPx()
+        val from = if (layoutDirection == androidx.compose.ui.unit.LayoutDirection.Ltr) start.toPx() else end.toPx()
+        val to = size.width - if (layoutDirection == androidx.compose.ui.unit.LayoutDirection.Ltr) end.toPx() else start.toPx()
+        drawLine(line, androidx.compose.ui.geometry.Offset(from, y), androidx.compose.ui.geometry.Offset(to, y), 1.dp.toPx() / 2f)
     }
 }
 
-/**
- * One row of a group, as Android 16's own lists (Material 3 Expressive): the rows sit on one
- * tone a hair apart, inset from the page's edges, the group's ends rounded large. Clipped, so a
- * row's ripple keeps its shape.
- */
-fun Modifier.segment(place: Place, color: Color, inset: androidx.compose.ui.unit.Dp = 16.dp): Modifier = this
-    .padding(horizontal = inset)
-    .padding(bottom = if (place.last) 0.dp else 2.dp)
-    .clip(place.shape())
-    .background(color)
-
-/** A group's tone: a step above the page, so the group stands on it. */
+/** No filled groups in the Needle look: rows sit on the page itself. */
 @Composable
-fun groupColor(): Color = MaterialTheme.colorScheme.surfaceContainer
+fun groupColor(): Color = Color.Transparent
 
 /**
- * A page: its large title shrinks into a bar as the content scrolls (Material 3 Expressive's
- * flexible top bar). `content` gets the padding and the scroll to hand to its list.
+ * A page: its bold title shrinks into a bar as the content scrolls, on the page's own colour.
+ * `content` gets the padding and the scroll to hand to its list.
  */
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalMaterial3ExpressiveApi::class)
 @Composable
@@ -148,7 +158,8 @@ fun Page(
         contentWindowInsets = WindowInsets(0),
         topBar = {
             MediumFlexibleTopAppBar(
-                title = { Text(title, maxLines = 1, overflow = TextOverflow.Ellipsis) },
+                // One bold title (DESIGN.md), the page's only large words.
+                title = { Text(title, maxLines = 1, overflow = TextOverflow.Ellipsis, fontWeight = FontWeight.Bold) },
                 navigationIcon = { if (LocalCanGoBack.current) BackButton() else navigation() },
                 subtitle = subtitle?.let { { Text(it, color = MaterialTheme.colorScheme.onSurfaceVariant) } },
                 actions = actions,
@@ -157,7 +168,8 @@ fun Page(
                 windowInsets = WindowInsets(0),
                 colors = TopAppBarDefaults.topAppBarColors(
                     containerColor = MaterialTheme.colorScheme.background,
-                    scrolledContainerColor = MaterialTheme.colorScheme.surfaceContainerLow,
+                    // No band once scrolled: one quiet background, no lines between the parts.
+                    scrolledContainerColor = MaterialTheme.colorScheme.background,
                 ),
             )
         },
@@ -269,16 +281,19 @@ fun SongSheet(song: Song, open: ((Route) -> Unit)?, remove: (() -> Unit)?, onDis
     }
 }
 
-/** Menu rows on one rounded surface; groups have gaps between them. */
+/** Menu rows on the sheet itself; a soft line sets each group off from the one above. */
 @Composable
 fun MenuGroup(content: @Composable ColumnScope.() -> Unit) {
-    Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(24.dp)).background(MaterialTheme.colorScheme.surfaceContainerHigh), content = content)
+    Column(Modifier.fillMaxWidth()) {
+        androidx.compose.material3.HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant, modifier = Modifier.padding(horizontal = 8.dp))
+        Column(Modifier.fillMaxWidth().padding(vertical = 4.dp), content = content)
+    }
 }
 
 @Composable
 fun MenuRow(icon: ImageVector, label: String, tint: Color = MaterialTheme.colorScheme.onSurface, onClick: () -> Unit) {
     Row(
-        Modifier.fillMaxWidth().heightIn(min = LocalRows.current.height - 4.dp).clickable(role = androidx.compose.ui.semantics.Role.Button, onClick = onClick).padding(horizontal = 20.dp),
+        Modifier.fillMaxWidth().heightIn(min = LocalRows.current.height - 8.dp).clip(RowShape).clickable(role = androidx.compose.ui.semantics.Role.Button, onClick = onClick).padding(horizontal = 16.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(18.dp),
     ) {

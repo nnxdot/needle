@@ -87,7 +87,7 @@ private fun rememberPlugins(): List<PluginItem>? {
 fun PluginsScreen(open: (Route) -> Unit) {
     // What is built into Needle (its music servers) is not a plugin to the user: it has its own place.
     val plugins = rememberPlugins()?.filter { !it.builtIn }
-    LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = 32.dp)) {
+    LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = 32.dp + LocalBottomInset.current)) {
         item { LargeTitle("Plugins") }
         item {
             Text(
@@ -143,7 +143,7 @@ fun PluginsScreen(open: (Route) -> Unit) {
 fun PluginScreen(id: String) {
     val plugins = rememberPlugins()
     val plugin = plugins?.firstOrNull { it.id == id } ?: return
-    LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = 32.dp)) {
+    LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = 32.dp + LocalBottomInset.current)) {
         item { LargeTitle(plugin.name) }
         item {
             Column(Modifier.padding(horizontal = Edge), verticalArrangement = Arrangement.spacedBy(6.dp)) {

@@ -153,7 +153,7 @@ import kotlinx.coroutines.withContext
  */
 @OptIn(androidx.compose.material3.ExperimentalMaterial3ExpressiveApi::class)
 @Composable
-fun MiniPlayer(onOpen: () -> Unit) {
+fun MiniPlayer(onOpen: () -> Unit, docked: Boolean = false) {
     // The position is read only by what shows it (AtPosition), not by the whole bar.
     val playbackState = NeedleApp.instance.playback.collectAsState()
     val current by remember { derivedStateOf { playbackState.value?.current } }
@@ -161,12 +161,12 @@ fun MiniPlayer(onOpen: () -> Unit) {
     // The same object while the song is the same: what takes it can then skip a redraw.
     val song = remember(current) { current } ?: return
     val app by NeedleApp.instance.app.collectAsState()
-    CoverTheme(if (app.miniPlayerColored) song.artwork else null) { MiniPlayerBody(playing, song, onOpen, app.miniPlayerColored, app.miniPlayerLyrics) }
+    CoverTheme(if (app.miniPlayerColored) song.artwork else null) { MiniPlayerBody(playing, song, onOpen, app.miniPlayerColored, app.miniPlayerLyrics, docked) }
 }
 
 @OptIn(androidx.compose.material3.ExperimentalMaterial3ExpressiveApi::class)
 @Composable
-private fun MiniPlayerBody(playing: Boolean, song: Song, onOpen: () -> Unit, colored: Boolean, lyrics: Boolean) {
+private fun MiniPlayerBody(playing: Boolean, song: Song, onOpen: () -> Unit, colored: Boolean, lyrics: Boolean, docked: Boolean) {
     val haptics = rememberHaptics()
     // Swiped sideways, it skips: left for the next song, right for the one before.
     var drag by remember { mutableFloatStateOf(0f) }
@@ -174,14 +174,20 @@ private fun MiniPlayerBody(playing: Boolean, song: Song, onOpen: () -> Unit, col
     var swiping by remember { mutableStateOf(false) }
     val back = remember { androidx.compose.animation.core.Animatable(0f) }
     val swipes = androidx.compose.runtime.rememberCoroutineScope()
+    // In the dock (DESIGN.md) it sits on the dock's glass, which gives it its fill and shadow;
+    // its Play/Pause and progress keep the cover's colours.
     Surface(
-        color = if (colored) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceContainerHigh,
-        contentColor = if (colored) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurface,
-        shape = RoundedCornerShape(20.dp),
-        shadowElevation = 8.dp,
+        color = when {
+            docked -> Color.Transparent
+            colored -> MaterialTheme.colorScheme.primaryContainer
+            else -> MaterialTheme.colorScheme.surfaceContainerHigh
+        },
+        contentColor = if (colored && !docked) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurface,
+        shape = RoundedCornerShape(if (docked) 18.dp else 20.dp),
+        shadowElevation = if (docked) 0.dp else 8.dp,
         modifier = Modifier
             .fillMaxWidth()
-            .padding(horizontal = 10.dp, vertical = 8.dp)
+            .padding(horizontal = if (docked) 4.dp else 10.dp, vertical = if (docked) 4.dp else 8.dp)
             .graphicsLayer {
                 val shift = if (swiping) drag else back.value
                 translationX = shift
@@ -209,7 +215,7 @@ private fun MiniPlayerBody(playing: Boolean, song: Song, onOpen: () -> Unit, col
                     onDragCancel = { release() },
                 ) { _, dx -> drag += dx }
             }
-            .clip(RoundedCornerShape(20.dp))
+            .clip(RoundedCornerShape(if (docked) 18.dp else 20.dp))
             .clickable(onClickLabel = "Open the player", onClick = onOpen),
     ) {
         // The line being sung (Settings › Appearance › Lyrics in the mini player): on a wide
@@ -240,16 +246,13 @@ private fun MiniPlayerBody(playing: Boolean, song: Song, onOpen: () -> Unit, col
                     Icon(Icons.Rounded.SkipPrevious, contentDescription = "Previous", modifier = Modifier.size(30.dp))
                 }
             }
-            // Round while paused, a softer square while it plays.
-            androidx.compose.material3.FilledIconToggleButton(
-                checked = playing,
-                onCheckedChange = { haptics(false); Controls.toggle() },
-                shapes = androidx.compose.material3.IconButtonDefaults.toggleableShapes(),
-                colors = androidx.compose.material3.IconButtonDefaults.filledIconToggleButtonColors(
+            // A round amber Play/Pause, as on the Mac.
+            androidx.compose.material3.FilledIconButton(
+                onClick = { haptics(false); Controls.toggle() },
+                shape = CircleShape,
+                colors = androidx.compose.material3.IconButtonDefaults.filledIconButtonColors(
                     containerColor = MaterialTheme.colorScheme.primary,
                     contentColor = MaterialTheme.colorScheme.onPrimary,
-                    checkedContainerColor = MaterialTheme.colorScheme.primary,
-                    checkedContentColor = MaterialTheme.colorScheme.onPrimary,
                 ),
                 modifier = Modifier.playPauseSemantics(playing) { haptics(false); Controls.toggle() },
             ) { PlayPauseIcon(playing, 26.dp) }
@@ -675,9 +678,8 @@ private fun FavoriteButton(favorite: Boolean, onClick: () -> Unit, modifier: Mod
 }
 
 /**
- * Previous, play or pause, and next, as Android 16's media controls: one large button in the
- * cover's colour, round while paused and a softer square while playing, between two wide
- * buttons. Each squeezes a little as it is pressed.
+ * Previous, play or pause, and next: three circles, the middle one large and in the cover's
+ * colour; or, Minimal, the icons alone.
  */
 @OptIn(androidx.compose.material3.ExperimentalMaterial3ExpressiveApi::class)
 @Composable
@@ -698,8 +700,15 @@ private fun PlayerControls(playing: Boolean, position: () -> Double, duration: D
         verticalAlignment = Alignment.CenterVertically,
     ) {
         when (app.controlStyle) {
-            // Round: three circles, the middle one large and in the cover's colour.
-            "round" -> {
+            // Minimal: the icons alone, large and white, as in Apple Music.
+            "minimal" -> {
+                IconButton(onClick = back, modifier = Modifier.size(64.dp)) { Icon(backIcon, contentDescription = backLabel, modifier = Modifier.size(44.dp)) }
+                IconButton(onClick = toggle, interactionSource = middle, modifier = Modifier.size(80.dp)) { PlayPauseIcon(playing, 64.dp) }
+                IconButton(onClick = ahead, modifier = Modifier.size(64.dp)) { Icon(aheadIcon, contentDescription = aheadLabel, modifier = Modifier.size(44.dp)) }
+            }
+            // Round (and the older Expressive): three circles, the middle one large and in the
+            // cover's colour.
+            else -> {
                 val side = androidx.compose.material3.IconButtonDefaults.filledTonalIconButtonColors(containerColor = Color.White.copy(alpha = 0.14f), contentColor = Color.White)
                 androidx.compose.material3.FilledTonalIconButton(onClick = back, colors = side, shape = CircleShape, modifier = Modifier.size(60.dp)) {
                     Icon(backIcon, contentDescription = backLabel, modifier = Modifier.size(28.dp))
@@ -709,49 +718,11 @@ private fun PlayerControls(playing: Boolean, position: () -> Double, duration: D
                     shape = CircleShape,
                     colors = androidx.compose.material3.IconButtonDefaults.filledIconButtonColors(containerColor = MaterialTheme.colorScheme.primary, contentColor = MaterialTheme.colorScheme.onPrimary),
                     interactionSource = middle,
-                    modifier = Modifier.size(80.dp),
+                    modifier = Modifier.size(80.dp).playPauseSemantics(playing) { toggle() },
                 ) { PlayPauseIcon(playing, 38.dp) }
                 androidx.compose.material3.FilledTonalIconButton(onClick = ahead, colors = side, shape = CircleShape, modifier = Modifier.size(60.dp)) {
                     Icon(aheadIcon, contentDescription = aheadLabel, modifier = Modifier.size(28.dp))
                 }
-            }
-            // Minimal: the icons alone, large and white, as in Apple Music.
-            "minimal" -> {
-                IconButton(onClick = back, modifier = Modifier.size(64.dp)) { Icon(backIcon, contentDescription = backLabel, modifier = Modifier.size(44.dp)) }
-                IconButton(onClick = toggle, interactionSource = middle, modifier = Modifier.size(80.dp)) { PlayPauseIcon(playing, 64.dp) }
-                IconButton(onClick = ahead, modifier = Modifier.size(64.dp)) { Icon(aheadIcon, contentDescription = aheadLabel, modifier = Modifier.size(44.dp)) }
-            }
-            // Expressive (Android 16's media controls): one large button in the cover's colour,
-            // round while paused and a softer square while playing, between two wide ones.
-            // Each squeezes a little as it is pressed.
-            else -> {
-                val side = androidx.compose.material3.IconButtonDefaults.filledTonalIconButtonColors(containerColor = Color.White.copy(alpha = 0.14f), contentColor = Color.White)
-                androidx.compose.material3.FilledTonalIconButton(
-                    onClick = back,
-                    shapes = androidx.compose.material3.IconButtonDefaults.shapes(),
-                    colors = side,
-                    modifier = Modifier.size(width = 64.dp, height = 56.dp),
-                ) { Icon(backIcon, contentDescription = backLabel, modifier = Modifier.size(30.dp)) }
-                androidx.compose.material3.FilledIconToggleButton(
-                    checked = playing,
-                    onCheckedChange = { toggle() },
-                    shapes = androidx.compose.material3.IconButtonDefaults.toggleableShapes(),
-                    colors = androidx.compose.material3.IconButtonDefaults.filledIconToggleButtonColors(
-                        containerColor = MaterialTheme.colorScheme.primary,
-                        contentColor = MaterialTheme.colorScheme.onPrimary,
-                        checkedContainerColor = MaterialTheme.colorScheme.primary,
-                        checkedContentColor = MaterialTheme.colorScheme.onPrimary,
-                    ),
-                    interactionSource = middle,
-                    // A button that plays or pauses, not a box to tick: TalkBack says which it does.
-                    modifier = Modifier.size(width = 88.dp, height = 72.dp).playPauseSemantics(playing) { toggle() },
-                ) { PlayPauseIcon(playing, 36.dp) }
-                androidx.compose.material3.FilledTonalIconButton(
-                    onClick = ahead,
-                    shapes = androidx.compose.material3.IconButtonDefaults.shapes(),
-                    colors = side,
-                    modifier = Modifier.size(width = 64.dp, height = 56.dp),
-                ) { Icon(aheadIcon, contentDescription = aheadLabel, modifier = Modifier.size(30.dp)) }
             }
         }
     }
@@ -1000,7 +971,6 @@ private fun PlayerCover(song: Song, playing: Boolean, haptics: (Boolean) -> Unit
     val from = remember(playing, still) { drawn[0] }
     val shape = when (app.coverShape) {
         "round" -> CircleShape
-        "shape" -> androidx.compose.material3.MaterialShapes.Cookie12Sided.toShape()
         else -> RoundedCornerShape(12.dp)
     }
     val depth by animateFloatAsState(if (playing) 1f else 0.4f, tween(350), label = "shadow")
@@ -1389,7 +1359,7 @@ private fun UpNextPanel(version: ULong) {
 }
 
 /** Play and pause as one button for TalkBack: "Play" or "Pause", not a checked box. */
-private fun Modifier.playPauseSemantics(playing: Boolean, toggle: () -> Unit) = clearAndSetSemantics {
+internal fun Modifier.playPauseSemantics(playing: Boolean, toggle: () -> Unit) = clearAndSetSemantics {
     role = androidx.compose.ui.semantics.Role.Button
     contentDescription = if (playing) "Pause" else "Play"
     onClick { toggle(); true }
@@ -1397,7 +1367,7 @@ private fun Modifier.playPauseSemantics(playing: Boolean, toggle: () -> Unit) = 
 
 /** Play and pause, turning into each other. */
 @Composable
-private fun PlayPauseIcon(playing: Boolean, size: Dp) {
+internal fun PlayPauseIcon(playing: Boolean, size: Dp) {
     AnimatedContent(
         playing,
         transitionSpec = { (scaleIn(tween(180), 0.6f) + fadeIn(tween(180))) togetherWith (scaleOut(tween(140), 0.6f) + fadeOut(tween(140))) },

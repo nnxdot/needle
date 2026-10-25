@@ -71,6 +71,8 @@ object Ui {
     val sheet = MutableStateFlow<Sheet?>(null)
     /** The welcome guide, asked for again from Settings › About. */
     val welcome = MutableStateFlow(false)
+    /** Opens the player (Home's card of the song playing). */
+    val showPlayer = kotlinx.coroutines.flow.MutableSharedFlow<Unit>(extraBufferCapacity = 1)
 }
 
 sealed interface Sheet {
