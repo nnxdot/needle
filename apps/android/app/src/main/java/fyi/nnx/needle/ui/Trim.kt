@@ -64,6 +64,11 @@ fun coverRequest(model: Any?): coil3.request.ImageRequest {
         coil3.request.ImageRequest.Builder(context)
             .data(model)
             .transformations(TrimBars())
+            .apply {
+                // A file changed in place (an artist's own picture chosen again) is a new picture.
+                val file = (model as? android.net.Uri)?.takeIf { it.scheme == "file" }?.path?.let { java.io.File(it) }
+                if (file != null) memoryCacheKey("$model@${file.lastModified()}")
+            }
             .build()
     }
 }

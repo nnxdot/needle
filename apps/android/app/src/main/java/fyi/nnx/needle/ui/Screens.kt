@@ -122,21 +122,9 @@ fun AlbumsScreen(open: (Route) -> Unit) {
 
 @Composable
 fun ArtistsScreen(open: (Route) -> Unit) {
-    val artistsLoad = rememberLoaded { artists() }
-    val artists by artistsLoad
-    Page("Artists") { padding, scroll ->
-        // As the Library's artists: each in the artists' arch, as many across as fit.
-        androidx.compose.foundation.lazy.grid.LazyVerticalGrid(
-            columns = androidx.compose.foundation.lazy.grid.GridCells.Adaptive(104.dp),
-            contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 8.dp, bottom = 24.dp + LocalBottomInset.current),
-            horizontalArrangement = Arrangement.spacedBy(12.dp),
-            verticalArrangement = Arrangement.spacedBy(LocalRows.current.grid),
-            modifier = Modifier.fillMaxSize().padding(padding).then(scroll),
-        ) {
-            // One list, read once: a reload that fails leaves it, not a null, to the tiles.
-            val list = artists.orEmpty()
-            items(list.size, key = { list[it].name }) { i -> ArtistTile(list[i], Modifier, open) }
-        }
+    Page("Artists", actions = { ArtistSortButton() }) { padding, scroll ->
+        // As the Library's artists: circles as many across as fit, in the order chosen.
+        ArtistGrid(open, Modifier.padding(padding).then(scroll))
     }
 }
 

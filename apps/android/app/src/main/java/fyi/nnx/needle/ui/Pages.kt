@@ -662,14 +662,16 @@ fun ArtistScreen(name: String, open: (Route) -> Unit) {
     val albums by albumsLoad
     val topLoad = rememberLoaded(name) { artistSongs(name) }
     val top by topLoad
-    val photoLoad = rememberLoaded(name) { artistPhoto(name) }
+    // Read again when a picture of theirs is chosen or reset.
+    var pictureVersion by remember { androidx.compose.runtime.mutableIntStateOf(0) }
+    val photoLoad = rememberLoaded(name, pictureVersion) { artistPhoto(name) }
     val photo by photoLoad
     // Songs without an artist: nothing to look up online for them.
     val real = name.isNotBlank() && name != "Unknown artist"
-    // From fanart.tv (with online lookups on): a wide picture of them, and their logo.
-    val bannerLoad = rememberLoaded(name, "banner") { if (real) artistBanner(name) else null }
+    // From fanart.tv (with online lookups on), or chosen: a wide picture of them, and their logo.
+    val bannerLoad = rememberLoaded(name, "banner", pictureVersion) { if (real) artistBanner(name) else null }
     val banner by bannerLoad
-    val logoLoad = rememberLoaded(name, "logo") { if (real) artistLogo(name) else null }
+    val logoLoad = rememberLoaded(name, "logo", pictureVersion) { if (real) artistLogo(name) else null }
     val logo by logoLoad
     val playing = playingId()
     val songs = top.orEmpty()
@@ -678,7 +680,10 @@ fun ArtistScreen(name: String, open: (Route) -> Unit) {
     val shown = name.ifBlank { "Unknown artist" }
     // The newest album with a year, for its own box under the buttons.
     val latest = albums?.filter { it.year > 0 }?.maxWithOrNull(compareBy({ it.year }, { it.title }))
-    DetailFrame(art, shown, { state.headerScroll() }, null) {
+    var pictures by remember { mutableStateOf(false) }
+    ArtistPictures(name, pictures, { pictures = it }) { pictureVersion++ }
+    // Their pictures can be chosen (More › Pictures), not for songs with no artist.
+    DetailFrame(art, shown, { state.headerScroll() }, if (real) ({ pictures = true }) else null) {
         // Two covers across on a phone, more on a tablet; the rows and the photo run to the edges.
         KeepTop(state) {
         LazyVerticalGrid(
