@@ -129,6 +129,8 @@ import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.hoverable
+import androidx.compose.foundation.interaction.collectIsHoveredAsState
 import androidx.compose.ui.semantics.CustomAccessibilityAction
 import androidx.compose.ui.semantics.customActions
 import androidx.compose.ui.semantics.clearAndSetSemantics
@@ -1497,11 +1499,16 @@ private fun UpNextPanel(version: ULong, titled: Boolean = true) {
                     // swipe and the handle are for touch alone. TalkBack offers the same.
                     var menu by remember { mutableStateOf(false) }
                     val moveTo: (Int) -> Unit = { to -> move(i, to) }
+                    // A soft highlight under a mouse's pointer, as the computer's queue has.
+                    val pointer = remember { androidx.compose.foundation.interaction.MutableInteractionSource() }
+                    val hovered by pointer.collectIsHoveredAsState()
                     Box {
                     Row(
                         Modifier
                             .fillMaxWidth()
                             .clip(RoundedCornerShape(8.dp))
+                            .background(if (hovered) Color.White.copy(alpha = 0.08f) else Color.Transparent)
+                            .hoverable(pointer)
                             .combinedClickable(onClick = { Controls.jump(i, song) }, onLongClick = { if (!onComputer) menu = true })
                             .semantics {
                                 if (!onComputer) customActions = listOfNotNull(
