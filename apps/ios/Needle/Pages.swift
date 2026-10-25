@@ -452,6 +452,7 @@ struct GenreView: View {
 /// by the artist at the foot.
 struct AlbumView: View {
     @Environment(Store.self) private var store
+    @Environment(\.accessibilityReduceMotion) private var systemReduceMotion
     let album: Album
     @State private var songs: [Song]?
     @State private var more: [Album] = []
@@ -520,6 +521,12 @@ struct AlbumView: View {
             Artwork(path: album.artwork, seed: album.title + album.artist, size: 1200)
                 .aspectRatio(1, contentMode: .fit)
                 .frame(maxWidth: .infinity)
+                // The album's moving cover, as in the player: Moving covers on, no Reduce motion,
+                // and on mobile data only one already here unless On mobile data is on.
+                .overlay {
+                    MovingCoverLayer(song: songs?.first, on: store.app.animatedCovers && !systemReduceMotion && !store.app.reduceMotion)
+                        .clipped()
+                }
                 .overlay(alignment: .bottom) { Fade(color: look.page).frame(height: 230) }
                 .modifier(Stretchy())
             VStack(spacing: 5) {
