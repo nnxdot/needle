@@ -2,4 +2,6 @@
 <paths>
     <!-- Downloaded updates of Needle. -->
     <cache-path name="updates" path="updates/" />
+    <!-- Lyric cards, to share. -->
+    <cache-path name="cards" path="cards/" />
 </paths>

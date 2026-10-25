@@ -62,6 +62,8 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.QueueMusic
 import androidx.compose.material.icons.rounded.Lyrics
+import androidx.compose.material.icons.rounded.IosShare
+import androidx.compose.material.icons.rounded.Translate
 import androidx.compose.material.icons.rounded.GraphicEq
 import androidx.compose.material.icons.rounded.Fullscreen
 import androidx.compose.material.icons.rounded.Cast
@@ -1356,7 +1358,41 @@ private fun LyricsPanel(song: Song, position: () -> Double, compact: Boolean = f
             item { Text(lyrics!!.plain, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold) }
             if (!song.onComputer()) item { androidx.compose.material3.TextButton(onClick = time) { Text("Time these lyrics", color = Color.White) } }
         }
-        else -> LazyColumn(Modifier.fillMaxSize(), state = state) {
+        else -> Column(Modifier.fillMaxSize()) {
+          // Each line in the phone's own language under it, translated on the phone.
+          var translate by androidx.compose.runtime.saveable.rememberSaveable(song.id) { mutableStateOf(false) }
+          val translated = rememberTranslation(song, lines.map { it.text }, translate)
+          var card by remember(song.id) { mutableStateOf<String?>(null) }
+          val context = androidx.compose.ui.platform.LocalContext.current
+          val scheme = MaterialTheme.colorScheme
+          card?.let { text ->
+              ActionSheet(song.artwork, song.title, song.artist, { card = null }) { act ->
+                  Text("“$text”", style = MaterialTheme.typography.bodyLarge, modifier = Modifier.padding(horizontal = 8.dp, vertical = 8.dp))
+                  MenuGroup {
+                      MenuRow(Icons.Rounded.IosShare, "Share as a lyric card") {
+                          // The cover's colour, deepening to near black; the words white, so they always read.
+                          act { shareLyricCard(context, song, text, androidx.compose.ui.graphics.lerp(scheme.primary, Color.Black, 0.35f) to androidx.compose.ui.graphics.lerp(scheme.primary, Color.Black, 0.88f), Color.White) }
+                      }
+                  }
+              }
+          }
+          Row(verticalAlignment = Alignment.CenterVertically) {
+              androidx.compose.material3.TextButton(
+                  onClick = { translate = !translate },
+                  colors = androidx.compose.material3.ButtonDefaults.textButtonColors(contentColor = if (translate) MaterialTheme.colorScheme.primary else Color.White.copy(alpha = 0.75f)),
+              ) {
+                  Icon(Icons.Rounded.Translate, contentDescription = null, modifier = Modifier.size(18.dp))
+                  Spacer(Modifier.width(6.dp))
+                  Text(if (translate) "Translated" else "Translate")
+              }
+              when (val t = translated) {
+                  Translated.Working -> Text("Translating…", style = MaterialTheme.typography.labelMedium, color = Color.White.copy(alpha = 0.6f))
+                  is Translated.Failed -> Text(t.why, style = MaterialTheme.typography.labelMedium, color = Color.White.copy(alpha = 0.6f), maxLines = 2)
+                  else -> {}
+              }
+          }
+          val under = (translated as? Translated.Lines)?.lines
+          LazyColumn(Modifier.fillMaxSize(), state = state) {
             itemsIndexed(lines) { i, line ->
                 val lit = !app.liveLyrics || i == now
                 val alpha by animateFloatAsState(if (lit) 1f else if (i < now) 0.25f else 0.4f, tween(300), label = "line")
@@ -1381,11 +1417,24 @@ private fun LyricsPanel(song: Song, position: () -> Double, compact: Boolean = f
                         .fillMaxWidth()
                         .graphicsLayer { scaleX = grow; scaleY = grow; transformOrigin = TransformOrigin(0f, 0.5f) }
                         .clip(RoundedCornerShape(8.dp))
-                        .clickable(onClickLabel = "Play from this line") { Controls.seek(line.time) }
+                        .combinedClickable(
+                            onClickLabel = "Play from this line",
+                            onLongClickLabel = "Share as a lyric card",
+                            onLongClick = { if (line.text.isNotBlank()) card = line.text },
+                        ) { Controls.seek(line.time) }
                         .semantics { if (i == now) stateDescription = "Sung now" }
-                        .padding(vertical = 12.dp),
+                        .padding(top = 12.dp, bottom = if (under?.getOrNull(i).isNullOrBlank()) 12.dp else 2.dp),
                 )
+                under?.getOrNull(i)?.takeIf { it.isNotBlank() }?.let { t ->
+                    Text(
+                        t,
+                        style = if (compact) MaterialTheme.typography.bodyLarge else MaterialTheme.typography.titleMedium,
+                        color = Color.White.copy(alpha = alpha * 0.7f),
+                        modifier = Modifier.padding(bottom = 12.dp),
+                    )
+                }
             }
+          }
         }
     }
 }
