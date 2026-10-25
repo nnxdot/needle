@@ -385,6 +385,14 @@ enum Event {
     ArtistTop(String, Vec<Track>),
     ArtistBanner(String, Option<String>),
     ArtistLogo(String, Option<artist::Logo>),
+    /// fanart.tv's pictures of one kind for an artist, as (picture, small copy) to choose from.
+    ArtistChoices(
+        String,
+        needle_core::media::pictures::ArtistPicture,
+        Vec<(String, String)>,
+    ),
+    /// An artist's chosen pictures changed: show them again.
+    ArtistPicturesChanged(String),
     ArtFetched,
     MediaKey(media_keys::Key),
     ImportProgress(String),
@@ -1611,7 +1619,21 @@ impl AppView {
                 Event::ArtistLogo(name, logo) if name == self.artist_view.name => {
                     self.artist_view.logo = logo
                 }
-                Event::ArtistTop(..) | Event::ArtistBanner(..) | Event::ArtistLogo(..) => {}
+                Event::ArtistChoices(name, kind, choices) if name == self.artist_view.name => {
+                    self.artist_view.choices = Some((kind, choices));
+                }
+                Event::ArtistPicturesChanged(name) => {
+                    self.artist_images.remove(&name);
+                    if name == self.artist_view.name {
+                        let editing = self.artist_view.editing;
+                        self.load_artist_view(&name);
+                        self.artist_view.editing = editing;
+                    }
+                }
+                Event::ArtistTop(..)
+                | Event::ArtistBanner(..)
+                | Event::ArtistLogo(..)
+                | Event::ArtistChoices(..) => {}
                 Event::MediaKey(key) => self.media_key(key, window, cx),
                 Event::Themes(generation, themes) => {
                     self.themes_found(generation, *themes, window, cx)
