@@ -553,7 +553,7 @@ impl AppView {
             .into_any_element()
     }
 
-    fn queue(&self, cx: &mut Context<Self>) -> impl IntoElement {
+    pub(super) fn queue(&self, cx: &mut Context<Self>) -> impl IntoElement {
         let p = pal(cx);
         let count = self.playback.queue.len();
         let remaining: f64 = self.playback.queue.iter().map(|i| i.track.duration).sum();

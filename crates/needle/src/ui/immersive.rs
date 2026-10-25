@@ -125,7 +125,9 @@ impl AppView {
         let playing = self.playback.playing;
         let repeat = self.playback.repeat;
         let look = self.now_look();
-        let lyrics = self.immersive_lyrics && self.has_lyrics() && w >= 900.;
+        // Beside the cover: what plays next, or the lyrics.
+        let queue_side = self.immersive_queue && w >= 900.;
+        let lyrics = queue_side || self.immersive_lyrics && self.has_lyrics() && w >= 900.;
         // Settings > Appearance > Immersive cover, for a song with a cover of its own.
         let moving = current.as_ref().and_then(|c| self.moving_cover(&c.track));
         let (cover_layer, cover_side, tone) = match self
@@ -367,6 +369,22 @@ impl AppView {
             .right(px(24.))
             .flex()
             .gap_2()
+            .child(
+                icon_button(
+                    "imm-queue",
+                    "queue",
+                    if self.immersive_queue {
+                        "Hide what plays next"
+                    } else {
+                        "Show what plays next"
+                    },
+                )
+                .when(self.immersive_queue, |b| b.text_color(p.accent))
+                .on_click(cx.listener(|this, _, _, cx| {
+                    this.immersive_queue = !this.immersive_queue;
+                    cx.notify();
+                })),
+            )
             .when(self.has_lyrics(), |el| {
                 el.child(
                     icon_button(
@@ -378,9 +396,13 @@ impl AppView {
                             "Show the lyrics"
                         },
                     )
-                    .when(self.immersive_lyrics, |b| b.text_color(p.accent))
+                    .when(self.immersive_lyrics && !self.immersive_queue, |b| {
+                        b.text_color(p.accent)
+                    })
                     .on_click(cx.listener(|this, _, _, cx| {
-                        this.immersive_lyrics = !this.immersive_lyrics;
+                        // From the queue, the lyrics button shows the lyrics.
+                        this.immersive_lyrics = !this.immersive_lyrics || this.immersive_queue;
+                        this.immersive_queue = false;
                         this.lyric_glide = this.immersive_lyrics && this.lyric_line.is_some();
                         cx.notify();
                     })),
@@ -476,7 +498,20 @@ impl AppView {
                                 .pr(px(w * 0.06))
                                 .flex()
                                 .flex_col()
-                                .child(self.lyrics_view(LyricsKind::Immersive, cx)),
+                                .map(|el| {
+                                    if queue_side {
+                                        el.justify_center().child(
+                                            div()
+                                                .max_h(px(h * 0.7))
+                                                .w(px((w * 0.4).clamp(340., 520.)))
+                                                .flex()
+                                                .flex_col()
+                                                .child(self.queue(cx)),
+                                        )
+                                    } else {
+                                        el.child(self.lyrics_view(LyricsKind::Immersive, cx))
+                                    }
+                                }),
                         )
                     }),
             )

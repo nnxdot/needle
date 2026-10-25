@@ -599,6 +599,8 @@ pub struct AppView {
     immersive_serial: u64,
     /// Whether it shows the lyrics beside the cover, when the song has them.
     immersive_lyrics: bool,
+    /// Full screen shows what plays next beside the cover (the queue button there).
+    immersive_queue: bool,
     /// A wait for the controls to rest is running.
     immersive_waiting: bool,
     /// Immersive mode took the window to full screen, so leaving it takes it back.
@@ -1196,6 +1198,7 @@ impl AppView {
             moving_cover_asked: Default::default(),
             immersive_serial: 0,
             immersive_lyrics: true,
+            immersive_queue: false,
             immersive_waiting: false,
             immersive_restore: None,
             immersive_toggled: false,
