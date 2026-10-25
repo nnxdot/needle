@@ -95,6 +95,8 @@ struct NowPlayingView: View {
     @Environment(\.dismiss) private var dismiss
     @Environment(\.accessibilityReduceMotion) private var systemReduceMotion
     @State private var pane = Pane.cover
+    /// Translate in the lyrics (the lyrics pane reads the same switch).
+    @AppStorage("translateLyrics") private var translateLyrics = false
     @State private var favorite = false
     @State private var favoriteTaps = 0
     /// A loop just set, shown until the core plays it (a moment later).
@@ -393,11 +395,26 @@ struct NowPlayingView: View {
         .padding(.top, 10)
     }
 
-    /// Lyrics, speakers, and the queue: plain signs, as Apple Music's, the one open lit.
+    /// Lyrics, speakers, and the queue: plain signs, as Apple Music's, the one open lit; with
+    /// the lyrics open, Translate beside them.
     private var bottom: some View {
         HStack {
             paneButton(.lyrics, symbol: "quote.bubble")
             Spacer()
+            if pane == .lyrics {
+                Button { translateLyrics.toggle() } label: {
+                    Image(systemName: "translate")
+                        .font(.title3.weight(translateLyrics ? .semibold : .regular))
+                        .foregroundStyle(.white.opacity(translateLyrics ? 1 : 0.7))
+                        .frame(width: 44, height: 44)
+                        .background(.white.opacity(translateLyrics ? 0.2 : 0), in: .circle)
+                        .contentShape(.circle)
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel(translateLyrics ? "Hide the translation" : "Translate the lyrics")
+                .accessibilityAddTraits(translateLyrics ? .isSelected : [])
+                Spacer()
+            }
             RoutePicker().frame(width: 44, height: 44).opacity(0.75)
             Spacer()
             paneButton(.queue, symbol: "list.bullet")
@@ -869,17 +886,6 @@ struct LyricsPane: View {
         }
         .frame(maxHeight: .infinity)
         .task(id: "\(song?.id ?? "")|\(store.lyricsVersion)") { await load() }
-        .overlay(alignment: .topTrailing) {
-            if let lyrics, !lyrics.lines.isEmpty, store.app.liveLyrics {
-                Button { translate.toggle() } label: {
-                    Image(systemName: "translate").font(.body.weight(.semibold)).frame(width: 36, height: 36)
-                }
-                .buttonStyle(.glass)
-                .buttonBorderShape(.circle)
-                .tint(translate ? store.colors.accent : nil)
-                .accessibilityLabel(translate ? "Hide the translation" : "Translate the lyrics")
-            }
-        }
         .onChange(of: translate) { _, _ in askTranslation() }
         .translationTask(translation) { session in
             let lines = lyrics?.lines ?? []

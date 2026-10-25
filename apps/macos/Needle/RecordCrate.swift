@@ -90,7 +90,7 @@ struct RecordCrate: View {
             .shadow(color: .black.opacity(0.35), radius: 12, y: 6)
             .brightness(-min(behind, 5) * 0.07)
             .scaleEffect(1 - min(behind, 6) * 0.045, anchor: .bottom)
-            .rotation3DEffect(.degrees(10 - forward * 80), axis: (x: 1, y: 0, z: 0), anchor: .bottom, perspective: 0.45)
+            .rotation3DEffect(.degrees(6 - forward * 80), axis: (x: 1, y: 0, z: 0), anchor: .bottom, perspective: 0.45)
             .offset(y: -behind * side * 0.12 + forward * side * 0.18 - side * 0.12)
             .opacity(d < -1 ? max(0, 2 + d) * 0.5 : 1 - forward * 0.5)
             .zIndex(-d)
