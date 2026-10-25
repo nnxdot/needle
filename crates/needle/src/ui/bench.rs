@@ -364,6 +364,16 @@ impl AppView {
                             }
                         }
                     }
+                    // "album:Hana Mori/Bloom Season": one album's page.
+                    Some(("album", which)) => {
+                        let (artist, album) = which.split_once('/').unwrap_or(("", which));
+                        let track = needle_core::model::Track {
+                            album_artist: artist.into(),
+                            album: album.into(),
+                            ..Default::default()
+                        };
+                        open(v, super::album_page(&track), window, cx)
+                    }
                     _ if page == "home" => open(v, Page::Home, window, cx),
                     _ if page == "albums" => open(v, Page::Albums, window, cx),
                     _ if page == "artists" => open(v, Page::Artists, window, cx),
