@@ -15,6 +15,11 @@ gpui = "=0.2.2"
 gpui-component = "=0.5.1"
 gpui-component-assets = "=0.5.1"
 image = { version = "0.25", default-features = false, features = ["jpeg", "png", "webp", "gif", "bmp"] }
+# The listener's language, for translated lyrics.
+sys-locale = "0.3"
+# Lyric cards: their words, drawn in Needle's own fonts (the same versions GPUI uses).
+resvg = { version = "0.45", default-features = false, features = ["text"] }
+usvg = { version = "0.45", default-features = false, features = ["text"] }
 rand = "0.8"
 raw-window-handle = "0.6"
 rfd = "0.15"

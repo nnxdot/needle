@@ -65,6 +65,8 @@ pub struct Group {
     /// An album's year (0 when unknown, and for artists).
     pub year: i64,
     pub page: Page,
+    /// The letter an artist is filed under, for the A–Z bar ("" for albums).
+    pub letter: String,
 }
 
 pub fn album_groups(albums: Vec<AlbumSummary>) -> Vec<Group> {
@@ -85,6 +87,7 @@ pub fn album_groups(albums: Vec<AlbumSummary>) -> Vec<Group> {
             seed: format!("{}{}", album.album, album.artist),
             tracks: album.tracks,
             year: album.year,
+            letter: String::new(),
             page: Page::Album {
                 album: album.album,
                 artist: album.artist,
@@ -112,6 +115,7 @@ pub fn artist_groups(artists: Vec<ArtistSummary>) -> Vec<Group> {
             seed: artist.name.clone(),
             tracks: artist.tracks,
             year: 0,
+            letter: artist.letter,
             page: Page::Artist(artist.name),
         })
         .collect()
@@ -142,6 +146,8 @@ impl AppView {
             Page::Timing => self.timing_view(cx),
             Page::Wrapped(year) => self.wrapped_view(year, width, cx),
             Page::Doctor => self.doctor_view(width, cx),
+            Page::Numbers => self.numbers_view(width, cx),
+            Page::MoodMap => self.mood_view(width, cx),
             _ if self.total == 0 && self.scan.is_none() && !self.loading => {
                 self.onboarding(cx).into_any_element()
             }
@@ -407,6 +413,26 @@ impl AppView {
         } else {
             (buttons, None)
         };
+        let beside = beside
+            .or_else(|| (self.page == Page::Artists).then(|| self.artist_sort_controls(tight, cx)));
+        // Albums: a grid, or a record crate to flip through.
+        let beside = beside.or_else(|| {
+            (self.page == Page::Albums).then(|| {
+                let weak = cx.entity().downgrade();
+                div().flex_shrink_0().child(super::widgets::segmented(
+                    "albums-view",
+                    &["Grid", "Crate"],
+                    self.albums_crate as usize,
+                    cx,
+                    move |index, _, cx| {
+                        let _ = weak.update(cx, |this, cx| {
+                            this.albums_crate = index == 1;
+                            cx.notify();
+                        });
+                    },
+                ))
+            })
+        });
         div()
             .flex_shrink_0()
             .px_6()
@@ -1328,7 +1354,10 @@ impl AppView {
         div().w_full().px_4().child(row)
     }
 
-    fn grid(&self, width: f32, cx: &mut Context<Self>) -> impl IntoElement {
+    fn grid(&self, width: f32, cx: &mut Context<Self>) -> AnyElement {
+        if self.page == Page::Albums && self.albums_crate {
+            return self.crate_view(width, cx);
+        }
         let artists = self.page == Page::Artists;
         let gap = 22.;
         let inner = (width - 48.).max(200.);
@@ -1352,7 +1381,15 @@ impl AppView {
         .track_scroll(self.grid_scroll.clone())
         .flex_1()
         .pb(self.foot_room());
-        with_scrollbar(list, &self.grid_scroll)
+        div()
+            .flex_1()
+            .min_h_0()
+            .relative()
+            .flex()
+            .flex_col()
+            .child(with_scrollbar(list, &self.grid_scroll))
+            .children(self.letter_bar(columns, cx))
+            .into_any_element()
     }
 
     pub(super) fn tile(
@@ -1434,7 +1471,12 @@ impl AppView {
                 .flex_shrink_0()
                 .rounded_full()
                 .overflow_hidden()
-                .child(img(file).size_full().object_fit(ObjectFit::Cover))
+                .child(
+                    img(file)
+                        .size_full()
+                        .rounded_full()
+                        .object_fit(ObjectFit::Cover),
+                )
                 .into_any_element();
         }
         super::widgets::generated_cover(&initials(name), size, true, &p).into_any_element()

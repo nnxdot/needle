@@ -24,6 +24,7 @@ mod app;
 #[cfg(test)]
 mod audit_tests;
 mod connect;
+mod core2;
 mod discord;
 mod ios;
 #[cfg(feature = "desktop")]
@@ -147,6 +148,12 @@ pub struct Artist {
     pub albums: u32,
     pub songs: u32,
     pub artwork: Option<String>,
+    /// Its place in an A–Z bar ("A"–"Z", "#", or another script's letter).
+    #[uniffi(default = "")]
+    pub letter: String,
+    /// How often their songs were played.
+    #[uniffi(default = 0)]
+    pub plays: i64,
 }
 
 #[derive(Clone, uniffi::Record)]
@@ -473,6 +480,8 @@ impl Needle {
                 albums: a.albums as u32,
                 songs: a.tracks as u32,
                 artwork: a.artwork,
+                letter: a.letter,
+                plays: a.play_count,
             })
             .collect())
     }

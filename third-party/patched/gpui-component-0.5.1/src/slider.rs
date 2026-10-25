@@ -386,6 +386,8 @@ pub struct Slider {
     axis: Axis,
     style: StyleRefinement,
     disabled: bool,
+    /// Needle: a thin line with the thumb shown only under the pointer.
+    thin: bool,
 }
 
 impl Slider {
@@ -396,7 +398,14 @@ impl Slider {
             state: state.clone(),
             style: StyleRefinement::default(),
             disabled: false,
+            thin: false,
         }
+    }
+
+    /// Needle: a thin line, its thumb shown only while the pointer is over it.
+    pub fn thin(mut self) -> Self {
+        self.thin = true;
+        self
     }
 
     /// As a horizontal slider.
@@ -436,11 +445,15 @@ impl Slider {
             return div().id(id);
         }
 
+        let thin = self.thin;
         div()
             .id(id)
             .absolute()
-            .when(axis.is_horizontal(), |this| {
+            .when(axis.is_horizontal() && !thin, |this| {
                 this.top(px(-5.)).left(start_pos).ml(-px(8.))
+            })
+            .when(axis.is_horizontal() && thin, |this| {
+                this.top(px(-3.5)).left(start_pos).ml(-px(5.))
             })
             .when(axis.is_vertical(), |this| {
                 this.bottom(start_pos).left(px(-5.)).mb(-px(8.))
@@ -452,7 +465,12 @@ impl Slider {
             .corner_radii(radius)
             .bg(bar_color.opacity(0.5))
             .when(cx.theme().shadow, |this| this.shadow_md())
-            .size_4()
+            .when(!thin, |this| this.size_4())
+            .when(thin, |this| {
+                this.size(px(10.))
+                    .opacity(0.)
+                    .group_hover("needle-thin-slider", |s| s.opacity(1.))
+            })
             .p(px(1.))
             .child(
                 div()
@@ -605,8 +623,11 @@ impl RenderOnce for Slider {
                             },
                         ))
                     })
-                    .when(axis.is_horizontal(), |this| {
+                    .when(axis.is_horizontal() && !self.thin, |this| {
                         this.items_center().h_6().w_full()
+                    })
+                    .when(axis.is_horizontal() && self.thin, |this| {
+                        this.group("needle-thin-slider").items_center().h(px(12.)).w_full()
                     })
                     .when(axis.is_vertical(), |this| {
                         this.justify_center().w_6().h_full()
@@ -616,7 +637,8 @@ impl RenderOnce for Slider {
                         div()
                             .id("slider-bar")
                             .relative()
-                            .when(axis.is_horizontal(), |this| this.w_full().h_1p5())
+                            .when(axis.is_horizontal() && !self.thin, |this| this.w_full().h_1p5())
+                            .when(axis.is_horizontal() && self.thin, |this| this.w_full().h(px(3.)))
                             .when(axis.is_vertical(), |this| this.h_full().w_1p5())
                             .bg(bar_color.opacity(0.2))
                             .active(|this| this.bg(bar_color.opacity(0.4)))

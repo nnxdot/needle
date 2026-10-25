@@ -116,6 +116,8 @@ pub struct PluginInfo {
     pub source: Option<SourceInfo>,
     /// The plugin finds lyrics (it defines `lyrics(song)`).
     pub lyrics: bool,
+    /// The plugin translates lyrics (it defines `translate(lines, language)`).
+    pub translates: bool,
     /// A bundled plugin someone changed: the newer version this build of Needle has.
     pub update: Option<String>,
     /// One of the plugins that come with Needle (in its own folder, under its own id).
@@ -351,6 +353,12 @@ pub enum PluginEvent {
         track_id: String,
         stars: i64,
     },
+    /// Ask the plugins that translate for these lines in `language` (a language code, "de").
+    Translate {
+        lines: Vec<String>,
+        language: String,
+        reply: Sender<Result<Option<Vec<String>>, String>>,
+    },
     /// Ask the plugins that find lyrics for a song's.
     Lyrics {
         song: Box<Track>,
@@ -500,6 +508,30 @@ impl PluginHost {
             Ok(Ok(found)) => Ok(found),
             Ok(Err(problem)) => bail!("{problem}"),
             Err(_) => bail!("The lyrics plugins did not answer in time"),
+        }
+    }
+    /// Whether a turned-on plugin translates lyrics.
+    pub fn translates(&self) -> bool {
+        self.plugins().iter().any(|p| p.enabled && p.translates)
+    }
+    /// Lines translated into `language` (a code such as "de") by the first turned-on plugin
+    /// that translates and gives one line for each; `None` when no plugin does.
+    pub fn translate(&self, lines: &[String], language: &str) -> Result<Option<Vec<String>>> {
+        if !self.translates() {
+            return Ok(None);
+        }
+        let (reply, answer) = crossbeam_channel::bounded(1);
+        self.tx
+            .send(PluginEvent::Translate {
+                lines: lines.to_vec(),
+                language: language.to_string(),
+                reply,
+            })
+            .map_err(|_| anyhow::anyhow!("Plugins are not running"))?;
+        match answer.recv_timeout(Duration::from_secs(30)) {
+            Ok(Ok(found)) => Ok(found),
+            Ok(Err(problem)) => bail!("{problem}"),
+            Err(_) => bail!("The translating plugin did not answer in time"),
         }
     }
     /// The turned-on plugins that find lyrics, by id: part of the key lyrics are kept under.
@@ -703,6 +735,51 @@ fn run(
                     )));
                 }
                 publish(&loaded);
+            }
+            PluginEvent::Translate {
+                lines,
+                language,
+                reply,
+            } => {
+                let mut failed = None;
+                let mut found = None;
+                let list: rhai::Array = lines.iter().map(|l| Dynamic::from(l.clone())).collect();
+                for plugin in loaded
+                    .iter_mut()
+                    .filter(|p| p.info.enabled && p.info.translates)
+                {
+                    let name = plugin.info.manifest.name.clone();
+                    match call_source(
+                        plugin,
+                        "translate",
+                        vec![list.clone().into(), language.clone().into()],
+                    ) {
+                        Ok(value) => {
+                            let out: Option<Vec<String>> =
+                                value.try_cast::<rhai::Array>().map(|a| {
+                                    a.into_iter()
+                                        .map(|v| v.into_string().unwrap_or_default())
+                                        .collect()
+                                });
+                            // One line for each, or it is not used.
+                            if let Some(out) = out.filter(|o| o.len() == lines.len()) {
+                                found = Some(out);
+                                break;
+                            }
+                            failed.get_or_insert(format!(
+                                "{name}: translate() gave a different number of lines"
+                            ));
+                        }
+                        Err(problem) => {
+                            failed.get_or_insert(format!("{name}: {problem}"));
+                        }
+                    }
+                }
+                let _ = reply.send(match (found, failed) {
+                    (Some(found), _) => Ok(Some(found)),
+                    (None, Some(problem)) => Err(problem),
+                    (None, None) => Ok(None),
+                });
             }
             PluginEvent::Lyrics { song, reply } => {
                 let map = lyrics_song_map(&song);
@@ -1045,6 +1122,10 @@ fn refresh_source(plugin: &mut Loaded, library: &Library) {
         ast.iter_functions()
             .any(|f| f.name == "lyrics" && f.params.len() == 1)
     });
+    plugin.info.translates = plugin.ast.as_ref().is_some_and(|ast| {
+        ast.iter_functions()
+            .any(|f| f.name == "translate" && f.params.len() == 2)
+    });
     // Needle fetches the links a source gives it, so being one needs the network permission:
     // otherwise a plugin could send library data out inside a link.
     if !plugin.info.enabled
@@ -1261,6 +1342,7 @@ fn built_in_subsonic(library: &Library) -> Loaded {
             effects: vec![],
             source: None,
             lyrics: false,
+            translates: false,
             update: None,
             official: true,
             verified: true,
@@ -1357,6 +1439,7 @@ fn load_all(
                         effects: vec![],
                         source: None,
                         lyrics: false,
+                        translates: false,
                         update: None,
                         official: false,
                         verified: false,
@@ -1395,6 +1478,7 @@ fn load_all(
                 effects: vec![],
                 source: None,
                 lyrics: false,
+                translates: false,
                 update: bundled_update(&dir, &manifest.id),
                 official: is_official(&dir, &manifest.id),
                 verified: is_official(&dir, &manifest.id)
@@ -3645,6 +3729,35 @@ fn on_file_dropped(file) {
         assert!(inside(Path::new("x"), "../escape.txt").is_err());
         assert!(inside(Path::new("x"), "C:\\escape.txt").is_err());
         assert!(inside(Path::new("x"), "ok.txt").is_ok());
+    }
+
+    #[test]
+    fn translating_plugins_give_a_line_for_each_line() {
+        let dir = tempfile::tempdir().unwrap();
+        let library = Library::open(dir.path()).unwrap();
+        let folder = library.directory.join("plugins").join("shout");
+        std::fs::create_dir_all(&folder).unwrap();
+        std::fs::write(
+            folder.join("plugin.toml"),
+            "id = \"shout\"\nname = \"Shout\"\n",
+        )
+        .unwrap();
+        std::fs::write(
+            folder.join("main.rhai"),
+            r#"fn translate(lines, language) { lines.map(|l| `${language}: ${l.to_upper()}`) }"#,
+        )
+        .unwrap();
+        library
+            .set_json(ENABLED_KEY, &BTreeSet::from(["shout".to_string()]))
+            .unwrap();
+        let host = PluginHost::start(library.clone(), Default::default(), |_| {});
+        wait(|| Some(host.plugins()).filter(|p| p.iter().any(|p| p.translates && p.enabled)));
+        assert!(host.translates());
+        let lines = vec!["one".to_string(), "two".to_string()];
+        assert_eq!(
+            host.translate(&lines, "de").unwrap(),
+            Some(vec!["de: ONE".to_string(), "de: TWO".to_string()])
+        );
     }
 
     #[test]
