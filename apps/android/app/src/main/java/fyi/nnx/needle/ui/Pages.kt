@@ -861,7 +861,7 @@ fun HomeScreen(open: (Route) -> Unit) {
     val countLoad = rememberLoaded { songCount() }
     val count by countLoad
     val scan by NeedleApp.instance.scan.collectAsState()
-    val daysLoad = rememberLoaded { onThisDay(java.util.TimeZone.getDefault().getOffset(System.currentTimeMillis()) / 1000) }
+    val daysLoad = rememberLoaded { onThisDay(java.util.TimeZone.getDefault().getOffset(System.currentTimeMillis()) / 1000, 12u) }
     val days by daysLoad
     LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = 32.dp + LocalBottomInset.current)) {
         item {

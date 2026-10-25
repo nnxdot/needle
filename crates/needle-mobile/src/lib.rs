@@ -23,6 +23,8 @@ mod android;
 mod app;
 #[cfg(test)]
 mod audit_tests;
+#[cfg(test)]
+mod platform_output_tests;
 mod connect;
 mod core2;
 mod discord;

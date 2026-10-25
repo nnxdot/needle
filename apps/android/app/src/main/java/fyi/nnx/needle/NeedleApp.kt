@@ -98,18 +98,22 @@ class NeedleApp : Application() {
     val app: StateFlow<AppSettings> = _app
 
     private val _more = MutableStateFlow(
-        fyi.nnx.needle.core.MoreSettings(
+        fyi.nnx.needle.core.LibraryChoices(
+            displayFont = "poster", textFont = "system",
             playerButtons = listOf("shuffle", "previous", "play", "next", "repeat", "favorite", "lyrics", "queue", "speakers"),
             artistOrder = "name", albumArtistsOnly = false, artistPictures = true, smartMix = true,
         ),
     )
-    /** Needle 2.0's settings kept in the core, shared with the computer: the player's buttons, the artists' order, Smart mixes. */
-    val more: StateFlow<fyi.nnx.needle.core.MoreSettings> = _more
+    /**
+     * Needle 2.0's library choices, kept with the computer's settings (the same names on every
+     * system): the fonts, the player's buttons, the artists' order, Artist pictures, Smart mixes.
+     */
+    val more: StateFlow<fyi.nnx.needle.core.LibraryChoices> = _more
 
-    fun updateMore(change: (fyi.nnx.needle.core.MoreSettings) -> fyi.nnx.needle.core.MoreSettings) {
+    fun updateMore(change: (fyi.nnx.needle.core.LibraryChoices) -> fyi.nnx.needle.core.LibraryChoices) {
         val next = change(_more.value)
         _more.value = next
-        scope.launch(saves) { runCatching { core.setMoreSettings(next) } }
+        scope.launch(saves) { runCatching { core.setLibraryChoices(next) } }
     }
 
     /**
@@ -123,7 +127,7 @@ class NeedleApp : Application() {
             val connectivity = getSystemService(android.net.ConnectivityManager::class.java)
             val unmetered = connectivity?.activeNetwork != null && connectivity.isActiveNetworkMetered == false
             val allowed = online && _more.value.artistPictures && unmetered && !scan.value.running
-            runCatching { core.setArtistPicturesAllowed(allowed) }
+            runCatching { core.allowPictureSweep(allowed) }
         }
     }
 
@@ -149,7 +153,13 @@ class NeedleApp : Application() {
         NativeBridge.initAndroid(this)
         core = Needle(File(filesDir, "needle").absolutePath)
         _app.value = core.appSettings()
-        runCatching { core.moreSettings() }.getOrNull()?.let { _more.value = it }
+        runCatching { core.libraryChoices() }.getOrNull()?.let { _more.value = it }
+        // The title font chosen before 2.0 (the app's own setting) moves to the library's
+        // choices once; the app's is left empty after.
+        _app.value.titleFont.takeIf { it.isNotEmpty() }?.let { old ->
+            if (_more.value.displayFont == "system") updateMore { it.copy(displayFont = fyi.nnx.needle.ui.titleFontId(old)) }
+            updateApp { it.copy(titleFont = "") }
+        }
         // The background search for artists' pictures follows the network and the settings.
         getSystemService(android.net.ConnectivityManager::class.java)?.registerDefaultNetworkCallback(object : android.net.ConnectivityManager.NetworkCallback() {
             override fun onCapabilitiesChanged(network: android.net.Network, capabilities: android.net.NetworkCapabilities) = artistPicturesAllowed()

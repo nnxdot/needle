@@ -1080,9 +1080,10 @@ private fun AppearanceSettings(open: (Route) -> Unit) {
         SwitchRow("Mark server songs", "A small server icon beside the artist", app.serverMark, icon = Icons.Rounded.Dns) { on -> update { it.copy(serverMark = on) } }
     }
     Group("Text and motion") {
-        FontRow(Icons.Rounded.Title, "Titles", "The font of page titles", TitleFonts, titleFontId(app.titleFont), { titleFamilyFor(it) }, bold = true) { id -> update { it.copy(titleFont = id) } }
+        val fonts by NeedleApp.instance.more.collectAsState()
+        FontRow(Icons.Rounded.Title, "Titles", "The font of page titles", TitleFonts, titleFontId(fonts.displayFont), { titleFamilyFor(it) }, bold = true) { id -> NeedleApp.instance.updateMore { it.copy(displayFont = id) } }
         Divider()
-        FontRow(Icons.Rounded.TextFields, "Text", "The font of everything else", TextFonts, app.textFont, { textFamilyFor(it) }) { id -> update { it.copy(textFont = id) } }
+        FontRow(Icons.Rounded.TextFields, "Text", "The font of everything else", TextFonts, fonts.textFont, { textFamilyFor(it) }) { id -> NeedleApp.instance.updateMore { it.copy(textFont = id) } }
         Divider()
         var scale by remember(app.textScale) { mutableFloatStateOf(app.textScale) }
         SliderRow(
@@ -1121,10 +1122,10 @@ private fun AppearanceSettings(open: (Route) -> Unit) {
 @Composable
 private fun ArtistPicturesRow() {
     val more by NeedleApp.instance.more.collectAsState()
-    var progress by remember { mutableStateOf<fyi.nnx.needle.core.PictureProgress?>(null) }
+    var progress by remember { mutableStateOf<fyi.nnx.needle.core.PictureSweepProgress?>(null) }
     LaunchedEffect(more.artistPictures) {
         while (true) {
-            progress = withContext(Dispatchers.IO) { runCatching { core.artistPicturesProgress() }.getOrNull() }
+            progress = withContext(Dispatchers.IO) { runCatching { core.pictureSweepProgress() }.getOrNull() }
             kotlinx.coroutines.delay(2000)
         }
     }
