@@ -33,6 +33,16 @@ pub struct Track {
     /// Decoded recording identity behind library loudness measurements.
     pub analysis_audio_hash: Option<String>,
     pub musicbrainz_id: Option<String>,
+    /// The file's sort names for the artist and album artist ("Bowie, David").
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub artist_sort: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub album_artist_sort: Option<String>,
+    /// The artist's and album artist's MusicBrainz ids, from the tags.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub musicbrainz_artist_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub musicbrainz_album_artist_id: Option<String>,
     pub play_count: i64,
     pub last_played: Option<i64>,
     pub missing: bool,
@@ -219,8 +229,24 @@ pub struct Settings {
     /// Minutes of nothing playing (paused or stopped) before the Discord status is cleared;
     /// 0 keeps it.
     pub discord_idle_minutes: u32,
-    /// Font for page titles: "system", "bahnschrift", or "fraunces".
+    /// Font for page titles: "system", "poster", "fraunces", "instrument_serif",
+    /// "dm_serif", "space_grotesk", "bricolage", "outfit", or "own:<family>" for an installed
+    /// font ("bahnschrift" from before 2.0 shows as "poster").
     pub display_font: String,
+    /// Font for everything else: "system", "inter", "atkinson", "lexend", "plex_mono", or
+    /// "own:<family>".
+    pub text_font: String,
+    /// The player's buttons, in order: "shuffle", "previous", "play", "next", "repeat",
+    /// "favorite", "lyrics", "queue", "speakers". The menu and the volume always stay.
+    pub player_buttons: Vec<String>,
+    /// How the Artists page is ordered: "name", "most_played", "most_songs", or
+    /// "recently_added".
+    pub artist_order: String,
+    /// The Artists page lists only album artists, not those only on someone else's song.
+    pub album_artists_only: bool,
+    /// With online lookups on, find every artist's photo, logo, and wide picture slowly in the
+    /// background (one artist at a time, while Needle is idle).
+    pub artist_pictures: bool,
     /// The grain and title font someone had before a custom theme set its own; put back
     /// when they choose a look without them.
     pub theme_extras_before: Option<(f32, String)>,
@@ -231,6 +257,9 @@ pub struct Settings {
     pub ambient: bool,
     /// Seconds songs overlap as one ends and the next begins (0 = off).
     pub crossfade: f32,
+    /// Smart mixes: the crossfade starts where a song's music ends (not in its silent tail)
+    /// and lasts whole bars of its tempo.
+    pub smart_mix: bool,
     /// The song table's columns, in order, with their widths.
     pub columns: Vec<ColumnSetting>,
     /// Send crash reports (without file paths or names) to needle.nnx.fyi.
@@ -248,6 +277,29 @@ pub struct Settings {
     /// An icon in the notification area; closing the window hides it there and the music
     /// plays on.
     pub tray: bool,
+}
+
+/// Every button the player can show, in Needle's own order.
+pub const PLAYER_BUTTONS: [&str; 9] = [
+    "shuffle", "previous", "play", "next", "repeat", "favorite", "lyrics", "queue", "speakers",
+];
+
+impl Settings {
+    /// The player's buttons, known ones only, each once, with Play/Pause always there.
+    pub fn player_buttons(&self) -> Vec<&'static str> {
+        let mut buttons: Vec<&'static str> = vec![];
+        for name in &self.player_buttons {
+            if let Some(known) = PLAYER_BUTTONS.iter().find(|b| **b == name.as_str()) {
+                if !buttons.contains(known) {
+                    buttons.push(known);
+                }
+            }
+        }
+        if !buttons.contains(&"play") {
+            buttons.insert(0, "play");
+        }
+        buttons
+    }
 }
 
 /// One column of the song table.
@@ -298,10 +350,16 @@ impl Default for Settings {
             discord_paused: true,
             discord_idle_minutes: 10,
             display_font: "system".into(),
+            text_font: "system".into(),
+            player_buttons: PLAYER_BUTTONS.iter().map(|b| b.to_string()).collect(),
+            artist_order: "name".into(),
+            album_artists_only: false,
+            artist_pictures: true,
             theme_extras_before: None,
             accent_color: String::new(),
             ambient: false,
             crossfade: 0.,
+            smart_mix: true,
             columns: [("album", 220.), ("quality", 92.), ("time", 52.)]
                 .into_iter()
                 .map(|(key, width)| ColumnSetting {

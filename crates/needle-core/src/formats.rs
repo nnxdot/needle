@@ -312,6 +312,8 @@ pub struct Dsf {
     history: Vec<Vec<u8>>,
     table: Vec<[f32; 256]>,
     pending: Pending,
+    /// Give the DSD as DoP (for a DAC that takes it) rather than turning it into PCM.
+    dop: bool,
 }
 
 /// Per byte position in the filter, the filter's contribution for each possible byte.
@@ -397,9 +399,24 @@ impl Dsf {
             history: vec![vec![0x69; TAPS_BYTES]; channels as usize],
             table: dsd_table(),
             pending: Pending::default(),
+            dop: false,
         };
         this.load(0, 0)?;
         Ok(this)
+    }
+
+    /// The DSD as DoP: 24-bit frames at a sixteenth of the DSD rate (176.4 kHz from DSD64),
+    /// each a marker and 16 DSD bits, for an output that carries them bit for bit.
+    pub fn open_dop(path: &Path) -> Result<Self> {
+        let mut this = Self::open(path)?;
+        this.dop = true;
+        this.load(0, 0)?;
+        Ok(this)
+    }
+
+    /// DSD bytes per channel in one output frame.
+    fn frame_bytes(&self) -> usize {
+        if self.dop { 2 } else { DECIMATION_BYTES }
     }
 
     fn groups(&self) -> u64 {
@@ -419,6 +436,28 @@ impl Dsf {
         raw.truncate(read);
         let valid =
             (self.bytes_per_channel - group * self.block as u64).min(self.block as u64) as usize;
+        if self.dop {
+            let frames = valid / 2;
+            let first = group * (self.block / 2) as u64;
+            let mut out = vec![0f32; frames * channels];
+            for c in 0..channels {
+                let bytes = raw
+                    .get(c * self.block..c * self.block + valid)
+                    .unwrap_or(&[]);
+                for (f, pair) in bytes.chunks_exact(2).enumerate().take(frames) {
+                    // DSF stores bits LSB first; DoP sends the oldest bit highest.
+                    out[f * channels + c] = crate::platform_output::dop_sample(
+                        first + f as u64,
+                        pair[0].reverse_bits(),
+                        pair[1].reverse_bits(),
+                    );
+                }
+            }
+            self.pending
+                .fill(out, (skip_frames * channels as u64) as usize);
+            self.next_group = group + 1;
+            return Ok(true);
+        }
         let frames = valid / DECIMATION_BYTES;
         let mut out = vec![0f32; frames * channels];
         for c in 0..channels {
@@ -468,7 +507,7 @@ impl Source for Dsf {
         self.channels
     }
     fn sample_rate(&self) -> u32 {
-        self.dsd_rate / (DECIMATION_BYTES as u32 * 8)
+        self.dsd_rate / (self.frame_bytes() as u32 * 8)
     }
     fn total_duration(&self) -> Option<Duration> {
         Some(Duration::from_secs_f64(
@@ -477,7 +516,7 @@ impl Source for Dsf {
     }
     fn try_seek(&mut self, pos: Duration) -> Result<(), SeekError> {
         let frame = (pos.as_secs_f64() * self.sample_rate() as f64) as u64;
-        let frames_per_group = (self.block / DECIMATION_BYTES) as u64;
+        let frames_per_group = (self.block / self.frame_bytes()) as u64;
         let group = frame / frames_per_group;
         for h in &mut self.history {
             h.iter_mut().for_each(|b| *b = 0x69);
@@ -614,5 +653,35 @@ mod tests {
         assert!((hz - 1000.).abs() < 5., "{hz} Hz");
         let peak = settled.iter().fold(0f32, |m, s| m.max(s.abs()));
         assert!(peak > 0.35 && peak < 0.65, "peak {peak}");
+    }
+
+    #[test]
+    fn dsd_as_dop_carries_every_bit_with_markers() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("tone.dsf");
+        write_dsf(&path, 0.1);
+        let raw = std::fs::read(&path).unwrap();
+        let data = 28 + 52 + 12;
+        let dop = Dsf::open_dop(&path).unwrap();
+        assert_eq!((dop.channels(), dop.sample_rate()), (2, 176_400));
+        let samples: Vec<f32> = dop.take(2 * 300).collect();
+        for (i, frame) in samples.chunks(2).enumerate() {
+            for (c, sample) in frame.iter().enumerate() {
+                let mut bytes = [0u8; 3];
+                crate::platform_output::pcm24(*sample, &mut bytes);
+                assert_eq!(
+                    bytes[2],
+                    if i % 2 == 0 { 0x05 } else { 0xFA },
+                    "marker of frame {i}"
+                );
+                // Both channels hold the same bits in this file: the first block's bytes.
+                let at = data + c * 4096 + i * 2;
+                assert_eq!(
+                    [bytes[1], bytes[0]],
+                    [raw[at].reverse_bits(), raw[at + 1].reverse_bits()],
+                    "frame {i}"
+                );
+            }
+        }
     }
 }
