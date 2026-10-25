@@ -2128,95 +2128,25 @@ fn sort_by_query(tracks: &mut [Track], query: &str) {
     });
 }
 
-// ---------- Needle 2.0: artist pictures, the library in numbers, on this day, the mood map,
-// the waveform seek bar, and the visualizer
-
-/// The slow search for every artist's pictures, started the first time it may look.
-static SWEEP: std::sync::OnceLock<media::pictures::PictureSweep> = std::sync::OnceLock::new();
-/// The Mac lets it look now (no library scan runs).
-static SWEEP_MAY: AtomicBool = AtomicBool::new(false);
-
-fn picture_kind(kind: &str) -> media::pictures::ArtistPicture {
-    match kind {
-        "logo" => media::pictures::ArtistPicture::Logo,
-        "banner" => media::pictures::ArtistPicture::Banner,
-        _ => media::pictures::ArtistPicture::Photo,
-    }
-}
-
-impl Needle {
-    /// The search looks while the Mac lets it and online lookups and Artist pictures are on.
-    fn refresh_sweep(&self) {
-        let settings = self.library.settings().unwrap_or_default();
-        let allowed =
-            SWEEP_MAY.load(Ordering::SeqCst) && settings.online_media && settings.artist_pictures;
-        if allowed || SWEEP.get().is_some() {
-            SWEEP
-                .get_or_init(|| media::pictures::PictureSweep::start(self.library.clone()))
-                .set_allowed(allowed);
-        }
-    }
-}
+// ---------- Needle 2.0, as JSON for the Mac (the shared parts are in v2.rs)
 
 #[uniffi::export]
 impl Needle {
-    /// Whether the slow search for artists' pictures may look now (`may`: no library scan
-    /// runs); it also needs online lookups and Artist pictures on. Starts it the first time.
-    pub fn artist_pictures_allow(&self, may: bool) {
-        SWEEP_MAY.store(may, Ordering::SeqCst);
-        self.refresh_sweep();
-    }
-
-    /// How far the search is ("212 of 640 artists"), as JSON: done, total, allowed, hurry.
+    /// How far the slow search for artists' pictures is, as JSON: done, total, allowed, hurry.
     pub fn artist_pictures_progress_json(&self) -> Result<String> {
-        to_json(&SWEEP.get().map(|s| s.progress()).unwrap_or_default())
-    }
-
-    /// Check all now: every artist, at the services' own pace.
-    pub fn artist_pictures_check_all_now(&self) {
-        self.refresh_sweep();
-        if let Some(sweep) = SWEEP.get() {
-            sweep.check_all_now();
-        }
-    }
-
-    /// Which of the artist's pictures someone chose ("photo", "logo", "banner").
-    pub fn artist_own_pictures(&self, name: String) -> Vec<String> {
-        ["photo", "logo", "banner"]
-            .into_iter()
-            .filter(|kind| {
-                media::pictures::own_picture(&self.library, &name, picture_kind(kind)).is_some()
-            })
-            .map(String::from)
-            .collect()
-    }
-
-    /// Uses a picture file as the artist's photo, logo, or wide picture (`kind`); kept, and
-    /// never replaced by a lookup.
-    pub fn set_artist_picture(&self, name: String, kind: String, path: String) -> Result<()> {
-        media::pictures::set_own_picture(&self.library, &name, picture_kind(&kind), Path::new(&path))
-            .map(|_| ())
-            .map_err(|e| failed(e.to_string()))
-    }
-
-    /// Forgets the chosen picture: the automatic one (or the folder's) shows again.
-    pub fn reset_artist_picture(&self, name: String, kind: String) -> Result<()> {
-        media::pictures::reset_picture(&self.library, &name, picture_kind(&kind))
-            .map_err(|e| failed(e.to_string()))
+        to_json(&self.sweep_progress())
     }
 
     /// Every picture fanart.tv has of this kind for the artist, best first, as JSON (url,
     /// preview, likes, language). Empty with online lookups off.
     pub fn artist_fanart_choices_json(&self, name: String, kind: String) -> Result<String> {
         let online = self.library.settings()?.online_media;
-        to_json(&media::pictures::fanart_choices(&self.library, &name, picture_kind(&kind), online)?)
-    }
-
-    /// Uses one of fanart.tv's pictures as the artist's, kept and never replaced.
-    pub fn pick_artist_fanart(&self, name: String, kind: String, url: String) -> Result<()> {
-        media::pictures::pick_fanart(&self.library, &name, picture_kind(&kind), &url)
-            .map(|_| ())
-            .map_err(|e| failed(e.to_string()))
+        let kind = match kind.as_str() {
+            "logo" => media::pictures::ArtistPicture::Logo,
+            "banner" => media::pictures::ArtistPicture::Banner,
+            _ => media::pictures::ArtistPicture::Photo,
+        };
+        to_json(&media::pictures::fanart_choices(&self.library, &name, kind, online)?)
     }
 
     /// Your library in numbers, as JSON (`LibraryNumbers`).
@@ -2238,42 +2168,6 @@ impl Needle {
     /// mood).
     pub fn mood_map_json(&self) -> Result<String> {
         to_json(&self.library.mood_map()?)
-    }
-
-    /// Plays the songs inside a circle on the mood map (places 0 to 1). Returns how many.
-    pub fn play_mood_area(&self, x: f32, y: f32, radius: f32) -> Result<u32> {
-        let tracks = self.library.mood_area(x, y, radius, 200)?;
-        let reason = "From the mood map".to_string();
-        let items: Vec<QueueItem> = tracks
-            .into_iter()
-            .map(|track| QueueItem {
-                track,
-                reason: reason.clone(),
-            })
-            .collect();
-        let count = items.len() as u32;
-        if count > 0 {
-            self.player.send(Command::Play(items));
-        }
-        Ok(count)
-    }
-
-    /// The song's loud and quiet shape for the seek bar, `count` heights 0 to 1, measuring it
-    /// now if it was not (about a second: call it away from the main thread). Empty when it
-    /// cannot be read.
-    pub fn waveform_heights(&self, id: String, count: u32) -> Vec<f32> {
-        let Ok(Some(track)) = self.library.track(&id) else {
-            return vec![];
-        };
-        self.library
-            .waveform_now(&track)
-            .map(|w| w.heights(count as usize))
-            .unwrap_or_default()
-    }
-
-    /// What plays now, for the visualizer: `bands` bands from 30 Hz to 16 kHz, each 0 to 1.
-    pub fn spectrum(&self, bands: u32) -> Vec<f32> {
-        needle_core::scope::spectrum(bands as usize)
     }
 }
 

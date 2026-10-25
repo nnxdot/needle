@@ -2,7 +2,7 @@ import Charts
 import SwiftUI
 
 /// A name and how many, as the core writes a pair (["FLAC", 120]).
-struct Counted: Decodable, Hashable, Identifiable {
+struct NamedCount: Decodable, Hashable, Identifiable {
     var name: String
     var count: Int
     var id: String { name }
@@ -15,19 +15,19 @@ struct Counted: Decodable, Hashable, Identifiable {
 }
 
 /// What the library is made of.
-struct LibraryNumbers: Decodable {
+struct NumbersData: Decodable {
     var songs: Int
     var albums: Int
     var artists: Int
     var duration: Double
     var size: Int64
     var serverSongs: Int
-    var formats: [Counted]
+    var formats: [NamedCount]
     var lossless: Int
     var hires: Int
-    var decades: [Counted]
-    var genres: [Counted]
-    var artistsBySongs: [Counted]
+    var decades: [NamedCount]
+    var genres: [NamedCount]
+    var artistsBySongs: [NamedCount]
     var albumsWithoutCover: Int
     var lowQualityAlbums: Int
     var withoutCover: [AlbumSummary]
@@ -53,7 +53,7 @@ struct OnThisDay: Decodable, Identifiable {
 /// and genres, the artists with the most songs, and the albums to fix.
 struct NumbersPage: View {
     private var store: Store { .shared }
-    @State private var numbers: LibraryNumbers?
+    @State private var numbers: NumbersData?
 
     var body: some View {
         let colors = store.colors
@@ -101,7 +101,7 @@ struct NumbersPage: View {
             .padding(28)
         }
         .task(id: store.libraryVersion) {
-            numbers = JSON.decode(LibraryNumbers.self, await store.load { try $0.libraryNumbersJson() })
+            numbers = JSON.decode(NumbersData.self, await store.load { try $0.libraryNumbersJson() })
         }
     }
 
@@ -137,7 +137,7 @@ struct NumbersPage: View {
         .accessibilityElement(children: .combine)
     }
 
-    private func bars(_ items: [Counted]) -> some View {
+    private func bars(_ items: [NamedCount]) -> some View {
         let most = max(items.map(\.count).max() ?? 1, 1)
         return VStack(alignment: .leading, spacing: 8) {
             ForEach(items.prefix(10)) { item in

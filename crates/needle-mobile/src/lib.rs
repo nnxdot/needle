@@ -33,6 +33,7 @@ mod more;
 mod plugins;
 mod settings;
 mod tools;
+mod v2;
 
 /// Android's log (logcat), for crashes on the Rust side, which would otherwise go nowhere.
 #[cfg(target_os = "android")]
