@@ -14,8 +14,8 @@ import phoneHome from "../assets/shots2/phone-home.webp";
 import phonePlayer from "../assets/shots2/phone-player.webp";
 import phoneLyrics from "../assets/shots2/phone-lyrics.webp";
 import phoneAlbum from "../assets/shots2/phone-album.webp";
-import appMac from "../assets/shots/desktop/app-mac.webp";
-import shotIphone from "../assets/shots/iphone-player.webp";
+import appMac from "../assets/shots2/mac-home.webp";
+import shotIphone from "../assets/shots2/ios-player.webp";
 import { release } from "../lib/release.js";
 import { cover } from "../lib/albums.js";
 import "../styles/home.css";
@@ -354,7 +354,7 @@ const platforms = [
 
         <!-- Mac -->
         <div class="dl-panel" role="tabpanel" id="panel-mac" aria-labelledby="tab-mac" data-panel="mac" hidden>
-          <figure class="frame device"><Image src={appMac} widths={[720, 1080]} sizes="(max-width: 900px) 94vw, 620px" loading="lazy" alt="Needle on a Mac." /></figure>
+          <figure class="frame device"><Image src={appMac} widths={[720, 1080]} sizes="(max-width: 900px) 94vw, 620px" loading="lazy" alt="Needle 2.0 on a Mac: Home with the song playing, Jump back in, and New in your library." /></figure>
           <div class="dl-info">
             <h3>Needle for Mac</h3>
             <p class="dl-meta">Version <span data-version="mac">{macVersion}</span> · Apple silicon (M1 or newer), macOS 15 or newer</p>
@@ -401,7 +401,7 @@ const platforms = [
 
         <!-- iPhone: through SideStore or AltStore, which sign it with the person's own Apple ID. -->
         <div class="dl-panel" role="tabpanel" id="panel-iphone" aria-labelledby="tab-iphone" data-panel="iphone" hidden>
-          <figure class="phone device device-phone"><Image src={shotIphone} widths={[300, 600]} sizes="260px" loading="lazy" alt="Needle's player on an iPhone." /></figure>
+          <figure class="phone device device-phone"><Image src={shotIphone} widths={[300, 600]} sizes="260px" loading="lazy" alt="Needle 2.0 on an iPhone: the player with its cover across the screen and the waveform seek bar." /></figure>
           <div class="dl-info">
             <h3>Needle for iPhone</h3>
             <p class="dl-meta">Version {iphoneVersion} · iOS 26 and newer</p>
