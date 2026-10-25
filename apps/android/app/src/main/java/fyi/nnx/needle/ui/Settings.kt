@@ -587,6 +587,15 @@ private fun PlaybackSettingsPage() {
             onChange = { fade = it },
             onDone = { save(s.copy(crossfade = fade)) },
         )
+        // Smart mixes: only while there is a crossfade to time (SETTINGS-STYLE.md, a dependent row).
+        if (fade >= 0.5f) {
+            val more by NeedleApp.instance.more.collectAsState()
+            DependentRow {
+                SwitchRow("Smart mixes", "Fades where the music ends, in whole bars", more.smartMix, icon = Icons.Rounded.AutoAwesome) { on ->
+                    NeedleApp.instance.updateMore { it.copy(smartMix = on) }
+                }
+            }
+        }
         Divider()
         val loudness = when {
             !s.replayGain -> 0
@@ -1007,7 +1016,8 @@ private fun AppearanceSettings(open: (Route) -> Unit) {
         Divider()
         SketchRow(Icons.Rounded.LinearScale, "Seek bar", "The line of the song's time", SeekStyle.entries.map { style ->
             Sketch(style.id, style.label) { accent, grey ->
-                Box(Modifier.width(56.dp)) { ProgressLine(0.6f, true, accent, grey, style = style) }
+                // The shape's sketch: a made-up song's loud and quiet parts.
+                Box(Modifier.width(56.dp)) { ProgressLine(0.6f, true, accent, grey, style = style, heights = SketchShape) }
             }
         }, app.seekStyle) { id -> update { it.copy(seekStyle = id) } }
         Divider()
@@ -1211,6 +1221,9 @@ private fun keepFont(context: android.content.Context, uri: android.net.Uri?, te
     java.io.File(temp).copyTo(kept, overwrite = true)
     return kept.absolutePath
 }
+
+/** A made-up song's shape, for the Shape seek bar's sketch. */
+private val SketchShape = listOf(0.3f, 0.5f, 0.4f, 0.7f, 0.9f, 0.6f, 0.8f, 1f, 0.7f, 0.5f, 0.8f, 0.6f, 0.4f, 0.3f)
 
 /** A tiny player for a sketch: grey lines of words, and [cover] (the part that changes). */
 @Composable

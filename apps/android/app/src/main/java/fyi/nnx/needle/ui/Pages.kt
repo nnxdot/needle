@@ -861,6 +861,8 @@ fun HomeScreen(open: (Route) -> Unit) {
     val countLoad = rememberLoaded { songCount() }
     val count by countLoad
     val scan by NeedleApp.instance.scan.collectAsState()
+    val daysLoad = rememberLoaded { onThisDay(java.util.TimeZone.getDefault().getOffset(System.currentTimeMillis()) / 1000) }
+    val days by daysLoad
     LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = 32.dp + LocalBottomInset.current)) {
         item {
             Row(
@@ -888,6 +890,10 @@ fun HomeScreen(open: (Route) -> Unit) {
         shelf("Jump back in", "Albums you played last", h.recent, open)
         shelf("New in your library", "Added most recently", h.added, open, Route.RecentlyAdded)
         shelf("On repeat", "Your most played albums", h.mostPlayed, open)
+        // What played on this day a year and five years ago.
+        days.orEmpty().forEach { day ->
+            shelf("On this day", if (day.yearsAgo == 1) "A year ago" else "${day.yearsAgo} years ago", day.albums, open)
+        }
         shelf("Favorites", "Albums with the songs you love", h.favorites, open)
         artistShelf(h.artists, open)
     }

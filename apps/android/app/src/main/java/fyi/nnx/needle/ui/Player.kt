@@ -575,7 +575,8 @@ fun FullPlayer(onClose: () -> Unit, open: (Route) -> Unit) {
                 }
             }
             val controls: @Composable () -> Unit = {
-                AtPosition { at -> SeekBar(position = at, duration = song.duration, playing = playing) }
+                val shape = rememberShape(song)
+                AtPosition { at -> SeekBar(position = at, duration = song.duration, playing = playing, heights = shape) }
                 androidx.compose.animation.AnimatedVisibility(stopped != null) {
                     Text(
                         stopped.orEmpty(),
@@ -1208,7 +1209,7 @@ private fun SmallNowPlaying(song: Song) {
  * the song moves only when it lets go.
  */
 @Composable
-private fun SeekBar(position: Double, duration: Double, playing: Boolean) {
+private fun SeekBar(position: Double, duration: Double, playing: Boolean, heights: List<Float> = emptyList()) {
     var held by remember { mutableStateOf<Float?>(null) }
     val length = duration.coerceAtLeast(1.0).toFloat()
     // Where it was just sent: shown until the player is there (a moment later, at its next
@@ -1266,8 +1267,8 @@ private fun SeekBar(position: Double, duration: Double, playing: Boolean) {
                 },
             contentAlignment = Alignment.CenterStart,
         ) {
-            if (held == null && !focused) {
-                ProgressLine(shown, playing, Color.White, Color.White.copy(alpha = 0.25f))
+            if (held == null && !focused || heights.isNotEmpty()) {
+                ProgressLine(shown, playing, Color.White, Color.White.copy(alpha = 0.25f), heights = heights)
             } else {
                 Box(Modifier.fillMaxWidth().height(thickness).clip(CircleShape).background(Color.White.copy(alpha = 0.25f)))
                 Box(Modifier.fillMaxWidth(shown).height(thickness).clip(CircleShape).background(Color.White))
