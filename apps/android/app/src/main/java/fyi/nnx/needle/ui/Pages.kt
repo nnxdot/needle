@@ -179,11 +179,13 @@ fun DetailHeader(
     mosaic: List<String> = emptyList(),
     /** The page's buttons, beside the cover on a tablet (on a phone they follow the header). */
     buttons: (@Composable () -> Unit)? = null,
+    /** A song of the album, whose moving cover moves over the still one (an album's page). */
+    moving: Song? = null,
 ) {
     val density = androidx.compose.ui.platform.LocalDensity.current
     val squeeze by remember { derivedStateOf { (scrolled() / with(density) { 260.dp.toPx() }).coerceIn(0f, 1f) } }
     if (isWide()) {
-        WideDetailHeader(art, title, sub, meta, squeeze, onSub, key, mosaic, buttons)
+        WideDetailHeader(art, title, sub, meta, squeeze, onSub, key, mosaic, buttons, moving)
         return
     }
     Box(Modifier.fillMaxWidth()) {
@@ -192,9 +194,10 @@ fun DetailHeader(
             Modifier.fillMaxWidth().statusBarsPadding().padding(top = 56.dp, start = Edge, end = Edge, bottom = 4.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
-            Mosaic(
+            HeaderCover(
                 mosaic,
                 art,
+                moving,
                 Modifier
                     .fillMaxWidth(0.72f)
                     .aspectRatio(1f)
@@ -241,6 +244,24 @@ fun DetailHeader(
 }
 
 /**
+ * A page's big cover; on an album's page, its moving cover over it (Settings › Appearance ›
+ * Moving covers, not with Reduce motion; the same rules as the player's), the still one
+ * showing until the moving one is ready.
+ */
+@Composable
+private fun HeaderCover(mosaic: List<String>, art: String?, moving: Song?, modifier: Modifier, seed: String) {
+    val app by NeedleApp.instance.app.collectAsState()
+    Box(modifier) {
+        Mosaic(mosaic, art, Modifier.matchParentSize(), seed = seed)
+        moving?.let { song ->
+            movingCover(song, app.animatedCovers && !reduceMotion())?.let { path ->
+                MovingCover(path, shade = null, modifier = Modifier.matchParentSize().clip(CoverShape))
+            }
+        }
+    }
+}
+
+/**
  * The top of an album or playlist page on a tablet, as Apple Music shows it there: the cover at
  * the left, and the name, the facts, and the buttons beside it, rather than a cover the width of
  * the screen.
@@ -256,6 +277,7 @@ private fun WideDetailHeader(
     key: String?,
     mosaic: List<String>,
     buttons: (@Composable () -> Unit)?,
+    moving: Song?,
 ) {
     val cover = (LocalPageWidth.current * 0.28f).coerceIn(200.dp, 320.dp)
     Box(Modifier.fillMaxWidth()) {
@@ -265,9 +287,10 @@ private fun WideDetailHeader(
             verticalAlignment = Alignment.Bottom,
             horizontalArrangement = Arrangement.spacedBy(32.dp),
         ) {
-            Mosaic(
+            HeaderCover(
                 mosaic,
                 art,
+                moving,
                 Modifier
                     .size(cover)
                     .then(if (key != null) Modifier.sharedCover(key) else Modifier)
@@ -454,6 +477,7 @@ private fun AlbumPage(album: Album, open: (Route) -> Unit) {
                     onSub = { open(Route.Artist(album.artist)) },
                     key = "album-${album.key}",
                     buttons = buttons?.takeIf { wide },
+                    moving = list.firstOrNull(),
                 )
             }
             if (!wide && buttons != null) item { buttons() }
