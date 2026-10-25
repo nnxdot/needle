@@ -27,8 +27,9 @@ const links = [
 <meta property="og:description" content={description}>
 <meta property="og:url" content={url}>
 <meta property="og:image" content="https://needle.nnx.fyi/icon-512.png">
-<meta name="theme-color" content="#131110">
-<meta name="color-scheme" content="dark">
+<meta name="theme-color" content="#131110" media="(prefers-color-scheme: dark)">
+<meta name="theme-color" content="#f6f6f4" media="(prefers-color-scheme: light)">
+<meta name="color-scheme" content="dark light">
 <link rel="canonical" href={url}>
 <link rel="icon" href="/favicon-64.png" type="image/png">
 <link rel="icon" href="/icon.svg" type="image/svg+xml">
