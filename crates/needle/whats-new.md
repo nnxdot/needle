@@ -1,3 +1,21 @@
+# 2.0.0 [windows, linux]
+A new look, after the Mac's, and a lot more to see and hear.
+! **A new look.** The player floats over the foot of the page as one rounded bar, with a small screen for the song. The queue, lyrics, and details float beside the page. The page is a sheet with one round corner, the search field sits at the top of the sidebar, and Back, Forward, and the command palette share one small group.
+- [play] **Choose the player's buttons.** Drag buttons into the player, along it, and out of it in Settings › Appearance › Layout › Player buttons.
+- [tag] **Fonts.** Choose a font for titles (eight of them, such as Fraunces, Poster, and Instrument Serif) and one for everything else (such as Inter and Atkinson Hyperlegible), or a font you have installed, in Settings › Appearance.
+- [wave] **The visualizer.** Bars that move with the music, in its colours, under the cover, with a glow that breathes with it. Turn it on with the new button in the big player.
+- [signal] **A seek bar shaped like the song.** In the big player and full screen, the seek bar shows the song's loud and quiet parts.
+- [artists] **Better artists.** Guests after "feat." and both halves of "A & B" get their own page, sort names from your tags are used, and accents sort where they belong. Sort artists by name, plays, songs, or newest, show only album artists, and jump with the A–Z bar.
+- [edit] **Your own artist pictures.** The pencil on an artist's page lets you choose their photo, wide picture, and logo: your own file, or any of fanart.tv's. Pictures in an artist's folder (artist.jpg, fanart.jpg, logo.png) are used too.
+- [globe] **Pictures for every artist.** With online lookups on, Needle finds every artist's pictures slowly in the background, or all at once with Check all now (Settings › Artwork and lyrics).
+- [history] **On this day.** Home shows what you played one and five years ago today.
+- [albums] **Your library in numbers, and the mood map.** From Listening history: what your music is made of, and every song by how it sounds; click a spot to play the songs around it.
+- [albums] **A record crate.** Flip through your albums like records in a box (Albums › Crate).
+- [lyrics] **Lyric cards.** Right-click a line of the lyrics for a picture of it to share.
+- [queue] **The queue in full screen.** A queue button beside the lyrics button.
+- [eq] **Smart mixes.** With crossfade on, the fade starts where the music ends and lasts whole bars.
+- Plugins can translate lyrics: a Translate button then shows under them.
+
 # 1.8.0 [macos]
 Navidrome built in, moving covers, and calmer Settings.
 ! **Navidrome and Subsonic, built in.** Sign in to your music server in Settings › Library › Music servers, with no plugin to add. Its songs show with your own, with a small server icon on them (turn it off in Settings › Appearance › Mark server songs). Long lists load faster.

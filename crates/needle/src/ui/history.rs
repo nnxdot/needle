@@ -435,6 +435,20 @@ impl AppView {
                     )
                     .child(div().flex_1())
                     .child(
+                        super::widgets::small_button("open-numbers", "Your library")
+                            .ghost()
+                            .on_click(cx.listener(|this, _, window, cx| {
+                                this.navigate(super::Page::Numbers, window, cx)
+                            })),
+                    )
+                    .child(
+                        super::widgets::small_button("open-mood-map", "Mood map")
+                            .ghost()
+                            .on_click(cx.listener(|this, _, window, cx| {
+                                this.navigate(super::Page::MoodMap, window, cx)
+                            })),
+                    )
+                    .child(
                         super::widgets::small_button("open-wrapped", "Your year in music")
                             .ghost()
                             .on_click(

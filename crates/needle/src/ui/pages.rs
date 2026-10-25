@@ -58,7 +58,7 @@ impl AppView {
 
     /// A settings card that opens with an arrow: its header (icon, name, one line, and what is
     /// set now on the right) and, while open, `body` under a line.
-    fn expander(
+    pub(super) fn expander(
         &self,
         id: &'static str,
         title: &str,
@@ -764,6 +764,18 @@ impl AppView {
                         ),
                         cx,
                     ))
+                    .when(self.settings.crossfade > 0., |el| {
+                        el.child(setting_row(
+                            "Smart mixes",
+                            "The fade starts where the music ends and lasts whole bars.",
+                            Switch::new("smart-mix").checked(self.settings.smart_mix).on_click(cx.listener(|this, checked: &bool, _, cx| {
+                                this.settings.smart_mix = *checked;
+                                this.configure();
+                                cx.notify();
+                            })),
+                            cx,
+                        ))
+                    })
                     .child({
                         let rule = self.settings.autoplay_query.trim().to_string();
                         let shown = if rule.is_empty() { "Off".to_string() } else { rule };
@@ -878,7 +890,38 @@ impl AppView {
                         cx,
                     ))
                     .when(self.settings.online_media, |el| {
+                        let progress = self.picture_sweep.progress();
+                        let line = if !self.settings.artist_pictures {
+                            "Photos, logos, and wide pictures for every artist, found slowly.".to_string()
+                        } else if progress.total == 0 {
+                            "Finds every artist's photo, logo, and wide picture, one at a time.".to_string()
+                        } else if progress.done >= progress.total {
+                            format!("All {} artists looked for.", progress.total)
+                        } else {
+                            format!("{} of {} artists looked for.", progress.done, progress.total)
+                        };
                         el.child(setting_row(
+                            "Artist pictures",
+                            &line,
+                            div()
+                                .flex()
+                                .items_center()
+                                .gap_2()
+                                .when(self.settings.artist_pictures && progress.done < progress.total && !progress.hurry, |el| {
+                                    el.child(small_button("check-all-artists", "Check all now").on_click(cx.listener(|this, _, _, cx| {
+                                        this.picture_sweep.check_all_now();
+                                        this.notify("Looking for every artist's pictures now…");
+                                        cx.notify();
+                                    })))
+                                })
+                                .child(Switch::new("artist-pictures").checked(self.settings.artist_pictures).on_click(cx.listener(|this, checked: &bool, _, cx| {
+                                    this.settings.artist_pictures = *checked;
+                                    this.persist_settings();
+                                    cx.notify();
+                                }))),
+                            cx,
+                        ))
+                        .child(setting_row(
                             "Find missing album covers",
                             "Looks up every album without a cover. Large libraries take a while.",
                             small_button("fetch-covers", "Find covers").on_click(cx.listener(|this, _, _, _| {

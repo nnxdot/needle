@@ -213,6 +213,25 @@ pub fn pick_fanart(
     Ok(file)
 }
 
+/// A small copy of one of fanart.tv's pictures (a [`FanartChoice`]'s `preview`), kept for the
+/// list to choose from.
+pub fn fanart_preview(library: &Library, url: &str) -> Result<PathBuf> {
+    let url = https(url);
+    if !url.starts_with("https://assets.fanart.tv/") {
+        bail!("Only fanart.tv's own pictures are shown");
+    }
+    let file = library
+        .directory
+        .join("artwork")
+        .join("artists")
+        .join("previews")
+        .join(format!("{}.img", blake3::hash(url.as_bytes()).to_hex()));
+    if !file.is_file() {
+        download_image(&url, &file)?;
+    }
+    Ok(file)
+}
+
 /// Lowercase, accents folded, without a leading "The ", for matching a folder to an artist.
 fn plain(name: &str) -> String {
     crate::artists::sort_key(name, None)
