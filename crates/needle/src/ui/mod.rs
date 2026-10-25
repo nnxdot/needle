@@ -613,6 +613,8 @@ pub struct AppView {
     /// The song whose moving cover was looked up, and the picture found (Settings ›
     /// Appearance › Moving covers).
     moving_cover: Option<(String, Option<String>)>,
+    /// The album page's moving cover: its first song, and the picture found.
+    album_moving: Option<(String, Option<String>)>,
     /// Music server songs whose moving cover was asked for this time Needle runs.
     moving_cover_asked: std::collections::HashSet<String>,
     immersive_serial: u64,
@@ -1221,6 +1223,7 @@ impl AppView {
             immersive_moved: Instant::now(),
             immersive_shown: true,
             moving_cover: None,
+            album_moving: None,
             moving_cover_asked: Default::default(),
             immersive_serial: 0,
             immersive_lyrics: true,
@@ -2874,6 +2877,7 @@ impl Render for AppView {
         );
         self.update_palette(window, cx);
         self.update_glass(window, cx);
+        self.update_album_moving();
         if self.page == Page::Settings && self.settings_tab == 0 {
             self.sync_timing_sliders(cx);
         }
@@ -3264,8 +3268,8 @@ impl Render for AppView {
                             .when(show_panel && !floating, |el| {
                                 el.child(self.panel(panel_width, window, cx))
                             });
-                        // The player at the bottom; or, with it in the title bar, the search
-                        // field there (unless hidden too).
+                        // The player at the bottom; or, with it in the title bar and the
+                        // sidebar folded away, the search field there (unless hidden too).
                         let player_foot = !self.settings.layout.player_on_top;
                         let foot = if player_foot && floating && !on_glass {
                             // Needle 2.0: the Mac's floating bar, centred over the page's foot
@@ -3283,8 +3287,12 @@ impl Render for AppView {
                                 )
                                 .into_any_element(),
                             )
-                        } else if !self.settings.layout.search_hidden && !self.big {
-                            // (Over the big player, the title bar has the search field.)
+                        } else if !self.settings.layout.search_hidden
+                            && !self.big
+                            && self.settings.layout.sidebar_hidden
+                        {
+                            // Only with the sidebar folded away: the sidebar has the search
+                            // field at its top. (Over the big player, the title bar has it.)
                             Some(self.search_strip(window, cx).into_any_element())
                         } else {
                             None
