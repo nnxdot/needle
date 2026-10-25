@@ -28,6 +28,7 @@ pub mod model;
 mod mp4_trim;
 pub mod numbers;
 mod opus;
+pub mod platform_output;
 pub mod plugins;
 pub mod query;
 pub mod radio;
