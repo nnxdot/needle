@@ -97,6 +97,9 @@ fn wav(path: &std::path::Path, rate: u32, seconds: u32) {
     std::fs::write(path, out).unwrap();
 }
 
+/// The platform output is one global: the tests that set it take turns.
+static ONE_AT_A_TIME: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
 fn wait(what: &str, limit: Duration, mut done: impl FnMut() -> bool) {
     let start = Instant::now();
     while !done() {
@@ -107,6 +110,7 @@ fn wait(what: &str, limit: Duration, mut done: impl FnMut() -> bool) {
 
 #[test]
 fn a_platform_output_plays_pauses_seeks_follows_the_rate_and_hands_back() {
+    let _turn = ONE_AT_A_TIME.lock().unwrap_or_else(|e| e.into_inner());
     let dir = tempfile::tempdir().unwrap();
     let music = dir.path().join("music");
     needle_core::demo::create(&music).unwrap();
@@ -268,6 +272,8 @@ fn a_platform_output_plays_pauses_seeks_follows_the_rate_and_hands_back() {
             .is_some_and(|n| n.contains("Failing DAC")),
         "the notice is still there"
     );
+    set_platform_output(None);
+    needle.toggle();
 }
 
 /// An output that takes music for a moment, then fails as an unplugged DAC does.
@@ -300,4 +306,59 @@ impl PlatformOutput for Failing {
         }
         Ok(())
     }
+}
+
+/// When a platform output fails, its notice ("… stopped (why). Playing through the phone
+/// instead.") stays after the system's output opens (opening it clears older notices).
+#[test]
+fn the_failure_notice_stays() {
+    if !FALLBACK {
+        return;
+    }
+    let _turn = ONE_AT_A_TIME.lock().unwrap_or_else(|e| e.into_inner());
+    let dir = tempfile::tempdir().unwrap();
+    let music = dir.path().join("music");
+    needle_core::demo::create(&music).unwrap();
+    let needle = Needle::new(dir.path().join("data").to_string_lossy().into()).unwrap();
+    needle.player.send(needle_core::audio::Command::Volume(0.));
+    let failing = Arc::new(Failing::default());
+    set_platform_output(Some(failing.clone()));
+    needle.add_folder(music.to_string_lossy().into()).unwrap();
+    wait("the scan", Duration::from_secs(60), || {
+        !needle.scan_status().running && needle.song_count().unwrap_or(0) >= 3
+    });
+    let ids: Vec<String> = needle
+        .songs()
+        .unwrap()
+        .iter()
+        .map(|s| s.id.clone())
+        .collect();
+    needle.play(ids, 0).unwrap();
+    wait("the failure", Duration::from_secs(10), || {
+        failing.frames.load(Ordering::SeqCst) > 40_000
+    });
+    // Said once the system's output plays, and still there for a while after (a second
+    // restart would clear it).
+    wait("the notice", Duration::from_secs(5), || {
+        needle
+            .player
+            .state()
+            .output_notice
+            .is_some_and(|n| n.contains("Failing DAC"))
+    });
+    let start = Instant::now();
+    while start.elapsed() < Duration::from_secs(3) {
+        assert!(
+            needle
+                .player
+                .state()
+                .output_notice
+                .is_some_and(|n| n.contains("Failing DAC")),
+            "the notice is still there after {:?}",
+            start.elapsed()
+        );
+        std::thread::sleep(Duration::from_millis(20));
+    }
+    set_platform_output(None);
+    needle.toggle();
 }

@@ -122,15 +122,3 @@ const seen = new IntersectionObserver((entries) => {
   }
 }, { rootMargin: "0px 0px -12% 0px" });
 $$("[data-reveal]").forEach((el) => seen.observe(el));
-
-/* ---------- the floating cards drift a little slower than the page */
-const floats = $$("[data-float]");
-if (floats.length && !reduced()) {
-  let ticking = false;
-  const drift = () => {
-    ticking = false;
-    const y = Math.min(scrollY, 900);
-    for (const f of floats) f.style.translate = `0 ${-(f.dataset.float === "left" ? .12 : .2) * y}px`;
-  };
-  addEventListener("scroll", () => { if (!ticking) { ticking = true; requestAnimationFrame(drift); } }, { passive: true });
-}

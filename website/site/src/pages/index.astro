@@ -14,8 +14,8 @@ import phoneHome from "../assets/shots2/phone-home.webp";
 import phonePlayer from "../assets/shots2/phone-player.webp";
 import phoneLyrics from "../assets/shots2/phone-lyrics.webp";
 import phoneAlbum from "../assets/shots2/phone-album.webp";
-import appMac from "../assets/shots/desktop/app-mac.webp";
-import shotIphone from "../assets/shots/iphone-player.webp";
+import appMac from "../assets/shots2/mac-home.webp";
+import shotIphone from "../assets/shots2/ios-player.webp";
 import { release } from "../lib/release.js";
 import { cover } from "../lib/albums.js";
 import "../styles/home.css";
@@ -27,12 +27,12 @@ const size = (kind: string) => sizes[kind] ?? "";
 
 // The six rules every Needle follows in 2.0.
 const rules = [
-  ["01", "The player floats", "One rounded bar of glass over the foot of the page."],
-  ["02", "So does the panel", "The queue, lyrics, and details sit in a pane of their own."],
-  ["03", "One quiet background", "No lines between the parts. Only your music has colour."],
-  ["04", "The cover's colours", "Each album and artist page takes the colours of its cover."],
-  ["05", "Big titles, small text", "Clear names you can read across the room."],
-  ["06", "Soft corners", "Covers with round corners and a shadow. Artists in circles."],
+  ["play-circle", "The player floats", "One rounded bar of glass over the foot of the page."],
+  ["sidebar-simple", "So does the panel", "The queue, lyrics, and details sit in a pane of their own."],
+  ["drop-half", "One quiet background", "No lines between the parts. Only your music has colour."],
+  ["palette", "The cover's colours", "Each album and artist page takes the colours of its cover."],
+  ["text-t", "Big titles, small text", "Clear names you can read across the room."],
+  ["frame-corners", "Soft corners", "Covers with round corners and a shadow. Artists in circles."],
 ];
 
 // The mood map: each song a dot, calm to lively and dark to bright. Made up, but always the same.
@@ -41,7 +41,7 @@ const dots = Array.from({ length: 64 }, (_, i) => {
   const b = Math.sin(i * 78.233) * 12345.6789;
   const x = 8 + (a - Math.floor(a)) * 84;
   const y = 10 + (b - Math.floor(b)) * 80;
-  const hue = x > 55 && y < 50 ? "#e2b46c" : x < 40 ? "#7fa4c0" : y > 60 ? "#8f78e8" : "#ec6a86";
+  const hue = x > 55 && y < 50 ? "var(--amber)" : "var(--fog)";
   return { x, y, hue, r: 1.2 + ((i * 7) % 5) * .25 };
 });
 
@@ -51,15 +51,12 @@ const beats = Array.from({ length: 32 }, (_, i) => 10 + Math.round(Math.abs(Math
 // The waveform seek bar, drawn from a made-up song.
 const wave = Array.from({ length: 72 }, (_, i) => 6 + Math.round(Math.abs(Math.sin(i * .9) * Math.cos(i * .21) + Math.sin(i * .13) * .5) * 22));
 
-const specs = [
-  ["Formats", "FLAC, ALAC, WAV, AIFF, MP3, AAC, Ogg Vorbis, Opus, WavPack, Monkey's Audio, DSD, CUE sheets, Dolby Atmos"],
-  ["Playback", "Gapless, crossfade, smart mixes, ReplayGain, a parametric equalizer, stems"],
-  ["Output", "Exclusive output for your DAC, bit-perfect USB on Android with Needle's own driver"],
-  ["Speakers", "Chromecast, AirPlay, and DLNA, one or several at once, in step"],
-  ["Servers", "Navidrome and other Subsonic servers, built in; songs you keep play offline"],
-  ["Lyrics", "Timed lyrics, word by word, translated under each line; from your files or LRCLIB"],
-  ["Library", "Smart playlists, merged duplicates, missing covers filled in, your year in music"],
-  ["Yours", "Themes, plugins, fonts, the player's buttons; Discord status, media keys, a phone remote"],
+const formats = ["FLAC", "ALAC", "WAV", "AIFF", "MP3", "AAC", "Ogg Vorbis", "Opus", "WavPack", "Monkey's Audio", "DSD", "CUE sheets", "Dolby Atmos"];
+const groups = [
+  { icon: "equalizer", title: "Sound", text: "Gapless playback, crossfade, smart mixes, ReplayGain, a parametric equalizer, and stems. Exclusive output for your DAC." },
+  { icon: "speaker-hifi", title: "Speakers and servers", text: "Chromecast, AirPlay, and DLNA, one or several in step. Navidrome and other Subsonic servers are built in." },
+  { icon: "microphone-stage", title: "Lyrics and your library", text: "Timed lyrics from your files or LRCLIB. Smart playlists, merged duplicates, and your year in music." },
+  { icon: "sparkle", title: "Make it yours", text: "Themes, plugins, fonts, and the player's buttons. Discord status, media keys, and a phone remote." },
 ];
 
 const platforms = [
@@ -86,29 +83,17 @@ const platforms = [
         <span class="badge-tag">2.0</span><span>A new look on every system</span><Icon name="arrow-right" weight="bold" />
       </a>
       <div class="hero-icon" data-rise><Logo /></div>
-      <h1 id="hero-title" data-rise>Your music, <span class="serif">in its place.</span></h1>
+      <h1 id="hero-title" data-rise>Your music, <span class="em">in its place.</span></h1>
       <p class="hero-sub" data-rise>A fast, private music player for the songs you own. One calm look on Windows, Mac, Linux, Android, and iPhone.</p>
       <div class="hero-actions" data-rise>
         <a class="btn btn-primary" href="#download" data-os-cta><Icon name="download-simple" weight="bold" /><span data-os-label>Download Needle</span></a>
-        <a class="btn btn-quiet" href="#new">See what is new</a>
       </div>
-      <ul class="meta hero-meta" data-rise>
-        <li>Free</li><li>No account</li><li>No ads</li><li>Version <span data-version="main">{version}</span></li>
-      </ul>
     </div>
 
     <div class="stage" data-stage>
       <figure class="frame frame-hero" data-stage-shot>
         <Image src={winHome} widths={[720, 1080, 1396]} sizes="(max-width: 1240px) 94vw, 1160px" loading="eager" alt="Needle 2.0 on Windows: Home with a greeting and the song playing, the queue in a floating pane, and the player floating over the foot of the page." />
       </figure>
-      <div class="float f-lyric" aria-hidden="true" data-float="left">
-        <img src={cover("harbor-lights")} alt="" width="44" height="44" />
-        <span><small>Lyrics, translated</small><b>The tide is turning slow</b><i>La marea gira despacio</i></span>
-      </div>
-      <div class="float f-format" aria-hidden="true" data-float="right">
-        <span class="bars"><i></i><i></i><i></i><i></i></span>
-        <span><small>Bit-perfect</small><b>FLAC 24-bit · 96 kHz</b></span>
-      </div>
     </div>
   </section>
 
@@ -127,8 +112,7 @@ const platforms = [
   <section id="new" class="look" aria-labelledby="look-title">
     <div class="wrap">
       <div class="head" data-reveal>
-        <p class="eyebrow">New in 2.0</p>
-        <h2 id="look-title">One look, <span class="serif">everywhere.</span></h2>
+        <h2 id="look-title">One look, <span class="em">everywhere.</span></h2>
         <p>Needle 2.0 takes the calm look of the Mac app to Windows, Linux, Android, and iPhone. The same six rules, on every screen.</p>
       </div>
       <div class="look-pair" data-reveal>
@@ -140,7 +124,7 @@ const platforms = [
         </figure>
       </div>
       <ol class="rules" data-reveal>
-        {rules.map(([n, t, d]) => <li><span class="rule-n">{n}</span><b>{t}</b><span>{d}</span></li>)}
+        {rules.map(([icon, t, d]) => <li><Icon name={icon} class="rule-icon" /><b>{t}</b><span>{d}</span></li>)}
       </ol>
     </div>
   </section>
@@ -150,18 +134,18 @@ const platforms = [
     <div class="big-glow" aria-hidden="true"></div>
     <div class="wrap">
       <div class="head" data-reveal>
-        <p class="eyebrow">The big player</p>
-        <h2 id="big-title">Watch the music <span class="serif">move.</span></h2>
+        <h2 id="big-title">Watch the music <span class="em">move.</span></h2>
         <p>Light that moves in the cover's colours. A seek bar in the shape of the song, loud and quiet. Lyrics that light up word by word, with a translation under each line.</p>
       </div>
       <figure class="frame big-shot" data-reveal>
         <Image src={winBig} widths={[720, 1080, 1396]} sizes="(max-width: 1240px) 94vw, 1160px" loading="lazy" alt="Needle's big player: the cover large and soft, the lyrics beside it with the line being sung lit, and a waveform seek bar." />
       </figure>
       <div class="big-points">
-        <div class="card" data-reveal>
+        <div class="card big-viz" data-reveal>
           <span class="disc"><Icon name="waveform" /></span>
           <h3>A visualizer</h3>
           <p>In the big player, or across the whole screen for a party or a TV.</p>
+          <div class="viz" aria-hidden="true">{wave.slice(0, 40).map((h, i) => <i style={`--h:${h};--i:${i}`}></i>)}</div>
         </div>
         <div class="card" data-reveal>
           <span class="disc"><Icon name="chart-bar" /></span>
@@ -184,8 +168,7 @@ const platforms = [
   <section class="more" aria-labelledby="more-title">
     <div class="wrap">
       <div class="head" data-reveal>
-        <p class="eyebrow">And more</p>
-        <h2 id="more-title">New ways to <span class="serif">love your library.</span></h2>
+        <h2 id="more-title">More to find in <span class="em">your library.</span></h2>
       </div>
       <div class="bento">
         <article class="card c-crate" data-reveal>
@@ -278,42 +261,52 @@ const platforms = [
   <section id="android" class="phones-sec" aria-labelledby="android-title">
     <div class="wrap">
       <div class="head" data-reveal>
-        <p class="eyebrow">Android</p>
-        <h2 id="android-title">The same Needle, <span class="serif">in your pocket.</span></h2>
+        <h2 id="android-title">The same Needle, <span class="em">in your pocket.</span></h2>
         <p>Plain rows, soft corners, and one floating dock for the player and the tabs. On phones, tablets, and TVs.</p>
       </div>
+      <div class="android-split">
       <div class="phones" data-phones>
         <figure class="phone p-left"><Image src={phoneAlbum} widths={[300, 600]} sizes="(max-width: 767px) 40vw, 280px" loading="lazy" alt="An album page on Android, in the colours of its cover." /></figure>
         <figure class="phone p-mid"><Image src={phonePlayer} widths={[340, 680]} sizes="(max-width: 767px) 50vw, 320px" loading="lazy" alt="Needle's player on Android, with the waveform seek bar and the player's buttons." /></figure>
         <figure class="phone p-right"><Image src={phoneLyrics} widths={[300, 600]} sizes="(max-width: 767px) 40vw, 280px" loading="lazy" alt="Lyrics on Android, the line being sung lit, with Translate above them." /></figure>
       </div>
-      <ul class="points">
-        <li class="card" data-reveal><span class="disc"><Icon name="usb" /></span><h3>Needle's own USB driver</h3><p>With Bit-perfect USB on, Needle talks to your DAC itself: every rate it offers, and DSD.</p></li>
-        <li class="card" data-reveal><span class="disc"><Icon name="bell-ringing" /></span><h3>Your buttons, everywhere</h3><p>The buttons you chose show in the notification, too.</p></li>
-        <li class="card" data-reveal><span class="disc"><Icon name="television-simple" /></span><h3>Tablets and TVs</h3><p>A sidebar like the Mac's, which folds to icons on a TV.</p></li>
+      <ul class="points" data-reveal>
+        <li><Icon name="usb" /><div><h3>Needle's own USB driver</h3><p>With Bit-perfect USB on, Needle talks to your DAC itself: every rate it offers, and DSD.</p></div></li>
+        <li><Icon name="bell-ringing" /><div><h3>Your buttons, everywhere</h3><p>The buttons you chose show in the notification, too.</p></div></li>
+        <li><Icon name="television-simple" /><div><h3>Tablets and TVs</h3><p>A sidebar like the Mac's, which folds to icons on a TV.</p></div></li>
       </ul>
+      </div>
     </div>
   </section>
 
-  <!-- Everything else, as a spec sheet. -->
+  <!-- Everything else, in four groups. -->
   <section class="specs" aria-labelledby="specs-title">
     <div class="wrap">
       <div class="head head-left" data-reveal>
-        <p class="eyebrow left">Everything from before</p>
-        <h2 id="specs-title">Sound, done <span class="serif">properly.</span></h2>
+        <h2 id="specs-title">Sound, done <span class="em">properly.</span></h2>
       </div>
-      <dl class="sheet" data-reveal>
-        {specs.map(([k, v]) => <div><dt>{k}</dt><dd>{v}</dd></div>)}
-      </dl>
+      <div class="groups">
+        <div class="group group-formats" data-reveal>
+          <h3>Every format you have</h3>
+          <ul class="chips">{formats.map((f) => <li>{f}</li>)}</ul>
+        </div>
+        {groups.map((g) => (
+          <div class="group" data-reveal>
+            <Icon name={g.icon} class="group-icon" />
+            <h3>{g.title}</h3>
+            <p>{g.text}</p>
+          </div>
+        ))}
+      </div>
     </div>
   </section>
 
   <!-- Privacy, on paper. -->
-  <section id="private" class="paper" aria-labelledby="private-title">
+  <section id="private" class="privacy" aria-labelledby="private-title">
     <div class="wrap">
       <div class="head head-left" data-reveal>
         <p class="eyebrow left">Privacy</p>
-        <h2 id="private-title">Yours stays <span class="serif">yours.</span></h2>
+        <h2 id="private-title">Yours stays <span class="em">yours.</span></h2>
       </div>
       <ul class="facts" data-reveal>
         <li><Icon name="user-circle-minus" /><b>No account.</b><p>Needle works without one, and keeps your library on your computer.</p></li>
@@ -321,7 +314,7 @@ const platforms = [
         <li><Icon name="folder-lock" /><b>Your files stay as they are.</b><p>Needle changes a file only when you ask, and keeps a backup when it does.</p></li>
         <li><Icon name="arrows-clockwise" /><b>One question a day.</b><p>Needle asks whether a newer version is out. You can turn that off.</p></li>
       </ul>
-      <p class="paper-more"><a class="link" href="/privacy">Read the privacy policy <Icon name="arrow-right" weight="bold" /></a></p>
+      <p class="privacy-more"><a class="link" href="/privacy">Read the privacy policy <Icon name="arrow-right" weight="bold" /></a></p>
     </div>
   </section>
 
@@ -331,7 +324,7 @@ const platforms = [
     <div class="wrap">
       <div class="dl-head" data-reveal>
         <div class="dl-icon"><Logo /></div>
-        <h2 id="download-title">Get <span class="serif">Needle.</span></h2>
+        <h2 id="download-title">Get <span class="em">Needle.</span></h2>
         <p>Free, with no account. The computer apps update themselves.</p>
       </div>
 
@@ -361,7 +354,7 @@ const platforms = [
 
         <!-- Mac -->
         <div class="dl-panel" role="tabpanel" id="panel-mac" aria-labelledby="tab-mac" data-panel="mac" hidden>
-          <figure class="frame device"><Image src={appMac} widths={[720, 1080]} sizes="(max-width: 900px) 94vw, 620px" loading="lazy" alt="Needle on a Mac." /></figure>
+          <figure class="frame device"><Image src={appMac} widths={[720, 1080]} sizes="(max-width: 900px) 94vw, 620px" loading="lazy" alt="Needle 2.0 on a Mac: Home with the song playing, Jump back in, and New in your library." /></figure>
           <div class="dl-info">
             <h3>Needle for Mac</h3>
             <p class="dl-meta">Version <span data-version="mac">{macVersion}</span> · Apple silicon (M1 or newer), macOS 15 or newer</p>
@@ -408,7 +401,7 @@ const platforms = [
 
         <!-- iPhone: through SideStore or AltStore, which sign it with the person's own Apple ID. -->
         <div class="dl-panel" role="tabpanel" id="panel-iphone" aria-labelledby="tab-iphone" data-panel="iphone" hidden>
-          <figure class="phone device device-phone"><Image src={shotIphone} widths={[300, 600]} sizes="260px" loading="lazy" alt="Needle's player on an iPhone." /></figure>
+          <figure class="phone device device-phone"><Image src={shotIphone} widths={[300, 600]} sizes="260px" loading="lazy" alt="Needle 2.0 on an iPhone: the player with its cover across the screen and the waveform seek bar." /></figure>
           <div class="dl-info">
             <h3>Needle for iPhone</h3>
             <p class="dl-meta">Version {iphoneVersion} · iOS 26 and newer</p>
