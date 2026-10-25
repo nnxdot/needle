@@ -203,7 +203,12 @@ pub fn cover(path: Option<&str>, seed: &str, size: f32, cx: &App) -> AnyElement 
             .flex_shrink_0()
             .rounded(radius)
             .overflow_hidden()
-            .child(img(file).size_full().object_fit(ObjectFit::Cover))
+            .child(
+                img(file)
+                    .size_full()
+                    .rounded(radius)
+                    .object_fit(ObjectFit::Cover),
+            )
             .into_any_element();
     }
     let _ = radius;

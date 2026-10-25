@@ -33,9 +33,11 @@ impl AppView {
             Panel::Lyrics => 2,
         };
         let weak = cx.entity().downgrade();
-        let floating = self.floating();
+        let floating = self.on_glass();
+        // Windows and Linux: a frosted pane floating over the page's right side, as on the Mac.
+        let frosted = self.floating() && !floating;
         div()
-            .w(px(width))
+            .w(px(if frosted { width - 18. } else { width }))
             .flex_shrink_0()
             .h_full()
             .relative()
@@ -51,7 +53,12 @@ impl AppView {
                     true,
                 ))
             })
-            .when(!floating, |el| {
+            .when(frosted, |el| {
+                super::player2::frosted(el, 22., cx)
+                    .overflow_hidden()
+                    .py(px(6.))
+            })
+            .when(!floating && !frosted, |el| {
                 el.border_l_1().border_color(pal(cx).line_soft)
             })
             .child(

@@ -241,16 +241,22 @@ impl AppView {
         self.material() == super::glass::Material::Liquid
     }
 
-    /// The bars float on glass just now: Liquid Glass is on and no full-window view (the big
-    /// player, Immersive) covers them.
+    /// The player and the side panel float over the page (Needle 2.0's layout, after the
+    /// Mac's), unless a full-window view (the big player, Immersive) covers them. On macOS with
+    /// Liquid Glass they float on the system's glass; elsewhere on a frosted fill.
     pub(super) fn floating(&self) -> bool {
-        self.liquid() && !self.immersive && !(self.big && !self.big_moving)
+        !self.immersive && !(self.big && !self.big_moving)
+    }
+
+    /// The floating parts are on macOS's own glass (Liquid Glass on), not a frosted fill.
+    pub(super) fn on_glass(&self) -> bool {
+        self.liquid() && self.floating()
     }
 
     /// Room a page leaves at its foot, so its end scrolls out from under the floating player.
     pub(super) fn foot_room(&self) -> Pixels {
         if self.floating() && !self.settings.layout.player_on_top {
-            px(96.)
+            px(super::player2::HEIGHT + 28.)
         } else {
             px(0.)
         }
