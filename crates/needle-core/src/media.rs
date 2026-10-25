@@ -1004,6 +1004,20 @@ fn fanart_picture(
     kind: &str,
     pick: fn(&Value) -> Option<String>,
 ) -> Result<Option<PathBuf>> {
+    let may_ask = online && crate::integrations::fanart_key().is_some();
+    picture_in_order(library, name, online, may_ask, kind, pick)
+}
+
+/// An artist's wide picture or logo, in this order: the listener's choice; fanart.tv's while
+/// Needle `may_ask` it (online lookups on, a key set); the one in the artist's folder.
+fn picture_in_order(
+    library: &Library,
+    name: &str,
+    online: bool,
+    may_ask: bool,
+    kind: &str,
+    pick: fn(&Value) -> Option<String>,
+) -> Result<Option<PathBuf>> {
     if name.trim().is_empty() {
         return Ok(None);
     }
@@ -1012,17 +1026,22 @@ fn fanart_picture(
     } else {
         ArtistPicture::Banner
     };
-    if let Some(chosen) = pictures::own_picture(library, name, picture)
-        .or_else(|| pictures::folder_picture(library, name, picture))
-    {
+    // The listener's own choice for this artist comes first, always.
+    if let Some(chosen) = pictures::own_picture(library, name, picture) {
         return Ok(Some(chosen));
     }
+    let folder = || pictures::folder_picture(library, name, picture);
     let file = pictures::kept_file(library, name, picture);
     let kept = file.is_file();
-    // The one kept, while fanart.tv's answer is fresh, or when it cannot be asked again; with a
-    // new answer (each month) the choice is made again, so a newer picture comes in.
+    // Then fanart.tv's, while Needle may ask it; a picture in the artist's folder only when it
+    // may not, or when fanart.tv has none.
+    if !may_ask {
+        return Ok(folder().or_else(|| kept.then_some(file)));
+    }
+    // The one kept, while fanart.tv's answer is fresh; with a new answer (each month) the
+    // choice is made again, so a newer picture comes in.
     let fresh = cached::<Value>(library, &fanart_kept(name))?.is_some();
-    if kept && (fresh || !online || crate::integrations::fanart_key().is_none()) {
+    if kept && fresh {
         return Ok(Some(file));
     }
     let data = match fanart(library, name, online) {
@@ -1031,10 +1050,16 @@ fn fanart_picture(
             crate::logfile::warn(format!("fanart.tv for {name}: {problem:#}"));
             return Ok(Some(file));
         }
-        Err(problem) => return Err(problem),
+        Err(problem) => match folder() {
+            Some(found) => {
+                crate::logfile::warn(format!("fanart.tv for {name}: {problem:#}"));
+                return Ok(Some(found));
+            }
+            None => return Err(problem),
+        },
     };
     let Some(url) = data.as_ref().and_then(pick) else {
-        return Ok(kept.then_some(file));
+        return Ok(kept.then_some(file).or_else(folder));
     };
     // fanart.tv's answers can give its pictures as http://: the same, over https.
     let url = match url.strip_prefix("http://assets.fanart.tv/") {
