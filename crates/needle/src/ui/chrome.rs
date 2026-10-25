@@ -90,26 +90,29 @@ impl AppView {
                         .flex()
                         .items_center()
                         .gap_2()
-                        .child(
-                            div()
-                                .relative()
-                                .flex_shrink_0()
-                                .size(px(32.))
-                                .flex()
-                                .items_center()
-                                .justify_center()
-                                // macOS: a round pane of glass, as in macOS's own toolbars.
-                                .when(self.floating(), |el| el.rounded(px(16.)).glass())
-                                .child(
-                                    icon_button("back", "chevron-left", "Back · Alt+Left")
-                                        .small()
-                                        .disabled(self.back.is_empty())
-                                        .on_click(cx.listener(|this, _, window, cx| {
-                                            this.go_back(window, cx)
-                                        })),
-                                ),
-                        )
-                        .child(self.search_group(search_width, narrow, false, window, cx))
+                        .child(self.nav_group(narrow, cx))
+                        .map(|el| {
+                            if hidden && !self.settings.layout.search_hidden {
+                                el.child(self.search_group(
+                                    search_width,
+                                    narrow,
+                                    false,
+                                    false,
+                                    window,
+                                    cx,
+                                ))
+                            } else {
+                                el.child(
+                                    div()
+                                        .ml_1()
+                                        .text_size(px(13.))
+                                        .font_weight(FontWeight::SEMIBOLD)
+                                        .text_color(p.ink_2)
+                                        .truncate()
+                                        .child(self.page.title()),
+                                )
+                            }
+                        })
                         .child(div().flex_1()),
                 )
         };
@@ -282,10 +285,15 @@ impl AppView {
             )
     }
 
-    pub(super) fn sidebar(&self, width: f32, cx: &mut Context<Self>) -> impl IntoElement {
+    pub(super) fn sidebar(
+        &self,
+        width: f32,
+        window: &Window,
+        cx: &mut Context<Self>,
+    ) -> impl IntoElement {
         let p = pal(cx);
         let rail = self.settings.layout.sidebar_hidden;
-        let floating = self.floating();
+        let floating = self.on_glass();
         div()
             .w(px(width))
             .flex_shrink_0()
@@ -308,6 +316,20 @@ impl AppView {
                         true,
                     ))
             })
+            // The search field at the top, as on the Mac (with the sidebar folded, it sits in
+            // the title bar).
+            .when(
+                !rail && !self.settings.layout.search_hidden && !self.big,
+                |el| {
+                    el.child(
+                        div()
+                            .px(px(10.))
+                            .pt(px(4.))
+                            .pb(px(8.))
+                            .child(self.search_group(width - 20., true, false, false, window, cx)),
+                    )
+                },
+            )
             // Everything above the bottom buttons scrolls together, so a short window never
             // pushes Settings and the others out of reach.
             .child(
@@ -598,7 +620,7 @@ impl AppView {
             )
     }
 
-    fn signal_path(&self, cx: &App) -> (String, String, bool) {
+    pub(super) fn signal_path(&self, cx: &App) -> (String, String, bool) {
         let Some(item) = &self.playback.current else {
             return (String::new(), String::new(), false);
         };
@@ -703,7 +725,7 @@ impl AppView {
         let current = self.playback.current.as_ref().map(|i| i.track.clone());
         let wide = width > px(1180.);
         let (path, path_detail, exclusive) = self.signal_path(cx);
-        let floating = self.floating();
+        let floating = self.on_glass();
         div()
             .h(px(match (floating, lyrics_under) {
                 (true, _) => 76.,
@@ -933,7 +955,7 @@ impl AppView {
     }
 
     /// The heart for the song playing.
-    fn favorite_button(
+    pub(super) fn favorite_button(
         &self,
         track: needle_core::model::Track,
         cx: &mut Context<Self>,
@@ -982,7 +1004,7 @@ impl AppView {
     }
 
     /// The A–B loop: set A, then B, and that part repeats; again to clear it.
-    fn loop_button(&self, cx: &mut Context<Self>) -> Button {
+    pub(super) fn loop_button(&self, cx: &mut Context<Self>) -> Button {
         let p = pal(cx);
         let current = &self.playback.current;
         let looping = self.playback.loop_range.is_some();
@@ -1029,7 +1051,7 @@ impl AppView {
     }
 
     /// Opens the equalizer and sound tools (lit while any is on).
-    fn sound_button(&self, cx: &mut Context<Self>) -> Button {
+    pub(super) fn sound_button(&self, cx: &mut Context<Self>) -> Button {
         let p = pal(cx);
         icon_button("open-sound", "eq", "Equalizer and sound tools")
             .with_size(px(BAR_ICON))
@@ -1041,7 +1063,7 @@ impl AppView {
     }
 
     /// Chooses the speaker to play on (lit while one is used).
-    fn speakers_button(&self, cx: &mut Context<Self>) -> Button {
+    pub(super) fn speakers_button(&self, cx: &mut Context<Self>) -> Button {
         let p = pal(cx);
         let speaker = self.current_speaker();
         icon_button(
@@ -1062,7 +1084,7 @@ impl AppView {
     }
 
     /// Opens the mini player.
-    fn mini_button(&self, cx: &mut Context<Self>) -> Button {
+    pub(super) fn mini_button(&self, cx: &mut Context<Self>) -> Button {
         icon_button("open-mini", "mini", "Mini player · Ctrl+M")
             .with_size(px(BAR_ICON))
             .ml_1()
@@ -1149,7 +1171,7 @@ impl AppView {
     }
 
     /// Mute and the volume slider (`slider` points long); the wheel over them changes it.
-    fn volume_control(&self, slider: f32, cx: &mut Context<Self>) -> Stateful<Div> {
+    pub(super) fn volume_control(&self, slider: f32, cx: &mut Context<Self>) -> Stateful<Div> {
         let volume_glyph = if self.playback.volume <= 0.001 {
             "volume-off"
         } else if self.playback.volume < 0.5 {
@@ -1234,7 +1256,7 @@ impl AppView {
     }
 
     /// Opens and closes the queue beside the page; songs dropped on it join the queue.
-    fn queue_button(&self, cx: &mut Context<Self>) -> Stateful<Div> {
+    pub(super) fn queue_button(&self, cx: &mut Context<Self>) -> Stateful<Div> {
         let p = pal(cx);
         let queue_open = self.settings.show_inspector && self.panel == Panel::Queue;
         div()
@@ -1269,6 +1291,7 @@ impl AppView {
         search_width: f32,
         narrow: bool,
         above: bool,
+        palette: bool,
         window: &Window,
         cx: &mut Context<Self>,
     ) -> Div {
@@ -1280,7 +1303,7 @@ impl AppView {
             .is_some_and(|e| e.starts_with("Matches rule"))
             && !self.search_text(cx).is_empty();
         let field = !self.settings.layout.search_hidden;
-        let glass_field = self.floating();
+        let glass_field = self.on_glass();
         div()
             .flex()
             .items_center()
@@ -1334,30 +1357,96 @@ impl AppView {
                         ),
                 )
             })
+            .when(palette, |el| {
+                el.child(
+                    div()
+                        .id("open-palette")
+                        .occlude()
+                        .h(px(28.))
+                        .px_2()
+                        .rounded(px(6.))
+                        .flex()
+                        .items_center()
+                        .gap_2()
+                        .cursor_pointer()
+                        .text_size(px(12.))
+                        .text_color(p.ink_3)
+                        .hover(|s| s.bg(p.raised).text_color(p.ink))
+                        .flex_shrink_0()
+                        // On macOS the shortcut text starts with the same ⌘, so the icon only
+                        // stands alone.
+                        .when(!cfg!(target_os = "macos") || narrow, |el| {
+                            el.child(glyph("command").size(px(14.)).text_color(p.ink_3))
+                        })
+                        .when(!narrow, |el| el.child(super::widgets::keys("Ctrl K")))
+                        .tooltip(|window, cx| {
+                            gpui_component::tooltip::Tooltip::new(
+                                "Command palette: go anywhere, do anything",
+                            )
+                            .build(window, cx)
+                        })
+                        .on_click(cx.listener(|this, _, window, cx| this.open_palette(window, cx))),
+                )
+            })
+    }
+
+    /// Back, Forward, and the command palette in one small rounded group, as on the Mac.
+    fn nav_group(&self, narrow: bool, cx: &mut Context<Self>) -> Stateful<Div> {
+        let p = pal(cx);
+        div()
+            .id("nav-group")
+            .occlude()
+            .flex_shrink_0()
+            .h(px(32.))
+            .px(px(4.))
+            .rounded(px(16.))
+            .bg(if p.dark {
+                hsla(0., 0., 1., 0.055)
+            } else {
+                hsla(0., 0., 0., 0.04)
+            })
+            .border_1()
+            .border_color(if p.dark {
+                hsla(0., 0., 1., 0.06)
+            } else {
+                hsla(0., 0., 0., 0.06)
+            })
+            .flex()
+            .items_center()
+            .gap(px(2.))
+            .child(
+                icon_button("back", "chevron-left", "Back · Alt+Left")
+                    .small()
+                    .disabled(self.back.is_empty())
+                    .on_click(cx.listener(|this, _, window, cx| this.go_back(window, cx))),
+            )
+            .child(
+                icon_button("forward", "chevron-right", "Forward · Alt+Right")
+                    .small()
+                    .disabled(self.forward.is_empty())
+                    .on_click(cx.listener(|this, _, window, cx| {
+                        this.go_forward(window, cx);
+                        cx.notify();
+                    })),
+            )
             .child(
                 div()
                     .id("open-palette")
-                    .occlude()
-                    .h(px(28.))
-                    .px_2()
-                    .rounded(px(6.))
+                    .h(px(26.))
+                    .px(px(8.))
+                    .rounded(px(13.))
                     .flex()
                     .items_center()
-                    .gap_2()
+                    .gap(px(6.))
                     .cursor_pointer()
-                    .text_size(px(12.))
+                    .text_size(px(11.5))
                     .text_color(p.ink_3)
-                    .hover(|s| s.bg(p.raised).text_color(p.ink))
-                    .flex_shrink_0()
-                    // On macOS the shortcut text starts with the same ⌘, so the icon only
-                    // stands alone.
-                    .when(!cfg!(target_os = "macos") || narrow, |el| {
-                        el.child(glyph("command").size(px(14.)).text_color(p.ink_3))
-                    })
-                    .when(!narrow, |el| el.child(super::widgets::keys("Ctrl K")))
+                    .hover(|s| s.bg(p.raised_hover).text_color(p.ink))
+                    .child(glyph("command").size(px(13.)).text_color(p.ink_2))
+                    .when(!narrow, |el| el.child("Ctrl K"))
                     .tooltip(|window, cx| {
                         gpui_component::tooltip::Tooltip::new(
-                            "Command palette: go anywhere, do anything",
+                            "Command palette: go anywhere, do anything · Ctrl+K",
                         )
                         .build(window, cx)
                     })
@@ -1442,7 +1531,7 @@ impl AppView {
                     .gap_2()
                     .pl_2()
                     // macOS Liquid Glass: the buttons on a capsule of glass.
-                    .when(self.floating(), |el| {
+                    .when(self.on_glass(), |el| {
                         el.ml_2().pr_2().py(px(4.)).rounded(px(22.)).glass()
                     })
                     // Each group claims the mouse, or Windows takes presses there (on the
@@ -1473,7 +1562,7 @@ impl AppView {
                             .h(px(48.))
                             // macOS Liquid Glass: the song on a pane of glass.
                             .map(|el| {
-                                if self.floating() {
+                                if self.on_glass() {
                                     el.rounded(px(16.)).glass()
                                 } else {
                                     el.rounded(px(8.)).bg(p.raised.opacity(if p.back.a < 1. {
@@ -1635,6 +1724,7 @@ impl AppView {
             .child(self.search_group(
                 (width - 200.).clamp(140., 520.),
                 width < 1100.,
+                true,
                 true,
                 window,
                 cx,

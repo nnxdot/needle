@@ -239,6 +239,8 @@ impl CustomTheme {
             colors.insert(slot, color);
         }
         if let Some(font) = &file.extras.font
+            && font != "bahnschrift"
+            && !font.starts_with("own:")
             && !DISPLAY_FONTS.iter().any(|(key, _, _)| key == font)
         {
             bail!(
