@@ -10,7 +10,9 @@ enum Waveforms {
     static func heights(_ id: String, store: Store) async -> [Float] {
         if let known = kept[id] { return known }
         let core = store.core
-        let found = await Task.detached { (try? core.waveform(id: id, count: 64)) ?? [] }.value
+        var found = await Task.detached { (try? core.waveform(id: id, count: 64)) ?? [] }.value
+        // A song measured as silence (or not read) keeps the plain line, not a row of dots.
+        if (found.max() ?? 0) < 0.02 { found = [] }
         kept[id] = found
         if kept.count > 200 { kept.removeAll() }
         return found
