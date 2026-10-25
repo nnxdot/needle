@@ -1,4 +1,5 @@
 import SwiftUI
+import Translation
 
 /// The playing song's lyrics. Timed ones follow the song, the line sung lit, word by word when
 /// the words are timed; click a line to go to it.
@@ -7,6 +8,12 @@ struct LyricsView: View {
     enum Kind { case side, big, mini, immersive }
     let kind: Kind
     var light = false
+    /// A line chosen to share as a picture.
+    @State private var card: CardLine?
+    /// Each line in your language, under it, translated on this Mac (Apple's Translation).
+    @AppStorage("translateLyrics") private var translate = false
+    @State private var translations: [Int: String] = [:]
+    @State private var translation: TranslationSession.Configuration?
 
     private var size: CGFloat {
         switch kind {
@@ -44,6 +51,30 @@ struct LyricsView: View {
                 }
             } else {
                 missing
+            }
+        }
+        .sheet(item: $card) { LyricCardSheet(line: $0.text) }
+        .onChange(of: translate) { _, _ in askTranslation() }
+        .onChange(of: store.lyrics?.lines.count) { _, _ in askTranslation() }
+        .onChange(of: store.current?.id) { _, _ in askTranslation() }
+        .onAppear { askTranslation() }
+        .translationTask(translation) { session in
+            let lines = store.lyrics?.lines ?? []
+            let requests = lines.enumerated().compactMap { i, line in
+                line.text.trimmingCharacters(in: .whitespaces).isEmpty ? nil : TranslationSession.Request(sourceText: line.text, clientIdentifier: String(i))
+            }
+            do {
+                var found: [Int: String] = [:]
+                for response in try await session.translations(from: requests) {
+                    // A line already in your language is left alone.
+                    if let i = response.clientIdentifier.flatMap(Int.init), response.targetText != response.sourceText {
+                        found[i] = response.targetText
+                    }
+                }
+                translations = found
+                if found.isEmpty { store.notify("These lyrics are already in your language") }
+            } catch {
+                store.notify("These lyrics can't be translated on this Mac")
             }
         }
     }
@@ -94,7 +125,7 @@ struct LyricsView: View {
                     Color.clear.frame(height: kind == .mini ? 20 : 60)
                     ForEach(Array(lyrics.lines.enumerated()), id: \.offset) { index, l in
                         let state: LyricLineView.State = index == line ? .sung : (line.map { index < $0 } ?? false) ? .past : .ahead
-                        Group {
+                        VStack(alignment: center ? .center : .leading, spacing: 4) {
                             if state == .sung, !l.words.isEmpty {
                                 SungLine(line: l, next: index + 1 < lyrics.lines.count ? lyrics.lines[index + 1].time : nil,
                                          size: size, ink: ink, center: center)
@@ -102,9 +133,22 @@ struct LyricsView: View {
                                 LyricLineView(text: l.text, state: state, size: size, ink: ink, center: center, motion: store.motion)
                                     .equatable()
                             }
+                            // The line in your language, under it (Translate on).
+                            if translate, let translated = translations[index] {
+                                Text(translated)
+                                    .font(.system(size: size * 0.66, weight: .semibold))
+                                    .foregroundStyle(ink.opacity(state == .sung ? 0.7 : 0.4))
+                                    .multilineTextAlignment(center ? .center : .leading)
+                            }
                         }
                         .id(index)
                         .onTapGesture { store.seek(l.time) }
+                        .contextMenu {
+                            if !l.text.trimmingCharacters(in: .whitespaces).isEmpty {
+                                Button("Share as Card…", systemImage: "square.and.arrow.up") { card = CardLine(text: l.text) }
+                            }
+                            Button(translate ? "Hide Translation" : "Translate Lyrics", systemImage: "translate") { translate.toggle() }
+                        }
                     }
                     footer(lyrics)
                     Color.clear.frame(height: kind == .mini ? 40 : 160)
@@ -120,11 +164,20 @@ struct LyricsView: View {
         }
     }
 
+    /// Asks Apple's Translation for these lyrics, into your language, while Translate is on.
+    private func askTranslation() {
+        translations = [:]
+        guard translate, let lines = store.lyrics?.lines, !lines.isEmpty else { translation = nil; return }
+        if translation == nil { translation = TranslationSession.Configuration() } else { translation?.invalidate() }
+    }
+
     @ViewBuilder
     private func footer(_ lyrics: Lyrics) -> some View {
         if kind == .side || kind == .big {
             HStack(spacing: 10) {
                 Text(source(lyrics.source)).font(.caption).foregroundStyle(light ? .white.opacity(0.6) : .secondary)
+                Button(translate ? "Hide translation" : "Translate") { translate.toggle() }
+                    .buttonStyle(.link).font(.caption)
                 Button("Time these lyrics") { store.big = false; store.navigate(.timing) }
                     .buttonStyle(.link).font(.caption)
             }

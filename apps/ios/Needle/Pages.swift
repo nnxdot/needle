@@ -321,6 +321,12 @@ struct AlbumsView: View {
         .navigationTitle("Albums")
         .themed()
         .searchable(text: $filter, placement: .navigationBarDrawer, prompt: "Find in Albums")
+        .toolbar {
+            ToolbarItem(placement: .topBarTrailing) {
+                NavigationLink(value: Route.crate) { Image(systemName: "square.stack.3d.down.forward") }
+                    .accessibilityLabel("Record crate")
+            }
+        }
         .task(id: store.libraryVersion) { albums = await store.load { try $0.albums() } ?? [] }
     }
 

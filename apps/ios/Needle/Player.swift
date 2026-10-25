@@ -1,6 +1,7 @@
 import AVKit
 import MediaPlayer
 import SwiftUI
+import Translation
 
 /// The song playing, on the tab bar: tap it for the full player. When the tab bar is small
 /// (scrolled down), only the song's name and play or pause are left. With Lyrics under the
@@ -813,6 +814,12 @@ struct LyricsPane: View {
     @State private var loaded = false
     /// Online lookups are on (LRCLIB and the lyrics plugins).
     @State private var online = true
+    /// A line chosen to share as a picture.
+    @State private var card: CardLine?
+    /// Each line in your language, under it, translated on the iPhone (Apple's Translation).
+    @AppStorage("translateLyrics") private var translate = false
+    @State private var translations: [Int: String] = [:]
+    @State private var translation: TranslationSession.Configuration?
 
     var body: some View {
         Group {
@@ -862,6 +869,40 @@ struct LyricsPane: View {
         }
         .frame(maxHeight: .infinity)
         .task(id: "\(song?.id ?? "")|\(store.lyricsVersion)") { await load() }
+        .overlay(alignment: .topTrailing) {
+            if let lyrics, !lyrics.lines.isEmpty, store.app.liveLyrics {
+                Button { translate.toggle() } label: {
+                    Image(systemName: "translate").font(.body.weight(.semibold)).frame(width: 36, height: 36)
+                }
+                .buttonStyle(.glass)
+                .buttonBorderShape(.circle)
+                .tint(translate ? store.colors.accent : nil)
+                .accessibilityLabel(translate ? "Hide the translation" : "Translate the lyrics")
+            }
+        }
+        .onChange(of: translate) { _, _ in askTranslation() }
+        .translationTask(translation) { session in
+            let lines = lyrics?.lines ?? []
+            let requests = lines.enumerated().compactMap { i, line in
+                line.text.trimmingCharacters(in: .whitespaces).isEmpty ? nil : TranslationSession.Request(sourceText: line.text, clientIdentifier: String(i))
+            }
+            do {
+                var found: [Int: String] = [:]
+                for response in try await session.translations(from: requests) {
+                    // A line already in your language is left alone.
+                    if let i = response.clientIdentifier.flatMap(Int.init), response.targetText != response.sourceText {
+                        found[i] = response.targetText
+                    }
+                }
+                translations = found
+                if found.isEmpty { store.message = "These lyrics are already in your language" }
+            } catch {
+                store.message = "These lyrics can't be translated on this iPhone"
+            }
+        }
+        .sheet(item: $card) { chosen in
+            if let song { LyricCardSheet(line: chosen.text, song: song) }
+        }
     }
 
     private func load() async {
@@ -881,6 +922,14 @@ struct LyricsPane: View {
         online = isOnline
         lyrics = found
         loaded = true
+        askTranslation()
+    }
+
+    /// Asks Apple's Translation for these lyrics, into your language, while Translate is on.
+    private func askTranslation() {
+        translations = [:]
+        guard translate, let lines = lyrics?.lines, !lines.isEmpty else { translation = nil; return }
+        if translation == nil { translation = TranslationSession.Configuration() } else { translation?.invalidate() }
     }
 
     private func plain(_ text: String) -> some View {
@@ -904,14 +953,20 @@ struct LyricsPane: View {
                 LazyVStack(alignment: .leading, spacing: 22) {
                     Color.clear.frame(height: 40)
                     ForEach(Array(lines.enumerated()), id: \.offset) { i, line in
-                        Group {
-                            if i == current && !line.words.isEmpty {
-                                karaoke(line, at: position)
-                            } else {
-                                Text(line.text.isEmpty ? "♪" : line.text)
+                        VStack(alignment: .leading, spacing: 4) {
+                            Group {
+                                if i == current && !line.words.isEmpty {
+                                    karaoke(line, at: position)
+                                } else {
+                                    Text(line.text.isEmpty ? "♪" : line.text)
+                                }
+                            }
+                            .font(.system(size: 28, weight: .heavy))
+                            // The line in your language, under it (Translate on).
+                            if translate, let translated = translations[i] {
+                                Text(translated).font(.system(size: 19, weight: .semibold)).opacity(0.62)
                             }
                         }
-                        .font(.system(size: 28, weight: .heavy))
                         .opacity(i == current ? 1 : 0.32)
                         .blur(radius: i == current ? 0 : 1)
                         // Room for the playing line to grow without going past the edge.
@@ -920,6 +975,11 @@ struct LyricsPane: View {
                         .frame(maxWidth: .infinity, alignment: .leading)
                         .id(i)
                         .onTapGesture { store.seek(line.time) }
+                        .contextMenu {
+                            if !line.text.trimmingCharacters(in: .whitespaces).isEmpty {
+                                Button("Share as Card", systemImage: "square.and.arrow.up") { card = CardLine(text: line.text) }
+                            }
+                        }
                     }
                     Color.clear.frame(height: 200)
                 }
