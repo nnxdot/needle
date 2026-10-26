@@ -124,8 +124,10 @@ pub fn draw(track: &Track, line: &str) -> Result<RgbaImage> {
         MARGIN + 34,
         HEIGHT - MARGIN,
     );
-    let mut options = usvg::Options::default();
-    options.fontdb = std::sync::Arc::new(fonts());
+    let options = usvg::Options {
+        fontdb: std::sync::Arc::new(fonts()),
+        ..Default::default()
+    };
     let tree = usvg::Tree::from_str(&svg, &options).context("Drawing the words")?;
     let mut pixmap = resvg::tiny_skia::Pixmap::new(WIDTH, HEIGHT).context("No room to draw")?;
     resvg::render(
