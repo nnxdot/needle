@@ -227,6 +227,14 @@ impl Needle {
         })
     }
 
+    /// The Search page's "Try a rule" chips, as name and rule in turn.
+    pub fn rule_examples(&self) -> Vec<String> {
+        needle_core::find::RULE_EXAMPLES
+            .iter()
+            .flat_map(|(name, rule)| [name.to_string(), rule.to_string()])
+            .collect()
+    }
+
     /// What `query` finds (it may be a rule): the best match, then up to `limit` songs,
     /// albums, artists, and lines of lyrics that hold it. The lyrics are the songs' own (read
     /// in the background) and any shown since.
