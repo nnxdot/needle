@@ -157,6 +157,13 @@ struct NowPlayingView: View {
             } else {
                 LinearGradient(colors: [(store.coverColor ?? .gray).opacity(0.55), .black], startPoint: .top, endPoint: .bottom).ignoresSafeArea()
             }
+            if pane == .cover && (look == "record" || look == "lyrics") {
+                // The Record and Lyrics looks stand on the cover's colours, not near black.
+                LinearGradient(colors: [(store.coverColor ?? store.colors.accent).opacity(0.5), (store.coverColor ?? store.colors.accent).opacity(0.12)],
+                               startPoint: .top, endPoint: .bottom)
+                    .ignoresSafeArea()
+                    .allowsHitTesting(false)
+            }
             VStack(spacing: 0) {
                 top(song)
                 switch pane {
