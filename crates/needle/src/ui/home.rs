@@ -402,6 +402,10 @@ impl AppView {
                     .mb_2()
                     .rounded(if round { px(TILE) } else { px(8.) })
                     .shadow_md()
+                    .when(super::motion::enabled(cx), |el| {
+                        let glow = self.cover_glow(group.artwork.as_deref(), cx);
+                        el.group_hover("tile", move |s| s.top(px(-2.)).shadow(glow.clone()))
+                    })
                     .child(if round {
                         self.artist_photo(&group.title, TILE, cx)
                     } else {
