@@ -939,6 +939,8 @@ fn watch(
 impl AppView {
     fn new(library: Library, window: &mut Window, cx: &mut Context<Self>) -> Self {
         thumbs::start(library.directory.join("artwork").join("thumbs"));
+        // The songs' own lyrics, read slowly for Search › In the lyrics.
+        needle_core::find::start_reading_lyrics(library.clone());
         let mut settings = library.settings().unwrap_or_default();
         let measure_sound = settings.sound_analysis;
         // Ambient used to be a look of its own; it is now a setting for any look.

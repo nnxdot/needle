@@ -29,6 +29,47 @@ pub struct LibraryChoices {
     pub artist_pictures: bool,
     /// The crossfade ends where the music ends and lasts whole bars.
     pub smart_mix: bool,
+    /// The big player's look: "cover", "record", "lyrics", or "visualizer".
+    #[uniffi(default = "cover")]
+    pub big_look: String,
+}
+
+/// The match that heads a search's results: `kind` is "song", "album", or "artist", and the
+/// one of `song`, `album`, `artist` it names is set.
+#[derive(Clone, uniffi::Record)]
+pub struct SearchBest {
+    pub kind: String,
+    pub song: Option<Song>,
+    pub album: Option<Album>,
+    pub artist: Option<Artist>,
+}
+
+/// A song whose lyrics hold the search, with the line they are in.
+#[derive(Clone, uniffi::Record)]
+pub struct LyricHit {
+    pub song: Song,
+    pub line: String,
+}
+
+/// What a search finds, for the Search page: the best match, then a few of each.
+#[derive(Clone, uniffi::Record)]
+pub struct SearchFound {
+    pub best: Option<SearchBest>,
+    pub songs: Vec<Song>,
+    pub albums: Vec<Album>,
+    pub artists: Vec<Artist>,
+    pub lyrics: Vec<LyricHit>,
+}
+
+fn artist_of(a: needle_core::browse::ArtistSummary) -> Artist {
+    Artist {
+        name: a.name,
+        albums: a.albums as u32,
+        songs: a.tracks as u32,
+        artwork: a.artwork,
+        letter: a.letter,
+        plays: a.play_count,
+    }
 }
 
 /// Home's shelves, as on the computers.
@@ -147,6 +188,7 @@ impl Needle {
             album_artists_only: s.album_artists_only,
             artist_pictures: s.artist_pictures,
             smart_mix: s.smart_mix,
+            big_look: s.big_look.clone(),
         })
     }
 
@@ -160,6 +202,11 @@ impl Needle {
             s.album_artists_only = value.album_artists_only;
             s.artist_pictures = value.artist_pictures;
             s.smart_mix = value.smart_mix;
+            s.big_look = if needle_core::model::BIG_LOOKS.contains(&value.big_look.as_str()) {
+                value.big_look.clone()
+            } else {
+                "cover".into()
+            };
         })?;
         self.player.send(Command::Configure(Box::new(s)));
         Ok(())
@@ -176,16 +223,46 @@ impl Needle {
             added: albums(home.added),
             favorites: albums(home.favorites),
             most_played: albums(home.most_played),
-            artists: home
-                .artists
+            artists: home.artists.into_iter().map(artist_of).collect(),
+        })
+    }
+
+    /// What `query` finds (it may be a rule): the best match, then up to `limit` songs,
+    /// albums, artists, and lines of lyrics that hold it. The lyrics are the songs' own (read
+    /// in the background) and any shown since.
+    pub fn find(&self, query: String, limit: u32) -> Result<SearchFound> {
+        use needle_core::find::Best;
+        let found = self.library.find(&query, limit.max(1) as usize)?;
+        Ok(SearchFound {
+            best: found.best.map(|best| match best {
+                Best::Song(t) => SearchBest {
+                    kind: "song".into(),
+                    song: Some(Song::from(&t)),
+                    album: None,
+                    artist: None,
+                },
+                Best::Album(a) => SearchBest {
+                    kind: "album".into(),
+                    song: None,
+                    album: Some(Album::from(a)),
+                    artist: None,
+                },
+                Best::Artist(a) => SearchBest {
+                    kind: "artist".into(),
+                    song: None,
+                    album: None,
+                    artist: Some(artist_of(a)),
+                },
+            }),
+            songs: found.songs.iter().map(Song::from).collect(),
+            albums: found.albums.into_iter().map(Album::from).collect(),
+            artists: found.artists.into_iter().map(artist_of).collect(),
+            lyrics: found
+                .lyrics
                 .into_iter()
-                .map(|a| Artist {
-                    name: a.name,
-                    albums: a.albums as u32,
-                    songs: a.tracks as u32,
-                    artwork: a.artwork,
-                    letter: a.letter,
-                    plays: a.play_count,
+                .map(|m| LyricHit {
+                    song: Song::from(&m.track),
+                    line: m.line,
                 })
                 .collect(),
         })

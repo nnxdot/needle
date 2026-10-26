@@ -277,6 +277,8 @@ impl Needle {
         #[cfg(not(target_os = "android"))]
         needle_core::set_secrets_folder(PathBuf::from(&data_dir));
         let library = Library::open(PathBuf::from(data_dir))?;
+        // The songs' own lyrics, read slowly for Search › In the lyrics.
+        needle_core::find::start_reading_lyrics(library.clone());
         // On a phone the phone's own volume is the one volume: Needle's (the desktop's slider,
         // 65% to start) stays at full, or Needle would play quieter than other apps at the same
         // volume. Set before the player starts, so it opens at full.
