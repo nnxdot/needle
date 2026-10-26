@@ -123,9 +123,17 @@ fun DetailFrame(art: String?, title: String, scrolled: () -> Float, menu: (() ->
     CoverTheme(if (app.coverColors) art else null) {
         Box(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
             content()
-            val limit = with(androidx.compose.ui.platform.LocalDensity.current) { 340.dp.toPx() }
-            val solid by remember { derivedStateOf { scrolled() > limit } }
-            val fill by animateFloatAsState(if (solid) 1f else 0f, tween(220), label = "bar")
+            // The header folds into the bar: as the big title scrolls away, the bar fills and its
+            // title rises into place with the scroll (Reduce motion: a plain fade at one point).
+            val density = androidx.compose.ui.platform.LocalDensity.current
+            val start = with(density) { 240.dp.toPx() }
+            val span = with(density) { 110.dp.toPx() }
+            val rise = with(density) { 14.dp.toPx() }
+            val reduce = reduceMotion()
+            val solid by remember { derivedStateOf { scrolled() > start + span } }
+            val faded by animateFloatAsState(if (solid) 1f else 0f, tween(220), label = "bar")
+            val folded by remember { derivedStateOf { ((scrolled() - start) / span).coerceIn(0f, 1f) } }
+            val fill = if (reduce) faded else folded
             val back = androidx.activity.compose.LocalOnBackPressedDispatcherOwner.current
             val scheme = MaterialTheme.colorScheme
             Row(
@@ -150,7 +158,10 @@ fun DetailFrame(art: String?, title: String, scrolled: () -> Float, menu: (() ->
                     style = MaterialTheme.typography.titleLarge,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
-                    modifier = Modifier.weight(1f).padding(horizontal = 8.dp).graphicsLayer { alpha = fill },
+                    modifier = Modifier.weight(1f).padding(horizontal = 8.dp).graphicsLayer {
+                        alpha = fill
+                        translationY = if (reduce) 0f else (1f - fill) * rise
+                    },
                 )
                 if (menu != null) {
                     FilledTonalIconButton(onClick = menu, colors = round, shapes = IconButtonDefaults.shapes()) {

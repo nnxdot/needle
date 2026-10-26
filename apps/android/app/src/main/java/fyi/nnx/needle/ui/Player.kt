@@ -66,6 +66,8 @@ import androidx.compose.material.icons.rounded.IosShare
 import androidx.compose.material.icons.rounded.Translate
 import androidx.compose.material.icons.rounded.GraphicEq
 import androidx.compose.material.icons.rounded.Fullscreen
+import androidx.compose.material.icons.rounded.Album
+import androidx.compose.material.icons.rounded.Image
 import androidx.compose.material.icons.rounded.Cast
 import androidx.compose.material.icons.automirrored.rounded.VolumeUp
 import androidx.compose.material.icons.automirrored.rounded.VolumeDown
@@ -522,7 +524,11 @@ fun FullPlayer(onClose: () -> Unit, open: (Route) -> Unit) {
         // Settings › Appearance › Immersive cover: the cover is the player's top itself (or its
         // left side on a wide screen); behind the lyrics and the queue, the blurred cover again.
         val look by NeedleApp.instance.app.collectAsState()
-        val immersive = look.immersiveCover && panel == Panel.Cover
+        // The big player's look (NEEDLE-2.0.md): Cover, Record, Lyrics, or Visualizer, in the
+        // cover's place; the Look button at the top steps through them.
+        val choices by NeedleApp.instance.more.collectAsState()
+        val bigLook = choices.bigLook.takeIf { it in BigLooks } ?: "cover"
+        val immersive = look.immersiveCover && panel == Panel.Cover && bigLook == "cover"
         val screen = androidx.compose.ui.platform.LocalConfiguration.current
         val wideScreen = (screen.screenWidthDp >= 600 || screen.screenHeightDp < 480) && screen.screenWidthDp > screen.screenHeightDp
         val still = reduceMotion()
@@ -546,7 +552,18 @@ fun FullPlayer(onClose: () -> Unit, open: (Route) -> Unit) {
                 when (panel) {
                     // Immersive, the cover is behind: here only the room for it, which still
                     // skips when swiped sideways.
-                    Panel.Cover -> if (immersive) SwipeSpace(look.swipeCover, haptics) else PlayerCover(song, playing, haptics)
+                    Panel.Cover -> when {
+                        immersive -> SwipeSpace(look.swipeCover, haptics)
+                        bigLook == "record" -> PlayerCover(song, playing, haptics, record = true)
+                        bigLook == "lyrics" -> BigLyrics(song, position, { open(Route.Timing(song.id)) }) { PlayerCover(song, playing, haptics) }
+                        bigLook == "visualizer" -> Box(Modifier.fillMaxSize()) {
+                            Visualizer(Modifier.fillMaxSize())
+                            IconButton(onClick = { Ui.fullVisualizer.value = true }, modifier = Modifier.align(Alignment.BottomEnd)) {
+                                Icon(Icons.Rounded.Fullscreen, contentDescription = "Full screen", tint = Color.White.copy(alpha = 0.8f))
+                            }
+                        }
+                        else -> PlayerCover(song, playing, haptics)
+                    }
                     Panel.Lyrics -> LyricsPanel(song, position) { open(Route.Timing(song.id)) }
                     Panel.UpNext -> UpNextPanel(queueVersion)
                     // Light that moves with the music; full screen from its corner.
@@ -654,12 +671,16 @@ fun FullPlayer(onClose: () -> Unit, open: (Route) -> Unit) {
                         IconButton(onClick = { searching = true }) {
                             Icon(Icons.Rounded.Search, contentDescription = "Add songs", tint = Color.White.copy(alpha = 0.8f))
                         }
-                        // The visualizer, in the cover's place.
+                        // The look: Cover, Record, Lyrics, Visualizer, and round again.
                         IconButton(
-                            onClick = { panel = if (panel == Panel.Visualizer) Panel.Cover else Panel.Visualizer },
-                            modifier = Modifier.semantics { stateDescription = if (panel == Panel.Visualizer) "Showing" else "Hidden" },
+                            onClick = {
+                                val next = BigLooks[(BigLooks.indexOf(bigLook) + 1) % BigLooks.size]
+                                panel = Panel.Cover
+                                NeedleApp.instance.updateMore { it.copy(bigLook = next) }
+                            },
+                            modifier = Modifier.semantics { stateDescription = lookName(bigLook) },
                         ) {
-                            Icon(Icons.Rounded.GraphicEq, contentDescription = "Visualizer", tint = if (panel == Panel.Visualizer) MaterialTheme.colorScheme.primary else Color.White.copy(alpha = 0.8f))
+                            Icon(lookIcon(bigLook), contentDescription = "Look", tint = Color.White.copy(alpha = 0.8f))
                         }
                         // Beside the song's name instead, wherever its name shows.
                         if (!song.onComputer()) SongMenu(song, open)
@@ -1065,8 +1086,10 @@ private fun RowScope.RoundToggle(on: Boolean, onClick: () -> Unit, state: String
  */
 @OptIn(androidx.compose.material3.ExperimentalMaterial3ExpressiveApi::class)
 @Composable
-private fun PlayerCover(song: Song, playing: Boolean, haptics: (Boolean) -> Unit) {
+private fun PlayerCover(song: Song, playing: Boolean, haptics: (Boolean) -> Unit, record: Boolean = false) {
     val app by NeedleApp.instance.app.collectAsState()
+    // The Record look: the round cover's turning record, whatever the cover shape chosen.
+    val coverShape = if (record) "round" else app.coverShape
     // Swiped sideways (when that is on), the cover goes with the finger; far enough, it slides
     // off and the next song's (or the last one's) slides in from the other side.
     val slide = remember { androidx.compose.animation.core.Animatable(0f) }
@@ -1084,13 +1107,13 @@ private fun PlayerCover(song: Song, playing: Boolean, haptics: (Boolean) -> Unit
     }
     val scale by animateFloatAsState(if (playing) 1f else 0.82f, tween(350), label = "cover size")
     val reduce = reduceMotion()
-    val still = reduce || app.coverShape == "square"
+    val still = reduce || coverShape == "square"
     // Turning only while it plays and is not square: a turn that stands still takes no frames.
     // Read only where the layer draws, so the turning redraws the cover, not the whole player.
     val turn: androidx.compose.runtime.State<Float> = if (!still && playing) {
         androidx.compose.animation.core.rememberInfiniteTransition(label = "spin").animateFloat(
             0f, 360f,
-            androidx.compose.animation.core.infiniteRepeatable(tween(if (app.coverShape == "round") 12_000 else 40_000, easing = androidx.compose.animation.core.LinearEasing)),
+            androidx.compose.animation.core.infiniteRepeatable(tween(if (coverShape == "round") 12_000 else 40_000, easing = androidx.compose.animation.core.LinearEasing)),
             label = "turn",
         )
     } else remember { mutableFloatStateOf(0f) }
@@ -1098,7 +1121,7 @@ private fun PlayerCover(song: Song, playing: Boolean, haptics: (Boolean) -> Unit
     // taken as playing starts or stops, before that frame draws (a new turn starts at 0).
     val drawn = remember { floatArrayOf(0f) }
     val from = remember(playing, still) { drawn[0] }
-    val shape = when (app.coverShape) {
+    val shape = when (coverShape) {
         "round" -> CircleShape
         else -> RoundedCornerShape(12.dp)
     }
@@ -1187,11 +1210,87 @@ private fun PlayerCover(song: Song, playing: Boolean, haptics: (Boolean) -> Unit
                     },
             )
         }
+        // The Record look's grooves, over the turning cover (round grooves look the same at any turn).
+        if (record) Grooves(Modifier.size(side).graphicsLayer { scaleX = scale; scaleY = scale })
         // A record's label hole.
-        if (app.coverShape == "round") {
+        if (coverShape == "round") {
             Box(Modifier.size(34.dp).graphicsLayer { scaleX = scale; scaleY = scale }.clip(CircleShape).background(Color.Black.copy(alpha = 0.55f)))
             Box(Modifier.size(10.dp).clip(CircleShape).background(Color(0xFF0F0E0D)))
         }
+        // And its arm, resting on the record at the top right, as in Needle's icon.
+        if (record) ToneArm(Modifier.size(side).graphicsLayer { scaleX = scale; scaleY = scale })
+    }
+}
+
+/** The big player's looks, in the order the Look button steps through them (`model::BIG_LOOKS`). */
+private val BigLooks = listOf("cover", "record", "lyrics", "visualizer")
+
+private fun lookName(look: String) = when (look) {
+    "record" -> "Record"
+    "lyrics" -> "Lyrics"
+    "visualizer" -> "Visualizer"
+    else -> "Cover"
+}
+
+private fun lookIcon(look: String) = when (look) {
+    "record" -> Icons.Rounded.Album
+    "lyrics" -> Icons.Rounded.Lyrics
+    "visualizer" -> Icons.Rounded.GraphicEq
+    else -> Icons.Rounded.Image
+}
+
+/** A record's grooves: fine dark rings across the cover, the label left clear, and a soft sheen. */
+@Composable
+private fun Grooves(modifier: Modifier) {
+    androidx.compose.foundation.Canvas(modifier) {
+        val r = size.minDimension / 2
+        val ring = Color.Black.copy(alpha = 0.16f)
+        var k = 0.95f
+        while (k > 0.36f) {
+            drawCircle(ring, radius = r * k, center = center, style = androidx.compose.ui.graphics.drawscope.Stroke(width = 1.2.dp.toPx()))
+            k -= 0.045f
+        }
+        drawCircle(
+            Brush.linearGradient(
+                listOf(Color.White.copy(alpha = 0.14f), Color.Transparent, Color.White.copy(alpha = 0.08f)),
+                start = androidx.compose.ui.geometry.Offset.Zero,
+                end = androidx.compose.ui.geometry.Offset(size.width, size.height),
+            ),
+            radius = r,
+            center = center,
+        )
+    }
+}
+
+/** The arm resting on the record: cream, from its pivot at the top right to the outer grooves. */
+@Composable
+private fun ToneArm(modifier: Modifier) {
+    androidx.compose.foundation.Canvas(modifier) {
+        val w = size.width
+        val cream = Color(0xFFF2E8D6)
+        val pivot = androidx.compose.ui.geometry.Offset(w * 0.96f, w * 0.04f)
+        val tip = androidx.compose.ui.geometry.Offset(w * 0.73f, w * 0.30f)
+        val drop = androidx.compose.ui.geometry.Offset(0f, 6.dp.toPx())
+        drawLine(Color.Black.copy(alpha = 0.3f), pivot + drop, tip + drop, strokeWidth = w * 0.035f, cap = androidx.compose.ui.graphics.StrokeCap.Round)
+        drawLine(cream, pivot, tip, strokeWidth = w * 0.03f, cap = androidx.compose.ui.graphics.StrokeCap.Round)
+        drawCircle(cream, radius = w * 0.045f, center = pivot)
+        drawCircle(Color(0xFF1B1816), radius = w * 0.018f, center = pivot)
+    }
+}
+
+/**
+ * The Lyrics look: only the words, very large and centred, lit as sung (word by word where
+ * timed), the translation under each line when Translate is on; a song with none shows `none`.
+ */
+@Composable
+private fun BigLyrics(song: Song, position: () -> Double, time: () -> Unit, none: @Composable () -> Unit) {
+    val load = rememberLoaded(song.id) { if (song.onComputer()) null else lyrics(song.id) }
+    val found by load
+    val has = found?.let { it.lines.isNotEmpty() || it.plain.isNotBlank() } == true
+    when {
+        load.loading -> Unit
+        has || song.onComputer() -> LyricsPanel(song, position, big = true, time = time)
+        else -> none()
     }
 }
 
@@ -1304,7 +1403,7 @@ private fun SeekBar(position: Double, duration: Double, playing: Boolean, height
 }
 
 @Composable
-private fun LyricsPanel(song: Song, position: () -> Double, compact: Boolean = false, time: () -> Unit) {
+private fun LyricsPanel(song: Song, position: () -> Double, compact: Boolean = false, big: Boolean = false, time: () -> Unit) {
     // Looked up again after NetEase is added.
     var retry by remember(song.id) { androidx.compose.runtime.mutableIntStateOf(0) }
     var askingNetEase by remember(song.id) { mutableStateOf(false) }
@@ -1412,12 +1511,17 @@ private fun LyricsPanel(song: Song, position: () -> Double, compact: Boolean = f
                 } else null
                 Text(
                     sung ?: androidx.compose.ui.text.AnnotatedString(line.text.ifBlank { "♪" }),
-                    style = if (compact) MaterialTheme.typography.titleLarge else MaterialTheme.typography.headlineMedium,
+                    style = when {
+                        big -> MaterialTheme.typography.displaySmall
+                        compact -> MaterialTheme.typography.titleLarge
+                        else -> MaterialTheme.typography.headlineMedium
+                    },
                     fontWeight = FontWeight.Bold,
                     color = Color.White.copy(alpha = alpha),
+                    textAlign = if (big) androidx.compose.ui.text.style.TextAlign.Center else null,
                     modifier = Modifier
                         .fillMaxWidth()
-                        .graphicsLayer { scaleX = grow; scaleY = grow; transformOrigin = TransformOrigin(0f, 0.5f) }
+                        .graphicsLayer { scaleX = grow; scaleY = grow; transformOrigin = TransformOrigin(if (big) 0.5f else 0f, 0.5f) }
                         .clip(RoundedCornerShape(8.dp))
                         .combinedClickable(
                             onClickLabel = "Play from this line",
@@ -1430,9 +1534,10 @@ private fun LyricsPanel(song: Song, position: () -> Double, compact: Boolean = f
                 under?.getOrNull(i)?.takeIf { it.isNotBlank() }?.let { t ->
                     Text(
                         t,
-                        style = if (compact) MaterialTheme.typography.bodyLarge else MaterialTheme.typography.titleMedium,
+                        style = if (compact) MaterialTheme.typography.bodyLarge else if (big) MaterialTheme.typography.titleLarge else MaterialTheme.typography.titleMedium,
                         color = Color.White.copy(alpha = alpha * 0.7f),
-                        modifier = Modifier.padding(bottom = 12.dp),
+                        textAlign = if (big) androidx.compose.ui.text.style.TextAlign.Center else null,
+                        modifier = Modifier.fillMaxWidth().padding(bottom = 12.dp),
                     )
                 }
             }
