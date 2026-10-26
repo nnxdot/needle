@@ -583,14 +583,14 @@ final class Store {
 
     private func searchChanged(from old: String) {
         guard !searchQuiet, old != search else { return }
-        // Typing on a page that does not search goes to Songs.
+        // Typing on a page that is not a list opens Search.
         if !search.isEmpty, !route.searchesInside {
             back.append(route)
             forward.removeAll()
             // As `open` does, but the search stays.
             sort = nil
             selectedTracks = []
-            route = .songs
+            route = .search
             big = false
             if pageTint != nil { pageTint = nil }
         }

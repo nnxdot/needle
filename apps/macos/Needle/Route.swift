@@ -12,6 +12,8 @@ enum Route: Hashable {
     case favorites
     case recent
     case history
+    /// What typing in search finds, on a page that is not a list.
+    case search
     /// Your library in numbers.
     case numbers
     /// Every measured song by its mood.
@@ -43,6 +45,7 @@ enum Route: Hashable {
         case .favorites: "Favorites"
         case .recent: "Recently added"
         case .history: "Listening history"
+        case .search: "Search"
         case .numbers: "Your library in numbers"
         case .moodMap: "Mood map"
         case .collection(let key): Collections.find(key)?.name ?? "Collection"
@@ -79,10 +82,11 @@ enum Route: Hashable {
         }
     }
 
-    /// Search on this page searches inside it; on others it goes to Songs.
+    /// Search on this page searches inside it (a list, or Search itself); on others it opens
+    /// Search.
     var searchesInside: Bool {
         switch self {
-        case .songs, .favorites, .collection, .recent, .playlist, .album, .folder, .albums, .artists: true
+        case .songs, .favorites, .collection, .recent, .playlist, .album, .folder, .albums, .artists, .search: true
         default: false
         }
     }
