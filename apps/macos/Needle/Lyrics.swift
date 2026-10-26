@@ -5,7 +5,8 @@ import Translation
 /// the words are timed; click a line to go to it.
 struct LyricsView: View {
     private var store: Store { .shared }
-    enum Kind { case side, big, mini, immersive }
+    /// `stage`: the big player's Lyrics look, only the words, very large.
+    enum Kind { case side, big, mini, immersive, stage }
     let kind: Kind
     var light = false
     /// A line chosen to share as a picture.
@@ -21,6 +22,7 @@ struct LyricsView: View {
         case .big: 26
         case .mini: 15
         case .immersive: 34
+        case .stage: 52
         }
     }
 
@@ -118,10 +120,10 @@ struct LyricsView: View {
         // Only the line being sung follows the clock (see `SungLine`); the others redraw
         // when the line changes, not ten times a second.
         let line = store.lyricLine
-        let center = kind == .big || kind == .immersive
+        let center = kind == .big || kind == .immersive || kind == .stage
         return ScrollViewReader { reader in
             ScrollView {
-                LazyVStack(alignment: center ? .center : .leading, spacing: kind == .side || kind == .mini ? 12 : 18) {
+                LazyVStack(alignment: center ? .center : .leading, spacing: kind == .side || kind == .mini ? 12 : kind == .stage ? 28 : 18) {
                     Color.clear.frame(height: kind == .mini ? 20 : 60)
                     ForEach(Array(lyrics.lines.enumerated()), id: \.offset) { index, l in
                         let state: LyricLineView.State = index == line ? .sung : (line.map { index < $0 } ?? false) ? .past : .ahead

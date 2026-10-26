@@ -3,7 +3,10 @@ A new Home and icon, and a lot more to see and hear.
 ! **A new look.** Home is the Mac's: the greeting, the song playing now with a round Play button, then your albums and artists on shelves. Needle's colour is amber, its words are the Mac's, and its icon is new: Glass groove, an amber record of glass on charcoal.
 - [player] **Choose the player's buttons.** Put them in order, take some out, or add Shuffle and Repeat in Settings › Appearance › Player buttons.
 - [palette] **Fonts.** Choose a font for titles (eight of them, such as Fraunces, Poster, and Instrument Serif) and one for everything else (such as Inter and Atkinson Hyperlegible), or a font file from Files, in Settings › Appearance › Titles and Text.
-- [sound] **The visualizer.** Light that moves with the music, in the cover's colours, over the whole screen: choose Visualizer in the player's ••• menu.
+- [search] **A new Search.** The best match large, then songs, albums, artists, and lines of lyrics that hold the words, with a chip for each and rules to try.
+- [player] **Four looks for the player.** The Look button at its top steps through Cover, Record (the cover as a turning record), Lyrics (only the words, very large, lit as they are sung), and Visualizer.
+- [sound] **The visualizer.** Light that moves with the music, in the cover's colours: the player's Visualizer look, or over the whole screen from the player's ••• menu.
+- [player] **Motion.** An album's cover grows into its page, a page's name folds into the bar as you scroll, and the colours follow the music. With Reduce motion, only fades.
 - [player] **A seek bar shaped like the song.** The player's seek bar shows the song's loud and quiet parts.
 - [lyrics] **Lyrics in your language.** Tap the translate button beside Lyrics, and each line shows translated under it, made on your iPhone by Apple's Translation.
 - [lyrics] **Lyric cards.** Hold a line of the lyrics and choose Share as Card for a picture of it in the cover's colours.

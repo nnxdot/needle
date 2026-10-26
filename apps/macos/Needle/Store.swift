@@ -74,6 +74,13 @@ final class Store {
     var search = "" {
         didSet { searchChanged(from: oldValue) }
     }
+    /// An album's, artist's, or playlist's page has scrolled its big title away: the title bar
+    /// shows the name instead.
+    var headerFolded = false
+    /// The album tile just chosen (its own id), whose cover grows into the album page's.
+    var travelingTile: UUID?
+    /// The namespace the traveling cover moves in (the main window's).
+    @ObservationIgnored var coverSpace: Namespace.ID?
     /// The song the details panel describes: the last one clicked.
     var focused: Track?
     var panel: Panel = .details
@@ -564,6 +571,7 @@ final class Store {
         selectedTracks = []
         route = to
         big = false
+        headerFolded = false
         // A page without a colour of its own goes back to the theme's. From one album or
         // artist to another, the colour stays until the next one's is found: no flash between.
         // Never in an animation (see `setPageTint`).

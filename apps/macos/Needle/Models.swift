@@ -255,6 +255,8 @@ struct NeedleSettings: Decodable, Equatable {
     var ambient = false
     var crossfade: Float = 0
     var smartMix = true
+    /// The big player's look: "cover", "record", "lyrics", or "visualizer".
+    var bigLook = "cover"
     var crashReports = true
     var welcomed = false
     var whatsNewSeen = ""

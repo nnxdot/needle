@@ -22,7 +22,10 @@ A new icon, and a lot more to see and hear.
 ! **A new icon, and one look everywhere.** Needle's icon is now Glass groove: an amber record of glass with its arm, on charcoal. Needle on Windows, Linux, Android, and the iPhone now looks like Needle on the Mac.
 - [play] **Choose the player's buttons.** Drag buttons into the player, along it, and out of it in Settings › Appearance › Layout › Player buttons.
 - [tag] **Fonts.** Choose a font for titles (eight of them, such as Fraunces, Poster, and Instrument Serif) and one for everything else (such as Inter and Atkinson Hyperlegible), or a font on this Mac, in Settings › Appearance › Titles and Text.
-- [wave] **The visualizer.** Light that moves with the music, in the cover's colours. Turn it on with the new button in the big player; in full screen it fills the screen.
+- [search] **A search page.** Typing on a page that is not a list opens Search: the best match large, then songs, albums, artists, and lines of lyrics that hold the words, with a chip for each and rules to try.
+- [fullscreen] **Four looks for the big player.** The Look button steps through Cover, Record (the cover as a turning record), Lyrics (only the words, very large, lit as they are sung), and Visualizer.
+- [wave] **The visualizer.** Light that moves with the music, in the cover's colours, filling the big player and full screen.
+- [play] **Motion.** An album's cover grows into its page, a page's big title folds into the title bar as you scroll, covers lift and glow in their own colour under the pointer, and the colours follow the music. With Reduce motion, only fades.
 - [signal] **A seek bar shaped like the song.** In the big player and full screen, the seek bar shows the song's loud and quiet parts.
 - [lyrics] **Lyrics in your language.** Press Translate under the lyrics, or right-click a line, and each line shows translated under it, made on this Mac by Apple's Translation.
 - [lyrics] **Lyric cards.** Right-click a line of the lyrics and choose Share as Card for a picture of it in the cover's colours, to share, copy, or save.

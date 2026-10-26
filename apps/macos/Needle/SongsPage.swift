@@ -174,7 +174,8 @@ struct SongsHeader: View {
         let colors = store.colors
         let seed = album.album + album.displayAlbumArtist
         return HStack(alignment: .bottom, spacing: 28) {
-            Cover(path: album.artwork, seed: seed, side: 232, corner: 12)
+            Cover(path: album.artwork, seed: seed, side: store.headerFolded ? 64 : 232, corner: store.headerFolded ? 6 : 12)
+                .modifier(TravelingCover(id: album.album + "|" + album.displayAlbumArtist, on: store.travelingTile != nil))
                 // The album's moving cover (beside its songs or on the server), as in the big player.
                 .overlay {
                     MovingCoverLayer(songID: album.id, on: store.settings.animatedCovers && store.motion)
@@ -182,20 +183,26 @@ struct SongsHeader: View {
                 }
                 .shadow(color: .black.opacity(colors.dark ? 0.45 : 0.25), radius: 30, y: 16)
             VStack(alignment: .leading, spacing: 5) {
-                Text("Album").font(.needle(.callout).weight(.semibold)).foregroundStyle(colors.ink2)
-                Text(title).font(store.display(44)).lineLimit(2).foregroundStyle(colors.ink)
+                if !store.headerFolded {
+                    Text("Album").font(.needle(.callout).weight(.semibold)).foregroundStyle(colors.ink2)
+                }
+                Text(title).font(store.display(store.headerFolded ? 22 : 44)).lineLimit(store.headerFolded ? 1 : 2).foregroundStyle(colors.ink)
                 Button(album.displayAlbumArtist) { store.navigate(.artist(album.displayAlbumArtist)) }
                     .buttonStyle(.plain)
                     .font(.needle(.title2).weight(.medium))
                     .foregroundStyle(colors.ink2)
-                Text(summary(album)).font(.needle(.callout)).foregroundStyle(colors.ink3)
-                buttons.padding(.top, 12)
+                if !store.headerFolded {
+                    Text(summary(album)).font(.needle(.callout)).foregroundStyle(colors.ink3)
+                    buttons.padding(.top, 12)
+                }
             }
             Spacer(minLength: 0)
+            if store.headerFolded { buttons }
         }
         .padding(.horizontal, 28)
-        .padding(.top, 30)
-        .padding(.bottom, 22)
+        .padding(.top, store.headerFolded ? 14 : 30)
+        .padding(.bottom, store.headerFolded ? 12 : 22)
+        .animation(store.motion ? .smooth(duration: 0.3) : .easeInOut(duration: 0.15), value: store.headerFolded)
         .padding(.trailing, panelInset)
         .background(alignment: .top) { HeaderBackdrop(path: album.artwork, seed: seed) }
         .task(id: album.artwork ?? seed) {

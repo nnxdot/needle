@@ -73,6 +73,10 @@ struct SongTable: View {
             }
         }
         .tableStyle(.inset(alternatesRowBackgrounds: false))
+        // Scrolled down, the page's header folds into the title bar.
+        .onScrollGeometryChange(for: Bool.self) { $0.contentOffset.y > 48 } action: { _, folded in
+            if store.headerFolded != folded { store.headerFolded = folded }
+        }
         .scrollContentBackground(.hidden)
         .environment(\.defaultMinListRowHeight, compact ? 26 : 44)
         .contextMenu(forSelectionType: Int.self) { ids in
