@@ -11,6 +11,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.grid.GridItemSpan
 import androidx.compose.foundation.lazy.grid.LazyGridScope
@@ -220,8 +221,9 @@ private fun BestMatch(best: SearchBest, open: (Route) -> Unit) {
     }
     Row(
         Modifier
-            .fillMaxWidth()
             .padding(horizontal = 16.dp, vertical = 8.dp)
+            .widthIn(max = 720.dp)
+            .fillMaxWidth()
             .clip(RoundedCornerShape(16.dp))
             .background(MaterialTheme.colorScheme.surfaceContainerHigh)
             .clickable(onClick = go)

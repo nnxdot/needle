@@ -55,6 +55,12 @@ plays and the one main button.
   More). With no pill chosen: Favorites and History as plain rows, then what came in lately.
 - **Grids:** two covers across on phones, a title and one grey line under each; on tablets as
   many as fit (`gridColumns` in Adaptive.kt).
+- **Search** (`Search.kt`): the field, then chips (All, Songs, Albums, Artists, Lyrics). All
+  shows the best match in a card (cover, kind, name, a round Play), then Songs (5), Albums and
+  Artists as rows of tiles, In the lyrics (the words lit in amber), and Try a rule.
+- **The big player's looks:** the Look button at its top steps through Cover, Record (the round
+  cover turning, grooves, the arm resting), Lyrics (only the words, large and centred), and
+  Visualizer; kept in `LibraryChoices.big_look`.
 - **Settings:** rows under short headings on the page itself, a soft line between rows
   (SETTINGS-STYLE.md).
 
@@ -109,6 +115,10 @@ plays and the one main button.
 
 - On Android TV the app is the tablet's: the side bar, the floating player, the wide player.
   A remote moves the focus (`TvFocus.kt`).
+- Home on a TV (`TvHome.kt`): the album in focus fills the screen behind (darkened at the left
+  and foot, a short fade as the focus moves); its shelf, name, artist, year, and songs large
+  with Play and Shuffle; one row of tiles under it, the one in focus a little larger with a
+  3 dp ring in its cover's colour.
 - The side bar is folded to its icons and opens while the focus is in it (move left from the
   page). Its focus ring follows the highlight's shape: a 2 dp ring inside the row's 8 dp
   corners (`softRing`).
