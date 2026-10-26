@@ -444,7 +444,7 @@ impl Dsf {
                 let bytes = raw
                     .get(c * self.block..c * self.block + valid)
                     .unwrap_or(&[]);
-                for (f, pair) in bytes.chunks_exact(2).enumerate().take(frames) {
+                for (f, pair) in bytes.as_chunks::<2>().0.iter().enumerate().take(frames) {
                     // DSF stores bits LSB first; DoP sends the oldest bit highest.
                     out[f * channels + c] = crate::platform_output::dop_sample(
                         first + f as u64,

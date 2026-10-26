@@ -151,10 +151,7 @@ impl AppView {
                 }))
                 .into_any_element()
             }
-            "favorite" => match current {
-                Some(track) => self.favorite_button(track, cx).into_any_element(),
-                None => return None,
-            },
+            "favorite" => self.favorite_button(current?, cx).into_any_element(),
             "lyrics" => Button::new("lyrics-toggle")
                 .ghost()
                 .with_size(px(ICON))

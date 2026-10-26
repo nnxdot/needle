@@ -40,7 +40,7 @@ pub(crate) fn migrate(db: &Connection) -> Result<()> {
 /// The match that heads the results.
 #[derive(Clone, Debug, PartialEq)]
 pub enum Best {
-    Song(Track),
+    Song(Box<Track>),
     Album(AlbumSummary),
     Artist(ArtistSummary),
 }
@@ -183,11 +183,11 @@ impl Library {
         let mut songs = self.search(query)?;
         songs.retain(|t| !t.missing);
         // The most played first, then the order the rule gives.
-        songs.sort_by(|a, b| b.play_count.cmp(&a.play_count));
+        songs.sort_by_key(|t| std::cmp::Reverse(t.play_count));
         let mut albums = self.albums(query)?;
-        albums.sort_by(|a, b| b.play_count.cmp(&a.play_count));
+        albums.sort_by_key(|a| std::cmp::Reverse(a.play_count));
         let mut artists = self.artists(query)?;
-        artists.sort_by(|a, b| b.play_count.cmp(&a.play_count));
+        artists.sort_by_key(|a| std::cmp::Reverse(a.play_count));
         let lyrics = self.lyric_matches(query, limit)?;
 
         // The best: a name that answers the search most closely; albums, then artists, then
@@ -224,7 +224,7 @@ impl Library {
             offer(c, 2, Best::Artist(a.clone()));
         }
         if let Some((c, s)) = song {
-            offer(c, 1, Best::Song(s.clone()));
+            offer(c, 1, Best::Song(Box::new(s.clone())));
         }
         songs.truncate(limit);
         albums.truncate(limit);
