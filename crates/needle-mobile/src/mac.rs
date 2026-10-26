@@ -2186,7 +2186,7 @@ impl Needle {
         use needle_core::find::Best;
         let found = self.library.find(&query, limit.max(1) as usize)?;
         let best = found.best.map(|best| match best {
-            Best::Song(t) => json!({ "kind": "song", "track": t }),
+            Best::Song(t) => json!({ "kind": "song", "track": &*t }),
             Best::Album(a) => json!({ "kind": "album", "album": a }),
             Best::Artist(a) => json!({ "kind": "artist", "artist": a }),
         });
