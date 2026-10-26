@@ -17,6 +17,15 @@ use std::{
     time::Duration,
 };
 
+/// The Search page's "Try a rule" chips: a name, and the rule it puts in the search field.
+pub const RULE_EXAMPLES: [(&str, &str); 5] = [
+    ("Favorites", "rating >= 4"),
+    ("Played this month", "played(30d)"),
+    ("Never played", "play_count = 0"),
+    ("Hi-res", "bit_depth >= 24"),
+    ("Before 2000", "year < 2000"),
+];
+
 /// Raised when what is kept for a song changes, so every song is read again.
 const VERSION: i64 = 1;
 
@@ -300,6 +309,13 @@ mod tests {
             content_hash: format!("h-{id}"),
             play_count: plays,
             ..Default::default()
+        }
+    }
+
+    #[test]
+    fn the_rule_chips_are_rules() {
+        for (_, rule) in RULE_EXAMPLES {
+            crate::query::compile(rule, 0).unwrap();
         }
     }
 
