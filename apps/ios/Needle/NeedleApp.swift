@@ -44,6 +44,8 @@ struct RootView: View {
     @State private var welcomeTest = false
     @State private var paths: [Place: NavigationPath] = [:]
     @Namespace private var player
+    /// Album covers zoom from their tile into the album's page in this.
+    @Namespace private var covers
 
     var body: some View {
         @Bindable var store = store
@@ -65,6 +67,7 @@ struct RootView: View {
             }
         }
         .tabBarMinimizeBehavior(.onScrollDown)
+        .environment(\.coverSpace, covers)
         #if DEBUG
         // For testing from a shell: -tab library|radio|search, -albums opens Albums there, and
         // -route settings|appearance|sources opens that page.

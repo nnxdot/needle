@@ -1156,6 +1156,7 @@ struct WhatsNewView: View {
         case "watch": ("applewatch", .gray)
         case "artists": ("music.microphone", .pink)
         case "history": ("clock.arrow.circlepath", .orange)
+        case "search": ("magnifyingglass", .blue)
         case "": change.title.isEmpty ? ("wrench.and.screwdriver.fill", .gray) : ("sparkles", .yellow)
         default: ("sparkles", .yellow)
         }

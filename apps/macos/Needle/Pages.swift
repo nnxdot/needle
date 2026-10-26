@@ -188,12 +188,19 @@ struct AlbumTile: View {
     let album: AlbumSummary
     let side: CGFloat
     @State private var hover = false
+    /// The cover's own colour, for the light behind it under the pointer.
+    @State private var glow: Color?
+    /// This tile, among others showing the same album.
+    @State private var me = UUID()
 
     var body: some View {
         VStack(alignment: .leading, spacing: 5) {
             ZStack(alignment: .bottomTrailing) {
                 Cover(path: album.artwork, seed: album.album + album.artist, side: side, corner: 8)
-                    .shadow(color: .black.opacity(hover ? 0.3 : 0.15), radius: hover ? 12 : 6, y: 4)
+                    .modifier(TravelingCover(id: album.album + "|" + album.artist, on: store.travelingTile == me))
+                    // Under the pointer the cover lifts a little, with a soft light in its own colour.
+                    .shadow(color: hover ? (glow ?? .black).opacity(0.55) : .black.opacity(0.15), radius: hover ? 16 : 6, y: hover ? 6 : 4)
+                    .offset(y: hover && store.motion ? -2 : 0)
                 if hover {
                     Button { play() } label: {
                         Image(systemName: "play.fill").font(.system(size: 14, weight: .bold)).foregroundStyle(store.colors.accentInk)
@@ -212,12 +219,21 @@ struct AlbumTile: View {
         .frame(width: side)
         .contentShape(Rectangle())
         .onHover { h in withAnimation(.snappy(duration: 0.15)) { hover = h } }
-        .onTapGesture { store.navigate(album.route) }
+        .task(id: hover) {
+            guard hover, glow == nil else { return }
+            glow = Color(nsColor: await Covers.pageColor(album.artwork, seed: album.album + album.artist))
+        }
+        .onTapGesture { open() }
         .accessibilityElement(children: .combine)
         .accessibilityAddTraits(.isButton)
-        .accessibilityAction { store.navigate(album.route) }
+        .accessibilityAction { open() }
         .accessibilityAction(named: "Play") { play() }
         .contextMenu { GroupMenu(route: album.route, title: album.title) }
+    }
+
+    private func open() {
+        store.travelingTile = me
+        store.navigate(album.route)
     }
 
     private func play() {
@@ -478,6 +494,9 @@ struct ArtistPage: View {
         // Under the bar's glass (and the side panel's: see MainWindow.runsUnder).
         .ignoresSafeArea(edges: .top)
         .foregroundStyle(colors.ink)
+        .onScrollGeometryChange(for: Bool.self) { $0.contentOffset.y > 360 } action: { _, folded in
+            if store.headerFolded != folded { store.headerFolded = folded }
+        }
         .task(id: "\(name)\(store.libraryVersion)\(pictures)") {
             let name = name
             // What the library has first: it never waits on the web.
@@ -754,3 +773,20 @@ struct FoldersPage: View {
     }
 }
 
+
+/// A cover that moves to its page: the chosen album tile's cover and the album page's share one
+/// place in the window's namespace, so the page's grows out of the tile's. Plain with Reduce
+/// motion.
+struct TravelingCover: ViewModifier {
+    private var store: Store { .shared }
+    let id: String
+    let on: Bool
+
+    func body(content: Content) -> some View {
+        if on, store.motion, let space = store.coverSpace {
+            content.matchedGeometryEffect(id: "cover:" + id, in: space)
+        } else {
+            content
+        }
+    }
+}

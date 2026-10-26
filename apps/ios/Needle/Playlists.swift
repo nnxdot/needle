@@ -17,6 +17,8 @@ struct PlaylistView: View {
     @State private var selected = Set<String>()
     /// The playlist as it is now (its picture, after a change).
     @State private var current: Playlist?
+    /// Scrolled past the picture and name: the bar shows the name.
+    @State private var pastHeader = false
 
     var body: some View {
         let songs = detail?.songs ?? []
@@ -65,6 +67,10 @@ struct PlaylistView: View {
             })
         }
         .listStyle(.plain)
+        .onScrollGeometryChange(for: Bool.self) { $0.contentOffset.y > 300 } action: { _, past in
+            withAnimation(.easeOut(duration: 0.2)) { pastHeader = past }
+        }
+        .navigationTitle(pastHeader ? (detail?.name ?? playlist.name) : "")
         .navigationBarTitleDisplayMode(.inline)
         .themed()
         .toolbar {

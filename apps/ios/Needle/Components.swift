@@ -40,7 +40,7 @@ extension View {
     func routes() -> some View {
         navigationDestination(for: Route.self) { route in
             switch route {
-            case .album(let album): AlbumView(album: album)
+            case .album(let album): AlbumView(album: album).modifier(CoverZoom(id: "album:" + album.key))
             case .albumOf(let id): AlbumOfView(songId: id)
             case .artist(let name): ArtistView(name: name)
             case .playlist(let playlist): PlaylistView(playlist: playlist)
@@ -144,6 +144,7 @@ struct AlbumTile: View {
                 Artwork(path: album.artwork, seed: album.title + album.artist, size: 400)
                     .aspectRatio(1, contentMode: .fit)
                     .clipShape(.rect(cornerRadius: 14))
+                    .modifier(CoverSource(id: "album:" + album.key))
                     .shadow(color: .black.opacity(0.35), radius: 10, y: 6)
                     .padding(.bottom, 5)
                 Text(album.title).font(.needle(.subheadline).weight(.medium)).lineLimit(1)
@@ -495,6 +496,45 @@ struct Toast: View {
                     try? await Task.sleep(for: .seconds(2.5))
                     withAnimation { store.message = nil }
                 }
+        }
+    }
+}
+
+private struct CoverSpaceKey: EnvironmentKey {
+    static let defaultValue: Namespace.ID? = nil
+}
+
+extension EnvironmentValues {
+    /// Album covers zoom from their tile into the album's page in this namespace.
+    var coverSpace: Namespace.ID? {
+        get { self[CoverSpaceKey.self] }
+        set { self[CoverSpaceKey.self] = newValue }
+    }
+}
+
+/// An album tile's cover, where the album's page zooms from.
+struct CoverSource: ViewModifier {
+    @Environment(\.coverSpace) private var space
+    let id: String
+
+    func body(content: Content) -> some View {
+        if let space { content.matchedTransitionSource(id: id, in: space) } else { content }
+    }
+}
+
+/// An album's page grows out of the cover chosen (the zoom transition); with Reduce motion
+/// (Needle's or the iPhone's) it simply comes in.
+struct CoverZoom: ViewModifier {
+    @Environment(Store.self) private var store
+    @Environment(\.coverSpace) private var space
+    @Environment(\.accessibilityReduceMotion) private var systemReduceMotion
+    let id: String
+
+    func body(content: Content) -> some View {
+        if let space, !systemReduceMotion, !store.app.reduceMotion {
+            content.navigationTransition(.zoom(sourceID: id, in: space))
+        } else {
+            content
         }
     }
 }

@@ -99,6 +99,16 @@ struct NowPlayingView: View {
     @AppStorage("translateLyrics") private var translateLyrics = false
     /// The visualizer over the whole screen.
     @State private var showVisualizer = false
+    /// The song has lyrics (for the Lyrics look; with none, it shows the cover).
+    @State private var hasLyrics = true
+
+    /// The look chosen with the Look button: the cover, a turning record, only the lyrics, or
+    /// the visualizer.
+    private var look: String {
+        let chosen = store.choices.bigLook
+        if chosen == "lyrics" && !hasLyrics { return "cover" }
+        return ["cover", "record", "lyrics", "visualizer"].contains(chosen) ? chosen : "cover"
+    }
     @State private var favorite = false
     @State private var favoriteTaps = 0
     /// A loop just set, shown until the core plays it (a moment later).
@@ -119,10 +129,14 @@ struct NowPlayingView: View {
         let song = store.playback?.current
         let seed = (song?.album ?? "") + (song?.artist ?? "")
         let app = store.app
-        let immersive = app.immersiveCover && pane == .cover
+        let look = look
+        let immersive = app.immersiveCover && pane == .cover && look == "cover"
         ZStack {
             Color.black.ignoresSafeArea()
-            if app.immersiveCover {
+            if pane == .cover && look == "visualizer" {
+                // The visualizer's light fills the player.
+                Visualizer().ignoresSafeArea()
+            } else if app.immersiveCover && look == "cover" {
                 // Always there, blurred behind the lyrics and the queue, so moving between them
                 // never shows black while it fades.
                 ImmersiveCover(song: song, seed: seed, animated: app.animatedCovers && !reduceMotion && pane == .cover)
@@ -147,7 +161,19 @@ struct NowPlayingView: View {
                 top(song)
                 switch pane {
                 case .cover:
-                    if immersive {
+                    if look == "record" {
+                        // The cover as a turning record, its arm resting on it; still while
+                        // paused or with Reduce motion.
+                        Spacer(minLength: 8)
+                        RecordDisc(side: 330, spinning: store.playback?.playing == true && !reduceMotion) {
+                            Artwork(path: song?.artwork, seed: seed, size: 500)
+                        }
+                        .gesture(swipeToSkip)
+                        Spacer(minLength: 16)
+                    } else if look == "lyrics" {
+                        // Only the words, very large, lit as they are sung.
+                        LyricsPane(song: song, stage: true) { has in hasLyrics = has }
+                    } else if immersive || look == "visualizer" {
                         // The cover is the page itself: the words sit over its foot.
                         Spacer(minLength: 8)
                             .contentShape(.rect)
@@ -217,12 +243,36 @@ struct NowPlayingView: View {
         .frame(height: 34)
         .contentShape(.rect)
         .onTapGesture { dismiss() }
+        .overlay(alignment: .trailing) { if pane == .cover { lookButton } }
         .gesture(DragGesture(minimumDistance: 10).onEnded { g in
             if g.translation.height > 80 { dismiss() }
         })
         .accessibilityAddTraits(.isButton)
         .accessibilityLabel("Close the player")
         .padding(.top, 4)
+    }
+
+    /// The Look button: steps through Cover, Record, Lyrics, and Visualizer (kept in `big_look`).
+    private var lookButton: some View {
+        let looks = ["cover", "record", "lyrics", "visualizer"]
+        let names = ["cover": "Cover", "record": "Record", "lyrics": "Lyrics", "visualizer": "Visualizer"]
+        let icons = ["cover": "photo", "record": "record.circle", "lyrics": "quote.bubble", "visualizer": "waveform.circle"]
+        let now = store.choices.bigLook
+        let next = looks[((looks.firstIndex(of: now) ?? 0) + 1) % looks.count]
+        return Button {
+            hasLyrics = true
+            withAnimation(reduceMotion ? nil : .easeInOut(duration: 0.35)) { store.updateChoices { $0.bigLook = next } }
+        } label: {
+            Image(systemName: icons[now] ?? "photo")
+                .font(.body.weight(.semibold))
+                .frame(width: 34, height: 34)
+        }
+        .buttonStyle(.glass)
+        .buttonBorderShape(.circle)
+        .accessibilityLabel("Look")
+        .accessibilityValue(names[now] ?? "Cover")
+        .accessibilityHint("Shows the player as \(names[next] ?? "")")
+        .sensoryFeedback(.selection, trigger: now) { _, _ in store.app.haptics }
     }
 
     /// The song's menu, a plain sign beside its name.
@@ -889,6 +939,10 @@ struct RoutePicker: UIViewRepresentable {
 struct LyricsPane: View {
     @Environment(Store.self) private var store
     let song: Song?
+    /// The player's Lyrics look: only the words, very large, centred.
+    var stage = false
+    /// Told whether the song has any lyrics, once they are looked up.
+    var found: ((Bool) -> Void)? = nil
     @State private var lyrics: Lyrics?
     @State private var loaded = false
     /// Online lookups are on (LRCLIB and the lyrics plugins).
@@ -990,6 +1044,7 @@ struct LyricsPane: View {
         online = isOnline
         lyrics = found
         loaded = true
+        self.found?(!(found?.lines.isEmpty ?? true) || !(found?.plain.isEmpty ?? true))
         askTranslation()
     }
 
@@ -1002,7 +1057,9 @@ struct LyricsPane: View {
 
     private func plain(_ text: String) -> some View {
         ScrollView {
-            Text(text).font(.needle(.title3).weight(.semibold)).frame(maxWidth: .infinity, alignment: .leading)
+            Text(text).font(stage ? .system(size: 30, weight: .heavy) : .needle(.title3).weight(.semibold))
+                .multilineTextAlignment(stage ? .center : .leading)
+                .frame(maxWidth: .infinity, alignment: stage ? .center : .leading)
                 .padding(.vertical, 20)
         }
         .mask(fade)
@@ -1018,10 +1075,10 @@ struct LyricsPane: View {
         let current = lines.lastIndex { $0.time <= position + 0.2 } ?? -1
         return ScrollViewReader { reader in
             ScrollView(showsIndicators: false) {
-                LazyVStack(alignment: .leading, spacing: 22) {
+                LazyVStack(alignment: stage ? .center : .leading, spacing: stage ? 30 : 22) {
                     Color.clear.frame(height: 40)
                     ForEach(Array(lines.enumerated()), id: \.offset) { i, line in
-                        VStack(alignment: .leading, spacing: 4) {
+                        VStack(alignment: stage ? .center : .leading, spacing: 4) {
                             Group {
                                 if i == current && !line.words.isEmpty {
                                     karaoke(line, at: position)
@@ -1029,18 +1086,21 @@ struct LyricsPane: View {
                                     Text(line.text.isEmpty ? "♪" : line.text)
                                 }
                             }
-                            .font(.system(size: 28, weight: .heavy))
+                            .font(.system(size: stage ? 38 : 28, weight: .heavy))
+                            .multilineTextAlignment(stage ? .center : .leading)
                             // The line in your language, under it (Translate on).
                             if translate, let translated = translations[i] {
-                                Text(translated).font(.system(size: 19, weight: .semibold)).opacity(0.62)
+                                Text(translated).font(.system(size: stage ? 24 : 19, weight: .semibold)).opacity(0.62)
+                                    .multilineTextAlignment(stage ? .center : .leading)
                             }
                         }
                         .opacity(i == current ? 1 : 0.32)
                         .blur(radius: i == current ? 0 : 1)
                         // Room for the playing line to grow without going past the edge.
-                        .padding(.trailing, 16)
-                        .scaleEffect(i == current ? 1.03 : 1, anchor: .leading)
-                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(.horizontal, stage ? 8 : 0)
+                        .padding(.trailing, stage ? 0 : 16)
+                        .scaleEffect(i == current ? 1.03 : 1, anchor: stage ? .center : .leading)
+                        .frame(maxWidth: .infinity, alignment: stage ? .center : .leading)
                         .id(i)
                         .onTapGesture { store.seek(line.time) }
                         .contextMenu {
@@ -1055,7 +1115,7 @@ struct LyricsPane: View {
             }
             .onChange(of: current, initial: true) { _, now in
                 guard now >= 0 else { return }
-                withAnimation(.spring(response: 0.6, dampingFraction: 0.9)) { reader.scrollTo(now, anchor: UnitPoint(x: 0, y: 0.25)) }
+                withAnimation(.spring(response: 0.6, dampingFraction: 0.9)) { reader.scrollTo(now, anchor: UnitPoint(x: stage ? 0.5 : 0, y: stage ? 0.4 : 0.25)) }
             }
         }
         .mask(fade)

@@ -869,7 +869,7 @@ final class Store {
         Task {
             let image = await Covers.load(path, size: 40)
             let color = await Task.detached { image.flatMap(Self.mainColor(of:)) }.value
-            if colorFor == path { withAnimation(.easeInOut(duration: 0.8)) { coverColor = color } }
+            if colorFor == path { withAnimation(.easeInOut(duration: 0.5)) { coverColor = color } }
         }
     }
 

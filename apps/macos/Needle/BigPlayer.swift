@@ -10,13 +10,22 @@ struct BigPlayer: View {
     @State private var moved = Date()
     /// Full screen: what the side shows (the lyrics, or what plays next), or nothing.
     @State private var immersiveSide: Store.BigSide? = .lyrics
-    /// Light that moves with the music fills the player, in place of the cover.
-    @AppStorage("visualizer") private var visualizer = false
+
+    /// The look chosen with the Look button: the cover, a turning record, only the lyrics, or
+    /// the visualizer. With no timed or plain lyrics, the Lyrics look shows the cover.
+    private var look: String {
+        let chosen = store.settings.bigLook
+        if chosen == "lyrics", store.lyrics.map({ $0.lines.isEmpty && $0.plain.isEmpty }) ?? true { return "cover" }
+        return ["cover", "record", "lyrics", "visualizer"].contains(chosen) ? chosen : "cover"
+    }
 
     var body: some View {
         @Bindable var store = store
         let p = store.playback
-        let immersive = store.settings.immersiveCover
+        let look = look
+        let visualizer = look == "visualizer"
+        // The immersive cover is the Cover look's; the others stand on the cover's colours.
+        let immersive = store.settings.immersiveCover && look == "cover"
         GeometryReader { geo in
             let wide = geo.size.width > 980
             ZStack {
@@ -33,10 +42,33 @@ struct BigPlayer: View {
                 } else {
                     store.colors.glow.opacity(0.3)
                 }
-                if let p, p.hasSong {
+                if let p, p.hasSong, look == "lyrics" {
+                    // Only the words, very large, lit as they are sung; the song and its
+                    // controls under them.
+                    VStack(spacing: 22) {
+                        LyricsView(kind: .stage, light: true)
+                            .frame(maxWidth: 1000)
+                            .frame(maxHeight: .infinity)
+                            .mask(LinearGradient(stops: [.init(color: .clear, location: 0), .init(color: .black, location: 0.1),
+                                                         .init(color: .black, location: 0.88), .init(color: .clear, location: 1)],
+                                                 startPoint: .top, endPoint: .bottom))
+                        titles(p)
+                        controls.opacity(resting ? 0 : 1)
+                    }
+                    .padding(.horizontal, 48)
+                    .padding(.top, 90)
+                    .padding(.bottom, 36)
+                } else if let p, p.hasSong {
                     HStack(spacing: wide ? 60 : 32) {
                         VStack(spacing: 22) {
-                            if immersive || visualizer {
+                            if look == "record" {
+                                // The cover as a turning record, its arm resting on it; still while
+                                // paused or with Reduce motion.
+                                let side = min(geo.size.height * 0.52, wide ? 480 : 360)
+                                RecordDisc(side: side, spinning: p.playing && store.motion) {
+                                    Cover(path: p.artwork, seed: p.album + p.artist, side: side * 0.4, corner: 0)
+                                }
+                            } else if immersive || visualizer {
                                 // The cover is the window's side itself: the words sit over its foot.
                                 Spacer(minLength: 0)
                             } else {
@@ -48,14 +80,7 @@ struct BigPlayer: View {
                                     }
                                     .shadow(color: .black.opacity(0.45), radius: 40, y: 18)
                             }
-                            VStack(spacing: 4) {
-                                Text(p.title).font(store.display(store.immersive ? 34 : 28)).lineLimit(2).multilineTextAlignment(.center)
-                                Button(p.artist) { store.big = false; store.setImmersive(false); store.navigate(.artist(store.current?.artist ?? p.artist)) }
-                                    .buttonStyle(.plain)
-                                    .font(.needle(.title3))
-                                    .foregroundStyle(.white.opacity(0.75))
-                            }
-                            .foregroundStyle(.white)
+                            titles(p)
                             controls
                                 .opacity(resting ? 0 : 1)
                         }
@@ -119,15 +144,8 @@ struct BigPlayer: View {
                 .help("Close the player · Esc")
                 .accessibilityLabel("Close the player")
             Spacer()
-            Button { visualizer.toggle() } label: {
-                Image(systemName: "waveform.circle")
-                    .frame(width: 30, height: 30)
-                    .background(.white.opacity(visualizer ? 0.18 : 0), in: Circle())
-            }
-            .help(visualizer ? "Show the cover" : "Visualizer: light that moves with the music")
-            .accessibilityLabel(visualizer ? "Hide the visualizer" : "Show the visualizer")
-            .accessibilityAddTraits(visualizer ? .isSelected : [])
-            if store.immersive && !visualizer {
+            lookButton
+            if store.immersive && (look == "cover" || look == "record") {
                 sideButton(.lyrics, icon: "quote.bubble", name: "the lyrics")
                 sideButton(.queue, icon: "list.bullet", name: "what plays next")
             }
@@ -143,6 +161,38 @@ struct BigPlayer: View {
         .font(.system(size: 17, weight: .medium))
         .padding(.horizontal, 28)
         .padding(.top, 44)
+    }
+
+    /// The Look button: steps through Cover, Record, Lyrics, and Visualizer (kept in `big_look`).
+    private var lookButton: some View {
+        let looks = ["cover", "record", "lyrics", "visualizer"]
+        let names = ["cover": "Cover", "record": "Record", "lyrics": "Lyrics", "visualizer": "Visualizer"]
+        let icons = ["cover": "photo", "record": "record.circle", "lyrics": "quote.bubble", "visualizer": "waveform.circle"]
+        let now = store.settings.bigLook
+        let next = looks[((looks.firstIndex(of: now) ?? 0) + 1) % looks.count]
+        return Button {
+            withAnimation(store.motion ? .easeInOut(duration: 0.35) : nil) { store.set(["big_look": next]) }
+        } label: {
+            Image(systemName: icons[now] ?? "photo")
+                .frame(width: 30, height: 30)
+                .background(.white.opacity(0.14), in: Circle())
+        }
+        .help("Look: \(names[now] ?? "Cover") · next: \(names[next] ?? "")")
+        .accessibilityLabel("Look")
+        .accessibilityValue(names[now] ?? "Cover")
+        .accessibilityHint("Shows the player as \(names[next] ?? "")")
+    }
+
+    /// The song's name and its artist (a click opens the artist's page).
+    private func titles(_ p: MacPlayback) -> some View {
+        VStack(spacing: 4) {
+            Text(p.title).font(store.display(store.immersive ? 34 : 28)).lineLimit(2).multilineTextAlignment(.center)
+            Button(p.artist) { store.big = false; store.setImmersive(false); store.navigate(.artist(store.current?.artist ?? p.artist)) }
+                .buttonStyle(.plain)
+                .font(.needle(.title3))
+                .foregroundStyle(.white.opacity(0.75))
+        }
+        .foregroundStyle(.white)
     }
 
     /// Full screen: shows the lyrics or the queue beside the cover; pressed again, hides it.

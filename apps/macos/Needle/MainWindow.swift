@@ -121,6 +121,13 @@ struct MainWindow: View {
         let value = { (flag: String) in arguments.firstIndex(of: flag).flatMap { arguments.indices.contains($0 + 1) ? arguments[$0 + 1] : nil } }
         // `--rescan`: read the music folders again.
         if arguments.contains("--rescan") { store.rescan() }
+        // `--search <words>`: types them in search (on a page that is not a list: Search).
+        if let words = value("--search") {
+            Task {
+                try? await Task.sleep(for: .seconds(2))
+                store.search = words
+            }
+        }
         // `--snapshot-main <path>`: after 12 seconds, the main window drawn twice, half a second
         // apart (<path>-1.png, <path>-2.png), to see whether something moves.
         if let path = value("--snapshot-main") {
@@ -336,6 +343,13 @@ struct MainWindow: View {
     }
 
     private var title: String {
+        // An album's, artist's, or playlist's own big title shows on the page until it folds
+        // away on scroll; then the title bar takes it.
+        let folds: Bool = switch store.route {
+        case .album, .artist, .playlist: true
+        default: false
+        }
+        if folds && !store.headerFolded { return "" }
         if case .playlist = store.route { return store.pagePlaylist?.name ?? "Playlist" }
         return store.route.title
     }
@@ -530,7 +544,7 @@ struct WindowBackground: View {
         }
         // The one place new colours fade in: the page's and the cover's colours change at once
         // everywhere else (see `Store.setPageTint`). Nothing here is a table.
-        .animation(store.motion ? .easeInOut(duration: 0.45) : nil, value: store.colors)
+        .animation(store.motion ? .easeInOut(duration: 0.5) : nil, value: store.colors)
         .ignoresSafeArea()
     }
 }
@@ -538,6 +552,7 @@ struct WindowBackground: View {
 /// The page the window shows.
 struct PageView: View {
     private var store: Store { .shared }
+    @Namespace private var covers
     @State private var total: UInt32?
 
     var body: some View {
@@ -567,6 +582,8 @@ struct PageView: View {
         }
         .id(store.route)
         .transition(.opacity)
+        .animation(store.motion ? .smooth(duration: 0.4) : .easeInOut(duration: 0.2), value: store.route)
+        .onAppear { store.coverSpace = covers }
         .task(id: store.libraryVersion) { total = await store.load { try $0.songCount() } }
     }
 
