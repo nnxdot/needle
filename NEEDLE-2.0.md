@@ -158,3 +158,68 @@ the text.
 - **A highlight under the pointer** on queue rows, as Windows has (`panel.rs`): the Mac's
   `QueueRow` gets the same soft background, in the side panel, the big player, and the mini
   player.
+
+### Four more, from the design mockups (the user's picks, 2026-10-26)
+
+The user chose these from the "pushing the design further" mockups: Search (4), the TV's Home
+(6), the big player's three looks (7), and motion (8). Not chosen: Home's stage and mixes,
+the album page's extra parts, and the artist poster.
+
+**Search page.** All systems.
+- Typing in search on a page that is not a list (Home, an artist's page, Settings, the
+  Library in numbers…) opens Search, where it opened Songs before. On a list page (Songs,
+  Albums, Artists, a playlist, an album, a folder) it still filters that list.
+- Under the search field: chips **All, Songs, Albums, Artists, Lyrics**. Songs, Albums, and
+  Artists open those pages filtered by the search (as today). Lyrics lists every song whose
+  lyrics hold the words (up to 50).
+- All shows, in order: the **best match** large (its cover or photo, "Song", "Album", or
+  "Artist", the name, and Play), **Songs** (up to 5, with Play on hover or tap), **Albums**
+  (a row of covers), **Artists** (circles), **In the lyrics** (up to 3: the line, the words
+  lit in amber, and the song under it; it plays from the start), and **Try a rule** (the
+  chips in `find::RULE_EXAMPLES`: tapping one puts its rule in the search field).
+- A section with nothing is left out. With nothing at all: "Nothing matches". A rule that
+  does not compile shows its error, as the Songs page does.
+- Core: `Library::find(query, limit)`; phones and Mac: `Needle::find(query, limit)` →
+  `SearchFound` and `Needle::rule_examples()` (name, rule, name, rule…). The best match is
+  the album, artist, or song whose name is the search, starts with it, or holds it, in that
+  order; albums before artists before songs when two are as close; the most played wins.
+- Lyrics are searched in an index of each song's own lyrics (the file beside it and its
+  tags), read slowly in the background (`find::start_reading_lyrics`, started by
+  `Needle::new` and the desktop app), and of any lyrics shown since (LRCLIB, a server,
+  plugins). Nothing is fetched to fill it. Three letters at least.
+
+**TV Home.** Android TV only.
+- The album in focus fills the screen behind (its cover, wide, darkened at the left and
+  foot); moving the focus changes it, with a short fade.
+- Its kind ("Jump back in"…), name, artist, year, and songs sit large above the row, with
+  Play and Shuffle.
+- The tile in focus grows, with a 3 dp ring in the cover's colour (amber when it has none).
+- The visualizer is one button away (on the player).
+
+**The big player's looks.** All systems.
+- A **Look** button in the big player steps through four looks, kept in the setting
+  `big_look` (`model::BIG_LOOKS`: "cover", "record", "lyrics", "visualizer"; phones:
+  `LibraryChoices.big_look`):
+  - **Cover**: as today, the cover and the lyrics beside it.
+  - **Record**: the cover as a turning record (grooves, the cover as its label, the arm
+    resting on it), over the cover's colours. Android's Record cover shape is the model.
+  - **Lyrics**: only the words, very large, centred, lit as sung (word by word where timed),
+    with the translation under each line when Translate is on. No lyrics: the Cover look.
+  - **Visualizer**: the visualizer's light fills the space.
+- Every look keeps the player's buttons, the seek bar, and the cover's colours.
+- Reduce motion: the record keeps still, and the visualizer rests.
+
+**Motion.** All systems.
+- **The cover goes to its page.** Choosing an album: its cover grows into the album page's
+  cover (the Mac: `matchedGeometryEffect`; the iPhone: zoom transition; Android: shared
+  element). Windows and Linux: the page fades in, and its cover grows from 96 % (GPUI has no
+  shared elements).
+- **The header folds on scroll.** On album, artist, and playlist pages, scrolling down shrinks
+  the big title into the title bar (or the top bar on phones).
+- **Covers glow under the pointer.** Desktop: a cover lifts by 2 px, with a soft light in its
+  own colour behind it.
+- **Shelves fill in** with soft placeholder tiles while they load (done on the desktop).
+- **The colour follows the music.** When the song changes, the sidebar's tint and the
+  player's colour change to the new cover's over about half a second, not at once.
+- **Reduce motion** (Needle's or the system's): all of these become plain fades or nothing.
+

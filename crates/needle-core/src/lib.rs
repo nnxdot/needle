@@ -15,6 +15,7 @@ pub mod effects;
 #[cfg(windows)]
 mod exclusive;
 pub mod ffmpeg;
+pub mod find;
 pub mod formats;
 pub mod history;
 pub mod import;
