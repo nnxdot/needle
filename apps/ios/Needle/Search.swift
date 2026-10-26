@@ -51,7 +51,11 @@ struct SearchView: View {
         .searchable(text: $query, prompt: "Songs, albums, artists, lyrics")
         #if DEBUG
         // Test builds: -search <words> searches for them.
-        .onAppear { if query.isEmpty, let words = UserDefaults.standard.string(forKey: "search") { query = words } }
+        .onAppear {
+            if query.isEmpty, let words = UserDefaults.standard.string(forKey: "search") { query = words }
+            // -search-kind lyrics|songs|albums|artists: that chip.
+            if let chip = UserDefaults.standard.string(forKey: "search-kind"), let chosen = Kind(rawValue: chip.capitalized) { kind = chosen }
+        }
         #endif
         .task(id: store.libraryVersion) { genres = await store.load { try $0.genres() } ?? [] }
         .task(id: "\(query)|\(kind)|\(store.ratingVersion)|\(store.libraryVersion)") {
