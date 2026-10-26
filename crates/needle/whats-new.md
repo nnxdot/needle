@@ -4,6 +4,8 @@ A new look, after the Mac's, and a lot more to see and hear.
 - [play] **Choose the player's buttons.** Drag buttons into the player, along it, and out of it in Settings › Appearance › Layout › Player buttons.
 - [tag] **Fonts.** Choose a font for titles (eight of them, such as Fraunces, Poster, and Instrument Serif) and one for everything else (such as Inter and Atkinson Hyperlegible), or a font you have installed, in Settings › Appearance.
 - [wave] **The visualizer.** Bars that move with the music, in its colours, under the cover, with a glow that breathes with it. Turn it on with the new button in the big player.
+- [albums] **Gentler motion.** Pages rise as they open, album and playlist pages fold their header as you scroll, and covers lift with a glow in their own colour under the pointer. Reduce motion turns it off.
+- [albums] **Looks for the big player.** The Look button steps through the cover with the lyrics beside it, the cover as a turning record, only the words very large, and the visualizer filling the space.
 - [signal] **A seek bar shaped like the song.** In the big player and full screen, the seek bar shows the song's loud and quiet parts.
 - [artists] **Better artists.** Guests after "feat." and both halves of "A & B" get their own page, sort names from your tags are used, and accents sort where they belong. Sort artists by name, plays, songs, or newest, show only album artists, and jump with the A–Z bar.
 - [edit] **Your own artist pictures.** The pencil on an artist's page lets you choose their photo, wide picture, and logo: your own file, or any of fanart.tv's. A photo in an artist's folder (artist.jpg) is used too, and so are a wide picture and a logo there (fanart.jpg, logo.png) when fanart.tv has none or online lookups are off.
@@ -13,6 +15,7 @@ A new look, after the Mac's, and a lot more to see and hear.
 - [albums] **A record crate.** Flip through your albums like records in a box (Albums › Crate).
 - [lyrics] **Lyric cards.** Right-click a line of the lyrics for a picture of it to share.
 - [queue] **The queue in full screen.** A queue button beside the lyrics button.
+- [search] **A Search page.** Type on Home or any page that is not a list: the best match comes first, large, then songs, albums, artists, and the lines of lyrics that hold your words. Rules to try are one click away.
 - [play] **Moving covers on the album page.** An album with a moving cover shows it moving at the top of its page too.
 - [eq] **Smart mixes.** With crossfade on, the fade starts where the music ends and lasts whole bars.
 - Plugins can translate lyrics: a Translate button then shows under them.

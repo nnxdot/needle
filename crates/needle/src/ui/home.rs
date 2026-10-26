@@ -192,7 +192,12 @@ impl AppView {
 
     /// One Home row, scrolled sideways, with an arrow at each end (while the pointer is over
     /// it, and only toward more) that moves it a page of tiles.
-    fn shelf_row(&self, i: usize, tiles: Vec<AnyElement>, cx: &mut Context<Self>) -> Div {
+    pub(super) fn shelf_row(
+        &self,
+        i: usize,
+        tiles: Vec<AnyElement>,
+        cx: &mut Context<Self>,
+    ) -> Div {
         let p = pal(cx);
         let Some(scroll) = self.shelf_scrolls.get(i).cloned() else {
             return div().child(
@@ -373,7 +378,7 @@ impl AppView {
         )
     }
 
-    fn shelf_tile(
+    pub(super) fn shelf_tile(
         &self,
         index: usize,
         group: &Group,
@@ -397,6 +402,10 @@ impl AppView {
                     .mb_2()
                     .rounded(if round { px(TILE) } else { px(8.) })
                     .shadow_md()
+                    .when(super::motion::enabled(cx), |el| {
+                        let glow = self.cover_glow(group.artwork.as_deref(), cx);
+                        el.group_hover("tile", move |s| s.top(px(-2.)).shadow(glow.clone()))
+                    })
                     .child(if round {
                         self.artist_photo(&group.title, TILE, cx)
                     } else {

@@ -148,6 +148,7 @@ impl AppView {
             Page::Doctor => self.doctor_view(width, cx),
             Page::Numbers => self.numbers_view(width, cx),
             Page::MoodMap => self.mood_view(width, cx),
+            Page::Search => self.search_view(width, cx),
             _ if self.total == 0 && self.scan.is_none() && !self.loading => {
                 self.onboarding(cx).into_any_element()
             }
@@ -171,9 +172,9 @@ impl AppView {
             .child(motion::animate(
                 page,
                 ("page", self.page_serial),
-                160,
+                200,
                 cx,
-                |el, t| el.opacity(t),
+                |el, t| el.opacity(t).pt(px((1. - t) * 10.)),
             ))
     }
 
@@ -296,7 +297,15 @@ impl AppView {
         let big = album_art.is_some() || artist.is_some() || playlist.is_some();
         let narrow = width < 760.;
         let tight = width < 620.;
-        let cover_size = if narrow { 132. } else { 196. };
+        // Scrolled down, the header folds: the cover and the title shrink, so more of the list
+        // shows.
+        let fold = if big && !self.page.is_grid() {
+            (-f32::from(self.list_scroll.0.borrow().base_handle.offset().y) / 200.).clamp(0., 1.)
+        } else {
+            0.
+        };
+        let full = if narrow { 132. } else { 196. };
+        let cover_size = full + (72. - full) * fold;
         // Play and the rest: under the title beside a cover, else beside the title.
         let buttons = (!matches!(self.page, Page::Albums | Page::Artists)).then(|| {
             div()
@@ -443,7 +452,7 @@ impl AppView {
             .gap_5()
             .when(
                 album_art.is_some() || artist.is_some() || playlist.is_some(),
-                |el| el.pt(px(34.)).pb_6(),
+                |el| el.pt(px(34. - 22. * fold)).pb(px(24. - 10. * fold)),
             )
             .when_some(playlist.clone(), |el, list| {
                 el.child(div().rounded(px(8.)).shadow_lg().child(self.playlist_cover(
@@ -483,11 +492,15 @@ impl AppView {
                     .flex()
                     .flex_col()
                     .gap_1()
-                    .children(self.breadcrumbs(cx))
+                    // Folded, only the name, its artist, and the buttons stay.
+                    .when(fold < 0.5, |el| el.children(self.breadcrumbs(cx)))
                     .child(
                         if album_art.is_some() || artist.is_some() || playlist.is_some() {
-                            super::widgets::display(title, if narrow { 34. } else { 46. })
-                                .truncate()
+                            super::widgets::display(title, {
+                                let full = if narrow { 34. } else { 46. };
+                                full + (26. - full) * fold
+                            })
+                            .truncate()
                         } else {
                             page_title(title)
                         },
@@ -516,24 +529,26 @@ impl AppView {
                                 })),
                         )
                     })
-                    .child(
-                        meta(
-                            match &album_art {
-                                Some(track) => [
-                                    (track.year > 0).then(|| track.year.to_string()),
-                                    Some(summary.clone()),
-                                    Some(quality(track)),
-                                ]
-                                .into_iter()
-                                .flatten()
-                                .collect::<Vec<_>>()
-                                .join(" · "),
-                                None => summary,
-                            },
-                            cx,
+                    .when(fold < 0.5, |el| {
+                        el.child(
+                            meta(
+                                match &album_art {
+                                    Some(track) => [
+                                        (track.year > 0).then(|| track.year.to_string()),
+                                        Some(summary.clone()),
+                                        Some(quality(track)),
+                                    ]
+                                    .into_iter()
+                                    .flatten()
+                                    .collect::<Vec<_>>()
+                                    .join(" · "),
+                                    None => summary,
+                                },
+                                cx,
+                            )
+                            .mt_1(),
                         )
-                        .mt_1(),
-                    )
+                    })
                     .when_some(
                         playlist
                             .as_ref()
@@ -1424,12 +1439,16 @@ impl AppView {
                     .mb_2()
                     .rounded(if round { px(size) } else { px(8.) })
                     .shadow_md()
+                    .when(super::motion::enabled(cx), |el| {
+                        let glow = self.cover_glow(group.artwork.as_deref(), cx);
+                        el.group_hover("tile", move |s| s.top(px(-2.)).shadow(glow.clone()))
+                    })
                     .child(if round {
                         self.artist_photo(&group.title, size, cx)
                     } else {
                         div()
                             .rounded(px(8.))
-                            .group_hover("tile", |s| s.opacity(0.86))
+                            .group_hover("tile", |s| s.opacity(0.94))
                             .child(cover(group.artwork.as_deref(), &group.seed, size, cx))
                             .into_any_element()
                     })
@@ -1512,4 +1531,21 @@ fn with_scrollbar(list: impl IntoElement, handle: &UniformListScrollHandle) -> D
         .flex_col()
         .child(list)
         .child(Scrollbar::vertical(handle).scrollbar_show(ScrollbarShow::Always))
+}
+
+impl AppView {
+    /// Under the pointer, a cover lifts a little, with a soft light in its own colour behind
+    /// it (its colour once Needle knows it; the page's until then). Still with Reduce motion.
+    pub(super) fn cover_glow(&self, artwork: Option<&str>, cx: &App) -> Vec<BoxShadow> {
+        let p = pal(cx);
+        let color = artwork
+            .and_then(|path| self.cached_look(path))
+            .map_or(p.accent, |look| look.vivid);
+        vec![BoxShadow {
+            color: color.opacity(if p.dark { 0.45 } else { 0.35 }),
+            offset: point(px(0.), px(10.)),
+            blur_radius: px(34.),
+            spread_radius: px(-4.),
+        }]
+    }
 }

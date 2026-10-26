@@ -205,7 +205,19 @@ impl AppView {
         let tint = look.as_ref().map(|l| l.vivid);
         let size = super::widgets::content_size(window);
         let (w, h) = (f32::from(size.width), f32::from(size.height));
-        let side = if w < 1000. { Side::None } else { self.big_side };
+        let big_look = self.big_look();
+        // The Lyrics look shows the words itself: no lyrics beside them too.
+        let side = match (w < 1000., self.big_side) {
+            (true, _) => Side::None,
+            (_, Side::Lyrics) if big_look == "lyrics" => Side::None,
+            (_, side) => side,
+        };
+        let angle = self.record_angle();
+        if big_look == "record" && self.playback.playing && self.motion_allowed()
+            || big_look == "lyrics"
+        {
+            window.request_animation_frame();
+        }
         let current = self.shown_item();
         let playing = self.playback.playing;
         let repeat = self.playback.repeat;
@@ -213,9 +225,7 @@ impl AppView {
         let art = (h - 440.).min(left_w - 120.).clamp(140., 520.);
         // Settings > Appearance > Immersive cover, for a song with a cover of its own.
         let moving = current.as_ref().and_then(|c| self.moving_cover(&c.track));
-        let immersive = self
-            .settings
-            .immersive_cover
+        let immersive = (self.settings.immersive_cover && big_look == "cover")
             .then(|| {
                 moving
                     .clone()
@@ -334,7 +344,17 @@ impl AppView {
                                 Some(side) => el.w(px(side)).flex_shrink_0().justify_end().pb_12(),
                                 None => el.flex_1().justify_center().px_12(),
                             })
-                            .when(cover_side.is_none(), |el| {
+                            .when(cover_side.is_none() && big_look != "cover", |el| {
+                                el.child(self.look_stage(
+                                    big_look,
+                                    art,
+                                    left_w,
+                                    angle,
+                                    current.as_ref().map(|c| &c.track),
+                                    cx,
+                                ))
+                            })
+                            .when(cover_side.is_none() && big_look == "cover", |el| {
                                 el.child(
                                     div()
                                         .rounded(px(10.))
@@ -379,7 +399,7 @@ impl AppView {
                                         ),
                                 )
                             })
-                            .when(self.visualizer, |el| {
+                            .when(self.visualizer && big_look != "visualizer", |el| {
                                 el.child(self.visualizer_strip(art, 56., cx))
                             })
                             .child(match &current {
@@ -718,6 +738,7 @@ impl AppView {
                         cx,
                     ))
                     .child(side_button("big-stems", "stems", "Stems", Side::Stems, cx))
+                    .child(self.look_button(cx))
                     .child(
                         icon_button(
                             "big-visualizer",
