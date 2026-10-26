@@ -148,6 +148,7 @@ impl AppView {
             Page::Doctor => self.doctor_view(width, cx),
             Page::Numbers => self.numbers_view(width, cx),
             Page::MoodMap => self.mood_view(width, cx),
+            Page::Search => self.search_view(width, cx),
             _ if self.total == 0 && self.scan.is_none() && !self.loading => {
                 self.onboarding(cx).into_any_element()
             }

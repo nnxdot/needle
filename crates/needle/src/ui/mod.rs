@@ -38,6 +38,7 @@ mod plugin_ask;
 mod plugin_ui;
 mod radio;
 mod remote_ui;
+mod search_page;
 mod server_search;
 mod sound;
 mod sources_ui;
@@ -226,6 +227,8 @@ pub enum Page {
     Numbers,
     /// Every measured song by how it sounds.
     MoodMap,
+    /// What a search finds across the library (see `search_page`).
+    Search,
     /// The songs of a music source (a server a plugin connects to).
     Source {
         plugin: String,
@@ -262,6 +265,7 @@ impl Page {
             Self::Doctor => "Fix my library".into(),
             Self::Numbers => "Your library".into(),
             Self::MoodMap => "Mood map".into(),
+            Self::Search => "Search".into(),
             Self::Source { name, .. } => name.clone(),
         }
     }
@@ -296,6 +300,7 @@ impl Page {
                 | Self::Doctor
                 | Self::Numbers
                 | Self::MoodMap
+                | Self::Search
         )
     }
     pub fn is_grid(&self) -> bool {
@@ -407,6 +412,10 @@ enum Event {
     ArtistPicturesChanged(String),
     /// What played on this day in earlier years, for Home.
     OnThisDay(Vec<needle_core::numbers::OnThisDay>),
+    /// What a search found (its generation, then the finds or the problem).
+    Found(u64, Result<Box<needle_core::find::Found>, String>),
+    /// Every line of lyrics that holds the search (its generation).
+    FoundLyrics(u64, Vec<needle_core::find::LyricMatch>),
     /// A song's shape for the waveform seek bar: its id and 120 heights, 0 to 1.
     Waveform(String, Vec<f32>),
     /// A song's lyrics translated, one line for each line: its id and the lines.
@@ -457,6 +466,12 @@ pub struct AppView {
     picture_sweep: needle_core::media::pictures::PictureSweep,
     /// Home's On this day shelves.
     on_this_day: Vec<needle_core::numbers::OnThisDay>,
+    /// The Search page: what it shows, its newest answer, and that answer's number.
+    search_tab: search_page::SearchTab,
+    found: Option<Box<needle_core::find::Found>>,
+    found_error: Option<String>,
+    found_lyrics: Vec<needle_core::find::LyricMatch>,
+    find_generation: u64,
     /// The playing song's shape, for the waveform seek bar: its id and heights.
     waveform: Option<(String, Vec<f32>)>,
     /// Lyrics translated by a plugin, shown under each line while Translate is on.
@@ -1040,9 +1055,15 @@ impl AppView {
                                 | Page::Artists
                         )
                     {
-                        this.back.push(this.page.clone());
-                        this.forward.clear();
-                        this.page = Page::Songs;
+                        if this.page != Page::Search {
+                            this.back.push(this.page.clone());
+                            this.forward.clear();
+                            this.page = Page::Search;
+                            this.search_tab = Default::default();
+                        }
+                    }
+                    if this.page == Page::Search {
+                        this.run_find(cx);
                     }
                     this.refresh(cx);
                     this.update_suggestions(cx);
@@ -1108,6 +1129,11 @@ impl AppView {
             history_loading: false,
             picture_sweep: needle_core::media::pictures::PictureSweep::start(library.clone()),
             on_this_day: vec![],
+            search_tab: Default::default(),
+            found: None,
+            found_error: None,
+            found_lyrics: vec![],
+            find_generation: 0,
             waveform: None,
             translate_lyrics: false,
             translation: None,
@@ -1588,6 +1614,12 @@ impl AppView {
                 Event::Look(path, look) => self.set_look(path, look),
                 Event::Home(home) => self.home = Some(home),
                 Event::OnThisDay(days) => self.on_this_day = days,
+                Event::Found(generation, found) => self.found(generation, found),
+                Event::FoundLyrics(generation, found) => {
+                    if generation == self.find_generation {
+                        self.found_lyrics = found;
+                    }
+                }
                 Event::Waveform(id, heights) => self.waveform = Some((id, heights)),
                 Event::Translated(id, lines) => self.translation = Some((id, lines)),
                 Event::Numbers(numbers) => self.numbers = Some(numbers),
