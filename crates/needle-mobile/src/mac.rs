@@ -2179,6 +2179,31 @@ impl Needle {
         to_json(&self.library.on_this_day(now, offset, &[1, 5], 12)?)
     }
 
+    /// What `query` finds (it may be a rule), as JSON in the Mac's own types: `best` ({kind:
+    /// "song"|"album"|"artist", and its track, album, or artist}), then up to `limit` songs,
+    /// albums, artists, and lyrics ({track, line}).
+    pub fn find_json(&self, query: String, limit: u32) -> Result<String> {
+        use needle_core::find::Best;
+        let found = self.library.find(&query, limit.max(1) as usize)?;
+        let best = found.best.map(|best| match best {
+            Best::Song(t) => json!({ "kind": "song", "track": t }),
+            Best::Album(a) => json!({ "kind": "album", "album": a }),
+            Best::Artist(a) => json!({ "kind": "artist", "artist": a }),
+        });
+        let lyrics: Vec<Value> = found
+            .lyrics
+            .into_iter()
+            .map(|m| json!({ "track": m.track, "line": m.line }))
+            .collect();
+        to_json(&json!({
+            "best": best,
+            "songs": found.songs,
+            "albums": found.albums,
+            "artists": found.artists,
+            "lyrics": lyrics,
+        }))
+    }
+
     /// Plays the songs inside a circle on the mood map (places 0 to 1). Returns how many.
     pub fn play_mood_area(&self, x: f32, y: f32, radius: f32) -> Result<u32> {
         let reason = "From the mood map".to_string();
