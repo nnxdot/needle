@@ -881,6 +881,14 @@ private fun LatestRelease(album: Album, open: (Route) -> Unit) {
  */
 @Composable
 fun HomeScreen(open: (Route) -> Unit) {
+    // A TV's own Home: the album in focus fills the screen behind (TvHome.kt).
+    if (isTv()) {
+        val songs by rememberLoaded { songCount() }
+        if (songs != null && songs != 0u) {
+            TvHome(open)
+            return
+        }
+    }
     val homeLoad = rememberLoaded { homeShelves(20u) }
     val home by homeLoad
     val countLoad = rememberLoaded { songCount() }
@@ -1052,7 +1060,7 @@ private fun HomeEmpty(scanning: Boolean, read: UInt, open: (Route) -> Unit) {
 // ---------- Search
 
 /** The last search and what it found (see [SearchScreen]). */
-private var lastSearch: Pair<String, List<Song>>? = null
+private var lastSearch: SearchAnswer? = null
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -1061,19 +1069,23 @@ fun SearchScreen(open: (Route) -> Unit) {
     val keyboard = androidx.compose.ui.platform.LocalSoftwareKeyboardController.current
     // Back on the page (from an album found), the last answer shows at once, so the list is
     // there to scroll back to; it is asked again quietly.
-    val last = lastSearch?.takeIf { it.first == query }
-    var songs by remember { mutableStateOf(last?.second ?: emptyList()) }
-    // What the songs shown were found for, so "Nothing found" waits for its own answer.
-    var searched by remember { mutableStateOf(last?.first) }
+    val last = lastSearch?.takeIf { it.query == query }
+    var answer by remember { mutableStateOf(last) }
+    var kind by rememberSaveable { mutableStateOf(SearchKind.All) }
     var server by remember { mutableStateOf<Pair<ULong, List<Song>>?>(null) }
+    // Search's rule chips (name, rule, name, rule…).
+    val rules by rememberLoaded { ruleExamples().chunked(2).filter { it.size == 2 }.map { it[0] to it[1] } }
     val genresLoad = rememberLoaded { genres() }
     val genres by genresLoad
     val playing = playingId()
     LaunchedEffect(query) {
         delay(200)
-        songs = if (query.isBlank()) emptyList() else withContext(Dispatchers.IO) { runCatching { core.search(query) }.getOrDefault(emptyList()) }
-        searched = query
-        lastSearch = query to songs
+        answer = if (query.isBlank()) null else withContext(Dispatchers.IO) {
+            // The best match and a few of each (up to 50, for the chips), and every song.
+            runCatching { SearchAnswer(query, core.find(query, 50u), runCatching { core.search(query) }.getOrDefault(emptyList()), null) }
+                .getOrElse { SearchAnswer(query, null, emptyList(), it.message ?: "This rule is not right.") }
+        }
+        lastSearch = answer
         // Music servers that search (octo-fiesta) answer a moment later.
         server = null
         if (query.isNotBlank()) {
@@ -1145,13 +1157,10 @@ fun SearchScreen(open: (Route) -> Unit) {
                     }
                 }
             } else {
-                if (songs.isEmpty() && searched == query && server == null) {
-                    edgeToEdge(16.dp) { Text("Nothing found for “$query”.", color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(horizontal = Edge, vertical = 16.dp)) }
+                answer?.takeIf { it.query == query }?.let { a ->
+                    searchResults(a, kind, { kind = it }, rules.orEmpty(), { query = it }, playing, open)
                 }
-                items(songs.size, key = { songs[it].id }, span = { GridItemSpan(maxLineSpan) }) { i ->
-                    SongRow(songs[i], playing == songs[i].id, open, Modifier.bleed(16.dp), place = Place(i, songs.size)) { play(songs, i) }
-                }
-                server?.let { (number, found) ->
+                if (kind == SearchKind.All || kind == SearchKind.Songs) server?.let { (number, found) ->
                     edgeToEdge(16.dp) { SectionHeader("On your server") }
                     items(found.size, key = { "server-$it-" + found[it].id }, span = { GridItemSpan(maxLineSpan) }) { i ->
                         SongRow(found[i], playing == found[i].id, null, Modifier.bleed(16.dp), place = Place(i, found.size)) {
