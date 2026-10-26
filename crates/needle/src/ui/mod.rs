@@ -1057,14 +1057,13 @@ impl AppView {
                                 | Page::Folder(_)
                                 | Page::Albums
                                 | Page::Artists
+                                | Page::Search
                         )
                     {
-                        if this.page != Page::Search {
-                            this.back.push(this.page.clone());
-                            this.forward.clear();
-                            this.page = Page::Search;
-                            this.search_tab = Default::default();
-                        }
+                        this.back.push(this.page.clone());
+                        this.forward.clear();
+                        this.page = Page::Search;
+                        this.search_tab = Default::default();
                     }
                     if this.page == Page::Search {
                         this.run_find(cx);

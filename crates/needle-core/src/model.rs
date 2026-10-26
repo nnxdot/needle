@@ -293,10 +293,10 @@ impl Settings {
     pub fn player_buttons(&self) -> Vec<&'static str> {
         let mut buttons: Vec<&'static str> = vec![];
         for name in &self.player_buttons {
-            if let Some(known) = PLAYER_BUTTONS.iter().find(|b| **b == name.as_str()) {
-                if !buttons.contains(known) {
-                    buttons.push(known);
-                }
+            if let Some(known) = PLAYER_BUTTONS.iter().find(|b| **b == name.as_str())
+                && !buttons.contains(known)
+            {
+                buttons.push(known);
             }
         }
         if !buttons.contains(&"play") {

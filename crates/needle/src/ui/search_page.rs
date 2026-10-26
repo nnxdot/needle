@@ -301,7 +301,7 @@ impl AppView {
                     "Song",
                     t.title.clone(),
                     t.artist.clone(),
-                    artwork(Some(t), 112., cx),
+                    artwork(Some(&**t), 112., cx),
                     album_page(t),
                 ),
                 Best::Album(a) => (
@@ -373,7 +373,7 @@ impl AppView {
 
     fn play_best(&mut self, best: &Best) {
         let tracks = match best {
-            Best::Song(t) => vec![t.clone()],
+            Best::Song(t) => vec![(**t).clone()],
             Best::Album(a) => self.library.album_tracks(&a.key).unwrap_or_default(),
             Best::Artist(a) => self
                 .library
