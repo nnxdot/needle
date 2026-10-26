@@ -245,7 +245,7 @@ impl Needle {
             best: found.best.map(|best| match best {
                 Best::Song(t) => SearchBest {
                     kind: "song".into(),
-                    song: Some(Song::from(&t)),
+                    song: Some(Song::from(&*t)),
                     album: None,
                     artist: None,
                 },
