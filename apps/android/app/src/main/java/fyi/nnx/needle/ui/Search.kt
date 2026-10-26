@@ -16,6 +16,7 @@ import androidx.compose.foundation.lazy.grid.GridItemSpan
 import androidx.compose.foundation.lazy.grid.LazyGridScope
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.rounded.PlayArrow
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.MaterialTheme
@@ -234,7 +235,16 @@ private fun BestMatch(best: SearchBest, open: (Route) -> Unit) {
             Text(name.orEmpty(), style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold, maxLines = 2, overflow = TextOverflow.Ellipsis)
             if (!sub.isNullOrBlank()) Text(sub, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
         }
-        PlayPill(onClick = play)
+        // A round amber Play, as on the player: the name keeps the room.
+        androidx.compose.material3.FilledIconButton(
+            onClick = play,
+            shape = androidx.compose.foundation.shape.CircleShape,
+            colors = androidx.compose.material3.IconButtonDefaults.filledIconButtonColors(
+                containerColor = MaterialTheme.colorScheme.primary,
+                contentColor = MaterialTheme.colorScheme.onPrimary,
+            ),
+            modifier = Modifier.size(56.dp),
+        ) { androidx.compose.material3.Icon(androidx.compose.material.icons.Icons.Rounded.PlayArrow, contentDescription = "Play", modifier = Modifier.size(30.dp)) }
     }
 }
 
@@ -244,6 +254,7 @@ private fun LyricHitRow(hit: LyricHit, query: String, playing: Boolean) {
     val lit = MaterialTheme.colorScheme.primary
     Column(
         Modifier
+            .bleed(16.dp)
             .fillMaxWidth()
             .clickable { playSongs(listOf(hit.song.id)) }
             .padding(horizontal = Edge, vertical = 10.dp),

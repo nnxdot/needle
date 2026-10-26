@@ -177,6 +177,7 @@ private fun TvTile(album: Album, onFocus: () -> Unit, onClick: () -> Unit) {
             album.artwork,
             Modifier
                 .size(TileSide)
+                .sharedCover("album-${album.key}")
                 .graphicsLayer { scaleX = grow; scaleY = grow }
                 .then(if (focused) Modifier.border(3.dp, ring, CoverShape) else Modifier),
             CoverShape,

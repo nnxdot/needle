@@ -56,6 +56,11 @@ private fun rememberSpectrum(): FloatArray {
     var shown by remember { mutableStateOf(FloatArray(Bands)) }
     val reduce = reduceMotion()
     LaunchedEffect(reduce) {
+        // Reduce motion: the light rests, a soft even glow.
+        if (reduce) {
+            shown = FloatArray(Bands) { 0.3f }
+            return@LaunchedEffect
+        }
         val held = FloatArray(Bands)
         while (true) {
             withFrameNanos { }
@@ -67,8 +72,7 @@ private fun rememberSpectrum(): FloatArray {
                 }
                 shown = held.copyOf()
             }
-            // Reduce motion: a few calm changes a second rather than thirty.
-            kotlinx.coroutines.delay(if (reduce) 250 else 30)
+            kotlinx.coroutines.delay(30)
         }
     }
     return shown
