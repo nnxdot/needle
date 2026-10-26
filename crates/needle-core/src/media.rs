@@ -351,6 +351,20 @@ pub fn lyrics(
     online: bool,
     plugins: Option<&crate::plugins::PluginHost>,
 ) -> Result<Option<Lyrics>> {
+    let found = find_lyrics(library, track, online, plugins)?;
+    // What was shown can be searched for (Search › In the lyrics).
+    if let Some(lyrics) = &found {
+        let _ = library.keep_lyrics(track, Some(lyrics));
+    }
+    Ok(found)
+}
+
+fn find_lyrics(
+    library: &Library,
+    track: &Track,
+    online: bool,
+    plugins: Option<&crate::plugins::PluginHost>,
+) -> Result<Option<Lyrics>> {
     if let Some(local) = local_lyrics(track) {
         return Ok(Some(local));
     }
