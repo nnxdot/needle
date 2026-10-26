@@ -13,6 +13,7 @@ A new look, after the Mac's, and a lot more to see and hear.
 - [albums] **A record crate.** Flip through your albums like records in a box (Albums › Crate).
 - [lyrics] **Lyric cards.** Right-click a line of the lyrics for a picture of it to share.
 - [queue] **The queue in full screen.** A queue button beside the lyrics button.
+- [search] **A Search page.** Type on Home or any page that is not a list: the best match comes first, large, then songs, albums, artists, and the lines of lyrics that hold your words. Rules to try are one click away.
 - [play] **Moving covers on the album page.** An album with a moving cover shows it moving at the top of its page too.
 - [eq] **Smart mixes.** With crossfade on, the fade starts where the music ends and lasts whole bars.
 - Plugins can translate lyrics: a Translate button then shows under them.
