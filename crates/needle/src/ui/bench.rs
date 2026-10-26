@@ -372,6 +372,34 @@ impl AppView {
                         v.run_find(cx);
                         cx.notify();
                     }
+                    // "long-album": an album page that holds every song, scrolled down
+                    // NEEDLE_SHOW_SCROLL pixels (for the header that folds).
+                    _ if page == "long-album" => {
+                        let page = Page::Album {
+                            album: "Every song".into(),
+                            artist: "Mara Quinn".into(),
+                            query: "play_count >= 0".into(),
+                        };
+                        open(v, page, window, cx);
+                        if let Some(down) = std::env::var("NEEDLE_SHOW_SCROLL")
+                            .ok()
+                            .and_then(|s| s.parse::<f32>().ok())
+                        {
+                            let scroll = v.list_scroll.clone();
+                            cx.spawn(async move |view, cx| {
+                                cx.background_executor().timer(Duration::from_secs(2)).await;
+                                let _ = view.update(cx, |_, cx| {
+                                    scroll
+                                        .0
+                                        .borrow()
+                                        .base_handle
+                                        .set_offset(point(px(0.), px(-down)));
+                                    cx.notify();
+                                });
+                            })
+                            .detach();
+                        }
+                    }
                     // "album:Hana Mori/Bloom Season": one album's page.
                     Some(("album", which)) => {
                         let (artist, album) = which.split_once('/').unwrap_or(("", which));

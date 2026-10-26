@@ -212,14 +212,17 @@ the album page's extra parts, and the artist poster.
 **Motion.** All systems.
 - **The cover goes to its page.** Choosing an album: its cover grows into the album page's
   cover (the Mac: `matchedGeometryEffect`; the iPhone: zoom transition; Android: shared
-  element). Windows and Linux: the page fades in, and its cover grows from 96 % (GPUI has no
-  shared elements).
+  element). Windows and Linux: every page fades in and rises 10 px (GPUI has no shared
+  elements, and cannot scale a picture as it draws).
 - **The header folds on scroll.** On album, artist, and playlist pages, scrolling down shrinks
-  the big title into the title bar (or the top bar on phones).
+  the big title into the title bar (or the top bar on phones). Windows and Linux: on album and
+  playlist pages the cover shrinks to 72 px and the title to 26 px over the first 200 px of
+  scrolling, and the path and details lines go; the artist page's picture already scrolls
+  away with the page.
 - **Covers glow under the pointer.** Desktop: a cover lifts by 2 px, with a soft light in its
   own colour behind it.
 - **Shelves fill in** with soft placeholder tiles while they load (done on the desktop).
 - **The colour follows the music.** When the song changes, the sidebar's tint and the
-  player's colour change to the new cover's over about half a second, not at once.
+  player's colour change to the new cover's over about half a second, not at once. Windows and Linux already did (the palette fades between covers).
 - **Reduce motion** (Needle's or the system's): all of these become plain fades or nothing.
 

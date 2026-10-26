@@ -4,6 +4,7 @@ A new look, after the Mac's, and a lot more to see and hear.
 - [play] **Choose the player's buttons.** Drag buttons into the player, along it, and out of it in Settings › Appearance › Layout › Player buttons.
 - [tag] **Fonts.** Choose a font for titles (eight of them, such as Fraunces, Poster, and Instrument Serif) and one for everything else (such as Inter and Atkinson Hyperlegible), or a font you have installed, in Settings › Appearance.
 - [wave] **The visualizer.** Bars that move with the music, in its colours, under the cover, with a glow that breathes with it. Turn it on with the new button in the big player.
+- [albums] **Gentler motion.** Pages rise as they open, album and playlist pages fold their header as you scroll, and covers lift with a glow in their own colour under the pointer. Reduce motion turns it off.
 - [albums] **Looks for the big player.** The Look button steps through the cover with the lyrics beside it, the cover as a turning record, only the words very large, and the visualizer filling the space.
 - [signal] **A seek bar shaped like the song.** In the big player and full screen, the seek bar shows the song's loud and quiet parts.
 - [artists] **Better artists.** Guests after "feat." and both halves of "A & B" get their own page, sort names from your tags are used, and accents sort where they belong. Sort artists by name, plays, songs, or newest, show only album artists, and jump with the A–Z bar.
