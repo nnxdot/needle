@@ -260,6 +260,10 @@ pub struct Settings {
     /// Smart mixes: the crossfade starts where a song's music ends (not in its silent tail)
     /// and lasts whole bars of its tempo.
     pub smart_mix: bool,
+    /// The big player's look: "cover" (the cover and the lyrics beside it), "record" (the
+    /// cover as a turning record), "lyrics" (only the words, very large), or "visualizer".
+    #[serde(default = "default_big_look")]
+    pub big_look: String,
     /// The song table's columns, in order, with their widths.
     pub columns: Vec<ColumnSetting>,
     /// Send crash reports (without file paths or names) to needle.nnx.fyi.
@@ -360,6 +364,7 @@ impl Default for Settings {
             ambient: false,
             crossfade: 0.,
             smart_mix: true,
+            big_look: default_big_look(),
             columns: [("album", 220.), ("quality", 92.), ("time", 52.)]
                 .into_iter()
                 .map(|(key, width)| ColumnSetting {
@@ -440,3 +445,10 @@ pub fn format_duration(seconds: f64) -> String {
         format!("{}:{:02}", secs / 60, secs % 60)
     }
 }
+
+fn default_big_look() -> String {
+    "cover".into()
+}
+
+/// The big player's looks, in the order its look button steps through them.
+pub const BIG_LOOKS: [&str; 4] = ["cover", "record", "lyrics", "visualizer"];
