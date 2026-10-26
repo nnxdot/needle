@@ -4,6 +4,7 @@ mod artist;
 mod artists_ui;
 mod assets;
 mod bench;
+mod big_looks;
 mod chrome;
 mod columns;
 mod crate_view;
@@ -628,6 +629,9 @@ pub struct AppView {
     /// The song whose moving cover was looked up, and the picture found (Settings ›
     /// Appearance › Moving covers).
     moving_cover: Option<(String, Option<String>)>,
+    /// The big player's record (the Record look): its angle when it last stopped, and since
+    /// when it turns.
+    record_spin: (f32, Option<std::time::Instant>),
     /// The album page's moving cover: its first song, and the picture found.
     album_moving: Option<(String, Option<String>)>,
     /// Music server songs whose moving cover was asked for this time Needle runs.
@@ -1251,6 +1255,7 @@ impl AppView {
             immersive_moved: Instant::now(),
             immersive_shown: true,
             moving_cover: None,
+            record_spin: (30., None),
             album_moving: None,
             moving_cover_asked: Default::default(),
             immersive_serial: 0,

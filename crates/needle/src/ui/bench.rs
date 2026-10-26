@@ -366,7 +366,8 @@ impl AppView {
                     }
                     // "search:harbor": the Search page, with that typed.
                     Some(("search", text)) => {
-                        v.search.update(cx, |s, cx| s.set_value(text.to_string(), window, cx));
+                        v.search
+                            .update(cx, |s, cx| s.set_value(text.to_string(), window, cx));
                         v.page = Page::Search;
                         v.run_find(cx);
                         cx.notify();

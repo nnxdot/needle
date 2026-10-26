@@ -88,6 +88,7 @@ fn shape(name: &str) -> Option<String> {
         "plugin" => "<path d='M9 3v4M15 3v4M7 7h10v4a5 5 0 0 1-10 0z'/><path d='M12 16v5'/>".into(),
         "stems" => "<path d='m12 2.5 9 4.8-9 4.8-9-4.8z'/><path d='m3 12 9 4.8 9-4.8'/><path d='m3 16.6 9 4.8 9-4.8'/>".into(),
         "import" => "<path d='M12 3v12M7 10l5 5 5-5'/><path d='M4 17v2.5A1.5 1.5 0 0 0 5.5 21h13a1.5 1.5 0 0 0 1.5-1.5V17'/>".into(),
+        "tonearm" => "<circle cx='19' cy='4.6' r='2.3'/><path d='M17.7 6.6 12.4 15.2'/><path d='m11.2 14.6 2.4 1.4-1.2 2.3-2.4-1.4z' fill='currentColor'/>".into(),
         "logo" => "<circle cx='11' cy='13' r='8.5'/><circle cx='11' cy='13' r='2.2' fill='currentColor'/><path d='M21.5 2.5 14.8 9.2'/><path d='M7 9.8a5.3 5.3 0 0 1 2.6-2' opacity='.6'/>".into(),
         _ => return None,
     })

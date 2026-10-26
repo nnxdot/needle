@@ -63,7 +63,7 @@ impl AppView {
     }
 
     /// Whether the playing song has lyrics to show.
-    fn has_lyrics(&self) -> bool {
+    pub(super) fn has_lyrics(&self) -> bool {
         let current = self.playback.current.as_ref().map(|c| &c.track.id);
         matches!(&self.lyrics, Some((id, Some(lyrics)))
             if Some(id) == current && !lyrics.instrumental
