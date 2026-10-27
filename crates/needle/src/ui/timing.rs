@@ -14,7 +14,7 @@ use needle_core::{
     audio::Command,
     media::{self, Lyrics, LyricsSource},
     model::Track,
-    timing::LyricTiming,
+    timing::{LyricTiming, NUDGE},
 };
 
 actions!(timing, [Tap, Undo, Earlier, Later]);
@@ -186,7 +186,7 @@ impl AppView {
                 .items_center()
                 .justify_center()
                 .child(faint(
-                    "Open the lyric timing editor from the lyrics of a playing song.",
+                    "Open Time the lyrics from the lyrics of a playing song.",
                     cx,
                 ))
                 .into_any_element();
@@ -203,7 +203,7 @@ impl AppView {
                     .flex()
                     .flex_col()
                     .gap_1()
-                    .child(display("Lyric timing", 34.))
+                    .child(display("Time the lyrics", 34.))
                     .child(
                         meta(
                             format!("{} · {}", timing.track.title, timing.track.display_artist()),
@@ -437,6 +437,62 @@ impl AppView {
         } else {
             tap.into_any_element()
         };
+        // −0.2 s, Redo line, +0.2 s: for the line last tapped (the arrow keys move it finer).
+        let has_line = timing.selected.is_some();
+        let fix = |id: &'static str, label: &'static str, tip: &'static str| {
+            small_button(id, label)
+                .flex_1()
+                .disabled(!has_line)
+                .tooltip(tip)
+        };
+        let fixes = div()
+            .flex()
+            .gap_2()
+            .child(
+                fix(
+                    "timing-earlier",
+                    "− 0.2 s",
+                    "The line starts earlier · Left for 0.05 s",
+                )
+                .on_click(cx.listener(|this, _, window, cx| {
+                    if let Some(t) = &mut this.timing {
+                        t.nudge(-NUDGE);
+                    }
+                    window.focus(&this.timing_focus);
+                    cx.notify();
+                })),
+            )
+            .child(
+                fix("timing-redo", "↺ Line", "Tap this line again").on_click(cx.listener(
+                    |this, _, window, cx| {
+                        if let Some(t) = &mut this.timing {
+                            t.redo_line();
+                            // From a little before, to hear it start.
+                            if let Some(time) = t.selected.and_then(|i| t.lines[i].time)
+                                && this.timing_position().is_some()
+                            {
+                                this.player.send(Command::Seek((time - 2.).max(0.)));
+                            }
+                        }
+                        window.focus(&this.timing_focus);
+                        cx.notify();
+                    },
+                )),
+            )
+            .child(
+                fix(
+                    "timing-later",
+                    "+ 0.2 s",
+                    "The line starts later · Right for 0.05 s",
+                )
+                .on_click(cx.listener(|this, _, window, cx| {
+                    if let Some(t) = &mut this.timing {
+                        t.nudge(NUDGE);
+                    }
+                    window.focus(&this.timing_focus);
+                    cx.notify();
+                })),
+            );
         div()
             .id("timing")
             .key_context("Timing")
@@ -475,6 +531,7 @@ impl AppView {
                     .gap_4()
                     .child(header)
                     .child(tap)
+                    .when(timing.writing.is_none(), |el| el.child(fixes))
                     .child(
                         div()
                             .flex()
