@@ -11,11 +11,13 @@ mod crate_view;
 mod discord;
 mod doctor;
 mod files;
+mod float;
 mod flow;
 mod folders;
 mod glass;
 mod history;
 mod home;
+mod hotkeys;
 mod immersive;
 mod importer;
 mod insights;
@@ -42,12 +44,15 @@ mod radio;
 mod remote_ui;
 mod search_page;
 mod server_search;
+mod shortcuts_ui;
 mod sound;
 mod sources_ui;
 mod speakers;
 mod stems_ui;
 mod suggest;
 mod tags;
+#[cfg(windows)]
+mod taskbar;
 mod theme;
 mod themes;
 mod themes_ui;
@@ -429,6 +434,11 @@ enum Event {
     MoodMap(Vec<needle_core::radio::MoodPoint>),
     ArtFetched,
     MediaKey(media_keys::Key),
+    /// A key everywhere (or a taskbar button) was pressed: its action.
+    Hotkey(String),
+    /// Windows made Needle's taskbar button again: its buttons go back on.
+    #[cfg(windows)]
+    TaskbarCreated,
     ImportProgress(String),
     Plugin(needle_core::plugins::HostAction),
     Tray(tray::TrayAction),
@@ -664,6 +674,14 @@ pub struct AppView {
     /// The film-grain tile, once written (`Some(None)` if it could not be).
     grain_file: Option<Option<PathBuf>>,
     media_keys: Option<media_keys::MediaKeys>,
+    /// Keys that work everywhere (Settings › Keyboard).
+    hotkeys: Option<hotkeys::Hotkeys>,
+    /// The action whose keys are being pressed in Settings.
+    recording_keys: Option<String>,
+    _key_interceptor: Subscription,
+    /// Previous, Play/Pause, Next, and Favorite under the taskbar preview.
+    #[cfg(windows)]
+    taskbar: Option<taskbar::Taskbar>,
     /// Whether Windows allows transparency, and whether it is Windows 11 (read at start and
     /// when Appearance settings open).
     glass_system: (bool, bool),
@@ -696,6 +714,8 @@ pub struct AppView {
     /// The last song that was playing, and when; see `shown_item`.
     last_item: Option<(QueueItem, Instant)>,
     mini: Option<AnyWindowHandle>,
+    /// The small floating player.
+    float: Option<AnyWindowHandle>,
     sound: sound::SoundControls,
     /// When playback last stopped or paused, for clearing the Discord status after a while.
     discord_idle_since: Option<i64>,
@@ -1039,6 +1059,36 @@ impl AppView {
         window.focus(&focus);
         let (sender, events) = crossbeam_channel::unbounded();
         let media_keys = media_keys::MediaKeys::new(window, sender.clone(), &library.directory);
+        let hotkeys = {
+            let sender = sender.clone();
+            let keys = hotkeys::Hotkeys::start(move |action| {
+                let _ = sender.send(Event::Hotkey(action));
+            });
+            keys.set(&settings.global_shortcuts);
+            keys
+        };
+        #[cfg(windows)]
+        let taskbar = {
+            use raw_window_handle::{HasWindowHandle, RawWindowHandle};
+            match HasWindowHandle::window_handle(window).map(|h| h.as_raw()) {
+                Ok(RawWindowHandle::Win32(win32)) => {
+                    Some(taskbar::Taskbar::new(win32.hwnd.get(), sender.clone()))
+                }
+                _ => None,
+            }
+        };
+        // While Settings waits for keys, they go to it, not to Needle's own shortcuts.
+        let key_interceptor = {
+            let view = cx.weak_entity();
+            cx.intercept_keystrokes(move |event, _, cx| {
+                let _ = view.update(cx, |this, cx| {
+                    if this.recording_keys.is_some() {
+                        this.record_hotkey(&event.keystroke, cx);
+                        cx.stop_propagation();
+                    }
+                });
+            })
+        };
         let plugins = {
             let sender = sender.clone();
             needle_core::plugins::PluginHost::start(
@@ -1281,6 +1331,11 @@ impl AppView {
             fade: ambient::Fade::new(pal(cx)),
             grain_file: None,
             media_keys,
+            hotkeys: Some(hotkeys),
+            recording_keys: None,
+            _key_interceptor: key_interceptor,
+            #[cfg(windows)]
+            taskbar,
             glass_system: (glass::system_allows_transparency(), glass::windows_11()),
             glass_applied: None,
             home: None,
@@ -1303,6 +1358,7 @@ impl AppView {
             recent_tracks: Default::default(),
             last_item: None,
             mini: None,
+            float: None,
             sound,
             import,
             plugins,
@@ -1488,6 +1544,8 @@ impl AppView {
                 != self.playback.current.as_ref().map(|i| &i.track.id);
         self.playback = playback;
         self.watch_sleep_timer();
+        #[cfg(windows)]
+        self.update_taskbar();
         if let Some(item) = self.playback.current.as_mut()
             && item.track.artwork.is_none()
             && let Some(path) = self.art_override.get(&item.track.id)
@@ -1750,6 +1808,13 @@ impl AppView {
                 | Event::ArtistLogo(..)
                 | Event::ArtistChoices(..) => {}
                 Event::MediaKey(key) => self.media_key(key, window, cx),
+                Event::Hotkey(action) => self.run_hotkey(&action, window, cx),
+                #[cfg(windows)]
+                Event::TaskbarCreated => {
+                    if let Some(taskbar) = &mut self.taskbar {
+                        taskbar.recreated();
+                    }
+                }
                 Event::Themes(generation, themes) => {
                     self.themes_found(generation, *themes, window, cx)
                 }

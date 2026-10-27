@@ -1027,7 +1027,9 @@ impl AppView {
                     // Keyboard
                     .when(tab == 9, |el| {
                         el
-                    .child(self.section_title("Keyboard", "", cx))
+                    .child(self.lead_title("Shortcuts everywhere", "These work everywhere, even when Needle is in the background.", cx))
+                    .child(self.global_shortcut_rows(cx))
+                    .child(self.section_title("In Needle", "", cx))
                     .child(
                         div().pt_2().flex().flex_col().children(shortcuts.iter().map(|(keys, what)| {
                             div()

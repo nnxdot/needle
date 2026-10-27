@@ -5,6 +5,9 @@ A new look, after the Mac's, and a lot more to see and hear.
 - [speed] **Speed and pitch.** Play a song from half to twice as fast, keep its pitch or let it rise, and move it up or down in semitones, for every song or only this one. Exclusive output turns it off.
 - [history] **Your year in music.** Your hours, plays, and new songs, the year by month, your top artist, and your top songs, from Listening history (and on Home in December). Save it as a picture in Pictures › Needle, make a playlist of it, or play your top 50.
 - [lyrics] **Time the lyrics.** −0.2 s, +0.2 s, and Redo line fix the line you just tapped.
+- [keyboard] **Keys that work everywhere.** Play, pause, skip, favorite, open the small player, and change the volume from any app, with your own keys, in Settings › Keyboard. Keys another app already uses show a warning. On Linux this works with X11; on Wayland, set keys in your desktop's settings.
+- [play] **Buttons on the taskbar.** On Windows, hover Needle on the taskbar for Previous, Play/Pause, Next, and Favorite under its preview.
+- [mini] **A small floating player.** A small card that stays above your other windows: the cover, the song, and the buttons under the pointer. Drag it anywhere; double-click it to open Needle. Open it from the command palette (Ctrl+K) or with your own key.
 - [play] **Choose the player's buttons.** Drag buttons into the player, along it, and out of it in Settings › Appearance › Layout › Player buttons.
 - [tag] **Fonts.** Choose a font for titles (eight of them, such as Fraunces, Poster, and Instrument Serif) and one for everything else (such as Inter and Atkinson Hyperlegible), or a font you have installed, in Settings › Appearance.
 - [wave] **The visualizer.** Bars that move with the music, in its colours, under the cover, with a glow that breathes with it. Turn it on with the new button in the big player.
