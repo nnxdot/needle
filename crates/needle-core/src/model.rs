@@ -293,7 +293,8 @@ pub struct Settings {
     pub sleep_computer: bool,
     /// Keys that work everywhere, even with Needle in the background (desktop): an action
     /// ("play", "next", "previous", "favorite", "mini", "volume_up", "volume_down") and its
-    /// keys, as "ctrl-alt-space".
+    /// keys, as "ctrl-alt-space". An action not listed has no keys. Out of the box: Ctrl+Alt
+    /// with Space and the arrows.
     pub global_shortcuts: Vec<(String, String)>,
 }
 
@@ -407,7 +408,16 @@ impl Default for Settings {
             keep_pitch: true,
             sleep_fade: true,
             sleep_computer: false,
-            global_shortcuts: vec![],
+            global_shortcuts: [
+                ("play", "ctrl-alt-space"),
+                ("next", "ctrl-alt-right"),
+                ("previous", "ctrl-alt-left"),
+                ("volume_up", "ctrl-alt-up"),
+                ("volume_down", "ctrl-alt-down"),
+            ]
+            .into_iter()
+            .map(|(action, keys)| (action.to_string(), keys.to_string()))
+            .collect(),
         }
     }
 }

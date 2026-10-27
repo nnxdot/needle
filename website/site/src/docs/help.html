@@ -60,6 +60,16 @@
           <dd>Yes. In <b>Settings › Appearance › Layout</b>, set <b>The player</b> to <b>Top bar</b>: the controls, the song playing, and the volume move into the title bar. Set <b>A folded sidebar</b> to <b>Icons</b>, and folding the sidebar (Ctrl+B) leaves a strip of page icons instead of hiding it. Set <b>The search field</b> to <b>Ctrl+K</b> to leave search to the command palette (Ctrl+K or Ctrl+F). Your mouse's side buttons go back and forward between pages.</dd>
           <dt>Can I change Needle's colors?</dt>
           <dd>Yes. In <b>Settings › Appearance</b>, choose a look and press <b>Make a copy</b>, then change any color. To add a theme someone sent you, drop its file on the Needle window. See <a href="/themes">Themes</a> to write one by hand.</dd>
+          <dt>Is there a sleep timer?</dt>
+          <dd>Yes. Press the moon in the player and choose 15, 30, or 45 minutes, an hour, <b>End of song</b>, or <b>End of album</b>. With <b>Fade out</b> on, the music gets quieter over the last minute. The moon stays lit while the timer runs; on a computer, hold the pointer over it to see the time left. On a computer, <b>Then sleep the PC</b> puts the computer to sleep too.</dd>
+          <dt>Where is my year in music?</dt>
+          <dd>Open <b>Listening history</b> and choose <b>Your year in music</b> (in December, Home shows it too). It shows your hours, plays, and new songs, the year by month, your top artist, and your top songs. <b>Save as a picture</b> puts a picture in Pictures › Needle, <b>Make a playlist</b> saves your top songs as a playlist, and <b>Play top 50</b> plays them.</dd>
+          <dt>Can I time a song's lyrics myself?</dt>
+          <dd>Yes. Play the song, open its lyrics, and choose <b>Time the lyrics</b> (on a computer, also in the command palette, Ctrl+K). Press Space (or tap the big button) as each line starts. <b>−0.2 s</b> and <b>+0.2 s</b> move the line you just tapped, and <b>Redo line</b> lets you tap it again. <b>Save</b> writes an <code>.lrc</code> file beside the song; on a phone, Needle keeps it in its own storage.</dd>
+          <dt>Can I control Needle from other apps?</dt>
+          <dd>Yes. On Windows and Linux, set your own keys for Play/Pause, Next, Previous, Favorite, the small player, and the volume in <b>Settings › Keyboard › Shortcuts everywhere</b>: click a row and press the keys. If another app already uses those keys, the row says so. On Linux this works with X11; on Wayland, set keys in your desktop's keyboard settings (Needle answers the media keys and <code>playerctl</code>). On Windows, hover Needle on the taskbar for Previous, Play/Pause, Next, and Favorite under its preview.</dd>
+          <dt>Is there a small player that stays on top?</dt>
+          <dd>Yes, on Windows and Linux: choose <b>Small floating player</b> in the command palette (Ctrl+K), or set a key for it. It stays above your other windows (on Linux with X11; Wayland does not allow it). Hold the pointer over it for the buttons, drag it anywhere, and double-click it to open Needle. The bigger mini player (Ctrl+M) has the queue and the lyrics.</dd>
         </dl>
       </section>
 
@@ -72,6 +82,8 @@
           <dd>Yes. Download your headphones' <code>ParametricEQ.txt</code> from AutoEq, and choose <b>Load EQ file…</b>. Files from Equalizer APO work too.</dd>
           <dt>What are effects?</dt>
           <dd>Effects, such as a room sound or an echo, come from plugins. Add the example plugins in <b>Settings › Plugins</b>, turn them on, and add effects in <b>Sound › Effects</b>. See <a href="/plugins">Plugins</a> to write your own.</dd>
+          <dt>Can songs play faster or slower?</dt>
+          <dd>Yes. Press the speed button in the player (on a computer, next to the moon) and choose 0.75× to 2×, or anything from half to twice the speed. <b>Keep the pitch</b> keeps voices sounding natural; turned off, faster also sounds higher. <b>Pitch</b> moves the song up or down in semitones, and <b>Only for this song</b> goes back to normal at the next song. Exclusive output and Bit-perfect USB turn it off, because they send the music unchanged.</dd>
           <dt>Why do the equalizer and effects do nothing?</dt>
           <dd>Exclusive output is probably on. It sends each file to your sound device unchanged, so the equalizer and effects are skipped. Turn it off in <b>Settings › Playback</b>.</dd>
         </dl>
