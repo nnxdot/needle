@@ -36,7 +36,9 @@ struct SearchView: View {
                         rules
                     } else if let found {
                         if nothing(found) {
-                            ContentUnavailableView.search(text: query).padding(.top, 40)
+                            Text("Nothing matches “\(query)”")
+                                .font(.needle(.subheadline)).foregroundStyle(.secondary)
+                                .frame(maxWidth: .infinity).padding(.vertical, 40)
                             rules
                         } else {
                             results(found, words: words)
