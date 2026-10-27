@@ -1,6 +1,10 @@
 # 2.0.0 [windows, linux]
 A new look, after the Mac's, and a lot more to see and hear.
 ! **A new look.** The player floats over the foot of the page as one rounded bar, with a small screen for the song. The queue, lyrics, and details float beside the page. The page is a sheet with one round corner, the search field sits at the top of the sidebar, and Back, Forward, and the command palette share one small group.
+- [moon] **A sleep timer.** The moon in the player stops the music after 15, 30, or 45 minutes, an hour, or at the end of the song or the album, fading out over the last minute. It stays lit while it runs and shows the time left under the pointer. Then sleep the PC, if you like.
+- [speed] **Speed and pitch.** Play a song from half to twice as fast, keep its pitch or let it rise, and move it up or down in semitones, for every song or only this one. Exclusive output turns it off.
+- [history] **Your year in music.** Your hours, plays, and new songs, the year by month, your top artist, and your top songs, from Listening history (and on Home in December). Save it as a picture in Pictures › Needle, make a playlist of it, or play your top 50.
+- [lyrics] **Time the lyrics.** −0.2 s, +0.2 s, and Redo line fix the line you just tapped.
 - [play] **Choose the player's buttons.** Drag buttons into the player, along it, and out of it in Settings › Appearance › Layout › Player buttons.
 - [tag] **Fonts.** Choose a font for titles (eight of them, such as Fraunces, Poster, and Instrument Serif) and one for everything else (such as Inter and Atkinson Hyperlegible), or a font you have installed, in Settings › Appearance.
 - [wave] **The visualizer.** Bars that move with the music, in its colours, under the cover, with a glow that breathes with it. Turn it on with the new button in the big player.

@@ -33,6 +33,7 @@ mod palette;
 mod panel;
 mod pickers;
 mod player2;
+mod player_tools;
 mod playlist_art;
 mod playlist_editor;
 mod plugin_ask;
@@ -59,6 +60,7 @@ mod welcome;
 mod whats_new;
 mod widgets;
 mod wrapped;
+mod year_card;
 
 use anyhow::Result;
 use gpui::{prelude::*, *};
@@ -261,7 +263,7 @@ impl Page {
             Self::Settings => "Settings".into(),
             Self::Sound => "Sound".into(),
             Self::Import => "Import".into(),
-            Self::Timing => "Lyric timing".into(),
+            Self::Timing => "Time the lyrics".into(),
             Self::Wrapped(year) => format!("{year} in music"),
             Self::Doctor => "Fix my library".into(),
             Self::Numbers => "Your library".into(),
@@ -413,6 +415,8 @@ enum Event {
     ArtistPicturesChanged(String),
     /// What played on this day in earlier years, for Home.
     OnThisDay(Vec<needle_core::numbers::OnThisDay>),
+    /// The year Home shows "Your year in music" for (December, with listening).
+    HomeYear(Option<i32>),
     /// What a search found (its generation, then the finds or the problem).
     Found(u64, Result<Box<needle_core::find::Found>, String>),
     /// Every line of lyrics that holds the search (its generation).
@@ -467,6 +471,7 @@ pub struct AppView {
     picture_sweep: needle_core::media::pictures::PictureSweep,
     /// Home's On this day shelves.
     on_this_day: Vec<needle_core::numbers::OnThisDay>,
+    home_year: Option<i32>,
     /// The Search page: what it shows, its newest answer, and that answer's number.
     search_tab: search_page::SearchTab,
     found: Option<Box<needle_core::find::Found>>,
@@ -524,6 +529,10 @@ pub struct AppView {
     header_menu: Option<columns::HeaderMenu>,
     blend_menu: Option<radio::BlendMenu>,
     speaker_menu: Option<speakers::SpeakerMenu>,
+    /// The sleep timer's or speed and pitch's pane, while open.
+    tool_pane: Option<player_tools::ToolPane>,
+    /// The sleep timer endings already acted on (Then sleep the PC).
+    sleep_ended_seen: u64,
     update: Option<updates::UpdateState>,
     measuring: std::sync::Arc<std::sync::atomic::AtomicBool>,
     measured: Option<(usize, usize)>,
@@ -1132,6 +1141,7 @@ impl AppView {
             history_loading: false,
             picture_sweep: needle_core::media::pictures::PictureSweep::start(library.clone()),
             on_this_day: vec![],
+            home_year: None,
             search_tab: Default::default(),
             found: None,
             found_error: None,
@@ -1169,6 +1179,8 @@ impl AppView {
             header_menu: None,
             blend_menu: None,
             speaker_menu: None,
+            tool_pane: None,
+            sleep_ended_seen: 0,
             update: None,
             measuring: radio::switch(measure_sound),
             measured: None,
@@ -1475,6 +1487,7 @@ impl AppView {
             || playback.current.as_ref().map(|i| &i.track.id)
                 != self.playback.current.as_ref().map(|i| &i.track.id);
         self.playback = playback;
+        self.watch_sleep_timer();
         if let Some(item) = self.playback.current.as_mut()
             && item.track.artwork.is_none()
             && let Some(path) = self.art_override.get(&item.track.id)
@@ -1618,6 +1631,7 @@ impl AppView {
                 Event::Look(path, look) => self.set_look(path, look),
                 Event::Home(home) => self.home = Some(home),
                 Event::OnThisDay(days) => self.on_this_day = days,
+                Event::HomeYear(year) => self.home_year = year,
                 Event::Found(generation, found) => self.found(generation, found),
                 Event::FoundLyrics(generation, found) => {
                     if generation == self.find_generation {
@@ -3466,6 +3480,7 @@ impl Render for AppView {
             .children(self.header_menu_view(cx))
             .children(self.blend_menu_view(cx))
             .children(self.speaker_menu_view(cx))
+            .children(self.tool_pane_view(cx))
             .children(self.palette_view(cx))
             .children(self.welcome_view(window, cx))
             .children(self.whats_new_view(window, cx))
