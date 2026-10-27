@@ -930,7 +930,17 @@ fun HomeScreen(open: (Route) -> Unit) {
             return@LazyColumn
         }
         item { NowCard() }
-        val h = home ?: return@LazyColumn
+        // Soft tiles hold the shelves' places while they are read.
+        val h = home ?: run {
+            item { ShelfTitle("Jump back in", "Albums you played last") }
+            item {
+                val tile = if (isWide()) 176.dp else 148.dp
+                LazyRow(contentPadding = PaddingValues(horizontal = Edge), horizontalArrangement = Arrangement.spacedBy(16.dp), userScrollEnabled = false) {
+                    items(5) { AlbumPlaceholder(Modifier.width(tile)) }
+                }
+            }
+            return@LazyColumn
+        }
         shelf("Jump back in", "Albums you played last", h.recent, open)
         shelf("New in your library", "Added most recently", h.added, open, Route.RecentlyAdded)
         shelf("On repeat", "Your most played albums", h.mostPlayed, open)
