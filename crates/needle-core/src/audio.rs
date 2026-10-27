@@ -77,6 +77,37 @@ pub enum Repeat {
     All,
     One,
 }
+/// What the sleep timer waits for.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum SleepKind {
+    /// This many seconds.
+    After(f64),
+    /// The song playing to end.
+    EndOfSong,
+    /// The album playing to end: the next song is from another album, or nothing is next.
+    EndOfAlbum,
+}
+
+/// A sleep timer to start: what it waits for, and whether the music fades out over its last
+/// minute.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct SleepTimer {
+    pub kind: SleepKind,
+    pub fade: bool,
+}
+
+/// A sleep timer that runs: what it waits for, and the seconds left (for the end of a song or
+/// an album, at the speed it plays).
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct SleepState {
+    pub kind: SleepKind,
+    pub fade: bool,
+    pub remaining: f64,
+}
+
+/// The sleep timer's fade out, in seconds.
+pub const SLEEP_FADE: f64 = 60.;
+
 #[derive(Clone, Debug, Default)]
 pub struct PlaybackState {
     pub current: Option<QueueItem>,
@@ -108,6 +139,17 @@ pub struct PlaybackState {
     /// The music plays to speakers on the network (Chromecast, DLNA, AirPlay), which need the
     /// network kept awake (a phone's Wi-Fi lock) as a song from a server does.
     pub network_output: bool,
+    /// The sleep timer, while it runs.
+    pub sleep: Option<SleepState>,
+    /// How many times the sleep timer has stopped the music (the desktop then puts the
+    /// computer to sleep, when asked to).
+    pub sleep_ended: u64,
+    /// The speed and pitch songs play at.
+    pub tempo: crate::tempo::Tempo,
+    /// The speed and pitch are for the song playing only.
+    pub tempo_song_only: bool,
+    /// Speed and pitch can change: not on bit-perfect or exclusive output.
+    pub tempo_available: bool,
 }
 
 /// A song from a server that a helper thread is opening, for the output of `epoch`.
@@ -167,6 +209,16 @@ pub enum Command {
     /// A song was rated (by its id): its copies in the queue, the playing one too, show the
     /// new rating at once, not only after the song is queued again.
     Rated(String, i64),
+    /// Start the sleep timer (again, from now), or stop it with `None`.
+    Sleep(Option<SleepTimer>),
+    /// Give the sleep timer this many more seconds. A timer for the end of a song or an album
+    /// becomes one for the time it had left, plus these.
+    SleepLonger(f64),
+    /// Fade out over the timer's last minute, or not (kept for next time).
+    SleepFade(bool),
+    /// The speed and pitch, at once; `true` for the song playing only (the next one plays as
+    /// before). Off on bit-perfect and exclusive output.
+    Tempo(crate::tempo::Tempo, bool),
 }
 
 #[derive(Clone)]
@@ -642,12 +694,23 @@ impl Queue {
     }
 }
 
+/// Holds back the song after the one playing, for a sleep timer that ends with a song or an
+/// album: that song gives silence instead of starting, and says so.
+#[derive(Default)]
+struct Gate {
+    /// The song held (its number from `Worker::append`); 0 for none.
+    hold: std::sync::atomic::AtomicU64,
+    hit: std::sync::atomic::AtomicBool,
+}
+
 struct Marked<S> {
     inner: S,
     item: QueueItem,
     started: bool,
     epoch: u64,
-    tx: Sender<(u64, QueueItem)>,
+    tx: Sender<(u64, QueueItem, u64)>,
+    gate: Arc<Gate>,
+    serial: u64,
     /// For the visualizer: mono samples gathered since the last hand-over, the frame being
     /// summed, and how many samples until it is asked again whether anyone is looking.
     scope: Vec<f32>,
@@ -657,13 +720,22 @@ struct Marked<S> {
     looking: bool,
 }
 impl<S: Source> Marked<S> {
-    fn new(inner: S, item: QueueItem, epoch: u64, tx: Sender<(u64, QueueItem)>) -> Self {
+    fn new(
+        inner: S,
+        item: QueueItem,
+        epoch: u64,
+        tx: Sender<(u64, QueueItem, u64)>,
+        gate: Arc<Gate>,
+        serial: u64,
+    ) -> Self {
         Self {
             inner,
             item,
             started: false,
             epoch,
             tx,
+            gate,
+            serial,
             scope: Vec::with_capacity(512),
             frame: 0.,
             channel: 0,
@@ -675,10 +747,15 @@ impl<S: Source> Marked<S> {
 impl<S: Source> Iterator for Marked<S> {
     type Item = f32;
     fn next(&mut self) -> Option<f32> {
+        use std::sync::atomic::Ordering::Relaxed;
+        if !self.started && self.gate.hold.load(Relaxed) == self.serial {
+            self.gate.hit.store(true, Relaxed);
+            return Some(0.);
+        }
         let sample = self.inner.next();
         if sample.is_some() && !self.started {
             self.started = true;
-            let _ = self.tx.send((self.epoch, self.item.clone()));
+            let _ = self.tx.send((self.epoch, self.item.clone(), self.serial));
         }
         if let Some(value) = sample {
             if self.look_in == 0 {
@@ -826,8 +903,8 @@ struct Worker {
     exclusive: Option<crate::exclusive::Output>,
     /// An output the app brought (see `platform_output`), while it plays.
     platform: Option<crate::platform_output::Running>,
-    started_tx: Sender<(u64, QueueItem)>,
-    started_rx: Receiver<(u64, QueueItem)>,
+    started_tx: Sender<(u64, QueueItem, u64)>,
+    started_rx: Receiver<(u64, QueueItem, u64)>,
     /// A song from a server being opened on a helper thread (see `fill`).
     opening: Option<Opening>,
     opened_tx: Sender<Opened>,
@@ -867,6 +944,46 @@ struct Worker {
     /// A song from a music server that is connecting: shown as playing (at 0:00) until its
     /// first samples arrive, so the old song does not stay on screen meanwhile.
     loading: Option<QueueItem>,
+    /// The speed and pitch every song follows, and the song's own time.
+    tempo: Arc<crate::tempo::TempoControl>,
+    /// "Only for this song": the song (by id) the speed and pitch are for.
+    tempo_song: Option<String>,
+    sleep: Option<Sleep>,
+    sleep_ended: u64,
+    /// The sleep timer's fade: 1 is the full volume.
+    fade: f32,
+    gate: Arc<Gate>,
+    /// Each song put on the output gets a number; the ones not started yet, with their
+    /// albums, in order.
+    serial: u64,
+    staged_serials: VecDeque<(u64, String)>,
+}
+
+/// The sleep timer as it runs.
+struct Sleep {
+    kind: SleepKind,
+    fade: bool,
+    /// When a timer for a time ends.
+    deadline: Option<Instant>,
+}
+
+/// Which album a song is on, to tell when an album ends; a song with no album is an album of
+/// its own.
+fn album_key(track: &Track) -> String {
+    if track.album.is_empty() {
+        format!("\u{1}{}", track.id)
+    } else {
+        let artist = if track.album_artist.is_empty() {
+            &track.artist
+        } else {
+            &track.album_artist
+        };
+        format!(
+            "{}\u{1}{}",
+            track.album.to_lowercase(),
+            artist.to_lowercase()
+        )
+    }
 }
 impl Worker {
     fn persist_audio_settings(&self) -> Result<()> {
@@ -939,8 +1056,17 @@ impl Worker {
         let (queue, resume_position) = Queue::restore(&session, restored);
         let saved_version = queue.version;
         let dsp = crate::dsp::DspControl::new(settings.dsp.clone(), Default::default());
+        let tempo = crate::tempo::TempoControl::new(settings.tempo());
         Self {
             dsp,
+            tempo,
+            tempo_song: None,
+            sleep: None,
+            sleep_ended: 0,
+            fade: 1.,
+            gate: Arc::default(),
+            serial: 0,
+            staged_serials: VecDeque::new(),
             stem_mix: Arc::default(),
             stems: None,
             ending: None,
@@ -982,11 +1108,20 @@ impl Worker {
             platform: None,
         }
     }
+    /// Where the playing song is on the output, in the song's own time (which runs faster or
+    /// slower than the clock at another speed).
+    fn sink_position(&self, sink: &Sink) -> f64 {
+        self.queue
+            .active
+            .as_ref()
+            .and_then(|item| self.tempo.position(&item.track.id))
+            .unwrap_or_else(|| sink.get_pos().as_secs_f64())
+    }
     fn position(&self) -> f64 {
         let now = self
             .sink
             .as_ref()
-            .map(|s| s.get_pos().as_secs_f64())
+            .map(|s| self.sink_position(s))
             .unwrap_or(self.resume_position);
         match self.pending_seek {
             Some((target, _)) if self.sink.is_some() && now + 0.5 < target => target,
@@ -996,7 +1131,7 @@ impl Worker {
     fn save_session(&mut self) -> Result<()> {
         let position = match (self.pending_seek, &self.sink) {
             (Some(_), Some(_)) => self.position(),
-            (None, Some(s)) if !s.empty() => s.get_pos().as_secs_f64(),
+            (None, Some(s)) if !s.empty() => self.sink_position(s),
             (None, Some(_)) => 0.,
             (_, None) => self.resume_position,
         };
@@ -1045,6 +1180,14 @@ impl Worker {
         if let Some(sink) = self.sink.take() {
             sink.stop();
         }
+        self.staged_serials.clear();
+        self.gate
+            .hold
+            .store(0, std::sync::atomic::Ordering::Relaxed);
+        self.gate
+            .hit
+            .store(false, std::sync::atomic::Ordering::Relaxed);
+        self.tempo.clear_position();
         #[cfg(windows)]
         {
             self.exclusive = None;
@@ -1055,9 +1198,26 @@ impl Worker {
     /// Act on the songs the output has started since last time: the listen, the speaker's
     /// details, the queue, and which ending is the playing song's.
     fn take_started(&mut self) {
-        while let Ok((epoch, item)) = self.started_rx.try_recv() {
+        while let Ok((epoch, item, serial)) = self.started_rx.try_recv() {
             if epoch != self.epoch {
                 continue;
+            }
+            while self
+                .staged_serials
+                .front()
+                .is_some_and(|(s, _)| *s <= serial)
+            {
+                self.staged_serials.pop_front();
+            }
+            // "Only for this song": the next song plays at the kept speed again.
+            if self
+                .tempo_song
+                .as_ref()
+                .is_some_and(|id| *id != item.track.id)
+            {
+                self.tempo_song = None;
+                self.tempo
+                    .set(self.library.settings().unwrap_or_default().tempo());
             }
             // This song's ending (the first one queued for it) is now the playing one's.
             self.active_ending = self
@@ -1138,7 +1298,7 @@ impl Worker {
             crate::platform_output::CHANGED.store(false, std::sync::atomic::Ordering::SeqCst);
             let (sink, source) = Sink::new();
             let sink = Arc::new(sink);
-            output.set_volume(self.settings.volume);
+            output.set_volume(self.settings.volume * self.fade);
             self.platform = Some(crate::platform_output::Running::start(
                 output,
                 source,
@@ -1187,7 +1347,7 @@ impl Worker {
                 output
             }
         };
-        output.sink.set_volume(self.settings.volume);
+        output.sink.set_volume(self.settings.volume * self.fade);
         {
             let mut state = self.state.lock().unwrap();
             state.output = output.name.clone();
@@ -1416,7 +1576,34 @@ impl Worker {
                 ))
             };
         let processed = self.crossfade(&item.track, processed);
-        let marked = Marked::new(processed, item.clone(), self.epoch, self.started_tx.clone());
+        // Speed and pitch, after the crossfade (which works in the songs' own time).
+        let processed: Box<dyn Source + Send> = if self.exclusive() {
+            processed
+        } else {
+            Box::new(crate::tempo::Stretched::new(
+                processed,
+                self.tempo.clone(),
+                &item.track.id,
+            ))
+        };
+        self.serial += 1;
+        let serial = self.serial;
+        // Held at once when the sleep timer ends before it, so not a moment of it plays.
+        let album = album_key(&item.track);
+        if self.staged_serials.is_empty() && self.sleep_holds(&album) {
+            self.gate
+                .hold
+                .store(serial, std::sync::atomic::Ordering::Relaxed);
+        }
+        self.staged_serials.push_back((serial, album));
+        let marked = Marked::new(
+            processed,
+            item.clone(),
+            self.epoch,
+            self.started_tx.clone(),
+            self.gate.clone(),
+            serial,
+        );
         self.queue.staged.push_back(item);
         self.sink.as_ref().unwrap().append(marked);
     }
@@ -1478,6 +1665,115 @@ impl Worker {
             Box::new(head)
         } else {
             source
+        }
+    }
+    /// Whether the sleep timer ends before the song on `album` (see [`album_key`]) that would
+    /// follow the one playing.
+    fn sleep_holds(&self, album: &str) -> bool {
+        let (Some(sleep), Some(active)) = (&self.sleep, &self.queue.active) else {
+            return false;
+        };
+        match sleep.kind {
+            SleepKind::After(_) => false,
+            SleepKind::EndOfSong => true,
+            SleepKind::EndOfAlbum => album != album_key(&active.track),
+        }
+    }
+    /// The sleep timer's seconds left: for the end of a song or an album, what is left of them
+    /// at the speed they play.
+    fn sleep_remaining(&self, sleep: &Sleep) -> f64 {
+        if let Some(deadline) = sleep.deadline {
+            return deadline
+                .saturating_duration_since(Instant::now())
+                .as_secs_f64();
+        }
+        let Some(active) = self.queue.active.as_ref().or(self.loading.as_ref()) else {
+            return 0.;
+        };
+        let mut left = (active.track.duration - self.position()).max(0.);
+        if sleep.kind == SleepKind::EndOfAlbum {
+            let album = album_key(&active.track);
+            for item in self.queue.staged.iter().chain(self.queue.pending.iter()) {
+                if album_key(&item.track) != album {
+                    break;
+                }
+                left += item.track.duration;
+            }
+        }
+        let speed = if self.exclusive() {
+            1.
+        } else {
+            self.tempo.get().speed as f64
+        };
+        left / speed
+    }
+    /// The volume, with the sleep timer's fade.
+    fn apply_volume(&self) {
+        let volume = self.settings.volume * self.fade;
+        if let Some(sink) = &self.sink {
+            sink.set_volume(if self.exclusive() { 1.0 } else { volume });
+        }
+        if let Some(output) = self.platform_output() {
+            output.set_volume(volume);
+        }
+    }
+    /// The sleep timer has stopped the music (or found it stopped).
+    fn sleep_done(&mut self) {
+        use std::sync::atomic::Ordering::Relaxed;
+        self.sleep = None;
+        self.sleep_ended += 1;
+        self.gate.hold.store(0, Relaxed);
+        self.gate.hit.store(false, Relaxed);
+        self.fade = 1.;
+        self.apply_volume();
+    }
+    /// The sleep timer: hold back the song after its end, stop the music when the time is up,
+    /// and fade out over the last minute.
+    fn sleep_tick(&mut self) {
+        use std::sync::atomic::Ordering::Relaxed;
+        let boundary = self.sleep.as_ref().is_some_and(|s| s.deadline.is_none());
+        if self.gate.hit.swap(false, Relaxed) && boundary && self.gate.hold.load(Relaxed) != 0 {
+            // The song (or the album) ended: the next song waits at its start, paused.
+            self.finish_listen();
+            if let Some(active) = self.queue.active.take() {
+                self.queue.previous.push(active);
+            }
+            let next = self.queue.tail();
+            self.suspend(next, 0.);
+            self.sleep_done();
+            return;
+        }
+        let hold = match self.staged_serials.front() {
+            Some((serial, album)) if self.sleep_holds(album) => *serial,
+            _ => 0,
+        };
+        self.gate.hold.store(hold, Relaxed);
+        let Some(sleep) = &self.sleep else {
+            if self.fade != 1. {
+                self.fade = 1.;
+                self.apply_volume();
+            }
+            return;
+        };
+        let remaining = self.sleep_remaining(sleep);
+        if sleep.deadline.is_some() && remaining <= 0. {
+            if self.playing {
+                if let Some(sink) = &self.sink {
+                    sink.pause();
+                }
+                self.playing = false;
+            }
+            self.sleep_done();
+            return;
+        }
+        let fade = if sleep.fade && remaining < SLEEP_FADE {
+            ((remaining / SLEEP_FADE).clamp(0., 1.) as f32).powi(2)
+        } else {
+            1.
+        };
+        if (fade - self.fade).abs() > 0.001 {
+            self.fade = fade;
+            self.apply_volume();
         }
     }
     fn handle(&mut self, command: Command) -> Result<bool> {
@@ -1607,6 +1903,13 @@ impl Worker {
                 } else if let Some(next) = self.queue.next_held() {
                     self.play(vec![next])?;
                 } else if let Some(sink) = &self.sink {
+                    // A song held for the sleep timer is let through: Next asked for it.
+                    self.gate
+                        .hold
+                        .store(0, std::sync::atomic::Ordering::Relaxed);
+                    self.gate
+                        .hit
+                        .store(false, std::sync::atomic::Ordering::Relaxed);
                     sink.skip_one();
                 }
             }
@@ -1666,16 +1969,7 @@ impl Worker {
             }
             Command::Volume(volume) => {
                 self.settings.volume = volume.clamp(0.0, 1.0);
-                if let Some(sink) = &self.sink {
-                    sink.set_volume(if self.exclusive() {
-                        1.0
-                    } else {
-                        self.settings.volume
-                    });
-                }
-                if let Some(output) = self.platform_output() {
-                    output.set_volume(self.settings.volume);
-                }
+                self.apply_volume();
                 self.library
                     .update_settings(|s| s.volume = self.settings.volume)?;
             }
@@ -1692,12 +1986,8 @@ impl Worker {
                 let volume = settings.volume != self.settings.volume;
                 self.settings = *settings;
                 self.dsp.set(self.settings.dsp.clone());
-                if volume && let Some(sink) = &self.sink {
-                    sink.set_volume(if self.exclusive() {
-                        1.0
-                    } else {
-                        self.settings.volume
-                    });
+                if volume {
+                    self.apply_volume();
                 }
                 self.persist_audio_settings()?;
             }
@@ -1778,6 +2068,69 @@ impl Worker {
                     self.restart(items, position, was_playing)?;
                 }
             }
+            Command::Sleep(timer) => {
+                self.sleep = timer.map(|t| Sleep {
+                    kind: t.kind,
+                    fade: t.fade,
+                    deadline: match t.kind {
+                        SleepKind::After(seconds) => Some(
+                            Instant::now() + Duration::from_secs_f64(seconds.clamp(0., 172_800.)),
+                        ),
+                        _ => None,
+                    },
+                });
+                if let Some(timer) = timer {
+                    self.library
+                        .update_settings(|s| s.sleep_fade = timer.fade)?;
+                }
+                self.sleep_tick();
+            }
+            Command::SleepLonger(seconds) => {
+                if let Some(sleep) = &self.sleep {
+                    let seconds = seconds.clamp(0., 86_400.);
+                    let left = self.sleep_remaining(sleep) + seconds;
+                    let kind = match sleep.kind {
+                        SleepKind::After(total) => SleepKind::After(total + seconds),
+                        _ => SleepKind::After(left),
+                    };
+                    self.sleep = Some(Sleep {
+                        kind,
+                        fade: sleep.fade,
+                        deadline: Some(Instant::now() + Duration::from_secs_f64(left)),
+                    });
+                    self.sleep_tick();
+                }
+            }
+            Command::SleepFade(fade) => {
+                if let Some(sleep) = &mut self.sleep {
+                    sleep.fade = fade;
+                }
+                self.library.update_settings(|s| s.sleep_fade = fade)?;
+                self.sleep_tick();
+            }
+            Command::Tempo(tempo, song_only) => {
+                let tempo = tempo.clamped();
+                self.tempo.set(tempo);
+                if song_only {
+                    self.tempo_song = self
+                        .queue
+                        .active
+                        .as_ref()
+                        .or(self.loading.as_ref())
+                        .or(self.queue.pending.front())
+                        .map(|i| i.track.id.clone());
+                } else {
+                    self.tempo_song = None;
+                    self.settings.speed = tempo.speed;
+                    self.settings.pitch = tempo.semitones;
+                    self.settings.keep_pitch = tempo.keep_pitch;
+                    self.library.update_settings(|s| {
+                        s.speed = tempo.speed;
+                        s.pitch = tempo.semitones;
+                        s.keep_pitch = tempo.keep_pitch;
+                    })?;
+                }
+            }
             Command::Rated(id, stars) => {
                 if let Some(item) = self.loading.as_mut().filter(|i| i.track.id == id) {
                     item.track.rating = stars;
@@ -1828,7 +2181,7 @@ impl Worker {
         Ok(true)
     }
     fn rebuild_tail(&mut self, queue: Vec<QueueItem>) -> Result<()> {
-        let position = self.sink.as_ref().map(|s| s.get_pos()).unwrap_or_default();
+        let position = self.sink.as_ref().map_or(0., |s| self.sink_position(s));
         let mut items = vec![];
         items.extend(self.queue.active.clone());
         items.extend(queue);
@@ -1840,7 +2193,7 @@ impl Worker {
         }
         // Preserve a listening session when only its future queue changes.
         let playing = self.playing;
-        self.restart(items, position.as_secs_f64(), playing)
+        self.restart(items, position, playing)
     }
     /// Reopens the output after it failed and continues at the same position.
     fn recover(&mut self, reason: String) {
@@ -1884,7 +2237,7 @@ impl Worker {
         let Some((target, since)) = self.pending_seek else {
             return;
         };
-        let now = self.sink.as_ref().map_or(0., |s| s.get_pos().as_secs_f64());
+        let now = self.sink.as_ref().map_or(0., |s| self.sink_position(s));
         if now + 0.5 >= target {
             self.pending_seek = None;
         } else if self.stream_waiting() || self.opening.is_some() {
@@ -2046,12 +2399,18 @@ impl Worker {
         self.settle_pending_seek();
         let elapsed = elapsed.min(0.25);
         self.last_tick = Instant::now();
+        let speed = if self.exclusive() {
+            1.
+        } else {
+            self.tempo.get().speed as f64
+        };
         if self.playing
             && let Some(listen) = &mut self.listen
         {
-            listen.listened_seconds += elapsed;
+            listen.listened_seconds += elapsed * speed;
         }
         self.take_started();
+        self.sleep_tick();
         // Another song is playing (chosen, Previous, the queue begun again): its loop is not this one's.
         if self.loop_range.is_some()
             && let Some(active) = &self.queue.active
@@ -2070,7 +2429,14 @@ impl Worker {
             if sink.empty() && self.queue.pending.is_empty() && self.queue.staged.is_empty() {
                 self.finish_listen();
                 let next = self.queue.after_end();
-                if !next.is_empty() {
+                if self.playing && self.sleep.as_ref().is_some_and(|s| s.deadline.is_none()) {
+                    // The sleep timer was waiting for this end: no Repeat, no Autoplay.
+                    self.playing = false;
+                    if !next.is_empty() {
+                        self.suspend(next, 0.);
+                    }
+                    self.sleep_done();
+                } else if !next.is_empty() {
                     self.play(next)?;
                 } else if self.playing {
                     self.playing = false;
@@ -2128,6 +2494,15 @@ impl Worker {
         state.exclusive = self.exclusive();
         state.network_output = self.network().is_some();
         state.stems = self.stems.as_ref().map(|(id, _)| id.clone());
+        state.sleep = self.sleep.as_ref().map(|s| SleepState {
+            kind: s.kind,
+            fade: s.fade,
+            remaining: self.sleep_remaining(s),
+        });
+        state.sleep_ended = self.sleep_ended;
+        state.tempo = self.tempo.get();
+        state.tempo_song_only = self.tempo_song.is_some();
+        state.tempo_available = !self.exclusive();
         Ok(())
     }
     fn run(mut self, rx: Receiver<Command>) {
@@ -3268,6 +3643,137 @@ mod tests {
         assert!((worker.resume_position - 30.0).abs() < 0.5);
         assert!(worker.settings.dsp.eq);
         assert_eq!(worker.settings.crossfade, 3.);
+    }
+
+    #[test]
+    fn the_sleep_timer_stops_at_the_end_of_the_song_with_the_next_one_waiting() {
+        let mut rig = rig(FakeOpener::with(&[], Some("Speakers")), Settings::default());
+        let list = rig.items(&["a", "b", "c"]);
+        rig.run(Command::Play(list));
+        rig.until_active("a");
+        rig.run(Command::Sleep(Some(SleepTimer {
+            kind: SleepKind::EndOfSong,
+            fade: false,
+        })));
+        let left = rig.state().sleep.unwrap().remaining;
+        assert!(left > 50. && left <= 60., "{left} s left");
+        rig.run(Command::Seek(58.));
+        rig.until("the timer", |w| w.sleep.is_none());
+        assert!(!rig.worker.playing);
+        assert_eq!(rig.active().as_deref(), Some("b"));
+        assert_eq!(rig.worker.position(), 0.);
+        assert_eq!(rig.worker.sleep_ended, 1);
+        // Play goes on with the next song.
+        rig.run(Command::Toggle);
+        rig.until("b plays", |w| w.playing && w.listen.is_some());
+        assert_eq!(rig.active().as_deref(), Some("b"));
+    }
+
+    #[test]
+    fn the_sleep_timer_waits_for_the_album_to_end() {
+        let mut rig = rig(FakeOpener::with(&[], Some("Speakers")), Settings::default());
+        let mut list = rig.items(&["a", "b", "c"]);
+        for (item, album) in list.iter_mut().zip(["One", "One", "Two"]) {
+            item.track.album = album.into();
+            item.track.album_artist = "Band".into();
+        }
+        rig.run(Command::Play(list));
+        rig.until_active("a");
+        rig.run(Command::Sleep(Some(SleepTimer {
+            kind: SleepKind::EndOfAlbum,
+            fade: true,
+        })));
+        // The rest of a, and all of b.
+        let left = rig.state().sleep.unwrap().remaining;
+        assert!(left > 110. && left <= 120., "{left} s left");
+        rig.run(Command::Seek(58.));
+        rig.until_active("b");
+        assert!(rig.worker.sleep.is_some());
+        rig.run(Command::Seek(58.));
+        rig.until("the timer", |w| w.sleep.is_none());
+        assert_eq!(rig.active().as_deref(), Some("c"));
+        assert!(!rig.worker.playing);
+        // The fade is over: the volume is whole again for the next Play.
+        assert_eq!(rig.worker.fade, 1.);
+    }
+
+    #[test]
+    fn the_sleep_timer_pauses_when_its_time_is_up_and_fades_before() {
+        let mut rig = rig(FakeOpener::with(&[], Some("Speakers")), Settings::default());
+        let list = rig.items(&["a", "b"]);
+        rig.run(Command::Play(list));
+        rig.until_active("a");
+        rig.run(Command::Sleep(Some(SleepTimer {
+            kind: SleepKind::After(30.),
+            fade: true,
+        })));
+        // Half the fade left: a quarter of the volume.
+        assert!((rig.worker.fade - 0.25).abs() < 0.02, "{}", rig.worker.fade);
+        rig.run(Command::SleepLonger(60.));
+        assert_eq!(rig.worker.fade, 1.);
+        assert_eq!(rig.state().sleep.unwrap().kind, SleepKind::After(90.));
+        rig.run(Command::SleepFade(false));
+        assert!(!rig.worker.library.settings().unwrap().sleep_fade);
+        rig.run(Command::Sleep(None));
+        assert!(rig.state().sleep.is_none());
+        rig.run(Command::Sleep(Some(SleepTimer {
+            kind: SleepKind::After(0.2),
+            fade: false,
+        })));
+        rig.until("the timer", |w| w.sleep.is_none());
+        assert!(!rig.worker.playing);
+        assert_eq!(rig.active().as_deref(), Some("a"));
+        rig.worker.tick().unwrap();
+        assert_eq!(rig.state().sleep_ended, 1);
+        assert!(rig.state().sleep.is_none());
+    }
+
+    #[test]
+    fn a_faster_song_moves_through_its_own_time_faster_and_the_next_plays_as_before() {
+        let mut rig = rig(FakeOpener::with(&[], Some("Speakers")), Settings::default());
+        let list = rig.items(&["a", "b"]);
+        rig.run(Command::Play(list));
+        rig.until_active("a");
+        let tempo = crate::tempo::Tempo {
+            speed: 1.5,
+            ..Default::default()
+        };
+        rig.run(Command::Tempo(tempo, true));
+        rig.run(Command::Seek(10.));
+        let state = rig.state();
+        assert_eq!(state.tempo.speed, 1.5);
+        assert!(state.tempo_song_only && state.tempo_available);
+        rig.until("played a while", |w| {
+            w.sink
+                .as_ref()
+                .is_some_and(|s| s.get_pos().as_secs_f64() > 16.)
+        });
+        // The output has played 6 s past the seek; the song has moved on 9 s.
+        let (song, output) = (
+            rig.worker.position(),
+            rig.worker.sink.as_ref().unwrap().get_pos().as_secs_f64(),
+        );
+        let ratio = (song - 10.) / (output - 10.);
+        assert!((ratio - 1.5).abs() < 0.15, "{song} s of song in {output} s");
+        assert_eq!(rig.worker.library.settings().unwrap().speed, 1.);
+        rig.run(Command::Seek(59.));
+        rig.until_active("b");
+        assert_eq!(rig.state().tempo.speed, 1.);
+        // Kept for every song.
+        rig.run(Command::Tempo(
+            crate::tempo::Tempo {
+                speed: 1.25,
+                semitones: -2.,
+                keep_pitch: false,
+            },
+            false,
+        ));
+        let saved = rig.worker.library.settings().unwrap();
+        assert_eq!(
+            (saved.speed, saved.pitch, saved.keep_pitch),
+            (1.25, -2., false)
+        );
+        assert!(!rig.state().tempo_song_only);
     }
 
     #[test]
