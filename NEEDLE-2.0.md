@@ -226,3 +226,38 @@ the album page's extra parts, and the artist poster.
   player's colour change to the new cover's over about half a second, not at once. Windows and Linux already did (the palette fades between covers).
 - **Reduce motion** (Needle's or the system's): all of these become plain fades or nothing.
 
+### From the new-ideas mockups (artifacts/ideas, approved 2026-10-26)
+
+The mockups' names and numbers are made up. Each feature's logic is in the core once; the
+phones reach it through `crates/needle-mobile/src/core2.rs`.
+
+**Sleep timer.** All systems. 15, 30, 45 minutes, 1 hour, End of song, End of album; **Fade
+out** (over the last minute; kept in `sleep_fade`); a moon button in the player, lit while it
+runs, with the time left on hover. When it ends the music pauses; for End of song or album the
+next song waits paused at its start (it is held back, so none of it plays; with crossfade on,
+the overlapping seconds of the last song are cut). Repeat and Autoplay do not start after it.
+Fading needs the shared output: exclusive output keeps its volume. **Then sleep the PC** is
+desktop only (`sleep_computer`); **Shake to add 10 minutes** is Android only. Core:
+`audio::Command::Sleep`, `SleepLonger`, `SleepFade`; `PlaybackState::sleep`, `sleep_ended`.
+
+**Speed and pitch.** All systems where Needle makes the sound. Speed 0.5× to 2× (chips 0.75,
+1, 1.25, 1.5, 2), pitch −12 to +12 semitones, **Keep the pitch** (time-stretch: Needle's own
+WSOLA in `tempo.rs`, no new library), **Only for this song**. Off on exclusive output and
+Android's bit-perfect USB (`PlaybackState::tempo_available`). Kept in `speed`, `pitch`,
+`keep_pitch` unless for one song. The song's time (seek bar, lyrics, listens) runs in the
+song's own seconds.
+
+**Year in review** ("Your 2026 in music"). All systems. Hours, plays, new songs found that year,
+plays by month, the top artist with hours (and the months in the top five), top songs with
+plays (up to 50). Opens from Listening history; Home shows it in December. **Save as a picture**
+(Pictures › Needle on computers, as lyric cards), **Make a playlist** ("Top songs of 2026",
+saved again it is refreshed), **Play top 50**. Core: `Library::wrapped`,
+`save_year_playlist`, `wrapped::default_year`, `home_year`.
+
+**Time the lyrics.** All systems. Tap as each line starts (or each word, in word mode),
+−0.2 s / +0.2 s, Redo line, Undo; saved as an `.lrc` beside the song (phones: in Needle's own
+storage, as before). Core: `timing::LyricTiming`; phones: the `LyricTimer` object.
+
+**Taskbar buttons, global shortcuts, the small floating player.** Windows and Linux only, in
+`crates/needle`.
+

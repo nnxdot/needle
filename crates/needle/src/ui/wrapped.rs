@@ -7,11 +7,7 @@ use super::{
 };
 use gpui::{prelude::*, *};
 use gpui_component::button::ButtonVariants;
-use needle_core::{
-    history::HistoryTop,
-    model::{Playlist, Track},
-    wrapped::Wrapped,
-};
+use needle_core::{history::HistoryTop, model::Track, wrapped::Wrapped};
 
 /// Text with some parts picked out: `(text, emphasised)`.
 fn rich(parts: &[(&str, bool)], emphasis: Hsla) -> StyledText {
@@ -64,14 +60,7 @@ fn listener_kind(hour: u8) -> &'static str {
 
 /// The year to open first: last year during January, when this one has barely begun.
 pub fn default_year(years: &[i32]) -> i32 {
-    use chrono::Datelike;
-    let today = chrono::Local::now().date_naive();
-    let this = today.year();
-    if today.month() == 1 && years.contains(&(this - 1)) {
-        this - 1
-    } else {
-        this
-    }
+    needle_core::wrapped::default_year(years, chrono::Local::now().date_naive())
 }
 
 impl AppView {
@@ -117,29 +106,11 @@ impl AppView {
 
     fn save_wrapped_playlist(&mut self, cx: &mut Context<Self>) {
         let Some(wrapped) = &self.wrapped else { return };
-        let name = format!("Top songs of {}", wrapped.year);
-        let ids: Vec<String> = Self::wrapped_tracks(wrapped)
-            .into_iter()
-            .map(|t| t.id)
-            .collect();
         // Saving again refreshes the same playlist instead of making another.
-        let existing = self
-            .playlists
-            .iter()
-            .find(|p| p.name == name && p.query.is_none())
-            .map(|p| p.id.clone());
-        let playlist = Playlist {
-            id: existing.unwrap_or_else(crate::uuid_string),
-            name: name.clone(),
-            query: None,
-            track_ids: ids,
-            updated_at: chrono::Utc::now().timestamp(),
-            ..Default::default()
-        };
-        match self.library.save_playlist(&playlist) {
-            Ok(()) => {
+        match self.library.save_year_playlist(wrapped.year) {
+            Ok(playlist) => {
                 self.playlists = self.library.playlists().unwrap_or_default();
-                self.notify(format!("Saved “{name}”."));
+                self.notify(format!("Saved “{}”.", playlist.name));
             }
             Err(e) => self.fail(e.to_string()),
         }
