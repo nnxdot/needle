@@ -185,6 +185,30 @@ struct MainWindow: View {
             pace.speed = speed
             store.setTempo(pace)
         }
+        // `--card-test <folder>`: lyric cards of a short, a long, a Japanese, and a Korean line
+        // as pictures there, with the cover of `--card-cover <file>` (any name, such as a
+        // server's ".img").
+        if let folder = value("--card-test") {
+            let coverPath = value("--card-cover")
+            Task {
+                let image = if let coverPath { await Covers.load(coverPath, size: 1080) } else { NSImage?.none }
+                let cover = image?.cgImage(forProposedRect: nil, context: nil, hints: nil)
+                let lines = [
+                    ("short", "Hold the light a little longer"),
+                    ("long", "And every wave that finds my feet is softer than the last one, sweet, and I will wait here by the water till the morning brings you home to me again"),
+                    ("japanese", "夜の海に光が揺れている、君の声が遠くから聞こえる"),
+                    ("korean", "바다 위의 빛이 흔들리고 너의 목소리가 들려"),
+                ]
+                for (name, line) in lines {
+                    let renderer = ImageRenderer(content: LyricCard(line: line, title: "Undertow", artist: "Coral Avenue", cover: cover))
+                    renderer.scale = 3
+                    if let tiff = renderer.nsImage?.tiffRepresentation,
+                       let png = NSBitmapImageRep(data: tiff)?.representation(using: .png, properties: [:]) {
+                        try? png.write(to: URL(fileURLWithPath: folder).appendingPathComponent("card-\(name).png"))
+                    }
+                }
+            }
+        }
         if let tool = value("--tool") {
             Task {
                 try? await Task.sleep(for: .seconds(5))

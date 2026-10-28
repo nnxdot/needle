@@ -66,7 +66,8 @@ struct BigPlayer: View {
                                 // paused or with Reduce motion.
                                 let side = min(geo.size.height * 0.52, wide ? 480 : 360)
                                 RecordDisc(side: side, spinning: p.playing && store.motion) {
-                                    Cover(path: p.artwork, seed: p.album + p.artist, side: side * 0.4, corner: 0)
+                                    Cover(path: p.artwork, seed: p.album + p.artist, side: side, corner: 0)
+                                        .overlay { MovingCoverLayer(songID: store.current?.id, on: store.settings.animatedCovers && store.motion) }
                                 }
                             } else if immersive || visualizer {
                                 // The cover is the window's side itself: the words sit over its foot.

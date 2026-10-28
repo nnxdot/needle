@@ -51,14 +51,12 @@ struct Visualizer: View {
     @Environment(\.accessibilityReduceMotion) private var systemReduceMotion
     @State private var levels = Levels()
 
-    /// The bands as they move: rising at once, falling slowly.
+    /// The bands as the core gives them (it eases them itself: quick to rise, slow to fall).
     final class Levels {
         var bands = [Float](repeating: 0, count: 40)
         func follow(_ now: [Float]) {
             guard now.count == bands.count else { return }
-            for i in bands.indices {
-                bands[i] = now[i] > bands[i] ? now[i] : bands[i] * 0.86 + now[i] * 0.14
-            }
+            bands = now
         }
         func average(_ range: Range<Int>) -> CGFloat {
             CGFloat(bands[range].reduce(0, +) / Float(range.count))
