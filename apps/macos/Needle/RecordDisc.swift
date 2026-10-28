@@ -1,60 +1,80 @@
 import SwiftUI
 
-/// The big player's Record look: a black record with its grooves, the cover as its label, the
-/// light on it, and the arm resting on it, as on Needle's icon. It turns while `spinning`.
+/// The big player's Record look, as on Android (and so on every system): the whole cover, round,
+/// turning once in 12 seconds while `spinning`, with fine dark grooves and a soft sheen over it,
+/// the label's hole in the middle, and the cream arm resting on it at the top right, as on
+/// Needle's icon.
 struct RecordDisc<Label: View>: View {
     let side: CGFloat
     let spinning: Bool
     @ViewBuilder let label: () -> Label
 
+    private static var cream: Color { Color(red: 0xF2 / 255, green: 0xE8 / 255, blue: 0xD6 / 255) }
+
     var body: some View {
         ZStack {
-            // One turn in eight seconds: slow, so the label can still be seen.
-            RecordSpin(on: spinning, period: 8) {
-                ZStack {
-                    Circle().fill(RadialGradient(colors: [Color(white: 0.13), Color(white: 0.05)], center: .center, startRadius: 0, endRadius: side / 2))
-                    // The grooves: fine rings, a few stronger, between the label and the edge.
-                    ForEach(0..<16, id: \.self) { i in
-                        Circle()
-                            .stroke(.white.opacity(i % 4 == 0 ? 0.08 : 0.035), lineWidth: i % 4 == 0 ? 1.4 : 0.8)
-                            .frame(width: side * (0.46 + Double(i) * 0.031), height: side * (0.46 + Double(i) * 0.031))
-                    }
-                    label()
-                        .frame(width: side * 0.4, height: side * 0.4)
-                        .clipShape(Circle())
-                        .overlay(Circle().stroke(.black.opacity(0.35), lineWidth: 2))
-                    Circle().fill(Color(white: 0.85)).frame(width: side * 0.022, height: side * 0.022)
-                }
-                .frame(width: side, height: side)
-            }
-            // The light on the record stays where it is while the record turns.
+            // The shadow: a soft dark glow behind the record, a little lower.
             Circle()
-                .fill(AngularGradient(colors: [.clear, .white.opacity(0.09), .clear, .clear, .white.opacity(0.06), .clear, .clear], center: .center))
-                .frame(width: side, height: side)
-                .allowsHitTesting(false)
+                .fill(RadialGradient(stops: [.init(color: .black.opacity(0.55), location: 0.55), .init(color: .clear, location: 1)],
+                                     center: .center, startRadius: 0, endRadius: side * 0.48))
+                .frame(width: side * 0.96, height: side * 0.96)
+                .offset(y: 18)
+            RecordSpin(on: spinning, period: 12) {
+                label()
+                    .frame(width: side, height: side)
+                    .clipShape(Circle())
+            }
+            // Round grooves look the same at any turn: they stay, with the sheen.
+            grooves
+            // The label's hole.
+            Circle().fill(.black.opacity(0.55)).frame(width: 34, height: 34)
+            Circle().fill(Color(red: 0x0F / 255, green: 0x0E / 255, blue: 0x0D / 255)).frame(width: 10, height: 10)
             arm
         }
         .frame(width: side, height: side)
-        .shadow(color: .black.opacity(0.45), radius: side * 0.06, y: side * 0.04)
         .accessibilityHidden(true)
     }
 
-    /// The tonearm: its pivot beyond the record's top right, resting near the outer grooves.
-    private var arm: some View {
+    /// Fourteen fine dark rings from near the edge in to the label, and a diagonal sheen.
+    private var grooves: some View {
         Canvas { context, size in
-            let s = size.width
-            let pivot = CGPoint(x: s * 0.97, y: s * 0.05)
-            let rest = CGPoint(x: s * 0.74, y: s * 0.44)
+            let r = size.width / 2
+            let middle = CGPoint(x: r, y: r)
+            var k: CGFloat = 0.95
+            while k > 0.36 {
+                let ring = CGRect(x: middle.x - r * k, y: middle.y - r * k, width: 2 * r * k, height: 2 * r * k)
+                context.stroke(Path(ellipseIn: ring), with: .color(.black.opacity(0.16)), lineWidth: 1.2)
+                k -= 0.045
+            }
+            context.fill(Path(ellipseIn: CGRect(origin: .zero, size: size)),
+                         with: .linearGradient(Gradient(colors: [.white.opacity(0.14), .clear, .white.opacity(0.08)]),
+                                               startPoint: .zero, endPoint: CGPoint(x: size.width, y: size.height)))
+        }
+        .frame(width: side, height: side)
+        .allowsHitTesting(false)
+    }
+
+    /// The arm: cream, from its pivot at the top right to the outer grooves, with its shadow.
+    private var arm: some View {
+        // Drawn with room around the record: the pivot reaches a little past its edge.
+        Canvas { context, size in
+            let w = side
+            context.translateBy(x: (size.width - side) / 2, y: (size.height - side) / 2)
+            let pivot = CGPoint(x: w * 0.96, y: w * 0.04)
+            let tip = CGPoint(x: w * 0.73, y: w * 0.30)
+            var shadow = Path()
+            shadow.move(to: CGPoint(x: pivot.x, y: pivot.y + 6))
+            shadow.addLine(to: CGPoint(x: tip.x, y: tip.y + 6))
+            context.stroke(shadow, with: .color(.black.opacity(0.3)), style: StrokeStyle(lineWidth: w * 0.035, lineCap: .round))
             var line = Path()
             line.move(to: pivot)
-            line.addLine(to: rest)
-            context.stroke(line, with: .color(Color(red: 0.949, green: 0.91, blue: 0.839)), style: StrokeStyle(lineWidth: s * 0.022, lineCap: .round))
-            let head = CGRect(x: rest.x - s * 0.025, y: rest.y - s * 0.012, width: s * 0.05, height: s * 0.05)
-            context.fill(Path(roundedRect: head, cornerRadius: s * 0.008), with: .color(Color(red: 0.949, green: 0.91, blue: 0.839)))
-            let knob = CGRect(x: pivot.x - s * 0.05, y: pivot.y - s * 0.05, width: s * 0.1, height: s * 0.1)
-            context.fill(Path(ellipseIn: knob), with: .color(Color(red: 0.949, green: 0.91, blue: 0.839)))
-            context.fill(Path(ellipseIn: knob.insetBy(dx: s * 0.03, dy: s * 0.03)), with: .color(Color(red: 0.106, green: 0.094, blue: 0.086)))
+            line.addLine(to: tip)
+            context.stroke(line, with: .color(Self.cream), style: StrokeStyle(lineWidth: w * 0.03, lineCap: .round))
+            context.fill(Path(ellipseIn: CGRect(x: pivot.x - w * 0.045, y: pivot.y - w * 0.045, width: w * 0.09, height: w * 0.09)), with: .color(Self.cream))
+            context.fill(Path(ellipseIn: CGRect(x: pivot.x - w * 0.018, y: pivot.y - w * 0.018, width: w * 0.036, height: w * 0.036)),
+                         with: .color(Color(red: 0x1B / 255, green: 0x18 / 255, blue: 0x16 / 255)))
         }
+        .frame(width: side * 1.2, height: side * 1.2)
         .allowsHitTesting(false)
     }
 }
