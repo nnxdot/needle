@@ -247,7 +247,7 @@ struct NeedleSettings: Decodable, Equatable {
     var discordIdleMinutes = 10
     var displayFont = "system"
     var textFont = "system"
-    var playerButtons = PlayerButtons.all
+    var playerButtons = PlayerButtons.core
     var artistOrder = "name"
     var albumArtistsOnly = false
     var artistPictures = true

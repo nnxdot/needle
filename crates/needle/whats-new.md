@@ -30,7 +30,7 @@ A new look, after the Mac's, and a lot more to see and hear.
 # 2.0.0 [macos]
 A new icon, and a lot more to see and hear.
 ! **A new icon, and one look everywhere.** Needle's icon is now Glass groove: an amber record of glass with its arm, on charcoal. Needle on Windows, Linux, Android, and the iPhone now looks like Needle on the Mac.
-- [play] **Choose the player's buttons.** Drag buttons into the player, along it, and out of it in Settings › Appearance › Layout › Player buttons.
+- [play] **Choose the player's buttons.** Drag buttons into the player, along it, and out of it in Settings › Appearance › Layout › Player buttons. The player starts with seven; the rest (shuffle, repeat, speakers, the sleep timer, speed and pitch, the A–B loop, the equalizer, and the mini player) are in its ••• menu.
 - [tag] **Fonts.** Choose a font for titles (eight of them, such as Fraunces, Poster, and Instrument Serif) and one for everything else (such as Inter and Atkinson Hyperlegible), or a font on this Mac, in Settings › Appearance › Titles and Text.
 - [search] **A search page.** Typing on a page that is not a list opens Search: the best match large, then songs, albums, artists, and lines of lyrics that hold the words, with a chip for each and rules to try.
 - [fullscreen] **Four looks for the big player.** The Look button steps through Cover, Record (the cover as a turning record), Lyrics (only the words, very large, lit as they are sung), and Visualizer.
@@ -48,8 +48,8 @@ A new icon, and a lot more to see and hear.
 - [queue] **The queue in full screen.** A queue button beside the lyrics button, and queue rows light up under the pointer.
 - [play] **Moving covers on the album page.** An album with a moving cover shows it moving on its page too.
 - [eq] **Smart mixes.** With crossfade on, the fade starts where the music ends and lasts whole bars (Settings › Playback › Smart mixes).
-- [moon] **A sleep timer.** The moon in the player stops the music after 15, 30, or 45 minutes, an hour, or at the end of the song or the album, fading out over the last minute. It stays lit while it runs and shows the time left under the pointer. Then sleep the Mac, if you like.
-- [speed] **Speed and pitch.** The button beside the moon plays a song from half to twice as fast, keeps its pitch or lets it rise, and moves it up or down in semitones, for every song or only this one.
+- [moon] **A sleep timer.** In the player's ••• menu (or as a moon in the player): it stops the music after 15, 30, or 45 minutes, an hour, or at the end of the song or the album, fading out over the last minute. The moon stays lit while it runs and shows the time left under the pointer. Then sleep the Mac, if you like.
+- [speed] **Speed and pitch.** In the player's ••• menu: play a song from half to twice as fast, keep its pitch or let it rise, and move it up or down in semitones, for every song or only this one.
 - [history] **Your year in music.** Your hours, plays, and new songs, the year by month, your top artist, and your top songs, from Listening history (and on Home in December). Save it as a picture in Pictures › Needle, make a playlist of it, or play your top 50.
 - [lyrics] **Time the lyrics.** −0.2 s, +0.2 s, Redo line, and Undo fix the line you just tapped; Words times each word.
 

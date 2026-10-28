@@ -9,9 +9,11 @@ struct PlayerBar: View {
     var body: some View {
         GeometryReader { geo in
             let narrow = geo.size.width < 600, wide = geo.size.width > 720
-            // The buttons chosen in Settings › Appearance › Layout; a narrow bar keeps the main ones.
-            let dropped = ["shuffle", "repeat", "favorite", "speakers"].filter { narrow || (!wide && $0 == "speakers") }
-            let (before, after) = PlayerButtons.split(store.settings.playerButtons.filter { !dropped.contains($0) })
+            // The buttons chosen in Settings › Appearance › Layout; a narrow bar keeps the main
+            // ones, and the rest wait in the ••• menu (the volume too, as on Windows).
+            let dropped = ["shuffle", "repeat", "favorite", "speakers", "volume"].filter { narrow || (!wide && $0 == "speakers") }
+            let shown = PlayerButtons.chosen(store.settings.playerButtons).filter { !dropped.contains($0) }
+            let (before, after) = PlayerButtons.split(shown)
             HStack(spacing: narrow ? 10 : 18) {
                 HStack(spacing: narrow ? 10 : 14) {
                     ForEach(before, id: \.self) { PlayerButton(name: $0) }
@@ -22,10 +24,8 @@ struct PlayerBar: View {
                 NowScreen()
                     .frame(maxWidth: .infinity)
                 HStack(spacing: narrow ? 10 : 14) {
-                    ForEach(after, id: \.self) { PlayerButton(name: $0) }
-                    if !narrow { SpeedButton(); SleepButton() }
-                    MoreButton(all: true)
-                    VolumeControl(width: wide ? 64 : 0)
+                    ForEach(after, id: \.self) { PlayerButton(name: $0, volumeWidth: wide ? 64 : 0) }
+                    if shown.count < PlayerButtons.all.count { MoreButton(shown: shown) }
                 }
                 .font(.system(size: 14))
                 .fixedSize()
@@ -48,8 +48,10 @@ struct TopPlayer: View {
 
     var body: some View {
         HStack(spacing: 16) {
-            // The buttons chosen in Settings › Appearance › Layout (no speakers: the bar is narrow).
-            let (before, after) = PlayerButtons.split(store.settings.playerButtons.filter { $0 != "speakers" })
+            // The buttons chosen in Settings › Appearance › Layout (no speakers: the bar is
+            // narrow); the rest wait in the ••• menu.
+            let shown = PlayerButtons.chosen(store.settings.playerButtons).filter { $0 != "speakers" }
+            let (before, after) = PlayerButtons.split(shown)
             HStack(spacing: 11) {
                 ForEach(before, id: \.self) { PlayerButton(name: $0, play: 24) }
             }
@@ -59,11 +61,8 @@ struct TopPlayer: View {
             TopScreen()
                 .frame(width: TopPlayer.screen)
             HStack(spacing: 14) {
-                ForEach(after, id: \.self) { PlayerButton(name: $0, play: 24) }
-                SpeedButton()
-                SleepButton()
-                MoreButton(all: true)
-                VolumeControl(width: 60)
+                ForEach(after, id: \.self) { PlayerButton(name: $0, play: 24, volumeWidth: 60) }
+                if shown.count < PlayerButtons.all.count { MoreButton(shown: shown) }
             }
             .font(.system(size: 13))
             .fixedSize()
@@ -247,23 +246,19 @@ struct MoreButton: View {
     private var store: Store { .shared }
     @Environment(\.openWindow) private var openWindow
     @Environment(\.openSettings) private var openSettings
-    let all: Bool
+    /// The buttons in the bar now: the menu holds every other one, as on Windows.
+    let shown: [String]
 
     var body: some View {
         // Looping only once the core loops (with only point A set, the next step is point B).
         let looping = store.playback?.loopStart != nil
+        let hidden = PlayerButtons.all.filter { $0 != "play" && !shown.contains($0) }
         Menu {
             if let p = store.playback, p.hasSong, let c = store.current {
                 Button(SignalPath.describe(p, c).0) { openSettings() }
                 Divider()
             }
-            Button(looping ? "Clear the A–B Loop" : store.loopStart != nil ? "Set Point B" : "A–B Loop: Set Point A") { store.loopButton() }
-                .disabled(store.playback?.hasSong != true)
-            Button("Mini Player") { openWindow(id: "mini") }
-            if all {
-                Divider()
-                Button("Equalizer and Sound Tools") { store.navigate(.sound) }
-            }
+            ForEach(hidden, id: \.self) { item($0) }
         } label: {
             Image(systemName: "ellipsis").foregroundStyle(looping ? store.colors.accent : store.colors.ink2)
         }
@@ -274,6 +269,62 @@ struct MoreButton: View {
         .tint(looping ? store.colors.accent : store.colors.ink2)
         .fixedSize()
         .help("More")
+        // The panes of buttons not in the bar open here.
+        .popover(isPresented: Binding(get: { store.tool.map { hidden.contains($0) } ?? false },
+                                      set: { if !$0, let t = store.tool, hidden.contains(t) { store.tool = nil } }),
+                 arrowEdge: .top) {
+            switch store.tool {
+            case "sleep": SleepPane()
+            case "speed": SpeedPane()
+            default: SpeakersPicker().environment(store)
+            }
+        }
+    }
+
+    /// A button not in the bar, as a menu item that does what it does.
+    @ViewBuilder
+    private func item(_ name: String) -> some View {
+        let playing = store.playback?.hasSong == true
+        let repeatMode = store.playback?.repeat ?? "off"
+        switch name {
+        case "shuffle":
+            Button(store.route.isSongs ? "Shuffle This View" : "Shuffle Up Next", systemImage: "shuffle") { store.shuffleView() }
+        case "previous": Button("Previous", systemImage: "backward.fill") { store.previous() }
+        case "next": Button("Next", systemImage: "forward.fill") { store.next() }
+        case "repeat":
+            Button(repeatMode == "off" ? "Repeat" : repeatMode == "all" ? "Repeating the Queue" : "Repeating This Song",
+                   systemImage: repeatMode == "one" ? "repeat.1" : "repeat") { store.cycleRepeat() }
+        case "favorite":
+            if let c = store.current {
+                Button(c.favorite ? "Remove from Favorites" : "Add to Favorites", systemImage: c.favorite ? "heart.fill" : "heart") {
+                    store.toggleFavorite([c])
+                }
+            }
+        case "lyrics": Button("Lyrics", systemImage: "quote.bubble") { panel(.lyrics) }
+        case "queue": Button("Queue", systemImage: "list.bullet") { panel(.queue) }
+        case "speakers":
+            let speaker = store.settings.outputDevice?.hasPrefix("speaker") == true
+            Button(speaker ? "Playing on Another Speaker…" : "Play on Another Speaker…", systemImage: "airplayaudio") { store.tool = "speakers" }
+        case "volume":
+            let muted = store.mutedVolume != nil || (store.playback?.volume ?? 1) <= 0.001
+            Button(muted ? "Unmute" : "Mute", systemImage: muted ? "speaker.wave.2.fill" : "speaker.slash.fill") { store.toggleMute() }
+        case "sleep":
+            Button(store.sleep.map { "Sleep Timer · \(sleepClock($0.remaining)) left" } ?? "Sleep Timer…", systemImage: "moon") { store.tool = "sleep" }
+        case "speed": Button("Speed and Pitch…", systemImage: "gauge.with.dots.needle.67percent") { store.tool = "speed" }
+        case "loop":
+            Button(store.playback?.loopStart != nil ? "Clear the A–B Loop" : store.loopStart != nil ? "Set Point B" : "A–B Loop: Set Point A",
+                   systemImage: "arrow.left.and.right") { store.loopButton() }
+                .disabled(!playing)
+        case "sound": Button("Equalizer and Sound Tools", systemImage: "slider.vertical.3") { store.navigate(.sound) }
+        case "mini": Button("Mini Player", systemImage: "pip") { openWindow(id: "mini") }
+        default: EmptyView()
+        }
+    }
+
+    /// Opens a side panel, or closes it when it is the one open.
+    private func panel(_ panel: Store.Panel) {
+        if store.settings.showInspector && store.panel == panel { store.set(["show_inspector": false]) }
+        else { store.panel = panel; store.set(["show_inspector": true]) }
     }
 }
 
