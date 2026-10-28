@@ -1,8 +1,8 @@
 //! The record crate: the albums as records in a box. The front one stands up to play; the
-//! ones behind lean back, smaller and darker. The wheel, the arrow buttons, or a click on a
-//! record behind flips through them.
+//! ones behind lean back, smaller and darker. The wheel, the arrow buttons, the arrow keys, or
+//! a click on a record behind flips through them; Enter opens the one in front.
 use super::{
-    AppView, pal,
+    AppView, Page, pal,
     widgets::{cover, display, icon, icon_button, meta},
 };
 use gpui::{prelude::*, *};
@@ -12,6 +12,31 @@ use gpui_component::button::{Button, ButtonVariants};
 const BEHIND: usize = 6;
 
 impl AppView {
+    /// The arrow keys flip through the crate and Enter opens the album in front, while the
+    /// crate shows. True when the key was used.
+    pub(super) fn crate_key(
+        &mut self,
+        key: &str,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> bool {
+        if self.page != Page::Albums || !self.albums_crate || self.groups.is_empty() {
+            return false;
+        }
+        let last = self.groups.len() - 1;
+        match key {
+            "left" => self.crate_index = self.crate_index.min(last).saturating_sub(1),
+            "right" => self.crate_index = (self.crate_index + 1).min(last),
+            "enter" => {
+                let page = self.groups[self.crate_index.min(last)].page.clone();
+                self.navigate(page, window, cx);
+            }
+            _ => return false,
+        }
+        cx.notify();
+        true
+    }
+
     pub(super) fn crate_view(&self, width: f32, cx: &mut Context<Self>) -> AnyElement {
         let p = pal(cx);
         let count = self.groups.len();
