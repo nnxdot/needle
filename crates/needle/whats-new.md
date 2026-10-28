@@ -18,7 +18,7 @@ A new look, after the Mac's, and a lot more to see and hear.
 - [edit] **Your own artist pictures.** The pencil on an artist's page lets you choose their photo, wide picture, and logo: your own file, or any of fanart.tv's. A photo in an artist's folder (artist.jpg) is used too, and so are a wide picture and a logo there (fanart.jpg, logo.png) when fanart.tv has none or online lookups are off.
 - [globe] **Pictures for every artist.** With online lookups on, Needle finds every artist's pictures slowly in the background, or all at once with Check all now (Settings › Artwork and lyrics).
 - [history] **On this day.** Home shows what you played one and five years ago today.
-- [albums] **Your library in numbers, and the mood map.** From Listening history: what your music is made of, and every song by how it sounds; click a spot to play the songs around it.
+- [albums] **Your library in numbers, and the genre map.** From Listening history: what your music is made of, and every genre as a bubble where its songs sound, as big as its number of songs; click one to play it.
 - [albums] **A record crate.** Flip through your albums like records in a box (Albums › Crate).
 - [lyrics] **Lyric cards.** Right-click a line of the lyrics for a picture of it to share.
 - [queue] **The queue in full screen.** A queue button beside the lyrics button.
