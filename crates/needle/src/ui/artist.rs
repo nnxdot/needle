@@ -7,7 +7,7 @@ use super::{
 };
 use gpui::{prelude::*, *};
 use gpui_component::{
-    Disableable, Sizable,
+    Disableable, Selectable, Sizable,
     button::{Button, ButtonVariants},
 };
 use needle_core::media::pictures::{self, ArtistPicture};
@@ -229,27 +229,6 @@ impl AppView {
             .w_full()
             .h(px(tall))
             .overflow_hidden()
-            // The pencil: choose this artist's pictures.
-            .when(!placeholder(name), |el| {
-                el.child(
-                    div().absolute().top(px(12.)).right(px(14.)).child(
-                        icon_button(
-                            "artist-pictures",
-                            "edit",
-                            if editing {
-                                "Done"
-                            } else {
-                                "Choose this artist's pictures"
-                            },
-                        )
-                        .on_click(cx.listener(|this, _, _, cx| {
-                            this.artist_view.editing = !this.artist_view.editing;
-                            this.artist_view.choices = None;
-                            cx.notify();
-                        })),
-                    ),
-                )
-            })
             .when_some(picture, |el, path| {
                 el.child(
                     img(PathBuf::from(path))
@@ -373,7 +352,22 @@ impl AppView {
                                             this.open_blend_menu(blend.clone(), position, cx)
                                         },
                                     )),
-                            ),
+                            )
+                            // Their photo, wide picture, and logo: the user's own, or another
+                            // of fanart.tv's.
+                            .when(!placeholder(name), |el| {
+                                el.child(
+                                    Button::new("artist-pictures")
+                                        .icon(icon("edit"))
+                                        .label(if editing { "Done" } else { "Pictures" })
+                                        .selected(editing)
+                                        .on_click(cx.listener(|this, _, _, cx| {
+                                            this.artist_view.editing = !this.artist_view.editing;
+                                            this.artist_view.choices = None;
+                                            cx.notify();
+                                        })),
+                                )
+                            }),
                     ),
             )
     }
