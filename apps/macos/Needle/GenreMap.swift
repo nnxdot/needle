@@ -16,6 +16,8 @@ struct GenreBubble: Identifiable {
 enum GenreLayout {
     /// How many of the largest genres the map may show.
     static let most = 40
+    /// The height of the corner words' strips (Lively at the top; Calm, Dark, Bright at the foot).
+    static let wordRoom = 22.0
 
     /// The genres to draw on a map `width` by `height` points, and the ones left for the chips.
     /// `scale` makes the bubbles smaller on a small screen.
@@ -34,7 +36,8 @@ enum GenreLayout {
                         y: height * (0.94 - Double(spot.y) * 0.88),
                         size: scale * (40 + 120 * (Double(spot.songs) / biggest).squareRoot()))
         }
-        // Nudged apart where they overlap, to a 4 pt gap between edges, and kept inside the map.
+        // Nudged apart where they overlap, to a 4 pt gap between edges, and kept inside the map,
+        // clear of the strips at its top and foot where the corner words sit.
         for _ in 0..<200 {
             for a in bubbles.indices {
                 for b in bubbles.indices where b > a {
@@ -55,7 +58,7 @@ enum GenreLayout {
             for i in bubbles.indices {
                 let r = bubbles[i].size / 2
                 bubbles[i].x = min(max(bubbles[i].x, r + 4), width - r - 4)
-                bubbles[i].y = min(max(bubbles[i].y, r + 4), height - r - 4)
+                bubbles[i].y = min(max(bubbles[i].y, r + 4 + wordRoom), height - r - 4 - wordRoom)
             }
         }
         return (bubbles, chips)
