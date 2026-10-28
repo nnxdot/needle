@@ -149,11 +149,14 @@ impl AppView {
         // Beside the cover: what plays next, or the lyrics.
         let queue_side = self.immersive_queue && w >= 900.;
         let lyrics = queue_side || self.immersive_lyrics && self.has_lyrics() && w >= 900.;
+        // The visualizer (its button, or the Visualizer look) fills the cover's place, as on
+        // the Mac and the phones, over the immersive cover too.
+        let light = (self.visualizer || self.big_look() == "visualizer")
+            && self.motion_allowed()
+            && current.is_some();
         // Settings > Appearance > Immersive cover, for a song with a cover of its own.
         let moving = current.as_ref().and_then(|c| self.moving_cover(&c.track));
-        let (cover_layer, cover_side, tone) = match self
-            .settings
-            .immersive_cover
+        let (cover_layer, cover_side, tone) = match (self.settings.immersive_cover && !light)
             .then(|| {
                 moving
                     .clone()
@@ -380,9 +383,6 @@ impl AppView {
             .flex_col()
             .when(!lyrics, |el| el.items_center())
             .gap_4()
-            .when(self.visualizer, |el| {
-                el.child(self.visualizer_strip(column_w, 48., cx))
-            })
             .child(seek)
             .child(buttons)
             .child(volume);
@@ -393,6 +393,30 @@ impl AppView {
             .right(px(24.))
             .flex()
             .gap_2()
+            .child(
+                icon_button(
+                    "imm-visualizer",
+                    "wave",
+                    if light {
+                        "Hide the visualizer"
+                    } else {
+                        "Show the visualizer"
+                    },
+                )
+                .when(light, |b| b.text_color(p.accent))
+                .on_click(cx.listener(move |this, _, _, cx| {
+                    if light {
+                        this.visualizer = false;
+                        if this.settings.big_look == "visualizer" {
+                            this.settings.big_look = "cover".into();
+                            this.persist_settings();
+                        }
+                    } else {
+                        this.visualizer = true;
+                    }
+                    cx.notify();
+                })),
+            )
             .child(
                 icon_button(
                     "imm-queue",
@@ -438,22 +462,26 @@ impl AppView {
                 ),
             );
 
-        let cover = div()
-            .rounded(px(12.))
-            .shadow(vec![BoxShadow {
-                color: gpui::black().opacity(0.5),
-                offset: point(px(0.), px(24.)),
-                blur_radius: px(64.),
-                spread_radius: px(-8.),
-            }])
-            // Settings › Appearance › Moving covers, with Immersive cover off: the moving one
-            // once it is prepared, the still one until then.
-            .child(
-                moving
-                    .as_deref()
-                    .and_then(|path| super::widgets::moving_cover("full-cover", path, art))
-                    .unwrap_or_else(|| artwork(current.as_ref().map(|i| &i.track), art, cx)),
-            );
+        let cover = if light {
+            div().child(self.visualizer_light(art * 1.15, cx))
+        } else {
+            div()
+                .rounded(px(12.))
+                .shadow(vec![BoxShadow {
+                    color: gpui::black().opacity(0.5),
+                    offset: point(px(0.), px(24.)),
+                    blur_radius: px(64.),
+                    spread_radius: px(-8.),
+                }])
+                // Settings › Appearance › Moving covers, with Immersive cover off: the moving one
+                // once it is prepared, the still one until then.
+                .child(
+                    moving
+                        .as_deref()
+                        .and_then(|path| super::widgets::moving_cover("full-cover", path, art))
+                        .unwrap_or_else(|| artwork(current.as_ref().map(|i| &i.track), art, cx)),
+                )
+        };
 
         let left = div()
             .h_full()

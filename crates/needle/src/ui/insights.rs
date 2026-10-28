@@ -317,10 +317,11 @@ impl AppView {
                     }
                 }
             }
+            // Inside the map, clear of the words in its top and bottom corners.
             for spot in laid.iter_mut() {
                 let r = spot.2 / 2.;
                 spot.0 = spot.0.clamp(r + 4., side - r - 4.);
-                spot.1 = spot.1.clamp(r + 4., map_height - r - 4.);
+                spot.1 = spot.1.clamp(r + 28., map_height - r - 28.);
             }
         }
         let bubbles = drawn

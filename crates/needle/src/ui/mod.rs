@@ -1799,7 +1799,21 @@ impl AppView {
                     self.artist_view.choices = Some((kind, choices));
                 }
                 Event::ArtistPicturesChanged(name) => {
-                    self.artist_images.remove(&name);
+                    // A chosen picture is kept at the same path as the one before it: forget
+                    // the old one GPUI holds, so the new one shows now, not after a restart.
+                    let mut old: Vec<String> = self
+                        .artist_images
+                        .remove(&name)
+                        .flatten()
+                        .into_iter()
+                        .collect();
+                    if name == self.artist_view.name {
+                        old.extend(self.artist_view.banner.clone());
+                        if let Some(logo) = &self.artist_view.logo {
+                            old.extend([logo.white.clone(), logo.ink.clone()]);
+                        }
+                    }
+                    artist::forget_pictures(old, cx);
                     if name == self.artist_view.name {
                         let editing = self.artist_view.editing;
                         self.load_artist_view(&name);
