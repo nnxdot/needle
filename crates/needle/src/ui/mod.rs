@@ -272,7 +272,7 @@ impl Page {
             Self::Wrapped(year) => format!("{year} in music"),
             Self::Doctor => "Fix my library".into(),
             Self::Numbers => "Your library".into(),
-            Self::MoodMap => "Mood map".into(),
+            Self::MoodMap => "Genre map".into(),
             Self::Search => "Search".into(),
             Self::Source { name, .. } => name.clone(),
         }
@@ -431,7 +431,7 @@ enum Event {
     /// A song's lyrics translated, one line for each line: its id and the lines.
     Translated(String, Vec<String>),
     Numbers(Box<needle_core::numbers::LibraryNumbers>),
-    MoodMap(Vec<needle_core::radio::MoodPoint>),
+    GenreMap(Vec<needle_core::radio::GenreSpot>),
     ArtFetched,
     MediaKey(media_keys::Key),
     /// A key everywhere (or a taskbar button) was pressed: its action.
@@ -503,9 +503,8 @@ pub struct AppView {
     /// Your library's numbers, and the mood map's songs, the spot clicked on it, and where it
     /// was drawn.
     numbers: Option<Box<needle_core::numbers::LibraryNumbers>>,
-    mood_points: std::rc::Rc<Vec<needle_core::radio::MoodPoint>>,
-    mood_pick: Option<(f32, f32)>,
-    mood_bounds: insights::MapBounds,
+    /// The genre map's genres, the most songs first.
+    genre_spots: std::rc::Rc<Vec<needle_core::radio::GenreSpot>>,
     page: Page,
     back: Vec<Page>,
     /// Pages left by going back, for going forward again (a new page clears it).
@@ -1207,9 +1206,7 @@ impl AppView {
             crate_index: 0,
             crate_scroll: 0.,
             numbers: None,
-            mood_points: Default::default(),
-            mood_pick: None,
-            mood_bounds: Default::default(),
+            genre_spots: Default::default(),
             library,
             player,
             playback,
@@ -1702,7 +1699,7 @@ impl AppView {
                 Event::Waveform(id, heights) => self.waveform = Some((id, heights)),
                 Event::Translated(id, lines) => self.translation = Some((id, lines)),
                 Event::Numbers(numbers) => self.numbers = Some(numbers),
-                Event::MoodMap(points) => self.mood_points = std::rc::Rc::new(points),
+                Event::GenreMap(spots) => self.genre_spots = std::rc::Rc::new(spots),
                 Event::Subfolders(path, list) => self.subfolders = Some((path, list)),
                 Event::Wrapped(wrapped, years) => self.wrapped_loaded(*wrapped, years),
                 Event::Doctor(msg) => self.doctor_message(msg),
