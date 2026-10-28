@@ -818,7 +818,8 @@ private fun ArtistHero(art: String?, logo: String?, name: String, albums: Int?, 
                 // page, the logo takes the page's ink.
                 val light = page.luminance() > 0.5f
                 coil3.compose.AsyncImage(
-                    model = fileUri(logo),
+                    // Keyed by the file's change too: a logo chosen again keeps its path.
+                    model = fileRequest(fileUri(logo)),
                     contentDescription = name,
                     contentScale = androidx.compose.ui.layout.ContentScale.Fit,
                     colorFilter = if (light) androidx.compose.ui.graphics.ColorFilter.tint(MaterialTheme.colorScheme.onBackground) else null,
