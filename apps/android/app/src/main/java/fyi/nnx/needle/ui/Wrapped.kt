@@ -136,7 +136,8 @@ fun WrappedScreen(year: Int?, open: (Route) -> Unit) {
             }
             // On a tablet the cards stay the shape of a phone's, the next ones showing at the sides.
             val sides = ((LocalPageWidth.current - 560.dp) / 2).coerceAtLeast(16.dp)
-            HorizontalPager(pager, Modifier.weight(1f), pageSpacing = 12.dp, contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = sides, vertical = 12.dp)) { page ->
+            // Clear of the floating dock (or player) at the foot, so a card's foot and button show.
+            HorizontalPager(pager, Modifier.weight(1f), pageSpacing = 12.dp, contentPadding = androidx.compose.foundation.layout.PaddingValues(start = sides, end = sides, top = 12.dp, bottom = 12.dp + LocalBottomInset.current)) { page ->
                 // Each card its own colour; the song card takes its cover's.
                 val (top, bottom) = if (page == 1) glow to Color(0xFF0E0D0C) else CardColors[page % CardColors.size]
                 Box(

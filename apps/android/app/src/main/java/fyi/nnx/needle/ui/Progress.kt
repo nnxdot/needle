@@ -119,17 +119,21 @@ fun Shape(progress: Float, heights: List<Float>, color: Color, track: Color, mod
 
 /**
  * The shape of `song` for the seek bar, `count` parts: measured by the core the first time (a
- * moment, off the main thread) and kept. None for songs on a server or on the computer.
+ * moment, off the main thread) and kept. A server song is measured once its whole file is on
+ * the phone: until then the core answers with none, the plain line shows, and it is asked
+ * again every 10 seconds. None for songs on the computer.
  */
 @Composable
 fun rememberShape(song: fyi.nnx.needle.core.Song, count: Int = 90): List<Float> {
-    val wanted = seekStyle() == SeekStyle.Shape && !song.fromServer() && !song.onComputer()
+    val wanted = seekStyle() == SeekStyle.Shape && !song.onComputer()
     val shape by androidx.compose.runtime.produceState(emptyList<Float>(), song.id, wanted) {
         value = emptyList()
-        if (wanted) {
+        while (wanted) {
             value = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
                 runCatching { NeedleApp.instance.core.waveform(song.id, count.toUInt()) }.getOrDefault(emptyList())
             }
+            if (value.isNotEmpty() || !song.fromServer()) break
+            kotlinx.coroutines.delay(10_000)
         }
     }
     return shape

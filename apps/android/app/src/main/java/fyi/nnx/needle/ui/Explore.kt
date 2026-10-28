@@ -2,6 +2,10 @@ package fyi.nnx.needle.ui
 
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
+import androidx.compose.ui.draw.clipToBounds
+import androidx.compose.ui.graphics.luminance
+import androidx.compose.foundation.layout.offset
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
@@ -158,42 +162,49 @@ private fun AlbumRow(albums: List<fyi.nnx.needle.core.Album>, open: (Route) -> U
     }
 }
 
-// ---------- The mood map
+// ---------- The genre map
+
+/** How many genres the map shows as bubbles; the rest are chips under it. */
+private const val MapBubbles = 40
 
 /**
- * Every measured song a dot, dark to bright across and calm to lively up; draw a circle (or
- * tap) on an area to play the songs in it, nearest its middle first.
+ * The genre map (NEEDLE-2.0.md, "Genre map"): one bubble per genre, as big as its number of
+ * songs, at the middle of its songs' sound (dark to bright across, calm to lively up), its name
+ * on it; a tap plays the genre shuffled. The 40 largest are on the map; the rest, and the
+ * genres with no measured song yet, are chips under it.
  */
+@OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
 @Composable
 fun MoodMapScreen() {
-    val dotsLoad = rememberLoaded { moodMap() }
-    val dots by dotsLoad
-    var center by remember { mutableStateOf<Offset?>(null) }
-    var radius by remember { mutableStateOf(0f) }
-    val accent = MaterialTheme.colorScheme.primary
-    val dark = Color(0xFF5B6CC8)
-    val bright = Color(0xFFE2B46C)
-    fun playArea(x: Float, y: Float, r: Float) {
+    val spotsLoad = rememberLoaded { genreMap() }
+    val spots by spotsLoad
+    val all = spots.orEmpty()
+    val onMap = all.filter { it.placed }.take(MapBubbles)
+    val chips = all.filter { it !in onMap }
+    fun playGenre(name: String) {
         NeedleApp.instance.scope.launch(kotlinx.coroutines.Dispatchers.IO) {
-            val songs = runCatching { NeedleApp.instance.core.moodArea(x, y, r.coerceAtLeast(0.06f), 100u) }.getOrDefault(emptyList())
-            if (songs.isEmpty()) showMessage("No songs there") else {
-                playSongs(songs.map { it.id })
-                showMessage("Playing ${count(songs.size, "song")} from that mood")
+            val songs = runCatching { NeedleApp.instance.core.genreSongs(name) }.getOrDefault(emptyList())
+            if (songs.isEmpty()) showMessage("No songs in $name") else {
+                playSongs(songs.shuffled().map { it.id })
+                showMessage("Playing $name")
             }
         }
     }
     LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = 32.dp + LocalBottomInset.current)) {
-        item { LargeTitle("Mood map") }
+        item { LargeTitle("Genre map") }
         item {
             Text(
-                "Every song by how calm or lively, dark or bright it sounds. Circle an area, or tap one, to play it.",
+                "Each genre by how its songs sound: calm or lively, dark or bright. The bigger the bubble, the more songs. Tap one to play it.",
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.padding(horizontal = Edge),
             )
         }
-        val list = dots.orEmpty()
-        if (dots != null && list.isEmpty()) {
+        if (spots != null && all.isEmpty()) {
+            item { Text("Your songs have no genres yet.", style = MaterialTheme.typography.bodyLarge, modifier = Modifier.padding(Edge)) }
+            return@LazyColumn
+        }
+        if (spots != null && onMap.isEmpty()) {
             item {
                 Text(
                     "No songs are measured yet. Turn on Measure songs for radio in Settings › Playback; Needle then measures them in the background.",
@@ -201,50 +212,81 @@ fun MoodMapScreen() {
                     modifier = Modifier.padding(Edge),
                 )
             }
-            return@LazyColumn
         }
-        item {
-            BoxWithConstraints(Modifier.fillMaxWidth().padding(Edge)) {
-                val side = minOf(maxWidth, 560.dp)
-                Column(Modifier.width(side).align(Alignment.Center)) {
-                    Text("Lively", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.align(Alignment.CenterHorizontally))
-                    Canvas(
-                        Modifier
-                            .fillMaxWidth()
-                            .aspectRatio(1f)
-                            .clip(RoundedCornerShape(16.dp))
-                            .background(MaterialTheme.colorScheme.onSurface.copy(alpha = 0.04f))
-                            .semantics { contentDescription = "Mood map of ${count(list.size, "song")}" }
-                            .pointerInput(Unit) {
-                                detectTapGestures { p -> playArea(p.x / size.width, 1f - p.y / size.height, 0.08f) }
-                            }
-                            .pointerInput(Unit) {
-                                detectDragGestures(
-                                    onDragStart = { center = it; radius = 0f },
-                                    onDragEnd = {
-                                        val c = center
-                                        if (c != null) playArea(c.x / size.width, 1f - c.y / size.height, radius / size.width)
-                                        center = null
-                                    },
-                                    onDragCancel = { center = null },
-                                ) { change, _ -> center?.let { radius = hypot(change.position.x - it.x, change.position.y - it.y) } }
-                            },
-                    ) {
-                        list.forEach { d ->
-                            val color = lerp(dark, bright, d.x).copy(alpha = 0.45f + d.y * 0.45f)
-                            drawCircle(color, radius = 3.5.dp.toPx(), center = Offset(d.x * size.width, (1f - d.y) * size.height))
-                        }
-                        center?.let { c ->
-                            drawCircle(accent.copy(alpha = 0.18f), radius, c)
-                            drawCircle(accent, radius, c, style = Stroke(2.dp.toPx()))
-                        }
-                    }
-                    Row(Modifier.fillMaxWidth().padding(top = 4.dp)) {
-                        Text("Dark", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                        Text("Calm", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant, textAlign = TextAlign.Center, modifier = Modifier.weight(1f))
-                        Text("Bright", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        if (onMap.isNotEmpty()) item { GenreBubbles(onMap, ::playGenre) }
+        if (chips.isNotEmpty()) {
+            item { ShelfTitle(if (onMap.isEmpty()) "Genres" else "More genres", null) }
+            item {
+                FlowRow(
+                    Modifier.fillMaxWidth().padding(horizontal = Edge),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    chips.forEach { g ->
+                        androidx.compose.material3.SuggestionChip(
+                            onClick = { playGenre(g.genre) },
+                            label = { Text("${g.genre} · ${g.songs}") },
+                            shape = RoundedCornerShape(50),
+                        )
                     }
                 }
+            }
+        }
+    }
+}
+
+/** The map: the bubbles, the largest drawn first so the small ones stay on top and in reach. */
+@Composable
+private fun GenreBubbles(spots: List<fyi.nnx.needle.core.GenreSpot>, play: (String) -> Unit) {
+    val most = spots.maxOfOrNull { it.songs.toFloat() }?.coerceAtLeast(1f) ?: 1f
+    val dark = Color(0xFF5B6CC8)
+    val bright = Color(0xFFE2B46C)
+    BoxWithConstraints(Modifier.fillMaxWidth().padding(Edge)) {
+        val side = minOf(maxWidth, 560.dp)
+        Column(Modifier.width(side).align(Alignment.Center)) {
+            Text("Lively", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.align(Alignment.CenterHorizontally))
+            Box(
+                Modifier
+                    .fillMaxWidth()
+                    .aspectRatio(1f)
+                    .clip(RoundedCornerShape(16.dp))
+                    .background(MaterialTheme.colorScheme.onSurface.copy(alpha = 0.04f))
+                    .semantics { contentDescription = "Genre map of ${count(spots.size, "genre")}" },
+            ) {
+                val big = side * 0.26f
+                val small = 44.dp
+                spots.sortedByDescending { it.songs }.forEach { g ->
+                    // Area by songs: the side grows with the square root.
+                    val d = small + (big - small) * kotlin.math.sqrt(g.songs.toFloat() / most)
+                    val room = side - d
+                    val color = lerp(dark, bright, g.x.coerceIn(0f, 1f))
+                    Box(
+                        Modifier
+                            .offset(x = room * g.x.coerceIn(0f, 1f), y = room * (1f - g.y.coerceIn(0f, 1f)))
+                            .size(d)
+                            .clip(CircleShape)
+                            .background(color.copy(alpha = 0.88f))
+                            .clickable(onClickLabel = "Play ${g.genre}") { play(g.genre) }
+                            .semantics { contentDescription = "${g.genre}, ${count(g.songs.toInt(), "song")}" },
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Text(
+                            g.genre,
+                            style = if (d > 90.dp) MaterialTheme.typography.titleSmall else MaterialTheme.typography.labelSmall,
+                            fontWeight = FontWeight.SemiBold,
+                            color = if (color.luminance() > 0.45f) Color(0xFF1B1816) else Color.White,
+                            textAlign = TextAlign.Center,
+                            maxLines = 2,
+                            overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier.padding(4.dp),
+                        )
+                    }
+                }
+            }
+            Row(Modifier.fillMaxWidth().padding(top = 4.dp)) {
+                Text("Dark", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Text("Calm", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant, textAlign = TextAlign.Center, modifier = Modifier.weight(1f))
+                Text("Bright", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
         }
     }
@@ -266,7 +308,8 @@ fun CrateScreen(open: (Route) -> Unit) {
         if (list.isEmpty()) return@Column
         val pager = rememberPagerState { list.size }
         val scope = androidx.compose.runtime.rememberCoroutineScope()
-        BoxWithConstraints(Modifier.weight(1f).fillMaxWidth()) {
+        // The crate in its own space, clipped to it: the records behind never reach the words.
+        BoxWithConstraints(Modifier.weight(1f).fillMaxWidth().clipToBounds()) {
             val side = minOf(maxWidth * 0.78f, maxHeight * 0.55f, 420.dp)
             VerticalPager(
                 state = pager,
@@ -308,11 +351,17 @@ fun CrateScreen(open: (Route) -> Unit) {
                     )
                 }
             }
-            // The front record's name, and Play.
-            val front = list.getOrNull(pager.currentPage)
-            if (front != null) {
+        }
+        // The front record's name, and Play, under the crate on the page's own background, so
+        // they read over any cover.
+        val front = list.getOrNull(pager.currentPage)
+        if (front != null) {
                 Column(
-                    Modifier.align(Alignment.BottomCenter).fillMaxWidth().padding(horizontal = Edge).padding(bottom = 16.dp + LocalBottomInset.current),
+                    Modifier
+                        .fillMaxWidth()
+                        .background(MaterialTheme.colorScheme.background)
+                        .padding(horizontal = Edge)
+                        .padding(top = 12.dp, bottom = 16.dp + LocalBottomInset.current),
                     horizontalAlignment = Alignment.CenterHorizontally,
                 ) {
                     Text(front.title.ifBlank { "Unknown album" }, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
@@ -330,7 +379,6 @@ fun CrateScreen(open: (Route) -> Unit) {
                         modifier = Modifier.padding(top = 8.dp),
                     )
                 }
-            }
         }
     }
 }
