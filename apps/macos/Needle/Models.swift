@@ -262,6 +262,8 @@ struct NeedleSettings: Decodable, Equatable {
     var whatsNewSeen = ""
     var remote = false
     var tray = false
+    /// The sleep timer puts the Mac to sleep when it ends.
+    var sleepComputer = false
 
     struct Layout: Decodable, Equatable {
         var sidebarWidth: Float = 212

@@ -187,7 +187,7 @@ struct NeedleCommands: Commands {
             Button("Sound and Equalizer") { store.navigate(.sound) }
             Button("Fix My Library") { store.navigate(.doctor) }
             Button("Import from Other Apps") { store.navigate(.importing) }
-            Button("Your Year in Music") { store.navigate(.wrapped(Calendar.current.component(.year, from: Date()))) }
+            Button("Your Year in Music") { store.navigate(.wrapped(store.reviewYear)) }
         }
         CommandGroup(replacing: .help) {
             Button("Needle Help") { NSWorkspace.shared.open(URL(string: "https://needle.nnx.fyi/help")!) }

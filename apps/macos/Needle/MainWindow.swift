@@ -173,7 +173,23 @@ struct MainWindow: View {
         case "artists": store.navigate(.artists)
         case "home": store.navigate(.home)
         case "genremap": store.navigate(.genreMap)
+        case "year": store.navigate(.wrapped(store.reviewYear))
+        case "timing": store.navigate(.timing)
         default: break
+        }
+        // `--sleep <minutes>` starts the sleep timer, `--speed <times>` plays at that speed, and
+        // `--tool sleep|speed` opens that pane of the player, a few seconds in.
+        if let minutes = value("--sleep").flatMap(UInt32.init) { store.startSleep("minutes", minutes: minutes) }
+        if let speed = value("--speed").flatMap(Float.init) {
+            var pace = store.tempo
+            pace.speed = speed
+            store.setTempo(pace)
+        }
+        if let tool = value("--tool") {
+            Task {
+                try? await Task.sleep(for: .seconds(5))
+                store.tool = tool
+            }
         }
         if let name = value("--panel"), let panel = Store.Panel.allCases.first(where: { $0.rawValue.lowercased() == name }) {
             store.panel = panel
@@ -568,7 +584,7 @@ struct PageView: View {
             case .search: library { SearchPage() }
             case .numbers: library { NumbersPage() }
             case .genreMap: library { GenreMapPage() }
-            case .wrapped(let year): WrappedPage(year: year)
+            case .wrapped(let year): YearReviewPage(year: year)
             case .sound:
                 Form { SoundPane() }
                     .formStyle(.grouped)

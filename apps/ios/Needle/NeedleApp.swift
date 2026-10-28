@@ -80,7 +80,7 @@ struct RootView: View {
                let route = ["settings": [Route.settings], "appearance": [.settings, .settingsAppearance], "sources": [.settings, .sources],
                              "scrobbling": [.settings, .settingsScrobbling], "library": [.settings, .settingsLibrary],
                              "playback": [.settings, .settingsPlayback], "server": [.settings, .server("subsonic")],
-                             "whatsnew": [.settings, .whatsNew], "crate": [.albums, .crate], "numbers": [.numbers], "genremap": [.genreMap], "artists": [.artists],
+                             "whatsnew": [.settings, .whatsNew], "crate": [.albums, .crate], "numbers": [.numbers], "genremap": [.genreMap], "artists": [.artists], "year": [.wrapped],
                              "playerbuttons": [.settings, .settingsAppearance, .playerButtons]][args[i + 1]] {
                 paths[place] = NavigationPath(route)
             }
@@ -89,6 +89,24 @@ struct RootView: View {
             // -artist <name>, -album <title>: open that page.
             let value = { (flag: String) in args.firstIndex(of: flag).flatMap { args.indices.contains($0 + 1) ? args[$0 + 1] : nil } }
             if let name = value("-artist") { store.opening = .artist(name) }
+            // -sleep <minutes> starts the sleep timer, -speed <times> plays at that speed, and
+            // -sheet sleep|speed|timing opens that sheet (timing: the song playing), a few seconds in.
+            Task {
+                try? await Task.sleep(for: .seconds(3))
+                if let minutes = value("-sleep").flatMap(UInt32.init) { store.startSleep("minutes", minutes: minutes) }
+                if let speed = value("-speed").flatMap(Float.init) {
+                    var pace = store.tempo
+                    pace.speed = speed
+                    store.setTempo(pace)
+                }
+                try? await Task.sleep(for: .seconds(1))
+                switch value("-sheet") {
+                case "sleep": store.sheet = .sleep
+                case "speed": store.sheet = .speed
+                case "timing": if let song = store.playback?.current { store.sheet = .timing(song) }
+                default: break
+                }
+            }
             // -check-moving <album title>: asks the core for that album's moving cover (its first
             // song's), plays nothing, and writes what came back to needle-moving-check.log.
             if let title = value("-check-moving") {
@@ -179,6 +197,8 @@ struct SheetView: View {
             case .identify(let id): IdentifyView(id: id)
             case .timing(let song): TimingView(song: song)
             case .speakers: SpeakersView()
+            case .sleep: SleepSheet()
+            case .speed: SpeedSheet()
             }
         }
     }

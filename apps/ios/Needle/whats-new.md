@@ -19,6 +19,10 @@ A new Home and icon, and a lot more to see and hear.
 - [albums] **A record crate.** Flip through your albums like records in a box: tap the crate at the top of Albums.
 - [player] **Moving covers on the album page.** An album with a moving cover shows it moving on its page too.
 - [sound] **Smart mixes.** With crossfade on, the fade starts where the music ends and lasts whole bars (Settings › Playback › Smart mixes).
+- [moon] **A sleep timer.** The moon at the foot of the player stops the music after 15, 30, or 45 minutes, an hour, or at the end of the song or the album, fading out over the last minute. It stays lit while it runs, with the time left beside it and on the Lock Screen.
+- [speed] **Speed and pitch.** From the player's ••• menu: play a song from half to twice as fast, keep its pitch or let it rise, and move it up or down in semitones, for every song or only this one.
+- [history] **Your year in music.** Your hours, plays, and new songs, the year by month, your top artist, and your top songs, a card at a time, from Listening history (and on Home in December). Save it as a picture, make a playlist of it, or play your top 50.
+- [lyrics] **Time the lyrics.** −0.2 s, +0.2 s, Redo line, and Undo fix the line you just tapped; Time Each Word in the ••• menu times each word.
 
 # 1.8.0
 Navidrome built in, a Radio tab, moving covers, and calmer Settings.

@@ -129,7 +129,7 @@ struct CommandPalette: View {
             ("Recently added", "clock", .recent), ("Listening history", "chart.line.uptrend.xyaxis", .history),
             ("Sound and equalizer", "slider.vertical.3", .sound), ("Fix my library", "wrench.and.screwdriver", .doctor),
             ("Import from other apps", "square.and.arrow.down", .importing),
-            ("Your year in music", "sparkles", .wrapped(Calendar.current.component(.year, from: Date()))),
+            ("Your year in music", "sparkles", .wrapped(store.reviewYear)),
         ]
         for (name, icon, route) in pages where matches(name) {
             list.append(Item(section: "Go to", title: name, detail: "", icon: icon) { store.navigate(route) })

@@ -336,27 +336,17 @@ struct PlaybackSettingsView: View {
     }
 }
 
-/// Pauses the music later.
+/// The sleep timer's row: what runs, and a tap opens the timer.
 struct SleepMenu: View {
     @Environment(Store.self) private var store
 
     var body: some View {
-        Menu {
-            Button("End of this song") { store.setSleep(minutes: 0) }
-            ForEach([15, 30, 45, 60, 90], id: \.self) { m in
-                Button("\(m) minutes") { store.setSleep(minutes: m) }
-            }
-            if store.sleepEnds != nil {
-                Divider()
-                Button("Turn off", role: .destructive) { store.setSleep(minutes: nil) }
-            }
-        } label: {
+        Button { store.sheet = .sleep } label: {
             HStack {
                 Label("Sleep timer", systemImage: "moon.zzz")
                 Spacer()
-                if let ends = store.sleepEnds {
-                    if ends == .distantFuture { Text("End of song").foregroundStyle(.secondary) }
-                    else { Text(ends, style: .timer).foregroundStyle(.secondary).monospacedDigit() }
+                if let running = store.sleep {
+                    Text(sleepClock(running.remaining)).foregroundStyle(.secondary).monospacedDigit()
                 } else {
                     Text("Off").foregroundStyle(.secondary)
                 }
@@ -1157,6 +1147,8 @@ struct WhatsNewView: View {
         case "artists": ("music.microphone", .pink)
         case "history": ("clock.arrow.circlepath", .orange)
         case "search": ("magnifyingglass", .blue)
+        case "moon": ("moon.fill", .indigo)
+        case "speed": ("gauge.with.dots.needle.67percent", .teal)
         case "": change.title.isEmpty ? ("wrench.and.screwdriver.fill", .gray) : ("sparkles", .yellow)
         default: ("sparkles", .yellow)
         }

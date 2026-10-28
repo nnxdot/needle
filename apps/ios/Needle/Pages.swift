@@ -50,6 +50,8 @@ struct HomeView: View {
     /// The artists played most this month, with their pictures.
     @State private var artists: [TopArtist] = []
     @State private var importing = false
+    /// In December, the year for Your year in music.
+    @State private var reviewYear: Int32?
 
     /// The Mac's Home: a greeting, the song playing now, then shelves of covers.
     var body: some View {
@@ -61,6 +63,7 @@ struct HomeView: View {
                         empty
                     } else {
                         NowCard().padding(.horizontal).padding(.top, 6)
+                        if let reviewYear { YearHomeCard(year: reviewYear).padding(.horizontal).padding(.top, 14) }
                         shelf("Jump back in", "Albums you played last", home.recent, route: .history)
                         shelf("New in your library", "Added most recently", home.added, route: .albums)
                         shelf("On repeat", "Your most played albums", home.mostPlayed, route: .albums)
@@ -99,6 +102,9 @@ struct HomeView: View {
             favorites = await store.load { try $0.homeShelves(limit: 20).favorites } ?? []
             let offset = Int32(TimeZone.current.secondsFromGMT())
             days = await store.load { try $0.onThisDay(utcOffset: offset, limit: 12) } ?? []
+            // For tests, `-year-card` shows the card in any month.
+            reviewYear = await store.load { try $0.homeReviewYear() } ?? nil
+            if reviewYear == nil, CommandLine.arguments.contains("-year-card") { reviewYear = store.reviewYear }
             artists = await store.load { core in
                 let top = try core.stats(days: 30).topArtists.filter { !$0.artist.isEmpty && !isPlaceholderArtist($0.artist) }.prefix(12)
                 let pictures = Dictionary(try core.artists().map { ($0.name, $0.artwork) }, uniquingKeysWith: { a, _ in a })

@@ -6,12 +6,15 @@ struct HomePage: View {
     @State private var home: HomeData?
     /// What played on this day one and five years ago.
     @State private var days: [PastDay] = []
+    /// In December, the year for Your year in music.
+    @State private var reviewYear: Int32?
 
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 30) {
                 Text(greeting).font(store.display(34))
                 NowCard()
+                if let reviewYear { YearHomeCard(year: reviewYear) }
                 if let home {
                     Shelf(title: "Jump back in", detail: "Albums you played last", albums: home.recent)
                     Shelf(title: "New in your library", detail: "Added most recently", albums: home.added)
@@ -40,6 +43,9 @@ struct HomePage: View {
             home = JSON.decode(HomeData.self, await store.load { try $0.homeJson() })
             let offset = Int32(TimeZone.current.secondsFromGMT())
             days = JSON.decode([PastDay].self, await store.load { try $0.onThisDayJson(offset: offset) }) ?? []
+            // For tests, `--year-card` shows the card in any month.
+            reviewYear = await store.load { try $0.homeReviewYear() } ?? nil
+            if reviewYear == nil, CommandLine.arguments.contains("--year-card") { reviewYear = Int32(store.reviewYear) }
         }
     }
 
