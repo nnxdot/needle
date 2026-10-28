@@ -34,6 +34,20 @@ pub struct LibraryChoices {
     pub big_look: String,
 }
 
+/// One genre on the genre map: as big as `songs`, at (`x` bright, `y` lively), each 0 to 1.
+#[derive(Clone, uniffi::Record)]
+pub struct GenreSpot {
+    pub genre: String,
+    pub songs: u32,
+    pub plays: i64,
+    /// How many of its songs Needle has measured.
+    pub measured: u32,
+    /// False while none of its songs is measured: then it has no place on the map yet.
+    pub placed: bool,
+    pub x: f32,
+    pub y: f32,
+}
+
 /// The match that heads a search's results: `kind` is "song", "album", or "artist", and the
 /// one of `song`, `album`, `artist` it names is set.
 #[derive(Clone, uniffi::Record)]
@@ -446,6 +460,25 @@ impl Needle {
                 x: p.x,
                 y: p.y,
                 mood: p.mood.into(),
+            })
+            .collect())
+    }
+
+    /// The genre map: every genre once, the ones with the most songs first. A genre with no
+    /// measured song yet has `placed` false (its x and y are 0.5).
+    pub fn genre_map(&self) -> Result<Vec<GenreSpot>> {
+        Ok(self
+            .library
+            .genre_map()?
+            .into_iter()
+            .map(|g| GenreSpot {
+                genre: g.genre,
+                songs: g.songs as u32,
+                plays: g.plays,
+                measured: g.measured as u32,
+                placed: g.place.is_some(),
+                x: g.place.map_or(0.5, |p| p.0),
+                y: g.place.map_or(0.5, |p| p.1),
             })
             .collect())
     }
