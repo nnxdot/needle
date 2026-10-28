@@ -53,6 +53,14 @@ fn placeholder(name: &str) -> bool {
     name.trim().is_empty() || name == "Unknown artist"
 }
 
+/// Forget the pictures GPUI keeps for these files, so a new picture saved at the same path
+/// is read again.
+pub(super) fn forget_pictures(paths: Vec<String>, cx: &mut App) {
+    for path in paths {
+        cx.remove_asset::<gpui::ImgResourceLoader>(&gpui::Resource::Path(Path::new(&path).into()));
+    }
+}
+
 /// The logo with its clear edges cut off (`<logo>.white.png`), and the same in dark ink
 /// (`<logo>.ink.png`): fanart.tv's logos are mostly white and do not show on a light page.
 /// Made again when fanart.tv's logo is newer.
