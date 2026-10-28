@@ -12,7 +12,7 @@ const COVER: u32 = 300;
 const MARGIN: u32 = 84;
 
 /// The fonts the card is written in: Needle's own, so it looks the same everywhere.
-fn fonts() -> usvg::fontdb::Database {
+pub(super) fn fonts() -> usvg::fontdb::Database {
     let mut db = usvg::fontdb::Database::new();
     for data in [
         include_bytes!("../../../../assets/fonts/Fraunces72ptSoft-SemiBold.ttf").as_slice(),
@@ -25,7 +25,7 @@ fn fonts() -> usvg::fontdb::Database {
 }
 
 /// Text made safe inside SVG.
-fn escape(text: &str) -> String {
+pub(super) fn escape(text: &str) -> String {
     text.replace('&', "&amp;")
         .replace('<', "&lt;")
         .replace('>', "&gt;")
@@ -148,7 +148,7 @@ pub fn draw(track: &Track, line: &str) -> Result<RgbaImage> {
 }
 
 /// Pictures › Needle, made when needed.
-fn folder() -> PathBuf {
+pub(super) fn folder() -> PathBuf {
     let pictures = std::env::var_os("USERPROFILE")
         .map(|home| Path::new(&home).join("Pictures"))
         .or_else(|| std::env::var_os("HOME").map(|home| Path::new(&home).join("Pictures")))

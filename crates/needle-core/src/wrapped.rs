@@ -23,12 +23,53 @@ pub struct Wrapped {
     pub streak: usize,
     /// The hour of day with the most listening, 0–23.
     pub peak_hour: Option<u8>,
-    /// The year's most played songs, most first (up to 25), for playing or saving.
+    /// The year's most played songs, most first (up to 50), for playing or saving.
     pub top_track_ids: Vec<String>,
+    /// Each top song's plays that year, beside `top_track_ids`.
+    pub top_track_plays: Vec<usize>,
+    /// Songs first heard this year ("new songs found").
+    pub new_songs: usize,
+    /// January to December: plays, every listen, and seconds listened.
+    pub months: Vec<MonthStat>,
+    /// The months the top artist was among the five most played (out of `listening_months`).
+    pub top_artist_months: usize,
+    /// The months with any listening.
+    pub listening_months: usize,
     /// Songs to show: the top songs, and one song from each top album for its cover.
     pub tracks: HashMap<String, Track>,
     /// For each of `stats.top_albums`, a song from it.
     pub album_tracks: Vec<Option<String>>,
+}
+
+/// One month of a year's listening.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct MonthStat {
+    /// 1 (January) to 12.
+    pub month: u32,
+    /// Qualified plays (half the song or four minutes).
+    pub plays: usize,
+    pub listens: usize,
+    pub seconds: f64,
+}
+
+/// The year to open first: last year during January, when this one has barely begun.
+pub fn default_year(years: &[i32], today: NaiveDate) -> i32 {
+    let this = today.year();
+    if today.month() == 1 && years.contains(&(this - 1)) {
+        this - 1
+    } else {
+        this
+    }
+}
+
+/// The year Home shows a "Your year in music" shelf for: this one, in December.
+pub fn home_year(today: NaiveDate) -> Option<i32> {
+    (today.month() == 12).then(|| today.year())
+}
+
+/// The name a year's top songs are saved under.
+pub fn playlist_name(year: i32) -> String {
+    format!("Top songs of {year}")
 }
 
 /// Unix seconds at the start of 1 January of `year`, local time.
@@ -127,13 +168,65 @@ impl Library {
             vec![]
         };
 
-        let top_track_ids: Vec<String> = db
+        let top: Vec<(String, i64)> = db
             .prepare(
-                "SELECT track_id FROM listens WHERE started_at >= ? AND started_at < ?
-                 GROUP BY track_id ORDER BY sum(qualified) DESC, sum(seconds) DESC, track_id LIMIT 25",
+                "SELECT track_id, sum(qualified) FROM listens WHERE started_at >= ? AND started_at < ?
+                 GROUP BY track_id ORDER BY sum(qualified) DESC, sum(seconds) DESC, track_id LIMIT 50",
             )?
-            .query_map(params![from, to], |r| r.get(0))?
+            .query_map(params![from, to], |r| Ok((r.get(0)?, r.get(1)?)))?
             .collect::<rusqlite::Result<_>>()?;
+        let top_track_plays = top.iter().map(|(_, plays)| *plays as usize).collect();
+        let top_track_ids: Vec<String> = top.into_iter().map(|(id, _)| id).collect();
+
+        let new_songs: i64 = db.query_row(
+            "SELECT count(*) FROM (SELECT min(started_at) AS first FROM listens GROUP BY track_id)
+             WHERE first >= ? AND first < ?",
+            params![from, to],
+            |r| r.get(0),
+        )?;
+
+        // By month, and each month's artists, in local time.
+        let mut months: Vec<MonthStat> = (1..=12)
+            .map(|month| MonthStat {
+                month,
+                ..Default::default()
+            })
+            .collect();
+        let mut by_month: HashMap<u32, Vec<(String, i64, f64)>> = HashMap::new();
+        let mut stmt = db.prepare(
+            "SELECT CAST(strftime('%m', started_at, 'unixepoch', 'localtime') AS INTEGER),
+                    lower(artist), sum(qualified), count(*), sum(seconds)
+             FROM listens WHERE started_at >= ? AND started_at < ? GROUP BY 1, 2",
+        )?;
+        let mut rows = stmt.query(params![from, to])?;
+        while let Some(row) = rows.next()? {
+            let month: u32 = row.get(0)?;
+            let (artist, plays, listens, seconds): (String, i64, i64, f64) =
+                (row.get(1)?, row.get(2)?, row.get(3)?, row.get(4)?);
+            if let Some(m) = months.get_mut(month.wrapping_sub(1) as usize) {
+                m.plays += plays as usize;
+                m.listens += listens as usize;
+                m.seconds += seconds;
+            }
+            if !artist.is_empty() {
+                by_month
+                    .entry(month)
+                    .or_default()
+                    .push((artist, plays, seconds));
+            }
+        }
+        let listening_months = months.iter().filter(|m| m.listens > 0).count();
+        let top_artist_months = stats.top_artists.first().map_or(0, |top| {
+            let top = top.artist.to_lowercase();
+            by_month
+                .values_mut()
+                .map(|artists| {
+                    artists.sort_by(|a, b| b.1.cmp(&a.1).then(b.2.total_cmp(&a.2)));
+                    artists.iter().take(5).any(|a| a.0 == top)
+                })
+                .filter(|in_top| *in_top)
+                .count()
+        });
 
         let mut album_song = db.prepare(
             "SELECT id FROM tracks WHERE album = ? AND (album_artist = ? OR artist = ?) ORDER BY disc, track_number LIMIT 1",
@@ -176,9 +269,41 @@ impl Library {
             busiest_day,
             peak_hour,
             top_track_ids,
+            top_track_plays,
+            new_songs: new_songs as usize,
+            months,
+            top_artist_months,
+            listening_months,
             tracks,
             album_tracks,
         })
+    }
+
+    /// Save the year's top songs (up to 50) as a playlist, "Top songs of 2026"; saving again
+    /// refreshes the same playlist. Returns it.
+    pub fn save_year_playlist(&self, year: i32) -> Result<crate::model::Playlist> {
+        let wrapped = self.wrapped(year)?;
+        let name = playlist_name(year);
+        let id = self
+            .playlists()?
+            .into_iter()
+            .find(|p| p.name == name && p.query.is_none())
+            .map(|p| p.id)
+            .unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
+        let playlist = crate::model::Playlist {
+            id,
+            name,
+            query: None,
+            track_ids: wrapped
+                .top_track_ids
+                .into_iter()
+                .filter(|id| wrapped.tracks.contains_key(id))
+                .collect(),
+            updated_at: chrono::Utc::now().timestamp(),
+            ..Default::default()
+        };
+        self.save_playlist(&playlist)?;
+        Ok(playlist)
     }
 }
 
@@ -255,5 +380,21 @@ mod tests {
         assert_eq!(w.new_artists[0].plays, 3);
         // The first year has nothing to compare with, so no one is "new".
         assert!(library.wrapped(2023).unwrap().new_artists.is_empty());
+        // Song b was first heard in 2024; a in 2023.
+        assert_eq!(w.new_songs, 1);
+        assert_eq!(w.top_track_plays, vec![3, 1]);
+        assert_eq!(w.months.len(), 12);
+        assert_eq!(w.months[2].listens, 5);
+        assert_eq!(w.months[2].plays, 4);
+        assert!((w.months[2].seconds - 360.).abs() < 1e-6);
+        assert_eq!(w.listening_months, 1);
+        assert_eq!(w.top_artist_months, 1);
+        let saved = library.save_year_playlist(2024).unwrap();
+        assert_eq!(saved.name, "Top songs of 2024");
+        assert_eq!(saved.track_ids, vec!["b", "a"]);
+        // Again: the same playlist, refreshed.
+        let again = library.save_year_playlist(2024).unwrap();
+        assert_eq!(again.id, saved.id);
+        assert_eq!(library.playlists().unwrap().len(), 1);
     }
 }
