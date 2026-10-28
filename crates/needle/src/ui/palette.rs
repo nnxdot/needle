@@ -246,6 +246,14 @@ impl AppView {
                 |this, window, cx| this.navigate(Page::MoodMap, window, cx),
             ),
             item(
+                "Actions",
+                "mini",
+                "Small floating player",
+                "A small player that stays above other windows",
+                None,
+                |this, window, cx| this.toggle_float(window, cx),
+            ),
+            item(
                 "Go to",
                 "history",
                 "Your year in music",
