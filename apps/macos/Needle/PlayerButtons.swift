@@ -1,23 +1,30 @@
 import SwiftUI
 
 /// The player's buttons you choose (Settings › Appearance › Layout › Player buttons): the
-/// settings' `player_buttons`, in order. Those up to the last of Previous, Play, and Next sit
-/// before the song's screen, the rest after it; the menu and the volume always stay.
+/// settings' `player_buttons`, in order, as on Windows. Those up to the last of Previous, Play,
+/// and Next sit before the song's screen, the rest after it; every button not in the bar waits
+/// in the ••• menu at its end.
 enum PlayerButtons {
-    /// Every button, in Needle's own order.
-    static let all = ["shuffle", "previous", "play", "next", "repeat", "favorite", "lyrics", "queue", "speakers"]
+    /// The core's buttons for every system, in Needle's own order (`model::PLAYER_BUTTONS`),
+    /// and the settings' list until it is changed.
+    static let core = ["shuffle", "previous", "play", "next", "repeat", "favorite", "lyrics", "queue", "speakers"]
+    /// Every button the Mac's player has: the core's, then the computers' (`MORE_BUTTONS`).
+    static let all = core + ["volume", "sleep", "speed", "loop", "sound", "mini"]
+    /// The bar out of the box, as on Windows: the rest are in the ••• menu.
+    static let short = ["previous", "play", "next", "favorite", "lyrics", "queue", "volume"]
 
-    /// The chosen buttons, known ones only, each once, with Play always there.
+    /// The chosen buttons, known ones only, each once, with Play always there. A list never
+    /// changed (the core's whole list, which every Needle before 2.0 kept) is the short one.
     static func chosen(_ list: [String]) -> [String] {
+        if list == core { return short }
         var seen: [String] = []
         for name in list where all.contains(name) && !seen.contains(name) { seen.append(name) }
         if !seen.contains("play") { seen.insert("play", at: 0) }
         return seen
     }
 
-    /// The buttons before the screen, and after it.
+    /// The buttons before the screen, and after it, of a list already chosen.
     static func split(_ list: [String]) -> (before: [String], after: [String]) {
-        let list = chosen(list)
         let cut = (list.lastIndex { ["previous", "play", "next"].contains($0) } ?? 0) + 1
         return (Array(list[..<cut]), Array(list[cut...]))
     }
@@ -32,6 +39,12 @@ enum PlayerButtons {
         case "favorite": "Favorite"
         case "lyrics": "Lyrics"
         case "queue": "Queue"
+        case "volume": "Volume"
+        case "sleep": "Sleep timer"
+        case "speed": "Speed and pitch"
+        case "loop": "A–B loop"
+        case "sound": "Equalizer and sound tools"
+        case "mini": "Mini player"
         default: "Speakers"
         }
     }
@@ -46,6 +59,12 @@ enum PlayerButtons {
         case "favorite": "heart"
         case "lyrics": "quote.bubble"
         case "queue": "list.bullet"
+        case "volume": "speaker.wave.2.fill"
+        case "sleep": "moon"
+        case "speed": "gauge.with.dots.needle.67percent"
+        case "loop": "arrow.left.and.right"
+        case "sound": "slider.vertical.3"
+        case "mini": "pip"
         default: "airplayaudio"
         }
     }
@@ -54,9 +73,12 @@ enum PlayerButtons {
 /// One of the player's buttons, as the player bar draws it.
 struct PlayerButton: View {
     private var store: Store { .shared }
+    @Environment(\.openWindow) private var openWindow
     let name: String
     /// The play sign's size.
     var play: CGFloat = 30
+    /// The volume's slider width (none: only its button).
+    var volumeWidth: CGFloat = 64
 
     var body: some View {
         let colors = store.colors
@@ -106,7 +128,30 @@ struct PlayerButton: View {
             .disabled(store.current == nil)
         case "lyrics": PanelButton(panel: .lyrics, icon: "quote.bubble", help: "Lyrics · ⌘L")
         case "queue": QueueButton()
-        default: SpeakersButton()
+        case "speakers": SpeakersButton()
+        case "volume": VolumeControl(width: volumeWidth)
+        case "sleep": SleepButton()
+        case "speed": SpeedButton()
+        case "loop":
+            let looping = store.playback?.loopStart != nil
+            Button { store.loopButton() } label: {
+                Image(systemName: "arrow.left.and.right").foregroundStyle(looping || store.loopStart != nil ? colors.accent : colors.ink2)
+            }
+            .buttonStyle(.borderless)
+            .disabled(store.playback?.hasSong != true)
+            .help(looping ? "Clear the A–B loop" : store.loopStart != nil ? "Set point B" : "A–B loop: set point A")
+            .accessibilityLabel("A–B loop")
+        case "sound":
+            Button { store.navigate(.sound) } label: { Image(systemName: "slider.vertical.3").foregroundStyle(colors.ink2) }
+                .buttonStyle(.borderless)
+                .help("Equalizer and sound tools")
+                .accessibilityLabel("Equalizer and sound tools")
+        case "mini":
+            Button { openWindow(id: "mini") } label: { Image(systemName: "pip").foregroundStyle(colors.ink2) }
+                .buttonStyle(.borderless)
+                .help("Mini player · ⌥⌘M")
+                .accessibilityLabel("Mini player")
+        default: EmptyView()
         }
     }
 }
@@ -163,8 +208,8 @@ struct PlayerButtonsEditor: View {
                         .accessibilityAction { save(list + [name]) }
                 }
                 Spacer()
-                Button("Reset") { save(PlayerButtons.all) }
-                    .disabled(list == PlayerButtons.all)
+                Button("Reset") { save(PlayerButtons.short) }
+                    .disabled(list == PlayerButtons.short)
             }
             .frame(minHeight: 30)
             .dropDestination(for: String.self) { names, _ in
