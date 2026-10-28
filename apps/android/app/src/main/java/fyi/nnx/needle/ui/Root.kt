@@ -88,6 +88,7 @@ sealed interface Route {
     data class Folder(val path: String?) : Route
     data class Wrapped(val year: Int?) : Route
     data class YearReview(val year: Int?) : Route
+    data object Alarm : Route
     data object Numbers : Route
     data object MoodMap : Route
     data object Crate : Route
@@ -160,6 +161,7 @@ fun NeedleRoot() {
     }
 
     LaunchedEffect(Unit) { Ui.showPlayer.collect { if (hasSong) playerOpen = true } }
+    LaunchedEffect(Unit) { Ui.openRoute.collect { open(it) } }
     LaunchedEffect(Unit) {
         NeedleApp.instance.openPlayer.collect {
             if (NeedleApp.instance.app.value.openPlayerOnPlay) playerOpen = true
@@ -421,6 +423,7 @@ private fun Page(route: Route, open: (Route) -> Unit) {
         is Route.Folder -> FoldersScreen(route.path, open)
         is Route.Wrapped -> WrappedScreen(route.year, open)
         is Route.YearReview -> YearReviewScreen(route.year, open)
+        Route.Alarm -> AlarmScreen()
         Route.Numbers -> NumbersScreen(open)
         Route.MoodMap -> MoodMapScreen()
         Route.Crate -> CrateScreen(open)

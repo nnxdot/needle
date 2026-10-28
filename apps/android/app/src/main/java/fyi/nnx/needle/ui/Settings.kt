@@ -1,6 +1,8 @@
 package fyi.nnx.needle.ui
 
 import androidx.compose.material.icons.rounded.Dns
+import androidx.compose.material.icons.rounded.Widgets
+import androidx.compose.material.icons.rounded.Alarm
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
@@ -605,6 +607,19 @@ private fun PlaybackSettingsPage() {
         ExpandRow(Icons.Rounded.GraphicEq, "Even out loudness", "From the songs' ReplayGain tags", listOf("Off", "Song", "Album")[loudness]) {
             Segments(listOf(0 to "Off", 1 to "Song", 2 to "Album"), loudness) { i -> save(s.copy(replayGain = i > 0, albumGain = i == 2)) }
             MoreText("Album keeps an album's quiet and loud songs as the artist made them.")
+        }
+    }
+    // Android's own: the alarm, and the Quick Settings tile.
+    Group("Alarm and tile") {
+        val context = androidx.compose.ui.platform.LocalContext.current
+        val alarm = remember { fyi.nnx.needle.WakeAlarm.read(context) }
+        LinkRow("Wake up to music", "A playlist or a smart mix as your alarm", Icons.Rounded.Alarm, if (alarm.on) "%d:%02d".format(alarm.hour, alarm.minute) else "Off") {
+            Ui.openRoute.tryEmit(Route.Alarm)
+        }
+        var tile by remember { mutableStateOf(fyi.nnx.needle.TileAction.read(context)) }
+        val tiles = listOf("mix" to "Smart mix", "shuffle" to "Shuffle all", "sleep" to "Sleep 30 min")
+        ExpandRow(Icons.Rounded.Widgets, "Quick Settings tile", "What it plays with nothing to go on with", tiles.first { it.first == tile }.second) {
+            Segments(tiles, tile) { tile = it; fyi.nnx.needle.TileAction.set(context, it) }
         }
     }
     Group("When you choose a song") {

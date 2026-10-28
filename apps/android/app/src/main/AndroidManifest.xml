@@ -84,6 +84,10 @@
                 <action android:name="android.media.action.MEDIA_PLAY_FROM_SEARCH" />
                 <category android:name="android.intent.category.DEFAULT" />
             </intent-filter>
+            <!-- A long press on the Quick Settings tile opens its setting. -->
+            <intent-filter>
+                <action android:name="android.service.quicksettings.action.QS_TILE_PREFERENCES" />
+            </intent-filter>
             <intent-filter>
                 <action android:name="android.intent.action.VIEW" />
                 <category android:name="android.intent.category.DEFAULT" />
@@ -135,6 +139,26 @@
         </service>
 
         <!-- Home screen widgets. -->
+        <!-- The Quick Settings tile: Play and Pause from the shade. -->
+        <service
+            android:name=".NeedleTile"
+            android:exported="true"
+            android:icon="@drawable/ic_tile"
+            android:label="Needle"
+            android:permission="android.permission.BIND_QUICK_SETTINGS_TILE">
+            <intent-filter>
+                <action android:name="android.service.quicksettings.action.QS_TILE" />
+            </intent-filter>
+        </service>
+
+        <!-- Wake up to music: the alarm, its notification's buttons, and setting it again after a restart. -->
+        <receiver android:name=".AlarmReceiver" android:exported="false">
+            <intent-filter>
+                <action android:name="android.intent.action.BOOT_COMPLETED" />
+                <action android:name="android.app.action.SCHEDULE_EXACT_ALARM_PERMISSION_STATE_CHANGED" />
+            </intent-filter>
+        </receiver>
+
         <receiver android:name=".NowPlayingReceiver" android:exported="true" android:label="Needle: now playing">
             <intent-filter>
                 <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />

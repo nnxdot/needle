@@ -46,6 +46,9 @@ import androidx.compose.material.icons.rounded.Menu
 import androidx.compose.material.icons.rounded.PictureInPicture
 import androidx.compose.material.icons.rounded.ViewAgenda
 import androidx.compose.material.icons.rounded.Watch
+import androidx.compose.material.icons.rounded.Bedtime
+import androidx.compose.material.icons.rounded.Speed
+import androidx.compose.material.icons.rounded.Alarm
 import androidx.compose.material.icons.rounded.Waves
 import androidx.compose.material.icons.rounded.Translate
 import androidx.compose.material.icons.rounded.Image
@@ -129,6 +132,9 @@ private fun noteIcon(name: String): ImageVector = when (name) {
     "edit" -> Icons.Rounded.Edit
     "tag" -> Icons.Rounded.TextFields
     "record" -> Icons.Rounded.Album
+    "moon" -> Icons.Rounded.Bedtime
+    "speed" -> Icons.Rounded.Speed
+    "alarm" -> Icons.Rounded.Alarm
     else -> Icons.Rounded.AutoAwesome
 }
 
