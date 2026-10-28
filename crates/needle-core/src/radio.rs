@@ -527,8 +527,9 @@ impl Library {
             .collect())
     }
 
-    /// The genre map: every genre once, as big as its number of songs, at the middle of where
-    /// its measured songs sit on the mood map (bright to the right, lively to the top). The
+    /// The genre map: every genre once, as big as its number of songs, placed by the middle of
+    /// where its measured songs sit on the mood map, ranked among the genres (bright to the
+    /// right, lively to the top). The
     /// genres with the most songs first; a genre none of whose songs is measured yet has no
     /// place.
     pub fn genre_map(&self) -> Result<Vec<GenreSpot>> {
@@ -589,6 +590,31 @@ impl Library {
                 place: (t.measured > 0).then(|| (t.x / t.measured as f32, t.y / t.measured as f32)),
             })
             .collect();
+        // Middles of many songs crowd the map's centre: place the genres by their rank among
+        // the genres instead, so they use the whole map (ties stay together).
+        let placed: Vec<usize> = (0..spots.len())
+            .filter(|&i| spots[i].place.is_some())
+            .collect();
+        let xs = spread(
+            &placed
+                .iter()
+                .map(|&i| spots[i].place.unwrap().0)
+                .collect::<Vec<_>>(),
+        );
+        let ys = spread(
+            &placed
+                .iter()
+                .map(|&i| spots[i].place.unwrap().1)
+                .collect::<Vec<_>>(),
+        );
+        for (n, &i) in placed.iter().enumerate() {
+            // One genre alone sits in the middle.
+            spots[i].place = Some(if placed.len() == 1 {
+                (0.5, 0.5)
+            } else {
+                (xs[n], ys[n])
+            });
+        }
         spots.sort_by(|a, b| b.songs.cmp(&a.songs).then(a.genre.cmp(&b.genre)));
         Ok(spots)
     }
