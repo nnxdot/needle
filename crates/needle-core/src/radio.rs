@@ -548,36 +548,45 @@ impl Library {
             ))
         })?;
         // By genre, case aside: the name as most often written, songs, plays, and places.
-        let mut by: HashMap<String, (HashMap<String, usize>, usize, i64, f32, f32, usize)> =
-            HashMap::new();
+        #[derive(Default)]
+        struct Tally {
+            names: HashMap<String, usize>,
+            songs: usize,
+            plays: i64,
+            x: f32,
+            y: f32,
+            measured: usize,
+        }
+        let mut by: HashMap<String, Tally> = HashMap::new();
         for row in rows {
             let (id, genre, plays) = row?;
             let genre = genre.trim().to_string();
             if genre.is_empty() {
                 continue;
             }
-            let entry = by.entry(genre.to_lowercase()).or_default();
-            *entry.0.entry(genre).or_default() += 1;
-            entry.1 += 1;
-            entry.2 += plays;
+            let tally = by.entry(genre.to_lowercase()).or_default();
+            *tally.names.entry(genre).or_default() += 1;
+            tally.songs += 1;
+            tally.plays += plays;
             if let Some((x, y)) = places.get(&id) {
-                entry.3 += x;
-                entry.4 += y;
-                entry.5 += 1;
+                tally.x += x;
+                tally.y += y;
+                tally.measured += 1;
             }
         }
         let mut spots: Vec<GenreSpot> = by
             .into_values()
-            .map(|(names, songs, plays, x, y, measured)| GenreSpot {
-                genre: names
+            .map(|t| GenreSpot {
+                genre: t
+                    .names
                     .into_iter()
                     .max_by(|a, b| a.1.cmp(&b.1).then(b.0.cmp(&a.0)))
                     .map(|(name, _)| name)
                     .unwrap_or_default(),
-                songs,
-                plays,
-                measured,
-                place: (measured > 0).then(|| (x / measured as f32, y / measured as f32)),
+                songs: t.songs,
+                plays: t.plays,
+                measured: t.measured,
+                place: (t.measured > 0).then(|| (t.x / t.measured as f32, t.y / t.measured as f32)),
             })
             .collect();
         spots.sort_by(|a, b| b.songs.cmp(&a.songs).then(a.genre.cmp(&b.genre)));
