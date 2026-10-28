@@ -1,6 +1,6 @@
 import SwiftUI
 
-/// A genre's bubble on the map: where it sits (0 to 1) and how wide it is (points).
+/// A genre's bubble on the map: its centre and width, in points.
 struct GenreBubble: Identifiable {
     let genre: String
     let songs: Int
@@ -10,51 +10,69 @@ struct GenreBubble: Identifiable {
     var id: String { genre }
 }
 
-/// The genre map's layout: the 40 largest genres with a place, sized by their songs, nudged
-/// apart so names do not sit on one another; the rest (and those with no place yet) as chips.
+/// The genre map's layout, as on Windows: the 40 largest genres with a place as bubbles, as big
+/// as their songs, nudged apart where they overlap; the rest (and those with no place yet) as
+/// chips under the map.
 enum GenreLayout {
-    /// The genres to draw on a map `side` points wide, and the ones left for the chips.
-    static func lay(_ spots: [(genre: String, songs: Int, placed: Bool, x: Double, y: Double)], side: Double)
-        -> (bubbles: [GenreBubble], chips: [(genre: String, songs: Int)]) {
-        let placed = spots.filter(\.placed).sorted { $0.songs > $1.songs }
-        let shown = placed.prefix(40)
-        let most = Double(shown.first?.songs ?? 1)
-        var bubbles = shown.map { spot in
-            // Area follows the songs: the largest about a quarter of the map across; none too
-            // small for its longest word at the smallest size.
-            let size = max(widest(spot.genre, font: smallest) + 12, side * 0.24 * (Double(spot.songs) / most).squareRoot())
-            return GenreBubble(genre: spot.genre, songs: spot.songs, x: spot.x, y: 1 - spot.y, size: size)
+    /// How many of the largest genres the map may show.
+    static let most = 40
+
+    /// The genres to draw on a map `width` by `height` points, and the ones left for the chips.
+    /// `scale` makes the bubbles smaller on a small screen.
+    static func lay(_ spots: [GenreSpot], width: Double, height: Double, scale: Double = 1)
+        -> (bubbles: [GenreBubble], chips: [GenreSpot]) {
+        // The core gives the genres with the most songs first.
+        let biggest = Double(max(spots.first.map { Int($0.songs) } ?? 1, 1))
+        var shown: [GenreSpot] = [], chips: [GenreSpot] = []
+        for (i, spot) in spots.enumerated() {
+            if i < most && spot.placed { shown.append(spot) } else { chips.append(spot) }
         }
-        // A few rounds of pushing overlapping bubbles apart, kept inside the map.
-        for _ in 0..<60 {
-            var moved = false
-            for i in bubbles.indices {
-                for j in bubbles.indices where j > i {
-                    let dx = (bubbles[j].x - bubbles[i].x) * side, dy = (bubbles[j].y - bubbles[i].y) * side
-                    let distance = max((dx * dx + dy * dy).squareRoot(), 0.01)
-                    let need = (bubbles[i].size + bubbles[j].size) / 2 * 0.92
-                    guard distance < need else { continue }
-                    let push = (need - distance) / 2 / side
-                    let (ux, uy) = distance > 0.01 ? (dx / distance, dy / distance) : (1.0, 0.0)
-                    bubbles[i].x -= ux * push; bubbles[i].y -= uy * push
-                    bubbles[j].x += ux * push; bubbles[j].y += uy * push
-                    moved = true
+        // Each bubble's centre and size; drawn largest first, so the small ones sit on top.
+        var bubbles = shown.map { spot in
+            GenreBubble(genre: spot.genre, songs: Int(spot.songs),
+                        x: width * (0.06 + Double(spot.x) * 0.88),
+                        y: height * (0.94 - Double(spot.y) * 0.88),
+                        size: scale * (40 + 120 * (Double(spot.songs) / biggest).squareRoot()))
+        }
+        // Nudged apart where they overlap, to a 4 pt gap between edges, and kept inside the map.
+        for _ in 0..<200 {
+            for a in bubbles.indices {
+                for b in bubbles.indices where b > a {
+                    var dx = bubbles[b].x - bubbles[a].x, dy = bubbles[b].y - bubbles[a].y
+                    // In one row or column (genres that sound alike): both ways, in turn.
+                    if abs(dy) < 1 { dy = (a + b) % 2 == 0 ? 6 : -6 }
+                    if abs(dx) < 1 { dx = b % 2 == 0 ? 6 : -6 }
+                    let gap = (bubbles[a].size + bubbles[b].size) / 2 + 4
+                    let far = (dx * dx + dy * dy).squareRoot()
+                    guard far < gap else { continue }
+                    // Apart along the line between them.
+                    let (ux, uy) = far > 0.01 ? (dx / far, dy / far) : (1.0, 0.0)
+                    let push = (gap - far) / 2
+                    bubbles[a].x -= ux * push; bubbles[a].y -= uy * push
+                    bubbles[b].x += ux * push; bubbles[b].y += uy * push
                 }
             }
             for i in bubbles.indices {
-                let r = bubbles[i].size / 2 / side
-                bubbles[i].x = min(max(bubbles[i].x, r), 1 - r)
-                bubbles[i].y = min(max(bubbles[i].y, r), 1 - r)
+                let r = bubbles[i].size / 2
+                bubbles[i].x = min(max(bubbles[i].x, r + 4), width - r - 4)
+                bubbles[i].y = min(max(bubbles[i].y, r + 4), height - r - 4)
             }
-            if !moved { break }
         }
-        let onMap = Set(bubbles.map(\.genre))
-        let chips = spots.filter { !onMap.contains($0.genre) }.sorted { $0.songs > $1.songs }.map { ($0.genre, $0.songs) }
         return (bubbles, chips)
     }
 
+    /// A genre's colour, from its name as on Windows: a hue from a hash of the lowercase name,
+    /// lighter on dark looks.
+    static func tone(_ genre: String, dark: Bool) -> Color {
+        let hash = genre.lowercased().utf8.reduce(UInt32(2166136261)) { ($0 ^ UInt32($1)) &* 16777619 }
+        // Saturation 0.55 and lightness 0.6 or 0.42 (HSL), as hue, saturation, and brightness.
+        let light = dark ? 0.6 : 0.42
+        let value = light + 0.55 * min(light, 1 - light)
+        return Color(hue: Double(hash % 360) / 360, saturation: 2 * (1 - light / value), brightness: value)
+    }
+
     /// The smallest and largest name sizes.
-    static let smallest = 9.5, largest = 16.0
+    static let smallest = 9.5, largest = 17.0
 
     /// How wide the longest word of a name is (a hyphen may end a line), in points, at `font` size.
     static func widest(_ genre: String, font: Double) -> Double {
@@ -62,16 +80,15 @@ enum GenreLayout {
         return genre.replacingOccurrences(of: "-", with: "- ").split(separator: " ").map { Double((String($0) as NSString).size(withAttributes: [.font: face]).width) }.max() ?? 0
     }
 
-    /// A bubble's name size: as large as the bubble allows, with its longest word on one line.
+    /// A bubble's name size: a seventh of the bubble, as on Windows, or smaller so its longest
+    /// word fits on one line.
     static func label(_ genre: String, size: Double) -> Double {
-        let fit = smallest * (size - 12) / max(widest(genre, font: smallest), 1)
-        return max(smallest, min(largest, size * 0.16, fit))
+        let fit = smallest * (size - 10) / max(widest(genre, font: smallest), 1)
+        return min(min(max(size / 7, smallest), largest), max(fit, smallest * 0.75))
     }
 
-    /// A bubble's colour by its place: dark and calm deep blue, bright and lively warm.
-    static func hue(x: Double, y: Double) -> (hue: Double, saturation: Double, brightness: Double) {
-        (0.62 - 0.55 * x, 0.5 + 0.3 * (1 - y), 0.5 + 0.4 * x)
-    }
+    /// Whether a bubble is big enough to say its number of songs too.
+    static func roomy(_ bubble: GenreBubble) -> Bool { bubble.size > 74 }
 }
 
 /// Chips that wrap onto as many lines as they need.
@@ -102,35 +119,44 @@ struct FlowLayout: Layout {
     }
 }
 
-/// The genre map: a bubble for each genre, as big as its number of songs, at the middle of
-/// its songs' sound (dark to bright across, calm to lively up); a tap plays it shuffled. The
-/// genres past the 40 largest, and those with no song measured yet, are chips under it.
+/// The genre map: a bubble for each genre, as big as its number of songs, where its songs
+/// sound (dark to bright across, calm to lively up); a tap plays it shuffled. The genres past
+/// the 40 largest, and those with no song measured yet, are chips under it.
 struct GenreMapView: View {
     @Environment(Store.self) private var store
     @State private var spots: [GenreSpot]?
 
     var body: some View {
         GeometryReader { geo in
-            let side = min(geo.size.width - 40, 520)
-            let laid = GenreLayout.lay((spots ?? []).map { ($0.genre, Int($0.songs), $0.placed, Double($0.x), Double($0.y)) }, side: side)
+            // Upright on a phone: as wide as the screen and taller than wide; the bubbles smaller
+            // by the map's area against the widest computer map (980 by 600).
+            let side = min(geo.size.width - 40, 640)
+            let height = min(max(side * 1.6, 300), 760)
+            let laid = GenreLayout.lay(spots ?? [], width: side, height: height,
+                                       scale: min(1, max(0.6, (side * height / (980 * 600)).squareRoot())))
             ScrollView {
                 VStack(alignment: .leading, spacing: 18) {
                     if let spots, spots.isEmpty {
                         ContentUnavailableView("No genres yet", systemImage: "circle.hexagongrid",
-                                               description: Text("Needle reads genres from your songs' tags."))
-                    } else if spots != nil {
-                        if laid.bubbles.isEmpty {
-                            Text("The map fills in as Needle measures each song's sound.")
-                                .font(.needle(.subheadline)).foregroundStyle(.secondary)
-                        } else {
-                            Text("Tap a genre to play it, shuffled.").font(.needle(.subheadline)).foregroundStyle(.secondary)
-                            map(laid.bubbles, side: side).frame(maxWidth: .infinity)
+                                               description: Text("Your songs have no genres in their tags yet."))
+                    } else if let spots {
+                        Text(laid.bubbles.isEmpty
+                             ? "Needle measures each song's sound in the background (Settings › Library). Genres take their place as their songs are measured."
+                             : "\(count(spots.count, "genre")), each where its songs sound. Tap one to play it.")
+                            .font(.needle(.subheadline)).foregroundStyle(store.colors.muted)
+                        if !laid.bubbles.isEmpty {
+                            map(laid.bubbles, width: side, height: height)
                         }
                         if !laid.chips.isEmpty {
+                            Text("More genres").font(.needle(.title3).weight(.semibold))
                             FlowLayout {
                                 ForEach(laid.chips, id: \.genre) { chip in
                                     Button { play(chip.genre) } label: {
-                                        Text("\(chip.genre)  \(chip.songs.formatted())").font(.needle(.subheadline))
+                                        HStack(spacing: 8) {
+                                            Text(chip.genre)
+                                            Text(Int(chip.songs).formatted()).foregroundStyle(store.colors.muted)
+                                        }
+                                        .font(.needle(.subheadline))
                                     }
                                     .buttonStyle(.glass)
                                 }
@@ -151,38 +177,48 @@ struct GenreMapView: View {
         }
     }
 
-    private func map(_ bubbles: [GenreBubble], side: Double) -> some View {
-        ZStack {
-            RoundedRectangle(cornerRadius: 18).fill(store.colors.card)
+    private func map(_ bubbles: [GenreBubble], width: Double, height: Double) -> some View {
+        let colors = store.colors
+        return ZStack(alignment: .topLeading) {
+            RoundedRectangle(cornerRadius: 18).fill(colors.card)
             ForEach(bubbles) { bubble in
-                let tone = GenreLayout.hue(x: bubble.x, y: bubble.y)
+                let tone = GenreLayout.tone(bubble.genre, dark: colors.dark)
+                let many = bubble.genre.contains(" ") || bubble.genre.contains("-")
                 Button { play(bubble.genre) } label: {
-                    Text(bubble.genre)
-                        .font(.system(size: GenreLayout.label(bubble.genre, size: bubble.size), weight: .semibold))
-                        .multilineTextAlignment(.center)
-                        .lineLimit(3)
-                        .foregroundStyle(.white)
-                        .frame(width: bubble.size - 8)
-                        .frame(width: bubble.size, height: bubble.size)
-                        .background(Circle().fill(Color(hue: tone.hue, saturation: tone.saturation, brightness: tone.brightness).opacity(0.85)))
-                        .contentShape(.circle)
+                    VStack(spacing: 1) {
+                        Text(bubble.genre)
+                            .font(.system(size: GenreLayout.label(bubble.genre, size: bubble.size), weight: .semibold))
+                            .foregroundStyle(colors.text)
+                            .lineLimit(many ? 2 : 1)
+                            .minimumScaleFactor(0.8)
+                        if GenreLayout.roomy(bubble) {
+                            Text(count(bubble.songs, "song")).font(.needle(.caption)).foregroundStyle(colors.muted)
+                        }
+                    }
+                    .multilineTextAlignment(.center)
+                    .frame(width: bubble.size - 8)
+                    .frame(width: bubble.size, height: bubble.size)
+                    .background(Circle().fill(tone.opacity(0.22)))
+                    .overlay(Circle().strokeBorder(tone.opacity(0.65), lineWidth: 1))
+                    .contentShape(.circle)
                 }
                 .buttonStyle(Pressable())
                 .accessibilityLabel("\(bubble.genre), \(count(bubble.songs, "song"))")
                 .accessibilityHint("Plays it, shuffled")
-                .position(x: bubble.x * side, y: bubble.y * side)
+                .position(x: bubble.x, y: bubble.y)
             }
-            VStack { Text("Lively"); Spacer(); Text("Calm") }
-                .font(.needle(.caption).weight(.semibold)).foregroundStyle(.secondary)
-                .padding(.vertical, -20)
-                .allowsHitTesting(false)
-            HStack { Text("Dark").rotationEffect(.degrees(-90)).fixedSize(); Spacer(); Text("Bright").rotationEffect(.degrees(90)).fixedSize() }
-                .font(.needle(.caption).weight(.semibold)).foregroundStyle(.secondary)
-                .padding(.horizontal, -26)
-                .allowsHitTesting(false)
+            // The axes' words, in the corners as on Windows.
+            Group {
+                Text("Lively").padding(.leading, 12).padding(.top, 8)
+                Text("Calm").padding(.leading, 12).padding(.bottom, 8).frame(maxHeight: .infinity, alignment: .bottomLeading)
+                Text("Dark").padding(.leading, 60).padding(.bottom, 8).frame(maxHeight: .infinity, alignment: .bottomLeading)
+                Text("Bright").padding(.trailing, 12).padding(.bottom, 8).frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomTrailing)
+            }
+            .font(.needle(.caption)).foregroundStyle(colors.muted)
+            .allowsHitTesting(false)
         }
-        .frame(width: side, height: side)
-        .padding(.vertical, 20)
+        .frame(width: width, height: height)
+        .clipShape(RoundedRectangle(cornerRadius: 18))
     }
 
     private func play(_ genre: String) {
