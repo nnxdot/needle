@@ -1,26 +1,14 @@
-//! Two pages about the library as a whole: Your library (what it is made of) and the mood map
-//! (every measured song placed by how it sounds; click a spot to play the songs around it).
+//! Two pages about the library as a whole: Your library (what it is made of) and the genre map
+//! (every genre a bubble, as big as its songs, where its songs sound; click one to play it).
 use super::{
     AppView, Event, Page, pal,
     widgets::{display, faint, meta, page_title, small_button},
 };
 use gpui::{prelude::*, *};
-use gpui_component::Disableable;
-use needle_core::radio::MoodPoint;
-use std::{cell::Cell, rc::Rc};
+use needle_core::radio::GenreSpot;
 
-/// How far around a clicked spot the mood map plays, in the map's 0-to-1 places.
-const AREA: f32 = 0.12;
-
-/// The mood map's colours: one for each feel.
-fn mood_color(mood: &str) -> Hsla {
-    match mood {
-        "Upbeat" => hsla(36. / 360., 0.82, 0.62, 1.),
-        "Intense" => hsla(4. / 360., 0.72, 0.6, 1.),
-        "Mellow" => hsla(168. / 360., 0.5, 0.52, 1.),
-        _ => hsla(250. / 360., 0.5, 0.66, 1.),
-    }
-}
+/// The genres drawn as bubbles; the rest are chips under the map.
+const BUBBLES: usize = 40;
 
 impl AppView {
     /// Load what the page needs, when it opens.
@@ -37,8 +25,8 @@ impl AppView {
             }
             Page::MoodMap => {
                 std::thread::spawn(move || {
-                    let _ = sender.send(match library.mood_map() {
-                        Ok(points) => Event::MoodMap(points),
+                    let _ = sender.send(match library.genre_map() {
+                        Ok(spots) => Event::GenreMap(spots),
                         Err(e) => Event::Error(format!("{e:#}")),
                     });
                 });
@@ -262,72 +250,145 @@ impl AppView {
             .into_any_element()
     }
 
+    /// Plays a genre's songs, shuffled.
+    fn play_genre(&mut self, genre: &str) {
+        match self.library.genre_songs(genre, 500) {
+            Ok(tracks) if !tracks.is_empty() => self.play_tracks(tracks, "From the genre map"),
+            Ok(_) => {}
+            Err(e) => self.fail(format!("{e:#}")),
+        }
+    }
+
     pub(super) fn mood_view(&self, width: f32, cx: &mut Context<Self>) -> AnyElement {
         let p = pal(cx);
-        let points: Rc<Vec<MoodPoint>> = self.mood_points.clone();
-        let picked = self.mood_pick;
-        let bounds = self.mood_bounds.clone();
-        let inside = picked.map(|(x, y)| {
-            points
-                .iter()
-                .filter(|q| ((q.x - x).powi(2) + (q.y - y).powi(2)).sqrt() <= AREA)
-                .count()
+        let spots = self.genre_spots.clone();
+        let side = (width - 64.).clamp(280., 980.);
+        let map_height = (side * 0.62).clamp(280., 600.);
+        let biggest = spots.first().map_or(1, |g| g.songs.max(1)) as f32;
+        let (placed, rest): (Vec<&GenreSpot>, Vec<&GenreSpot>) = {
+            let mut placed = vec![];
+            let mut rest = vec![];
+            for (i, spot) in spots.iter().enumerate() {
+                if i < BUBBLES && spot.place.is_some() {
+                    placed.push(spot);
+                } else {
+                    rest.push(spot);
+                }
+            }
+            (placed, rest)
+        };
+        // Small bubbles last, so they sit on top of the large ones and stay clickable.
+        let mut drawn = placed.clone();
+        drawn.sort_by_key(|g| std::cmp::Reverse(g.songs));
+        // Each bubble's centre and size, then nudged apart where they overlap, inside the map.
+        let mut laid: Vec<(f32, f32, f32)> = drawn
+            .iter()
+            .map(|spot| {
+                let (x, y) = spot.place.unwrap_or((0.5, 0.5));
+                let d = 40. + 120. * (spot.songs as f32 / biggest).sqrt();
+                (side * (0.06 + x * 0.88), map_height * (0.94 - y * 0.88), d)
+            })
+            .collect();
+        for _ in 0..200 {
+            for a in 0..laid.len() {
+                for b in a + 1..laid.len() {
+                    let (mut dx, mut dy) = (laid[b].0 - laid[a].0, laid[b].1 - laid[a].1);
+                    // In one row or column (genres that sound alike): both ways, in turn.
+                    if dy.abs() < 1. {
+                        dy = if (a + b) % 2 == 0 { 6. } else { -6. };
+                    }
+                    if dx.abs() < 1. {
+                        dx = if b % 2 == 0 { 6. } else { -6. };
+                    }
+                    let gap = (laid[a].2 + laid[b].2) / 2. + 4.;
+                    let far = (dx * dx + dy * dy).sqrt();
+                    if far < gap {
+                        // Apart along the line between them (or sideways when on top).
+                        let (ux, uy) = if far > 0.01 {
+                            (dx / far, dy / far)
+                        } else {
+                            (1., 0.)
+                        };
+                        let push = (gap - far) / 2.;
+                        laid[a].0 -= ux * push;
+                        laid[a].1 -= uy * push;
+                        laid[b].0 += ux * push;
+                        laid[b].1 += uy * push;
+                    }
+                }
+            }
+            for spot in laid.iter_mut() {
+                let r = spot.2 / 2.;
+                spot.0 = spot.0.clamp(r + 4., side - r - 4.);
+                spot.1 = spot.1.clamp(r + 4., map_height - r - 4.);
+            }
+        }
+        let bubbles = drawn
+            .into_iter()
+            .zip(laid)
+            .enumerate()
+            .map(|(i, (spot, (cx_, cy_, d)))| {
+                let color = super::widgets::seed_color(&spot.genre.to_lowercase());
+                let tone = hsla(color.h, 0.55, if p.dark { 0.6 } else { 0.42 }, 1.);
+                let genre = spot.genre.clone();
+                div()
+                    .id(("genre-bubble", i))
+                    .absolute()
+                    .left(px(cx_ - d / 2.))
+                    .top(px(cy_ - d / 2.))
+                    .size(px(d))
+                    .rounded_full()
+                    .bg(tone.opacity(0.22))
+                    .border_1()
+                    .border_color(tone.opacity(0.65))
+                    .flex()
+                    .flex_col()
+                    .items_center()
+                    .justify_center()
+                    .px_2()
+                    .cursor_pointer()
+                    .hover(move |s| s.bg(tone.opacity(0.4)))
+                    .child(
+                        div()
+                            .max_w_full()
+                            .truncate()
+                            .text_center()
+                            .text_size(px((d / 7.).clamp(11., 17.)))
+                            .font_weight(FontWeight::SEMIBOLD)
+                            .text_color(p.ink)
+                            .child(spot.genre.clone()),
+                    )
+                    .when(d > 74., |el| {
+                        el.child(faint(
+                            format!("{} songs", super::widgets::count(spot.songs)),
+                            cx,
+                        ))
+                    })
+                    .on_click(cx.listener(move |this, _, _, _| this.play_genre(&genre)))
+            });
+        let chips = rest.into_iter().enumerate().map(|(i, spot)| {
+            let genre = spot.genre.clone();
+            div()
+                .id(("genre-chip", i))
+                .px_3()
+                .py(px(5.))
+                .rounded_full()
+                .bg(p.raised)
+                .border_1()
+                .border_color(p.line_soft)
+                .text_size(px(12.5))
+                .cursor_pointer()
+                .hover(|s| s.bg(p.raised.opacity(0.7)))
+                .flex()
+                .gap_2()
+                .child(div().child(spot.genre.clone()))
+                .child(faint(super::widgets::count(spot.songs), cx))
+                .on_click(cx.listener(move |this, _, _, _| this.play_genre(&genre)))
         });
-        let side = (width - 64.).clamp(280., 900.);
-        let map_height = (side * 0.62).clamp(260., 560.);
-        let accent = p.accent;
-        let line = p.line_soft;
-        let count = points.len();
-        let map = canvas(
-            {
-                let bounds = bounds.clone();
-                move |b, _, _| bounds.set(Some(b))
-            },
-            move |b, _, window, _| {
-                // The axes' middle lines, then every song, then the circle picked.
-                let mid_x = b.left() + b.size.width / 2.;
-                let mid_y = b.top() + b.size.height / 2.;
-                window.paint_quad(fill(
-                    Bounds::new(point(mid_x, b.top()), size(px(1.), b.size.height)),
-                    line,
-                ));
-                window.paint_quad(fill(
-                    Bounds::new(point(b.left(), mid_y), size(b.size.width, px(1.))),
-                    line,
-                ));
-                for q in points.iter() {
-                    let at = point(
-                        b.left() + b.size.width * (0.02 + q.x * 0.96) - px(2.5),
-                        b.top() + b.size.height * (0.98 - q.y * 0.96) - px(2.5),
-                    );
-                    window.paint_quad(
-                        fill(
-                            Bounds::new(at, size(px(5.), px(5.))),
-                            mood_color(q.mood).opacity(0.85),
-                        )
-                        .corner_radii(px(2.5)),
-                    );
-                }
-                if let Some((x, y)) = picked {
-                    let r = b.size.width.min(b.size.height) * AREA;
-                    let centre = point(
-                        b.left() + b.size.width * (0.02 + x * 0.96),
-                        b.top() + b.size.height * (0.98 - y * 0.96),
-                    );
-                    window.paint_quad(
-                        outline(
-                            Bounds::new(centre - point(r, r), size(r * 2., r * 2.)),
-                            accent,
-                            BorderStyle::Dashed,
-                        )
-                        .corner_radii(r),
-                    );
-                }
-            },
-        )
-        .size_full();
+        let total = spots.len();
+        let measured = spots.iter().any(|g| g.place.is_some());
         div()
-            .id("mood-map")
+            .id("genre-map")
             .size_full()
             .overflow_y_scroll()
             .px_8()
@@ -341,80 +402,40 @@ impl AppView {
                     .flex()
                     .flex_col()
                     .gap_1()
-                    .child(page_title("Mood map"))
+                    .child(page_title("Genre map"))
                     .child(meta(
-                        if count == 0 {
-                            "Needle measures each song's sound in the background (Settings › Playback). Measured songs show here.".to_string()
+                        if total == 0 {
+                            "Your songs have no genres in their tags yet.".to_string()
+                        } else if !measured {
+                            "Needle measures each song's sound in the background (Settings › Playback). Genres take their place as their songs are measured.".to_string()
                         } else {
-                            format!("{} songs, by how they sound. Click a spot to play the songs around it.", super::widgets::count(count))
+                            format!("{} genres, each where its songs sound. Click one to play it.", super::widgets::count(total))
                         },
                         cx,
                     )),
             )
-            .child(
-                div()
-                    .relative()
-                    .w(px(side))
-                    .h(px(map_height))
-                    .rounded(px(14.))
-                    .bg(p.raised)
-                    .border_1()
-                    .border_color(p.line_soft)
-                    .overflow_hidden()
-                    .cursor_crosshair()
-                    .child(map)
-                    .child(div().absolute().left(px(12.)).top(px(8.)).child(faint("Lively", cx)))
-                    .child(div().absolute().left(px(12.)).bottom(px(8.)).child(faint("Calm", cx)))
-                    .child(div().absolute().right(px(12.)).bottom(px(8.)).child(faint("Bright", cx)))
-                    .child(div().absolute().left(px(70.)).bottom(px(8.)).child(faint("Dark", cx)))
-                    .on_mouse_down(
-                        MouseButton::Left,
-                        cx.listener(move |this, event: &MouseDownEvent, _, cx| {
-                            if let Some(b) = this.mood_bounds.get() {
-                                let x = ((f32::from(event.position.x - b.left()) / f32::from(b.size.width)) - 0.02) / 0.96;
-                                let y = (0.98 - f32::from(event.position.y - b.top()) / f32::from(b.size.height)) / 0.96;
-                                this.mood_pick = Some((x.clamp(0., 1.), y.clamp(0., 1.)));
-                                cx.notify();
-                            }
-                        }),
-                    ),
-            )
-            .child(
-                div()
-                    .flex()
-                    .items_center()
-                    .gap_3()
-                    .children(["Upbeat", "Intense", "Mellow", "Melancholy"].map(|mood| {
-                        div()
-                            .flex()
-                            .items_center()
-                            .gap(px(6.))
-                            .child(div().size(px(9.)).rounded_full().bg(mood_color(mood)))
-                            .child(faint(mood, cx))
-                    }))
-                    .child(div().flex_1())
-                    .when_some(inside, |el, count| {
-                        el.child(meta(format!("{} songs in the circle", super::widgets::count(count)), cx))
-                            .child(
-                                small_button("mood-play", "Play this area")
-                                    .disabled(count == 0)
-                                    .on_click(cx.listener(|this, _, _, _| {
-                                        if let Some((x, y)) = this.mood_pick {
-                                            match this.library.mood_area(x, y, AREA, 200) {
-                                                Ok(tracks) if !tracks.is_empty() => {
-                                                    this.play_tracks(tracks, "From the mood map")
-                                                }
-                                                Ok(_) => {}
-                                                Err(e) => this.fail(format!("{e:#}")),
-                                            }
-                                        }
-                                    })),
-                            )
-                    }),
-            )
+            .when(measured, |el| {
+                el.child(
+                    div()
+                        .relative()
+                        .w(px(side))
+                        .h(px(map_height))
+                        .rounded(px(14.))
+                        .bg(p.raised)
+                        .border_1()
+                        .border_color(p.line_soft)
+                        .overflow_hidden()
+                        .children(bubbles)
+                        .child(div().absolute().left(px(12.)).top(px(8.)).child(faint("Lively", cx)))
+                        .child(div().absolute().left(px(12.)).bottom(px(8.)).child(faint("Calm", cx)))
+                        .child(div().absolute().right(px(12.)).bottom(px(8.)).child(faint("Bright", cx)))
+                        .child(div().absolute().left(px(70.)).bottom(px(8.)).child(faint("Dark", cx))),
+                )
+            })
+            .when(chips.len() > 0, |el| {
+                el.child(display("More genres", 18.))
+                    .child(div().flex().flex_wrap().gap_2().children(chips))
+            })
             .into_any_element()
     }
 }
-
-/// Where the mood map was drawn, to place clicks on it.
-pub(super) type MapBounds = Rc<Cell<Option<Bounds<Pixels>>>>;

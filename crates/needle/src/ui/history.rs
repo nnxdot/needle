@@ -442,7 +442,7 @@ impl AppView {
                             })),
                     )
                     .child(
-                        super::widgets::small_button("open-mood-map", "Mood map")
+                        super::widgets::small_button("open-mood-map", "Genre map")
                             .ghost()
                             .on_click(cx.listener(|this, _, window, cx| {
                                 this.navigate(super::Page::MoodMap, window, cx)
