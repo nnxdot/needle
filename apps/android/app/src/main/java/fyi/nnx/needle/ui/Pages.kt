@@ -930,6 +930,8 @@ fun HomeScreen(open: (Route) -> Unit) {
             return@LazyColumn
         }
         item { NowCard() }
+        // In December: the year in review.
+        item { YearReviewRow(open, december = true) }
         // Soft tiles hold the shelves' places while they are read.
         val h = home ?: run {
             item { ShelfTitle("Jump back in", "Albums you played last") }

@@ -171,6 +171,7 @@ fun HistoryScreen(open: (Route) -> Unit) {
     var view by rememberSaveable { mutableStateOf("Listens") }
     Column(Modifier.fillMaxSize()) {
         LargeTitle("History")
+        YearReviewRow(open)
         Row(Modifier.padding(horizontal = Edge, vertical = 4.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             listOf("Listens", "Numbers").forEach { FilterChip(selected = view == it, onClick = { view = it }, label = { Text(it) }) }
         }

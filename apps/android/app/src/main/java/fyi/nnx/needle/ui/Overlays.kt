@@ -88,6 +88,8 @@ sealed interface Sheet {
     data class EditPlaylist(val id: String) : Sheet
     data object PlayOn : Sheet
     data class EditTags(val ids: List<String>) : Sheet
+    data object SleepTimer : Sheet
+    data object SpeedPitch : Sheet
 }
 
 /**
@@ -159,6 +161,8 @@ fun Overlays(snackbar: SnackbarHostState) {
         is Sheet.EditPlaylist -> PlaylistDialog(s.id, emptyList(), false)
         Sheet.PlayOn -> SpeakersSheet(context)
         is Sheet.EditTags -> TagEditorDialog(s.ids) { Ui.sheet.value = null }
+        Sheet.SleepTimer -> SleepTimerSheet { Ui.sheet.value = null }
+        Sheet.SpeedPitch -> SpeedPitchSheet { Ui.sheet.value = null }
         null -> {}
     }
 }

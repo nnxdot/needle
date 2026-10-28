@@ -67,6 +67,8 @@ import androidx.compose.material.icons.rounded.Translate
 import androidx.compose.material.icons.rounded.GraphicEq
 import androidx.compose.material.icons.rounded.Fullscreen
 import androidx.compose.material.icons.rounded.Album
+import androidx.compose.material.icons.rounded.Bedtime
+import androidx.compose.material.icons.outlined.Bedtime
 import androidx.compose.material.icons.rounded.Image
 import androidx.compose.material.icons.rounded.Cast
 import androidx.compose.material.icons.automirrored.rounded.VolumeUp
@@ -656,8 +658,24 @@ fun FullPlayer(onClose: () -> Unit, open: (Route) -> Unit) {
                 // The top row: close at the left, the handle to pull the player down by in the
                 // middle, and the song's heart and menu at the right, clear of its name.
                 Box(Modifier.fillMaxWidth().padding(top = 4.dp)) {
-                    IconButton(onClick = onClose, modifier = Modifier.align(Alignment.CenterStart).offset(x = (-12).dp)) {
-                        Icon(Icons.Rounded.KeyboardArrowDown, contentDescription = "Close the player", modifier = Modifier.size(30.dp))
+                    Row(Modifier.align(Alignment.CenterStart).offset(x = (-12).dp)) {
+                        IconButton(onClick = onClose) {
+                            Icon(Icons.Rounded.KeyboardArrowDown, contentDescription = "Close the player", modifier = Modifier.size(30.dp))
+                        }
+                        // The sleep timer: a moon, lit while it runs.
+                        if (!song.onComputer()) {
+                            val sleeping = rememberSleepTimer()
+                            IconButton(
+                                onClick = { Ui.sheet.value = Sheet.SleepTimer },
+                                modifier = Modifier.semantics { stateDescription = if (sleeping != null) "On" else "Off" },
+                            ) {
+                                Icon(
+                                    if (sleeping != null) Icons.Rounded.Bedtime else Icons.Outlined.Bedtime,
+                                    contentDescription = "Sleep timer",
+                                    tint = if (sleeping != null) MaterialTheme.colorScheme.primary else Color.White.copy(alpha = 0.8f),
+                                )
+                            }
+                        }
                     }
                     Box(
                         Modifier
