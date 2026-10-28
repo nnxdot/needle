@@ -2,14 +2,17 @@
 //! with the transport at its left, a small screen in its middle (the cover, the song, "artist —
 //! album", and where it is), and the panels' buttons and the volume at its right. Which
 //! buttons show, and in what order, is the listener's choice (Settings › Appearance ›
-//! Player buttons).
+//! Player buttons); the rest wait in the ••• menu at the bar's end.
 use super::{
-    AppView, Page, Panel, pal,
+    AppView, Page, Panel,
+    menus::Entry,
+    motion, pal,
+    player_tools::Tool,
     widgets::{artwork, glyph, icon, icon_button},
 };
 use gpui::{prelude::*, *};
 use gpui_component::{
-    Disableable, Selectable, Sizable,
+    ActiveTheme, Disableable, Selectable, Sizable,
     button::{Button, ButtonVariants},
 };
 use needle_core::{audio::Command, audio::Repeat};
@@ -20,6 +23,21 @@ pub(super) const MAX_WIDTH: f32 = 860.;
 /// The buttons that sit left of the screen, with the transport.
 const TRANSPORT: [&str; 5] = ["shuffle", "previous", "play", "next", "repeat"];
 const ICON: f32 = 26.;
+/// The buttons out of the box: the rest are in the ••• menu.
+const DEFAULT: [&str; 7] = [
+    "previous", "play", "next", "favorite", "lyrics", "queue", "volume",
+];
+
+/// The buttons chosen, in order. A list never changed (the core's whole list, which every
+/// Needle before 2.0 kept) is the short one out of the box.
+fn chosen_buttons(settings: &needle_core::model::Settings) -> Vec<&'static str> {
+    let list = settings.player_buttons();
+    if list == needle_core::model::PLAYER_BUTTONS {
+        DEFAULT.to_vec()
+    } else {
+        list
+    }
+}
 
 /// A floating pane's fill on Windows and Linux, where nothing blurs behind it: the look's
 /// raised colour, nearly solid, with a thin line and a soft shadow.
@@ -45,8 +63,8 @@ impl AppView {
     /// The floating player, `width` wide at most.
     pub(super) fn floating_player(&self, width: f32, cx: &mut Context<Self>) -> Stateful<Div> {
         let width = width.min(MAX_WIDTH);
-        let buttons = self.settings.player_buttons();
         let narrow = width < 640.;
+        let buttons = self.bar_buttons(narrow);
         let (left, right): (Vec<&str>, Vec<&str>) =
             buttons.iter().partition(|b| TRANSPORT.contains(b));
         div()
@@ -77,9 +95,17 @@ impl AppView {
                     .items_center()
                     .gap(px(4.))
                     .children(right.iter().filter_map(|b| self.player_button(b, cx)))
-                    .when(!narrow, |el| el.child(self.player_volume(64., cx)))
-                    .child(self.player_more(cx)),
+                    .when(buttons.len() < BUTTONS.len(), |el| {
+                        el.child(self.player_more(narrow, cx))
+                    }),
             )
+    }
+    /// The buttons in the bar now: the chosen ones, without the volume in a narrow window.
+    fn bar_buttons(&self, narrow: bool) -> Vec<&'static str> {
+        chosen_buttons(&self.settings)
+            .into_iter()
+            .filter(|b| !(narrow && *b == "volume"))
+            .collect()
     }
     /// One of the player's buttons by its settings name.
     fn player_button(&self, name: &str, cx: &mut Context<Self>) -> Option<AnyElement> {
@@ -165,6 +191,12 @@ impl AppView {
                 .into_any_element(),
             "queue" => self.queue_button(cx).into_any_element(),
             "speakers" => self.speakers_button(cx).into_any_element(),
+            "volume" => self.volume_control(64., cx).into_any_element(),
+            "sleep" => self.sleep_button(cx),
+            "speed" => self.speed_button(cx),
+            "loop" => self.loop_button(cx).into_any_element(),
+            "sound" => self.sound_button(cx).into_any_element(),
+            "mini" => self.mini_button(cx).into_any_element(),
             _ => return None,
         };
         Some(element)
@@ -314,21 +346,175 @@ impl AppView {
                 )
             })
     }
-    /// Mute and a short volume slider.
-    fn player_volume(&self, slider: f32, cx: &mut Context<Self>) -> Stateful<Div> {
-        self.volume_control(slider, cx)
+    /// ••• : the buttons not in the bar, as a menu.
+    fn player_more(&self, narrow: bool, cx: &mut Context<Self>) -> Button {
+        icon_button("player-more", "more", "More")
+            .with_size(px(ICON))
+            .selected(self.player_menu.is_some())
+            .on_click(cx.listener(move |this, _, window, cx| {
+                if this.player_menu.take().is_none() {
+                    this.menu = None;
+                    this.menu_serial += 1;
+                    this.player_menu = Some((window.mouse_position(), this.menu_serial, narrow));
+                }
+                cx.notify();
+            }))
     }
-    /// The rest, in one button: the A–B loop, the equalizer, and the mini player.
-    fn player_more(&self, cx: &mut Context<Self>) -> Div {
-        div()
+
+    /// The ••• menu's entries: each button not in the bar, as an item that does what it does.
+    fn player_menu_entries(&self, position: Point<Pixels>, narrow: bool) -> Vec<Entry> {
+        let shown = self.bar_buttons(narrow);
+        let playing = self.playback.current.is_some();
+        let mut entries = vec![];
+        for &(name, glyph_name, label) in BUTTONS.iter().filter(|b| !shown.contains(&b.0)) {
+            let entry = match name {
+                "shuffle" => Entry::item(glyph_name, "Shuffle this view", None, |this, _, cx| {
+                    this.play_view(0, true, cx)
+                }),
+                "previous" => Entry::item(glyph_name, label, Some("Ctrl+Left"), |this, _, _| {
+                    this.player.send(Command::Previous)
+                }),
+                "next" => Entry::item(glyph_name, label, Some("Ctrl+Right"), |this, _, _| {
+                    this.player.send(Command::Next)
+                }),
+                "repeat" => {
+                    let repeat = self.playback.repeat;
+                    Entry::item(
+                        if repeat == Repeat::One {
+                            "repeat-one"
+                        } else {
+                            "repeat"
+                        },
+                        match repeat {
+                            Repeat::Off => "Repeat",
+                            Repeat::All => "Repeating the queue",
+                            Repeat::One => "Repeating this song",
+                        },
+                        None,
+                        move |this, _, _| {
+                            this.player.send(Command::Repeat(match repeat {
+                                Repeat::Off => Repeat::All,
+                                Repeat::All => Repeat::One,
+                                Repeat::One => Repeat::Off,
+                            }))
+                        },
+                    )
+                }
+                "favorite" if playing => {
+                    let favorite = self
+                        .playback
+                        .current
+                        .as_ref()
+                        .is_some_and(|i| i.track.rating >= 4);
+                    Entry::item(
+                        if favorite { "heart-fill" } else { "heart" },
+                        if favorite {
+                            "Remove from favorites"
+                        } else {
+                            "Add to favorites"
+                        },
+                        None,
+                        |this, _, _| this.toggle_favorite_playing(),
+                    )
+                }
+                "lyrics" => Entry::item(glyph_name, label, Some("Ctrl+L"), |this, _, _| {
+                    this.toggle_panel(Panel::Lyrics)
+                }),
+                "queue" => Entry::item(glyph_name, label, Some("Ctrl+J"), |this, _, _| {
+                    this.toggle_panel(Panel::Queue)
+                }),
+                "speakers" => Entry::item(
+                    glyph_name,
+                    match self.current_speaker() {
+                        Some(s) => format!("Playing on {}", s.name),
+                        None => "Play on another speaker".into(),
+                    },
+                    None,
+                    move |this, _, cx| this.open_speaker_menu(position, cx),
+                ),
+                "volume" if !self.playback.exclusive => {
+                    let muted = self.muted_volume.is_some();
+                    Entry::item(
+                        if muted { "volume" } else { "volume-off" },
+                        if muted { "Unmute" } else { "Mute" },
+                        None,
+                        |this, window, cx| this.toggle_mute(window, cx),
+                    )
+                }
+                "sleep" => Entry::item(
+                    glyph_name,
+                    match self.playback.sleep {
+                        Some(s) => format!(
+                            "Sleep timer · {} left",
+                            super::player_tools::clock(s.remaining)
+                        ),
+                        None => label.into(),
+                    },
+                    None,
+                    move |this, _, cx| this.open_tool(Tool::Sleep, position, cx),
+                ),
+                "speed" => Entry::item(glyph_name, label, None, move |this, _, cx| {
+                    this.open_tool(Tool::Speed, position, cx)
+                }),
+                "loop" if playing => Entry::item(
+                    glyph_name,
+                    if self.playback.loop_range.is_some() {
+                        "Clear the A–B loop"
+                    } else if self.loop_start.is_some() {
+                        "Set point B"
+                    } else {
+                        "A–B loop: set point A"
+                    },
+                    None,
+                    |this, _, _| this.step_loop(),
+                ),
+                "sound" => Entry::item(glyph_name, label, None, |this, window, cx| {
+                    this.navigate(Page::Sound, window, cx)
+                }),
+                "mini" => Entry::item(glyph_name, label, Some("Ctrl+M"), |this, window, cx| {
+                    this.open_mini(window, cx)
+                }),
+                _ => continue,
+            };
+            entries.push(entry);
+        }
+        entries
+    }
+
+    pub(super) fn player_menu_view(&self, cx: &mut Context<Self>) -> Option<impl IntoElement> {
+        let (position, serial, narrow) = self.player_menu?;
+        let p = pal(cx);
+        let entries = self.player_menu_entries(position, narrow);
+        let rows = Self::menu_rows(&entries, None, cx);
+        let body = div()
+            .id("player-menu")
+            .occlude()
+            .w(px(240.))
+            .p_1()
+            .map(|el| super::glass::pane(el, 9., 14., cx.theme().popover, cx))
+            .border_1()
+            .border_color(p.line)
+            .shadow_lg()
             .flex()
-            .items_center()
-            .gap(px(2.))
-            .child(self.sleep_button(cx))
-            .child(self.speed_button(cx))
-            .child(self.loop_button(cx))
-            .child(self.sound_button(cx))
-            .child(self.mini_button(cx))
+            .flex_col()
+            .on_mouse_down_out(cx.listener(|this, _, _, cx| {
+                this.player_menu = None;
+                cx.notify();
+            }))
+            .children(rows);
+        let body = motion::animate(body, ("player-menu-in", serial), 140, cx, |el, t| {
+            el.opacity(t).mb(px(6. * (1. - t)))
+        });
+        Some(
+            deferred(
+                anchored()
+                    .anchor(Corner::BottomRight)
+                    .position(position - point(px(0.), px(14.)))
+                    .snap_to_window_with_margin(px(8.))
+                    .child(body),
+            )
+            .with_priority(2),
+        )
     }
 }
 
@@ -361,7 +547,7 @@ impl Render for ButtonGhost {
 }
 
 /// Every button the player can show: its settings name, icon, and name for people.
-const BUTTONS: [(&str, &str, &str); 9] = [
+const BUTTONS: [(&str, &str, &str); 15] = [
     ("shuffle", "shuffle", "Shuffle"),
     ("previous", "previous", "Previous"),
     ("play", "play", "Play and pause"),
@@ -371,6 +557,12 @@ const BUTTONS: [(&str, &str, &str); 9] = [
     ("lyrics", "lyrics", "Lyrics"),
     ("queue", "queue", "Queue"),
     ("speakers", "cast", "Speakers"),
+    ("volume", "volume", "Volume"),
+    ("sleep", "moon", "Sleep timer"),
+    ("speed", "speed", "Speed and pitch"),
+    ("loop", "loop", "A–B loop"),
+    ("sound", "eq", "Equalizer and sound tools"),
+    ("mini", "mini", "Mini player"),
 ];
 
 fn button_glyph(name: &str) -> &'static str {
@@ -398,12 +590,12 @@ impl AppView {
     /// Settings › Appearance › Layout › Player buttons: a small copy of the player bar to drag
     /// buttons in, along, and out of, with the unused ones below it.
     pub(super) fn player_buttons_row(&self, cx: &mut Context<Self>) -> Div {
-        let chosen = self.settings.player_buttons();
+        let chosen = chosen_buttons(&self.settings);
         let count = chosen.len();
         self.expander(
             "player-buttons",
             "Player buttons",
-            "Which buttons the player shows, in which order.",
+            "Which buttons the player shows, in which order. The rest are in its ••• menu.",
             Some(
                 div()
                     .text_size(px(12.5))
@@ -509,7 +701,17 @@ impl AppView {
                                     .iter()
                                     .filter(|b| !TRANSPORT.contains(b))
                                     .map(|b| chip(b, true, cx)),
-                            ),
+                            )
+                            .when(count < BUTTONS.len(), |el| {
+                                el.child(
+                                    div()
+                                        .size(px(36.))
+                                        .flex()
+                                        .items_center()
+                                        .justify_center()
+                                        .child(glyph("more").size(px(18.)).text_color(p.ink_3)),
+                                )
+                            }),
                     )
                     .child(
                         div()
@@ -521,6 +723,7 @@ impl AppView {
                             .border_dashed()
                             .border_color(p.line)
                             .flex()
+                            .flex_wrap()
                             .items_center()
                             .gap(px(6.))
                             .drag_over::<DraggedButton>(move |s, _, _, _| {
@@ -558,7 +761,7 @@ impl AppView {
                                 div()
                                     .text_size(px(12.))
                                     .text_color(p.ink_3)
-                                    .child("Drag to move a button, add one, or take one out."),
+                                    .child("Drag to move a button, add one, or take one out. The ones below are in the ••• menu."),
                             )
                             .child(
                                 super::widgets::small_button(
@@ -568,10 +771,7 @@ impl AppView {
                                 .on_click(cx.listener(
                                     |this, _, _, cx| {
                                         this.settings.player_buttons =
-                                            needle_core::model::PLAYER_BUTTONS
-                                                .iter()
-                                                .map(|b| b.to_string())
-                                                .collect();
+                                            DEFAULT.iter().map(|b| b.to_string()).collect();
                                         this.persist_settings();
                                         cx.notify();
                                     },
@@ -602,6 +802,21 @@ mod tests {
             super::place(&list, "shuffle", Some("next")),
             ["play", "shuffle", "next"]
         );
+    }
+
+    #[test]
+    fn an_unchanged_list_is_the_short_one() {
+        let mut settings = needle_core::model::Settings::default();
+        assert_eq!(super::chosen_buttons(&settings), super::DEFAULT);
+        settings.player_buttons = vec!["play".into(), "sleep".into(), "mini".into()];
+        assert_eq!(super::chosen_buttons(&settings), ["play", "sleep", "mini"]);
+        // Every button can be named in the editor.
+        for name in needle_core::model::PLAYER_BUTTONS
+            .iter()
+            .chain(needle_core::model::MORE_BUTTONS.iter())
+        {
+            assert!(super::BUTTONS.iter().any(|b| b.0 == *name), "{name}");
+        }
     }
 
     #[test]
