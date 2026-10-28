@@ -17,7 +17,7 @@ const LYRIC_STRIP: f32 = 22.;
 /// The player bar's small round buttons on the right (loop, volume, sound, speakers, lyrics,
 /// mini player, queue): their icons are three quarters of this, about 20 px, so they read
 /// from across the room.
-const BAR_ICON: f32 = 26.;
+pub(super) const BAR_ICON: f32 = 26.;
 
 impl AppView {
     /// The title bar's height: taller with the player in it. Over the big player it keeps its

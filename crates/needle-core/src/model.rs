@@ -281,6 +281,21 @@ pub struct Settings {
     /// An icon in the notification area; closing the window hides it there and the music
     /// plays on.
     pub tray: bool,
+    /// The speed songs play at (0.5 to 2), kept unless chosen for one song only.
+    pub speed: f32,
+    /// Semitones up or down (−12 to 12).
+    pub pitch: f32,
+    /// A new speed keeps the pitch (time-stretch); off, faster also sounds higher.
+    pub keep_pitch: bool,
+    /// The sleep timer fades the music out over its last minute.
+    pub sleep_fade: bool,
+    /// When the sleep timer stops the music, the computer goes to sleep too (desktop only).
+    pub sleep_computer: bool,
+    /// Keys that work everywhere, even with Needle in the background (desktop): an action
+    /// ("play", "next", "previous", "favorite", "mini", "volume_up", "volume_down") and its
+    /// keys, as "ctrl-alt-space". An action not listed has no keys. Out of the box: Ctrl+Alt
+    /// with Space and the arrows.
+    pub global_shortcuts: Vec<(String, String)>,
 }
 
 /// Every button the player can show, in Needle's own order.
@@ -289,6 +304,15 @@ pub const PLAYER_BUTTONS: [&str; 9] = [
 ];
 
 impl Settings {
+    /// The speed and pitch kept for every song.
+    pub fn tempo(&self) -> crate::tempo::Tempo {
+        crate::tempo::Tempo {
+            speed: self.speed,
+            semitones: self.pitch,
+            keep_pitch: self.keep_pitch,
+        }
+        .clamped()
+    }
     /// The player's buttons, known ones only, each once, with Play/Pause always there.
     pub fn player_buttons(&self) -> Vec<&'static str> {
         let mut buttons: Vec<&'static str> = vec![];
@@ -379,6 +403,21 @@ impl Default for Settings {
             remote_key: String::new(),
             eq_presets: vec![],
             tray: false,
+            speed: 1.,
+            pitch: 0.,
+            keep_pitch: true,
+            sleep_fade: true,
+            sleep_computer: false,
+            global_shortcuts: [
+                ("play", "ctrl-alt-space"),
+                ("next", "ctrl-alt-right"),
+                ("previous", "ctrl-alt-left"),
+                ("volume_up", "ctrl-alt-up"),
+                ("volume_down", "ctrl-alt-down"),
+            ]
+            .into_iter()
+            .map(|(action, keys)| (action.to_string(), keys.to_string()))
+            .collect(),
         }
     }
 }

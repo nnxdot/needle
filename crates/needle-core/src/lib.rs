@@ -49,6 +49,8 @@ pub mod sources;
 pub mod stems;
 pub mod subsonic;
 pub mod sync;
+pub mod tempo;
+pub mod timing;
 pub mod update;
 pub mod waveform;
 pub mod wrapped;
