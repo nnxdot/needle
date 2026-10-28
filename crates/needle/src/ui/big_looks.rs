@@ -70,9 +70,11 @@ impl AppView {
                     .child(self.visualizer_strip(width, art * 0.8, cx))
                     .into_any_element()
             }
+            // The words stay in their place: they scroll inside it, never over the song's name.
             _ => div()
                 .w(px((room - 120.).clamp(420., 1000.)))
                 .h(px(art + 60.))
+                .overflow_hidden()
                 .flex()
                 .flex_col()
                 .child(self.lyrics_view(LyricsKind::Immersive, cx))
