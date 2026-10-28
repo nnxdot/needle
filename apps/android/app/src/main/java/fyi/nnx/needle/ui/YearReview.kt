@@ -182,10 +182,13 @@ fun YearReviewScreen(year: Int?, open: (Route) -> Unit) {
 private fun Hours(r: YearInReview) {
     val hours = (r.seconds / 3600).toLong()
     val days = (r.seconds / 86400).toLong()
+    // Under an hour: minutes, not "0 hours".
+    val minutes = hours < 1
+    val shown = if (minutes) (r.seconds / 60).toLong() else hours
     Column(Modifier.padding(top = 8.dp)) {
         Text("YOUR ${r.year} IN MUSIC", color = Amber, style = MaterialTheme.typography.labelLarge, fontFamily = FontFamily.Monospace, letterSpacing = 2.sp)
         Text(
-            grouped(hours),
+            grouped(shown),
             color = Ink,
             fontSize = 84.sp,
             lineHeight = 88.sp,
@@ -193,7 +196,13 @@ private fun Hours(r: YearInReview) {
             fontWeight = FontWeight.Bold,
             modifier = Modifier.padding(top = 12.dp),
         )
-        Text(if (hours == 1L) "hour of music" else "hours of music", color = Ink, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+        Text(
+            when {
+                minutes -> if (shown == 1L) "minute of music" else "minutes of music"
+                hours == 1L -> "hour of music"
+                else -> "hours of music"
+            },
+            color = Ink, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
         val parts = buildList {
             if (days >= 1) add("That is ${count(days.toInt(), "whole day")}.")
             add("${grouped(r.plays.toLong())} plays.")
@@ -212,7 +221,7 @@ private fun TopArtist(a: fyi.nnx.needle.core.YearTopArtist) {
             Text("Top artist", color = Faint, style = MaterialTheme.typography.bodyMedium)
             Text(a.name, color = Ink, style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
             Text(
-                "${count((a.seconds / 3600).toInt(), "hour")} · ${count(a.plays.toInt(), "play")}" +
+                "${if (a.seconds < 3600) count((a.seconds / 60).toInt(), "minute") else count((a.seconds / 3600).toInt(), "hour")} · ${count(a.plays.toInt(), "play")}" +
                     if (a.monthsInTopFive > 1u) " · in your top five for ${a.monthsInTopFive} months" else "",
                 color = Faint,
                 style = MaterialTheme.typography.bodyMedium,
