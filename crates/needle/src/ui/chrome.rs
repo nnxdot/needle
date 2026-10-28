@@ -1024,30 +1024,49 @@ impl AppView {
                 "A–B loop · click to set point A"
             })
             .on_click(cx.listener(|this, _, _, cx| {
-                if this.playback.loop_range.is_some() {
-                    this.loop_start = None;
-                    this.player.send(Command::Loop(None));
-                } else if let Some(a) = this.loop_start.take() {
-                    let b = this.playback.position;
-                    if b > a + 0.5 {
-                        this.player.send(Command::Loop(Some((a, b))));
-                        this.notify(format!(
-                            "Looping {} – {}",
-                            format_duration(a),
-                            format_duration(b)
-                        ));
-                    } else {
-                        this.fail("Point B must come after point A.");
-                    }
-                } else {
-                    this.loop_start = Some(this.playback.position);
-                    this.notify(format!(
-                        "Point A set at {}. Click the loop button again at point B.",
-                        format_duration(this.playback.position)
-                    ));
-                }
+                this.step_loop();
                 cx.notify();
             }))
+    }
+
+    /// The A–B loop's next step: set A, set B and loop, or clear it.
+    pub(super) fn step_loop(&mut self) {
+        if self.playback.loop_range.is_some() {
+            self.loop_start = None;
+            self.player.send(Command::Loop(None));
+        } else if let Some(a) = self.loop_start.take() {
+            let b = self.playback.position;
+            if b > a + 0.5 {
+                self.player.send(Command::Loop(Some((a, b))));
+                self.notify(format!(
+                    "Looping {} – {}",
+                    format_duration(a),
+                    format_duration(b)
+                ));
+            } else {
+                self.fail("Point B must come after point A.");
+            }
+        } else {
+            self.loop_start = Some(self.playback.position);
+            self.notify(format!(
+                "Point A set at {}. Click the loop button again at point B.",
+                format_duration(self.playback.position)
+            ));
+        }
+    }
+
+    /// Mutes, or puts back the volume from before.
+    pub(super) fn toggle_mute(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let volume = match self.muted_volume.take() {
+            Some(v) => v,
+            None => {
+                self.muted_volume = Some(self.playback.volume.max(0.05));
+                0.
+            }
+        };
+        self.player.send(Command::Volume(volume));
+        self.volume
+            .update(cx, |s, cx| s.set_value(volume, window, cx));
     }
 
     /// Opens the equalizer and sound tools (lit while any is on).
@@ -1218,19 +1237,7 @@ impl AppView {
                 )
                 .with_size(px(BAR_ICON))
                 .disabled(self.playback.exclusive)
-                .on_click(cx.listener(|this, _, window, cx| {
-                    let restore = this.muted_volume.take();
-                    let volume = match restore {
-                        Some(v) => v,
-                        None => {
-                            this.muted_volume = Some(this.playback.volume.max(0.05));
-                            0.
-                        }
-                    };
-                    this.player.send(Command::Volume(volume));
-                    this.volume
-                        .update(cx, |s, cx| s.set_value(volume, window, cx));
-                })),
+                .on_click(cx.listener(|this, _, window, cx| this.toggle_mute(window, cx))),
             )
             .child(
                 Slider::new(&self.volume)

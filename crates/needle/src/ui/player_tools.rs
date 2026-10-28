@@ -37,7 +37,7 @@ const SLEEP_CHOICES: [(&str, SleepKind); 6] = [
 ];
 
 /// "24:12", or "1:02:05".
-fn clock(seconds: f64) -> String {
+pub(super) fn clock(seconds: f64) -> String {
     let s = seconds.max(0.).ceil() as u64;
     if s >= 3600 {
         format!("{}:{:02}:{:02}", s / 3600, s / 60 % 60, s % 60)
@@ -144,7 +144,12 @@ impl AppView {
         .into_any_element()
     }
 
-    fn open_tool(&mut self, tool: Tool, position: Point<Pixels>, cx: &mut Context<Self>) {
+    pub(super) fn open_tool(
+        &mut self,
+        tool: Tool,
+        position: Point<Pixels>,
+        cx: &mut Context<Self>,
+    ) {
         if self.tool_pane.as_ref().is_some_and(|t| t.tool == tool) {
             self.tool_pane = None;
         } else {
