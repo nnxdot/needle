@@ -613,7 +613,7 @@ private fun PlaybackSettingsPage() {
     Group("Alarm and tile") {
         val context = androidx.compose.ui.platform.LocalContext.current
         val alarm = remember { fyi.nnx.needle.WakeAlarm.read(context) }
-        LinkRow("Wake up to music", "A playlist or a smart mix as your alarm", Icons.Rounded.Alarm, if (alarm.on) "%d:%02d".format(alarm.hour, alarm.minute) else "Off") {
+        LinkRow("Wake up to music", "A playlist or a smart mix as your alarm", Icons.Rounded.Alarm, if (alarm.on) fyi.nnx.needle.WakeAlarm.timeText(context, alarm) else "Off") {
             Ui.openRoute.tryEmit(Route.Alarm)
         }
         var tile by remember { mutableStateOf(fyi.nnx.needle.TileAction.read(context)) }

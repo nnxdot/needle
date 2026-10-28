@@ -235,6 +235,48 @@ fun MoodMapScreen() {
     }
 }
 
+/**
+ * Where each bubble's middle goes on a map `side` across (dp): at its genre's sound, the sound
+ * stretched to fill the map (a small library's genres sound alike, and would all sit in the
+ * middle), then nudged apart until no two bubbles cover each other's names.
+ */
+private fun spread(spots: List<fyi.nnx.needle.core.GenreSpot>, sizes: List<Float>, side: Float): List<Pair<Float, Float>> {
+    if (spots.isEmpty()) return emptyList()
+    fun stretch(v: List<Float>): List<Float> {
+        val lo = v.min()
+        val hi = v.max()
+        return if (hi - lo < 1e-3f) v.map { 0.5f } else v.map { (it - lo) / (hi - lo) }
+    }
+    val xs = stretch(spots.map { it.x })
+    val ys = stretch(spots.map { it.y })
+    val px = FloatArray(spots.size) { i -> sizes[i] / 2 + xs[i] * (side - sizes[i]) }
+    val py = FloatArray(spots.size) { i -> sizes[i] / 2 + (1f - ys[i]) * (side - sizes[i]) }
+    repeat(120) {
+        var moved = false
+        for (i in spots.indices) for (j in i + 1 until spots.size) {
+            val dx = px[j] - px[i]
+            val dy = py[j] - py[i]
+            val dist = kotlin.math.sqrt(dx * dx + dy * dy).coerceAtLeast(0.01f)
+            val need = (sizes[i] + sizes[j]) / 2 + 4f
+            if (dist < need) {
+                // Each moves half the overlap, away from the other (any way when they sit on one spot).
+                val push = (need - dist) / 2
+                val ux = if (dist > 0.02f) dx / dist else kotlin.math.cos(j.toFloat())
+                val uy = if (dist > 0.02f) dy / dist else kotlin.math.sin(j.toFloat())
+                px[i] -= ux * push; py[i] -= uy * push
+                px[j] += ux * push; py[j] += uy * push
+                moved = true
+            }
+        }
+        for (i in spots.indices) {
+            px[i] = px[i].coerceIn(sizes[i] / 2, side - sizes[i] / 2)
+            py[i] = py[i].coerceIn(sizes[i] / 2, side - sizes[i] / 2)
+        }
+        if (!moved) return spots.indices.map { px[it] to py[it] }
+    }
+    return spots.indices.map { px[it] to py[it] }
+}
+
 /** The map: the bubbles, the largest drawn first so the small ones stay on top and in reach. */
 @Composable
 private fun GenreBubbles(spots: List<fyi.nnx.needle.core.GenreSpot>, play: (String) -> Unit) {
@@ -255,14 +297,16 @@ private fun GenreBubbles(spots: List<fyi.nnx.needle.core.GenreSpot>, play: (Stri
             ) {
                 val big = side * 0.26f
                 val small = 44.dp
-                spots.sortedByDescending { it.songs }.forEach { g ->
-                    // Area by songs: the side grows with the square root.
-                    val d = small + (big - small) * kotlin.math.sqrt(g.songs.toFloat() / most)
-                    val room = side - d
+                val sorted = spots.sortedByDescending { it.songs }
+                // Area by songs: the side grows with the square root.
+                val sizes = sorted.map { g -> small + (big - small) * kotlin.math.sqrt(g.songs.toFloat() / most) }
+                val places = remember(sorted, side) { spread(sorted, sizes.map { it.value }, side.value) }
+                sorted.forEachIndexed { i, g ->
+                    val d = sizes[i]
                     val color = lerp(dark, bright, g.x.coerceIn(0f, 1f))
                     Box(
                         Modifier
-                            .offset(x = room * g.x.coerceIn(0f, 1f), y = room * (1f - g.y.coerceIn(0f, 1f)))
+                            .offset(x = places[i].first.dp - d / 2, y = places[i].second.dp - d / 2)
                             .size(d)
                             .clip(CircleShape)
                             .background(color.copy(alpha = 0.88f))

@@ -423,6 +423,12 @@ private fun PlayerBackdrop(song: Song, reading: Boolean = false) {
 
 private enum class Panel { Cover, Lyrics, UpNext, Visualizer }
 
+/**
+ * The player in a short window on its side (a phone turned sideways, about 410 dp tall): the song
+ * and its controls a little smaller, so they all fit at the right without scrolling.
+ */
+private val LocalCompactPlayer = androidx.compose.runtime.compositionLocalOf { false }
+
 @Composable
 fun FullPlayer(onClose: () -> Unit, open: (Route) -> Unit) {
     // Only what changes with the song or a press is read here. The position is read where it
@@ -548,6 +554,7 @@ fun FullPlayer(onClose: () -> Unit, open: (Route) -> Unit) {
             val wide = (maxWidth >= 600.dp || maxHeight < 480.dp) && maxWidth > maxHeight
             val roomy = maxHeight >= 560.dp
             val short = maxHeight < 480.dp
+            val compactSide = maxHeight < 480.dp
             val side = (maxWidth * 0.46f).coerceAtMost(520.dp)
             // The cover, or in its place the lyrics or what is up next.
             val stage: @Composable () -> Unit = {
@@ -584,7 +591,7 @@ fun FullPlayer(onClose: () -> Unit, open: (Route) -> Unit) {
                     Column(Modifier.weight(1f)) {
                         Text(
                             song.title,
-                            style = MaterialTheme.typography.headlineMedium,
+                            style = if (LocalCompactPlayer.current) MaterialTheme.typography.titleLarge else MaterialTheme.typography.headlineMedium,
                             maxLines = 1,
                             modifier = Modifier.basicMarquee(iterations = Int.MAX_VALUE, initialDelayMillis = 2000, repeatDelayMillis = 3000),
                         )
@@ -596,7 +603,7 @@ fun FullPlayer(onClose: () -> Unit, open: (Route) -> Unit) {
                             overflow = TextOverflow.Ellipsis,
                             // A full finger's height to tap, and a button to TalkBack.
                             modifier = Modifier
-                                .then(if (song.onComputer()) Modifier else Modifier.heightIn(min = 48.dp))
+                                .then(if (song.onComputer()) Modifier else Modifier.heightIn(min = if (LocalCompactPlayer.current) 40.dp else 48.dp))
                                 .clip(RoundedCornerShape(6.dp))
                                 .clickable(enabled = !song.onComputer(), role = androidx.compose.ui.semantics.Role.Button, onClickLabel = "Go to artist") { open(Route.Artist(song.artist)) }
                                 .wrapContentHeight(Alignment.CenterVertically),
@@ -710,6 +717,7 @@ fun FullPlayer(onClose: () -> Unit, open: (Route) -> Unit) {
                         Box(Modifier.weight(1f).fillMaxHeight().padding(vertical = 12.dp), contentAlignment = Alignment.Center) { stage() }
                         // Scrolls when a phone on its side is too short for all of it.
                         Box(Modifier.width(side).fillMaxHeight(), contentAlignment = Alignment.Center) {
+                            CompositionLocalProvider(LocalCompactPlayer provides compactSide) {
                             Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState())) {
                                 // The cover, small, while the lyrics or the queue have its place.
                                 if (panel != Panel.Cover && roomy) {
@@ -717,6 +725,7 @@ fun FullPlayer(onClose: () -> Unit, open: (Route) -> Unit) {
                                 }
                                 name()
                                 controls()
+                            }
                             }
                         }
                     }
@@ -818,6 +827,7 @@ private fun PlayerControls(
     val aheadLabel = if (jump) "Ahead 10 seconds" else "Next"
     val middle = remember { androidx.compose.foundation.interaction.MutableInteractionSource() }
     val minimal = app.controlStyle == "minimal"
+    val compact = LocalCompactPlayer.current
     val side = androidx.compose.material3.IconButtonDefaults.filledTonalIconButtonColors(containerColor = Color.White.copy(alpha = 0.14f), contentColor = Color.White)
     // Previous and next as circles (Round) or large icons (Minimal); Play/Pause the one large
     // button in the cover's colour; any other chosen button a plain toggle between them.
@@ -826,15 +836,15 @@ private fun PlayerControls(
         val icon = if (forward) aheadIcon else backIcon
         val label = if (forward) aheadLabel else backLabel
         if (minimal) {
-            IconButton(onClick = onClick, modifier = Modifier.size(64.dp)) { Icon(icon, contentDescription = label, modifier = Modifier.size(44.dp)) }
+            IconButton(onClick = onClick, modifier = Modifier.size(if (compact) 52.dp else 64.dp)) { Icon(icon, contentDescription = label, modifier = Modifier.size(if (compact) 36.dp else 44.dp)) }
         } else {
-            androidx.compose.material3.FilledTonalIconButton(onClick = onClick, colors = side, shape = CircleShape, modifier = Modifier.size(if (buttons.size > 3) 56.dp else 60.dp)) {
+            androidx.compose.material3.FilledTonalIconButton(onClick = onClick, colors = side, shape = CircleShape, modifier = Modifier.size(if (compact) 48.dp else if (buttons.size > 3) 56.dp else 60.dp)) {
                 Icon(icon, contentDescription = label, modifier = Modifier.size(28.dp))
             }
         }
     }
     Row(
-        Modifier.fillMaxWidth().padding(top = 14.dp, bottom = 18.dp),
+        Modifier.fillMaxWidth().padding(top = if (compact) 6.dp else 14.dp, bottom = if (compact) 8.dp else 18.dp),
         horizontalArrangement = if (buttons.size <= 3) Arrangement.spacedBy(if (minimal) 36.dp else 14.dp, Alignment.CenterHorizontally) else Arrangement.SpaceEvenly,
         verticalAlignment = Alignment.CenterVertically,
     ) {
@@ -843,14 +853,14 @@ private fun PlayerControls(
                 "previous" -> skip(false)
                 "next" -> skip(true)
                 "play" -> if (minimal) {
-                    IconButton(onClick = toggle, interactionSource = middle, modifier = Modifier.size(80.dp).playPauseSemantics(playing) { toggle() }) { PlayPauseIcon(playing, 64.dp) }
+                    IconButton(onClick = toggle, interactionSource = middle, modifier = Modifier.size(if (compact) 64.dp else 80.dp).playPauseSemantics(playing) { toggle() }) { PlayPauseIcon(playing, if (compact) 52.dp else 64.dp) }
                 } else {
                     androidx.compose.material3.FilledIconButton(
                         onClick = toggle,
                         shape = CircleShape,
                         colors = androidx.compose.material3.IconButtonDefaults.filledIconButtonColors(containerColor = MaterialTheme.colorScheme.primary, contentColor = MaterialTheme.colorScheme.onPrimary),
                         interactionSource = middle,
-                        modifier = Modifier.size(if (buttons.size > 3) 76.dp else 80.dp).playPauseSemantics(playing) { toggle() },
+                        modifier = Modifier.size(if (compact) 64.dp else if (buttons.size > 3) 76.dp else 80.dp).playPauseSemantics(playing) { toggle() },
                     ) { PlayPauseIcon(playing, 38.dp) }
                 }
                 else -> Box(Modifier.size(48.dp), contentAlignment = Alignment.Center) {
