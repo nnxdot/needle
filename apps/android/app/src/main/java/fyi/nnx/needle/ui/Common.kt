@@ -422,6 +422,9 @@ private fun seedHash(seed: String): Long =
 /** The main colour of an album's made-up cover, for tinting like a real one. */
 fun seedColor(seed: String): Color = Color.hsl((seedHash(seed) % 360).toFloat(), 0.5f, 0.4f)
 
+/** The hue (0 to 360) a name gets, as on the computers: the genre map colours each genre by it. */
+fun seedHue(seed: String): Float = (seedHash(seed) % 360).toFloat()
+
 @Composable
 internal fun MadeUpCover(seed: String) {
     val hash = seedHash(seed)
