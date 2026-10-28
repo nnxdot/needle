@@ -42,7 +42,10 @@ impl Waveform {
 
 /// Measure a whole song.
 pub fn measure(track: &Track) -> Result<Waveform> {
-    let source = crate::audio_file::decode_track(track)?;
+    measure_source(crate::audio_file::decode_track(track)?)
+}
+
+fn measure_source(source: impl Source<Item = f32>) -> Result<Waveform> {
     let channels = source.channels().max(1) as usize;
     let rate = source.sample_rate();
     if rate == 0 {
@@ -143,13 +146,48 @@ impl Library {
     /// A song's shape, measuring it now when it was not (a whole song decodes in about a
     /// second). A song that cannot be decoded keeps an empty shape, so it is not tried again.
     pub fn waveform_now(&self, track: &Track) -> Result<Waveform> {
-        if let Some(found) = self.waveform(&track.id)? {
-            return Ok(found);
-        }
-        let measured = measure(track).unwrap_or(Waveform {
+        let empty = Waveform {
             version: VERSION,
             ..Default::default()
-        });
+        };
+        let kept = self.waveform(&track.id)?;
+        // A server's song: measured from the whole song once it is on this device (kept, or
+        // fully downloaded while it played); until then it has no shape yet, nothing is kept,
+        // and it is asked again later. Nothing is fetched to measure it. An empty shape kept
+        // for it before (measured from a stream still coming) is tried again.
+        if track.source().is_some() {
+            if let Some(found) = kept.filter(|w| !w.loudness.is_empty()) {
+                return Ok(found);
+            }
+            return self.streamed_waveform(track, crate::sources::local_copy(track));
+        }
+        if let Some(found) = kept {
+            return Ok(found);
+        }
+        let measured = measure(track).unwrap_or(empty);
+        self.save_waveform(&track.id, &measured)?;
+        Ok(measured)
+    }
+}
+
+impl Library {
+    /// A server's song's shape from `file`, its whole song on this device; none yet (and
+    /// nothing kept) while there is no such file.
+    fn streamed_waveform(
+        &self,
+        track: &Track,
+        file: Option<std::path::PathBuf>,
+    ) -> Result<Waveform> {
+        let empty = Waveform {
+            version: VERSION,
+            ..Default::default()
+        };
+        let Some(file) = file else {
+            return Ok(empty);
+        };
+        let measured = crate::audio_file::decode(&file)
+            .and_then(measure_source)
+            .unwrap_or(empty);
         self.save_waveform(&track.id, &measured)?;
         Ok(measured)
     }
@@ -158,6 +196,49 @@ impl Library {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_server_song_is_measured_once_it_is_here() {
+        let dir = tempfile::tempdir().unwrap();
+        let library = Library::open(dir.path().join("data")).unwrap();
+        let music = dir.path().join("music");
+        crate::demo::create(&music).unwrap();
+        let file = std::fs::read_dir(&music)
+            .unwrap()
+            .flatten()
+            .map(|e| e.path())
+            .find(|p| p.is_file())
+            .unwrap();
+        let track = Track {
+            id: "server-song".into(),
+            path: format!("{}subsonic/abc", crate::sources::SCHEME),
+            ..Default::default()
+        };
+        // Still coming: no shape, and none kept, so it is asked again.
+        assert!(
+            library
+                .streamed_waveform(&track, None)
+                .unwrap()
+                .loudness
+                .is_empty()
+        );
+        assert!(library.waveform(&track.id).unwrap().is_none());
+        // An empty shape kept by an older Needle is no reason to stop asking.
+        library
+            .save_waveform(
+                &track.id,
+                &Waveform {
+                    version: VERSION,
+                    ..Default::default()
+                },
+            )
+            .unwrap();
+        assert!(library.waveform_now(&track).unwrap().loudness.is_empty());
+        // Here: measured, and kept.
+        let measured = library.streamed_waveform(&track, Some(file)).unwrap();
+        assert_eq!(measured.loudness.len(), BINS);
+        assert_eq!(library.waveform_now(&track).unwrap(), measured);
+    }
 
     #[test]
     fn shapes_scale_to_the_loudest_part() {

@@ -190,7 +190,7 @@ fn can_stay_on_top(window: &Window) -> bool {
 }
 
 /// Keep a window above others (Windows, and X11 on Linux).
-fn set_topmost(window: &Window, on: bool) {
+pub(super) fn set_topmost(window: &Window, on: bool) {
     #[cfg(windows)]
     {
         use raw_window_handle::{HasWindowHandle, RawWindowHandle};

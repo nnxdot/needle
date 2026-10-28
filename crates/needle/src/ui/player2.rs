@@ -324,6 +324,8 @@ impl AppView {
             .flex()
             .items_center()
             .gap(px(2.))
+            .child(self.sleep_button(cx))
+            .child(self.speed_button(cx))
             .child(self.loop_button(cx))
             .child(self.sound_button(cx))
             .child(self.mini_button(cx))

@@ -11,11 +11,13 @@ mod crate_view;
 mod discord;
 mod doctor;
 mod files;
+mod float;
 mod flow;
 mod folders;
 mod glass;
 mod history;
 mod home;
+mod hotkeys;
 mod immersive;
 mod importer;
 mod insights;
@@ -33,6 +35,7 @@ mod palette;
 mod panel;
 mod pickers;
 mod player2;
+mod player_tools;
 mod playlist_art;
 mod playlist_editor;
 mod plugin_ask;
@@ -41,12 +44,15 @@ mod radio;
 mod remote_ui;
 mod search_page;
 mod server_search;
+mod shortcuts_ui;
 mod sound;
 mod sources_ui;
 mod speakers;
 mod stems_ui;
 mod suggest;
 mod tags;
+#[cfg(windows)]
+mod taskbar;
 mod theme;
 mod themes;
 mod themes_ui;
@@ -59,6 +65,7 @@ mod welcome;
 mod whats_new;
 mod widgets;
 mod wrapped;
+mod year_card;
 
 use anyhow::Result;
 use gpui::{prelude::*, *};
@@ -261,7 +268,7 @@ impl Page {
             Self::Settings => "Settings".into(),
             Self::Sound => "Sound".into(),
             Self::Import => "Import".into(),
-            Self::Timing => "Lyric timing".into(),
+            Self::Timing => "Time the lyrics".into(),
             Self::Wrapped(year) => format!("{year} in music"),
             Self::Doctor => "Fix my library".into(),
             Self::Numbers => "Your library".into(),
@@ -413,6 +420,8 @@ enum Event {
     ArtistPicturesChanged(String),
     /// What played on this day in earlier years, for Home.
     OnThisDay(Vec<needle_core::numbers::OnThisDay>),
+    /// The year Home shows "Your year in music" for (December, with listening).
+    HomeYear(Option<i32>),
     /// What a search found (its generation, then the finds or the problem).
     Found(u64, Result<Box<needle_core::find::Found>, String>),
     /// Every line of lyrics that holds the search (its generation).
@@ -425,6 +434,11 @@ enum Event {
     MoodMap(Vec<needle_core::radio::MoodPoint>),
     ArtFetched,
     MediaKey(media_keys::Key),
+    /// A key everywhere (or a taskbar button) was pressed: its action.
+    Hotkey(String),
+    /// Windows made Needle's taskbar button again: its buttons go back on.
+    #[cfg(windows)]
+    TaskbarCreated,
     ImportProgress(String),
     Plugin(needle_core::plugins::HostAction),
     Tray(tray::TrayAction),
@@ -467,6 +481,7 @@ pub struct AppView {
     picture_sweep: needle_core::media::pictures::PictureSweep,
     /// Home's On this day shelves.
     on_this_day: Vec<needle_core::numbers::OnThisDay>,
+    home_year: Option<i32>,
     /// The Search page: what it shows, its newest answer, and that answer's number.
     search_tab: search_page::SearchTab,
     found: Option<Box<needle_core::find::Found>>,
@@ -524,6 +539,10 @@ pub struct AppView {
     header_menu: Option<columns::HeaderMenu>,
     blend_menu: Option<radio::BlendMenu>,
     speaker_menu: Option<speakers::SpeakerMenu>,
+    /// The sleep timer's or speed and pitch's pane, while open.
+    tool_pane: Option<player_tools::ToolPane>,
+    /// The sleep timer endings already acted on (Then sleep the PC).
+    sleep_ended_seen: u64,
     update: Option<updates::UpdateState>,
     measuring: std::sync::Arc<std::sync::atomic::AtomicBool>,
     measured: Option<(usize, usize)>,
@@ -588,6 +607,8 @@ pub struct AppView {
     seek_moved: Option<Instant>,
     /// When `poll` last asked for a redraw (see `poll`).
     polled_redraw: Instant,
+    /// When a playing server song's shape was last asked for.
+    waveform_asked: Instant,
     /// Up to four covers per playlist, for the sidebar (`playlist_art`), and what they were
     /// gathered for.
     playlist_art: std::collections::HashMap<String, Vec<String>>,
@@ -655,6 +676,14 @@ pub struct AppView {
     /// The film-grain tile, once written (`Some(None)` if it could not be).
     grain_file: Option<Option<PathBuf>>,
     media_keys: Option<media_keys::MediaKeys>,
+    /// Keys that work everywhere (Settings › Keyboard).
+    hotkeys: Option<hotkeys::Hotkeys>,
+    /// The action whose keys are being pressed in Settings.
+    recording_keys: Option<String>,
+    _key_interceptor: Subscription,
+    /// Previous, Play/Pause, Next, and Favorite under the taskbar preview.
+    #[cfg(windows)]
+    taskbar: Option<taskbar::Taskbar>,
     /// Whether Windows allows transparency, and whether it is Windows 11 (read at start and
     /// when Appearance settings open).
     glass_system: (bool, bool),
@@ -687,6 +716,8 @@ pub struct AppView {
     /// The last song that was playing, and when; see `shown_item`.
     last_item: Option<(QueueItem, Instant)>,
     mini: Option<AnyWindowHandle>,
+    /// The small floating player.
+    float: Option<AnyWindowHandle>,
     sound: sound::SoundControls,
     /// When playback last stopped or paused, for clearing the Discord status after a while.
     discord_idle_since: Option<i64>,
@@ -1030,6 +1061,36 @@ impl AppView {
         window.focus(&focus);
         let (sender, events) = crossbeam_channel::unbounded();
         let media_keys = media_keys::MediaKeys::new(window, sender.clone(), &library.directory);
+        let hotkeys = {
+            let sender = sender.clone();
+            let keys = hotkeys::Hotkeys::start(move |action| {
+                let _ = sender.send(Event::Hotkey(action));
+            });
+            keys.set(&settings.global_shortcuts);
+            keys
+        };
+        #[cfg(windows)]
+        let taskbar = {
+            use raw_window_handle::{HasWindowHandle, RawWindowHandle};
+            match HasWindowHandle::window_handle(window).map(|h| h.as_raw()) {
+                Ok(RawWindowHandle::Win32(win32)) => {
+                    Some(taskbar::Taskbar::new(win32.hwnd.get(), sender.clone()))
+                }
+                _ => None,
+            }
+        };
+        // While Settings waits for keys, they go to it, not to Needle's own shortcuts.
+        let key_interceptor = {
+            let view = cx.weak_entity();
+            cx.intercept_keystrokes(move |event, _, cx| {
+                let _ = view.update(cx, |this, cx| {
+                    if this.recording_keys.is_some() {
+                        this.record_hotkey(&event.keystroke, cx);
+                        cx.stop_propagation();
+                    }
+                });
+            })
+        };
         let plugins = {
             let sender = sender.clone();
             needle_core::plugins::PluginHost::start(
@@ -1132,6 +1193,7 @@ impl AppView {
             history_loading: false,
             picture_sweep: needle_core::media::pictures::PictureSweep::start(library.clone()),
             on_this_day: vec![],
+            home_year: None,
             search_tab: Default::default(),
             found: None,
             found_error: None,
@@ -1169,6 +1231,8 @@ impl AppView {
             header_menu: None,
             blend_menu: None,
             speaker_menu: None,
+            tool_pane: None,
+            sleep_ended_seen: 0,
             update: None,
             measuring: radio::switch(measure_sound),
             measured: None,
@@ -1229,6 +1293,7 @@ impl AppView {
             add_songs: None,
             seek_moved: None,
             polled_redraw: Instant::now(),
+            waveform_asked: Instant::now(),
             thumbs_seen: 0,
             server_songs: vec![],
             playlist_art: Default::default(),
@@ -1269,6 +1334,11 @@ impl AppView {
             fade: ambient::Fade::new(pal(cx)),
             grain_file: None,
             media_keys,
+            hotkeys: Some(hotkeys),
+            recording_keys: None,
+            _key_interceptor: key_interceptor,
+            #[cfg(windows)]
+            taskbar,
             glass_system: (glass::system_allows_transparency(), glass::windows_11()),
             glass_applied: None,
             home: None,
@@ -1291,6 +1361,7 @@ impl AppView {
             recent_tracks: Default::default(),
             last_item: None,
             mini: None,
+            float: None,
             sound,
             import,
             plugins,
@@ -1475,6 +1546,9 @@ impl AppView {
             || playback.current.as_ref().map(|i| &i.track.id)
                 != self.playback.current.as_ref().map(|i| &i.track.id);
         self.playback = playback;
+        self.watch_sleep_timer();
+        #[cfg(windows)]
+        self.update_taskbar();
         if let Some(item) = self.playback.current.as_mut()
             && item.track.artwork.is_none()
             && let Some(path) = self.art_override.get(&item.track.id)
@@ -1618,6 +1692,7 @@ impl AppView {
                 Event::Look(path, look) => self.set_look(path, look),
                 Event::Home(home) => self.home = Some(home),
                 Event::OnThisDay(days) => self.on_this_day = days,
+                Event::HomeYear(year) => self.home_year = year,
                 Event::Found(generation, found) => self.found(generation, found),
                 Event::FoundLyrics(generation, found) => {
                     if generation == self.find_generation {
@@ -1736,6 +1811,13 @@ impl AppView {
                 | Event::ArtistLogo(..)
                 | Event::ArtistChoices(..) => {}
                 Event::MediaKey(key) => self.media_key(key, window, cx),
+                Event::Hotkey(action) => self.run_hotkey(&action, window, cx),
+                #[cfg(windows)]
+                Event::TaskbarCreated => {
+                    if let Some(taskbar) = &mut self.taskbar {
+                        taskbar.recreated();
+                    }
+                }
                 Event::Themes(generation, themes) => {
                     self.themes_found(generation, *themes, window, cx)
                 }
@@ -1878,6 +1960,19 @@ impl AppView {
             || self.polled_redraw.elapsed() >= Duration::from_secs(1)
         {
             self.polled_redraw = Instant::now();
+            // A server's song has its shape once it has fully downloaded: ask again now and
+            // then while it has none.
+            if let Some(item) = self.playback.current.clone()
+                && item.track.source().is_some()
+                && self
+                    .waveform
+                    .as_ref()
+                    .is_none_or(|(id, _)| *id != item.track.id)
+                && self.waveform_asked.elapsed() >= Duration::from_secs(10)
+            {
+                self.waveform_asked = Instant::now();
+                self.load_waveform(&item.track);
+            }
             cx.notify();
         }
     }
@@ -3466,6 +3561,7 @@ impl Render for AppView {
             .children(self.header_menu_view(cx))
             .children(self.blend_menu_view(cx))
             .children(self.speaker_menu_view(cx))
+            .children(self.tool_pane_view(cx))
             .children(self.palette_view(cx))
             .children(self.welcome_view(window, cx))
             .children(self.whats_new_view(window, cx))

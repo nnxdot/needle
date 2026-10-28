@@ -30,6 +30,13 @@ impl AppView {
             if let Ok(days) = library.on_this_day(now.timestamp(), offset, &[1, 5], SHELF) {
                 let _ = sender.send(Event::OnThisDay(days));
             }
+            // December: the year in music.
+            let year = needle_core::wrapped::home_year(now.date_naive()).filter(|y| {
+                library
+                    .listening_years()
+                    .is_ok_and(|years| years.contains(y))
+            });
+            let _ = sender.send(Event::HomeYear(year));
         });
     }
 
@@ -149,6 +156,7 @@ impl AppView {
                     ),
             )
             .children(self.home_now(cx))
+            .children(self.home_year_card(cx))
             .when(self.home.is_none(), |el| el.child(Self::shelf_skeleton(cx)))
             .children(shelves.into_iter().enumerate().map(
                 |(i, (title, note, groups, round, all))| {
@@ -188,6 +196,52 @@ impl AppView {
                         .child(self.shelf_row(i, tiles, cx))
                 },
             ))
+    }
+
+    /// December's card: the year in music is ready.
+    fn home_year_card(&self, cx: &mut Context<Self>) -> Option<impl IntoElement> {
+        let year = self.home_year?;
+        let p = pal(cx);
+        Some(
+            div().px_8().pt_6().child(
+                div()
+                    .id("home-year")
+                    .rounded(px(16.))
+                    .p(px(20.))
+                    .bg(p.accent.opacity(0.12))
+                    .border_1()
+                    .border_color(p.accent.opacity(0.25))
+                    .flex()
+                    .items_center()
+                    .gap_4()
+                    .cursor_pointer()
+                    .hover(|s| s.bg(p.accent.opacity(0.18)))
+                    .child(
+                        div()
+                            .flex_1()
+                            .min_w_0()
+                            .flex()
+                            .flex_col()
+                            .gap_1()
+                            .child(
+                                div()
+                                    .font_family(super::theme::MONO_FONT)
+                                    .text_size(px(11.))
+                                    .text_color(p.accent)
+                                    .child(format!("YOUR {year} IN MUSIC")),
+                            )
+                            .child(display(format!("Your {year} in music"), 26.))
+                            .child(meta(
+                                "Your hours, your top artist, and your top songs of the year.",
+                                cx,
+                            )),
+                    )
+                    .child(glyph("chevron-right").size(px(20.)).text_color(p.accent))
+                    .on_click(cx.listener(move |this, _, window, cx| {
+                        this.navigate(Page::Wrapped(year), window, cx)
+                    })),
+            ),
+        )
     }
 
     /// One Home row, scrolled sideways, with an arrow at each end (while the pointer is over
