@@ -535,6 +535,8 @@ pub struct AppView {
     playlist_menu: Option<menus::PlaylistMenu>,
     group_menu: Option<menus::GroupMenu>,
     collections_menu: Option<(Point<Pixels>, usize)>,
+    /// The player's ••• menu: where, its serial, and whether the bar was narrow.
+    player_menu: Option<(Point<Pixels>, usize, bool)>,
     header_menu: Option<columns::HeaderMenu>,
     blend_menu: Option<radio::BlendMenu>,
     speaker_menu: Option<speakers::SpeakerMenu>,
@@ -1225,6 +1227,7 @@ impl AppView {
             playlist_menu: None,
             group_menu: None,
             collections_menu: None,
+            player_menu: None,
             header_menu: None,
             blend_menu: None,
             speaker_menu: None,
@@ -3555,6 +3558,7 @@ impl Render for AppView {
             .children(self.playlist_menu_view(cx))
             .children(self.group_menu_view(cx))
             .children(self.collections_menu_view(cx))
+            .children(self.player_menu_view(cx))
             .children(self.header_menu_view(cx))
             .children(self.blend_menu_view(cx))
             .children(self.speaker_menu_view(cx))
