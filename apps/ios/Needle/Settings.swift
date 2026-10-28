@@ -1147,6 +1147,7 @@ struct WhatsNewView: View {
         case "artists": ("music.microphone", .pink)
         case "history": ("clock.arrow.circlepath", .orange)
         case "search": ("magnifyingglass", .blue)
+        case "globe": ("globe", .blue)
         case "moon": ("moon.fill", .indigo)
         case "speed": ("gauge.with.dots.needle.67percent", .teal)
         case "": change.title.isEmpty ? ("wrench.and.screwdriver.fill", .gray) : ("sparkles", .yellow)
