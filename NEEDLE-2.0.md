@@ -104,8 +104,14 @@ holds the DAC, other apps play from the phone.
 4. **CarPlay.** iPhone. Needs Apple's CarPlay audio entitlement (the paid developer account).
    Android Auto exists already.
 5. **Watch app.** Apple Watch and Wear OS: control Needle; later, songs kept on the watch.
-6. **Mood map.** Every song a dot, by calm ↔ lively and dark ↔ bright (`radio.rs` already
-   measures this); circle an area to play it. All systems.
+6. **Genre map** (was the mood map; the user's call, 2026-10-27). One bubble per genre, as
+   big as its number of songs, placed at the middle of its songs' sound: dark ↔ bright
+   across, calm ↔ lively up (`radio.rs` measures this). Its name on it; a tap or click plays
+   the genre shuffled. The genres with no measured song yet sit in a row of chips under the
+   map. Show the 40 largest on the map; the rest are chips too. Core:
+   `Library::genre_map` → `GenreSpot` (genre, songs, plays, measured, place),
+   `Library::genre_songs`; phones: `Needle::genre_map` (`placed`, `x`, `y`) and the existing
+   `Needle::genre_songs`. The page keeps its place and name ("Genre map"). All systems.
 7. **Lyric cards to share.** A picture of a chosen lyric line in the cover's colours. All
    systems.
 8. **Your library in numbers.** Formats, hi-res share, decades, genres, top artists, and
