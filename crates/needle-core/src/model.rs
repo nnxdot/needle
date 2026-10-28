@@ -237,7 +237,8 @@ pub struct Settings {
     /// "own:<family>".
     pub text_font: String,
     /// The player's buttons, in order: "shuffle", "previous", "play", "next", "repeat",
-    /// "favorite", "lyrics", "queue", "speakers". The menu and the volume always stay.
+    /// "favorite", "lyrics", "queue", "speakers", and on Windows and Linux also "volume",
+    /// "sleep", "speed", "loop", "sound", and "mini" (see [`MORE_BUTTONS`]). Play always stays.
     pub player_buttons: Vec<String>,
     /// How the Artists page is ordered: "name", "most_played", "most_songs", or
     /// "recently_added".
@@ -303,6 +304,10 @@ pub const PLAYER_BUTTONS: [&str; 9] = [
     "shuffle", "previous", "play", "next", "repeat", "favorite", "lyrics", "queue", "speakers",
 ];
 
+/// More buttons only the Windows and Linux player has: the volume, the sleep timer, speed and
+/// pitch, the A–B loop, the equalizer, and the mini player. Phones skip them.
+pub const MORE_BUTTONS: [&str; 6] = ["volume", "sleep", "speed", "loop", "sound", "mini"];
+
 impl Settings {
     /// The speed and pitch kept for every song.
     pub fn tempo(&self) -> crate::tempo::Tempo {
@@ -317,7 +322,10 @@ impl Settings {
     pub fn player_buttons(&self) -> Vec<&'static str> {
         let mut buttons: Vec<&'static str> = vec![];
         for name in &self.player_buttons {
-            if let Some(known) = PLAYER_BUTTONS.iter().find(|b| **b == name.as_str())
+            if let Some(known) = PLAYER_BUTTONS
+                .iter()
+                .chain(MORE_BUTTONS.iter())
+                .find(|b| **b == name.as_str())
                 && !buttons.contains(known)
             {
                 buttons.push(known);

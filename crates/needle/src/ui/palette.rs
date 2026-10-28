@@ -240,8 +240,8 @@ impl AppView {
             item(
                 "Go to",
                 "radio",
-                "Mood map",
-                "Every song by how it sounds; play an area of it",
+                "Genre map",
+                "Every genre where its songs sound; play one",
                 None,
                 |this, window, cx| this.navigate(Page::MoodMap, window, cx),
             ),
