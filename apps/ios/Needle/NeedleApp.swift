@@ -80,7 +80,7 @@ struct RootView: View {
                let route = ["settings": [Route.settings], "appearance": [.settings, .settingsAppearance], "sources": [.settings, .sources],
                              "scrobbling": [.settings, .settingsScrobbling], "library": [.settings, .settingsLibrary],
                              "playback": [.settings, .settingsPlayback], "server": [.settings, .server("subsonic")],
-                             "whatsnew": [.settings, .whatsNew], "crate": [.albums, .crate], "numbers": [.numbers], "moodmap": [.moodMap], "artists": [.artists],
+                             "whatsnew": [.settings, .whatsNew], "crate": [.albums, .crate], "numbers": [.numbers], "genremap": [.genreMap], "artists": [.artists],
                              "playerbuttons": [.settings, .settingsAppearance, .playerButtons]][args[i + 1]] {
                 paths[place] = NavigationPath(route)
             }

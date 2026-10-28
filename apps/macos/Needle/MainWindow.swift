@@ -164,7 +164,7 @@ struct MainWindow: View {
                 if let album = albums.first(where: { $0.album == title }) { store.navigate(album.route) }
             }
         }
-        // For the website's pictures: `--page albums|songs|artists|home` opens that page,
+        // For the website's pictures: `--page albums|songs|artists|home|genremap` opens that page,
         // `--panel queue|details|lyrics` the side panel on that, and `--play-album <title>`
         // plays that album from its first song, `--seek <seconds>` into it.
         switch value("--page") {
@@ -172,6 +172,7 @@ struct MainWindow: View {
         case "songs": store.navigate(.songs)
         case "artists": store.navigate(.artists)
         case "home": store.navigate(.home)
+        case "genremap": store.navigate(.genreMap)
         default: break
         }
         if let name = value("--panel"), let panel = Store.Panel.allCases.first(where: { $0.rawValue.lowercased() == name }) {
@@ -566,7 +567,7 @@ struct PageView: View {
             case .history: HistoryPage()
             case .search: library { SearchPage() }
             case .numbers: library { NumbersPage() }
-            case .moodMap: library { MoodMapPage() }
+            case .genreMap: library { GenreMapPage() }
             case .wrapped(let year): WrappedPage(year: year)
             case .sound:
                 Form { SoundPane() }

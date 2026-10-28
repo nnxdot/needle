@@ -16,8 +16,8 @@ enum Route: Hashable {
     case search
     /// Your library in numbers.
     case numbers
-    /// Every measured song by its mood.
-    case moodMap
+    /// Every genre by its songs' sound.
+    case genreMap
     /// A collection added to the sidebar (`Collections.more`), by its key.
     case collection(String)
     case playlist(String)
@@ -47,7 +47,7 @@ enum Route: Hashable {
         case .history: "Listening history"
         case .search: "Search"
         case .numbers: "Your library in numbers"
-        case .moodMap: "Mood map"
+        case .genreMap: "Genre map"
         case .collection(let key): Collections.find(key)?.name ?? "Collection"
         case .playlist: "Playlist"
         case .sound: "Sound"

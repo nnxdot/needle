@@ -12,7 +12,8 @@ enum Waveforms {
         var found = await Task.detached { (try? core.waveform(id: id, count: 140)) ?? [] }.value
         // A song measured as silence (or not read) keeps the plain slider, not a row of dots.
         if (found.max() ?? 0) < 0.02 { found = [] }
-        kept[id] = found
+        // Kept only once there is a shape: none yet (a server song not wholly here) is asked again.
+        if !found.isEmpty { kept[id] = found }
         if kept.count > 200 { kept.removeAll() }
         return found
     }

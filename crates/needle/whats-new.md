@@ -43,7 +43,7 @@ A new icon, and a lot more to see and hear.
 - [edit] **Your own artist pictures.** The picture button on an artist's page lets you choose their photo, wide picture, and logo: a file of your own, or any of fanart.tv's. A photo in an artist's folder (artist.jpg) is used too, and so are a wide picture and a logo there (fanart.jpg, logo.png) when fanart.tv has none or online lookups are off.
 - [globe] **Pictures for every artist.** With online lookups on, Needle finds every artist's pictures slowly in the background, or all at once with Check all now (Settings › Library › Artist pictures).
 - [history] **On this day.** Home shows what you played one and five years ago today.
-- [albums] **Your library in numbers, and the mood map.** In the sidebar: what your music is made of, and every song by how it sounds; drag a circle over the map to play the songs in it.
+- [albums] **Your library in numbers, and the genre map.** In the sidebar: what your music is made of, and every genre as a bubble placed by how its songs sound; click one to play it, shuffled.
 - [albums] **A record crate.** Flip through your albums like records in a box: choose the crate at the top of Albums, and drag or press the arrow keys.
 - [queue] **The queue in full screen.** A queue button beside the lyrics button, and queue rows light up under the pointer.
 - [play] **Moving covers on the album page.** An album with a moving cover shows it moving on its page too.

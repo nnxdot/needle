@@ -2203,25 +2203,6 @@ impl Needle {
             "lyrics": lyrics,
         }))
     }
-
-    /// Plays the songs inside a circle on the mood map (places 0 to 1). Returns how many.
-    pub fn play_mood_area(&self, x: f32, y: f32, radius: f32) -> Result<u32> {
-        let reason = "From the mood map".to_string();
-        let items: Vec<QueueItem> = self
-            .library
-            .mood_area(x, y, radius, 200)?
-            .into_iter()
-            .map(|track| QueueItem {
-                track,
-                reason: reason.clone(),
-            })
-            .collect();
-        let count = items.len() as u32;
-        if count > 0 {
-            self.player.send(Command::Play(items));
-        }
-        Ok(count)
-    }
 }
 
 #[uniffi::export]
