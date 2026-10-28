@@ -53,8 +53,23 @@ struct ArtistPicturesMenu: View {
             NavigationStack {
                 FanartPickerView(name: name, kind: kind) {
                     Task { await readOwn() }
-                    changed()
+                    picturesChanged()
                 }
+            }
+        }
+        .task(id: "swap-\(name)") {
+            // For tests: `-swap-artist-pictures <first> <second>` sets the photo, wide picture,
+            // and logo to the first file, then 10 seconds later to the second, as choosing does.
+            let args = CommandLine.arguments
+            guard let i = args.firstIndex(of: "-swap-artist-pictures"), args.indices.contains(i + 2) else { return }
+            for file in [args[i + 1], args[i + 2]] {
+                try? await Task.sleep(for: .seconds(10))
+                let name = name
+                for kind in PictureKind.allCases {
+                    _ = await store.ask { try $0.setArtistPicture(name: name, kind: kind.rawValue, path: file) }
+                }
+                await readOwn()
+                picturesChanged()
             }
         }
         .task(id: name) {
@@ -84,7 +99,7 @@ struct ArtistPicturesMenu: View {
         try? FileManager.default.removeItem(at: file)
         if done {
             await readOwn()
-            changed()
+            picturesChanged()
         }
     }
 
@@ -93,9 +108,15 @@ struct ArtistPicturesMenu: View {
         Task {
             if await store.ask({ try $0.resetArtistPicture(name: name, kind: kind.rawValue) }) != nil {
                 await readOwn()
-                changed()
+                picturesChanged()
             }
         }
+    }
+
+    /// A picture changed: the picture views read their files again, and the page its pictures.
+    private func picturesChanged() {
+        PictureChanges.shared.count += 1
+        changed()
     }
 }
 

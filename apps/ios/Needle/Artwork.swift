@@ -3,6 +3,14 @@ import ImageIO
 import SwiftUI
 import UIKit
 
+/// Goes up when an artist's own picture is chosen or reset: the picture views read their files
+/// again then (the path stays the same, so nothing else tells them).
+@Observable
+final class PictureChanges {
+    nonisolated(unsafe) static let shared = PictureChanges()
+    var count = 0
+}
+
 /// Covers, read from their files away from the screen, made small for the size they show at,
 /// and kept for a while.
 enum Covers {
@@ -12,8 +20,19 @@ enum Covers {
         return cache
     }()
 
+    /// The picture's path with its file's change time. An artist's own photo, wide picture,
+    /// and logo are saved again at the same path when another is chosen: with the time in the
+    /// key, the new one is read, never the old one from a cache.
+    nonisolated static func stamp(_ path: String) -> String {
+        guard !path.hasPrefix("http://"), !path.hasPrefix("https://"),
+              let date = (try? FileManager.default.attributesOfItem(atPath: path))?[.modificationDate] as? Date else { return path }
+        return "\(path)#\(date.timeIntervalSince1970)"
+    }
+
+    nonisolated static func stamp(_ path: String?) -> String? { path.map { stamp($0) } }
+
     static func cached(_ path: String, size: Int) -> UIImage? {
-        cache.object(forKey: "\(size)@\(path)" as NSString)
+        cache.object(forKey: "\(size)@\(stamp(path))" as NSString)
     }
 
     static func load(_ path: String, size: Int) async -> UIImage? {
@@ -40,7 +59,7 @@ enum Covers {
             ]
             guard let cg = CGImageSourceCreateThumbnailAtIndex(source, 0, options as CFDictionary) else { return nil }
             let image = UIImage(cgImage: cg)
-            cache.setObject(image, forKey: "\(size)@\(path)" as NSString, cost: cg.bytesPerRow * cg.height)
+            cache.setObject(image, forKey: "\(size)@\(stamp(path))" as NSString, cost: cg.bytesPerRow * cg.height)
             return image
         }.value
     }
@@ -66,7 +85,7 @@ struct Artwork: View {
                 }
             }
             .clipped()
-        .task(id: path) {
+        .task(id: "\(Covers.stamp(path) ?? "")|\(PictureChanges.shared.count)") {
             guard let path else { image = nil; return }
             if let hit = Covers.cached(path, size: size) { image = hit; return }
             let found = await Covers.load(path, size: size)
@@ -106,7 +125,7 @@ struct PageColors: Equatable {
 
     /// Already found for this picture (or made-up cover), or kept under `key`, without waiting.
     static func cached(_ path: String?, seed: String) -> PageColors? {
-        kept(path ?? "seed:" + seed)
+        kept(Covers.stamp(path) ?? "seed:" + seed)
     }
 
     static func cached(key: String) -> PageColors? {
@@ -115,7 +134,7 @@ struct PageColors: Equatable {
 
     /// For the picture at `path`, or the made-up cover of `seed` when there is none.
     static func of(_ path: String?, seed: String) async -> PageColors {
-        let key = path ?? "seed:" + seed
+        let key = Covers.stamp(path) ?? "seed:" + seed
         if let hit = kept(key) { return hit }
         var rgb: (Double, Double, Double)?
         if let path, let image = await Covers.load(path, size: 64), let cg = image.cgImage {
@@ -216,7 +235,7 @@ struct Logo: View {
                 Color.clear
             }
         }
-        .task(id: path) {
+        .task(id: "\(Covers.stamp(path))|\(PictureChanges.shared.count)") {
             let found = await Covers.load(path, size: 900)
             if !Task.isCancelled { image = found }
         }
@@ -301,7 +320,7 @@ struct CoverBackdrop: View {
         self.blur = blur
         self.moving = moving
         // The one made before, so a new backdrop (the lyrics opened) never starts black.
-        _soft = State(initialValue: Self.made.object(forKey: (path ?? seed) as NSString)?.image)
+        _soft = State(initialValue: Self.made.object(forKey: (Covers.stamp(path) ?? seed) as NSString)?.image)
     }
 
     /// The blurred picture's side, in pixels.
@@ -333,8 +352,8 @@ struct CoverBackdrop: View {
                 .frame(width: side, height: side)
             }
             .position(x: geo.size.width / 2, y: geo.size.height / 2)
-            .task(id: "\(path ?? seed)|\(Int(radius))") {
-                let key = (path ?? seed) as NSString
+            .task(id: "\(Covers.stamp(path) ?? seed)|\(Int(radius))|\(PictureChanges.shared.count)") {
+                let key = (Covers.stamp(path) ?? seed) as NSString
                 if let kept = Self.made.object(forKey: key), kept.radius == Int(radius) {
                     soft = kept.image
                     return
