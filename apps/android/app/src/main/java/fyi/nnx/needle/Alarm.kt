@@ -68,6 +68,12 @@ object WakeAlarm {
         schedule(context)
     }
 
+    /** The alarm's time in the phone's own clock format: 7:30 AM, or 07:30. */
+    fun timeText(context: Context, s: Setting): String {
+        val c = Calendar.getInstance().apply { set(Calendar.HOUR_OF_DAY, s.hour); set(Calendar.MINUTE, s.minute) }
+        return android.text.format.DateFormat.getTimeFormat(context).format(c.time)
+    }
+
     /** May Needle set exact alarms? Android 12 and newer ask the person (Settings › Alarms & reminders). */
     fun allowed(context: Context): Boolean =
         android.os.Build.VERSION.SDK_INT < 31 || context.getSystemService(AlarmManager::class.java).canScheduleExactAlarms()

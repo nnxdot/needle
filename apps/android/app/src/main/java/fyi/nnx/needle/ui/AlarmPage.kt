@@ -94,8 +94,9 @@ fun AlarmScreen() {
             val next = remember(s, tick) { WakeAlarm.next(s) }
             Column(Modifier.fillMaxWidth().padding(vertical = 8.dp), horizontalAlignment = Alignment.CenterHorizontally) {
                 Text(
-                    "%d:%02d".format(s.hour, s.minute),
-                    fontSize = 88.sp,
+                    WakeAlarm.timeText(context, s),
+                    fontSize = 72.sp,
+                    maxLines = 1,
                     fontWeight = FontWeight.Light,
                     color = if (s.on) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurfaceVariant,
                     modifier = Modifier.clip(androidx.compose.foundation.shape.RoundedCornerShape(16.dp)).clickable(onClickLabel = "Change the time") { timing = true }.padding(horizontal = 12.dp),
