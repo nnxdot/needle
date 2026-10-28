@@ -170,10 +170,10 @@ private fun AlbumRow(albums: List<fyi.nnx.needle.core.Album>, open: (Route) -> U
 private const val MapBubbles = 40
 
 /**
- * The genre map (NEEDLE-2.0.md, "Genre map"): one bubble per genre, as big as its number of
- * songs, at the middle of its songs' sound (dark to bright across, calm to lively up), its name
- * on it; a tap plays the genre shuffled. The 40 largest are on the map; the rest, and the
- * genres with no measured song yet, are chips under it.
+ * The genre map (NEEDLE-2.0.md, "Genre map"), as on the computers and the iPhone: a bubble for
+ * each of the first 40 genres (the core's order: most songs first) that has a place, as big as
+ * its number of songs, where its songs sound; a tap plays the genre shuffled. The others, and
+ * those with no song measured yet, are chips under "More genres".
  */
 @OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
 @Composable
@@ -181,8 +181,8 @@ fun MoodMapScreen() {
     val spotsLoad = rememberLoaded { genreMap() }
     val spots by spotsLoad
     val all = spots.orEmpty()
-    val onMap = all.filter { it.placed }.take(MapBubbles)
-    val chips = all.filter { it !in onMap }
+    val shown = all.filterIndexed { i, g -> i < MapBubbles && g.placed }
+    val chips = all.filter { it !in shown }
     fun playGenre(name: String) {
         NeedleApp.instance.scope.launch(kotlinx.coroutines.Dispatchers.IO) {
             val songs = runCatching { NeedleApp.instance.core.genreSongs(name) }.getOrDefault(emptyList())
@@ -194,30 +194,21 @@ fun MoodMapScreen() {
     }
     LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = 32.dp + LocalBottomInset.current)) {
         item { LargeTitle("Genre map") }
-        item {
+        if (spots != null) item {
             Text(
-                "Each genre by how its songs sound: calm or lively, dark or bright. The bigger the bubble, the more songs. Tap one to play it.",
+                when {
+                    all.isEmpty() -> "Your songs have no genres in their tags yet."
+                    shown.isEmpty() -> "Needle measures each song's sound in the background (Settings › Playback › Radio › Measure songs for radio). Genres take their place as their songs are measured."
+                    else -> "${count(all.size, "genre")}, each where its songs sound. Tap one to play it."
+                },
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.padding(horizontal = Edge),
             )
         }
-        if (spots != null && all.isEmpty()) {
-            item { Text("Your songs have no genres yet.", style = MaterialTheme.typography.bodyLarge, modifier = Modifier.padding(Edge)) }
-            return@LazyColumn
-        }
-        if (spots != null && onMap.isEmpty()) {
-            item {
-                Text(
-                    "No songs are measured yet. Turn on Measure songs for radio in Settings › Playback; Needle then measures them in the background.",
-                    style = MaterialTheme.typography.bodyLarge,
-                    modifier = Modifier.padding(Edge),
-                )
-            }
-        }
-        if (onMap.isNotEmpty()) item { GenreBubbles(onMap, ::playGenre) }
+        if (shown.isNotEmpty()) item { GenreBubbles(shown, all.first().songs.toFloat().coerceAtLeast(1f), ::playGenre) }
         if (chips.isNotEmpty()) {
-            item { ShelfTitle(if (onMap.isEmpty()) "Genres" else "More genres", null) }
+            item { ShelfTitle("More genres", null) }
             item {
                 FlowRow(
                     Modifier.fillMaxWidth().padding(horizontal = Edge),
@@ -227,7 +218,10 @@ fun MoodMapScreen() {
                     chips.forEach { g ->
                         androidx.compose.material3.SuggestionChip(
                             onClick = { playGenre(g.genre) },
-                            label = { Text("${g.genre} · ${g.songs}") },
+                            label = {
+                                Text(g.genre)
+                                Text("  ${g.songs}", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            },
                             shape = RoundedCornerShape(50),
                         )
                     }
@@ -237,103 +231,123 @@ fun MoodMapScreen() {
     }
 }
 
+/** A bubble on the map: its genre, songs, middle (x, y), and size, in dp. */
+private class Bubble(val genre: String, val songs: UInt, var x: Float, var y: Float, val size: Float)
+
 /**
- * Each bubble's middle (x, y) on a map `w` × `h` (dp), for bubbles `sizes` across: at its
- * genre's place (the core spreads genres by rank), then nudged apart as on the computers (200
- * passes; each overlapping pair pushed apart along the line between them to a 4 dp gap, also
- * the other way when they share a row or column), kept inside the map after each pass.
+ * The bubbles on a map `w` × `h` (dp), as on the computers: each at its genre's place, then 200
+ * passes nudging each overlapping pair apart along the line between them to a 4 dp gap (both
+ * ways, in turn, where they share a row or column), kept inside the map after each pass, clear
+ * of the corner words (28 dp at the top and foot).
  */
-private fun layOut(spots: List<fyi.nnx.needle.core.GenreSpot>, sizes: List<Float>, w: Float, h: Float): List<Pair<Float, Float>> {
-    val x = FloatArray(spots.size) { w * (0.06f + spots[it].x.coerceIn(0f, 1f) * 0.88f) }
-    val y = FloatArray(spots.size) { h * (0.94f - spots[it].y.coerceIn(0f, 1f) * 0.88f) }
+private fun layOut(spots: List<fyi.nnx.needle.core.GenreSpot>, biggest: Float, w: Float, h: Float, scale: Float): List<Bubble> {
+    val b = spots.map { g ->
+        Bubble(g.genre, g.songs, w * (0.06f + g.x * 0.88f), h * (0.94f - g.y * 0.88f), scale * (40f + 120f * kotlin.math.sqrt(g.songs.toFloat() / biggest)))
+    }
     repeat(200) {
-        for (a in spots.indices) for (b in a + 1 until spots.size) {
-            var dx = x[b] - x[a]
-            var dy = y[b] - y[a]
+        for (a in b.indices) for (c in a + 1 until b.size) {
+            var dx = b[c].x - b[a].x
+            var dy = b[c].y - b[a].y
             // In one row or column (genres that sound alike): both ways, in turn.
-            if (kotlin.math.abs(dy) < 1f) dy = if ((a + b) % 2 == 0) 6f else -6f
-            if (kotlin.math.abs(dx) < 1f) dx = if (b % 2 == 0) 6f else -6f
-            val gap = (sizes[a] + sizes[b]) / 2 + 4f
+            if (kotlin.math.abs(dy) < 1f) dy = if ((a + c) % 2 == 0) 6f else -6f
+            if (kotlin.math.abs(dx) < 1f) dx = if (c % 2 == 0) 6f else -6f
+            val gap = (b[a].size + b[c].size) / 2 + 4f
             val far = kotlin.math.sqrt(dx * dx + dy * dy)
             if (far < gap) {
                 val ux = if (far > 0.01f) dx / far else 1f
                 val uy = if (far > 0.01f) dy / far else 0f
                 val push = (gap - far) / 2
-                x[a] -= ux * push; y[a] -= uy * push
-                x[b] += ux * push; y[b] += uy * push
+                b[a].x -= ux * push; b[a].y -= uy * push
+                b[c].x += ux * push; b[c].y += uy * push
             }
         }
-        for (i in spots.indices) {
-            val r = sizes[i] / 2
-            x[i] = x[i].coerceIn(r + 4f, (w - r - 4f).coerceAtLeast(r + 4f))
-            y[i] = y[i].coerceIn(r + 4f, (h - r - 4f).coerceAtLeast(r + 4f))
+        for (one in b) {
+            val r = one.size / 2
+            one.x = one.x.coerceIn(r + 4f, maxOf(r + 4f, w - r - 4f))
+            one.y = one.y.coerceIn(r + 28f, maxOf(r + 28f, h - r - 28f))
         }
     }
-    return spots.indices.map { x[it] to y[it] }
+    return b
 }
 
+/** A genre's colour, from its name as on the computers: the hue of its name's hash, HSL 0.55 and 0.6 (dark looks) or 0.42. */
+private fun genreTone(genre: String, dark: Boolean): Color =
+    Color.hsl(seedHue(genre.lowercase()), 0.55f, if (dark) 0.6f else 0.42f)
+
 /**
- * The map: a bubble per genre, 40 + 120 × √(its songs ÷ the biggest genre's) across, coloured by
- * its name's hue, its name on it (and "N songs" where there is room); the largest drawn first so
- * the small ones stay on top and in reach.
+ * The map: taller than wide on a phone (1.6 × its width, up to 760 dp), as wide as a
+ * computer's on a tablet; the bubbles smaller on a small map, by the square root of its area
+ * against the widest computer map's (980 × 600), 0.6 to 1. The largest drawn first, so the small
+ * ones stay on top. The corner words inside the map, small and faint.
  */
 @Composable
-private fun GenreBubbles(spots: List<fyi.nnx.needle.core.GenreSpot>, play: (String) -> Unit) {
+private fun GenreBubbles(spots: List<fyi.nnx.needle.core.GenreSpot>, biggest: Float, play: (String) -> Unit) {
     val dark = MaterialTheme.colorScheme.background.luminance() < 0.5f
     val ink = MaterialTheme.colorScheme.onSurface
-    BoxWithConstraints(Modifier.fillMaxWidth().padding(Edge)) {
-        val w = minOf(maxWidth, 720.dp)
-        // Taller than the computers' (0.62): a phone's map is narrow.
-        val h = (w * 0.9f).coerceIn(300.dp, 600.dp)
-        Column(Modifier.width(w).align(Alignment.Center)) {
-            Text("Lively", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.align(Alignment.CenterHorizontally))
-            Box(
-                Modifier
-                    .width(w)
-                    .height(h)
-                    .clip(RoundedCornerShape(16.dp))
-                    .background(MaterialTheme.colorScheme.onSurface.copy(alpha = 0.04f))
-                    .semantics { contentDescription = "Genre map of ${count(spots.size, "genre")}" },
-            ) {
-                val biggest = spots.maxOfOrNull { it.songs.toFloat() }?.coerceAtLeast(1f) ?: 1f
-                val sorted = spots.sortedByDescending { it.songs }
-                val sizes = sorted.map { 40f + 120f * kotlin.math.sqrt(it.songs.toFloat() / biggest) }
-                val places = remember(sorted, w, h) { layOut(sorted, sizes, w.value, h.value) }
-                sorted.forEachIndexed { i, g ->
-                    val d = sizes[i].dp
-                    val tone = Color.hsl(seedHue(g.genre.lowercase()), 0.55f, if (dark) 0.6f else 0.42f)
-                    Column(
-                        Modifier
-                            .offset(x = places[i].first.dp - d / 2, y = places[i].second.dp - d / 2)
-                            .size(d)
-                            .clip(CircleShape)
-                            .background(tone.copy(alpha = 0.22f))
-                            .border(1.dp, tone.copy(alpha = 0.65f), CircleShape)
-                            .clickable(onClickLabel = "Play ${g.genre}") { play(g.genre) }
-                            .semantics(mergeDescendants = true) {}
-                            .padding(horizontal = 6.dp),
-                        horizontalAlignment = Alignment.CenterHorizontally,
-                        verticalArrangement = Arrangement.Center,
-                    ) {
-                        Text(
-                            g.genre,
-                            fontSize = (sizes[i] / 7f).coerceIn(11f, 17f).sp,
-                            fontWeight = FontWeight.SemiBold,
-                            color = ink,
-                            textAlign = TextAlign.Center,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
-                        )
-                        if (sizes[i] > 74f) {
-                            Text(count(g.songs.toInt(), "song"), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1)
+    val faint = MaterialTheme.colorScheme.onSurfaceVariant
+    val measurer = androidx.compose.ui.text.rememberTextMeasurer()
+    val density = androidx.compose.ui.platform.LocalDensity.current
+    BoxWithConstraints(Modifier.fillMaxWidth().padding(horizontal = Edge, vertical = 12.dp)) {
+        val w = minOf(maxWidth, 980.dp).value
+        val h = if (w >= 600f) (w * 0.62f).coerceIn(280f, 600f) else (w * 1.6f).coerceIn(300f, 760f)
+        val scale = kotlin.math.sqrt(w * h / (980f * 600f)).coerceIn(0.6f, 1f)
+        val bubbles = remember(spots, w, h) { layOut(spots, biggest, w, h, scale).sortedByDescending { it.size } }
+        Box(
+            Modifier
+                .align(Alignment.Center)
+                .width(w.dp)
+                .height(h.dp)
+                .clip(RoundedCornerShape(18.dp))
+                .background(MaterialTheme.colorScheme.onSurface.copy(alpha = 0.04f))
+                .semantics { contentDescription = "Genre map of ${count(spots.size, "genre")}" },
+        ) {
+            val corner = MaterialTheme.typography.labelSmall
+            Text("Lively", style = corner, color = faint, modifier = Modifier.align(Alignment.TopStart).padding(start = 12.dp, top = 8.dp))
+            Text("Calm", style = corner, color = faint, modifier = Modifier.align(Alignment.BottomStart).padding(start = 12.dp, bottom = 8.dp))
+            Text("Dark", style = corner, color = faint, modifier = Modifier.align(Alignment.BottomStart).padding(start = 60.dp, bottom = 8.dp))
+            Text("Bright", style = corner, color = faint, modifier = Modifier.align(Alignment.BottomEnd).padding(end = 12.dp, bottom = 8.dp))
+            bubbles.forEach { one ->
+                val d = one.size
+                val tone = genreTone(one.genre, dark)
+                // A seventh of the bubble (11 to 17), or smaller so the longest word fits on one line.
+                val label = remember(one.genre, d) {
+                    val words = one.genre.replace("-", "- ").split(' ').filter { it.isNotEmpty() }
+                    var sp = (d / 7f).coerceIn(11f, 17f)
+                    while (sp > 8f) {
+                        val widest = words.maxOf { word ->
+                            with(density) { measurer.measure(word, androidx.compose.ui.text.TextStyle(fontSize = sp.sp, fontWeight = FontWeight.SemiBold)).size.width.toDp().value }
                         }
+                        if (widest <= d - 12f) break
+                        sp -= 0.5f
                     }
+                    sp
                 }
-            }
-            Row(Modifier.fillMaxWidth().padding(top = 4.dp)) {
-                Text("Dark", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                Text("Calm", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant, textAlign = TextAlign.Center, modifier = Modifier.weight(1f))
-                Text("Bright", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                val many = one.genre.contains(' ') || one.genre.contains('-')
+                Column(
+                    Modifier
+                        .offset(x = (one.x - d / 2).dp, y = (one.y - d / 2).dp)
+                        .size(d.dp)
+                        .clip(CircleShape)
+                        .background(tone.copy(alpha = 0.22f))
+                        .border(1.dp, tone.copy(alpha = 0.65f), CircleShape)
+                        .clickable(onClickLabel = "Play ${one.genre}") { play(one.genre) }
+                        .semantics(mergeDescendants = true) { contentDescription = "${one.genre}, ${count(one.songs.toInt(), "song")}" }
+                        .padding(horizontal = 4.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.Center,
+                ) {
+                    Text(
+                        one.genre,
+                        fontSize = label.sp,
+                        lineHeight = (label * 1.15f).sp,
+                        fontWeight = FontWeight.SemiBold,
+                        color = ink,
+                        textAlign = TextAlign.Center,
+                        maxLines = if (many) 2 else 1,
+                        overflow = TextOverflow.Clip,
+                    )
+                    if (d > 74f) Text(count(one.songs.toInt(), "song"), style = MaterialTheme.typography.labelSmall, color = faint, maxLines = 1)
+                }
             }
         }
     }
