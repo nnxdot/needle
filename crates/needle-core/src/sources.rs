@@ -483,6 +483,18 @@ fn kept_dir(cache: &Path) -> PathBuf {
     cache.with_file_name("stream-kept")
 }
 
+/// The whole song on this device, when it is: kept on purpose, or fully downloaded to the
+/// cache (a download in progress is still a `.part` file). Nothing is fetched.
+pub fn local_copy(track: &Track) -> Option<PathBuf> {
+    let cache = cache_dir().ok()?;
+    [
+        kept_path_in(&cache, track).ok()?,
+        cache_path_in(&cache, track).ok()?,
+    ]
+    .into_iter()
+    .find(|p| p.is_file())
+}
+
 /// The cache file for a source song.
 pub fn cache_path(track: &Track) -> Result<PathBuf> {
     cache_path_in(&cache_dir()?, track)

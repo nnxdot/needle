@@ -607,6 +607,8 @@ pub struct AppView {
     seek_moved: Option<Instant>,
     /// When `poll` last asked for a redraw (see `poll`).
     polled_redraw: Instant,
+    /// When a playing server song's shape was last asked for.
+    waveform_asked: Instant,
     /// Up to four covers per playlist, for the sidebar (`playlist_art`), and what they were
     /// gathered for.
     playlist_art: std::collections::HashMap<String, Vec<String>>,
@@ -1291,6 +1293,7 @@ impl AppView {
             add_songs: None,
             seek_moved: None,
             polled_redraw: Instant::now(),
+            waveform_asked: Instant::now(),
             thumbs_seen: 0,
             server_songs: vec![],
             playlist_art: Default::default(),
@@ -1957,6 +1960,19 @@ impl AppView {
             || self.polled_redraw.elapsed() >= Duration::from_secs(1)
         {
             self.polled_redraw = Instant::now();
+            // A server's song has its shape once it has fully downloaded: ask again now and
+            // then while it has none.
+            if let Some(item) = self.playback.current.clone()
+                && item.track.source().is_some()
+                && self
+                    .waveform
+                    .as_ref()
+                    .is_none_or(|(id, _)| *id != item.track.id)
+                && self.waveform_asked.elapsed() >= Duration::from_secs(10)
+            {
+                self.waveform_asked = Instant::now();
+                self.load_waveform(&item.track);
+            }
             cx.notify();
         }
     }
