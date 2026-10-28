@@ -2,11 +2,19 @@
 //! spectrum. The playback keeps a short copy of the sound only while something asked for it in
 //! the last two seconds, so nothing is spent on it otherwise.
 use realfft::RealFftPlanner;
+use std::collections::HashMap;
 use std::sync::{
     LazyLock, Mutex,
     atomic::{AtomicI64, AtomicU32, Ordering},
 };
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::time::{Instant, SystemTime, UNIX_EPOCH};
+
+/// How long a band takes to rise most of the way to a louder sound, and to fall back.
+const RISE: f32 = 0.07;
+const FALL: f32 = 0.35;
+/// The quietest and loudest a band shows (dB below a full-scale tone): 0 and 1.
+const FLOOR_DB: f32 = -60.;
+const TOP_DB: f32 = -6.;
 
 /// Samples kept: about a twentieth of a second at 44.1 kHz, enough for a 2048-point spectrum.
 const KEPT: usize = 2048;
@@ -19,6 +27,13 @@ struct Scope {
     asked: AtomicI64,
     pushed: AtomicI64,
 }
+
+/// The values a visualizer was shown last, and when.
+type Shown = (Vec<f32>, Instant);
+
+/// What each visualizer was shown last, by its number of bands (0 for the level), and when:
+/// each new reading moves toward the sound, quickly up and slowly down, by the time passed.
+static SHOWN: LazyLock<Mutex<HashMap<usize, Shown>>> = LazyLock::new(Default::default);
 
 static SCOPE: LazyLock<Scope> = LazyLock::new(|| Scope {
     samples: Mutex::new(Vec::with_capacity(KEPT * 2)),
@@ -64,24 +79,54 @@ fn recent() -> Vec<f32> {
 }
 
 /// The spectrum of what is playing now, in `bands` bands from 30 Hz to 16 kHz spaced as the
-/// ear hears them, each 0 (silent, -70 dB) to 1 (full). All zeros while nothing plays.
+/// ear hears them, each 0 (quiet, -60 dB) to 1 (loud), eased: a band rises over about 70 ms
+/// and falls over about 350 ms, so it moves with the music without flickering. It falls to
+/// zeros when nothing plays.
 pub fn spectrum(bands: usize) -> Vec<f32> {
     SCOPE.asked.store(now_ms(), Ordering::Relaxed);
     let samples = recent();
     let rate = SCOPE.rate.load(Ordering::Relaxed).max(1) as f32;
-    bands_of(&samples, rate, bands)
+    eased(bands, bands_of(&samples, rate, bands))
 }
 
-/// How loud what is playing now is, 0 to 1 (RMS).
+/// How loud what is playing now is, 0 to 1 (RMS), eased as the spectrum is.
 pub fn level() -> f32 {
     SCOPE.asked.store(now_ms(), Ordering::Relaxed);
     let samples = recent();
-    if samples.is_empty() {
-        return 0.;
+    let now = if samples.is_empty() {
+        0.
+    } else {
+        (samples.iter().map(|s| s * s).sum::<f32>() / samples.len() as f32)
+            .sqrt()
+            .min(1.)
+    };
+    eased(0, vec![now])[0]
+}
+
+/// `now` eased from what the visualizer with this `key` was shown last.
+fn eased(key: usize, now: Vec<f32>) -> Vec<f32> {
+    let at = Instant::now();
+    let mut shown = SHOWN.lock().unwrap_or_else(|e| e.into_inner());
+    let (held, last) = shown
+        .entry(key)
+        .or_insert_with(|| (vec![0.; now.len()], at));
+    let seconds = at.duration_since(*last).as_secs_f32().min(0.5);
+    *last = at;
+    if held.len() != now.len() {
+        *held = vec![0.; now.len()];
     }
-    (samples.iter().map(|s| s * s).sum::<f32>() / samples.len() as f32)
-        .sqrt()
-        .min(1.)
+    ease(held, &now, seconds);
+    held.clone()
+}
+
+/// Move `held` toward `now` over `seconds`: up quickly, down slowly.
+fn ease(held: &mut [f32], now: &[f32], seconds: f32) {
+    let rise = 1. - (-seconds / RISE).exp();
+    let fall = 1. - (-seconds / FALL).exp();
+    for (h, v) in held.iter_mut().zip(now) {
+        let k = if *v > *h { rise } else { fall };
+        *h += (v - *h) * k;
+    }
 }
 
 fn bands_of(samples: &[f32], rate: f32, bands: usize) -> Vec<f32> {
@@ -117,7 +162,7 @@ fn bands_of(samples: &[f32], rate: f32, bands: usize) -> Vec<f32> {
                 .fold(0f32, f32::max);
             // A full-scale sine's peak bin is about (KEPT/4)²; that is 0 dB.
             let db = 10. * (power / (KEPT as f32 / 4.).powi(2)).max(1e-12).log10();
-            ((db + 70.) / 70.).clamp(0., 1.)
+            ((db - FLOOR_DB) / (TOP_DB - FLOOR_DB)).clamp(0., 1.)
         })
         .collect()
 }
@@ -144,5 +189,19 @@ mod tests {
         assert!(bands[loudest] > 0.8);
         assert!(bands[0] < 0.3);
         assert_eq!(bands_of(&[], rate, 8), vec![0.; 8]);
+    }
+
+    #[test]
+    fn bands_rise_quickly_and_fall_slowly() {
+        let mut held = [0.];
+        // A thirtieth of a second: most of the way up, a little way down.
+        ease(&mut held, &[1.], 1. / 30.);
+        assert!(held[0] > 0.3 && held[0] < 0.5, "{held:?}");
+        ease(&mut held, &[1.], 0.2);
+        assert!(held[0] > 0.95);
+        ease(&mut held, &[0.], 1. / 30.);
+        assert!(held[0] > 0.85, "{held:?}");
+        ease(&mut held, &[0.], 1.);
+        assert!(held[0] < 0.1);
     }
 }

@@ -60,16 +60,14 @@ impl AppView {
     ) -> AnyElement {
         match look {
             "record" => self.record_disc(track, art, angle, cx),
-            "visualizer" => {
-                let width = (room - 120.).clamp(300., 960.);
-                div()
-                    .w(px(width))
-                    .h(px(art))
-                    .flex()
-                    .items_center()
-                    .child(self.visualizer_strip(width, art * 0.8, cx))
-                    .into_any_element()
-            }
+            "visualizer" => div()
+                .w(px((room - 120.).clamp(300., 960.)))
+                .h(px(art))
+                .flex()
+                .items_center()
+                .justify_center()
+                .child(self.visualizer_light(art * 1.15, cx))
+                .into_any_element(),
             // The words stay in their place: they scroll inside it, never over the song's name.
             _ => div()
                 .w(px((room - 120.).clamp(420., 1000.)))
