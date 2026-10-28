@@ -9,7 +9,13 @@ A new look, after the Mac's, and a lot more to see and hear.
 - [wave] **The visualizer.** Light that moves with the music, in the cover's colours. Tap Visualizer at the top of the player, and open it full screen from its corner.
 - [translate] **Translate lyrics.** Tap Translate above the lyrics, and each line shows in your phone's language under it. The translation happens on your phone. Each language downloads once, on Wi-Fi.
 - [image] **Lyric cards.** Long-press a line of the lyrics for a picture of it in the cover's colours, to share.
-- [chart] **Your library in numbers, and the mood map.** From Library › More: what your music is made of, and every song by how it sounds. Circle or tap an area of the map to play it.
+- [chart] **Your library in numbers, and the genre map.** From Library › More: what your music is made of, and each genre as a bubble by how its songs sound, as big as its number of songs. Tap a bubble to play that genre.
+- [moon] **A sleep timer.** Tap the moon in the player: 15, 30, or 45 minutes, an hour, or the end of the song or album, with a soft fade over the last minute. Shake the phone to add 10 minutes.
+- [speed] **Speed and pitch.** From the playing song's menu: play from half to twice as fast, keep the pitch or not, and move the pitch up or down, for every song or just this one.
+- [history] **Your year in review.** Your year in hours, plays, and new songs, your top artist, and your top 50 songs, from History (and Home in December). Share it as a picture, play your top 50, or make it a playlist.
+- [lyrics] **Time the lyrics, line by line or word by word.** Tap as each line or word starts; nudge it by 0.2 seconds, tap a line again, or undo.
+- [alarm] **Wake up to music.** Settings › Playback › Wake up to music plays a playlist or a smart mix at the time and on the days you choose, fading in, with Snooze.
+- [widget] **A Quick Settings tile.** Play and pause from the pull-down shade, even with Needle closed. Choose what it plays in Settings › Playback.
 - [album] **A record crate.** Flip through your albums like records in a box (Library › More › Record crate).
 - [history] **On this day.** Home shows what you played one and five years ago today.
 - [eq] **Smart mixes.** With crossfade on, the fade starts where the music ends and lasts whole bars. Turn it on under Settings › Playback › Crossfade.

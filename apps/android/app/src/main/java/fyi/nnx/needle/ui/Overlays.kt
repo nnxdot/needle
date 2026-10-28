@@ -77,6 +77,8 @@ object Ui {
     val fullVisualizer = MutableStateFlow(false)
     /** Opens the player (Home's card of the song playing). */
     val showPlayer = kotlinx.coroutines.flow.MutableSharedFlow<Unit>(extraBufferCapacity = 1)
+    /** A page to open from outside the pages (the tile's long press, a Settings row). */
+    val openRoute = kotlinx.coroutines.flow.MutableSharedFlow<Route>(extraBufferCapacity = 1)
 }
 
 /** What a tablet's side pane shows. */

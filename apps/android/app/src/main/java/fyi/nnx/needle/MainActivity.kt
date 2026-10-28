@@ -81,6 +81,11 @@ class MainActivity : ComponentActivity() {
 
     /** A music file opened with Needle from another app: it plays, and joins the library. */
     private fun openFrom(intent: Intent?) {
+        // A long press on the Quick Settings tile: its setting.
+        if (intent?.action == "android.service.quicksettings.action.QS_TILE_PREFERENCES") {
+            fyi.nnx.needle.ui.Ui.openRoute.tryEmit(fyi.nnx.needle.ui.Route.SettingsPage(fyi.nnx.needle.ui.SettingsSection.Playback))
+            return
+        }
         if (intent?.action == "android.media.action.MEDIA_PLAY_FROM_SEARCH") {
             val query = intent.getStringExtra(android.app.SearchManager.QUERY).orEmpty()
             val app = NeedleApp.instance
