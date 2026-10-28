@@ -15,7 +15,7 @@ A new Home and icon, and a lot more to see and hear.
 - [artists] **Your own artist pictures.** The picture button on an artist's page lets you choose their photo, wide picture, and logo: one from your photos, or any of fanart.tv's. With online lookups on, Needle finds every artist's pictures slowly on Wi-Fi, or all at once with Check all now (Settings › Library › Artist pictures).
 - [history] **On this day.** Home shows what you played one and five years ago today.
 - [albums] **Your library in numbers.** What your music is made of, in Library › Library in numbers.
-- [radio] **The mood map.** Every song by how it sounds: draw a circle over the map to play the songs in it (Radio › Mood map).
+- [radio] **The genre map.** Every genre as a bubble placed by how its songs sound: tap one to play it, shuffled (Radio › Genre map).
 - [albums] **A record crate.** Flip through your albums like records in a box: tap the crate at the top of Albums.
 - [player] **Moving covers on the album page.** An album with a moving cover shows it moving on its page too.
 - [sound] **Smart mixes.** With crossfade on, the fade starts where the music ends and lasts whole bars (Settings › Playback › Smart mixes).

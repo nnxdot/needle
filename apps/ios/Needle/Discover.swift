@@ -13,7 +13,8 @@ enum Waveforms {
         var found = await Task.detached { (try? core.waveform(id: id, count: 64)) ?? [] }.value
         // A song measured as silence (or not read) keeps the plain line, not a row of dots.
         if (found.max() ?? 0) < 0.02 { found = [] }
-        kept[id] = found
+        // Kept only once there is a shape: none yet (a server song not wholly here) is asked again.
+        if !found.isEmpty { kept[id] = found }
         if kept.count > 200 { kept.removeAll() }
         return found
     }
@@ -261,96 +262,5 @@ struct NumbersView: View {
     private func hours(_ seconds: Double) -> String {
         let hours = Int(seconds / 3600)
         return hours >= 48 ? "\((hours / 24).formatted()) days" : "\(hours.formatted()) hours"
-    }
-}
-
-/// Every measured song as a dot, by dark ↔ bright and calm ↔ lively; draw a circle with a
-/// finger over an area to play the songs in it.
-struct MoodMapView: View {
-    @Environment(Store.self) private var store
-    @State private var points: [MoodPoint]?
-    /// The circle being drawn: its centre and edge, in the map's 0-to-1 places.
-    @State private var circle: (CGPoint, CGPoint)?
-
-    var body: some View {
-        VStack(spacing: 14) {
-            if let points, points.isEmpty {
-                ContentUnavailableView("No songs measured yet", systemImage: "circle.hexagongrid",
-                                       description: Text("Needle measures each song's sound for radio first. The map fills in as it goes."))
-            } else {
-                Text("Draw a circle to play that part of your music.")
-                    .font(.needle(.subheadline)).foregroundStyle(.secondary)
-                GeometryReader { geo in
-                    let side = min(geo.size.width, geo.size.height)
-                    map(points ?? [], side: side)
-                        .frame(width: side, height: side)
-                        .frame(maxWidth: .infinity, maxHeight: .infinity)
-                }
-                .padding(.horizontal, 30)
-            }
-        }
-        .padding(.vertical)
-        .navigationTitle("Mood map")
-        .themed()
-        .task(id: store.libraryVersion) { points = await store.load { try $0.moodMap() } ?? [] }
-    }
-
-    private func map(_ points: [MoodPoint], side: CGFloat) -> some View {
-        ZStack {
-            RoundedRectangle(cornerRadius: 18).fill(store.colors.card)
-            Canvas { context, size in
-                for p in points {
-                    let at = CGPoint(x: CGFloat(p.x) * size.width, y: (1 - CGFloat(p.y)) * size.height)
-                    let color = Color(hue: 0.62 - 0.55 * Double(p.x), saturation: 0.55 + 0.3 * Double(p.y), brightness: 0.55 + 0.4 * Double(p.x))
-                    context.fill(Path(ellipseIn: CGRect(x: at.x - 2.5, y: at.y - 2.5, width: 5, height: 5)), with: .color(color.opacity(0.85)))
-                }
-                if let (center, edge) = circle {
-                    let c = CGPoint(x: center.x * size.width, y: center.y * size.height)
-                    let r = hypot((edge.x - center.x) * size.width, (edge.y - center.y) * size.height)
-                    let ring = Path(ellipseIn: CGRect(x: c.x - r, y: c.y - r, width: r * 2, height: r * 2))
-                    context.fill(ring, with: .color(store.colors.accent.opacity(0.15)))
-                    context.stroke(ring, with: .color(store.colors.accent), lineWidth: 2)
-                }
-            }
-            .padding(10)
-            .contentShape(.rect)
-            .gesture(DragGesture(minimumDistance: 0)
-                .onChanged { value in
-                    let inner = side - 20
-                    let place = { (p: CGPoint) in CGPoint(x: min(max(0, (p.x - 10) / inner), 1), y: min(max(0, (p.y - 10) / inner), 1)) }
-                    circle = (place(value.startLocation), place(value.location))
-                }
-                .onEnded { _ in play() })
-            VStack { Text("Lively"); Spacer(); Text("Calm") }
-                .font(.needle(.caption).weight(.semibold)).foregroundStyle(.secondary)
-                .padding(.vertical, -22)
-                .allowsHitTesting(false)
-            HStack { Text("Dark").rotationEffect(.degrees(-90)).fixedSize(); Spacer(); Text("Bright").rotationEffect(.degrees(90)).fixedSize() }
-                .font(.needle(.caption).weight(.semibold)).foregroundStyle(.secondary)
-                .padding(.horizontal, -28)
-                .allowsHitTesting(false)
-        }
-        .sensoryFeedback(.selection, trigger: circle == nil) { _, _ in store.app.haptics }
-        .accessibilityElement(children: .ignore)
-        .accessibilityLabel("Mood map of \(count(points.count, "song"))")
-        .accessibilityAction(named: "Play calm songs") { play(at: CGPoint(x: 0.5, y: 0.85)) }
-        .accessibilityAction(named: "Play lively songs") { play(at: CGPoint(x: 0.5, y: 0.15)) }
-        .accessibilityAction(named: "Play dark songs") { play(at: CGPoint(x: 0.15, y: 0.5)) }
-        .accessibilityAction(named: "Play bright songs") { play(at: CGPoint(x: 0.85, y: 0.5)) }
-    }
-
-    private func play() {
-        guard let (center, edge) = circle else { return }
-        play(at: center, radius: max(0.06, hypot(edge.x - center.x, edge.y - center.y)))
-    }
-
-    private func play(at center: CGPoint, radius: Double = 0.15) {
-        // The map's y runs from lively at the top; the core's from calm (0) to lively (1).
-        let (x, y, r) = (Float(center.x), Float(1 - center.y), Float(radius))
-        Task {
-            let songs = await store.ask { try $0.moodArea(x: x, y: y, radius: r, limit: 200) } ?? []
-            store.message = songs.isEmpty ? "No songs there yet" : "Playing \(count(songs.count, "song")) from the mood map"
-            if !songs.isEmpty { store.play(songs) }
-        }
     }
 }

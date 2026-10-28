@@ -25,7 +25,7 @@ struct Sidebar: View {
                     }
                 item("Recently added", "clock", .recent)
                 item("Listening history", "chart.line.uptrend.xyaxis", .history)
-                item("Mood map", "circle.hexagongrid", .moodMap)
+                item("Genre map", "circle.hexagongrid", .genreMap)
                 item("Library in numbers", "chart.bar", .numbers)
                 ForEach(store.settings.layout.collections, id: \.self) { key in
                     if let c = Collections.find(key) {
@@ -285,7 +285,7 @@ struct Rail: View {
                         }
                     page("Recently added", "clock", .recent)
                     page("Listening history", "chart.line.uptrend.xyaxis", .history)
-                    page("Mood map", "circle.hexagongrid", .moodMap)
+                    page("Genre map", "circle.hexagongrid", .genreMap)
                     page("Library in numbers", "chart.bar", .numbers)
                     ForEach(store.settings.layout.collections, id: \.self) { key in
                         if let c = Collections.find(key) { page(c.name, c.icon, .collection(key)) }

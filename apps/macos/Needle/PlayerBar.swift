@@ -455,9 +455,18 @@ struct SeekBar: View {
         .foregroundStyle(light ? .white.opacity(0.8) : store.colors.ink3)
         .task(id: small ? nil : store.current?.id) {
             shape = []
-            guard !small, let id = store.current?.id else { return }
-            let found = await Waveforms.heights(id, store: store)
-            if !Task.isCancelled { shape = found }
+            guard !small, let track = store.current else { return }
+            while !Task.isCancelled {
+                let found = await Waveforms.heights(track.id, store: store)
+                if !found.isEmpty {
+                    if !Task.isCancelled { shape = found }
+                    return
+                }
+                // A server song's shape is measured once its whole file is here: the plain
+                // slider until then, asked again every 10 s.
+                guard track.streamed else { return }
+                try? await Task.sleep(for: .seconds(10))
+            }
         }
     }
 

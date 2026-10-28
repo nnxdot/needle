@@ -679,8 +679,17 @@ struct SeekBar: View {
         .task(id: store.playback?.current?.id) {
             shape = []
             guard let song = store.playback?.current, !song.onComputer else { return }
-            let found = await Waveforms.heights(song.id, store: store)
-            if !Task.isCancelled { withAnimation(.easeOut(duration: 0.3)) { shape = found } }
+            while !Task.isCancelled {
+                let found = await Waveforms.heights(song.id, store: store)
+                if !found.isEmpty {
+                    if !Task.isCancelled { withAnimation(.easeOut(duration: 0.3)) { shape = found } }
+                    return
+                }
+                // A server song's shape is measured once its whole file is here: the plain line
+                // until then, asked again every 10 s.
+                guard song.fromServer else { return }
+                try? await Task.sleep(for: .seconds(10))
+            }
         }
     }
 }
