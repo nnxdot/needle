@@ -246,11 +246,14 @@ fun CoverBackdrop(path: String?, modifier: Modifier = Modifier, dim: Float = 0.3
                 // Where it had turned to: it rests there (the player over it), and turns on from it.
                 val last = androidx.compose.runtime.remember { FloatArray(1) }
                 val from = androidx.compose.runtime.remember(still) { last[0] }
-                val request = androidx.compose.runtime.remember(art, radius, context) {
+                // A picture changed in place (an artist's own, chosen again) is a new one.
+                val changed = art?.takeIf { !it.startsWith("http") }?.let { java.io.File(it).lastModified() }
+                val request = androidx.compose.runtime.remember(art, radius, context, changed) {
                     coil3.request.ImageRequest.Builder(context)
                         .data(fileUri(art))
                         .size(BackdropBlur.SIZE)
                         .transformations(TrimBars(), BackdropBlur(radius))
+                        .apply { if (changed != null) memoryCacheKey("$art@$changed@$radius") }
                         .build()
                 }
                 AsyncImage(
