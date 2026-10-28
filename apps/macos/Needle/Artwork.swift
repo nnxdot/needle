@@ -3,6 +3,14 @@ import CoreImage
 import ImageIO
 import SwiftUI
 
+/// Goes up when an artist's own picture is chosen or reset: the picture views read their files
+/// again then (the path stays the same, so nothing else tells them).
+@Observable
+final class PictureChanges {
+    nonisolated(unsafe) static let shared = PictureChanges()
+    var count = 0
+}
+
 /// Covers, read from their files away from the window, made small for the size they show at,
 /// and kept for a while.
 enum Covers {
@@ -12,8 +20,19 @@ enum Covers {
         return cache
     }()
 
+    /// The picture's path with its file's change time. An artist's own photo, wide picture,
+    /// and logo are saved again at the same path when another is chosen: with the time in the
+    /// key, the new one is read, never the old one from a cache.
+    nonisolated static func stamp(_ path: String) -> String {
+        guard !path.hasPrefix("http://"), !path.hasPrefix("https://"),
+              let date = (try? FileManager.default.attributesOfItem(atPath: path))?[.modificationDate] as? Date else { return path }
+        return "\(path)#\(date.timeIntervalSince1970)"
+    }
+
+    nonisolated static func stamp(_ path: String?) -> String? { path.map { stamp($0) } }
+
     static func cached(_ path: String, size: Int) -> NSImage? {
-        cache.object(forKey: "\(size)@\(path)" as NSString)
+        cache.object(forKey: "\(size)@\(stamp(path))" as NSString)
     }
 
     nonisolated static func cgImage(_ path: String, size: Int) -> CGImage? {
@@ -39,7 +58,7 @@ enum Covers {
         return await Task.detached(priority: .userInitiated) {
             guard let cg = cgImage(path, size: size) else { return nil }
             let image = NSImage(cgImage: cg, size: NSSize(width: cg.width, height: cg.height))
-            cache.setObject(image, forKey: "\(size)@\(path)" as NSString, cost: cg.bytesPerRow * cg.height)
+            cache.setObject(image, forKey: "\(size)@\(stamp(path))" as NSString, cost: cg.bytesPerRow * cg.height)
             return image
         }.value
     }
@@ -47,7 +66,7 @@ enum Covers {
     /// The cover blurred and made more colourful, small, for backgrounds: drawn large, a small
     /// blurred picture looks like a large one blurred, and costs nothing to draw again.
     static func backdrop(_ path: String) async -> NSImage? {
-        let key = "backdrop@\(path)" as NSString
+        let key = "backdrop@\(stamp(path))" as NSString
         if let hit = cache.object(forKey: key) { return hit }
         return await Task.detached(priority: .utility) {
             guard let cg = cgImage(path, size: 96) else { return nil }
@@ -68,7 +87,7 @@ enum Covers {
     /// picture, the made-up cover's first colour, darkened as the made-up cover is.
     @MainActor
     static func pageColor(_ path: String?, seed: String) async -> NSColor {
-        let key = path ?? "seed:" + seed
+        let key = stamp(path) ?? "seed:" + seed
         if let hit = pageColors[key] { return hit }
         var foot: (Double, Double, Double)?
         if let path { foot = await Task.detached(priority: .userInitiated) { footColor(path) }.value }
@@ -167,7 +186,7 @@ struct Artwork: View {
                 }
             }
             .clipped()
-            .task(id: path) {
+            .task(id: "\(Covers.stamp(path) ?? "")|\(PictureChanges.shared.count)") {
                 guard let path else { image = nil; return }
                 if let hit = Covers.cached(path, size: size) { image = hit; return }
                 let found = await Covers.load(path, size: size)
@@ -331,7 +350,7 @@ struct HeaderBackdrop: View {
         // Under the bar's glass too.
         .ignoresSafeArea(edges: .top)
         .allowsHitTesting(false)
-        .task(id: path) {
+        .task(id: "\(Covers.stamp(path) ?? "")|\(PictureChanges.shared.count)") {
             guard let path else { image = nil; return }
             image = await Covers.backdrop(path)
         }
@@ -357,7 +376,7 @@ struct Logo: View {
                 Color.clear
             }
         }
-        .task(id: path) {
+        .task(id: "\(Covers.stamp(path))|\(PictureChanges.shared.count)") {
             let found = await Covers.load(path, size: 1200)
             if !Task.isCancelled { image = found }
         }
@@ -454,7 +473,7 @@ struct CoverBackdrop: View {
             }
         }
         .clipped()
-        .task(id: path) {
+        .task(id: "\(Covers.stamp(path) ?? "")|\(PictureChanges.shared.count)") {
             guard let path else { image = nil; return }
             image = await Covers.backdrop(path)
         }
