@@ -49,7 +49,8 @@ private const val Bands = 48
 
 /**
  * The spectrum of what plays now, read from the core about thirty times a second while shown,
- * each band rising at once and falling slowly, as light does. All zero while nothing plays.
+ * as the core eases it (rising quickly, falling slowly, as light does). All zero while nothing
+ * plays.
  */
 @Composable
 private fun rememberSpectrum(): FloatArray {
@@ -61,17 +62,11 @@ private fun rememberSpectrum(): FloatArray {
             shown = FloatArray(Bands) { 0.3f }
             return@LaunchedEffect
         }
-        val held = FloatArray(Bands)
         while (true) {
             withFrameNanos { }
+            // Eased by the core already (a band rises over about 70 ms, falls over about 350 ms).
             val now = withContext(Dispatchers.Default) { runCatching { NeedleApp.instance.core.spectrum(Bands.toUInt()) }.getOrNull() }
-            if (now != null && now.size == Bands) {
-                for (i in 0 until Bands) {
-                    val v = now[i].coerceIn(0f, 1f)
-                    held[i] = if (v > held[i]) v else held[i] * 0.86f + v * 0.14f
-                }
-                shown = held.copyOf()
-            }
+            if (now != null && now.size == Bands) shown = FloatArray(Bands) { now[it].coerceIn(0f, 1f) }
             kotlinx.coroutines.delay(30)
         }
     }
