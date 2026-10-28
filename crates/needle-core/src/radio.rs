@@ -474,6 +474,19 @@ pub struct MoodPoint {
     pub mood: &'static str,
 }
 
+/// One genre on the genre map.
+#[derive(Clone, Debug, PartialEq)]
+pub struct GenreSpot {
+    /// As its songs most often write it.
+    pub genre: String,
+    pub songs: usize,
+    pub plays: i64,
+    /// How many of its songs Needle has measured (their sound places it).
+    pub measured: usize,
+    /// Where it sits: (bright, lively), each 0 to 1; none while no song of it is measured.
+    pub place: Option<(f32, f32)>,
+}
+
 /// Ranks as 0-to-1 places: the lowest 0, the highest 1, ties together.
 fn spread(values: &[f32]) -> Vec<f32> {
     let mut order: Vec<usize> = (0..values.len()).collect();
@@ -512,6 +525,69 @@ impl Library {
                 mood: f.mood(),
             })
             .collect())
+    }
+
+    /// The genre map: every genre once, as big as its number of songs, at the middle of where
+    /// its measured songs sit on the mood map (bright to the right, lively to the top). The
+    /// genres with the most songs first; a genre none of whose songs is measured yet has no
+    /// place.
+    pub fn genre_map(&self) -> Result<Vec<GenreSpot>> {
+        let places: HashMap<String, (f32, f32)> = self
+            .mood_map()?
+            .into_iter()
+            .map(|p| (p.id, (p.x, p.y)))
+            .collect();
+        let db = self.connection()?;
+        let mut stmt =
+            db.prepare("SELECT id, genre, play_count FROM tracks WHERE genre != '' AND missing=0")?;
+        let rows = stmt.query_map([], |r| {
+            Ok((
+                r.get::<_, String>(0)?,
+                r.get::<_, String>(1)?,
+                r.get::<_, i64>(2)?,
+            ))
+        })?;
+        // By genre, case aside: the name as most often written, songs, plays, and places.
+        let mut by: HashMap<String, (HashMap<String, usize>, usize, i64, f32, f32, usize)> =
+            HashMap::new();
+        for row in rows {
+            let (id, genre, plays) = row?;
+            let genre = genre.trim().to_string();
+            if genre.is_empty() {
+                continue;
+            }
+            let entry = by.entry(genre.to_lowercase()).or_default();
+            *entry.0.entry(genre).or_default() += 1;
+            entry.1 += 1;
+            entry.2 += plays;
+            if let Some((x, y)) = places.get(&id) {
+                entry.3 += x;
+                entry.4 += y;
+                entry.5 += 1;
+            }
+        }
+        let mut spots: Vec<GenreSpot> = by
+            .into_values()
+            .map(|(names, songs, plays, x, y, measured)| GenreSpot {
+                genre: names
+                    .into_iter()
+                    .max_by(|a, b| a.1.cmp(&b.1).then(b.0.cmp(&a.0)))
+                    .map(|(name, _)| name)
+                    .unwrap_or_default(),
+                songs,
+                plays,
+                measured,
+                place: (measured > 0).then(|| (x / measured as f32, y / measured as f32)),
+            })
+            .collect();
+        spots.sort_by(|a, b| b.songs.cmp(&a.songs).then(a.genre.cmp(&b.genre)));
+        Ok(spots)
+    }
+
+    /// A genre's songs, shuffled, at most `limit` (to play a bubble of the genre map).
+    pub fn genre_songs(&self, genre: &str, limit: usize) -> Result<Vec<Track>> {
+        let name = format!("\"{}\"", genre.replace('\\', "\\\\").replace('"', "\\\""));
+        self.search(&format!("genre = {name} shuffle limit {}", limit.max(1)))
     }
 
     /// The songs inside a circle on the mood map (centre and radius in the map's 0-to-1
@@ -736,6 +812,61 @@ impl Library {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn genres_gather_where_their_songs_sound() {
+        let dir = tempfile::tempdir().unwrap();
+        let library = Library::open(dir.path().join("data")).unwrap();
+        let song = |id: &str, genre: &str, plays: i64| Track {
+            id: id.into(),
+            path: format!("/music/{id}.flac"),
+            title: id.into(),
+            genre: genre.into(),
+            play_count: plays,
+            ..Default::default()
+        };
+        for t in [
+            song("a", "Pop", 3),
+            song("b", "pop", 1),
+            song("c", "Pop", 0),
+            song("d", "Jazz", 5),
+            song("e", "Ambient", 0),
+        ] {
+            library.upsert(&t).unwrap();
+        }
+        // Four measured songs: two bright and lively pop songs, and a dark, calm jazz one.
+        let sound = |brightness: f32, energy: f32| Features {
+            version: VERSION,
+            timbre: vec![0.5; BANDS],
+            brightness,
+            energy,
+            tempo: 120.,
+            pulse: 0.5,
+            ..Default::default()
+        };
+        library.save_features("a", &sound(0.9, 0.9)).unwrap();
+        library.save_features("b", &sound(0.8, 0.8)).unwrap();
+        library.save_features("d", &sound(0.1, 0.1)).unwrap();
+        library.save_features("e", &sound(0.5, 0.5)).unwrap();
+
+        let map = library.genre_map().unwrap();
+        // One Pop, named as most of its songs write it, with all three songs, first.
+        assert_eq!(map[0].genre, "Pop");
+        assert_eq!((map[0].songs, map[0].measured, map[0].plays), (3, 2, 4));
+        let pop = map[0].place.unwrap();
+        let jazz = map
+            .iter()
+            .find(|g| g.genre == "Jazz")
+            .unwrap()
+            .place
+            .unwrap();
+        assert!(
+            pop.0 > jazz.0 && pop.1 > jazz.1,
+            "pop {pop:?} sits brighter and livelier than jazz {jazz:?}"
+        );
+        // Its songs, to play it.
+        assert_eq!(library.genre_songs("pop", 10).unwrap().len(), 3);
+    }
 
     #[test]
     fn the_mood_map_spreads_songs_by_rank() {
