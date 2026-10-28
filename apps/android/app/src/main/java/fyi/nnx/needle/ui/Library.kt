@@ -201,7 +201,7 @@ private fun Pills(filter: Filter?, choose: (Filter?) -> Unit, sort: Sort, sortBy
                         DropdownMenuItem(text = { Text("Genres") }, leadingIcon = { Icon(Icons.Rounded.Style, null) }, onClick = { more = false; open(Route.Genres) })
                         DropdownMenuItem(text = { Text("Folders") }, leadingIcon = { Icon(Icons.Rounded.Folder, null) }, onClick = { more = false; open(Route.Folder(null)) })
                         DropdownMenuItem(text = { Text("Record crate") }, leadingIcon = { Icon(Icons.Rounded.Album, null) }, onClick = { more = false; open(Route.Crate) })
-                        DropdownMenuItem(text = { Text("Mood map") }, leadingIcon = { Icon(Icons.Rounded.BubbleChart, null) }, onClick = { more = false; open(Route.MoodMap) })
+                        DropdownMenuItem(text = { Text("Genre map") }, leadingIcon = { Icon(Icons.Rounded.BubbleChart, null) }, onClick = { more = false; open(Route.MoodMap) })
                         DropdownMenuItem(text = { Text("Your library in numbers") }, leadingIcon = { Icon(Icons.Rounded.BarChart, null) }, onClick = { more = false; open(Route.Numbers) })
                         DropdownMenuItem(text = { Text("Your year") }, leadingIcon = { Icon(Icons.Rounded.AutoAwesome, null) }, onClick = { more = false; open(Route.Wrapped(null)) })
                     }
