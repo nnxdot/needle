@@ -56,7 +56,7 @@ extension View {
             case .recent: RecentSongsView()
             case .history: HistoryView()
             case .stats: StatsView()
-            case .wrapped: WrappedView()
+            case .wrapped: YearReviewView()
             case .crate: RecordCrateView()
             case .playerButtons: PlayerButtonsView()
             case .numbers: NumbersView()

@@ -23,6 +23,7 @@ struct PlayerBar: View {
                     .frame(maxWidth: .infinity)
                 HStack(spacing: narrow ? 10 : 14) {
                     ForEach(after, id: \.self) { PlayerButton(name: $0) }
+                    if !narrow { SpeedButton(); SleepButton() }
                     MoreButton(all: true)
                     VolumeControl(width: wide ? 64 : 0)
                 }
@@ -59,6 +60,8 @@ struct TopPlayer: View {
                 .frame(width: TopPlayer.screen)
             HStack(spacing: 14) {
                 ForEach(after, id: \.self) { PlayerButton(name: $0, play: 24) }
+                SpeedButton()
+                SleepButton()
                 MoreButton(all: true)
                 VolumeControl(width: 60)
             }
@@ -72,7 +75,7 @@ struct TopPlayer: View {
     /// The screen's width, fixed.
     static let screen: CGFloat = 300
     /// About the whole player's width, for the window's least width.
-    static let width: CGFloat = 640
+    static let width: CGFloat = 700
 }
 
 /// The title bar player's screen: a panel a little sunk into the glass, the cover at its left

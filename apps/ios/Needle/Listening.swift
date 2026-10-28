@@ -20,7 +20,7 @@ struct HistoryView: View {
         List {
             Section {
                 NavigationLink(value: Route.stats) { Label("Listening numbers", systemImage: "chart.bar") }
-                NavigationLink(value: Route.wrapped) { Label("Wrapped", systemImage: "gift") }
+                NavigationLink(value: Route.wrapped) { Label("Your year in music", systemImage: "sparkles") }
             }
             Section {
                 ForEach(Array(items.enumerated()), id: \.offset) { i, item in
@@ -162,73 +162,6 @@ struct StatsView: View {
                 }
             }
         }
-    }
-}
-
-/// A year of listening, told a card at a time.
-struct WrappedView: View {
-    @Environment(Store.self) private var store
-    @State private var years: [Int32] = []
-    @State private var year: Int32?
-    @State private var wrapped: Wrapped?
-
-    var body: some View {
-        ScrollView {
-            VStack(spacing: 14) {
-                if years.count > 1 {
-                    Picker("Year", selection: $year) {
-                        ForEach(years, id: \.self) { Text(String($0)).tag(Int32?.some($0)) }
-                    }
-                    .pickerStyle(.segmented)
-                }
-                if let w = wrapped {
-                    card(String(w.year), "Your year in music", "\(hoursMinutes(w.stats.seconds)) of \(count(Int(w.stats.songs), "song")) by \(count(Int(w.stats.artists), "artist")).")
-                    if let artist = w.stats.topArtists.first {
-                        card("Top artist", artist.artist, "\(count(Int(artist.plays), "play")), \(hoursMinutes(artist.seconds)).")
-                    }
-                    if let song = w.topSongs.first {
-                        card("Song of the year", song.title, song.artist)
-                    }
-                    if !w.genres.isEmpty { card("Your sounds", w.genres.prefix(3).joined(separator: ", "), "") }
-                    if !w.newArtists.isEmpty { card("New to you", w.newArtists.prefix(3).joined(separator: ", "), "Artists you found this year.") }
-                    if let day = w.busiestDay { card("Busiest day", day.date, hoursMinutes(day.seconds) + " of music.") }
-                    if w.streak > 1 { card("Longest streak", "\(w.streak) days", "In a row with music.") }
-                    if let hour = w.peakHour { card("Your hour", "\(hour):00", "When you listen most.") }
-                    if !w.topSongs.isEmpty {
-                        Button { store.play(w.topSongs) } label: {
-                            Label("Play your top songs", systemImage: "play.fill").frame(maxWidth: .infinity).padding(.vertical, 6)
-                        }
-                        .buttonStyle(.glassProminent)
-                        .foregroundStyle(store.colors.onAccent)
-                    }
-                } else if years.isEmpty {
-                    ContentUnavailableView("Nothing played yet", systemImage: "gift").padding(.top, 60)
-                }
-            }
-            .padding()
-        }
-        .navigationTitle("Wrapped")
-        .themed()
-        .task {
-            years = await store.load { try $0.wrappedYears() } ?? []
-            year = years.first
-        }
-        .task(id: year) {
-            guard let y = year else { return }
-            wrapped = await store.load { try $0.wrapped(year: y) }
-        }
-    }
-
-    private func card(_ kicker: String, _ title: String, _ detail: String) -> some View {
-        let p = Palette(kicker + title)
-        return VStack(alignment: .leading, spacing: 6) {
-            Text(kicker.uppercased()).font(.needle(.caption).bold()).kerning(0.8).foregroundStyle(.white.opacity(0.8))
-            Text(title).font(.needle(.largeTitle).bold()).foregroundStyle(.white).lineLimit(3).minimumScaleFactor(0.6)
-            if !detail.isEmpty { Text(detail).font(.needle(.headline)).foregroundStyle(.white.opacity(0.85)) }
-        }
-        .frame(maxWidth: .infinity, minHeight: 150, alignment: .bottomLeading)
-        .padding(20)
-        .background(LinearGradient(colors: [p.colors[0], p.colors[1].opacity(0.7)], startPoint: .topLeading, endPoint: .bottomTrailing), in: .rect(cornerRadius: 26))
     }
 }
 

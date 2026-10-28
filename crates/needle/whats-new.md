@@ -48,6 +48,10 @@ A new icon, and a lot more to see and hear.
 - [queue] **The queue in full screen.** A queue button beside the lyrics button, and queue rows light up under the pointer.
 - [play] **Moving covers on the album page.** An album with a moving cover shows it moving on its page too.
 - [eq] **Smart mixes.** With crossfade on, the fade starts where the music ends and lasts whole bars (Settings › Playback › Smart mixes).
+- [moon] **A sleep timer.** The moon in the player stops the music after 15, 30, or 45 minutes, an hour, or at the end of the song or the album, fading out over the last minute. It stays lit while it runs and shows the time left under the pointer. Then sleep the Mac, if you like.
+- [speed] **Speed and pitch.** The button beside the moon plays a song from half to twice as fast, keeps its pitch or lets it rise, and moves it up or down in semitones, for every song or only this one.
+- [history] **Your year in music.** Your hours, plays, and new songs, the year by month, your top artist, and your top songs, from Listening history (and on Home in December). Save it as a picture in Pictures › Needle, make a playlist of it, or play your top 50.
+- [lyrics] **Time the lyrics.** −0.2 s, +0.2 s, Redo line, and Undo fix the line you just tapped; Words times each word.
 
 # 1.8.0 [macos]
 Navidrome built in, moving covers, and calmer Settings.

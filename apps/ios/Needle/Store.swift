@@ -44,8 +44,10 @@ final class Store {
     private(set) var isPlaying = false
     /// The songs up next, read again whenever the queue changes.
     private(set) var upNext: [Song] = []
-    /// When the sleep timer pauses the music; `.distantFuture` for "at the end of the song".
-    private(set) var sleepEnds: Date?
+    /// The core's sleep timer, while it runs (its seconds left change once a second here).
+    private(set) var sleep: SleepTimerState?
+    /// The speed and pitch the music plays at.
+    private(set) var tempo = SpeedPitch(speed: 1, semitones: 0, keepPitch: true, onlyThisSong: false, available: true)
     /// A short message to show at the top of the screen.
     var message: String? {
         // VoiceOver hears each message once (two toasts show it while the player is open), and
@@ -111,6 +113,8 @@ final class Store {
         case identify(String)
         case timing(Song)
         case speakers
+        case sleep
+        case speed
 
         var id: String {
             switch self {
@@ -119,6 +123,8 @@ final class Store {
             case .identify(let id): "identify" + id
             case .timing(let song): "timing" + song.id
             case .speakers: "speakers"
+            case .sleep: "sleep"
+            case .speed: "speed"
             }
         }
     }
@@ -153,7 +159,6 @@ final class Store {
     @ObservationIgnored private var resumeAfterInterruption = false
     @ObservationIgnored private var local: Playback?
     @ObservationIgnored private var colorFor: String?
-    @ObservationIgnored private var sleepSong: String?
     @ObservationIgnored private var sleepActivity: Activity<NeedleActivity>?
     @ObservationIgnored private var syncActivity: Activity<NeedleActivity>?
     @ObservationIgnored private var widgetSong: (String?, Bool) = (nil, false)
@@ -290,7 +295,7 @@ final class Store {
             if let error = now.error { message = Self.withoutAddresses(error) }
         }
         updateNowPlaying(now)
-        followSleep(now)
+        followSleep()
         if next.current?.artwork != colorFor { colorFor = next.current?.artwork; findCoverColor(next.current?.artwork) }
         if (now.current?.id, now.playing) != widgetSong {
             widgetSong = (now.current?.id, now.playing)
@@ -299,6 +304,8 @@ final class Store {
         ticks += 1
         // The rest changes slowly: twice a second is enough.
         guard ticks % 2 == 0 else { return }
+        let pace = core.speedAndPitch()
+        if pace != tempo { tempo = pace }
         let status = core.scanStatus()
         if status != scan {
             let changed = status.running != scan.running
@@ -723,43 +730,75 @@ final class Store {
         }
     }
 
-    // MARK: - Sleep timer
+    // MARK: - Sleep timer and speed (the core's)
 
-    /// Pauses the music after `minutes`, or at the end of the song with `0`; nil turns it off.
-    func setSleep(minutes: Int?) {
-        if let activity = sleepActivity { Task { await activity.end(nil, dismissalPolicy: .immediate) } }
-        sleepActivity = nil
-        guard let minutes else { sleepEnds = nil; sleepSong = nil; message = "Sleep timer off"; return }
-        if minutes == 0 {
-            guard let song = local?.current?.id else { message = "Nothing is playing to end"; return }
-            sleepEnds = .distantFuture
-            sleepSong = song
-            message = "Music pauses after this song"
-        } else {
-            sleepEnds = Date().addingTimeInterval(TimeInterval(minutes * 60))
-            sleepSong = nil
-            message = "Music pauses in \(minutes) minutes"
+    /// Start the sleep timer again from now: `kind` "minutes" (with `minutes`), "end_of_song",
+    /// or "end_of_album", with the Fade out switch as it stands.
+    func startSleep(_ kind: String, minutes: UInt32 = 0) {
+        let fade = sleep?.fade ?? core.sleepFade()
+        do {
+            try core.startSleepTimer(kind: kind, minutes: minutes, fade: fade)
+        } catch {
+            message = error.localizedDescription
+            return
         }
-        if ActivityAuthorizationInfo().areActivitiesEnabled {
-            let state = NeedleActivity.ContentState(
-                title: "Sleep timer",
-                detail: minutes == 0 ? "Pauses after this song" : "The music pauses then",
-                ends: minutes == 0 ? nil : sleepEnds, progress: nil)
-            sleepActivity = try? Activity.request(attributes: NeedleActivity(kind: "sleep"), content: .init(state: state, staleDate: sleepEnds))
+        message = kind == "end_of_song" ? "Music pauses after this song"
+            : kind == "end_of_album" ? "Music pauses after this album" : "Music pauses in \(minutes) minutes"
+        followSleep()
+    }
+
+    func cancelSleep() {
+        core.cancelSleepTimer()
+        message = "Sleep timer off"
+        followSleep()
+    }
+
+    func setSleepFade(_ on: Bool) {
+        core.setSleepFade(fade: on)
+        if var running = sleep { running.fade = on; sleep = running }
+    }
+
+    /// A new speed and pitch, shown at once, before the player says so.
+    func setTempo(_ value: SpeedPitch) {
+        var next = value
+        next.speed = min(max(next.speed, 0.5), 2)
+        next.semitones = min(max(next.semitones, -12), 12)
+        next.available = tempo.available
+        core.setSpeedAndPitch(value: next)
+        tempo = next
+    }
+
+    /// The sleep timer's time left, whole seconds only, and its Live Activity (on the Lock
+    /// Screen while it runs).
+    private func followSleep() {
+        var running = onComputer ? nil : core.sleepTimer()
+        if let r = running { running?.remaining = r.remaining.rounded(.up) }
+        guard running != sleep else { return }
+        let before = sleep
+        sleep = running
+        guard let running else {
+            if let activity = sleepActivity { Task { await activity.end(nil, dismissalPolicy: .immediate) } }
+            sleepActivity = nil
+            return
+        }
+        let byClock = running.kind == "minutes"
+        let ends = Date(timeIntervalSince1970: TimeInterval(running.endsAt))
+        let state = NeedleActivity.ContentState(
+            title: "Sleep timer",
+            detail: running.kind == "end_of_song" ? "Pauses after this song" : running.kind == "end_of_album" ? "Pauses after this album" : "The music pauses then",
+            ends: byClock ? ends : nil, progress: nil)
+        if let activity = sleepActivity {
+            // Again only when the end moved (more minutes, another choice), not every second.
+            let moved = before.map { $0.kind != running.kind || abs($0.endsAt - running.endsAt) > 2 } ?? true
+            if moved { Task { await activity.update(.init(state: state, staleDate: byClock ? ends : nil)) } }
+        } else if ActivityAuthorizationInfo().areActivitiesEnabled {
+            sleepActivity = try? Activity.request(attributes: NeedleActivity(kind: "sleep"), content: .init(state: state, staleDate: byClock ? ends : nil))
         }
     }
 
-    private func followSleep(_ now: Playback) {
-        guard let ends = sleepEnds else { return }
-        let atEnd = now.current.map { $0.duration > 1 && now.position >= $0.duration - 0.35 } ?? false
-        let songEnded = sleepSong != nil && (now.current?.id != sleepSong || atEnd)
-        if Date() >= ends || songEnded {
-            if now.playing { core.toggle() }
-            sleepEnds = nil
-            sleepSong = nil
-            if let activity = sleepActivity { Task { await activity.end(nil, dismissalPolicy: .immediate) } }
-            sleepActivity = nil
-        }
+    /// The year Your year in music opens first: last year during January, else this one.
+    var reviewYear: Int32 {
+        (try? core.reviewYear()) ?? Int32(Calendar.current.component(.year, from: Date()))
     }
 
     // MARK: - A server's songs coming in, as a Live Activity

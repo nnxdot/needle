@@ -65,10 +65,18 @@ final class Store {
     private(set) var stemsJob: StemJob?
     private(set) var importProgress: String?
     private(set) var update: MacUpdate?
+    /// The core's sleep timer, while it runs (its seconds left change once a second here).
+    private(set) var sleep: SleepTimerState?
+    /// The speed and pitch the music plays at.
+    private(set) var tempo = SpeedPitch(speed: 1, semitones: 0, keepPitch: true, onlyThisSong: false, available: true)
+    /// How many times the sleep timer had stopped the music when last looked.
+    @ObservationIgnored private var sleepEndedSeen: UInt64?
 
     // MARK: What the window shows
 
     var route: Route = .home
+    /// The player's tool pane open: "sleep" or "speed".
+    var tool: String?
     private(set) var back: [Route] = []
     private(set) var forward: [Route] = []
     var search = "" {
@@ -198,7 +206,10 @@ final class Store {
         let now = core.macPlayback()
         // Slower while nothing plays: four times a second is plenty.
         if now.playing || ticks % 3 == 0 || now != playback { follow(now) }
+        followSleep()
         guard ticks % 5 == 0 else { return }
+        let pace = core.speedAndPitch()
+        if pace != tempo { tempo = pace }
         let status = core.scanStatus()
         if status != scan {
             // The slow search for artists' pictures waits while the library is read.
@@ -238,6 +249,58 @@ final class Store {
         }
         let progress = core.importProgress()
         if progress != importProgress { importProgress = progress }
+    }
+
+    /// The sleep timer's time left, whole seconds only; when it has just stopped the music, the
+    /// Mac sleeps too if asked (Then sleep the Mac).
+    private func followSleep() {
+        var running = core.sleepTimer()
+        if let r = running { running?.remaining = r.remaining.rounded(.up) }
+        if running != sleep { sleep = running }
+        let ended = core.sleepTimerEnded()
+        if let seen = sleepEndedSeen, ended > seen, settings.sleepComputer { sleepMac() }
+        sleepEndedSeen = ended
+    }
+
+    /// Put the Mac to sleep, as the Apple menu’s Sleep does.
+    private func sleepMac() {
+        let task = Process()
+        task.executableURL = URL(fileURLWithPath: "/usr/bin/pmset")
+        task.arguments = ["sleepnow"]
+        try? task.run()
+    }
+
+    /// Start the sleep timer again from now: `kind` "minutes" (with `minutes`), "end_of_song",
+    /// or "end_of_album", with the Fade out switch as it stands.
+    func startSleep(_ kind: String, minutes: UInt32 = 0) {
+        let fade = sleep?.fade ?? core.sleepFade()
+        run { try $0.startSleepTimer(kind: kind, minutes: minutes, fade: fade) }
+        followSleep()
+    }
+
+    /// The year Your year in music opens first: last year during January, else this one.
+    var reviewYear: Int {
+        Int((try? core.reviewYear()) ?? Int32(Calendar.current.component(.year, from: Date())))
+    }
+
+    func cancelSleep() {
+        core.cancelSleepTimer()
+        followSleep()
+    }
+
+    func setSleepFade(_ on: Bool) {
+        core.setSleepFade(fade: on)
+        if var running = sleep { running.fade = on; sleep = running }
+    }
+
+    /// A new speed and pitch, shown at once, before the player says so.
+    func setTempo(_ value: SpeedPitch) {
+        var next = value
+        next.speed = min(max(next.speed, 0.5), 2)
+        next.semitones = min(max(next.semitones, -12), 12)
+        next.available = tempo.available
+        core.setSpeedAndPitch(value: next)
+        tempo = next
     }
 
     private func follow(_ now: MacPlayback) {

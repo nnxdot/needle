@@ -290,7 +290,9 @@ struct NowPlayingView: View {
                 Divider()
                 loopMenu(song)
             }
-            if !store.onComputer { SleepMenu() }
+            if !store.onComputer {
+                Button("Speed and Pitch", systemImage: "gauge.with.dots.needle.67percent") { store.sheet = .speed }
+            }
             if !store.onComputer {
                 Button("Visualizer", systemImage: "waveform.circle") { showVisualizer = true }
             }
@@ -492,6 +494,11 @@ struct NowPlayingView: View {
                 footButton(name)
             }
             if foot.isEmpty { Spacer() }
+            // The sleep timer's moon, on this iPhone's own music only.
+            if !store.onComputer {
+                Spacer()
+                SleepMoon()
+            }
         }
         .padding(.horizontal, 40)
     }
@@ -1332,82 +1339,65 @@ struct SpeakersView: View {
     }
 }
 
-/// Times a song's lyrics by tapping as each line starts.
+/// Time the lyrics: tap as each line (or word) starts while the song plays; −0.2 s and +0.2 s
+/// move the line last tapped, Redo line taps it again. The steps are the core's (`LyricTimer`).
 struct TimingView: View {
     @Environment(Store.self) private var store
     @Environment(\.dismiss) private var dismiss
     let song: Song
-    @State private var lines: [LyricLine] = []
-    @State private var next = 0
+    @State private var timer: LyricTimer?
     @State private var text = ""
     @State private var loaded = false
+    @State private var lines: [TimingLine] = []
+    @State private var next = (line: 0, word: 0)
+    @State private var selected: Int?
+    @State private var words = false
+    /// Something changed since it opened.
+    @State private var dirty = false
+    @State private var taps = 0
 
     var body: some View {
+        let colors = store.colors
         let thisSong = store.playback?.current?.id == song.id
         VStack(spacing: 0) {
-            List {
-                Section {
-                    Text(!thisSong ? "Play this song, then tap as each line starts." : lines.isEmpty ? "This song has no lyrics to time. Paste them below, one line per line." : "Tap the big button as each line starts. Tap a line to go back to it.")
-                        .font(.needle(.subheadline)).foregroundStyle(.secondary)
-                    if !thisSong {
-                        Button("Play it from the start", systemImage: "play.fill") { store.play([song]) }
-                    }
-                }
-                if lines.isEmpty && loaded {
-                    Section {
-                        TextEditor(text: $text).frame(minHeight: 160)
-                        Button("Use these lines") {
-                            lines = text.components(separatedBy: .newlines).map { $0.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty }
-                                .map { LyricLine(time: -1, text: $0, words: []) }
+            header(thisSong)
+            if timer == nil {
+                if loaded {
+                    List {
+                        Section {
+                            Text("This song has no lyrics to time. Paste them below, one line per sung line.")
+                                .font(.needle(.subheadline)).foregroundStyle(.secondary)
+                            TextEditor(text: $text).frame(minHeight: 180)
+                            Button("Use these lines") { begin(LyricTimer(lyrics: nil, text: text)) }
+                                .disabled(text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
                         }
                     }
+                } else {
+                    ProgressView().frame(maxHeight: .infinity)
                 }
-                ForEach(Array(lines.enumerated()), id: \.offset) { i, line in
-                    Button { next = i } label: {
-                        HStack {
-                            Text(line.time >= 0 ? clock(line.time) : "–").font(.needle(.subheadline).monospacedDigit()).foregroundStyle(.tint).frame(width: 52, alignment: .leading)
-                            Text(line.text).fontWeight(i == next ? .bold : .regular).foregroundStyle(.primary)
-                        }
-                    }
-                    .listRowBackground(i == next ? Color.accentColor.opacity(0.2) : Color.clear)
-                    .id(i)
-                }
+            } else {
+                list(thisSong)
+                controls(thisSong)
             }
-            HStack(spacing: 12) {
-                Button {
-                    guard next < lines.count else { return }
-                    lines[next].time = store.playback?.position ?? 0
-                    next += 1
-                } label: {
-                    Text(next < lines.count ? "Tap: line \(next + 1) starts" : "All timed").frame(maxWidth: .infinity).padding(.vertical, 10)
-                }
-                .buttonStyle(.glassProminent)
-                .foregroundStyle(store.colors.onAccent)
-                .disabled(!thisSong || next >= lines.count)
-                .sensoryFeedback(.impact(weight: .light), trigger: next)
-                Button("Save") {
-                    let (id, timed) = (song.id, lines.sorted { $0.time < $1.time })
-                    Task {
-                        if await store.ask({ try $0.saveTimedLyrics(id: id, lines: timed) }) != nil {
-                            store.lyricsChanged()
-                            store.message = "Saved the timed lyrics"
-                            dismiss()
-                        }
-                    }
-                }
-                .buttonStyle(.glass)
-                .disabled(lines.isEmpty || lines.contains { $0.time < 0 })
-            }
-            .padding()
         }
         .navigationTitle("Time the lyrics")
         .navigationBarTitleDisplayMode(.inline)
         .themed()
         .toolbar {
-            ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } }
-            ToolbarItem(placement: .destructiveAction) {
+            ToolbarItem(placement: .cancellationAction) {
+                Button { dismiss() } label: { Image(systemName: "xmark") }.accessibilityLabel("Close")
+            }
+            ToolbarItem(placement: .confirmationAction) {
+                Button("Save") { save() }.disabled(!dirty).tint(colors.accent)
+            }
+            ToolbarItem(placement: .topBarTrailing) {
                 Menu {
-                    Button("Forget my timing", role: .destructive) {
+                    Toggle("Time Each Word", systemImage: "textformat.abc", isOn: Binding(get: { words }, set: { on in
+                        timer?.setWordMode(on: on)
+                        changed()
+                    }))
+                    .disabled(timer == nil)
+                    Button("Forget My Timing", systemImage: "trash", role: .destructive) {
                         store.core.deleteTimedLyrics(id: song.id)
                         store.lyricsChanged()
                         store.message = "Timing taken off"
@@ -1419,12 +1409,183 @@ struct TimingView: View {
         .task {
             let id = song.id
             let found = await store.load { try $0.lyrics(id: id) } ?? nil
-            if let found {
-                lines = !found.lines.isEmpty ? found.lines
-                    : found.plain.components(separatedBy: .newlines).map { $0.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty }
-                        .map { LyricLine(time: -1, text: $0, words: []) }
+            if let found, !found.lines.isEmpty || !found.plain.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                begin(LyricTimer(lyrics: found, text: ""), dirty: false)
             }
             loaded = true
+        }
+    }
+
+    /// The song, where it is, and how far along.
+    private func header(_ thisSong: Bool) -> some View {
+        let colors = store.colors
+        let position = thisSong ? store.playback?.position ?? 0 : 0
+        return VStack(alignment: .leading, spacing: 10) {
+            HStack(spacing: 12) {
+                Artwork(path: song.artwork, seed: song.album + song.artist, size: 120)
+                    .frame(width: 48, height: 48).clipShape(.rect(cornerRadius: 8))
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(song.title).font(.needle(.headline)).lineLimit(1)
+                    Text(song.artist).font(.needle(.subheadline)).foregroundStyle(colors.muted).lineLimit(1)
+                }
+                Spacer()
+                Text("\(clock(position)) / \(clock(song.duration))")
+                    .font(.system(size: 13, design: .monospaced)).foregroundStyle(colors.muted)
+            }
+            if thisSong {
+                ProgressView(value: min(position, song.duration), total: max(song.duration, 1)).tint(colors.accent)
+            } else {
+                Button("Play it from the start", systemImage: "play.fill") { store.play([song]) }
+                    .buttonStyle(.glass)
+            }
+        }
+        .padding(.horizontal, 20).padding(.vertical, 12)
+    }
+
+    private func list(_ thisSong: Bool) -> some View {
+        let colors = store.colors
+        return ScrollViewReader { reader in
+            ScrollView {
+                LazyVStack(alignment: .leading, spacing: 4) {
+                    ForEach(Array(lines.enumerated()), id: \.offset) { i, line in
+                        let isNext = i == next.line
+                        Button { choose(i, at: line.time, thisSong: thisSong) } label: {
+                            HStack(alignment: .firstTextBaseline, spacing: 12) {
+                                Text(line.time.map(stamp) ?? "--:--.--")
+                                    .font(.system(size: 12, design: .monospaced))
+                                    .foregroundStyle(selected == i ? ThemeColors.amber : colors.muted)
+                                    .frame(width: 66, alignment: .leading)
+                                Group {
+                                    if words && !line.words.isEmpty {
+                                        Text(wordText(line, next: isNext ? next.word : nil))
+                                    } else {
+                                        Text(line.text.isEmpty ? "♪" : line.text)
+                                            .foregroundStyle(line.time != nil || isNext ? colors.text : colors.text.opacity(0.4))
+                                    }
+                                }
+                                .font(.needle(.title3).weight(.semibold))
+                                .multilineTextAlignment(.leading)
+                                Spacer(minLength: 0)
+                            }
+                            .padding(.horizontal, 12).padding(.vertical, 8)
+                            .background(isNext ? colors.accent.opacity(0.14) : .clear, in: RoundedRectangle(cornerRadius: 10))
+                            .contentShape(Rectangle())
+                        }
+                        .buttonStyle(.plain)
+                        .id(i)
+                    }
+                }
+                .padding(.horizontal, 8)
+            }
+            .onChange(of: next.line) { _, line in withAnimation { reader.scrollTo(line, anchor: .center) } }
+        }
+    }
+
+    /// Word mode: tapped words full strength, the rest faint, the next one underlined.
+    private func wordText(_ line: TimingLine, next: Int?) -> AttributedString {
+        let colors = store.colors
+        var text = AttributedString()
+        for (w, word) in line.words.enumerated() {
+            var part = AttributedString(word.text)
+            if w == next {
+                part.foregroundColor = colors.accent
+                part.underlineStyle = .single
+            } else {
+                part.foregroundColor = word.time != nil ? colors.text : colors.text.opacity(0.4)
+            }
+            text += part
+        }
+        return text
+    }
+
+    /// −0.2 s, Redo line, +0.2 s, and Undo; then the big tap.
+    private func controls(_ thisSong: Bool) -> some View {
+        let colors = store.colors
+        let done = next.line >= lines.count
+        return VStack(spacing: 12) {
+            HStack(spacing: 8) {
+                fix("− 0.2 s", label: "The line starts earlier") { timer?.earlier() }
+                fix("↺ Line", label: "Tap this line again") {
+                    timer?.redoLine()
+                    if let i = selected, i < lines.count, let time = lines[i].time, thisSong { store.seek(max(0, time - 2)) }
+                }
+                fix("+ 0.2 s", label: "The line starts later") { timer?.later() }
+                Button { if timer?.undo() == true { changed() } } label: {
+                    Image(systemName: "arrow.uturn.backward").frame(maxWidth: .infinity).padding(.vertical, 6)
+                }
+                .buttonStyle(.glass)
+                .accessibilityLabel("Undo")
+            }
+            .font(.needle(.subheadline).weight(.semibold))
+            Button { tap() } label: {
+                Text(done ? "All timed" : words ? "Tap as the next word starts" : "Tap as the next line starts")
+                    .font(.needle(.headline))
+                    .frame(maxWidth: .infinity).padding(.vertical, 14)
+            }
+            .buttonStyle(.glassProminent)
+            .foregroundStyle(colors.onAccent)
+            .disabled(!thisSong || done)
+            .sensoryFeedback(.impact(weight: .light), trigger: taps) { _, _ in store.app.haptics }
+        }
+        .padding(.horizontal, 20).padding(.top, 8).padding(.bottom, 12)
+    }
+
+    private func fix(_ title: String, label: String, _ action: @escaping () -> Void) -> some View {
+        Button { action(); changed() } label: { Text(title).frame(maxWidth: .infinity).padding(.vertical, 6) }
+            .buttonStyle(.glass)
+            .disabled(selected == nil)
+            .accessibilityLabel(label)
+    }
+
+    private func stamp(_ t: Double) -> String {
+        String(format: "%02d:%05.2f", Int(t) / 60, t.truncatingRemainder(dividingBy: 60))
+    }
+
+    private func begin(_ new: LyricTimer, dirty: Bool = true) {
+        timer = new
+        self.dirty = dirty
+        refresh()
+    }
+
+    private func refresh() {
+        guard let timer else { return }
+        lines = timer.lines()
+        next = (Int(timer.nextLine()), Int(timer.nextWord()))
+        selected = timer.selected().map(Int.init)
+        words = timer.wordMode()
+    }
+
+    private func changed() {
+        dirty = true
+        refresh()
+    }
+
+    private func tap() {
+        guard let timer, store.playback?.current?.id == song.id else { return }
+        timer.tap(position: store.playback?.position ?? 0)
+        taps += 1
+        changed()
+    }
+
+    /// Tapping starts again from this line; a tapped line plays from a little before.
+    private func choose(_ i: Int, at time: Double?, thisSong: Bool) {
+        timer?.select(index: UInt32(i))
+        if let time, thisSong { store.seek(max(0, time - 2)) }
+        refresh()
+    }
+
+    private func save() {
+        guard let timer else { return }
+        let id = song.id
+        Task {
+            guard let saved = await store.ask({ try $0.saveLyricTimer(id: id, timer: timer) }) else { return }
+            if saved {
+                store.lyricsChanged()
+                store.message = "Saved the timed lyrics"
+                dismiss()
+            } else {
+                store.message = "Tap at least one line before saving."
+            }
         }
     }
 }

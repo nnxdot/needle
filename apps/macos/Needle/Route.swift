@@ -52,7 +52,7 @@ enum Route: Hashable {
         case .playlist: "Playlist"
         case .sound: "Sound"
         case .importing: "Import"
-        case .timing: "Lyric timing"
+        case .timing: "Time the lyrics"
         case .wrapped(let year): "\(year) in music"
         case .doctor: "Fix my library"
         case .source(_, let name): name
