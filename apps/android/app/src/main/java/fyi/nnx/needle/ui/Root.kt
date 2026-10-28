@@ -87,6 +87,7 @@ sealed interface Route {
     /** A music folder or a folder in one; `null` lists the music folders. */
     data class Folder(val path: String?) : Route
     data class Wrapped(val year: Int?) : Route
+    data class YearReview(val year: Int?) : Route
     data object Numbers : Route
     data object MoodMap : Route
     data object Crate : Route
@@ -419,6 +420,7 @@ private fun Page(route: Route, open: (Route) -> Unit) {
         Route.History -> HistoryScreen(open)
         is Route.Folder -> FoldersScreen(route.path, open)
         is Route.Wrapped -> WrappedScreen(route.year, open)
+        is Route.YearReview -> YearReviewScreen(route.year, open)
         Route.Numbers -> NumbersScreen(open)
         Route.MoodMap -> MoodMapScreen()
         Route.Crate -> CrateScreen(open)

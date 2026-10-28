@@ -75,6 +75,9 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import fyi.nnx.needle.NeedleApp
+import androidx.compose.material.icons.rounded.Speed
+import androidx.compose.material.icons.rounded.Bedtime
+import androidx.compose.runtime.collectAsState
 import fyi.nnx.needle.core.Song
 import kotlinx.coroutines.launch
 
@@ -261,6 +264,14 @@ fun SongSheet(song: Song, open: ((Route) -> Unit)?, remove: (() -> Unit)?, onDis
                     if (LocalAlbumHere.current != song.album) MenuRow(Icons.Rounded.Album, "Go to album") { act { open(Route.AlbumOf(song.album, song.id)) } }
                     MenuRow(Icons.Rounded.Person, "Go to artist") { act { open(Route.Artist(song.artist)) } }
                     MenuRow(Icons.Rounded.Lyrics, "Time the lyrics") { act { open(Route.Timing(song.id)) } }
+                }
+            }
+            // The song playing: how it plays, and when the music stops.
+            val playingNow = NeedleApp.instance.playback.collectAsState().value?.current?.id == song.id
+            if (playingNow && !song.onComputer()) {
+                MenuGroup {
+                    MenuRow(Icons.Rounded.Speed, "Speed and pitch") { act { Ui.sheet.value = Sheet.SpeedPitch } }
+                    MenuRow(Icons.Rounded.Bedtime, "Sleep timer") { act { Ui.sheet.value = Sheet.SleepTimer } }
                 }
             }
             // Commands from plugins that act on songs.

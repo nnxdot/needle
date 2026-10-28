@@ -162,6 +162,8 @@ class NeedleApp : Application() {
         }
         // A Wear OS watch, when one is paired: what plays goes to it.
         runCatching { WearLink.start(this) }
+        // Shake to add 10 minutes to a running sleep timer, when that is on.
+        runCatching { fyi.nnx.needle.ui.SleepShake.start(this) }
         // The background search for artists' pictures follows the network and the settings.
         getSystemService(android.net.ConnectivityManager::class.java)?.registerDefaultNetworkCallback(object : android.net.ConnectivityManager.NetworkCallback() {
             override fun onCapabilitiesChanged(network: android.net.Network, capabilities: android.net.NetworkCapabilities) = artistPicturesAllowed()

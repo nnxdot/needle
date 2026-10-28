@@ -24,6 +24,11 @@
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <uses-permission android:name="android.permission.WAKE_LOCK" />
+    <!-- A short buzz when a shake adds 10 minutes to the sleep timer. -->
+    <uses-permission android:name="android.permission.VIBRATE" />
+    <!-- The alarm (wake up to music): exact, and set again after the phone starts. -->
+    <uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM" />
+    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
     <!-- Whether the network is mobile data (metered), for moving covers on mobile data. -->
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
     <!-- Finding speakers (Chromecast, DLNA, AirPlay) on the Wi-Fi. -->
