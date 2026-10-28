@@ -5,8 +5,8 @@ use super::{AppView, lyrics::LyricsKind, pal, widgets::icon_button};
 use gpui::{prelude::*, *};
 use needle_core::model::{BIG_LOOKS, Track};
 
-/// How fast the record turns: 33⅓ turns a minute.
-const DEGREES_A_SECOND: f32 = 200.;
+/// How fast the record's sheen turns: once in 12 seconds, as Android's record.
+const DEGREES_A_SECOND: f32 = 30.;
 
 impl AppView {
     /// The look the big player shows now: the chosen one, or the cover when it cannot show
@@ -80,8 +80,9 @@ impl AppView {
         }
     }
 
-    /// The cover as a record: grooves, the cover as its label, light that turns with it, and
-    /// the arm resting on it.
+    /// The cover as a record, as on Android: the whole cover round, fine dark grooves over it,
+    /// a soft sheen, the hole, and the cream arm resting on it at the top right. The cover
+    /// itself cannot turn here (pictures do not rotate in this toolkit), so the sheen turns.
     fn record_disc(
         &self,
         track: Option<&Track>,
@@ -90,48 +91,73 @@ impl AppView {
         cx: &mut Context<Self>,
     ) -> AnyElement {
         let p = pal(cx);
-        let label = size * 0.38;
         let white = gpui::white();
-        let label_picture = track
+        let black = gpui::black();
+        let cover = track
             .and_then(|t| t.artwork.as_deref())
-            .and_then(|path| super::thumbs::for_size(path, label))
+            .and_then(|path| super::thumbs::for_size(path, size))
             .map(|file| {
                 img(file)
-                    .size(px(label))
+                    .absolute()
+                    .inset_0()
+                    .size(px(size))
                     .rounded_full()
                     .object_fit(ObjectFit::Cover)
                     .into_any_element()
             })
             .unwrap_or_else(|| {
+                let tone = track.map_or(p.accent, |t| {
+                    super::widgets::seed_color(&super::widgets::track_seed(t))
+                });
                 div()
-                    .size(px(label))
+                    .absolute()
+                    .inset_0()
                     .rounded_full()
-                    .bg(p.accent)
+                    .bg(tone)
                     .into_any_element()
             });
-        let grooves = (1..=8).map(move |i| {
-            let inset = size * 0.04 + i as f32 * size * 0.032;
+        // Rings from near the edge to the label, as Android draws them.
+        let grooves = (0..14).map(move |i| {
+            let k = 0.95 - i as f32 * 0.045;
+            let inset = size * (1. - k) / 2.;
             div()
                 .absolute()
                 .top(px(inset))
                 .left(px(inset))
-                .size(px(size - 2. * inset))
+                .size(px(size * k))
                 .rounded_full()
                 .border_1()
-                .border_color(white.opacity(0.05))
+                .border_color(black.opacity(0.16))
         });
-        // Two soft lights on opposite sides, as a lamp makes on a turning record.
-        let light = |turn: f32| {
+        // The sheen: light from one side and less from the other, turning with the record.
+        let light = |turn: f32, strength: f32| {
             div()
                 .absolute()
                 .inset_0()
                 .rounded_full()
                 .bg(linear_gradient(
                     angle + turn,
-                    linear_color_stop(white.opacity(0.), 0.55),
-                    linear_color_stop(white.opacity(0.11), 1.),
+                    linear_color_stop(white.opacity(0.), 0.5),
+                    linear_color_stop(white.opacity(strength), 1.),
                 ))
         };
+        let centred = |el: Div| {
+            div()
+                .absolute()
+                .inset_0()
+                .flex()
+                .items_center()
+                .justify_center()
+                .child(el)
+        };
+        let arm = |name: &'static str, color: Hsla, drop: f32| {
+            div()
+                .absolute()
+                .top(px(drop))
+                .left_0()
+                .child(super::widgets::glyph(name).size(px(size)).text_color(color))
+        };
+        let cream = rgb(0xF2E8D6);
         div()
             .size(px(size))
             .flex_shrink_0()
@@ -143,49 +169,31 @@ impl AppView {
                     .rounded_full()
                     .bg(hsla(0., 0., 0.05, 1.))
                     .shadow(vec![BoxShadow {
-                        color: gpui::black().opacity(0.55),
+                        color: black.opacity(0.55),
                         offset: point(px(0.), px(18.)),
                         blur_radius: px(48.),
                         spread_radius: px(-6.),
                     }]),
             )
+            .child(cover)
             .children(grooves)
-            .child(light(0.))
-            .child(light(180.))
-            .child(
+            .child(light(135., 0.14))
+            .child(light(315., 0.08))
+            .child(centred(
                 div()
-                    .absolute()
-                    .inset_0()
-                    .flex()
-                    .items_center()
-                    .justify_center()
-                    .child(label_picture),
-            )
-            .child(
+                    .size(px(size * 0.094))
+                    .rounded_full()
+                    .bg(black.opacity(0.55)),
+            ))
+            .child(centred(
                 div()
-                    .absolute()
-                    .inset_0()
-                    .flex()
-                    .items_center()
-                    .justify_center()
-                    .child(
-                        div()
-                            .size(px((size * 0.035).max(6.)))
-                            .rounded_full()
-                            .bg(hsla(0., 0., 0.08, 1.)),
-                    ),
-            )
-            .child(
-                div()
-                    .absolute()
-                    .top(px(-size * 0.06))
-                    .right(px(-size * 0.1))
-                    .child(
-                        super::widgets::glyph("tonearm")
-                            .size(px(size * 0.6))
-                            .text_color(hsla(38. / 360., 0.45, 0.9, 1.)),
-                    ),
-            )
+                    .size(px((size * 0.028).max(5.)))
+                    .rounded_full()
+                    .bg(rgb(0x0F0E0D)),
+            ))
+            .child(arm("record-arm", black.opacity(0.3), 6.))
+            .child(arm("record-arm", cream.into(), 0.))
+            .child(arm("record-arm-dot", rgb(0x1B1816).into(), 0.))
             .into_any_element()
     }
 
