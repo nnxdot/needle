@@ -10,7 +10,7 @@ A new look, after the Mac's, and a lot more to see and hear.
 - [mini] **A small floating player.** A small card that stays above your other windows: the cover, the song, and the buttons under the pointer. Drag it anywhere; double-click it to open Needle. Open it from the command palette (Ctrl+K) or with your own key.
 - [play] **Choose the player's buttons.** Drag buttons into the player, along it, and out of it in Settings › Appearance › Layout › Player buttons. The player starts with seven; the rest (shuffle, repeat, speakers, the sleep timer, speed, the A–B loop, the equalizer, and the small player) are in its ••• menu.
 - [tag] **Fonts.** Choose a font for titles (eight of them, such as Fraunces, Poster, and Instrument Serif) and one for everything else (such as Inter and Atkinson Hyperlegible), or a font you have installed, in Settings › Appearance.
-- [wave] **The visualizer.** Bars that move with the music, in its colours, under the cover, with a glow that breathes with it. Turn it on with the new button in the big player.
+- [wave] **The visualizer.** Light that moves with the music, in its colours: a glow that swells with the bass and rays all round. Turn it on with the new button in the big player or in full screen, or choose the Visualizer look; it fills the cover's place.
 - [albums] **Gentler motion.** Pages rise as they open, album and playlist pages fold their header as you scroll, and covers lift with a glow in their own colour under the pointer. Reduce motion turns it off.
 - [albums] **Looks for the big player.** The Look button steps through the cover with the lyrics beside it, the cover as a turning record, only the words very large, and the visualizer filling the space.
 - [signal] **A seek bar shaped like the song.** In the big player and full screen, the seek bar shows the song's loud and quiet parts.
@@ -19,8 +19,8 @@ A new look, after the Mac's, and a lot more to see and hear.
 - [globe] **Pictures for every artist.** With online lookups on, Needle finds every artist's pictures slowly in the background, or all at once with Check all now (Settings › Artwork and lyrics).
 - [history] **On this day.** Home shows what you played one and five years ago today.
 - [albums] **Your library in numbers, and the genre map.** From Listening history: what your music is made of, and every genre as a bubble where its songs sound, as big as its number of songs; click one to play it.
-- [albums] **A record crate.** Flip through your albums like records in a box (Albums › Crate).
-- [lyrics] **Lyric cards.** Right-click a line of the lyrics for a picture of it to share. The card is as tall as the line needs, short lines are written larger, and Japanese, Korean, and Chinese words show in a font of your computer.
+- [albums] **A record crate.** Flip through your albums like records in a box (Albums › Crate), with the wheel or the arrow keys; Enter opens the one in front.
+- [lyrics] **Lyric cards.** Right-click a line of the lyrics for a picture of it to share: it is saved in Pictures › Needle and copied, to paste anywhere. The card is as tall as the line needs, short lines are written larger, and Japanese, Korean, and Chinese words show in a font of your computer.
 - [queue] **The queue in full screen.** A queue button beside the lyrics button.
 - [search] **A Search page.** Type on Home or any page that is not a list: the best match comes first, large, then songs, albums, artists, and the lines of lyrics that hold your words. Rules to try are one click away.
 - [play] **Moving covers on the album page.** An album with a moving cover shows it moving at the top of its page too.
