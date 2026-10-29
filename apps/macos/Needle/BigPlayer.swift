@@ -30,9 +30,7 @@ struct BigPlayer: View {
             let wide = geo.size.width > 980
             ZStack {
                 Color.black
-                if visualizer, let p, p.hasSong {
-                    Visualizer().ignoresSafeArea()
-                } else if let p, p.hasSong, immersive {
+                if let p, p.hasSong, immersive {
                     // Alone when no pane shows beside it (too narrow for one, or lyrics hidden).
                     ImmersiveCover(path: p.artwork, seed: p.album + p.artist, songID: store.current?.id,
                                    animated: store.settings.animatedCovers && store.motion,
@@ -69,7 +67,10 @@ struct BigPlayer: View {
                                     Cover(path: p.artwork, seed: p.album + p.artist, side: side, corner: 0)
                                         .overlay { MovingCoverLayer(songID: store.current?.id, on: store.settings.animatedCovers && store.motion) }
                                 }
-                            } else if immersive || visualizer {
+                            } else if visualizer {
+                                // The visualizer in the cover's place, on the cover's colours.
+                                Visualizer().frame(width: min(geo.size.height * 0.56, wide ? 500 : 380))
+                            } else if immersive {
                                 // The cover is the window's side itself: the words sit over its foot.
                                 Spacer(minLength: 0)
                             } else {
@@ -86,7 +87,7 @@ struct BigPlayer: View {
                                 .opacity(resting ? 0 : 1)
                         }
                         .frame(maxWidth: wide ? 480 : 360)
-                        if wide && !visualizer && (!store.immersive || immersiveSide != nil) {
+                        if wide && (!store.immersive || immersiveSide != nil) {
                             side
                                 .frame(maxWidth: 560)
                                 .frame(maxHeight: geo.size.height * 0.82)

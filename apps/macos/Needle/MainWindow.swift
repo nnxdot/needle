@@ -156,6 +156,23 @@ struct MainWindow: View {
                 try? rep.representation(using: .png, properties: [:])?.write(to: URL(fileURLWithPath: path))
             }
         }
+        // `--snapshot-window <path.png> [seconds]`: the main window drawn into a picture after
+        // that many seconds (12 at first), and once more a second later as `<path>-2.png`. The
+        // same drawing as above: it needs no screen recording, and the window may stay hidden.
+        if let path = value("--snapshot-window") {
+            let wait = arguments.firstIndex(of: path).flatMap { arguments.indices.contains($0 + 1) ? Double(arguments[$0 + 1]) : nil } ?? 12
+            Task {
+                try? await Task.sleep(for: .seconds(wait))
+                for (n, file) in [path, path.replacingOccurrences(of: ".png", with: "-2.png")].enumerated() {
+                    if n > 0 { try? await Task.sleep(for: .seconds(1)) }
+                    guard let window = NSApp.windows.first(where: { $0.identifier?.rawValue.hasPrefix("main") == true }),
+                          let view = window.contentView?.superview ?? window.contentView,
+                          let rep = view.bitmapImageRepForCachingDisplay(in: view.bounds) else { return }
+                    view.cacheDisplay(in: view.bounds, to: rep)
+                    try? rep.representation(using: .png, properties: [:])?.write(to: URL(fileURLWithPath: file))
+                }
+            }
+        }
         if let name = value("--artist") { store.navigate(.artist(name)) }
         if let title = value("--album") {
             Task {

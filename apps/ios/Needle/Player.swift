@@ -133,10 +133,7 @@ struct NowPlayingView: View {
         let immersive = app.immersiveCover && pane == .cover && look == "cover"
         ZStack {
             Color.black.ignoresSafeArea()
-            if pane == .cover && look == "visualizer" {
-                // The visualizer's light fills the player.
-                Visualizer().ignoresSafeArea()
-            } else if app.immersiveCover && look == "cover" {
+            if app.immersiveCover && look == "cover" {
                 // Always there, blurred behind the lyrics and the queue, so moving between them
                 // never shows black while it fades.
                 ImmersiveCover(song: song, seed: seed, animated: app.animatedCovers && !reduceMotion && pane == .cover)
@@ -180,7 +177,14 @@ struct NowPlayingView: View {
                     } else if look == "lyrics" {
                         // Only the words, very large, lit as they are sung.
                         LyricsPane(song: song, stage: true) { has in hasLyrics = has }
-                    } else if immersive || look == "visualizer" {
+                    } else if look == "visualizer" {
+                        // The visualizer in the cover's place, on the cover's colours.
+                        Spacer(minLength: 8)
+                        Visualizer().frame(width: 340)
+                            .contentShape(.rect)
+                            .gesture(swipeToSkip)
+                        Spacer(minLength: 16)
+                    } else if immersive {
                         // The cover is the page itself: the words sit over its foot.
                         Spacer(minLength: 8)
                             .contentShape(.rect)
