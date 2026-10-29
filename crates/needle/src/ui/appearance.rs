@@ -692,6 +692,32 @@ impl AppView {
                 |this, on, _| this.settings.animated_covers = on,
                 cx,
             ))
+            .child({
+                let weak = cx.entity().downgrade();
+                let at = needle_core::model::SEEK_STYLES
+                    .iter()
+                    .position(|n| *n == s.seek_style)
+                    .unwrap_or(0);
+                setting_row(
+                    "Seek bar",
+                    "In the big player and full screen.",
+                    super::widgets::segmented(
+                        "seek-style",
+                        &["Shape", "Wave", "Line", "Thick"],
+                        at,
+                        cx,
+                        move |index, _, cx| {
+                            let _ = weak.update(cx, |this, cx| {
+                                this.settings.seek_style =
+                                    needle_core::model::SEEK_STYLES[index].into();
+                                this.persist_settings();
+                                cx.notify();
+                            });
+                        },
+                    ),
+                    cx,
+                )
+            })
             .child(self.switch_row(
                 "player-lyrics",
                 "Lyrics under the player",

@@ -672,22 +672,8 @@ impl AppView {
     /// Settings > Appearance > Lyrics under the player: the line being sung, in a strip at the
     /// window's foot. Only for a song with timed lyrics; a note while no line is sung.
     pub(super) fn player_lyrics(&self, cx: &App) -> Option<AnyElement> {
-        if !self.settings.player_lyrics {
-            return None;
-        }
         let p = pal(cx);
-        let current = self.playback.current.as_ref()?;
-        let lyrics = match &self.lyrics {
-            Some((id, Some(lyrics))) if *id == current.track.id && !lyrics.lines.is_empty() => {
-                lyrics
-            }
-            _ => return None,
-        };
-        let line = self
-            .lyric_line
-            .and_then(|i| lyrics.lines.get(i))
-            .map(|l| l.text.trim())
-            .filter(|t| !t.is_empty());
+        let line = self.sung_line()?;
         let text = div()
             .w_full()
             .px_6()
@@ -696,7 +682,7 @@ impl AppView {
             .text_size(px(13.))
             .font_weight(FontWeight::MEDIUM)
             .text_color(if line.is_some() { p.ink } else { p.ink_3 })
-            .child(line.unwrap_or("♪").to_string());
+            .child(line.unwrap_or_else(|| "♪".into()));
         // Each new line fades in.
         let serial = self.lyric_line.map_or(0, |i| i as u64 + 1);
         Some(
@@ -715,6 +701,27 @@ impl AppView {
                     |el, t| el.opacity(t),
                 ))
                 .into_any_element(),
+        )
+    }
+
+    /// Settings › Appearance › Lyrics under the player: the line being sung now (none between
+    /// lines), or nothing when it is off or the song has no timed lyrics.
+    pub(super) fn sung_line(&self) -> Option<Option<String>> {
+        if !self.settings.player_lyrics {
+            return None;
+        }
+        let current = self.playback.current.as_ref()?;
+        let lyrics = match &self.lyrics {
+            Some((id, Some(lyrics))) if *id == current.track.id && !lyrics.lines.is_empty() => {
+                lyrics
+            }
+            _ => return None,
+        };
+        Some(
+            self.lyric_line
+                .and_then(|i| lyrics.lines.get(i))
+                .map(|l| l.text.trim().to_string())
+                .filter(|t| !t.is_empty()),
         )
     }
 

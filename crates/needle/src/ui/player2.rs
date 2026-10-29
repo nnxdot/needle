@@ -19,6 +19,7 @@ use needle_core::{audio::Command, audio::Repeat};
 
 /// The bar's height and its widest.
 pub(super) const HEIGHT: f32 = 58.;
+
 pub(super) const MAX_WIDTH: f32 = 860.;
 /// The buttons that sit left of the screen, with the transport.
 const TRANSPORT: [&str; 5] = ["shuffle", "previous", "play", "next", "repeat"];
@@ -278,11 +279,15 @@ impl AppView {
                             } else {
                                 format!("{} — {}", track.display_artist(), track.album)
                             };
+                            // Lyrics under the player: the line being sung takes the second
+                            // row while it is sung (between lines, the artist again).
+                            let sung = self.sung_line().flatten();
+                            let serial = self.lyric_line.map_or(0, |i| i as u64 + 1);
                             div()
                                 .flex()
                                 .flex_col()
-                                .items_center()
                                 .min_w_0()
+                                .px(px(2.))
                                 .child(
                                     div()
                                         .id("now-title")
@@ -297,8 +302,22 @@ impl AppView {
                                             this.navigate(album.clone(), window, cx)
                                         })),
                                 )
-                                .child(
-                                    div()
+                                .child(match sung {
+                                    Some(line) => super::motion::animate(
+                                        div()
+                                            .max_w_full()
+                                            .text_size(px(11.5))
+                                            .font_weight(FontWeight::MEDIUM)
+                                            .text_color(p.accent)
+                                            .truncate()
+                                            .child(line),
+                                        ("now-lyric", serial),
+                                        220,
+                                        cx,
+                                        |el, t| el.opacity(t),
+                                    )
+                                    .into_any_element(),
+                                    None => div()
                                         .id("now-artist")
                                         .max_w_full()
                                         .text_size(px(11.5))
@@ -309,8 +328,9 @@ impl AppView {
                                         .child(second)
                                         .on_click(cx.listener(move |this, _, window, cx| {
                                             this.navigate(artist.clone(), window, cx)
-                                        })),
-                                )
+                                        }))
+                                        .into_any_element(),
+                                })
                                 .into_any_element()
                         }
                     })
@@ -319,7 +339,6 @@ impl AppView {
                             .flex()
                             .items_center()
                             .h(px(10.))
-                            .px(px(8.))
                             .child(self.thin_seek_bar(current.is_none(), cx)),
                     ),
             )
