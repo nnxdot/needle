@@ -120,6 +120,8 @@ struct NowPlayingView: View {
         return pendingLoop ?? []
     }
     @State private var swipe: CGFloat = 0
+    /// Counts the hinge's changes (iPhone Duo), so the parts are placed again.
+    @State private var hingeChanges = 0
 
     enum Pane { case cover, lyrics, queue }
 
@@ -163,57 +165,45 @@ struct NowPlayingView: View {
             }
             VStack(spacing: 0) {
                 top(song)
-                switch pane {
-                case .cover:
-                    if look == "record" {
-                        // The cover as a turning record, its arm resting on it; still while
-                        // paused or with Reduce motion.
-                        Spacer(minLength: 8)
-                        RecordDisc(side: 330, spinning: store.playback?.playing == true && !reduceMotion) {
-                            Artwork(path: song?.artwork, seed: seed, size: 500)
+                // The iPhone Duo open: the look and the song's controls side by side, parted
+                // along the screen's fold (or above and below it, held as a tent); closed, or
+                // on any other phone, one above the other.
+                GeometryReader { geo in
+                    Group {
+                    switch split(geo) {
+                    case .phone:
+                        VStack(spacing: 0) {
+                            stage(song, seed: seed, look: look, immersive: immersive)
+                            panel(song)
                         }
-                        .gesture(swipeToSkip)
-                        Spacer(minLength: 16)
-                    } else if look == "lyrics" {
-                        // Only the words, very large, lit as they are sung.
-                        LyricsPane(song: song, stage: true) { has in hasLyrics = has }
-                    } else if look == "visualizer" {
-                        // The visualizer in the cover's place, on the cover's colours.
-                        Spacer(minLength: 8)
-                        Visualizer().frame(width: 340)
-                            .contentShape(.rect)
-                            .gesture(swipeToSkip)
-                        Spacer(minLength: 16)
-                    } else if immersive {
-                        // The cover is the page itself: the words sit over its foot.
-                        Spacer(minLength: 8)
-                            .contentShape(.rect)
-                            .gesture(swipeToSkip)
-                    } else {
-                        Spacer(minLength: 8)
-                        cover(song, seed: seed)
-                        Spacer(minLength: 16)
+                    case .beside(let left, let gap):
+                        HStack(spacing: 0) {
+                            VStack(spacing: 0) { stage(song, seed: seed, look: look, immersive: immersive) }
+                                .frame(width: left)
+                            Color.clear.frame(width: gap)
+                            VStack(spacing: 0) {
+                                Spacer(minLength: 0)
+                                panel(song)
+                                Spacer(minLength: 0)
+                            }
+                        }
+                    case .stacked(let above, let gap):
+                        VStack(spacing: 0) {
+                            VStack(spacing: 0) { stage(song, seed: seed, look: look, immersive: immersive) }
+                                .frame(height: above)
+                            Color.clear.frame(height: gap)
+                            panel(song)
+                            Spacer(minLength: 0)
+                        }
                     }
-                    title(song)
-                case .lyrics:
-                    small(song, seed: seed)
-                    LyricsPane(song: song)
-                case .queue:
-                    small(song, seed: seed)
-                    QueuePane()
+                    }
+                    .frame(width: geo.size.width, height: geo.size.height)
                 }
-                SeekBar(duration: song?.duration ?? 0, loop: loop).padding(.top, 16)
-                controls
-                if store.onComputer {
-                    ComputerVolume().padding(.top, 6)
-                } else if app.volumeSlider {
-                    VolumeBar().frame(height: 34).padding(.top, 6)
-                }
-                bottom.padding(.top, 14)
             }
             .padding(.horizontal, 24)
             .padding(.bottom, 8)
         }
+        .modifier(HingeWatch(changes: $hingeChanges))
         .animation(reduceMotion ? nil : .spring(response: 0.45, dampingFraction: 0.85), value: pane)
         .task(id: song?.id) {
             pendingLoop = nil
@@ -239,6 +229,89 @@ struct NowPlayingView: View {
         // theme (light text and glass on them, and a light status bar), and its signs white.
         .tint(.white)
         .preferredColorScheme(.dark)
+    }
+
+    /// How the player parts on a wide or folding screen.
+    private enum Split {
+        /// One above the other, as on a phone.
+        case phone
+        /// Side by side: the look this wide, then a gap (the fold, when there is one).
+        case beside(CGFloat, CGFloat)
+        /// Above and below a fold across the screen: the look this tall, then the fold.
+        case stacked(CGFloat, CGFloat)
+    }
+
+    /// Where the screen divides (iOS 27.1 tells: the iPhone Duo's fold), else side by side on a
+    /// screen much wider than tall, else one above the other.
+    private func split(_ geo: GeometryProxy) -> Split {
+        _ = hingeChanges
+        let size = geo.size
+        if #available(iOS 27.1, *),
+           let fold = geo.reservedRegions(kind: .division, options: .includeInactive).first?.frame, !fold.isNull, !fold.isEmpty {
+            if fold.width >= fold.height, fold.minY > 160, size.height - fold.maxY > 160 { return .stacked(fold.minY, fold.height) }
+            if fold.height > fold.width, fold.minX > 200, size.width - fold.maxX > 200 { return .beside(fold.minX, fold.width) }
+        }
+        if size.width > size.height * 1.15 && size.width >= 640 { return .beside((size.width - 40) / 2, 40) }
+        return .phone
+    }
+
+    /// The look: the cover, the record, the lyrics, or the visualizer (or the lyrics or the
+    /// queue pane, under the song small).
+    @ViewBuilder
+    private func stage(_ song: Song?, seed: String, look: String, immersive: Bool) -> some View {
+        switch pane {
+        case .cover:
+            if look == "record" {
+                // The cover as a turning record, its arm resting on it; still while
+                // paused or with Reduce motion.
+                Spacer(minLength: 8)
+                RecordDisc(side: 330, spinning: store.playback?.playing == true && !reduceMotion) {
+                    Artwork(path: song?.artwork, seed: seed, size: 500)
+                }
+                .gesture(swipeToSkip)
+                Spacer(minLength: 16)
+            } else if look == "lyrics" {
+                // Only the words, very large, lit as they are sung.
+                LyricsPane(song: song, stage: true) { has in hasLyrics = has }
+            } else if look == "visualizer" {
+                // The visualizer in the cover's place, on the cover's colours.
+                Spacer(minLength: 8)
+                Visualizer().frame(maxWidth: 340)
+                    .contentShape(.rect)
+                    .gesture(swipeToSkip)
+                Spacer(minLength: 16)
+            } else if immersive {
+                // The cover is the page itself: the words sit over its foot.
+                Spacer(minLength: 8)
+                    .contentShape(.rect)
+                    .gesture(swipeToSkip)
+            } else {
+                Spacer(minLength: 8)
+                cover(song, seed: seed)
+                Spacer(minLength: 16)
+            }
+        case .lyrics:
+            small(song, seed: seed)
+            LyricsPane(song: song)
+        case .queue:
+            small(song, seed: seed)
+            QueuePane()
+        }
+    }
+
+    /// The song's name (with the cover showing), the seek bar, the controls, and the buttons
+    /// at the foot.
+    @ViewBuilder
+    private func panel(_ song: Song?) -> some View {
+        if pane == .cover { title(song) }
+        SeekBar(duration: song?.duration ?? 0, loop: loop).padding(.top, 16)
+        controls
+        if store.onComputer {
+            ComputerVolume().padding(.top, 6)
+        } else if store.app.volumeSlider {
+            VolumeBar().frame(height: 34).padding(.top, 6)
+        }
+        bottom.padding(.top, 14)
     }
 
     /// The top, as Apple Music's: a grabber to tap or pull down to close the player (and, on
@@ -1648,5 +1721,20 @@ struct StyledSeekLine: View {
             }
         }
         .accessibilityHidden(true)
+    }
+}
+
+/// Counts the hinge's changes (opened, half-open, closed) on a folding iPhone, iOS 27.1 on.
+struct HingeWatch: ViewModifier {
+    @Binding var changes: Int
+
+    func body(content: Content) -> some View {
+        if #available(iOS 27.1, *) {
+            content.onHingeChange { old, new in
+                if old.hinge?.status != new.hinge?.status { changes += 1 }
+            }
+        } else {
+            content
+        }
     }
 }
