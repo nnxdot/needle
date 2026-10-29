@@ -815,14 +815,20 @@ private fun ArtistHero(art: String?, logo: String?, name: String, albums: Int?, 
         ) {
             if (logo != null) {
                 // Their own logo, as Apple Music shows it. Logos are mostly white: on a light
-                // page, the logo takes the page's ink.
+                // page, the logo takes the page's ink; a dark logo (fanart.tv has black ones
+                // beside the white) is written in white on a dark page, as on the computers.
                 val light = page.luminance() > 0.5f
+                val darkLogo = rememberDarkLogo(logo)
                 coil3.compose.AsyncImage(
                     // Keyed by the file's change too: a logo chosen again keeps its path.
                     model = fileRequest(fileUri(logo)),
                     contentDescription = name,
                     contentScale = androidx.compose.ui.layout.ContentScale.Fit,
-                    colorFilter = if (light) androidx.compose.ui.graphics.ColorFilter.tint(MaterialTheme.colorScheme.onBackground) else null,
+                    colorFilter = when {
+                        light -> androidx.compose.ui.graphics.ColorFilter.tint(MaterialTheme.colorScheme.onBackground)
+                        darkLogo -> androidx.compose.ui.graphics.ColorFilter.tint(Color(245, 245, 245))
+                        else -> null
+                    },
                     modifier = Modifier.widthIn(max = 300.dp).heightIn(max = 120.dp).fillMaxWidth(),
                 )
             } else {
@@ -839,6 +845,40 @@ private fun ArtistHero(art: String?, logo: String?, name: String, albums: Int?, 
             buttons()
         }
     }
+}
+
+/**
+ * Whether a logo is dark: the light of its pixels, each weighed by how solid it is, under 0.4
+ * (as on the computers). Read once per file and change, small and off the main thread.
+ */
+@Composable
+private fun rememberDarkLogo(path: String): Boolean {
+    val changed = remember(path) { java.io.File(path).lastModified() }
+    val dark by androidx.compose.runtime.produceState(false, path, changed) {
+        value = withContext(Dispatchers.IO) {
+            runCatching {
+                val bounds = android.graphics.BitmapFactory.Options().apply { inJustDecodeBounds = true }
+                android.graphics.BitmapFactory.decodeFile(path, bounds)
+                var sample = 1
+                while (bounds.outWidth / (sample * 2) >= 128) sample *= 2
+                val bitmap = android.graphics.BitmapFactory.decodeFile(path, android.graphics.BitmapFactory.Options().apply { inSampleSize = sample }) ?: return@runCatching false
+                var light = 0f
+                var weight = 0f
+                val row = IntArray(bitmap.width)
+                for (y in 0 until bitmap.height) {
+                    bitmap.getPixels(row, 0, bitmap.width, 0, y, bitmap.width, 1)
+                    for (c in row) {
+                        val a = (c ushr 24) / 255f
+                        light += a * (0.2126f * ((c shr 16) and 0xFF) + 0.7152f * ((c shr 8) and 0xFF) + 0.0722f * (c and 0xFF)) / 255f
+                        weight += a
+                    }
+                }
+                bitmap.recycle()
+                weight > 0f && light / weight < 0.4f
+            }.getOrDefault(false)
+        }
+    }
+    return dark
 }
 
 /** Play and Shuffle pills, and a round Radio, as on the album pages. */

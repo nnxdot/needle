@@ -6,6 +6,7 @@ import androidx.compose.foundation.gestures.detectVerticalDragGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.ui.graphics.Color
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxHeight
@@ -219,7 +220,8 @@ private fun FanartPicker(name: String, kind: String, onChanged: () -> Unit, onDi
             when {
                 choicesLoad.loading -> Text("Looking on fanart.tv…")
                 choices.isNullOrEmpty() -> Text("fanart.tv has no pictures of this kind for $name. Online lookups must be on.")
-                else -> androidx.compose.foundation.lazy.grid.LazyVerticalGrid(
+                else -> Column {
+                androidx.compose.foundation.lazy.grid.LazyVerticalGrid(
                     columns = GridCells.Fixed(if (kind == "photo") 3 else 2),
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
                     verticalArrangement = Arrangement.spacedBy(8.dp),
@@ -236,7 +238,8 @@ private fun FanartPicker(name: String, kind: String, onChanged: () -> Unit, onDi
                                 .fillMaxWidth()
                                 .aspectRatio(if (kind == "photo") 1f else if (kind == "logo") 2.6f else 1.78f)
                                 .clip(RoundedCornerShape(8.dp))
-                                .background(MaterialTheme.colorScheme.surfaceContainerHighest)
+                                // Grey behind logos (as on the computers): fanart.tv has white ones and black ones.
+                                .background(if (kind == "logo") Color.hsl(0f, 0f, 0.42f) else MaterialTheme.colorScheme.surfaceContainerHighest)
                                 .clickable(enabled = !saving) {
                                     saving = true
                                     var kept: Result<String>? = null
@@ -248,6 +251,16 @@ private fun FanartPicker(name: String, kind: String, onChanged: () -> Unit, onDi
                                 },
                         )
                     }
+                }
+                // The one shown may be the one in use: picking it again changes nothing.
+                if (choices.orEmpty().size == 1) {
+                    Text(
+                        "This is the only one fanart.tv has of this artist. Choose picture… to use another.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(top = 10.dp),
+                    )
+                }
                 }
             }
         },
