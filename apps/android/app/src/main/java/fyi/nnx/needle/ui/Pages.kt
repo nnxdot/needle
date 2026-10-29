@@ -819,12 +819,17 @@ private fun ArtistHero(art: String?, logo: String?, name: String, albums: Int?, 
                 // beside the white) is written in white on a dark page, as on the computers.
                 val light = page.luminance() > 0.5f
                 val darkLogo = rememberDarkLogo(logo)
+                // A logo the listener chose (the core keeps it as ".own") shows as it is, on any
+                // look: their choice of a white or a black one is kept. Needle's own recolouring
+                // is only for logos it found itself.
+                val chosen = logo.endsWith(".own")
                 coil3.compose.AsyncImage(
                     // Keyed by the file's change too: a logo chosen again keeps its path.
                     model = fileRequest(fileUri(logo)),
                     contentDescription = name,
                     contentScale = androidx.compose.ui.layout.ContentScale.Fit,
                     colorFilter = when {
+                        chosen -> null
                         light -> androidx.compose.ui.graphics.ColorFilter.tint(MaterialTheme.colorScheme.onBackground)
                         darkLogo -> androidx.compose.ui.graphics.ColorFilter.tint(Color(245, 245, 245))
                         else -> null
