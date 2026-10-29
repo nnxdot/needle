@@ -445,11 +445,25 @@ impl AppView {
         self.settings.ambient || self.settings.theme == "ambient"
     }
 
+    /// Windows: Glass is on, with the cover on it (Settings › Appearance › The cover on the
+    /// glass), so the glass takes the music's colours, as on the Mac.
+    pub(super) fn glass_cover(&self) -> bool {
+        use super::glass::Material;
+        cfg!(windows)
+            && self.settings.glass_ambient
+            && !self.ambient_look()
+            && matches!(
+                self.material(),
+                Material::Mica | Material::Acrylic | Material::Clear
+            )
+    }
+
     /// The Ambient look's background: the page's or the playing song's cover, blurred, over
     /// the whole window (or the chosen colour as a soft gradient), with a dark wash on top so
     /// text stays readable on any cover.
     pub(super) fn ambient_layer(&mut self, cx: &App) -> Option<AnyElement> {
-        if !self.ambient_look() {
+        let on_glass = self.glass_cover();
+        if !self.ambient_look() && !on_glass {
             return None;
         }
         let p = theme::pal(cx);
@@ -470,6 +484,35 @@ impl AppView {
                 )
             })
         });
+        if on_glass {
+            // Over the glass: the cover half see-through, so the glass still shows through it,
+            // and a light wash for the words.
+            let layer = div().absolute().inset_0();
+            let layer = match blur {
+                Some((blur, fit)) => layer.child(
+                    img(blur)
+                        .absolute()
+                        .inset_0()
+                        .size_full()
+                        .object_fit(ObjectFit::Cover)
+                        .opacity(0.55 * fit),
+                ),
+                None => layer.child(div().absolute().inset_0().bg(linear_gradient(
+                    150.,
+                    linear_color_stop(p.glow.opacity(0.35), 0.),
+                    linear_color_stop(p.glow.opacity(0.05), 1.),
+                ))),
+            };
+            return Some(
+                layer
+                    .child(div().absolute().inset_0().bg(linear_gradient(
+                        180.,
+                        linear_color_stop(p.chrome.opacity(if p.dark { 0.1 } else { 0.25 }), 0.),
+                        linear_color_stop(p.chrome.opacity(if p.dark { 0.35 } else { 0.5 }), 1.),
+                    )))
+                    .into_any_element(),
+            );
+        }
         let layer = div().absolute().inset_0().bg(p.chrome);
         let layer = match blur {
             Some((blur, fit)) => layer.child(

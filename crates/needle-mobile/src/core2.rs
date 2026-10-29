@@ -32,6 +32,17 @@ pub struct LibraryChoices {
     /// The big player's look: "cover", "record", "lyrics", or "visualizer".
     #[uniffi(default = "cover")]
     pub big_look: String,
+    /// The big player's seek bar: "shape", "wave", "line", or "thick".
+    #[uniffi(default = "shape")]
+    pub seek_style: String,
+    /// What makes an album: "tags" (album artist and album) or "folder" (see
+    /// needle_core::grouping). Changing it, or `compilations_various`, moves songs between
+    /// albums at once.
+    #[uniffi(default = "tags")]
+    pub album_grouping: String,
+    /// Songs tagged as a compilation, with no album artist, are one album by Various Artists.
+    #[uniffi(default = true)]
+    pub compilations_various: bool,
 }
 
 /// One genre on the genre map: as big as `songs`, at (`x` bright, `y` lively), each 0 to 1.
@@ -203,11 +214,16 @@ impl Needle {
             artist_pictures: s.artist_pictures,
             smart_mix: s.smart_mix,
             big_look: s.big_look.clone(),
+            seek_style: s.seek_style.clone(),
+            album_grouping: s.album_grouping.clone(),
+            compilations_various: s.compilations_various,
         })
     }
 
-    /// Keeps the library choices; the song playing goes on as it was.
+    /// Keeps the library choices; the song playing goes on as it was. A new album rule gives
+    /// every song its album again before it returns (a moment for a big library).
     pub fn set_library_choices(&self, value: LibraryChoices) -> Result<()> {
+        let before = self.library.settings()?;
         let s = self.library.update_settings(|s| {
             s.display_font = value.display_font.clone();
             s.text_font = value.text_font.clone();
@@ -221,7 +237,19 @@ impl Needle {
             } else {
                 "cover".into()
             };
+            if needle_core::model::SEEK_STYLES.contains(&value.seek_style.as_str()) {
+                s.seek_style = value.seek_style.clone();
+            }
+            if needle_core::grouping::ALBUM_GROUPINGS.contains(&value.album_grouping.as_str()) {
+                s.album_grouping = value.album_grouping.clone();
+            }
+            s.compilations_various = value.compilations_various;
         })?;
+        if s.album_grouping != before.album_grouping
+            || s.compilations_various != before.compilations_various
+        {
+            self.library.apply_album_rule()?;
+        }
         self.player.send(Command::Configure(Box::new(s)));
         Ok(())
     }
