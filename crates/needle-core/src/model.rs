@@ -265,6 +265,10 @@ pub struct Settings {
     /// cover as a turning record), "lyrics" (only the words, very large), or "visualizer".
     #[serde(default = "default_big_look")]
     pub big_look: String,
+    /// The big player's seek bar: "shape" (the song's loud and quiet parts), "wave" (a line
+    /// that waves while the music plays), "line", or "thick" (as Android's).
+    #[serde(default = "default_seek_style")]
+    pub seek_style: String,
     /// The song table's columns, in order, with their widths.
     pub columns: Vec<ColumnSetting>,
     /// Send crash reports (without file paths or names) to needle.nnx.fyi.
@@ -397,6 +401,7 @@ impl Default for Settings {
             crossfade: 0.,
             smart_mix: true,
             big_look: default_big_look(),
+            seek_style: default_seek_style(),
             columns: [("album", 220.), ("quality", 92.), ("time", 52.)]
                 .into_iter()
                 .map(|(key, width)| ColumnSetting {
@@ -496,6 +501,13 @@ pub fn format_duration(seconds: f64) -> String {
 fn default_big_look() -> String {
     "cover".into()
 }
+
+fn default_seek_style() -> String {
+    "shape".into()
+}
+
+/// The big player's seek bar styles, in Settings' order.
+pub const SEEK_STYLES: [&str; 4] = ["shape", "wave", "line", "thick"];
 
 /// The big player's looks, in the order its look button steps through them.
 pub const BIG_LOOKS: [&str; 4] = ["cover", "record", "lyrics", "visualizer"];

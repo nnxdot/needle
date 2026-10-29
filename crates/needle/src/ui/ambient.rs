@@ -256,12 +256,7 @@ impl AppView {
     /// Room a page leaves at its foot, so its end scrolls out from under the floating player.
     pub(super) fn foot_room(&self) -> Pixels {
         if self.floating() && !self.settings.layout.player_on_top {
-            let lyric = if self.sung_line().is_some() {
-                super::player2::LYRIC_LINE - 6.
-            } else {
-                0.
-            };
-            px(super::player2::HEIGHT + 28. + lyric)
+            px(super::player2::HEIGHT + 28.)
         } else {
             px(0.)
         }
