@@ -6,6 +6,7 @@ A new Home and icon, and a lot more to see and hear.
 - [search] **A new Search.** The best match large, then songs, albums, artists, and lines of lyrics that hold the words, with a chip for each and rules to try.
 - [player] **Four looks for the player.** The Look button at its top steps through Cover, Record (the cover as a turning record), Lyrics (only the words, very large, lit as they are sung), and Visualizer.
 - [player] **iPhone Duo.** Open it and Needle spreads out: the tabs stand at the right side, and the player puts the cover on one side of the fold and its controls on the other. Close it and it is the phone you know.
+- [player] **Sideways.** Turn your iPhone and Needle turns with it: the cover on one side, the controls on the other.
 - [sound] **The visualizer.** Light that moves with the music, in the cover's colours: the player's Visualizer look, or over the whole screen from the player's ••• menu.
 - [player] **Motion.** An album's cover grows into its page, a page's name folds into the bar as you scroll, and the colours follow the music. With Reduce motion, only fades.
 - [player] **A seek bar shaped like the song.** The player's seek bar shows the song's loud and quiet parts. Or choose Wave, Line, or Thick in Settings › Appearance › Seek bar.

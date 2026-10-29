@@ -173,23 +173,28 @@ struct NowPlayingView: View {
                     switch split(geo) {
                     case .phone:
                         VStack(spacing: 0) {
-                            stage(song, seed: seed, look: look, immersive: immersive)
+                            stage(song, seed: seed, look: look, immersive: immersive, room: geo.size)
                             panel(song)
                         }
                     case .beside(let left, let gap):
+                        // As on Android: on a short screen (a phone on its side) the song and
+                        // its controls are a little smaller, and scroll if they still do not fit.
+                        let short = geo.size.height < 480
                         HStack(spacing: 0) {
-                            VStack(spacing: 0) { stage(song, seed: seed, look: look, immersive: immersive) }
+                            VStack(spacing: 0) { stage(song, seed: seed, look: look, immersive: immersive, room: CGSize(width: left, height: geo.size.height)) }
                                 .frame(width: left)
                             Color.clear.frame(width: gap)
-                            VStack(spacing: 0) {
-                                Spacer(minLength: 0)
-                                panel(song)
-                                Spacer(minLength: 0)
+                            ScrollView(.vertical) {
+                                VStack(spacing: 0) { panel(song, compact: short) }
+                                    .frame(minHeight: geo.size.height)
                             }
+                            .scrollBounceBehavior(.basedOnSize)
+                            .scrollIndicators(.hidden)
+                            .environment(\.compactPlayer, short)
                         }
                     case .stacked(let above, let gap):
                         VStack(spacing: 0) {
-                            VStack(spacing: 0) { stage(song, seed: seed, look: look, immersive: immersive) }
+                            VStack(spacing: 0) { stage(song, seed: seed, look: look, immersive: immersive, room: CGSize(width: geo.size.width, height: above)) }
                                 .frame(height: above)
                             Color.clear.frame(height: gap)
                             panel(song)
@@ -242,7 +247,7 @@ struct NowPlayingView: View {
     }
 
     /// Where the screen divides (iOS 27.1 tells: the iPhone Duo's fold), else side by side on a
-    /// screen much wider than tall, else one above the other.
+    /// screen wider than tall (a phone on its side), else one above the other.
     private func split(_ geo: GeometryProxy) -> Split {
         _ = hingeChanges
         let size = geo.size
@@ -251,21 +256,26 @@ struct NowPlayingView: View {
             if fold.width >= fold.height, fold.minY > 160, size.height - fold.maxY > 160 { return .stacked(fold.minY, fold.height) }
             if fold.height > fold.width, fold.minX > 200, size.width - fold.maxX > 200 { return .beside(fold.minX, fold.width) }
         }
-        if size.width > size.height * 1.15 && size.width >= 640 { return .beside((size.width - 40) / 2, 40) }
+        // As on Android: side by side when wider than tall and either wide (600 points) or short
+        // (under 480, a phone on its side); the song and its controls take 46% (at most 520).
+        if size.width > size.height && (size.width >= 600 || size.height < 480) {
+            let side = min(size.width * 0.46, 520)
+            return .beside(size.width - side - 28, 28)
+        }
         return .phone
     }
 
     /// The look: the cover, the record, the lyrics, or the visualizer (or the lyrics or the
     /// queue pane, under the song small).
     @ViewBuilder
-    private func stage(_ song: Song?, seed: String, look: String, immersive: Bool) -> some View {
+    private func stage(_ song: Song?, seed: String, look: String, immersive: Bool, room: CGSize) -> some View {
         switch pane {
         case .cover:
             if look == "record" {
                 // The cover as a turning record, its arm resting on it; still while
                 // paused or with Reduce motion.
                 Spacer(minLength: 8)
-                RecordDisc(side: 330, spinning: store.playback?.playing == true && !reduceMotion) {
+                RecordDisc(side: max(120, min(330, room.width - 16, room.height - 48)), spinning: store.playback?.playing == true && !reduceMotion) {
                     Artwork(path: song?.artwork, seed: seed, size: 500)
                 }
                 .gesture(swipeToSkip)
@@ -302,16 +312,16 @@ struct NowPlayingView: View {
     /// The song's name (with the cover showing), the seek bar, the controls, and the buttons
     /// at the foot.
     @ViewBuilder
-    private func panel(_ song: Song?) -> some View {
-        if pane == .cover { title(song) }
-        SeekBar(duration: song?.duration ?? 0, loop: loop).padding(.top, 16)
-        controls
+    private func panel(_ song: Song?, compact: Bool = false) -> some View {
+        if pane == .cover { title(song, compact: compact) }
+        SeekBar(duration: song?.duration ?? 0, loop: loop).padding(.top, compact ? 8 : 16)
+        controls.padding(.top, compact ? -8 : 0)
         if store.onComputer {
-            ComputerVolume().padding(.top, 6)
+            ComputerVolume().padding(.top, compact ? 2 : 6)
         } else if store.app.volumeSlider {
-            VolumeBar().frame(height: 34).padding(.top, 6)
+            VolumeBar().frame(height: 34).padding(.top, compact ? 2 : 6)
         }
-        bottom.padding(.top, 14)
+        bottom.padding(.top, compact ? 6 : 14)
     }
 
     /// The top, as Apple Music's: a grabber to tap or pull down to close the player (and, on
@@ -430,11 +440,11 @@ struct NowPlayingView: View {
             } : nil)
     }
 
-    private func title(_ song: Song?) -> some View {
+    private func title(_ song: Song?, compact: Bool = false) -> some View {
         HStack(alignment: .center, spacing: 12) {
             VStack(alignment: .leading, spacing: 2) {
-                Text(song?.title ?? "").font(.needle(.title3).bold()).lineLimit(1)
-                artistButton(song).font(.needle(.title3))
+                Text(song?.title ?? "").font(.needle(compact ? .headline : .title3).bold()).lineLimit(1)
+                artistButton(song).font(.needle(compact ? .headline : .title3))
             }
             .frame(maxWidth: .infinity, alignment: .leading)
             if !(song?.onComputer ?? false), chosen.contains("favorite") { favoriteButton(song) }
@@ -665,9 +675,12 @@ struct BigButton: View {
     let size: CGFloat
     let action: () -> Void
     @State private var held = false
+    /// The player on a short screen (a phone on its side): a little smaller.
+    @Environment(\.compactPlayer) private var compact
 
     var body: some View {
-        Button(action: action) {
+        let size = compact ? size * 0.78 : size
+        return Button(action: action) {
             Image(systemName: symbol)
                 .font(.system(size: size))
                 .contentTransition(.symbolEffect(.replace))
@@ -1737,4 +1750,9 @@ struct HingeWatch: ViewModifier {
             content
         }
     }
+}
+
+extension EnvironmentValues {
+    /// The player's song and controls on a short screen (a phone on its side), drawn smaller.
+    @Entry var compactPlayer = false
 }

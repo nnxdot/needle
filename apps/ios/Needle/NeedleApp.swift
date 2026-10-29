@@ -86,6 +86,15 @@ struct RootView: View {
             }
             if args.contains("-albums") { paths[place] = NavigationPath([Route.albums]) }
             if args.contains("-show-welcome") { welcomeTest = true }
+            // -landscape: turns Needle on its side, as if the phone were turned, 25 s in (after
+            // -show-player has opened the player and the app has settled).
+            if args.contains("-landscape") {
+                Task {
+                    try? await Task.sleep(for: .seconds(25))
+                    let scene = UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first
+                    scene?.requestGeometryUpdate(.iOS(interfaceOrientations: .landscapeRight))
+                }
+            }
             // -artist <name>, -album <title>: open that page.
             let value = { (flag: String) in args.firstIndex(of: flag).flatMap { args.indices.contains($0 + 1) ? args[$0 + 1] : nil } }
             if let name = value("-artist") { store.opening = .artist(name) }
@@ -223,3 +232,4 @@ struct QuestionAlert: ViewModifier {
         }
     }
 }
+
