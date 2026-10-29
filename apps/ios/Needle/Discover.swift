@@ -43,9 +43,9 @@ struct WaveBars: View {
     }
 }
 
-/// Light that moves with the music, as on Windows and Android: a soft glow in the middle that
-/// swells with the bass, in the music's colours, and 96 rays all round, each as long as its
-/// band is loud. A square, drawn in the cover's place; still with Reduce motion.
+/// Light that moves with the music, as on Android: a bright glow in the middle that swells with
+/// the bass, and 96 rays all round, each as long as its band is loud, in the colours of the
+/// cover playing. A square, drawn in the cover's place; still with Reduce motion.
 struct Visualizer: View {
     @Environment(Store.self) private var store
     @Environment(\.accessibilityReduceMotion) private var systemReduceMotion
@@ -54,9 +54,11 @@ struct Visualizer: View {
     private static let bands = 48
 
     var body: some View {
-        let (inner, outer) = (store.colors.accent, store.coverColor ?? store.colors.accent)
-        TimelineView(.animation(minimumInterval: 1 / 30, paused: systemReduceMotion || store.app.reduceMotion)) { _ in
+        let (inner, outer) = Self.lights(UIColor(store.coverColor ?? store.colors.accent))
+        TimelineView(.animation(minimumInterval: 1 / 30, paused: systemReduceMotion || store.app.reduceMotion)) { timeline in
             Canvas { g, size in
+                // Drawn anew each frame of the timeline.
+                _ = timeline.date
                 // Straight from the core: it eases the spectrum itself (quick up, slow down).
                 let bands = store.core.spectrum(bands: UInt32(Self.bands))
                 guard bands.count == Self.bands else { return }
@@ -66,16 +68,11 @@ struct Visualizer: View {
                 let bass = average(0..<6), level = average(0..<Self.bands)
                 let c = CGPoint(x: size.width / 2, y: size.height / 2)
                 let r = min(size.width, size.height) / 2
-                // The glow: rings from wide and faint to small and bright, a soft light that
-                // swells with the bass.
+                // The glow, as on Android: larger and brighter with the bass.
                 let glow = r * (0.55 + 0.45 * bass)
-                for i in 0..<14 {
-                    let t = CGFloat(i) / 14
-                    let radius = glow * (1 - 0.85 * t)
-                    let alpha = (0.015 + 0.03 * level) + (0.02 + 0.05 * bass) * t
-                    g.fill(Path(ellipseIn: CGRect(x: c.x - radius, y: c.y - radius, width: radius * 2, height: radius * 2)),
-                           with: .color(outer.mix(with: inner, by: Double(t)).opacity(Double(alpha))))
-                }
+                g.fill(Path(ellipseIn: CGRect(x: c.x - glow, y: c.y - glow, width: glow * 2, height: glow * 2)),
+                       with: .radialGradient(Gradient(colors: [inner.opacity(0.25 + 0.55 * bass), outer.opacity(0.12 + 0.3 * level), .clear]),
+                                             center: c, startRadius: 0, endRadius: glow))
                 // The rays: 96 all round, the low bands at the top, each as long as its band
                 // is loud.
                 let base = r * 0.34
@@ -96,6 +93,17 @@ struct Visualizer: View {
         }
         .aspectRatio(1, contentMode: .fit)
         .accessibilityHidden(true)
+    }
+
+    /// The light's two colours from the cover's, as Android's cover colours are: the cover's
+    /// own hue made bright, and a hue a sixth of the way round. A grey cover stays grey.
+    static func lights(_ cover: UIColor) -> (Color, Color) {
+        var h: CGFloat = 0, s: CGFloat = 0, b: CGFloat = 0, a: CGFloat = 0
+        cover.getHue(&h, saturation: &s, brightness: &b, alpha: &a)
+        let saturation = s < 0.08 ? s : min(max(s, 0.45), 0.75)
+        let inner = UIColor(hue: h, saturation: saturation, brightness: 0.95, alpha: 1)
+        let outer = UIColor(hue: (h + 1 / 6).truncatingRemainder(dividingBy: 1), saturation: saturation, brightness: 0.85, alpha: 1)
+        return (Color(uiColor: inner), Color(uiColor: outer))
     }
 }
 

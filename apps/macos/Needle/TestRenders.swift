@@ -8,6 +8,7 @@ import SwiftUI
 /// - `--render-crate <path.png>`: the record crate, 14 seconds in.
 /// - `--render-visualizer <path.png>`: the visualizer in a big player's frame, 16 seconds in,
 ///   and once more a second later (`<path>-2.png`).
+/// - `--render-big <path.png>`: the real big player, 16 seconds in, and a second later.
 /// - `--test-spectrum <file>`: the core's spectrum twice a second for 12 seconds.
 @MainActor
 enum TestRenders {
@@ -43,6 +44,18 @@ enum TestRenders {
                         Visualizer().frame(width: 480)
                     }
                     .frame(width: 1400, height: 890), to: file)
+                    try? await Task.sleep(for: .seconds(1))
+                }
+            }
+        }
+        if let path = value("--render-big") {
+            Task {
+                try? await Task.sleep(for: .seconds(16))
+                // The cover's colours read first: a picture runs no `.task`.
+                if let p = store.playback { _ = await Visualizer.coverColor(p.artwork, seed: p.album + p.artist) }
+                for file in [path, path.replacingOccurrences(of: ".png", with: "-2.png")] {
+                    // The real big player, in its look (`big_look`), at a window's size.
+                    render(BigPlayer().environment(store).frame(width: 1320, height: 860), to: file)
                     try? await Task.sleep(for: .seconds(1))
                 }
             }

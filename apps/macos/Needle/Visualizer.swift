@@ -51,19 +51,25 @@ struct WaveformSeek: View {
     }
 }
 
-/// Light that moves with the music, as on Windows and Android: a soft glow in the middle that
-/// swells with the bass, in the music's colours, and 96 rays all round, each as long as its
-/// band is loud. A square, drawn in the cover's place; still with Reduce motion.
+/// Light that moves with the music, as on Android: a bright glow in the middle that swells with
+/// the bass, and 96 rays all round, each as long as its band is loud, in the colours of the
+/// cover playing. A square, drawn in the cover's place; still with Reduce motion.
 struct Visualizer: View {
     private var store: Store { .shared }
+    /// The cover playing: the light takes its colours.
+    var path: String? = nil
+    var seed = ""
+    @State private var tint: NSColor?
 
     /// The bands drawn, as on Windows and Android: 48, mirrored down both sides.
     private static let bands = 48
 
     var body: some View {
-        let (inner, outer) = (store.colors.accent, store.colors.glow)
-        TimelineView(.animation(minimumInterval: 1 / 30, paused: !store.motion)) { _ in
+        let (inner, outer) = Self.lights(tint ?? Self.known[path ?? seed] ?? NSColor(store.colors.accent))
+        TimelineView(.animation(minimumInterval: 1 / 30, paused: !store.motion)) { timeline in
             Canvas { g, size in
+                // Drawn anew each frame of the timeline.
+                _ = timeline.date
                 // Straight from the core: it eases the spectrum itself (quick up, slow down).
                 let bands = store.core.spectrum(bands: UInt32(Self.bands))
                 guard bands.count == Self.bands else { return }
@@ -73,16 +79,11 @@ struct Visualizer: View {
                 let bass = average(0..<6), level = average(0..<Self.bands)
                 let c = CGPoint(x: size.width / 2, y: size.height / 2)
                 let r = min(size.width, size.height) / 2
-                // The glow: rings from wide and faint to small and bright, a soft light that
-                // swells with the bass.
+                // The glow, as on Android: larger and brighter with the bass.
                 let glow = r * (0.55 + 0.45 * bass)
-                for i in 0..<14 {
-                    let t = CGFloat(i) / 14
-                    let radius = glow * (1 - 0.85 * t)
-                    let alpha = (0.015 + 0.03 * level) + (0.02 + 0.05 * bass) * t
-                    g.fill(Path(ellipseIn: CGRect(x: c.x - radius, y: c.y - radius, width: radius * 2, height: radius * 2)),
-                           with: .color(outer.mix(with: inner, by: Double(t)).opacity(Double(alpha))))
-                }
+                g.fill(Path(ellipseIn: CGRect(x: c.x - glow, y: c.y - glow, width: glow * 2, height: glow * 2)),
+                       with: .radialGradient(Gradient(colors: [inner.opacity(0.25 + 0.55 * bass), outer.opacity(0.12 + 0.3 * level), .clear]),
+                                             center: c, startRadius: 0, endRadius: glow))
                 // The rays: 96 all round, the low bands at the top, each as long as its band
                 // is loud.
                 let base = r * 0.34
@@ -103,6 +104,38 @@ struct Visualizer: View {
         }
         .aspectRatio(1, contentMode: .fit)
         .accessibilityHidden(true)
+        .task(id: path ?? seed) {
+            guard path != nil || !seed.isEmpty else { tint = nil; return }
+            let color = await Self.coverColor(path, seed: seed)
+            if !Task.isCancelled { tint = color }
+        }
+    }
+
+    /// The covers' colours found so far, by path (or seed, with no picture).
+    @MainActor private static var known: [String: NSColor] = [:]
+
+    /// The cover's most colourful tone, as Android takes it; for a grey cover or none, the
+    /// page's colour.
+    @MainActor
+    static func coverColor(_ path: String?, seed: String) async -> NSColor {
+        if let hit = known[path ?? seed] { return hit }
+        var color: NSColor?
+        if let path { color = await Task.detached(priority: .userInitiated) { Covers.vivid(path) }.value }
+        let found = if let color { color } else { await Covers.pageColor(path, seed: seed) }
+        if known.count > 200 { known.removeAll() }
+        known[path ?? seed] = found
+        return found
+    }
+
+    /// The light's two colours from the cover's, as Android's cover colours are: the cover's
+    /// own hue made bright, and a hue a sixth of the way round. A grey cover stays grey.
+    static func lights(_ cover: NSColor) -> (Color, Color) {
+        var h: CGFloat = 0, s: CGFloat = 0, b: CGFloat = 0, a: CGFloat = 0
+        (cover.usingColorSpace(.sRGB) ?? cover).getHue(&h, saturation: &s, brightness: &b, alpha: &a)
+        let saturation = s < 0.08 ? s : min(max(s, 0.45), 0.75)
+        let inner = NSColor(hue: h, saturation: saturation, brightness: 0.95, alpha: 1)
+        let outer = NSColor(hue: (h + 1 / 6).truncatingRemainder(dividingBy: 1), saturation: saturation, brightness: 0.85, alpha: 1)
+        return (Color(nsColor: inner), Color(nsColor: outer))
     }
 }
 
