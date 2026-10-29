@@ -115,6 +115,7 @@ final class Store {
         case speakers
         case sleep
         case speed
+        case whatsNew
 
         var id: String {
             switch self {
@@ -125,6 +126,7 @@ final class Store {
             case .speakers: "speakers"
             case .sleep: "sleep"
             case .speed: "speed"
+            case .whatsNew: "whats-new"
             }
         }
     }
@@ -201,6 +203,16 @@ final class Store {
         let folder = Self.realPath(musicFolder.path)
         let core = core
         let welcomed = app.welcomed
+        // What's new, once after an update (as on the Mac): the version shown is kept on this
+        // iPhone. A first start shows the welcome instead.
+        let version = core.version()
+        if welcomed, UserDefaults.standard.string(forKey: "whats-new-seen") != version {
+            Task { @MainActor in
+                try? await Task.sleep(for: .seconds(1))
+                if self.sheet == nil { self.sheet = .whatsNew }
+            }
+        }
+        UserDefaults.standard.set(version, forKey: "whats-new-seen")
         Task.detached {
             // Already known: it is read again when the app comes to the front.
             if (try? core.folders())?.contains(folder) != true {

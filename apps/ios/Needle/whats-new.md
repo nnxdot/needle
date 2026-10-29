@@ -12,7 +12,7 @@ A new Home and icon, and a lot more to see and hear.
 - [lyrics] **Lyric cards.** Hold a line of the lyrics and choose Share as Card for a picture of it in the cover's colours.
 - [watch] **Needle on your Apple Watch.** See the song playing on your iPhone, play or pause, skip, and star it from your wrist.
 - [artists] **Better artists.** Guests after "feat." and both halves of "A & B" get their own page, sort names from your tags are used, and accents sort where they belong. Sort artists by A–Z, Most played, Most songs, or Newest, show only album artists, and jump with the letters at the side.
-- [artists] **Your own artist pictures.** The picture button on an artist's page lets you choose their photo, wide picture, and logo: one from your photos, or any of fanart.tv's.
+- [artists] **Your own artist pictures.** The picture button on an artist's page lets you choose their photo, wide picture, and logo: one from your photos, or any of fanart.tv's (logos on grey, so white ones and black ones both show). A picture you choose shows at once, as it is.
 - [globe] **Pictures for every artist.** With online lookups on, Needle finds every artist's pictures slowly in the background (on Wi-Fi), or all at once with Check all now (Settings › Library › Artist pictures).
 - [history] **On this day.** Home shows what you played one and five years ago today.
 - [albums] **Your library in numbers.** What your music is made of, in Library › Library in numbers.
