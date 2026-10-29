@@ -199,6 +199,7 @@ struct SheetView: View {
             case .speakers: SpeakersView()
             case .sleep: SleepSheet()
             case .speed: SpeedSheet()
+            case .whatsNew: WhatsNewSheet()
             }
         }
     }

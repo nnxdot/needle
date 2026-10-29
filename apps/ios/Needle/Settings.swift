@@ -1011,6 +1011,16 @@ struct SyncView: View {
 
 // MARK: - What's new and About
 
+/// What's new over everything, once after an update, with Done.
+struct WhatsNewSheet: View {
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        WhatsNewView()
+            .toolbar { ToolbarItem(placement: .confirmationAction) { Button("Done") { dismiss() } } }
+    }
+}
+
 /// The iPhone app's release notes (whats-new.md, in the app).
 struct WhatsNewView: View {
     private struct Change: Identifiable {
