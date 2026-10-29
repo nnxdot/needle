@@ -2837,6 +2837,10 @@ impl AppView {
         cx: &mut Context<Self>,
     ) -> AnyElement {
         let current = self.playback.current.as_ref().map(|c| c.track.id.clone());
+        let style = self.settings.seek_style.as_str();
+        if style != "shape" {
+            return self.styled_seek_bar(id, disabled, height, cx);
+        }
         let Some(heights) = self
             .waveform
             .as_ref()
@@ -2880,6 +2884,130 @@ impl AppView {
                             window.paint_quad(
                                 fill(Bounds::new(point(x, y), size(bar, tall)), color)
                                     .corner_radii(bar / 2.),
+                            );
+                        }
+                    },
+                )
+                .absolute()
+                .inset_0(),
+            )
+            .child(
+                div()
+                    .absolute()
+                    .inset_0()
+                    .flex()
+                    .items_center()
+                    .opacity(0.)
+                    .child(self.seek_bar(id, disabled, cx)),
+            )
+            .into_any_element()
+    }
+
+    /// The big player's seek bar as a wave, a line, or a thick bar (Settings › Appearance ›
+    /// Seek bar), with the plain seek bar unseen over it to take the pointer.
+    fn styled_seek_bar(
+        &self,
+        id: &'static str,
+        disabled: bool,
+        height: f32,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
+        let p = pal(cx);
+        let duration = self
+            .playback
+            .current
+            .as_ref()
+            .map_or(0., |c| c.track.duration);
+        let played = if duration > 0. {
+            (self.playback.position / duration).clamp(0., 1.) as f32
+        } else {
+            0.
+        };
+        let style = self.settings.seek_style.clone();
+        // The wave moves only while the music plays, and not with Reduce motion.
+        let moving = style == "wave" && self.playback.playing && self.motion_allowed();
+        let (accent, rest) = (p.accent, p.ink.opacity(0.22));
+        div()
+            .flex_1()
+            .h(px(height))
+            .relative()
+            .child(
+                canvas(
+                    |_, _, _| {},
+                    move |b, _, window, _| {
+                        let middle = b.top() + b.size.height / 2.;
+                        let split = b.left() + b.size.width * played;
+                        let thick = px(match style.as_str() {
+                            "thick" => 10.,
+                            "wave" => 3.,
+                            _ => 4.,
+                        });
+                        // What is still to play: a straight bar (after a small gap from
+                        // the wave, as Android's).
+                        let gap = if style == "wave" && played > 0. {
+                            px(6.)
+                        } else {
+                            px(0.)
+                        };
+                        let from = (split + gap).min(b.right());
+                        window.paint_quad(
+                            fill(
+                                Bounds::new(
+                                    point(from, middle - thick / 2.),
+                                    size(b.right() - from, thick),
+                                ),
+                                rest,
+                            )
+                            .corner_radii(thick / 2.),
+                        );
+                        if style == "wave" && split > b.left() {
+                            // What has played: one smooth wave, flat while the music rests.
+                            let amplitude = if moving { 2.5 } else { 0. };
+                            let phase = if moving {
+                                std::time::SystemTime::now()
+                                    .duration_since(std::time::UNIX_EPOCH)
+                                    // In whole turns first: seconds since 1970 are too
+                                    // large a number for the sine to move.
+                                    .map_or(0., |d| {
+                                        ((d.as_secs_f64() * 5.) % std::f64::consts::TAU) as f32
+                                    })
+                            } else {
+                                0.
+                            };
+                            let at = |x: Pixels| {
+                                let t = f32::from(x - b.left()) / 40. * std::f32::consts::TAU;
+                                point(x, middle + px(amplitude * (t - phase).sin()))
+                            };
+                            let mut line = PathBuilder::stroke(thick);
+                            line.move_to(at(b.left()));
+                            let mut x = b.left();
+                            while x < split {
+                                x = (x + px(1.)).min(split);
+                                line.line_to(at(x));
+                            }
+                            if let Ok(path) = line.build() {
+                                window.paint_path(path, accent);
+                            }
+                            // Round ends.
+                            for end in [at(b.left()), at(split)] {
+                                window.paint_quad(
+                                    fill(Bounds::centered_at(end, size(thick, thick)), accent)
+                                        .corner_radii(thick / 2.),
+                                );
+                            }
+                            if moving {
+                                window.request_animation_frame();
+                            }
+                        } else if split > b.left() {
+                            window.paint_quad(
+                                fill(
+                                    Bounds::new(
+                                        point(b.left(), middle - thick / 2.),
+                                        size(split - b.left(), thick),
+                                    ),
+                                    accent,
+                                )
+                                .corner_radii(thick / 2.),
                             );
                         }
                     },
@@ -3478,6 +3606,13 @@ impl Render for AppView {
                             } else {
                                 (None, foot)
                             };
+                            // With the player in the title bar, the line being sung sits right
+                            // under it (at the foot, it is in the floating player).
+                            let sung_top = if player_foot {
+                                None
+                            } else {
+                                self.player_lyrics(cx)
+                            };
                             el.child(
                                 row.child(
                                     div()
@@ -3485,6 +3620,7 @@ impl Render for AppView {
                                         .min_w_0()
                                         .flex()
                                         .flex_col()
+                                        .children(sung_top)
                                         .child(
                                             div()
                                                 .flex_1()
