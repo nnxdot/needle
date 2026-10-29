@@ -51,68 +51,57 @@ struct WaveformSeek: View {
     }
 }
 
-/// Light that moves with the music, in the cover's colours: soft glows that swell with the
-/// bass, the middle, and the highs, and a ring of thin bars around the middle. Still (one soft
-/// glow) with Reduce motion.
+/// Light that moves with the music, as on Windows and Android: a soft glow in the middle that
+/// swells with the bass, in the music's colours, and 96 rays all round, each as long as its
+/// band is loud. A square, drawn in the cover's place; still with Reduce motion.
 struct Visualizer: View {
     private var store: Store { .shared }
-    @State private var levels = Levels()
 
-    /// The bands as the core gives them (it eases them itself: quick to rise, slow to fall).
-    final class Levels {
-        var bands = [Float](repeating: 0, count: 48)
-        func follow(_ now: [Float]) {
-            guard now.count == bands.count else { return }
-            bands = now
-        }
-        func average(_ range: Range<Int>) -> CGFloat {
-            CGFloat(bands[range].reduce(0, +) / Float(range.count))
-        }
-    }
+    /// The bands drawn, as on Windows and Android: 48, mirrored down both sides.
+    private static let bands = 48
 
     var body: some View {
-        let colors = store.colors
-        let palette = [colors.glow, colors.accent, colors.glow.opacity(0.8)]
-        TimelineView(.animation(minimumInterval: 1 / 30, paused: !store.motion)) { timeline in
-            let t = timeline.date.timeIntervalSinceReferenceDate
-            Canvas { context, size in
-                if store.motion { levels.follow(store.core.spectrum(bands: 48)) }
-                let center = CGPoint(x: size.width / 2, y: size.height / 2)
-                let side = min(size.width, size.height)
-                let bass = levels.average(0..<6), middle = levels.average(10..<26), high = levels.average(30..<48)
-                // The glows, slowly turning about the middle.
-                context.addFilter(.blur(radius: side * 0.08))
-                for (i, energy) in [bass, middle, high].enumerated() {
-                    let angle = t * (0.07 + Double(i) * 0.03) + Double(i) * 2.1
-                    let reach = side * (0.12 + 0.06 * CGFloat(i))
-                    let at = CGPoint(x: center.x + cos(angle) * reach, y: center.y + sin(angle) * reach * 0.7)
-                    let radius = side * (0.22 + 0.28 * energy) * (i == 0 ? 1.2 : 1)
-                    context.fill(Path(ellipseIn: CGRect(x: at.x - radius, y: at.y - radius, width: radius * 2, height: radius * 2)),
-                                 with: .color(palette[i].opacity(0.35 + 0.55 * Double(energy))))
+        let (inner, outer) = (store.colors.accent, store.colors.glow)
+        TimelineView(.animation(minimumInterval: 1 / 30, paused: !store.motion)) { _ in
+            Canvas { g, size in
+                // Straight from the core: it eases the spectrum itself (quick up, slow down).
+                let bands = store.core.spectrum(bands: UInt32(Self.bands))
+                guard bands.count == Self.bands else { return }
+                func average(_ range: Range<Int>) -> CGFloat {
+                    min(max(CGFloat(bands[range].reduce(0, +) / Float(range.count)), 0), 1)
                 }
-            }
-            .overlay {
-                // The ring of bars, sharp, over the glows.
-                Canvas { context, size in
-                    let center = CGPoint(x: size.width / 2, y: size.height / 2)
-                    let side = min(size.width, size.height)
-                    let bass = levels.average(0..<6)
-                    let inner = side * (0.2 + 0.03 * bass)
-                    let count = levels.bands.count * 2
-                    for i in 0..<count {
-                        // Mirrored: the lows at the top and bottom, the highs at the sides.
-                        let band = levels.bands[i < levels.bands.count ? i : count - 1 - i]
-                        let angle = Double(i) / Double(count) * 2 * .pi - .pi / 2
-                        let length = side * 0.012 + side * 0.16 * CGFloat(band)
-                        var bar = Path()
-                        bar.move(to: CGPoint(x: center.x + cos(angle) * inner, y: center.y + sin(angle) * inner))
-                        bar.addLine(to: CGPoint(x: center.x + cos(angle) * (inner + length), y: center.y + sin(angle) * (inner + length)))
-                        context.stroke(bar, with: .color(.white.opacity(0.25 + 0.6 * Double(band))), style: StrokeStyle(lineWidth: 2.4, lineCap: .round))
-                    }
+                let bass = average(0..<6), level = average(0..<Self.bands)
+                let c = CGPoint(x: size.width / 2, y: size.height / 2)
+                let r = min(size.width, size.height) / 2
+                // The glow: rings from wide and faint to small and bright, a soft light that
+                // swells with the bass.
+                let glow = r * (0.55 + 0.45 * bass)
+                for i in 0..<14 {
+                    let t = CGFloat(i) / 14
+                    let radius = glow * (1 - 0.85 * t)
+                    let alpha = (0.015 + 0.03 * level) + (0.02 + 0.05 * bass) * t
+                    g.fill(Path(ellipseIn: CGRect(x: c.x - radius, y: c.y - radius, width: radius * 2, height: radius * 2)),
+                           with: .color(outer.mix(with: inner, by: Double(t)).opacity(Double(alpha))))
+                }
+                // The rays: 96 all round, the low bands at the top, each as long as its band
+                // is loud.
+                let base = r * 0.34
+                let rays = Self.bands * 2
+                let stroke = max(2, 2 * .pi * base / CGFloat(rays) * 0.55)
+                for i in 0..<rays {
+                    let band = i < Self.bands ? i : rays - 1 - i
+                    let v = min(max(CGFloat(bands[band]), 0), 1)
+                    let angle = CGFloat(i) / CGFloat(rays) * 2 * .pi - .pi / 2
+                    let length = base + r * 0.62 * (0.06 + v)
+                    var ray = Path()
+                    ray.move(to: CGPoint(x: c.x + cos(angle) * base, y: c.y + sin(angle) * base))
+                    ray.addLine(to: CGPoint(x: c.x + cos(angle) * length, y: c.y + sin(angle) * length))
+                    let color = inner.mix(with: outer, by: Double(band) / Double(Self.bands)).opacity(0.55 + 0.45 * Double(v))
+                    g.stroke(ray, with: .color(color), style: StrokeStyle(lineWidth: stroke, lineCap: .round))
                 }
             }
         }
-        .background(.black)
+        .aspectRatio(1, contentMode: .fit)
         .accessibilityHidden(true)
     }
 }

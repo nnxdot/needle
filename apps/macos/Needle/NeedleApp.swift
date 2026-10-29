@@ -48,6 +48,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         keys = Keys.install { [weak self] in self?.store }
+        #if DEBUG
+        MainActor.assumeIsolated { TestRenders.start() }
+        #endif
     }
 
     /// Closing the window leaves Needle open and the music playing, as Music does: the Dock
