@@ -383,7 +383,7 @@
 					"@executable_path/Frameworks",
 				);
 				ENABLE_USER_SCRIPT_SANDBOXING = NO;
-				MARKETING_VERSION = 1.8.0;
+				MARKETING_VERSION = 2.0.0;
 				OTHER_LDFLAGS = (
 					"$(inherited)",
 					"-framework",
@@ -435,7 +435,7 @@
 					"@executable_path/Frameworks",
 				);
 				ENABLE_USER_SCRIPT_SANDBOXING = NO;
-				MARKETING_VERSION = 1.8.0;
+				MARKETING_VERSION = 2.0.0;
 				OTHER_LDFLAGS = (
 					"$(inherited)",
 					"-framework",
@@ -479,7 +479,7 @@
 					"@executable_path/Frameworks",
 					"@executable_path/../../Frameworks",
 				);
-				MARKETING_VERSION = 1.8.0;
+				MARKETING_VERSION = 2.0.0;
 				OTHER_SWIFT_FLAGS = (
 					"$(inherited)",
 					"-file-prefix-map",
@@ -511,7 +511,7 @@
 					"@executable_path/Frameworks",
 					"@executable_path/../../Frameworks",
 				);
-				MARKETING_VERSION = 1.8.0;
+				MARKETING_VERSION = 2.0.0;
 				OTHER_SWIFT_FLAGS = (
 					"$(inherited)",
 					"-file-prefix-map",
@@ -544,7 +544,7 @@
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				MARKETING_VERSION = 1.8.0;
+				MARKETING_VERSION = 2.0.0;
 				OTHER_SWIFT_FLAGS = (
 					"$(inherited)",
 					"-file-prefix-map",
@@ -578,7 +578,7 @@
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				MARKETING_VERSION = 1.8.0;
+				MARKETING_VERSION = 2.0.0;
 				OTHER_SWIFT_FLAGS = (
 					"$(inherited)",
 					"-file-prefix-map",
