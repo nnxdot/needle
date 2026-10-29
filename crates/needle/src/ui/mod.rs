@@ -464,6 +464,8 @@ enum Event {
     Layout(needle_core::model::Layout),
     SavedTags,
     Notice(String),
+    /// A lyric card was saved here: copy it too, and say where it went.
+    LyricCard(std::path::PathBuf),
     Play(Vec<QueueItem>, Option<String>),
     PlayAt(Vec<QueueItem>, usize, Option<String>),
     Enqueue(Vec<QueueItem>, String),
@@ -1904,6 +1906,21 @@ impl AppView {
                     }
                     self.refresh(cx);
                 }
+                Event::LyricCard(path) => {
+                    let name = path.file_name().unwrap_or_default().to_string_lossy();
+                    match std::fs::read(&path) {
+                        Ok(png) => {
+                            cx.write_to_clipboard(ClipboardItem::new_image(&Image::from_bytes(
+                                ImageFormat::Png,
+                                png,
+                            )));
+                            self.notify(format!(
+                                "Saved {name} in Pictures › Needle, and copied it: paste it anywhere."
+                            ));
+                        }
+                        Err(_) => self.notify(format!("Saved {name} in Pictures › Needle.")),
+                    }
+                }
                 Event::Notice(notice) => {
                     if !notice.is_empty() {
                         self.notify(notice);
@@ -3162,7 +3179,7 @@ impl Render for AppView {
                 cx.listener(|this, _: &PreviousTrack, _, _| this.player.send(Command::Previous)),
             )
             .on_action(cx.listener(|this, _: &SeekForward, window, cx| {
-                if this.menu_key("right", window, cx) {
+                if this.menu_key("right", window, cx) || this.crate_key("right", window, cx) {
                     return;
                 }
                 if this.playback.current.is_some() {
@@ -3171,7 +3188,7 @@ impl Render for AppView {
                 }
             }))
             .on_action(cx.listener(|this, _: &SeekBackward, window, cx| {
-                if this.menu_key("left", window, cx) {
+                if this.menu_key("left", window, cx) || this.crate_key("left", window, cx) {
                     return;
                 }
                 if this.playback.current.is_some() {
@@ -3218,7 +3235,7 @@ impl Render for AppView {
                 cx.notify();
             }))
             .on_action(cx.listener(|this, _: &PlaySelection, window, cx| {
-                if this.menu_key("enter", window, cx) {
+                if this.menu_key("enter", window, cx) || this.crate_key("enter", window, cx) {
                     return;
                 }
                 let selected = this.selected_tracks();
@@ -3461,6 +3478,13 @@ impl Render for AppView {
                             } else {
                                 (None, foot)
                             };
+                            // With the player in the title bar, the line being sung sits right
+                            // under it (at the foot, it is in the floating player).
+                            let sung_top = if player_foot {
+                                None
+                            } else {
+                                self.player_lyrics(cx)
+                            };
                             el.child(
                                 row.child(
                                     div()
@@ -3468,6 +3492,7 @@ impl Render for AppView {
                                         .min_w_0()
                                         .flex()
                                         .flex_col()
+                                        .children(sung_top)
                                         .child(
                                             div()
                                                 .flex_1()
