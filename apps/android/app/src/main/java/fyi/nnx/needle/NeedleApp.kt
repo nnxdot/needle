@@ -111,9 +111,14 @@ class NeedleApp : Application() {
     val more: StateFlow<fyi.nnx.needle.core.LibraryChoices> = _more
 
     fun updateMore(change: (fyi.nnx.needle.core.LibraryChoices) -> fyi.nnx.needle.core.LibraryChoices) {
-        val next = change(_more.value)
+        val before = _more.value
+        val next = change(before)
         _more.value = next
-        scope.launch(saves) { runCatching { core.setLibraryChoices(next) } }
+        scope.launch(saves) {
+            runCatching { core.setLibraryChoices(next) }
+            // A new rule for albums moves songs between albums: the lists are read again.
+            if (next.albumGrouping != before.albumGrouping || next.compilationsVarious != before.compilationsVarious) libraryChanged()
+        }
     }
 
     /**

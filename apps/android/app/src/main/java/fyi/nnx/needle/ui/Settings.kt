@@ -1,6 +1,7 @@
 package fyi.nnx.needle.ui
 
 import androidx.compose.material.icons.rounded.Dns
+import androidx.compose.material.icons.rounded.Groups
 import androidx.compose.material.icons.rounded.Widgets
 import androidx.compose.material.icons.rounded.Alarm
 import androidx.compose.animation.AnimatedContent
@@ -507,6 +508,27 @@ private fun LibrarySettings(open: (Route) -> Unit) {
             }
             if (scan.running) LinearWavyProgressIndicator(modifier = Modifier.fillMaxWidth().padding(start = 68.dp, end = 16.dp, bottom = 14.dp))
         }
+    }
+    // Which songs make one album (needle_core::grouping): the files never change.
+    val more by NeedleApp.instance.more.collectAsState()
+    Group("Albums", footer = "Which songs make one album. Your files never change.") {
+        val ways = listOf("tags" to "Album artist and album", "folder" to "Folder")
+        ExpandRow(
+            Icons.Rounded.Album,
+            "What makes an album",
+            if (more.albumGrouping == "folder") "Songs in one folder with one album name, when they have no album artist." else "Songs with the same album artist and album name.",
+            // Short beside the row; the full names are on the choices under it.
+            if (more.albumGrouping == "folder") "Folder" else "Tags",
+        ) {
+            Segments(ways, more.albumGrouping) { way -> NeedleApp.instance.updateMore { it.copy(albumGrouping = way) } }
+        }
+        Divider()
+        SwitchRow(
+            "Compilations as one album",
+            "Songs tagged as a compilation, with no album artist, are one album by Various Artists.",
+            more.compilationsVarious,
+            icon = Icons.Rounded.Groups,
+        ) { on -> NeedleApp.instance.updateMore { it.copy(compilationsVarious = on) } }
     }
     val context = LocalContext.current
     val backup = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/octet-stream")) { uri ->
