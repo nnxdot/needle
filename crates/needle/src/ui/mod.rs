@@ -3478,6 +3478,13 @@ impl Render for AppView {
                             } else {
                                 (None, foot)
                             };
+                            // With the player in the title bar, the line being sung sits right
+                            // under it (at the foot, it is in the floating player).
+                            let sung_top = if player_foot {
+                                None
+                            } else {
+                                self.player_lyrics(cx)
+                            };
                             el.child(
                                 row.child(
                                     div()
@@ -3485,6 +3492,7 @@ impl Render for AppView {
                                         .min_w_0()
                                         .flex()
                                         .flex_col()
+                                        .children(sung_top)
                                         .child(
                                             div()
                                                 .flex_1()

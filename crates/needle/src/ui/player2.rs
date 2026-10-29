@@ -19,6 +19,9 @@ use needle_core::{audio::Command, audio::Repeat};
 
 /// The bar's height and its widest.
 pub(super) const HEIGHT: f32 = 58.;
+/// The line being sung, under the bar's controls (Settings › Appearance › Lyrics under the
+/// player).
+pub(super) const LYRIC_LINE: f32 = 26.;
 pub(super) const MAX_WIDTH: f32 = 860.;
 /// The buttons that sit left of the screen, with the transport.
 const TRANSPORT: [&str; 5] = ["shuffle", "previous", "play", "next", "repeat"];
@@ -67,13 +70,12 @@ impl AppView {
         let buttons = self.bar_buttons(narrow);
         let (left, right): (Vec<&str>, Vec<&str>) =
             buttons.iter().partition(|b| TRANSPORT.contains(b));
-        div()
-            .id("floating-player")
-            .occlude()
-            .w(px(width))
+        let sung = self.sung_line();
+        let p = pal(cx);
+        let bar = div()
+            .w_full()
             .h(px(HEIGHT))
             .flex_shrink_0()
-            .map(|el| frosted(el, HEIGHT / 2., cx))
             .flex()
             .items_center()
             .gap(px(if narrow { 10. } else { 16. }))
@@ -98,7 +100,43 @@ impl AppView {
                     .when(buttons.len() < BUTTONS.len(), |el| {
                         el.child(self.player_more(narrow, cx))
                     }),
-            )
+            );
+        // The line being sung, under the controls; each new line fades in.
+        let lyric = sung.map(|line| {
+            let serial = self.lyric_line.map_or(0, |i| i as u64 + 1);
+            let text = div()
+                .w_full()
+                .px(px(24.))
+                .text_center()
+                .truncate()
+                .text_size(px(13.))
+                .font_weight(FontWeight::MEDIUM)
+                .text_color(if line.is_some() { p.ink } else { p.ink_3 })
+                .child(line.unwrap_or_else(|| "♪".into()));
+            div()
+                .h(px(LYRIC_LINE))
+                .mt(px(-6.))
+                .flex()
+                .items_start()
+                .child(super::motion::animate(
+                    text,
+                    ("floating-lyric", serial),
+                    220,
+                    cx,
+                    |el, t| el.opacity(t),
+                ))
+        });
+        let tall = lyric.is_some();
+        div()
+            .id("floating-player")
+            .occlude()
+            .w(px(width))
+            .flex_shrink_0()
+            .map(|el| frosted(el, if tall { 26. } else { HEIGHT / 2. }, cx))
+            .flex()
+            .flex_col()
+            .child(bar)
+            .children(lyric)
     }
     /// The buttons in the bar now: the chosen ones, without the volume in a narrow window.
     fn bar_buttons(&self, narrow: bool) -> Vec<&'static str> {
