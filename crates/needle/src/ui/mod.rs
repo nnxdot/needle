@@ -2942,45 +2942,58 @@ impl AppView {
                             "wave" => 3.,
                             _ => 4.,
                         });
-                        // What is still to play: a straight bar.
+                        // What is still to play: a straight bar (after a small gap from
+                        // the wave, as Android's).
+                        let gap = if style == "wave" && played > 0. {
+                            px(6.)
+                        } else {
+                            px(0.)
+                        };
+                        let from = (split + gap).min(b.right());
                         window.paint_quad(
                             fill(
                                 Bounds::new(
-                                    point(b.left(), middle - thick / 2.),
-                                    size(b.size.width, thick),
+                                    point(from, middle - thick / 2.),
+                                    size(b.right() - from, thick),
                                 ),
                                 rest,
                             )
                             .corner_radii(thick / 2.),
                         );
                         if style == "wave" && split > b.left() {
-                            // What has played: a wave, flat while the music rests.
-                            let amplitude = if moving { 3.5 } else { 0. };
+                            // What has played: one smooth wave, flat while the music rests.
+                            let amplitude = if moving { 2.5 } else { 0. };
                             let phase = if moving {
                                 std::time::SystemTime::now()
                                     .duration_since(std::time::UNIX_EPOCH)
                                     // In whole turns first: seconds since 1970 are too
                                     // large a number for the sine to move.
                                     .map_or(0., |d| {
-                                        ((d.as_secs_f64() * 6.) % std::f64::consts::TAU) as f32
+                                        ((d.as_secs_f64() * 5.) % std::f64::consts::TAU) as f32
                                     })
                             } else {
                                 0.
                             };
-                            // Dots close together make the line: a line drawn as a path
-                            // sits off its place here.
+                            let at = |x: Pixels| {
+                                let t = f32::from(x - b.left()) / 40. * std::f32::consts::TAU;
+                                point(x, middle + px(amplitude * (t - phase).sin()))
+                            };
+                            let mut line = PathBuilder::stroke(thick);
+                            line.move_to(at(b.left()));
                             let mut x = b.left();
-                            while x <= split {
-                                let t = f32::from(x - b.left()) / 34. * std::f32::consts::TAU;
-                                let y = middle + px(amplitude * (t - phase).sin());
+                            while x < split {
+                                x = (x + px(1.)).min(split);
+                                line.line_to(at(x));
+                            }
+                            if let Ok(path) = line.build() {
+                                window.paint_path(path, accent);
+                            }
+                            // Round ends.
+                            for end in [at(b.left()), at(split)] {
                                 window.paint_quad(
-                                    fill(
-                                        Bounds::centered_at(point(x, y), size(thick, thick)),
-                                        accent,
-                                    )
-                                    .corner_radii(thick / 2.),
+                                    fill(Bounds::centered_at(end, size(thick, thick)), accent)
+                                        .corner_radii(thick / 2.),
                                 );
-                                x += px(1.);
                             }
                             if moving {
                                 window.request_animation_frame();

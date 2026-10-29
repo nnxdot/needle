@@ -63,10 +63,20 @@ pub(super) fn forget_pictures(paths: Vec<String>, cx: &mut App) {
 
 /// The logo with its clear edges cut off, for a dark page (`<logo>.white.png`: as it comes, or
 /// in white when it is a dark logo, which would not show), and the same in dark ink for a light
-/// page (`<logo>.ink.png`). Made again when the logo is newer.
+/// page (`<logo>.ink.png`). A logo the listener chose (`….own`) shows as it is on both
+/// (`<logo>.shown.png`): their choice of a white or a black one is kept. Made again when the
+/// logo is newer.
 fn prepare_logo(logo: &Path) -> Option<Logo> {
-    let white = PathBuf::from(format!("{}.white.png", logo.display()));
-    let ink = PathBuf::from(format!("{}.ink.png", logo.display()));
+    let chosen = logo.extension().is_some_and(|e| e == "own");
+    let (white, ink) = if chosen {
+        let shown = PathBuf::from(format!("{}.shown.png", logo.display()));
+        (shown.clone(), shown)
+    } else {
+        (
+            PathBuf::from(format!("{}.white.png", logo.display())),
+            PathBuf::from(format!("{}.ink.png", logo.display())),
+        )
+    };
     let modified = |p: &Path| std::fs::metadata(p).and_then(|m| m.modified()).ok();
     let fresh = |p: &Path| modified(p).is_some() && modified(p) >= modified(logo);
     let done = |size| Logo {
@@ -93,6 +103,12 @@ fn prepare_logo(logo: &Path) -> Option<Logo> {
     let mut trimmed =
         image::imageops::crop_imm(&picture, left, top, right - left + 1, bottom - top + 1)
             .to_image();
+    if chosen {
+        trimmed
+            .save_with_format(&white, image::ImageFormat::Png)
+            .ok()?;
+        return Some(done(trimmed.dimensions()));
+    }
     // A dark logo (fanart.tv has black ones beside the white) is written in white on a dark
     // page.
     let (mut light, mut weight) = (0f32, 0f32);
