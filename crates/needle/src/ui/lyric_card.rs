@@ -1,6 +1,7 @@
 //! Lyric cards: one line of a song's lyrics as a picture to share, in the colours of its cover,
 //! with the cover, the song's name, and Needle's mark. The card is as tall as its words need
-//! (a square at least); short lines are written larger. Saved to Pictures › Needle.
+//! (a square at least); short lines are written larger. Saved to Pictures › Needle, and
+//! copied, to paste anywhere.
 use super::{AppView, Event};
 use anyhow::{Context as _, Result};
 use image::{Rgba, RgbaImage, imageops};
@@ -318,10 +319,7 @@ impl AppView {
             let _ = sender.send(match result {
                 Ok(path) => {
                     super::files::show_file(&path);
-                    Event::Notice(format!(
-                        "Saved {} in Pictures › Needle.",
-                        path.file_name().unwrap_or_default().to_string_lossy()
-                    ))
+                    Event::LyricCard(path)
                 }
                 Err(e) => Event::Error(format!("The lyric picture: {e:#}")),
             });
