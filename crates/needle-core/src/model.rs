@@ -211,6 +211,9 @@ pub struct Settings {
     pub glass_amount: f32,
     /// Let the glass show through the page too, not only the sidebar and bars.
     pub glass_page: bool,
+    /// Windows: the playing song's cover, blurred, tints the glass (as macOS's glass takes the
+    /// music's colours), with Glass on.
+    pub glass_ambient: bool,
     /// Film grain over the window, 0 (off) to 1.
     pub grain: f32,
     /// Show what is playing on Discord, whenever Discord is running.
@@ -379,6 +382,7 @@ impl Default for Settings {
             window_material: "mica".into(),
             glass_amount: 0.6,
             glass_page: false,
+            glass_ambient: false,
             grain: 0.,
             discord_presence: true,
             discord_covers: true,

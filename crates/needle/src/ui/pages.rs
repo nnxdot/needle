@@ -1424,6 +1424,21 @@ impl AppView {
                 )
                 .into_any_element(),
             );
+            rows.push(
+                setting_row(
+                    "The cover on the glass",
+                    "The song that plays, blurred, colours the glass, as on the Mac.",
+                    Switch::new("glass-ambient")
+                        .checked(self.settings.glass_ambient)
+                        .on_click(cx.listener(|this, checked: &bool, _, cx| {
+                            this.settings.glass_ambient = *checked;
+                            this.persist_settings();
+                            cx.notify();
+                        })),
+                    cx,
+                )
+                .into_any_element(),
+            );
         }
         rows
     }
