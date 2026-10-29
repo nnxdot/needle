@@ -175,6 +175,24 @@ impl AppView {
     ) -> AnyElement {
         let closing = !self.big;
         let canvas = pal(cx).canvas;
+        // Open and still: drawn in its own place, without the opening again (the move from the
+        // layer it grew in started the animation a second time).
+        if !self.big_moving {
+            return div()
+                .absolute()
+                .inset_0()
+                .overflow_hidden()
+                .bg(canvas)
+                .child(
+                    div()
+                        .absolute()
+                        .w(px(w))
+                        .h(px(h + lift))
+                        .top(px(-lift))
+                        .child(player),
+                )
+                .into_any_element();
+        }
         // Where the cover sits in the player bar, measured from the body's edges.
         let art = [22., h - 77., w - 78., 21.];
         let edge = move |t: f32, i: usize| art[i] * (1. - if closing { 1. - t } else { t });
