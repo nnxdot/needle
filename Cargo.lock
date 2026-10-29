@@ -4887,7 +4887,7 @@ dependencies = [
 
 [[package]]
 name = "needle"
-version = "1.8.0"
+version = "2.0.0"
 dependencies = [
  "anyhow",
  "chrono",
@@ -4922,7 +4922,7 @@ dependencies = [
 
 [[package]]
 name = "needle-core"
-version = "1.8.0"
+version = "2.0.0"
 dependencies = [
  "aes",
  "anyhow",
@@ -4976,7 +4976,7 @@ dependencies = [
 
 [[package]]
 name = "needle-mobile"
-version = "1.8.0"
+version = "2.0.0"
 dependencies = [
  "anyhow",
  "chrono",
