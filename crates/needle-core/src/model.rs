@@ -298,6 +298,10 @@ pub struct Settings {
     pub remote: bool,
     /// The secret in the remote's address; a new one locks out phones that had the old one.
     pub remote_key: String,
+    /// Let AI assistants on this computer use Needle (crate::mcp).
+    pub mcp: bool,
+    /// The secret in the address assistants are given; a new one locks out the old address.
+    pub mcp_key: String,
     /// Equalizer presets the listener saved.
     pub eq_presets: Vec<crate::dsp::UserPreset>,
     /// An icon in the notification area; closing the window hides it there and the music
@@ -434,6 +438,8 @@ impl Default for Settings {
             whats_new_seen: String::new(),
             remote: false,
             remote_key: String::new(),
+            mcp: false,
+            mcp_key: String::new(),
             eq_presets: vec![],
             tray: false,
             speed: 1.,

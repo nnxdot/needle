@@ -1,4 +1,5 @@
-//! Settings › Playback › Phone remote: turn it on, and show its address as a QR code.
+//! Settings › Playback › Phone remote: turn it on, and show its address as a QR code. And AI
+//! assistants (needle_core::mcp): turn it on, and show the address to give them.
 use super::{
     AppView, pal,
     widgets::{faint, meta, setting_row, small_button, strong},
@@ -34,6 +35,110 @@ impl AppView {
                 self.fail(format!("The phone remote could not start: {error:#}"));
             }
         }
+    }
+
+    /// Start or stop Needle for AI assistants to match the settings.
+    pub(super) fn apply_mcp(&mut self) {
+        if !self.settings.mcp {
+            self.mcp = None;
+            return;
+        }
+        if self.settings.mcp_key.len() < 16 {
+            self.settings.mcp_key = remote::new_key();
+            self.persist_settings();
+        }
+        if self.mcp.is_some() {
+            return;
+        }
+        // An assistant made a playlist or favorited a song: the pages show it.
+        let sender = std::sync::Mutex::new(self.sender.clone());
+        let changed: needle_core::mcp::Changed = std::sync::Arc::new(move || {
+            if let Ok(sender) = sender.lock() {
+                let _ = sender.send(super::Event::Notice(String::new()));
+            }
+        });
+        match needle_core::mcp::start(
+            self.player.clone(),
+            self.library.clone(),
+            self.settings.mcp_key.clone(),
+            changed,
+        ) {
+            Ok(server) => self.mcp = Some(server),
+            Err(error) => {
+                needle_core::logfile::error(format!("AI assistants: {error:#}"));
+                self.settings.mcp = false;
+                self.persist_settings();
+                self.fail(format!(
+                    "Needle for AI assistants could not start: {error:#}"
+                ));
+            }
+        }
+    }
+
+    /// Settings › Playback › AI assistants: the switch, and with it on, the address.
+    fn mcp_settings(&self, cx: &mut Context<Self>) -> Div {
+        let p = pal(cx);
+        let address = self.mcp.as_ref().map(|m| m.address());
+        div()
+            .flex()
+            .flex_col()
+            .gap_2()
+            .child(setting_row(
+                "AI assistants",
+                "Let an AI app on this computer, such as Claude, play music, search your library, and make playlists (MCP).",
+                Switch::new("mcp-on").checked(self.settings.mcp).on_click(cx.listener(|this, checked: &bool, _, cx| {
+                    this.settings.mcp = *checked;
+                    this.persist_settings();
+                    this.apply_mcp();
+                    cx.notify();
+                })),
+                cx,
+            ))
+            .when_some(address, |el, address| {
+                let command = format!("claude mcp add --transport http needle {address}");
+                el.child(
+                    div()
+                        .flex()
+                        .flex_col()
+                        .gap_2()
+                        .child(meta("Give your AI app this address (an MCP server, Streamable HTTP). For Claude Code, run the command below.", cx))
+                        .child(
+                            div()
+                                .px_3()
+                                .py_2()
+                                .rounded(px(6.))
+                                .bg(p.raised)
+                                .text_size(px(13.))
+                                .child(address.clone()),
+                        )
+                        .child(
+                            div()
+                                .flex()
+                                .gap_2()
+                                .child(small_button("mcp-copy", "Copy address").on_click({
+                                    let address = address.clone();
+                                    cx.listener(move |this, _, _, cx| {
+                                        cx.write_to_clipboard(ClipboardItem::new_string(address.clone()));
+                                        this.notify("Address copied.");
+                                    })
+                                }))
+                                .child(small_button("mcp-claude", "Copy for Claude Code").on_click(cx.listener(move |this, _, _, cx| {
+                                    cx.write_to_clipboard(ClipboardItem::new_string(command.clone()));
+                                    this.notify("Command copied. Run it in a terminal.");
+                                })))
+                                .child(small_button("mcp-new", "New address").ghost().on_click(cx.listener(|this, _, _, cx| {
+                                    // A new key: apps with the old address can no longer use Needle.
+                                    this.settings.mcp_key = remote::new_key();
+                                    this.persist_settings();
+                                    this.mcp = None;
+                                    this.apply_mcp();
+                                    this.notify("New address. Apps with the old one no longer work.");
+                                    cx.notify();
+                                }))),
+                        )
+                        .child(faint("Only apps on this computer can reach it, and only with this address. Needle must be open for them to use it.", cx)),
+                )
+            })
     }
 
     pub(super) fn remote_settings(&self, cx: &mut Context<Self>) -> Div {
@@ -120,6 +225,7 @@ impl AppView {
                         ),
                 )
             })
+            .child(self.mcp_settings(cx))
     }
 }
 
