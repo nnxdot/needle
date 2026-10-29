@@ -8,7 +8,15 @@ pub struct Track {
     pub title: String,
     pub artist: String,
     pub album: String,
+    /// The album artist the song shows under (see [`crate::grouping`]): its tag, or what
+    /// Settings' album rule gives it.
     pub album_artist: String,
+    /// The album artist tag as read from the file, when it has one.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub album_artist_tag: Option<String>,
+    /// The file is tagged as part of a compilation (iTunes' compilation flag).
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub compilation: bool,
     pub genre: String,
     pub year: i64,
     pub track_number: i64,
@@ -209,8 +217,17 @@ pub struct Settings {
     pub window_material: String,
     /// How see-through the glass is, 0 (solid) to 1 (most see-through).
     pub glass_amount: f32,
+    /// What makes an album: "tags" (album artist and album) or "folder" (a folder's songs
+    /// with one album name). See [`crate::grouping`].
+    pub album_grouping: String,
+    /// Songs tagged as part of a compilation, with no album artist, are one album by "Various
+    /// Artists".
+    pub compilations_various: bool,
     /// Let the glass show through the page too, not only the sidebar and bars.
     pub glass_page: bool,
+    /// Windows: the playing song's cover, blurred, tints the glass (as macOS's glass takes the
+    /// music's colours), with Glass on.
+    pub glass_ambient: bool,
     /// Film grain over the window, 0 (off) to 1.
     pub grain: f32,
     /// Show what is playing on Discord, whenever Discord is running.
@@ -378,7 +395,10 @@ impl Default for Settings {
             music_colors: true,
             window_material: "mica".into(),
             glass_amount: 0.6,
+            album_grouping: "tags".into(),
+            compilations_various: true,
             glass_page: false,
+            glass_ambient: false,
             grain: 0.,
             discord_presence: true,
             discord_covers: true,

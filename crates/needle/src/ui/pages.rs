@@ -851,6 +851,46 @@ impl AppView {
                                     .child(small_button("rescan", "Check for changes").ghost().disabled(self.scan.is_some()).on_click(cx.listener(|this, _, _, cx| this.rescan(cx)))),
                             ),
                     )
+                    .child(self.section_title("Albums", "Which songs make one album. Your files never change.", cx))
+                    .child(setting_row(
+                        "What makes an album",
+                        if self.settings.album_grouping == "folder" {
+                            "Songs in one folder with one album name, when they have no album artist."
+                        } else {
+                            "Songs with the same album artist and album name."
+                        },
+                        segmented(
+                            "album-grouping",
+                            &["Album artist and album", "Folder"],
+                            needle_core::grouping::ALBUM_GROUPINGS
+                                .iter()
+                                .position(|g| *g == self.settings.album_grouping)
+                                .unwrap_or(0),
+                            cx,
+                            {
+                                let weak = cx.entity().downgrade();
+                                move |index, _, cx| {
+                                    let _ = weak.update(cx, |this, cx| {
+                                        this.settings.album_grouping =
+                                            needle_core::grouping::ALBUM_GROUPINGS[index].into();
+                                        this.regroup_albums();
+                                        cx.notify();
+                                    });
+                                }
+                            },
+                        ),
+                        cx,
+                    ))
+                    .child(setting_row(
+                        "Compilations as one album",
+                        "Songs tagged as a compilation, with no album artist, are one album by Various Artists.",
+                        Switch::new("compilations-various").checked(self.settings.compilations_various).on_click(cx.listener(|this, checked: &bool, _, cx| {
+                            this.settings.compilations_various = *checked;
+                            this.regroup_albums();
+                            cx.notify();
+                        })),
+                        cx,
+                    ))
                     .child(self.section_title("Music servers", "Navidrome and other Subsonic servers. Their songs show with your own.", cx))
                     .children(self.music_servers(cx))
                     .child(setting_row(
@@ -1424,12 +1464,44 @@ impl AppView {
                 )
                 .into_any_element(),
             );
+            rows.push(
+                setting_row(
+                    "The cover on the glass",
+                    "The song that plays, blurred, colours the glass, as on the Mac.",
+                    Switch::new("glass-ambient")
+                        .checked(self.settings.glass_ambient)
+                        .on_click(cx.listener(|this, checked: &bool, _, cx| {
+                            this.settings.glass_ambient = *checked;
+                            this.persist_settings();
+                            cx.notify();
+                        })),
+                    cx,
+                )
+                .into_any_element(),
+            );
         }
         rows
     }
 }
 
 impl AppView {
+    /// Settings' album rule changed: keep it, and give every song its album again, in the
+    /// background; the pages show the new albums when it is done.
+    fn regroup_albums(&mut self) {
+        self.persist_settings();
+        let (library, sender) = (self.library.clone(), self.sender.clone());
+        std::thread::spawn(move || {
+            let _ = sender.send(match library.apply_album_rule() {
+                Ok(0) => Event::Notice(String::new()),
+                Ok(n) => Event::Notice(format!(
+                    "{} songs are on other albums now.",
+                    super::widgets::count(n)
+                )),
+                Err(e) => Event::Error(format!("{e:#}")),
+            });
+        });
+    }
+
     /// Discord Rich Presence: one switch. Needle finds Discord by itself.
     fn discord_settings(&self, cx: &mut Context<Self>) -> Vec<AnyElement> {
         use needle_core::discord::Field;

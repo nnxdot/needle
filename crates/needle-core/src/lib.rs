@@ -17,6 +17,7 @@ mod exclusive;
 pub mod ffmpeg;
 pub mod find;
 pub mod formats;
+pub mod grouping;
 pub mod history;
 pub mod import;
 pub mod instance;
