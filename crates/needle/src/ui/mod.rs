@@ -734,6 +734,8 @@ pub struct AppView {
     whats_new: Option<whats_new::Notes>,
     /// The phone remote, while it is on.
     remote: Option<needle_core::remote::Server>,
+    /// Needle for AI assistants (MCP), while it is on.
+    mcp: Option<needle_core::mcp::Server>,
     /// Timing sliders for the members of a speaker group, by address.
     speaker_timing: std::collections::HashMap<String, (Entity<SliderState>, Subscription)>,
     import: importer::ImportState,
@@ -1253,6 +1255,7 @@ impl AppView {
             settings_open: Default::default(),
             speaker_timing: Default::default(),
             remote: None,
+            mcp: None,
             welcome_step: None,
             whats_new: None,
             tray: None,
@@ -1406,6 +1409,7 @@ impl AppView {
         view.start_measuring();
         view.check_for_update(false);
         view.apply_remote();
+        view.apply_mcp();
         view.apply_tray();
         view.maybe_whats_new();
         view.maybe_welcome();

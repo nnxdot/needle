@@ -155,11 +155,15 @@ pub fn start(player: Player, library: Library, key: String) -> Result<Server> {
     })
 }
 
-struct Request {
-    method: String,
-    path: String,
-    query: String,
-    body: Vec<u8>,
+pub(crate) struct Request {
+    pub(crate) method: String,
+    pub(crate) path: String,
+    pub(crate) query: String,
+    pub(crate) body: Vec<u8>,
+    /// The page that sent it, when a browser did (for MCP's check against other sites).
+    pub(crate) origin: Option<String>,
+    /// For MCP's key in a header.
+    pub(crate) authorization: Option<String>,
 }
 
 /// One line of the request, refusing lines longer than `MAX_LINE`.
@@ -188,7 +192,7 @@ impl Read for Deadline<'_> {
     }
 }
 
-fn read_request(stream: &TcpStream) -> Result<Request> {
+pub(crate) fn read_request(stream: &TcpStream) -> Result<Request> {
     stream.set_write_timeout(Some(DEADLINE))?;
     let mut reader = BufReader::new(Deadline {
         stream,
@@ -199,16 +203,22 @@ fn read_request(stream: &TcpStream) -> Result<Request> {
     let method = parts.next().unwrap_or_default().to_string();
     let target = parts.next().unwrap_or_default().to_string();
     let mut length = 0usize;
+    let (mut origin, mut authorization) = (None, None);
     for count in 0.. {
         anyhow::ensure!(count < MAX_HEADERS, "Too many headers");
         let header = read_line(&mut reader)?;
         if header.trim().is_empty() {
             break;
         }
-        if let Some((name, value)) = header.split_once(':')
-            && name.trim().eq_ignore_ascii_case("content-length")
-        {
-            length = value.trim().parse().unwrap_or(0);
+        if let Some((name, value)) = header.split_once(':') {
+            let (name, value) = (name.trim(), value.trim());
+            if name.eq_ignore_ascii_case("content-length") {
+                length = value.parse().unwrap_or(0);
+            } else if name.eq_ignore_ascii_case("origin") {
+                origin = Some(value.to_string());
+            } else if name.eq_ignore_ascii_case("authorization") {
+                authorization = Some(value.to_string());
+            }
         }
     }
     anyhow::ensure!(length <= MAX_BODY, "Request too large");
@@ -223,10 +233,12 @@ fn read_request(stream: &TcpStream) -> Result<Request> {
         path,
         query,
         body,
+        origin,
+        authorization,
     })
 }
 
-fn respond(mut stream: &TcpStream, status: &str, kind: &str, body: &[u8]) -> Result<()> {
+pub(crate) fn respond(mut stream: &TcpStream, status: &str, kind: &str, body: &[u8]) -> Result<()> {
     write!(
         stream,
         "HTTP/1.1 {status}\r\nContent-Type: {kind}\r\nContent-Length: {}\r\nCache-Control: no-store\r\nX-Content-Type-Options: nosniff\r\nReferrer-Policy: no-referrer\r\nConnection: close\r\n\r\n",
