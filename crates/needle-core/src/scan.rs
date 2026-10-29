@@ -134,6 +134,10 @@ pub fn import(
             .map(|e| format!(" (first: {e})"))
             .unwrap_or_default()
     ));
+    // Each song's album artist under Settings' album rule (new songs, and songs read again).
+    if let Err(e) = library.apply_album_rule() {
+        crate::logfile::warn(format!("The album rule: {e:#}"));
+    }
     progress(state.clone());
     Ok(state)
 }
@@ -326,8 +330,9 @@ pub fn import_one(library: &Library, path: &Path) -> Result<bool> {
 }
 
 /// The version of what Needle reads from a file's tags: a song read by an older one is read
-/// again (3: sort names and MusicBrainz artist ids).
-pub const METADATA_VERSION: u32 = 3;
+/// again (3: sort names and MusicBrainz artist ids; 4: the album artist tag as it is, and the
+/// compilation flag, for Settings' album rule).
+pub const METADATA_VERSION: u32 = 4;
 
 /// Read a file's details; `None` when the library already has it as it is.
 fn read_track(library: &Library, db: &rusqlite::Connection, path: &Path) -> Result<Option<Track>> {
@@ -409,10 +414,19 @@ fn read_track(library: &Library, db: &rusqlite::Connection, path: &Path) -> Resu
         }
         track.artist = tag.artist().unwrap_or_default().into();
         track.album = tag.album().unwrap_or_default().into();
-        track.album_artist = tag
+        track.album_artist_tag = tag
             .get_string(ItemKey::AlbumArtist)
-            .unwrap_or(&track.artist)
-            .into();
+            .map(str::trim)
+            .filter(|t| !t.is_empty())
+            .map(String::from);
+        track.compilation = tag
+            .get_string(ItemKey::FlagCompilation)
+            .is_some_and(|v| matches!(v.trim(), "1" | "true" | "True" | "TRUE"));
+        // The album rule (crate::grouping) gives songs without the tag theirs after the scan.
+        track.album_artist = track
+            .album_artist_tag
+            .clone()
+            .unwrap_or_else(|| track.artist.clone());
         track.genre = tag.genre().unwrap_or_default().into();
         track.year = tag
             .get_string(ItemKey::RecordingDate)
@@ -646,6 +660,12 @@ fn replace_verified(
 
 /// Write through a same-directory temporary file; retain a backup before replacing the original.
 pub fn write_tags(library: &Library, id: &str, edit: &TagEdit) -> Result<()> {
+    write_tags_one(library, id, edit)?;
+    album_rule_after_edit(library);
+    Ok(())
+}
+
+fn write_tags_one(library: &Library, id: &str, edit: &TagEdit) -> Result<()> {
     edit.validate()?;
     let track = library.track(id)?.context("Track no longer exists")?;
     let original = Path::new(&track.path);
@@ -703,6 +723,13 @@ pub fn write_tags(library: &Library, id: &str, edit: &TagEdit) -> Result<()> {
             Ok(())
         },
     )
+}
+
+/// New tags can move songs to another album under Settings' album rule.
+fn album_rule_after_edit(library: &Library) {
+    if let Err(e) = library.apply_album_rule() {
+        crate::logfile::warn(format!("The album rule: {e:#}"));
+    }
 }
 
 #[derive(Clone, Debug, Default, PartialEq, serde::Serialize)]
@@ -769,7 +796,7 @@ pub fn write_tags_batch(
             .unwrap_or_default();
         state.current = path.clone();
         progress(state.clone());
-        match write_tags(library, id, edit) {
+        match write_tags_one(library, id, edit) {
             Ok(()) => {
                 report.saved.push(id.clone());
                 state.saved += 1;
@@ -787,6 +814,7 @@ pub fn write_tags_batch(
     }
     state.current.clear();
     progress(state);
+    album_rule_after_edit(library);
     Ok(report)
 }
 
