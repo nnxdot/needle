@@ -64,6 +64,14 @@ struct AppearanceView: View {
                             .foregroundStyle(.secondary).fixedSize()
                     }
                 }
+                Picker(selection: Binding(get: { store.choices.seekStyle }, set: { v in store.updateChoices { $0.seekStyle = v } })) {
+                    Text("Shape").tag("shape")
+                    Text("Wave").tag("wave")
+                    Text("Line").tag("line")
+                    Text("Thick").tag("thick")
+                } label: {
+                    SettingLabel(title: "Seek bar", detail: "In the player.", icon: "slider.horizontal.below.rectangle", tint: .orange)
+                }
                 SketchRow(title: "Beside play", detail: "The two buttons either side.") {
                     SketchChoice(caption: "Skip", chosen: app.sideButtons != "jump", part: .skip) { store.updateApp { $0.sideButtons = "skip" } }
                     SketchChoice(caption: "10 s", chosen: app.sideButtons == "jump", part: .jump) { store.updateApp { $0.sideButtons = "jump" } }

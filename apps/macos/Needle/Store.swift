@@ -283,6 +283,23 @@ final class Store {
         Int((try? core.reviewYear()) ?? Int32(Calendar.current.component(.year, from: Date())))
     }
 
+    /// A new album rule (Settings › Library › Albums): the core gives every song its album
+    /// again, away from the window, then the pages show the new albums.
+    func setAlbumRule(grouping: String? = nil, compilations: Bool? = nil) {
+        Task {
+            let done = await ask { core in
+                var choices = try core.libraryChoices()
+                if let grouping { choices.albumGrouping = grouping }
+                if let compilations { choices.compilationsVarious = compilations }
+                try core.setLibraryChoices(value: choices)
+            }
+            if done != nil {
+                reloadSettings()
+                libraryChanged()
+            }
+        }
+    }
+
     func cancelSleep() {
         core.cancelSleepTimer()
         followSleep()

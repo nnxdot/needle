@@ -116,3 +116,50 @@ struct Visualizer: View {
         .accessibilityHidden(true)
     }
 }
+
+/// The big player's seek bar as a wave, a line, or a thick bar (Settings › Appearance › Seek
+/// bar), as on Android and Windows: what is still to play is a straight bar; what has played is
+/// the same in the lit colour, or, for Wave, a line that waves while the music plays (flat while
+/// it rests, and with Reduce motion).
+struct StyledSeekLine: View {
+    /// "wave", "line", or "thick".
+    let style: String
+    /// Where the song is, 0 to 1.
+    let fraction: Double
+    /// The wave moves: the music plays and motion is allowed.
+    let moving: Bool
+    let lit: Color
+    let dim: Color
+
+    var body: some View {
+        TimelineView(.animation(minimumInterval: 1 / 30, paused: !(moving && style == "wave"))) { context in
+            Canvas { g, size in
+                let thick: CGFloat = style == "thick" ? 10 : style == "wave" ? 3 : 4
+                let middle = size.height / 2
+                let split = size.width * min(max(fraction, 0), 1)
+                // What is still to play.
+                let rest = max(0, split - thick / 2)
+                g.fill(Path(roundedRect: CGRect(x: rest, y: middle - thick / 2, width: size.width - rest, height: thick), cornerRadius: thick / 2),
+                       with: .color(dim))
+                guard split > 0 else { return }
+                if style == "wave" {
+                    // About 34 points a wave, 3.5 high, moving at 6 radians a second.
+                    let amplitude: CGFloat = moving ? 3.5 : 0
+                    let phase = moving ? (context.date.timeIntervalSinceReferenceDate * 6).truncatingRemainder(dividingBy: 2 * .pi) : 0
+                    var line = Path()
+                    var x: CGFloat = 0
+                    while x <= split {
+                        let point = CGPoint(x: x, y: middle + amplitude * CGFloat(sin(Double(x) / 34 * 2 * .pi - phase)))
+                        if x == 0 { line.move(to: point) } else { line.addLine(to: point) }
+                        x += 1
+                    }
+                    g.stroke(line, with: .color(lit), style: StrokeStyle(lineWidth: thick, lineCap: .round, lineJoin: .round))
+                } else {
+                    g.fill(Path(roundedRect: CGRect(x: 0, y: middle - thick / 2, width: max(split, thick), height: thick), cornerRadius: thick / 2),
+                           with: .color(lit))
+                }
+            }
+        }
+        .accessibilityHidden(true)
+    }
+}

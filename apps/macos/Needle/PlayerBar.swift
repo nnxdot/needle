@@ -481,7 +481,27 @@ struct SeekBar: View {
                 Text(clock(p?.hasSong == true ? position : 0)).monospacedDigit().frame(width: 42, alignment: .trailing)
             }
             Group {
-                if !small, !shape.isEmpty, p?.hasSong == true {
+                if !small, store.settings.seekStyle != "shape", p?.hasSong == true {
+                    // Wave, Line, or Thick (Settings › Appearance › Seek bar).
+                    StyledSeekLine(style: store.settings.seekStyle, fraction: min(position / duration, 1),
+                                   moving: p?.playing == true && held == nil && store.motion,
+                                   lit: light ? .white : store.colors.accent,
+                                   dim: light ? .white.opacity(0.28) : store.colors.ink3.opacity(0.45))
+                        .frame(height: 30)
+                        .contentShape(Rectangle())
+                        .overlay {
+                            GeometryReader { geo in
+                                Color.clear.contentShape(Rectangle())
+                                    .gesture(DragGesture(minimumDistance: 0)
+                                        .onChanged { value in
+                                            if held == nil { store.core.scrub(held: true) }
+                                            held = min(max(0, value.location.x / max(geo.size.width, 1)), 1) * duration
+                                        }
+                                        .onEnded { _ in scrubbing(false) })
+                            }
+                        }
+                        .accessibilityRepresentation { slider(position: position, duration: duration) }
+                } else if !small, !shape.isEmpty, p?.hasSong == true {
                     WaveformSeek(heights: shape, fraction: min(position / duration, 1),
                                  lit: light ? .white : store.colors.accent,
                                  dim: light ? .white.opacity(0.28) : store.colors.ink3.opacity(0.45)) { place in

@@ -123,6 +123,16 @@ struct AppearanceSettings: View {
             SettingRow(title: "Immersive cover", detail: "In the big player, the cover fills the left side.", icon: "rectangle.lefthalf.inset.filled") {
                 SettingSwitch(key: "immersive_cover", on: s.immersiveCover)
             }
+            SettingRow(title: "Seek bar", detail: "In the big player and full screen.", icon: "slider.horizontal.below.rectangle") {
+                Picker("Seek bar", selection: Binding(get: { s.seekStyle }, set: { store.set(["seek_style": $0]) })) {
+                    Text("Shape").tag("shape")
+                    Text("Wave").tag("wave")
+                    Text("Line").tag("line")
+                    Text("Thick").tag("thick")
+                }
+                .labelsHidden()
+                .fixedSize()
+            }
             SettingRow(title: "Lyrics under the player", detail: "The line being sung, under the player.", icon: "quote.bubble") {
                 SettingSwitch(key: "player_lyrics", on: s.playerLyrics)
             }

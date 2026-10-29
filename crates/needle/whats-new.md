@@ -38,7 +38,7 @@ A new icon, and a lot more to see and hear.
 - [fullscreen] **Four looks for the big player.** The Look button steps through Cover, Record (the cover as a turning record), Lyrics (only the words, very large, lit as they are sung), and Visualizer.
 - [wave] **The visualizer.** Light that moves with the music, in the cover's colours, filling the big player and full screen.
 - [play] **Motion.** An album's cover grows into its page, a page's big title folds into the title bar as you scroll, covers lift and glow in their own colour under the pointer, and the colours follow the music. With Reduce motion, only fades.
-- [signal] **A seek bar shaped like the song.** In the big player and full screen, the seek bar shows the song's loud and quiet parts.
+- [signal] **A seek bar shaped like the song.** In the big player and full screen, the seek bar shows the song's loud and quiet parts. Or choose Wave, Line, or Thick in Settings › Appearance › Seek bar.
 - [lyrics] **Lyrics in your language.** Press Translate under the lyrics, or right-click a line, and each line shows translated under it, made on this Mac by Apple's Translation.
 - [lyrics] **Lyric cards.** Right-click a line of the lyrics and choose Share as Card for a picture of it in the cover's colours, to share, copy, or save.
 - [artists] **Better artists.** Guests after "feat." and both halves of "A & B" get their own page, sort names from your tags are used, and accents sort where they belong. On the Artists page, sort by A–Z, Most played, Most songs, or Newest, show only album artists, and jump with the A–Z bar.
@@ -54,6 +54,7 @@ A new icon, and a lot more to see and hear.
 - [speed] **Speed and pitch.** In the player's ••• menu: play a song from half to twice as fast, keep its pitch or let it rise, and move it up or down in semitones, for every song or only this one.
 - [history] **Your year in music.** Your hours, plays, and new songs, the year by month, your top artist, and your top songs, from Listening history (and on Home in December). Save it as a picture in Pictures › Needle, make a playlist of it, or play your top 50.
 - [lyrics] **Time the lyrics.** −0.2 s, +0.2 s, Redo line, and Undo fix the line you just tapped; Words times each word.
+- [albums] **What makes an album.** Songs without an album artist but tagged as a compilation are one album by Various Artists, and with Folder, a folder's songs with one album name are one album. Settings › Library › Albums; your files never change.
 
 # 1.8.0 [macos]
 Navidrome built in, moving covers, and calmer Settings.

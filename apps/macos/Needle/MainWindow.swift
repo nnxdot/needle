@@ -209,6 +209,19 @@ struct MainWindow: View {
                 }
             }
         }
+        // `--album-rule tags|folder|compilations-on|compilations-off`: as Settings › Library ›
+        // Albums does, a few seconds in.
+        if let rule = value("--album-rule") {
+            Task {
+                try? await Task.sleep(for: .seconds(4))
+                switch rule {
+                case "tags", "folder": store.setAlbumRule(grouping: rule)
+                case "compilations-on": store.setAlbumRule(compilations: true)
+                case "compilations-off": store.setAlbumRule(compilations: false)
+                default: break
+                }
+            }
+        }
         if let tool = value("--tool") {
             Task {
                 try? await Task.sleep(for: .seconds(5))

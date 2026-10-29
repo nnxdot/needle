@@ -264,6 +264,12 @@ struct NeedleSettings: Decodable, Equatable {
     var tray = false
     /// The sleep timer puts the Mac to sleep when it ends.
     var sleepComputer = false
+    /// The big player's seek bar: "shape", "wave", "line", or "thick".
+    var seekStyle = "shape"
+    /// What makes an album: "tags" (album artist and album) or "folder".
+    var albumGrouping = "tags"
+    /// Songs tagged as a compilation, with no album artist, are one album by Various Artists.
+    var compilationsVarious = true
 
     struct Layout: Decodable, Equatable {
         var sidebarWidth: Float = 212

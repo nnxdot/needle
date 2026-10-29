@@ -7,7 +7,7 @@ A new Home and icon, and a lot more to see and hear.
 - [player] **Four looks for the player.** The Look button at its top steps through Cover, Record (the cover as a turning record), Lyrics (only the words, very large, lit as they are sung), and Visualizer.
 - [sound] **The visualizer.** Light that moves with the music, in the cover's colours: the player's Visualizer look, or over the whole screen from the player's ••• menu.
 - [player] **Motion.** An album's cover grows into its page, a page's name folds into the bar as you scroll, and the colours follow the music. With Reduce motion, only fades.
-- [player] **A seek bar shaped like the song.** The player's seek bar shows the song's loud and quiet parts.
+- [player] **A seek bar shaped like the song.** The player's seek bar shows the song's loud and quiet parts. Or choose Wave, Line, or Thick in Settings › Appearance › Seek bar.
 - [lyrics] **Lyrics in your language.** Tap the translate button beside Lyrics, and each line shows translated under it, made on your iPhone by Apple's Translation.
 - [lyrics] **Lyric cards.** Hold a line of the lyrics and choose Share as Card for a picture of it in the cover's colours.
 - [watch] **Needle on your Apple Watch.** See the song playing on your iPhone, play or pause, skip, and star it from your wrist.
@@ -24,6 +24,7 @@ A new Home and icon, and a lot more to see and hear.
 - [speed] **Speed and pitch.** From the player's ••• menu: play a song from half to twice as fast, keep its pitch or let it rise, and move it up or down in semitones, for every song or only this one.
 - [history] **Your year in music.** Your hours, plays, and new songs, the year by month, your top artist, and your top songs, a card at a time, from Listening history (and on Home in December). Save it as a picture, make a playlist of it, or play your top 50.
 - [lyrics] **Time the lyrics.** −0.2 s, +0.2 s, Redo line, and Undo fix the line you just tapped; Time Each Word in the ••• menu times each word.
+- [albums] **What makes an album.** Songs without an album artist but tagged as a compilation are one album by Various Artists, and with Folder, a folder's songs with one album name are one album. Settings › Library › Albums; your files never change.
 
 # 1.8.0
 Navidrome built in, a Radio tab, moving covers, and calmer Settings.

@@ -399,6 +399,24 @@ struct LibrarySettings: View {
         }
         MusicServersSection()
         Section {
+            SettingRow(title: "What makes an album",
+                       detail: s.albumGrouping == "folder" ? "Songs in one folder with one album name, when they have no album artist." : "Songs with the same album artist and album name.",
+                       icon: "square.stack") {
+                Picker("What makes an album", selection: Binding(get: { s.albumGrouping }, set: { store.setAlbumRule(grouping: $0) })) {
+                    Text("Album artist and album").tag("tags")
+                    Text("Folder").tag("folder")
+                }
+                .labelsHidden()
+                .fixedSize()
+            }
+            SettingRow(title: "Compilations as one album", detail: "Songs tagged as a compilation, with no album artist, are one album by Various Artists.", icon: "person.3") {
+                Toggle("", isOn: Binding(get: { s.compilationsVarious }, set: { store.setAlbumRule(compilations: $0) }))
+                    .toggleStyle(.switch).labelsHidden()
+            }
+        } header: {
+            GroupHeader(title: "Albums", detail: "Which songs make one album. Your files never change.")
+        }
+        Section {
             SettingRow(title: "Measure songs for radio", detail: measuredText, icon: "dot.radiowaves.left.and.right") {
                 SettingSwitch(key: "sound_analysis", on: s.soundAnalysis)
             }

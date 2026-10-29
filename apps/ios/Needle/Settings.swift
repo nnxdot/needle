@@ -206,6 +206,23 @@ struct LibrarySettingsView: View {
             } footer: {
                 if store.scan.running { Text("Reading… \(count(Int(store.scan.imported), "song")) so far") }
             }
+            Section {
+                Picker(selection: Binding(get: { store.choices.albumGrouping }, set: { v in store.setAlbumRule { $0.albumGrouping = v } })) {
+                    Text("Album artist and album").tag("tags")
+                    Text("Folder").tag("folder")
+                } label: {
+                    SettingLabel(title: "What makes an album",
+                                 detail: store.choices.albumGrouping == "folder" ? "Songs in one folder with one album name, when they have no album artist." : "Songs with the same album artist and album name.",
+                                 icon: "square.stack.fill", tint: .orange)
+                }
+                Toggle(isOn: Binding(get: { store.choices.compilationsVarious }, set: { v in store.setAlbumRule { $0.compilationsVarious = v } })) {
+                    SettingLabel(title: "Compilations as one album", detail: "Songs tagged as a compilation, with no album artist, are one album by Various Artists.", icon: "person.3.fill", tint: .orange)
+                }
+            } header: {
+                Text("Albums")
+            } footer: {
+                Text("Which songs make one album. Your files never change.")
+            }
             if let settings {
                 let save = saved($settings, store) { try $0.setPlaybackSettings(value: $1) }
                 Section("Artwork and lyrics") {
