@@ -433,6 +433,18 @@ final class Store {
         if picturesChanged { allowPictures() }
     }
 
+    /// A new album rule (Settings › Library › Albums): the core gives every song its album
+    /// again, away from the screen, then the pages show the new albums.
+    func setAlbumRule(_ change: (inout LibraryChoices) -> Void) {
+        var next = choices
+        change(&next)
+        choices = next
+        let saved = next
+        Task {
+            if await ask({ try $0.setLibraryChoices(value: saved) }) != nil { libraryChanged() }
+        }
+    }
+
     /// The slow search for artists' pictures looks only with online lookups and Artist
     /// pictures on, on Wi-Fi, and while no scan runs.
     func allowPictures() {

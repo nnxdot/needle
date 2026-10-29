@@ -386,12 +386,17 @@ struct Logo: View {
     /// A dark logo: drawn in white on a dark page, where it would not show.
     @State private var dark = false
 
+    /// Chosen by the listener (a file, or a fanart.tv pick): kept as it is.
+    private var chosen: Bool { path.hasSuffix(".own") }
+
     var body: some View {
         Group {
             if let image {
-                if let ink {
+                // A logo the listener chose (the core keeps it as ".own") shows as it is: their
+                // pick of a white or a black logo stays. Needle recolours only the ones it found.
+                if let ink, !chosen {
                     Image(nsImage: image).renderingMode(.template).resizable().interpolation(.high).scaledToFit().foregroundStyle(ink)
-                } else if dark {
+                } else if dark, !chosen {
                     Image(nsImage: image).renderingMode(.template).resizable().interpolation(.high).scaledToFit().foregroundStyle(Color(white: 245 / 255))
                 } else {
                     Image(nsImage: image).resizable().interpolation(.high).scaledToFit()
