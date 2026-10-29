@@ -31,6 +31,26 @@ enum Covers {
 
     nonisolated static func stamp(_ path: String?) -> String? { path.map { stamp($0) } }
 
+    /// Whether a picture is dark where it is drawn: its alpha-weighted lightness under 0.4, as
+    /// on Windows (fanart.tv has black logos beside the white ones).
+    nonisolated static func isDark(_ cg: CGImage) -> Bool {
+        let side = 64
+        guard let context = CGContext(data: nil, width: side, height: side, bitsPerComponent: 8, bytesPerRow: side * 4,
+                                      space: CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)
+        else { return false }
+        context.draw(cg, in: CGRect(x: 0, y: 0, width: side, height: side))
+        guard let data = context.data else { return false }
+        let p = data.bindMemory(to: UInt8.self, capacity: side * side * 4)
+        var (light, weight) = (0.0, 0.0)
+        for i in 0..<(side * side) {
+            // Kept premultiplied: each colour is already weighted by its alpha.
+            let (r, g, b, a) = (Double(p[i * 4]), Double(p[i * 4 + 1]), Double(p[i * 4 + 2]), Double(p[i * 4 + 3]))
+            light += (0.2126 * r + 0.7152 * g + 0.0722 * b) / 255
+            weight += a / 255
+        }
+        return weight > 0 && light / weight < 0.4
+    }
+
     static func cached(_ path: String, size: Int) -> NSImage? {
         cache.object(forKey: "\(size)@\(stamp(path))" as NSString)
     }
@@ -363,12 +383,16 @@ struct Logo: View {
     /// Drawn in this colour, its own colours left out: for a light page.
     var ink: Color?
     @State private var image: NSImage?
+    /// A dark logo: drawn in white on a dark page, where it would not show.
+    @State private var dark = false
 
     var body: some View {
         Group {
             if let image {
                 if let ink {
                     Image(nsImage: image).renderingMode(.template).resizable().interpolation(.high).scaledToFit().foregroundStyle(ink)
+                } else if dark {
+                    Image(nsImage: image).renderingMode(.template).resizable().interpolation(.high).scaledToFit().foregroundStyle(Color(white: 245 / 255))
                 } else {
                     Image(nsImage: image).resizable().interpolation(.high).scaledToFit()
                 }
@@ -378,7 +402,9 @@ struct Logo: View {
         }
         .task(id: "\(Covers.stamp(path))|\(PictureChanges.shared.count)") {
             let found = await Covers.load(path, size: 1200)
-            if !Task.isCancelled { image = found }
+            let cg = found?.cgImage(forProposedRect: nil, context: nil, hints: nil)
+            let isDark = cg.map(Covers.isDark) ?? false
+            if !Task.isCancelled { image = found; dark = isDark }
         }
     }
 }

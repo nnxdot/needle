@@ -145,7 +145,8 @@ struct FanartPickerView: View {
                             }
                             .frame(height: kind == .photo ? 110 : 80)
                             .frame(maxWidth: .infinity)
-                            .background(kind == .logo ? Color.black.opacity(0.6) : .clear)
+                            // Grey behind logos: fanart.tv has white ones and black ones.
+                            .background(kind == .logo ? Color(white: 0.42) : .clear)
                             .clipShape(.rect(cornerRadius: 8))
                             .overlay { if busy == choice.url { ProgressView() } }
                         }
@@ -155,6 +156,12 @@ struct FanartPickerView: View {
                     }
                 }
                 .padding()
+                if choices.count == 1 {
+                    Text("This is the only one fanart.tv has of this artist. Choose Picture… to use another.")
+                        .font(.needle(.subheadline)).foregroundStyle(.secondary)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(.horizontal)
+                }
             } else {
                 ProgressView().padding(.top, 80)
             }

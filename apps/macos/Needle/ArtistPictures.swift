@@ -141,6 +141,12 @@ struct FanartPicker: View {
                             ForEach(choices) { choice in tile(choice) }
                         }
                         .padding(2)
+                        if choices.count == 1 {
+                            Text("This is the only one fanart.tv has of this artist. Choose Picture… to use another.")
+                                .font(.needle(.callout)).foregroundStyle(.secondary)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                                .padding(.top, 6)
+                        }
                     }
                 } else {
                     ProgressView().frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -169,7 +175,8 @@ struct FanartPicker: View {
             }
             .frame(height: kind == .photo ? 130 : 90)
             .frame(maxWidth: .infinity)
-            .background(kind == .logo ? Color.black.opacity(0.6) : .clear)
+            // Grey behind logos: fanart.tv has white ones and black ones.
+            .background(kind == .logo ? Color(white: 0.42) : .clear)
             .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
             .overlay {
                 if busy == choice.url { ProgressView().controlSize(.small) }
