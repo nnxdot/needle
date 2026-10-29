@@ -50,15 +50,7 @@ struct RecordCrate: View {
                 record(albums[i], at: Double(i) - progress, side: side)
                     .onTapGesture { if i == index { open() } else { flip(to: i) } }
             }
-            // The front of the box: the records behind stand in it. It sits behind the front
-            // record (zIndex 0), never over its cover: on a light page it showed as a white plate.
-            RoundedRectangle(cornerRadius: 14, style: .continuous)
-                .fill(store.colors.raised.opacity(0.94))
-                .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous).strokeBorder(.white.opacity(0.07)))
-                .frame(width: side + 40, height: side * 0.3)
-                .shadow(color: .black.opacity(0.25), radius: 12, y: -2)
-                .zIndex(-0.5)
-                .allowsHitTesting(false)
+            // No box front, as on Windows: it showed as a pale bar under the front cover.
         }
         .frame(width: side + 40, height: side * 1.55, alignment: .bottom)
         .contentShape(Rectangle())

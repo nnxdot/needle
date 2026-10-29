@@ -59,15 +59,7 @@ struct RecordCrateView: View {
                         if i == index { store.opening = .album(albums[i]) } else { flip(to: i, count: albums.count) }
                     }
             }
-            // The front of the box: the records behind stand in it. It sits behind the front
-            // record (zIndex 0), never over its cover: on a light page it showed as a white plate.
-            RoundedRectangle(cornerRadius: 14)
-                .fill(store.colors.card.opacity(0.92))
-                .overlay(RoundedRectangle(cornerRadius: 14).strokeBorder(.white.opacity(0.08)))
-                .frame(width: side + 36, height: side * 0.3)
-                .shadow(color: .black.opacity(0.25), radius: 12, y: -2)
-                .zIndex(-0.5)
-                .allowsHitTesting(false)
+            // No box front, as on Windows: it showed as a pale bar under the front cover.
         }
         .frame(width: side + 36, height: side * 1.55, alignment: .bottom)
         .contentShape(.rect)

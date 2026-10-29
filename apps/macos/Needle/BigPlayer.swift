@@ -68,8 +68,9 @@ struct BigPlayer: View {
                                         .overlay { MovingCoverLayer(songID: store.current?.id, on: store.settings.animatedCovers && store.motion) }
                                 }
                             } else if visualizer {
-                                // The visualizer in the cover's place, on the cover's colours.
-                                Visualizer().frame(width: min(geo.size.height * 0.56, wide ? 500 : 380))
+                                // The visualizer in the cover's place, in the cover's colours.
+                                Visualizer(path: p.artwork, seed: p.album + p.artist)
+                                    .frame(width: min(geo.size.height * 0.56, wide ? 500 : 380))
                             } else if immersive {
                                 // The cover is the window's side itself: the words sit over its foot.
                                 Spacer(minLength: 0)
