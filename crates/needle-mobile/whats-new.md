@@ -29,6 +29,7 @@ A new look, after the Mac's, and a lot more to see and hear.
 - [panel] **A new Home on Android TV.** The album in focus fills the screen behind, with its name large and Play and Shuffle above the row.
 - [palette] **Smoother motion.** An album's cover grows into its page, the page's title folds into the bar as you scroll, and colours blend to the next song's. With Reduce motion, these are plain fades.
 - [album] **What makes an album.** Settings › Library › Albums: an album is its album artist and name, or the songs of one folder. Compilations (tagged as one) are one album by Various Artists. Your files never change.
+- [panel] **Foldables.** On a Galaxy Z Fold, Needle moves to its wide layout when you open it, and the player splits around the fold when it is half closed: the cover above and the controls below on a table, or the library and the player side by side held like a book.
 - [video] **Moving covers on the album page.** An album with a moving cover shows it moving at the top of its page too.
 - [record] **A new icon.** An amber record and its arm, also when Needle starts.
 - In Up next, a row lights up under a mouse pointer.

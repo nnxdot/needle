@@ -67,6 +67,8 @@ import androidx.compose.material.icons.rounded.Translate
 import androidx.compose.material.icons.rounded.GraphicEq
 import androidx.compose.material.icons.rounded.Fullscreen
 import androidx.compose.material.icons.rounded.Album
+import androidx.compose.ui.layout.positionInWindow
+import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.material.icons.rounded.Bedtime
 import androidx.compose.material.icons.outlined.Bedtime
 import androidx.compose.material.icons.rounded.Image
@@ -536,7 +538,8 @@ fun FullPlayer(onClose: () -> Unit, open: (Route) -> Unit) {
         // cover's place; the Look button at the top steps through them.
         val choices by NeedleApp.instance.more.collectAsState()
         val bigLook = choices.bigLook.takeIf { it in BigLooks } ?: "cover"
-        val immersive = look.immersiveCover && panel == Panel.Cover && bigLook == "cover"
+        // Standing as a laptop, the cover sits on the upper half, not behind the crease.
+        val immersive = look.immersiveCover && panel == Panel.Cover && bigLook == "cover" && LocalHinge.current?.tabletop != true
         val screen = androidx.compose.ui.platform.LocalConfiguration.current
         val wideScreen = (screen.screenWidthDp >= 600 || screen.screenHeightDp < 480) && screen.screenWidthDp > screen.screenHeightDp
         val still = reduceMotion()
@@ -712,7 +715,34 @@ fun FullPlayer(onClose: () -> Unit, open: (Route) -> Unit) {
                     }
                 }
                 if (searching) PlayerSearch(song.onComputer()) { searching = false }
-                if (wide) {
+                val crease = LocalHinge.current?.takeIf { it.tabletop }
+                if (crease != null) {
+                    // A foldable standing as a laptop: the cover (or the lyrics, or the light) on
+                    // the upper half, the song and its controls on the lower, none on the crease.
+                    val density = androidx.compose.ui.platform.LocalDensity.current
+                    var top by remember { mutableStateOf(0.dp) }
+                    Column(
+                        Modifier
+                            .weight(1f)
+                            .fillMaxWidth()
+                            .onGloballyPositioned { top = with(density) { it.positionInWindow().y.toDp() } },
+                    ) {
+                        Box(
+                            Modifier.fillMaxWidth().height((crease.top - top - 12.dp).coerceAtLeast(80.dp)),
+                            contentAlignment = Alignment.Center,
+                        ) { stage() }
+                        Spacer(Modifier.height(crease.bottom - crease.top + 24.dp))
+                        Column(
+                            Modifier.weight(1f).align(Alignment.CenterHorizontally).widthIn(max = 640.dp).fillMaxWidth().verticalScroll(rememberScrollState()),
+                            verticalArrangement = Arrangement.Center,
+                        ) {
+                            CompositionLocalProvider(LocalCompactPlayer provides true) {
+                                name()
+                                controls()
+                            }
+                        }
+                    }
+                } else if (wide) {
                     Row(Modifier.weight(1f).fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(48.dp)) {
                         Box(Modifier.weight(1f).fillMaxHeight().padding(vertical = 12.dp), contentAlignment = Alignment.Center) { stage() }
                         // Scrolls when a phone on its side is too short for all of it.

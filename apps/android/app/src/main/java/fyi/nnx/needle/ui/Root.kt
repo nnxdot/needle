@@ -16,6 +16,8 @@ import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.background
@@ -126,6 +128,19 @@ fun NeedleRoot() {
     val hasSong by remember { androidx.compose.runtime.derivedStateOf { playbackState.value?.current != null } }
     val playingArt by remember { androidx.compose.runtime.derivedStateOf { playbackState.value?.current?.artwork } }
     val reduce = reduceMotion()
+    // A foldable half closed (Fold.kt): held as a book, the library at the left of the crease
+    // and the player at its right; standing as a laptop (tabletop), the pages above the crease
+    // and the bar of controls below it. Flat or closed, the screen is used whole, by its width.
+    val hinge = rememberHinge()
+    val density = LocalDensity.current
+    var window by remember { mutableStateOf(androidx.compose.ui.unit.DpSize.Zero) }
+    val book = hinge != null && !hinge.tabletop && hasSong && window.width > hinge.right
+    val tabletop = hinge != null && hinge.tabletop && window.height > hinge.bottom
+    // The library's half, when held as a book: laid out by its own width.
+    val config = androidx.compose.ui.platform.LocalConfiguration.current
+    val left = remember(config, book, hinge?.left) {
+        if (book && hinge != null) android.content.res.Configuration(config).apply { screenWidthDp = hinge.left.value.toInt() } else config
+    }
     // The same list each time while the tab has only its first page, so what takes `open`
     // is not redrawn for nothing.
     val rootStack = remember(tab) { listOf(tab.root) }
@@ -139,7 +154,7 @@ fun NeedleRoot() {
     // messages show above them instead of over them.
     var barHeight by remember { mutableStateOf(0) }
     // Tablets and unfolded phones get a side bar of tabs, playlists, and albums (SideBar.kt).
-    val wide = hasSideBar()
+    val wide = hasSideBar() && !book
     // What each page in a tab's stack had (its scroll, its filter, its search words) is kept
     // while the page is under another, so Back finds it as it was; dropped once the page is.
     val pageStates = androidx.compose.runtime.saveable.rememberSaveableStateHolder()
@@ -170,6 +185,8 @@ fun NeedleRoot() {
     // Nothing playing (the computer went, or Needle came back without its song): the player is
     // shut, so Back is not spent on it, and it does not open by itself with the next song.
     LaunchedEffect(hasSong) { if (!hasSong) playerOpen = false }
+    // Held as a book, the player is always there at the right: never opened over the library.
+    LaunchedEffect(book, playerOpen) { if (book && playerOpen) playerOpen = false }
     // Back first stops choosing songs, when some are chosen.
     val choosing by Selection.songs.collectAsState()
     // Not while the player covers the bar of chosen songs: Back closes the player first.
@@ -218,13 +235,32 @@ fun NeedleRoot() {
     // Settings › Appearance › Colours from what is playing: every page in the song's colours.
     CoverTheme(if (app.ambientColors) playingArt else null) {
     SharedTransitionLayout(Modifier.fillMaxSize()) {
-        CompositionLocalProvider(LocalShared provides this) {
-            Box(Modifier.fillMaxSize().onPreviewKeyEvent { lastKey = android.os.SystemClock.uptimeMillis(); false }) {
+        CompositionLocalProvider(LocalShared provides this, LocalHinge provides hinge) {
+            Box(
+                Modifier
+                    .fillMaxSize()
+                    .onSizeChanged { window = with(density) { androidx.compose.ui.unit.DpSize(it.width.toDp(), it.height.toDp()) } }
+                    .onPreviewKeyEvent { lastKey = android.os.SystemClock.uptimeMillis(); false },
+            ) {
+                CompositionLocalProvider(androidx.compose.ui.platform.LocalConfiguration provides left) {
                 // The keyboard takes room from the pages, so a text box low on a page shows above it.
                 // On a tablet the side bar sits on the window, a shade darker, and the pages on a
                 // sheet beside it with one round corner, as the Mac's and the computer's.
-                Row(Modifier.fillMaxSize().imePadding().focusCovered(covered).background(if (wide) MaterialTheme.colorScheme.surfaceContainerLowest else MaterialTheme.colorScheme.background)) {
-                if (wide) SideBar(tab, stack.last(), chooseTab, open, show)
+                Row(
+                    Modifier
+                        .fillMaxSize()
+                        // Held as a book: the library stops at the crease.
+                        .then(if (book && hinge != null) Modifier.padding(end = (window.width - hinge.left).coerceAtLeast(0.dp)) else Modifier)
+                        .imePadding()
+                        .focusCovered(covered)
+                        .background(if (wide) MaterialTheme.colorScheme.surfaceContainerLowest else MaterialTheme.colorScheme.background),
+                ) {
+                if (wide) {
+                    // Standing as a laptop, the side bar stays above the crease, as the pages do.
+                    Box(if (tabletop && hinge != null) Modifier.padding(bottom = (window.height - hinge.top).coerceAtLeast(0.dp)) else Modifier) {
+                        SideBar(tab, stack.last(), chooseTab, open, show)
+                    }
+                }
                 // Pages lay out by the room they have (see Adaptive.kt).
                 androidx.compose.foundation.layout.BoxWithConstraints(Modifier.weight(1f).then(if (wide) Modifier.pane() else Modifier).focusRequester(pageFocus).onFocusChanged {
                     if (inPage && !it.hasFocus && android.os.SystemClock.uptimeMillis() - lastKey > 250) toPage++
@@ -232,7 +268,9 @@ fun NeedleRoot() {
                 }.focusGroup()) {
                 CompositionLocalProvider(LocalPageWidth provides maxWidth) {
                 // The room the dock takes at the foot, with a little to spare, for the pages' lists.
-                val dockRoom = with(LocalDensity.current) { barHeight.toDp() } + 12.dp
+                // Standing as a laptop, the bar sits below the crease, not over the pages.
+                val dockRoom = if (tabletop) 16.dp else with(LocalDensity.current) { barHeight.toDp() } + 12.dp
+                val aboveCrease = if (tabletop && hinge != null) Modifier.padding(bottom = (window.height - hinge.top).coerceAtLeast(0.dp)) else Modifier
                 // The pages run on under the floating dock (or a tablet's floating player); what
                 // floats blurs them (Dock.kt).
                 Scaffold(
@@ -243,7 +281,7 @@ fun NeedleRoot() {
                     contentWindowInsets = androidx.compose.material3.ScaffoldDefaults.contentWindowInsets.only(
                         androidx.compose.foundation.layout.WindowInsetsSides.Horizontal,
                     ),
-                    modifier = Modifier.hazeSource(haze),
+                    modifier = Modifier.then(aboveCrease).hazeSource(haze),
                 ) { padding ->
                     AnimatedContent(
                         targetState = tab to stack,
@@ -311,7 +349,7 @@ fun NeedleRoot() {
                         // The last kind shown stays while the pane slides away.
                         var last by remember { mutableStateOf(SideKind.Lyrics) }
                         if (shown != null) last = shown
-                        SidePane(last, open, Modifier.padding(top = 12.dp, end = 20.dp, bottom = bars + 8.dp))
+                        SidePane(last, open, Modifier.then(aboveCrease).padding(top = 12.dp, end = 20.dp, bottom = if (tabletop) 8.dp else bars + 8.dp))
                     }
                     }
                 }
@@ -330,7 +368,8 @@ fun NeedleRoot() {
                         if (!typing) SelectionBar()
                         if (!typing) {
                             if (!wide) {
-                                Dock(tab, chooseTab, hasSong && !playerOpen, { playerOpen = true }, null)
+                                // Held as a book, the player is at the right: the tabs alone here.
+                                Dock(tab, chooseTab, hasSong && !playerOpen && !book, { playerOpen = true }, null)
                             } else {
                                 AnimatedVisibility(
                                     visible = hasSong && !playerOpen,
@@ -348,8 +387,13 @@ fun NeedleRoot() {
                 }
                 }
                 }
+                }
                 AnimatedVisibility(
-                    visible = playerOpen && hasSong,
+                    visible = (playerOpen || book) && hasSong,
+                    // Held as a book: the player has the right of the crease.
+                    modifier = if (book && hinge != null) {
+                        Modifier.align(androidx.compose.ui.Alignment.TopEnd).then(Modifier.fillMaxHeight()).width((window.width - hinge.right).coerceAtLeast(0.dp))
+                    } else Modifier,
                     enter = if (reduce) fadeIn(tween(150)) else slideInVertically(tween(380)) { it } + fadeIn(tween(200)),
                     exit = if (reduce) fadeOut(tween(150)) else slideOutVertically(tween(300)) { it } + fadeOut(tween(250)),
                 ) {

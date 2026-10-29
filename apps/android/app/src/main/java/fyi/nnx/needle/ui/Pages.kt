@@ -378,7 +378,7 @@ fun PlayPill(modifier: Modifier = Modifier, onClick: () -> Unit) {
     ) {
         Icon(Icons.Rounded.PlayArrow, contentDescription = null, modifier = Modifier.size(24.dp))
         Spacer(Modifier.width(6.dp))
-        Text("Play", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+        Text("Play", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold, maxLines = 1, softWrap = false)
     }
 }
 
@@ -391,12 +391,13 @@ fun ShufflePill(modifier: Modifier = Modifier, onClick: () -> Unit) {
         shape = CircleShape,
         colors = ButtonDefaults.outlinedButtonColors(containerColor = scheme.onSurface.copy(alpha = 0.08f), contentColor = scheme.onSurface),
         border = androidx.compose.foundation.BorderStroke(0.5.dp, scheme.onSurface.copy(alpha = 0.14f)),
-        contentPadding = PaddingValues(horizontal = 22.dp),
+        // Less room at the sides on a narrow page (half a foldable), so the word stays whole.
+        contentPadding = PaddingValues(horizontal = 16.dp),
         modifier = modifier.height(50.dp).widthIn(min = 120.dp, max = 180.dp),
     ) {
         Icon(Icons.Rounded.Shuffle, contentDescription = null, modifier = Modifier.size(22.dp))
         Spacer(Modifier.width(6.dp))
-        Text("Shuffle", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+        Text("Shuffle", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold, maxLines = 1, softWrap = false)
     }
 }
 

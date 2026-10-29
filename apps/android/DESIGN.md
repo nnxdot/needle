@@ -111,6 +111,18 @@ plays and the one main button.
 - The back gesture, the touch ripple, Roboto (Roboto Flex for titles), the system's share sheet,
   and the system's media controls (notification, lock screen, Android Auto, widgets).
 
+## Foldables
+
+- Flat, a foldable is laid out by its width like any screen: the phone layout on the cover
+  screen, the side bar and floating player when open. Folding and unfolding do not restart
+  Needle (MainActivity handles the size change), so the song, the page, and its place stay.
+- Half closed (Jetpack WindowManager's FoldingFeature, `Fold.kt`), nothing sits on the crease:
+  - Tabletop (crease across): the pages and the side bar above it, the bar of controls below
+    it; the full player puts the cover (or lyrics, or the light) above and the song and its
+    controls below.
+  - Book (crease down): the library at the left, laid out by its half's width, and the player
+    always at the right.
+
 ## TV and keys
 
 - On Android TV the app is the tablet's: the side bar, the floating player, the wide player.
