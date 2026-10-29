@@ -85,11 +85,11 @@ struct RadioView: View {
         .accessibilityHint("Starts a radio station")
     }
 
-    /// Mixes of the whole library, two to a row.
+    /// Mixes of the whole library, two to a row (more on a phone on its side).
     private var mixes: some View {
         VStack(alignment: .leading, spacing: 0) {
             SectionTitle(title: "Quick mixes")
-            LazyVGrid(columns: [GridItem(.flexible(), spacing: 12), GridItem(.flexible(), spacing: 12)], spacing: 12) {
+            LazyVGrid(columns: [GridItem(.adaptive(minimum: 150), spacing: 12)], spacing: 12) {
                 MixTile(title: "Shuffle all", detail: count(Int(songs), "song"), symbol: "shuffle", tint: .orange) {
                     store.playIDs({ try $0.songs().map(\.id) }, shuffled: true)
                 }

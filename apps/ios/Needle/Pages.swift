@@ -317,7 +317,8 @@ struct AlbumGrid: View {
     let albums: [Album]
 
     var body: some View {
-        LazyVGrid(columns: [GridItem(.flexible(), spacing: 14), GridItem(.flexible(), spacing: 14)], spacing: 18) {
+        // Two to a row on a phone held upright, more on its side.
+        LazyVGrid(columns: [GridItem(.adaptive(minimum: 150), spacing: 14)], spacing: 18) {
             ForEach(albums) { AlbumTile(album: $0, width: nil) }
         }
         .padding(.horizontal)
@@ -410,7 +411,7 @@ struct GenreTiles: View {
     let genres: [Genre]
 
     var body: some View {
-        LazyVGrid(columns: [GridItem(.flexible(), spacing: 12), GridItem(.flexible(), spacing: 12)], spacing: 12) {
+        LazyVGrid(columns: [GridItem(.adaptive(minimum: 150), spacing: 12)], spacing: 12) {
             ForEach(genres) { genre in
                 NavigationLink(value: Route.genre(genre.name)) {
                     Artwork(path: genre.artwork, seed: genre.name, size: 300)

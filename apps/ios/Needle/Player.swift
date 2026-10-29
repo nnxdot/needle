@@ -122,6 +122,8 @@ struct NowPlayingView: View {
     @State private var swipe: CGFloat = 0
     /// Counts the hinge's changes (iPhone Duo), so the parts are placed again.
     @State private var hingeChanges = 0
+    /// Wider than tall (a phone on its side, the iPhone Duo open).
+    @State private var sideways = false
 
     enum Pane { case cover, lyrics, queue }
 
@@ -132,10 +134,12 @@ struct NowPlayingView: View {
         let seed = (song?.album ?? "") + (song?.artist ?? "")
         let app = store.app
         let look = look
-        let immersive = app.immersiveCover && pane == .cover && look == "cover"
+        // On its side the cover stands at the left, as on Android, never filling the page.
+        let fills = app.immersiveCover && look == "cover" && !sideways
+        let immersive = fills && pane == .cover
         ZStack {
             Color.black.ignoresSafeArea()
-            if app.immersiveCover && look == "cover" {
+            if fills {
                 // Always there, blurred behind the lyrics and the queue, so moving between them
                 // never shows black while it fades.
                 ImmersiveCover(song: song, seed: seed, animated: app.animatedCovers && !reduceMotion && pane == .cover)
@@ -209,6 +213,7 @@ struct NowPlayingView: View {
             .padding(.bottom, 8)
         }
         .modifier(HingeWatch(changes: $hingeChanges))
+        .onGeometryChange(for: Bool.self) { $0.size.width > $0.size.height } action: { sideways = $0 }
         .animation(reduceMotion ? nil : .spring(response: 0.45, dampingFraction: 0.85), value: pane)
         .task(id: song?.id) {
             pendingLoop = nil
