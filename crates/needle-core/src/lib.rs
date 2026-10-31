@@ -23,6 +23,7 @@ pub mod import;
 pub mod instance;
 pub mod integrations;
 pub mod logfile;
+pub mod mcp;
 pub mod media;
 #[cfg(windows)]
 pub mod mediafoundation;
