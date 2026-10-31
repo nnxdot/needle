@@ -106,6 +106,10 @@ impl UsbDac {
                 out.clock_rates.push((clock, rates));
             }
         }
+        // Just plugged in, a DAC may not answer yet: the app tries again.
+        if out.dac.uac == Uac::Two && out.clock_rates.iter().all(|(_, rates)| rates.is_empty()) {
+            bail!("{} did not say which rates it plays", out.name);
+        }
         out.volume_range = out.read_volume_range();
         out.log_what_it_says();
         Ok(out)
@@ -763,6 +767,19 @@ mod tests {
             "no request for a rate it cannot set"
         );
         assert!(dac.format_for(2, 44_100).is_err());
+    }
+
+    #[test]
+    fn a_dac_that_does_not_answer_yet_is_an_error_to_try_again() {
+        let fake = Arc::new(FakeDac::new(Trouble::NoClockAnswer));
+        let raw = descriptors();
+        let why = UsbDac::new(fake, &raw, "Pretend DAC".into(), 1.)
+            .err()
+            .unwrap();
+        assert_eq!(
+            why.to_string(),
+            "Pretend DAC did not say which rates it plays"
+        );
     }
 
     #[test]

@@ -9,6 +9,8 @@ import android.hardware.usb.UsbConstants
 import android.hardware.usb.UsbDevice
 import android.hardware.usb.UsbDeviceConnection
 import android.hardware.usb.UsbManager
+import android.media.AudioDeviceCallback
+import android.media.AudioDeviceInfo
 import android.media.AudioManager
 import android.os.Build
 import kotlinx.coroutines.Dispatchers
@@ -29,6 +31,21 @@ import kotlinx.coroutines.withContext
  * interface would bring back a sound card with nothing to play on (sound/usb/card.c in Linux).
  */
 internal fun <T> controlLast(interfaces: List<T>, isControl: (T) -> Boolean): List<T> = interfaces.sortedBy(isControl)
+
+/**
+ * `attempt` up to `times` times, `wait` ms apart, while `wanted` holds: the first success, or the
+ * last failure. A DAC just plugged in may not answer yet.
+ */
+internal suspend fun <T> retrying(times: Int, wait: Long, wanted: () -> Boolean, attempt: suspend () -> Result<T>): Result<T> {
+    var last = Result.failure<T>(IllegalStateException("It was not tried"))
+    for (i in 0 until times) {
+        if (i > 0) delay(wait)
+        if (!wanted()) break
+        last = attempt()
+        if (last.isSuccess) break
+    }
+    return last
+}
 
 /**
  * Needle's own USB DAC driver, on the Android side (Settings › Sound › Bit-perfect USB): finds
@@ -59,8 +76,13 @@ object UsbDriver {
     val plugged: StateFlow<String?> = _plugged
 
     private const val PERMISSION = "fyi.nnx.needle.USB_PERMISSION"
+    /** Tries to open a DAC, and the wait between them (ms): about two seconds in all. */
+    private const val OPEN_TRIES = 3
+    private const val OPEN_WAIT = 1000L
     @Volatile private var connection: UsbDeviceConnection? = null
     @Volatile private var held: UsbDevice? = null
+    /** The device last held, by its name: Android may say it is gone after the driver did. */
+    @Volatile private var lastHeld: String? = null
     private var started = false
 
     /** Taking the DAC and giving it back, one at a time, in order. */
@@ -68,6 +90,9 @@ object UsbDriver {
 
     /** Brings the phone's volume to the driver while it has the DAC. */
     private var following: Job? = null
+
+    /** Opens Needle's output again a moment after Android's USB output comes or goes. */
+    private var rerouting: Job? = null
 
     /** "Copy DAC details" waiting for the listener to allow Needle to look at the DAC. */
     @Volatile private var details: ((String?) -> Unit)? = null
@@ -83,7 +108,12 @@ object UsbDriver {
                     UsbManager.ACTION_USB_DEVICE_ATTACHED -> check(app)
                     UsbManager.ACTION_USB_DEVICE_DETACHED -> {
                         val gone = intent.device()
-                        if (gone == null || gone.deviceName == held?.deviceName) release(app, State.None)
+                        if (gone == null || gone.deviceName == held?.deviceName || gone.deviceName == lastHeld) {
+                            lastHeld = null
+                            // As when headphones come out: not on through the phone's speaker.
+                            Unplugged.pause()
+                            release(app, State.None)
+                        }
                         check(app)
                     }
                     PERMISSION -> {
@@ -108,19 +138,52 @@ object UsbDriver {
         if (Build.VERSION.SDK_INT >= 33) app.registerReceiver(receiver, filter, Context.RECEIVER_NOT_EXPORTED)
         else @Suppress("UnspecifiedRegisterReceiverFlag") app.registerReceiver(receiver, filter)
         // The driver's own word: what it plays, or why it stopped (then Android's output plays).
+        // Soon while music plays: until the DAC is back with Android, that output is silent.
         NeedleApp.instance.scope.launch {
             while (true) {
-                delay(1500)
+                delay(if (_state.value is State.Driving && NeedleApp.instance.playback.value?.playing == true) 300 else 1500)
                 if (_state.value !is State.Driving) continue
                 val status = withContext(Dispatchers.IO) { runCatching { NeedleApp.instance.core.usbDacStatus() }.getOrNull() } ?: continue
                 status.problem?.let { why ->
-                    val name = (held?.productName ?: "The DAC")
+                    val device = held
+                    val name = (device?.productName ?: "The DAC")
                     NeedleLog.info("Needle's USB driver stopped for $name: $why")
-                    release(app, State.Fallback(name, why)) { fyi.nnx.needle.ui.useAndroidMixer(app, true) }
+                    val usb = app.getSystemService(UsbManager::class.java)
+                    if (device != null && usb?.deviceList?.containsKey(device.deviceName) == false) {
+                        // Pulled out, and Android has said so already.
+                        Unplugged.pause()
+                        release(app, State.None)
+                    } else {
+                        fyi.nnx.needle.ui.showMessage("$why. Android plays it now.")
+                        release(app, State.Fallback(name, why)) { fyi.nnx.needle.ui.useAndroidMixer(app, true) }
+                    }
                 }
             }
         }
+        // Android's route for music moves when a USB output comes or goes. Android moves an open
+        // output itself only sometimes, so Needle's opens again, unless the driver has the DAC.
+        app.getSystemService(AudioManager::class.java)?.registerAudioDeviceCallback(
+            object : AudioDeviceCallback() {
+                override fun onAudioDevicesAdded(devices: Array<out AudioDeviceInfo>) = routeMoved(devices)
+                override fun onAudioDevicesRemoved(devices: Array<out AudioDeviceInfo>) = routeMoved(devices)
+            },
+            android.os.Handler(android.os.Looper.getMainLooper()),
+        )
         check(app)
+    }
+
+    private fun isUsbOutput(device: AudioDeviceInfo) =
+        device.isSink && (device.type == AudioDeviceInfo.TYPE_USB_DEVICE || device.type == AudioDeviceInfo.TYPE_USB_HEADSET)
+
+    private fun routeMoved(devices: Array<out AudioDeviceInfo>) {
+        if (devices.none(::isUsbOutput)) return
+        rerouting?.cancel()
+        rerouting = NeedleApp.instance.scope.launch(Dispatchers.IO) {
+            delay(500)
+            changing.withLock {
+                if (connection == null) runCatching { NeedleApp.instance.core.usbOutputAgain() }
+            }
+        }
     }
 
     private fun Intent.device(): UsbDevice? =
@@ -196,24 +259,49 @@ object UsbDriver {
         }
     }
 
+    /**
+     * Android tells of a new device before it looks for its sound card, and a card taken from the
+     * kernel before that look is one Android never knows: no USB output until it is plugged in
+     * again (UsbHostManager.usbDeviceAdded). So Needle waits for Android's USB output, a few
+     * seconds at most, as a DAC that Android cannot use never comes.
+     */
+    private suspend fun letAndroidFindIt(context: Context) {
+        val audio = context.getSystemService(AudioManager::class.java) ?: return
+        repeat(30) {
+            if (audio.getDevices(AudioManager.GET_DEVICES_OUTPUTS).any(::isUsbOutput)) return
+            delay(100)
+        }
+    }
+
     private fun open(context: Context, device: UsbDevice) {
         val usb = context.getSystemService(UsbManager::class.java) ?: return
         val name = nameOf(device)
+        val wanted = {
+            connection == null && NeedleApp.instance.app.value.usbBitPerfect && usb.deviceList.containsKey(device.deviceName)
+        }
         NeedleApp.instance.scope.launch(Dispatchers.IO) {
             changing.withLock {
-                if (this@UsbDriver.connection != null || !NeedleApp.instance.app.value.usbBitPerfect) return@withLock
-                val connection = runCatching { usb.openDevice(device) }.getOrNull()
-                if (connection == null) {
-                    _state.value = State.Fallback(name, "Android did not open it")
-                    return@withLock
-                }
-                // The audio interfaces, from Android's own driver.
-                for (intf in audioInterfaces(device)) connection.claimInterface(intf, true)
+                if (!wanted()) return@withLock
+                letAndroidFindIt(context)
                 val core = NeedleApp.instance.core
-                runCatching { core.usbDacVolume(phoneVolume(context)) }
-                runCatching { core.usbDacOpen(connection.fileDescriptor, connection.rawDescriptors, name) }.onSuccess { info ->
-                    this@UsbDriver.connection = connection
+                var taken: UsbDeviceConnection? = null
+                val opened = retrying(OPEN_TRIES, OPEN_WAIT, wanted) {
+                    val c = runCatching { usb.openDevice(device) }.getOrNull()
+                        ?: return@retrying Result.failure(IllegalStateException("Android did not open it"))
+                    // The audio interfaces, from Android's own driver.
+                    for (intf in audioInterfaces(device)) c.claimInterface(intf, true)
+                    runCatching { core.usbDacVolume(phoneVolume(context)) }
+                    runCatching { core.usbDacOpen(c.fileDescriptor, c.rawDescriptors, name) }
+                        .onSuccess { taken = c }
+                        .onFailure {
+                            NeedleLog.info("Needle's USB driver could not use $name yet: ${it.message}")
+                            closeConnection(c, device)
+                        }
+                }
+                opened.onSuccess { info ->
+                    this@UsbDriver.connection = taken
                     held = device
+                    lastHeld = device.deviceName
                     _state.value = State.Driving(info)
                     // Android's mixer is not used meanwhile.
                     fyi.nnx.needle.ui.useAndroidMixer(context, false)
@@ -223,10 +311,15 @@ object UsbDriver {
                             "DoP ${info.dop}, volume ${info.volume}",
                     )
                 }.onFailure { e ->
-                    _state.value = State.Fallback(name, e.message ?: "It does not play with Needle's driver")
-                    NeedleLog.info("Needle's USB driver could not use $name: ${e.message}")
-                    giveBack(connection, device)
-                    fyi.nnx.needle.ui.useAndroidMixer(context, true)
+                    val why = e.message ?: "It does not play with Needle's driver"
+                    outputAgain()
+                    // Pulled out or turned off meanwhile: nothing to say.
+                    if (NeedleApp.instance.app.value.usbBitPerfect && usb.deviceList.containsKey(device.deviceName)) {
+                        _state.value = State.Fallback(name, why)
+                        NeedleLog.info("Needle's USB driver could not use $name: $why")
+                        fyi.nnx.needle.ui.showMessage("$why. Android plays it now.")
+                        fyi.nnx.needle.ui.useAndroidMixer(context, true)
+                    }
                 }
             }
         }
@@ -248,6 +341,10 @@ object UsbDriver {
      */
     private suspend fun giveBack(connection: UsbDeviceConnection, device: UsbDevice?) {
         closeConnection(connection, device)
+        outputAgain()
+    }
+
+    private suspend fun outputAgain() {
         delay(500)
         runCatching { NeedleApp.instance.core.usbOutputAgain() }
     }

@@ -18,6 +18,24 @@ class AuditRegressionTest {
      * skips a streaming interface still held: then the DAC has a sound card with nothing to play on.
      */
     @Test
+    fun aDacThatDoesNotAnswerYetIsTriedAgain() = runBlocking {
+        var tries = 0
+        val works = retrying(3, 1, { true }) { if (++tries < 2) Result.failure(IOException("not yet")) else Result.success("open") }
+        assertEquals("open", works.getOrNull())
+        assertEquals(2, tries)
+
+        tries = 0
+        val never = retrying<String>(3, 1, { true }) { tries++; Result.failure(IOException("no: $tries")) }
+        assertEquals("no: 3", never.exceptionOrNull()?.message)
+
+        // Pulled out, or the switch turned off, between tries.
+        tries = 0
+        val stopped = retrying<String>(3, 1, { tries < 1 }) { tries++; Result.failure(IOException("no")) }
+        assertEquals(1, tries)
+        assertEquals("no", stopped.exceptionOrNull()?.message)
+    }
+
+    @Test
     fun aDacsControlInterfaceGoesBackLast() {
         // Android lists every alternate setting: (interface, subclass), control first as DACs do.
         val interfaces = listOf(0 to 1, 1 to 2, 1 to 2, 2 to 2, 3 to 3)
