@@ -46,6 +46,10 @@ pub struct UsbDac {
     phone_volume: AtomicU32,
     /// What it plays with now, and what the DAC said of the rate, for a report.
     chosen: Mutex<Option<String>>,
+    /// Whether the DAC is muted now, when that is known.
+    muted: Mutex<Option<bool>>,
+    /// What happened as it opened, for a report.
+    opened: String,
     /// One control request at a time (volume from the app, rates from the player).
     control: Mutex<()>,
 }
@@ -70,8 +74,34 @@ fn same_rate(said: u32, asked: u32) -> bool {
 }
 
 impl UsbDac {
-    pub fn new(bus: Arc<dyn Bus>, raw: &[u8], name: String, phone_volume: f32) -> Result<Self> {
-        let Some(dac) = parse(raw) else {
+    /// Takes the DAC in the configuration it runs now. `android_rates` are the rates Android
+    /// lists for it, for a clock that does not say its own.
+    pub fn new(
+        bus: Arc<dyn Bus>,
+        raw: &[u8],
+        name: String,
+        phone_volume: f32,
+        android_rates: &[u32],
+    ) -> Result<Self> {
+        // What happened, for "Copy DAC details", even when it does not open.
+        let mut notes = vec![];
+        let mut active = [0u8];
+        let active = match bus.control(0x80, 0x08, 0, 0, &mut active) {
+            Ok(_) if active[0] > 0 => {
+                notes.push(format!("Active configuration: {}", active[0]));
+                Some(active[0])
+            }
+            outcome => {
+                let guess = likely_configuration(raw);
+                notes.push(format!(
+                    "Active configuration: the device did not say ({}); taking {guess:?}",
+                    outcome.err().map_or("0".to_string(), |e| e.to_string()),
+                ));
+                guess
+            }
+        };
+        let Some(dac) = parse_active(raw, active) else {
+            super::remember_open(notes.join("\n"));
             bail!("{name} is not a USB audio device Needle can play to");
         };
         bus.claim(dac.control);
@@ -88,10 +118,14 @@ impl UsbDac {
             volume: AtomicU32::new(1f32.to_bits()),
             phone_volume: AtomicU32::new(phone_volume.clamp(0., 1.).to_bits()),
             chosen: Mutex::new(None),
+            muted: Mutex::new(None),
+            opened: String::new(),
             control: Mutex::new(()),
             dac,
         };
-        if out.dac.uac == Uac::Two {
+        out.wake(&mut notes);
+        out.read_channels(&mut notes);
+        if out.dac.uac != Uac::One {
             let clocks: Vec<u8> = out
                 .dac
                 .formats
@@ -102,17 +136,113 @@ impl UsbDac {
                 if out.clock_rates.iter().any(|(c, _)| *c == clock) {
                     continue;
                 }
-                let rates = out.clock_range(clock).unwrap_or_default();
+                let rates = out.rates_of_clock(clock, android_rates, &mut notes);
                 out.clock_rates.push((clock, rates));
             }
         }
         // Just plugged in, a DAC may not answer yet: the app tries again.
-        if out.dac.uac == Uac::Two && out.clock_rates.iter().all(|(_, rates)| rates.is_empty()) {
+        if out.dac.formats.iter().all(|f| out.rates(f).is_empty()) {
+            super::remember_open(notes.join("\n"));
             bail!("{} did not say which rates it plays", out.name);
         }
         out.volume_range = out.read_volume_range();
+        out.opened = notes.join("\n");
+        super::remember_open(out.opened.clone());
         out.log_what_it_says();
         Ok(out)
+    }
+
+    /// UAC3: the way's power domain awake before anything else, as Linux has it before a stream
+    /// starts. Its own driver leaves it idle (D1), so it may answer little until then.
+    fn wake(&self, notes: &mut Vec<String>) {
+        let Some(power) = self.dac.power else {
+            return;
+        };
+        const POWER_DOMAIN: u16 = 0x0200;
+        let index = self.index(power.id);
+        let mut state = [0u8];
+        let was = self.bus.control(GET, CUR, POWER_DOMAIN, index, &mut state);
+        if let Err(e) = &was {
+            notes.push(format!(
+                "Power domain {}: its state cannot be read ({e})",
+                power.id
+            ));
+        }
+        if was.is_ok() && state[0] == 0 {
+            notes.push(format!("Power domain {}: awake (D0)", power.id));
+            return;
+        }
+        let from = state[0];
+        let mut awake = [0u8];
+        match self.bus.control(SET, CUR, POWER_DOMAIN, index, &mut awake) {
+            Ok(_) => {
+                notes.push(format!("Power domain {}: D{from} to D0", power.id));
+                let wait = if from == 2 {
+                    power.from_d2
+                } else {
+                    power.from_d1
+                };
+                std::thread::sleep(Duration::from_micros(wait as u64 * 50));
+            }
+            Err(e) => notes.push(format!("Power domain {}: D0 refused ({e})", power.id)),
+        }
+    }
+
+    /// UAC3: the channels of each format, from its cluster descriptor. As Linux asks; the
+    /// descriptor's seventh byte is the count.
+    fn read_channels(&mut self, notes: &mut Vec<String>) {
+        const HIGH_CAPABILITY: u8 = 0x06;
+        let control = self.dac.control as u16;
+        for f in self.dac.formats.iter_mut() {
+            let Some(cluster) = f.cluster else {
+                continue;
+            };
+            let mut head = [0u8; 7];
+            match self
+                .bus
+                .control(GET, HIGH_CAPABILITY, cluster, control, &mut head)
+            {
+                Ok(7) if head[6] > 0 => f.channels = head[6],
+                outcome => notes.push(format!(
+                    "Cluster {cluster:#06x}: no answer ({:?}), taken as stereo",
+                    outcome.map_err(|e| e.to_string())
+                )),
+            }
+        }
+        let chosen = self.dac.formats.clone();
+        self.dac.paths[self.dac.chosen].formats = chosen;
+    }
+
+    /// A clock's rates: from itself, else its rate now and the rates Android lists, each proved
+    /// by the read-back when it is played.
+    fn rates_of_clock(&self, clock: u8, android: &[u32], notes: &mut Vec<String>) -> Vec<u32> {
+        match self.clock_range(clock) {
+            Ok(rates) if !rates.is_empty() => return rates,
+            Ok(_) => notes.push(format!("Clock {clock}: RANGE gave no rates")),
+            Err(e) => notes.push(format!("Clock {clock}: RANGE failed ({e:#})")),
+        }
+        let mut now = [0u8; 4];
+        let said = self
+            .bus
+            .control(GET, CUR, wvalue(0x01, 0), self.index(clock), &mut now);
+        let mut rates = android.to_vec();
+        match said {
+            Ok(4) if u32::from_le_bytes(now) > 0 => {
+                notes.push(format!(
+                    "Clock {clock}: runs at {} Hz now",
+                    u32::from_le_bytes(now)
+                ));
+                rates.push(u32::from_le_bytes(now));
+            }
+            Ok(n) => notes.push(format!("Clock {clock}: its rate now came as {n} bytes")),
+            Err(e) => notes.push(format!(
+                "Clock {clock}: its rate now cannot be read ({e:#})"
+            )),
+        }
+        notes.push(format!("Android lists {android:?}"));
+        rates.sort_unstable();
+        rates.dedup();
+        rates
     }
 
     /// What the DAC says of itself, in the log: a report of a DAC that plays wrongly can then
@@ -125,7 +255,7 @@ impl UsbDac {
         say(format!(
             "{}: USB Audio Class {}, {} speed, volume {}",
             self.name,
-            if self.dac.uac == Uac::Two { 2 } else { 1 },
+            self.dac.uac.number(),
             if self.high_speed { "high" } else { "full" },
             if self.volume_range.is_some() {
                 "yes"
@@ -188,7 +318,7 @@ impl UsbDac {
         rates.dedup();
         UsbDacInfo {
             name: self.name.clone(),
-            uac: if self.dac.uac == Uac::Two { 2 } else { 1 },
+            uac: self.dac.uac.number(),
             rates,
             bits: self.dac.formats.iter().map(|f| f.bits).max().unwrap_or(16),
             dop: self.takes_dop(),
@@ -197,15 +327,14 @@ impl UsbDac {
     }
 
     fn rates(&self, f: &Format) -> Vec<u32> {
-        match self.dac.uac {
-            Uac::Two => self
-                .dac
-                .clock_for(f.terminal)
-                .and_then(|c| self.clock_rates.iter().find(|(id, _)| *id == c))
-                .map(|(_, r)| r.clone())
-                .unwrap_or_default(),
-            Uac::One => listed_rates(f),
+        if self.dac.uac == Uac::One || !f.rates.is_empty() {
+            return listed_rates(f);
         }
+        self.dac
+            .clock_for(f.terminal)
+            .and_then(|c| self.clock_rates.iter().find(|(id, _)| *id == c))
+            .map(|(_, r)| r.clone())
+            .unwrap_or_default()
     }
 
     /// DoP cannot be scaled, so a DAC with no volume of its own gets DSD as PCM: else DSD would
@@ -272,7 +401,7 @@ impl UsbDac {
         let channel = if v.master { 0 } else { 1 };
         let _one = self.one_at_a_time();
         let (min, max) = match self.dac.uac {
-            Uac::Two => {
+            Uac::Two | Uac::Three => {
                 let mut answer = [0u8; 8];
                 self.bus
                     .control(
@@ -320,6 +449,17 @@ impl UsbDac {
         };
         let steps = volume_steps(self.loudness(), min, max);
         let _one = self.one_at_a_time();
+        // 0 is real silence: the bottom of a narrow range can still be heard. And a DAC found
+        // muted plays. Only when that changes, as this runs through every fade.
+        let silent = self.loudness() <= 0.001;
+        let mut muted = self.muted.lock().unwrap_or_else(|e| e.into_inner());
+        if v.mute && *muted != Some(silent) {
+            *muted = Some(silent);
+            let mut data = [silent as u8];
+            let _ = self
+                .bus
+                .control(SET, CUR, wvalue(0x01, 0), self.index(v.unit), &mut data);
+        }
         let channels: &[u8] = if v.master { &[0] } else { &[1, 2] };
         for c in channels {
             let mut data = steps.to_le_bytes();
@@ -332,7 +472,7 @@ impl UsbDac {
     /// The rate the DAC says it runs at for `f`: None when it cannot say.
     fn read_rate(&self, f: &Format) -> Option<u32> {
         let (request_type, request, index, size) = match self.dac.uac {
-            Uac::Two => (GET, CUR, self.index(self.dac.clock_for(f.terminal)?), 4),
+            Uac::Two | Uac::Three => (GET, CUR, self.index(self.dac.clock_for(f.terminal)?), 4),
             Uac::One => (GET_ENDPOINT, UAC1_GET_CUR, f.endpoint as u16, 3),
         };
         let mut data = [0u8; 4];
@@ -365,9 +505,10 @@ impl UsbDac {
     /// where the phone does, at the right pitch.
     fn set_rate(&self, f: &Format, rate: u32) -> Result<Option<u32>> {
         let _one = self.one_at_a_time();
-        // UAC1 with no sampling frequency control and one rate: the setting is the rate. One
-        // that listed more was left with the one it is trusted for: no request, but it may say.
-        if self.dac.uac == Uac::One && !f.rate_control && listed_rates(f).len() <= 1 {
+        // No sampling frequency control and one rate (UAC1, a UAC3 BADD profile): the setting is
+        // the rate. One that listed more was left with the one it is trusted for: no request,
+        // but it may say.
+        if !f.rate_control && listed_rates(f).len() <= 1 {
             let said = if f.rates.len() > 1 || f.range.is_some() {
                 self.read_rate(f)
             } else {
@@ -379,7 +520,7 @@ impl UsbDac {
             return Ok(said);
         }
         let set = match self.dac.uac {
-            Uac::Two => {
+            Uac::Two | Uac::Three => {
                 let clock = self
                     .dac
                     .clock_for(f.terminal)
@@ -469,6 +610,22 @@ impl UsbDac {
                 khz(rate)
             );
         }
+        let mut all: Vec<u32> = self
+            .dac
+            .formats
+            .iter()
+            .flat_map(|f| self.rates(f))
+            .collect();
+        all.sort_unstable();
+        all.dedup();
+        if let [only] = all[..] {
+            bail!(
+                "{} plays only {} kHz, so a {} kHz song cannot be bit-perfect",
+                self.name,
+                khz(only),
+                khz(rate)
+            );
+        }
         bail!("{} does not play {} Hz", self.name, rate)
     }
 
@@ -481,14 +638,16 @@ impl UsbDac {
         let limit =
             ((f.max_packet & 0x7FF) as usize) * (1 + ((f.max_packet >> 11) & 0b11) as usize);
         let nominal = nominal(format.rate, per_second);
-        if ((nominal >> 16) as usize + 2) * frame > limit {
+        if !rate_fits(format.rate, per_second, frame, limit) {
             bail!("{} Hz is too fast for this setting of the DAC", format.rate);
         }
+        // The most frames a packet may carry; a DAC's feedback cannot ask for more.
+        let most = limit / frame;
         let mut pacer = Pacer::new(format.rate, per_second);
         let feedback_endpoint = f.feedback.filter(|_| f.sync == Sync::Async);
         let feedback_size = if self.high_speed { 4 } else { 3 };
         let channels = format.channels as usize;
-        let mut samples = vec![0f32; ((nominal >> 16) as usize + 2) * channels];
+        let mut samples = vec![0f32; most * channels];
         let mut bytes = vec![0u8; per_transfer * limit];
         let mut gain = self.gain();
         // Fill one transfer's packets from the feed; false once the music in this format ends.
@@ -498,7 +657,7 @@ impl UsbDac {
                 let mut at = 0;
                 let mut more = true;
                 for _ in 0..per_transfer {
-                    let wanted = pacer.next() * channels;
+                    let wanted = pacer.next().min(most) * channels;
                     let got = if more {
                         feed.read(&mut samples[..wanted])
                     } else {
@@ -719,12 +878,14 @@ impl PlatformOutput for UsbDac {
 
 #[cfg(test)]
 mod tests {
-    use super::super::fake::{Dock, FakeDac, Trouble, descriptors, dock, uac1_descriptors};
+    use super::super::fake::{
+        APPLE_DAC, DOCK, Dock, FakeDac, Trouble, descriptors, dock, hex, uac1_descriptors,
+    };
     use super::*;
 
     fn dac(trouble: Trouble, raw: &[u8]) -> (Arc<FakeDac>, UsbDac) {
         let fake = Arc::new(FakeDac::new(trouble));
-        let dac = UsbDac::new(fake.clone(), raw, "Pretend DAC".into(), 1.).unwrap();
+        let dac = UsbDac::new(fake.clone(), raw, "Pretend DAC".into(), 1., &[]).unwrap();
         (fake, dac)
     }
 
@@ -795,13 +956,121 @@ mod tests {
     fn a_dac_that_does_not_answer_yet_is_an_error_to_try_again() {
         let fake = Arc::new(FakeDac::new(Trouble::NoClockAnswer));
         let raw = descriptors();
-        let why = UsbDac::new(fake, &raw, "Pretend DAC".into(), 1.)
+        let why = UsbDac::new(fake, &raw, "Pretend DAC".into(), 1., &[])
             .err()
             .unwrap();
         assert_eq!(
             why.to_string(),
             "Pretend DAC did not say which rates it plays"
         );
+    }
+
+    fn in_configuration(
+        config: u8,
+        trouble: Trouble,
+        android: &[u32],
+    ) -> (Arc<FakeDac>, Result<UsbDac>) {
+        let fake = Arc::new(FakeDac::in_configuration(trouble, config));
+        let raw = hex(APPLE_DAC);
+        let dac = UsbDac::new(fake.clone(), &raw, "Adapter".into(), 1., android);
+        (fake, dac)
+    }
+
+    #[test]
+    fn apples_adapter_in_its_badd_configuration_plays_48_khz_and_asks_nothing_of_a_clock() {
+        // Its clock answers nothing, as the real one did not.
+        let (fake, dac) = in_configuration(2, Trouble::NoClockAnswer, &[]);
+        let dac = dac.unwrap();
+        assert_eq!((dac.info().uac, dac.info().rates), (3, vec![48_000]));
+        assert_eq!(dac.info().bits, 24);
+        // Awake before any setting is chosen, as Linux has it.
+        assert_eq!(fake.power(), Some((10, 0)));
+        assert!(fake.alts().is_empty());
+        let f = dac.format_for(2, 48_000).unwrap();
+        assert_eq!((f.alt, f.subslot, f.bits), (1, 3, 24));
+        assert_eq!(dac.set_rate(&f, 48_000).unwrap(), None);
+        assert!(fake.rates().is_empty(), "no request for a fixed rate");
+        // Packets of the real adapter's size: 288 bytes is 48 frames.
+        let why = dac.format_for(2, 44_100).unwrap_err().to_string();
+        assert_eq!(
+            why,
+            "Adapter plays only 48 kHz, so a 44.1 kHz song cannot be bit-perfect"
+        );
+    }
+
+    #[test]
+    fn apples_adapter_in_its_uac2_configuration_with_a_silent_clock_uses_androids_rates() {
+        // As the real report: RANGE stalls; Android lists 48 kHz.
+        let (fake, dac) = in_configuration(1, Trouble::NoClockAnswer, &[48_000]);
+        let dac = dac.unwrap();
+        assert_eq!(dac.info().rates, [48_000]);
+        assert!(fake.power().is_none(), "UAC2 has no power domains");
+        // The read-back still judges it.
+        let f = dac.format_for(2, 48_000).unwrap();
+        assert_eq!(dac.set_rate(&f, 48_000).unwrap(), Some(48_000));
+        let notes = &dac.opened;
+        assert!(notes.contains("Active configuration: 1"), "{notes}");
+        assert!(
+            notes.contains("Clock 9: RANGE failed (The DAC refused the request)"),
+            "{notes}"
+        );
+    }
+
+    #[test]
+    fn a_clock_that_says_only_its_rate_now_plays_that_rate() {
+        let fake = Arc::new(FakeDac::in_configuration(Trouble::NoClockAnswer, 1));
+        fake.set_clock(48_000);
+        let raw = hex(APPLE_DAC);
+        let dac = UsbDac::new(fake, &raw, "Adapter".into(), 1., &[]).unwrap();
+        assert_eq!(dac.info().rates, [48_000]);
+    }
+
+    #[test]
+    fn with_no_rates_from_anywhere_it_is_refused_and_says_why() {
+        let (_, dac) = in_configuration(1, Trouble::NoClockAnswer, &[]);
+        let why = dac.err().unwrap().to_string();
+        assert_eq!(why, "Adapter did not say which rates it plays");
+    }
+
+    #[test]
+    fn apples_adapter_in_its_full_uac3_configuration_wakes_and_asks_its_clock() {
+        let (fake, dac) = in_configuration(3, Trouble::None, &[]);
+        let dac = dac.unwrap();
+        assert_eq!(fake.power(), Some((0x28, 0)));
+        assert_eq!(
+            (dac.info().uac, dac.info().rates),
+            (3, vec![44_100, 48_000, 96_000])
+        );
+        let f = dac.format_for(2, 44_100).unwrap();
+        assert_eq!((f.alt, f.channels), (1, 2));
+        assert_eq!(dac.set_rate(&f, 44_100).unwrap(), Some(44_100));
+    }
+
+    #[test]
+    fn a_power_domain_already_awake_is_left_alone() {
+        let fake = Arc::new(FakeDac::in_configuration(Trouble::None, 2));
+        fake.set_power_state(0);
+        let raw = hex(APPLE_DAC);
+        UsbDac::new(fake.clone(), &raw, "Adapter".into(), 1., &[]).unwrap();
+        assert_eq!(fake.power(), None);
+    }
+
+    #[test]
+    fn the_real_dock_uses_its_speakers_volume_by_channel_and_mutes_at_0() {
+        let fake = Arc::new(FakeDac::new(Trouble::None));
+        fake.set_volume_floor(-45);
+        let raw = hex(DOCK);
+        let dock = UsbDac::new(fake.clone(), &raw, "Dock".into(), 1., &[]).unwrap();
+        assert!(dock.info().volume);
+        dock.set_phone_volume(1. / 16.);
+        let (unit, steps) = fake.volume().unwrap();
+        assert_eq!(unit, 6);
+        assert!((-31 * 256..-29 * 256).contains(&(steps as i32)), "{steps}");
+        assert_eq!(fake.muted(), Some(false));
+        dock.set_phone_volume(0.);
+        assert_eq!(fake.muted(), Some(true));
+        dock.set_phone_volume(0.5);
+        assert_eq!(fake.muted(), Some(false));
     }
 
     #[test]
@@ -859,11 +1128,12 @@ mod tests {
         assert!(!dac.info().volume);
         assert!(dac.bit_perfect());
         dac.set_phone_volume(0.5);
-        assert_eq!(dac.gain(), 0.25);
+        let half = dac.gain();
+        assert!((0.3..0.6).contains(&half), "{half}");
         assert!(!dac.bit_perfect());
         // The player's own fade counts too.
         dac.set_volume(0.5);
-        assert_eq!(dac.gain(), 0.0625);
+        assert!(dac.gain() < half);
         dac.set_phone_volume(1.);
         dac.set_volume(1.);
         assert!(dac.bit_perfect());
@@ -878,6 +1148,7 @@ mod tests {
         let (unit, steps) = fake.volume().unwrap();
         assert_eq!(unit, 22);
         assert!((-13 * 256..-11 * 256).contains(&(steps as i32)), "{steps}");
+        assert_eq!(fake.muted(), Some(false), "a DAC found muted plays");
         assert_eq!(dac.gain(), 1.);
         assert!(dac.bit_perfect());
     }

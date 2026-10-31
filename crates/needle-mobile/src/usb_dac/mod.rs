@@ -36,6 +36,17 @@ static STATUS: Mutex<(Option<String>, Option<String>)> = Mutex::new((None, None)
 /// The driver in use: the core owns it; this is for the app's calls below.
 static DRIVER: Mutex<Weak<driver::UsbDac>> = Mutex::new(Weak::new());
 
+/// What happened when a DAC last opened, for "Copy DAC details", also when it was refused.
+static LAST_OPEN: Mutex<String> = Mutex::new(String::new());
+
+pub(crate) fn remember_open(text: String) {
+    *LAST_OPEN.lock().unwrap_or_else(|e| e.into_inner()) = text;
+}
+
+pub(crate) fn last_open() -> String {
+    LAST_OPEN.lock().unwrap_or_else(|e| e.into_inner()).clone()
+}
+
 /// The phone's music volume, 0 to 1 (f32 bits), for the next driver too. 1.0 at the start.
 static PHONE_VOLUME: AtomicU32 = AtomicU32::new(0x3F80_0000);
 
@@ -84,7 +95,7 @@ pub struct UsbDacStatus {
 #[derive(Clone, uniffi::Record)]
 pub struct UsbDacInfo {
     pub name: String,
-    /// 1 or 2: USB Audio Class.
+    /// 1, 2, or 3: USB Audio Class.
     pub uac: u8,
     /// The rates it plays, lowest first.
     pub rates: Vec<u32>,
@@ -100,31 +111,40 @@ pub struct UsbDacInfo {
 impl Needle {
     /// Use Needle's own driver for a USB DAC (Settings › Sound › Bit-perfect USB): `fd` is the
     /// file of Android's connection to it (its interfaces taken with `claimInterface(force)`),
-    /// `descriptors` its raw descriptors. From the next moment on, music goes to it as it is.
+    /// `descriptors` its raw descriptors, `android_rates` the rates Android lists for it, for a
+    /// clock that does not say its own. From the next moment on, music goes to it as it is.
     /// An error for a device the driver cannot play to; Android's own output goes on then.
-    pub fn usb_dac_open(&self, fd: i32, descriptors: Vec<u8>, name: String) -> Result<UsbDacInfo> {
+    pub fn usb_dac_open(
+        &self,
+        fd: i32,
+        descriptors: Vec<u8>,
+        name: String,
+        android_rates: Vec<u32>,
+    ) -> Result<UsbDacInfo> {
         #[cfg(target_os = "android")]
         {
             let bus = Arc::new(device::Usbfs::open(fd)?);
             let volume = f32::from_bits(PHONE_VOLUME.load(Ordering::Relaxed));
-            let dac = Arc::new(driver::UsbDac::new(bus, &descriptors, name, volume)?);
+            let dac = Arc::new(driver::UsbDac::new(
+                bus,
+                &descriptors,
+                name,
+                volume,
+                &android_rates,
+            )?);
             let info = dac.info();
             use_driver(dac);
             Ok(info)
         }
         #[cfg(not(target_os = "android"))]
         {
-            let _ = (fd, name);
+            let _ = (fd, name, android_rates);
             let dac = descriptors::parse(&descriptors).ok_or_else(|| {
                 crate::NeedleError::from(anyhow::anyhow!("Not a USB audio device"))
             })?;
             Ok(UsbDacInfo {
                 name: String::new(),
-                uac: if dac.uac == descriptors::Uac::Two {
-                    2
-                } else {
-                    1
-                },
+                uac: dac.uac.number(),
                 rates: dac
                     .formats
                     .iter()
@@ -180,14 +200,23 @@ impl Needle {
         product: u16,
     ) -> String {
         #[cfg(target_os = "android")]
-        let speed = device::speed(fd);
+        let (speed, active) = (device::speed(fd), device::active_configuration(fd));
         #[cfg(not(target_os = "android"))]
-        let speed = {
+        let (speed, active) = {
             let _ = fd;
-            None
+            (None, None)
         };
         let driver = driver().map(|dac| dac.details());
-        details::text(&descriptors, &name, vendor, product, speed, driver)
+        details::text(
+            &descriptors,
+            &name,
+            vendor,
+            product,
+            speed,
+            active,
+            driver,
+            &last_open(),
+        )
     }
 
     /// What the driver plays now, and why it stopped (said once).

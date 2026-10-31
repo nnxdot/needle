@@ -48,6 +48,14 @@ struct State {
     pub requests: usize,
     /// Pulled out: every request fails from now on.
     pub gone: bool,
+    /// The configuration it runs (1 unless told).
+    pub configuration: u8,
+    /// The power domain's state when asked (idle, D1, unless told), and the last set.
+    pub power_state: Option<u8>,
+    pub power: Option<(u8, u8)>,
+    pub muted: Option<bool>,
+    /// The bottom of its volume in dB, if not -100.
+    pub volume_floor: Option<i16>,
 }
 
 pub struct FakeDac {
@@ -61,6 +69,33 @@ impl FakeDac {
             trouble,
             state: Mutex::default(),
         }
+    }
+
+    pub fn in_configuration(trouble: Trouble, configuration: u8) -> Self {
+        let fake = Self::new(trouble);
+        fake.state.lock().unwrap().configuration = configuration;
+        fake
+    }
+
+    pub fn set_clock(&self, rate: u32) {
+        self.state.lock().unwrap().clock = rate;
+    }
+
+    pub fn set_volume_floor(&self, db: i16) {
+        self.state.lock().unwrap().volume_floor = Some(db);
+    }
+
+    pub fn set_power_state(&self, state: u8) {
+        self.state.lock().unwrap().power_state = Some(state);
+    }
+
+    /// The last power domain set, and the state asked.
+    pub fn power(&self) -> Option<(u8, u8)> {
+        self.state.lock().unwrap().power
+    }
+
+    pub fn muted(&self) -> Option<bool> {
+        self.state.lock().unwrap().muted
     }
 
     pub fn bytes(&self) -> usize {
@@ -117,6 +152,52 @@ impl FakeDac {
     pub fn loudest(&self) -> i32 {
         self.state.lock().unwrap().loudest
     }
+}
+
+/// The raw descriptors of two real devices, from their "Copy DAC details".
+/// Apple's USB-C to 3.5 mm adapter (05ac:110a): three configurations, UAC2, a UAC3 BADD
+/// headphone profile, and full UAC3, with the same interface numbers in each.
+pub const APPLE_DAC: &str = "\
+12 01 01 02 ef 02 01 40 ac 05 0a 11 50 26 01 02 03 03 09 02 f8 00 04 01 00 a0 96 08 0b 00 02 01
+00 20 00 09 04 00 00 01 01 01 20 00 09 24 01 00 02 04 40 00 00 11 24 02 01 01 01 00 09 02 03 00
+00 00 00 00 00 00 12 24 06 02 01 03 00 00 00 0c 00 00 00 0c 00 00 00 00 0c 24 03 03 02 03 00 02
+09 00 00 00 08 24 0a 09 07 07 00 00 07 05 81 03 06 00 01 09 04 01 00 00 01 02 20 00 09 04 01 01
+01 01 02 20 00 10 24 01 01 05 01 01 00 00 00 02 03 00 00 00 00 06 24 02 01 03 18 07 05 02 0d 20
+01 01 08 25 01 00 00 01 64 00 09 04 01 02 01 01 02 20 00 10 24 01 01 05 01 01 00 00 00 02 03 00
+00 00 00 06 24 02 01 02 10 07 05 02 0d c0 00 01 08 25 01 00 00 01 64 00 09 04 02 00 01 03 00 00
+00 09 21 11 01 00 01 22 1f 00 07 05 85 03 40 00 01 09 04 03 00 01 03 00 00 00 09 21 11 01 00 01
+22 2a 00 07 05 86 03 40 00 01 09 02 7c 00 04 02 00 a0 96 08 0b 00 02 01 21 30 00 09 04 00 00 01
+01 01 30 00 07 05 81 03 06 00 01 09 04 01 00 00 01 02 30 00 09 04 01 01 01 01 02 30 00 07 05 02
+0d 20 01 01 09 04 01 02 01 01 02 30 00 07 05 02 0d c0 00 01 09 04 02 00 01 03 00 00 00 09 21 11
+01 00 01 22 1f 00 07 05 85 03 40 00 01 09 04 03 00 01 03 00 00 00 09 21 11 01 00 01 22 2a 00 07
+05 86 03 40 00 01 09 02 1b 01 04 03 00 a0 96 08 0b 00 02 01 01 30 00 09 04 00 00 01 01 01 30 00
+0a 24 01 0f 5d 00 01 00 00 00 14 24 02 01 01 01 00 09 00 00 00 00 20 00 00 00 00 00 00 00 13 24
+07 02 01 03 00 00 00 0c 00 00 00 0c 00 00 00 00 00 13 24 03 03 02 03 00 02 09 00 00 00 00 00 00
+00 00 00 00 0c 24 0b 09 03 07 00 00 00 00 00 00 0d 24 10 28 58 02 70 17 02 01 03 00 00 07 05 81
+03 06 00 01 09 04 01 00 00 01 02 30 00 09 04 01 01 01 01 02 30 00 17 24 01 01 05 00 00 00 20 00
+01 00 00 00 00 00 00 00 03 18 00 00 00 07 05 02 0d 20 01 01 0a 25 01 00 00 00 00 01 64 00 09 04
+01 02 01 01 02 30 00 17 24 01 01 05 00 00 00 20 00 01 00 00 00 00 00 00 00 02 10 00 00 00 07 05
+02 0d c0 00 01 0a 25 01 00 00 00 00 01 64 00 09 04 02 00 01 03 00 00 00 09 21 11 01 00 01 22 1f
+00 07 05 85 03 40 00 01 09 04 03 00 01 03 00 00 00 09 21 11 01 00 01 22 2a 00 07 05 86 03 40 00
+01";
+
+/// A dock's sound chip (1b3f:2008): UAC1, speakers and a microphone, volume -45 to 0 dB.
+pub const DOCK: &str = "\
+12 01 10 01 00 00 00 08 3f 1b 08 20 00 01 01 02 00 01 09 02 fd 00 04 01 00 80 32 09 04 00 00 00
+01 01 00 00 0a 24 01 00 01 64 00 02 01 02 0c 24 02 01 01 01 00 02 03 00 00 00 0c 24 02 04 01 02
+00 01 01 00 00 00 09 24 03 03 01 03 00 06 00 09 24 03 02 01 01 00 09 00 07 24 05 09 01 05 00 0a
+24 06 06 08 01 01 02 02 00 09 24 06 05 04 01 43 00 00 09 24 06 07 04 01 03 00 00 0d 24 04 08 02
+01 07 02 03 00 00 00 00 09 04 01 00 00 01 02 00 00 09 04 01 01 01 01 02 00 00 07 24 01 01 01 01
+00 0e 24 02 01 02 02 10 02 44 ac 00 80 bb 00 09 05 05 01 c0 00 01 00 00 07 25 01 01 00 00 00 09
+04 02 00 00 01 02 00 00 09 04 02 01 01 01 02 00 00 07 24 01 02 01 01 00 0e 24 02 01 01 02 10 02
+44 ac 00 80 bb 00 09 05 86 01 64 00 01 00 00 07 25 01 01 00 00 00 09 04 03 00 01 03 00 00 00 09
+21 01 02 00 01 22 29 00 07 05 83 03 08 00 20";
+
+/// Bytes from their text as "Copy DAC details" gives it.
+pub fn hex(text: &str) -> Vec<u8> {
+    text.split_whitespace()
+        .map(|byte| u8::from_str_radix(byte, 16).unwrap())
+        .collect()
 }
 
 /// A UAC2 DAC at high speed: one clock (0x29) with 44.1, 48, and 96 kHz, a master volume, and
@@ -296,6 +377,30 @@ impl Bus for FakeDac {
         let selector = (value >> 8) as u8;
         self.state.lock().unwrap().requests += 1;
         match (request_type, request, selector) {
+            // GET_CONFIGURATION.
+            (0x80, 0x08, _) => {
+                data[0] = self.state.lock().unwrap().configuration.max(1);
+                Ok(1)
+            }
+            // A power domain: its state, and setting it (one byte, not a volume's two).
+            (0xA1, 0x01, 0x02) if data.len() == 1 => {
+                data[0] = self.state.lock().unwrap().power_state.unwrap_or(1);
+                Ok(1)
+            }
+            (0x21, 0x01, 0x02) if data.len() == 1 => {
+                self.state.lock().unwrap().power = Some(((index >> 8) as u8, data[0]));
+                Ok(1)
+            }
+            // Mute (one byte, not a rate's four).
+            (0x21, 0x01, 0x01) if data.len() == 1 => {
+                self.state.lock().unwrap().muted = Some(data[0] != 0);
+                Ok(1)
+            }
+            // UAC3: a cluster descriptor's head, with two channels at its seventh byte.
+            (0xA1, 0x06, _) => {
+                data.copy_from_slice(&[7, 0, 0x24, 1, 0x20, 0, 2]);
+                Ok(7)
+            }
             (0xA1, 0x02, 0x01) if self.trouble == Trouble::NoClockAnswer => {
                 bail!("The DAC refused the request");
             }
@@ -321,9 +426,14 @@ impl Bus for FakeDac {
                 data[..n].copy_from_slice(&answer[..n]);
                 Ok(n)
             }
+            // Clock rate now, for a pretend clock not yet running: no answer.
+            (0xA1, 0x01, 0x01) if self.clock_says() == Some(0) => {
+                bail!("The DAC refused the request")
+            }
             // UAC1's volume: -100 dB to 0.
             (0xA1, 0x82 | 0x83, 0x02) => {
-                let value: i16 = if request == 0x82 { -100 * 256 } else { 0 };
+                let floor = self.state.lock().unwrap().volume_floor.unwrap_or(-100);
+                let value: i16 = if request == 0x82 { floor * 256 } else { 0 };
                 data[..2].copy_from_slice(&value.to_le_bytes());
                 Ok(2)
             }
@@ -482,8 +592,8 @@ pub mod checks {
 
     fn driver(trouble: Trouble) -> (Arc<FakeDac>, Arc<UsbDac>) {
         let fake = Arc::new(FakeDac::new(trouble));
-        let dac =
-            Arc::new(UsbDac::new(fake.clone(), &descriptors(), "Pretend DAC".into(), 1.).unwrap());
+        let raw = descriptors();
+        let dac = Arc::new(UsbDac::new(fake.clone(), &raw, "Pretend DAC".into(), 1., &[]).unwrap());
         (fake, dac)
     }
 
@@ -494,7 +604,7 @@ pub mod checks {
     fn no_volume_and_the_way_back_to_android(needle: &Needle, fallback: bool) {
         let fake = Arc::new(FakeDac::new(Trouble::None));
         let raw = descriptors_without_volume();
-        let dac = Arc::new(UsbDac::new(fake.clone(), &raw, "Pretend DAC".into(), 1.).unwrap());
+        let dac = Arc::new(UsbDac::new(fake.clone(), &raw, "Pretend DAC".into(), 1., &[]).unwrap());
         assert!(!dac.info().volume);
         crate::usb_dac::use_driver(dac);
         wait("the DAC playing", Duration::from_secs(10), || {
@@ -509,14 +619,14 @@ pub mod checks {
         fake.forget_loudest();
         std::thread::sleep(Duration::from_millis(600));
         let full = fake.loudest();
-        needle.usb_dac_volume(0.5);
+        needle.usb_dac_volume(0.25);
         std::thread::sleep(Duration::from_millis(100));
         fake.forget_loudest();
         std::thread::sleep(Duration::from_millis(600));
-        let half = fake.loudest();
+        let low = fake.loudest();
         assert!(
-            half > 0 && (half as f32) < full as f32 * 0.4,
-            "{half} of {full}, at about a quarter"
+            low > 0 && (low as f32) < full as f32 * 0.4,
+            "{low} of {full}, at about a fifth"
         );
         assert!(!needle.usb_dac_status().bit_perfect);
         needle.usb_dac_volume(1.);
