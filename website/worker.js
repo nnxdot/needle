@@ -25,6 +25,13 @@ export default {
       return new Response(request.method === "HEAD" ? null : object.body, { headers });
     }
     if (url.pathname === "/api/crash") return crash(request, env);
+    // The Mac's What's new links here.
+    if (url.pathname === "/changelog") {
+      return new Response(null, {
+        status: 302,
+        headers: { location: "https://github.com/nnxdot/needle/releases", "cache-control": "no-store" },
+      });
+    }
     return env.ASSETS.fetch(request);
   },
 };
