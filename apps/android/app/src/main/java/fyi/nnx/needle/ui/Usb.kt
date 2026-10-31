@@ -282,12 +282,19 @@ fun UsbBitPerfect() {
         playing = null
         exact = true
     }
+    val replug by fyi.nnx.needle.UsbDriver.replug.collectAsState()
     val line = when (val d = driver) {
-        is fyi.nnx.needle.UsbDriver.State.Driving ->
-            d.info.name + ": " + (playing ?: "Needle's own driver, up to ${d.info.bits}-bit") + (if (exact) "" else ", not bit-perfect below 100%")
+        is fyi.nnx.needle.UsbDriver.State.Driving -> {
+            val now = playing ?: "Needle's own driver, up to ${d.info.bits}-bit"
+            // The driver's words say it when it converts; the volume's are added here.
+            d.info.name + ": " + now + (if (exact || "not bit-perfect" in now) "" else ", not bit-perfect below 100%")
+        }
+        is fyi.nnx.needle.UsbDriver.State.Fallback if replug != null -> "Unplug $replug and plug it in again to use Android's sound"
         is fyi.nnx.needle.UsbDriver.State.Asking -> "Allow Needle to use ${d.name}"
         is fyi.nnx.needle.UsbDriver.State.Fallback -> if (app.usbBitPerfect && offer != null) "${d.name}: Android's bit-perfect mixer, $offerText" else "${d.name} plays through Android"
-        else -> if (connected != null && Build.VERSION.SDK_INT >= 23) "${connected.productName}: the exact sound; other sounds wait" else "Plug in a USB DAC for the exact sound"
+        else -> if (replug != null) "Unplug $replug and plug it in again to use Android's sound"
+        else if (connected != null && Build.VERSION.SDK_INT >= 23) "${connected.productName}: the exact sound; other sounds wait"
+        else "Plug in a USB DAC for the exact sound"
     }
     // Why Needle's driver could not, in full, under the row.
     val why = (driver as? fyi.nnx.needle.UsbDriver.State.Fallback)?.why?.takeIf { app.usbBitPerfect }
@@ -315,7 +322,8 @@ fun UsbBitPerfect() {
         ) { Switch(checked = app.usbBitPerfect, onCheckedChange = null) }
         if (why != null) {
             Text(
-                "Needle's own driver could not play to it ($why), so ${if (offer != null) "Android's bit-perfect mixer" else "Android"} plays to it instead.",
+                if (replug != null) "Needle's own driver could not play to it ($why)."
+                else "Needle's own driver could not play to it ($why), so ${if (offer != null) "Android's bit-perfect mixer" else "Android"} plays to it instead.",
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.padding(start = 68.dp, end = 16.dp, bottom = 14.dp),
