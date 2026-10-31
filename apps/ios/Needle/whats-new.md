@@ -12,7 +12,6 @@ A new Home and icon, and a lot more to see and hear.
 - [player] **A seek bar shaped like the song.** The player's seek bar shows the song's loud and quiet parts. Or choose Wave, Line, or Thick in Settings › Appearance › Seek bar.
 - [lyrics] **Lyrics in your language.** Tap the translate button beside Lyrics, and each line shows translated under it, made on your iPhone by Apple's Translation.
 - [lyrics] **Lyric cards.** Hold a line of the lyrics and choose Share as Card for a picture of it in the cover's colours.
-- [watch] **Needle on your Apple Watch.** See the song playing on your iPhone, play or pause, skip, and star it from your wrist.
 - [artists] **Better artists.** Guests after "feat." and both halves of "A & B" get their own page, sort names from your tags are used, and accents sort where they belong. Sort artists by A–Z, Most played, Most songs, or Newest, show only album artists, and jump with the letters at the side.
 - [artists] **Your own artist pictures.** The picture button on an artist's page lets you choose their photo, wide picture, and logo: one from your photos, or any of fanart.tv's (logos on grey, so white ones and black ones both show). A picture you choose shows at once, as it is.
 - [globe] **Pictures for every artist.** With online lookups on, Needle finds every artist's pictures slowly in the background (on Wi-Fi), or all at once with Check all now (Settings › Library › Artist pictures).
