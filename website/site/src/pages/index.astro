@@ -247,12 +247,6 @@ const platforms = [
           <div class="crop"><Image src={winArtists} widths={[900]} sizes="620px" loading="lazy" alt="Artists in circles, with A to Z, Most played, Most songs, Newest, and Only album artists above them." /></div>
         </article>
 
-        <article class="card c-ai" data-reveal>
-          <span class="disc"><Icon name="sparkle" /></span>
-          <h3>Ask your AI app to play something</h3>
-          <p>On Windows, Linux, and Mac, turn on AI assistants, and an app such as Claude can play music, search your library and its lyrics, make playlists, and tell you what plays. It uses MCP, and only apps on your computer can reach it.</p>
-        </article>
-
         <article class="card c-fonts" data-reveal>
           <span class="disc"><Icon name="text-aa" /></span>
           <h3>Your fonts</h3>
@@ -263,6 +257,18 @@ const platforms = [
             <li style="font-family: var(--serif)">Good evening</li>
             <li style="font-family: var(--mono)">Good evening</li>
           </ul>
+        </article>
+
+        <article class="card c-ai" data-reveal>
+          <div class="ai-text">
+            <span class="disc"><Icon name="sparkle" /></span>
+            <h3>Ask your AI app to play something</h3>
+            <p>On Windows, Linux, and Mac, turn on AI assistants, and an app such as Claude can play music, search your library and its lyrics, make playlists, and tell you what plays. It uses MCP, and only apps on your computer can reach it.</p>
+          </div>
+          <div class="ai-chat" aria-hidden="true">
+            <p class="ai-ask">Play something calm for tonight.</p>
+            <p class="ai-say">Playing <b>Harbor Lights</b> by Mara Quinn, then eight more quiet songs from your library.</p>
+          </div>
         </article>
       </div>
     </div>
