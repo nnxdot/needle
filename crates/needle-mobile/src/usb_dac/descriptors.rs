@@ -535,7 +535,9 @@ pub fn rates_in_ranges(answer: &[u8]) -> Vec<u32> {
 
 /// A format's rates, from its own list or range (UAC1). A range proves little: a chip may take
 /// any rate asked and go on at its own clock, usually 48 kHz, which sounds wrong. With 48 kHz
-/// in the range, that is the one rate trusted, and other music goes through Android.
+/// in the range, that is the one rate trusted, and other music goes through Android. So too for
+/// a setting that lists several rates and cannot be told one (UAC1 with no sampling frequency
+/// control): 48 kHz if it lists it, else its highest.
 pub fn listed_rates(f: &Format) -> Vec<u32> {
     match f.range {
         Some((low, high)) if (low..=high).contains(&48_000) => vec![48_000],
@@ -544,6 +546,14 @@ pub fn listed_rates(f: &Format) -> Vec<u32> {
             .copied()
             .filter(|r| *r >= low && *r <= high)
             .collect(),
+        None if !f.rate_control && f.rates.len() > 1 => {
+            let top = f.rates.iter().copied().max().unwrap_or(0);
+            vec![if f.rates.contains(&48_000) {
+                48_000
+            } else {
+                top
+            }]
+        }
         None => f.rates.clone(),
     }
 }

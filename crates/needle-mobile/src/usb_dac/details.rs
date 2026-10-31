@@ -54,6 +54,11 @@ fn rates(f: &Format) -> String {
             )
         }
         None if f.rates.is_empty() => "from the clock".into(),
+        None if listed_rates(f) != f.rates => format!(
+            "a list, {:?} Hz, with no rate control (Needle trusts {:?})",
+            f.rates,
+            listed_rates(f)
+        ),
         None => format!("a list, {:?} Hz", f.rates),
     }
 }
@@ -176,7 +181,7 @@ pub fn text(
 
 #[cfg(test)]
 mod tests {
-    use super::super::fake::{Dock, dock};
+    use super::super::fake::{Dock, dock, uac1_descriptors};
     use super::*;
 
     #[test]
@@ -214,6 +219,14 @@ mod tests {
             .map(|b| u8::from_str_radix(b, 16).unwrap())
             .collect();
         assert_eq!(hex, raw);
+    }
+
+    #[test]
+    fn the_details_say_when_a_listed_rate_is_not_trusted() {
+        let raw = uac1_descriptors(&[(1, &[44_100, 48_000], false)]);
+        let text = text(&raw, "Pretend DAC", 1, 2, None, None);
+        let words = "a list, [44100, 48000] Hz, with no rate control (Needle trusts [48000])";
+        assert!(text.contains(words), "{text}");
     }
 
     #[test]
