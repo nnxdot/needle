@@ -15,8 +15,10 @@ use std::{
 const GET: u8 = 0xA1;
 const SET: u8 = 0x21;
 const SET_ENDPOINT: u8 = 0x22;
+const GET_ENDPOINT: u8 = 0xA2;
 const CUR: u8 = 0x01;
 const RANGE: u8 = 0x02;
+const UAC1_GET_CUR: u8 = 0x81;
 const UAC1_GET_MIN: u8 = 0x82;
 const UAC1_GET_MAX: u8 = 0x83;
 /// Transfers in flight, and how long each holds (ms): about 32 ms of music queued.
@@ -26,6 +28,9 @@ const TRANSFER_MS: u32 = 4;
 const FEEDBACK: usize = TRANSFERS;
 /// How long the DAC may take nothing before Needle gives up on it.
 const STALL: Duration = Duration::from_millis(500);
+/// A clock may take a moment to move: how often it is asked, and how long between.
+const RATE_CHECKS: usize = 6;
+const RATE_CHECK_WAIT: Duration = Duration::from_millis(30);
 
 pub struct UsbDac {
     name: String,
@@ -43,6 +48,21 @@ pub struct UsbDac {
 
 fn wvalue(selector: u8, channel: u8) -> u16 {
     (selector as u16) << 8 | channel as u16
+}
+
+/// A rate as people say it: "48" or "44.1".
+fn khz(rate: u32) -> String {
+    if rate % 1000 == 0 {
+        format!("{}", rate / 1000)
+    } else {
+        format!("{:.1}", rate as f64 / 1000.)
+    }
+}
+
+/// The DAC says the rate asked for: a few chips answer a hair off (44 099), and 44.1 and 48 kHz
+/// are 8 % apart.
+fn same_rate(said: u32, asked: u32) -> bool {
+    said.abs_diff(asked) <= asked / 200
 }
 
 impl UsbDac {
@@ -81,7 +101,44 @@ impl UsbDac {
             }
         }
         out.volume_range = out.read_volume_range();
+        out.log_what_it_says();
         Ok(out)
+    }
+
+    /// What the DAC says of itself, in the log: a report of a DAC that plays wrongly can then
+    /// show what it claimed.
+    fn log_what_it_says(&self) {
+        let say = |line: String| {
+            needle_core::logfile::info(&line);
+            crate::log(false, &line);
+        };
+        say(format!(
+            "{}: USB Audio Class {}, {} speed, volume {}",
+            self.name,
+            if self.dac.uac == Uac::Two { 2 } else { 1 },
+            if self.high_speed { "high" } else { "full" },
+            if self.volume_range.is_some() {
+                "yes"
+            } else {
+                "no"
+            },
+        ));
+        for f in &self.dac.formats {
+            say(format!(
+                "{}: interface {} setting {}: {} bits in {}-byte slots, {} channels, rates {:?}, {:?} sync, feedback {}, rate control {}, packets up to {} bytes",
+                self.name,
+                f.interface,
+                f.alt,
+                f.bits,
+                f.subslot,
+                f.channels,
+                self.rates(f),
+                f.sync,
+                if f.feedback.is_some() { "yes" } else { "no" },
+                if f.rate_control { "yes" } else { "no" },
+                f.max_packet,
+            ));
+        }
     }
 
     pub fn info(&self) -> UsbDacInfo {
@@ -209,10 +266,37 @@ impl UsbDac {
         }
     }
 
-    /// Sets the DAC's rate for `f`.
-    fn set_rate(&self, f: &Format, rate: u32) -> Result<()> {
+    /// The rate the DAC says it runs at for `f`: None when it cannot say.
+    fn read_rate(&self, f: &Format) -> Option<u32> {
+        let (request_type, request, index, size) = match self.dac.uac {
+            Uac::Two => (GET, CUR, self.index(self.dac.clock_for(f.terminal)?), 4),
+            Uac::One => (GET_ENDPOINT, UAC1_GET_CUR, f.endpoint as u16, 3),
+        };
+        let mut data = [0u8; 4];
+        let got = self
+            .bus
+            .control(
+                request_type,
+                request,
+                wvalue(0x01, 0),
+                index,
+                &mut data[..size],
+            )
+            .ok()?;
+        let rate = u32::from_le_bytes(data);
+        (got >= size && rate > 0).then_some(rate)
+    }
+
+    /// Sets the DAC's rate for `f`, and reads it back: the rate the DAC said it took, or None
+    /// when it cannot say. A DAC that stays at another rate is an error, as its clock decides
+    /// how fast the music plays: 44.1 kHz music on a 48 kHz clock is 9 % fast and high.
+    fn set_rate(&self, f: &Format, rate: u32) -> Result<Option<u32>> {
+        // UAC1 with no sampling frequency control and one rate: the setting is the rate.
+        if self.dac.uac == Uac::One && !f.rate_control && listed_rates(f).len() <= 1 {
+            return Ok(None);
+        }
         let _one = self.one_at_a_time();
-        match self.dac.uac {
+        let set = match self.dac.uac {
             Uac::Two => {
                 let clock = self
                     .dac
@@ -220,7 +304,7 @@ impl UsbDac {
                     .ok_or_else(|| anyhow!("The DAC's clock was not found"))?;
                 let mut data = rate.to_le_bytes();
                 self.bus
-                    .control(SET, CUR, wvalue(0x01, 0), self.index(clock), &mut data)?;
+                    .control(SET, CUR, wvalue(0x01, 0), self.index(clock), &mut data)
             }
             Uac::One => {
                 let mut data = [rate as u8, (rate >> 8) as u8, (rate >> 16) as u8];
@@ -230,10 +314,58 @@ impl UsbDac {
                     wvalue(0x01, 0),
                     f.endpoint as u16,
                     &mut data,
-                )?;
+                )
+            }
+        };
+        let mut said = None;
+        for check in 0..RATE_CHECKS {
+            said = self.read_rate(f);
+            match said {
+                Some(now) if same_rate(now, rate) => return Ok(Some(now)),
+                // It cannot say: no use asking again.
+                None => break,
+                Some(_) if check + 1 < RATE_CHECKS => std::thread::sleep(RATE_CHECK_WAIT),
+                Some(_) => {}
             }
         }
-        Ok(())
+        if let Some(now) = said {
+            bail!(
+                "{} stayed at {} kHz, so it cannot play {} kHz bit-perfect",
+                self.name,
+                khz(now),
+                khz(rate)
+            );
+        }
+        // It cannot say (as before these checks). The request only counts where the DAC claims
+        // the control: without it, it was a try.
+        if f.rate_control {
+            set?;
+        } else {
+            needle_core::logfile::warn(format!(
+                "{}: no rate control and no answer: {} Hz is not confirmed",
+                self.name, rate
+            ));
+        }
+        Ok(None)
+    }
+
+    /// The setting for music of `channels` at `rate`: only those that play the rate (a DAC may
+    /// have one rate per setting), and of those the best for the music.
+    fn format_for(&self, channels: u16, rate: u32) -> Result<Format> {
+        let fitting: Vec<Format> = self
+            .dac
+            .formats
+            .iter()
+            .filter(|f| self.rates(f).contains(&rate))
+            .cloned()
+            .collect();
+        if let Some(f) = choose(&fitting, channels, 24) {
+            return Ok(f.clone());
+        }
+        if choose(&self.dac.formats, channels, 24).is_none() {
+            bail!("{} takes no {}-channel music", self.name, channels);
+        }
+        bail!("{} does not play {} Hz", self.name, rate)
     }
 
     /// Streams music of one format until the format changes, the music pauses, or it stops.
@@ -382,38 +514,40 @@ impl UsbDac {
                 continue;
             }
             let format = feed.format();
-            let Some(f) = choose(&self.dac.formats, format.channels, 24) else {
-                break Err(anyhow!(
-                    "{} takes no {}-channel music",
-                    self.name,
-                    format.channels
-                ));
+            let f = match self.format_for(format.channels, format.rate) {
+                Ok(f) => f,
+                Err(e) => break Err(e),
             };
-            if !self.rates(f).contains(&format.rate) {
-                break Err(anyhow!("{} does not play {} Hz", self.name, format.rate));
-            }
+            let f = &f;
             if open != Some((f.interface, f.alt, format.rate, format.channels)) {
                 if let Some((interface, ..)) = open.take() {
                     let _ = self.bus.set_interface(interface, 0);
                 }
-                if let Err(e) = self
+                let said = match self
                     .bus
                     .set_interface(f.interface, f.alt)
                     .and_then(|_| self.set_rate(f, format.rate))
                 {
-                    break Err(e);
-                }
+                    Ok(said) => said,
+                    Err(e) => {
+                        // Left open, so the DAC is set back to rest below.
+                        open = Some((f.interface, f.alt, format.rate, format.channels));
+                        break Err(e);
+                    }
+                };
                 open = Some((f.interface, f.alt, format.rate, format.channels));
                 feed.playing_at(format);
-                let khz = if format.rate % 1000 == 0 {
-                    format!("{}", format.rate / 1000)
-                } else {
-                    format!("{:.1}", format.rate as f64 / 1000.)
-                };
-                super::status_playing(Some(format!("{khz} kHz, {}-bit", f.bits)));
+                super::status_playing(Some(format!("{} kHz, {}-bit", khz(format.rate), f.bits)));
                 needle_core::logfile::warn(format!(
-                    "{}: {} Hz, {} bits in {}-byte slots, {} channels (setting {} of interface {})",
-                    self.name, format.rate, f.bits, f.subslot, f.channels, f.alt, f.interface
+                    "{}: {} Hz, {} bits in {}-byte slots, {} channels (setting {} of interface {}), the DAC says {}",
+                    self.name,
+                    format.rate,
+                    f.bits,
+                    f.subslot,
+                    f.channels,
+                    f.alt,
+                    f.interface,
+                    said.map_or("nothing".to_string(), |r| format!("{r} Hz")),
                 ));
             }
             if let Err(e) = self.stream(feed, format, f) {
@@ -467,5 +601,93 @@ impl PlatformOutput for UsbDac {
         self.volume
             .store(volume.clamp(0., 1.).to_bits(), Ordering::Relaxed);
         self.apply_volume();
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::super::fake::{FakeDac, Trouble, descriptors, uac1_descriptors};
+    use super::*;
+
+    fn dac(trouble: Trouble, raw: &[u8]) -> (Arc<FakeDac>, UsbDac) {
+        let fake = Arc::new(FakeDac::new(trouble));
+        let dac = UsbDac::new(fake.clone(), raw, "Pretend DAC".into()).unwrap();
+        (fake, dac)
+    }
+
+    fn first(dac: &UsbDac) -> Format {
+        dac.dac.formats.last().unwrap().clone()
+    }
+
+    #[test]
+    fn a_normal_dac_takes_the_rate_and_says_so() {
+        let (fake, dac) = dac(Trouble::None, &descriptors());
+        assert_eq!(dac.set_rate(&first(&dac), 44_100).unwrap(), Some(44_100));
+        assert_eq!(fake.rates(), [44_100]);
+    }
+
+    #[test]
+    fn a_dac_that_ignores_the_rate_is_refused() {
+        let (_, dac) = dac(Trouble::StaysAt(48_000), &descriptors());
+        let f = first(&dac);
+        let why = dac.set_rate(&f, 44_100).unwrap_err().to_string();
+        assert_eq!(
+            why,
+            "Pretend DAC stayed at 48 kHz, so it cannot play 44.1 kHz bit-perfect"
+        );
+        // The rate it runs at is fine.
+        assert_eq!(dac.set_rate(&f, 48_000).unwrap(), Some(48_000));
+    }
+
+    #[test]
+    fn a_dac_that_cannot_say_goes_on_as_before() {
+        let (fake, dac) = dac(Trouble::NoRateAnswer, &descriptors());
+        assert_eq!(dac.set_rate(&first(&dac), 44_100).unwrap(), None);
+        assert_eq!(fake.rates(), [44_100]);
+    }
+
+    #[test]
+    fn a_fixed_clock_that_refuses_the_request_is_judged_by_what_it_says() {
+        let (_, dac) = dac(Trouble::FixedAt(48_000), &descriptors());
+        let f = first(&dac);
+        assert_eq!(dac.set_rate(&f, 48_000).unwrap(), Some(48_000));
+        assert!(dac.set_rate(&f, 44_100).is_err());
+    }
+
+    #[test]
+    fn uac1_reads_the_rate_back_from_the_endpoint() {
+        let raw = uac1_descriptors(&[(1, &[44_100, 48_000], true)]);
+        let (_, good) = dac(Trouble::None, &raw);
+        assert_eq!(good.set_rate(&first(&good), 44_100).unwrap(), Some(44_100));
+        let (_, stuck) = dac(Trouble::StaysAt(48_000), &raw);
+        let why = stuck.set_rate(&first(&stuck), 44_100).unwrap_err();
+        assert!(why.to_string().contains("stayed at 48 kHz"), "{why}");
+    }
+
+    #[test]
+    fn uac1_with_no_rate_control_and_one_rate_offers_that_rate_and_asks_nothing() {
+        let raw = uac1_descriptors(&[(1, &[48_000], false)]);
+        let (fake, dac) = dac(Trouble::None, &raw);
+        assert!(!first(&dac).rate_control);
+        assert_eq!(dac.info().rates, [48_000]);
+        assert_eq!(dac.set_rate(&first(&dac), 48_000).unwrap(), None);
+        assert!(
+            fake.rates().is_empty(),
+            "no request for a rate it cannot set"
+        );
+        assert!(dac.format_for(2, 44_100).is_err());
+    }
+
+    #[test]
+    fn the_setting_is_chosen_by_the_rate_too() {
+        let raw = uac1_descriptors(&[(1, &[44_100], false), (2, &[48_000], false)]);
+        let (_, dac) = dac(Trouble::None, &raw);
+        assert_eq!(dac.info().rates, [44_100, 48_000]);
+        assert_eq!(dac.format_for(2, 44_100).unwrap().alt, 1);
+        assert_eq!(dac.format_for(2, 48_000).unwrap().alt, 2);
+        let why = dac.format_for(2, 96_000).unwrap_err().to_string();
+        assert!(why.contains("does not play 96000 Hz"), "{why}");
+        let why = dac.format_for(6, 48_000).unwrap_err().to_string();
+        assert!(why.contains("no 6-channel music"), "{why}");
     }
 }

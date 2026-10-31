@@ -340,7 +340,6 @@ impl Needle {
         needle_core::find::start_reading_lyrics(self.library.clone());
     }
 
-
     /// The music folders Needle reads.
     pub fn folders(&self) -> Result<Vec<String>> {
         Ok(self.library.roots()?)

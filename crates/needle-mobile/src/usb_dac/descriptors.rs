@@ -35,6 +35,9 @@ pub struct Format {
     pub rates: Vec<u32>,
     /// A UAC1 range of rates instead of a list (low, high).
     pub range: Option<(u32, u32)>,
+    /// UAC1: the endpoint has a sampling frequency control (its own descriptor says). Without
+    /// one, the setting itself decides the rate. Always true for UAC2, where the clock does.
+    pub rate_control: bool,
     pub endpoint: u8,
     pub max_packet: u16,
     /// Polling interval as the descriptor gives it.
@@ -92,6 +95,7 @@ impl Dac {
 const INTERFACE: u8 = 0x04;
 const ENDPOINT: u8 = 0x05;
 const CS_INTERFACE: u8 = 0x24;
+const CS_ENDPOINT: u8 = 0x25;
 const AUDIO: u8 = 0x01;
 const CONTROL: u8 = 0x01;
 const STREAMING: u8 = 0x02;
@@ -156,6 +160,7 @@ pub fn parse(raw: &[u8]) -> Option<Dac> {
                         bits: 0,
                         rates: vec![],
                         range: None,
+                        rate_control: true,
                         endpoint: 0,
                         max_packet: 0,
                         interval: 1,
@@ -262,6 +267,12 @@ pub fn parse(raw: &[u8]) -> Option<Dac> {
                 }
                 _ => {}
             },
+            // EP_GENERAL (UAC1): bit 0 of its attributes is the sampling frequency control.
+            CS_ENDPOINT if len >= 4 && d[2] == 0x01 && uac == Some(Uac::One) => {
+                if let Some(f) = pending.as_mut() {
+                    f.rate_control = d[3] & 1 != 0;
+                }
+            }
             ENDPOINT if len >= 7 => {
                 if let Some(f) = pending.as_mut() {
                     let address = d[2];

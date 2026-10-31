@@ -19,6 +19,12 @@ pub enum Trouble {
     GoneAfter(usize),
     /// Setting the alternate setting panics (a bug in the driver's way).
     Panic,
+    /// A clock that stays at this rate: it takes the request and changes nothing.
+    StaysAt(u32),
+    /// A clock fixed at this rate that refuses the request, and says the rate it is at.
+    FixedAt(u32),
+    /// The rate cannot be read back.
+    NoRateAnswer,
 }
 
 #[derive(Default)]
@@ -32,6 +38,8 @@ struct State {
     pub rates: Vec<u32>,
     pub alts: Vec<(u8, u8)>,
     pub loudest: i32,
+    /// The rate the clock runs at.
+    pub clock: u32,
 }
 
 pub struct FakeDac {
@@ -53,6 +61,28 @@ impl FakeDac {
 
     pub fn rates(&self) -> Vec<u32> {
         self.state.lock().unwrap().rates.clone()
+    }
+
+    /// What the clock says when asked; `None` when it cannot answer.
+    fn clock_says(&self) -> Option<u32> {
+        match self.trouble {
+            Trouble::NoRateAnswer => None,
+            Trouble::StaysAt(rate) | Trouble::FixedAt(rate) => Some(rate),
+            _ => Some(self.state.lock().unwrap().clock),
+        }
+    }
+
+    /// A request to set the rate.
+    fn take_rate(&self, rate: u32) -> Result<()> {
+        if matches!(self.trouble, Trouble::FixedAt(_)) {
+            bail!("The DAC refused the request");
+        }
+        let mut s = self.state.lock().unwrap();
+        s.rates.push(rate);
+        if !matches!(self.trouble, Trouble::StaysAt(_)) {
+            s.clock = rate;
+        }
+        Ok(())
     }
 
     pub fn alts(&self) -> Vec<(u8, u8)> {
@@ -88,6 +118,37 @@ pub fn descriptors() -> Vec<u8> {
     d.extend([6, 0x24, 2, 1, 4, 24]);
     d.extend([7, 5, 0x01, 0x05, 0x10, 0x03, 1]);
     d.extend([7, 5, 0x81, 0x11, 4, 0, 4]);
+    d
+}
+
+/// A UAC1 DAC with the given settings, each `(alt, rates, has a sampling frequency control)`:
+/// 24-bit stereo in 3-byte slots.
+pub fn uac1_descriptors(settings: &[(u8, &[u32], bool)]) -> Vec<u8> {
+    let mut d = vec![];
+    d.extend([18, 1, 0, 2, 0, 0, 0, 64, 0, 0, 0, 0, 0, 1, 1, 2, 3, 1]);
+    d.extend([9, 2, 0, 0, 2, 1, 0, 0x80, 50]);
+    d.extend([9, 4, 0, 0, 0, 1, 1, 0, 0]);
+    d.extend([9, 0x24, 1, 0x00, 0x01, 9, 0, 1, 1]);
+    d.extend([9, 4, 1, 0, 0, 1, 2, 0, 0]);
+    for (alt, rates, control) in settings {
+        d.extend([9, 4, 1, *alt, 1, 1, 2, 0, 0]);
+        d.extend([7, 0x24, 1, 1, 1, 1, 0]);
+        d.extend([
+            8 + rates.len() as u8 * 3,
+            0x24,
+            2,
+            1,
+            2,
+            3,
+            24,
+            rates.len() as u8,
+        ]);
+        for r in *rates {
+            d.extend(&r.to_le_bytes()[..3]);
+        }
+        d.extend([9, 5, 0x01, 0x09, 0x20, 0x01, 1, 0, 0]);
+        d.extend([7, 0x25, 1, *control as u8, 0, 0, 0]);
+    }
     d
 }
 
@@ -138,14 +199,23 @@ impl Bus for FakeDac {
                 data[..n].copy_from_slice(&answer[..n]);
                 Ok(n)
             }
-            // Setting the rate.
+            // Setting the rate: UAC2's clock, or UAC1's endpoint.
             (0x21, 0x01, 0x01) => {
-                self.state
-                    .lock()
-                    .unwrap()
-                    .rates
-                    .push(u32::from_le_bytes([data[0], data[1], data[2], data[3]]));
+                self.take_rate(u32::from_le_bytes([data[0], data[1], data[2], data[3]]))?;
                 Ok(data.len())
+            }
+            (0x22, 0x01, 0x01) => {
+                self.take_rate(u32::from_le_bytes([data[0], data[1], data[2], 0]))?;
+                Ok(data.len())
+            }
+            // Reading the rate back.
+            (0xA1, 0x01, 0x01) | (0xA2, 0x81, 0x01) => {
+                let Some(rate) = self.clock_says() else {
+                    bail!("The DAC refused the request");
+                };
+                let n = data.len().min(4);
+                data[..n].copy_from_slice(&rate.to_le_bytes()[..n]);
+                Ok(n)
             }
             _ => Ok(data.len()),
         }
@@ -249,17 +319,19 @@ pub mod checks {
         }
     }
 
-    /// The driver gave up (its own report, fresh) and the core said so in its notice.
-    fn said(needle: &Needle, words: &str, limit: Duration) -> bool {
+    /// The driver gave up (its own report, fresh) and the core said so in its notice. The core
+    /// says it once the system's output opens: without one (see FALLBACK), the report is all.
+    fn said(needle: &Needle, words: &str, limit: Duration, fallback: bool) -> bool {
         let start = Instant::now();
         while start.elapsed() < limit {
             let reported = super::super::STATUS.lock().unwrap().1.is_some();
             if reported
-                && needle
-                    .player
-                    .state()
-                    .output_notice
-                    .is_some_and(|n| n.contains(words))
+                && (!fallback
+                    || needle
+                        .player
+                        .state()
+                        .output_notice
+                        .is_some_and(|n| n.contains(words)))
             {
                 return true;
             }
@@ -331,13 +403,18 @@ pub mod checks {
             (Trouble::StallAfter(40), &["stopped taking music"][..]),
             (Trouble::GoneAfter(40), &["gone", "no more music"][..]),
             (Trouble::Panic, &["driver stopped"][..]),
+            // A clock that stays at 48 kHz, for a song at 44.1: not played fast and high.
+            (
+                Trouble::StaysAt(48_000),
+                &["stayed at 48 kHz, so it cannot play 44.1 kHz bit-perfect"][..],
+            ),
         ] {
             let (_, dac) = driver(trouble);
             let at = needle.playback().position;
             set_platform_output(Some(dac));
             let start = Instant::now();
             assert!(
-                said(needle, "Pretend DAC", Duration::from_secs(5)),
+                said(needle, "Pretend DAC", Duration::from_secs(5), fallback),
                 "{trouble:?}: the failure is said"
             );
             assert!(
@@ -400,7 +477,7 @@ pub mod checks {
             .id;
         needle.play(vec![odd_id], 0).unwrap();
         assert!(
-            said(needle, "Pretend DAC", Duration::from_secs(5)),
+            said(needle, "Pretend DAC", Duration::from_secs(5), fallback),
             "32 kHz: the failure is said"
         );
         let why = super::super::STATUS
