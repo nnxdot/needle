@@ -134,6 +134,23 @@ pub fn volume_steps(volume: f32, min: i16, max: i16) -> i16 {
     steps.clamp(min as i32, max as i32) as i16
 }
 
+/// How much to scale the samples for Needle's volume (0 to 1), for a DAC with no volume of its
+/// own: the same curve as [`volume_steps`], so a slider feels alike on every DAC.
+pub fn software_gain(volume: f32) -> f32 {
+    let volume = volume.clamp(0., 1.);
+    volume * volume
+}
+
+/// Scales `samples` (interleaved, `channels` of them) by a gain that moves from `from` to `to`
+/// across them, so a change of volume makes no click.
+pub fn ramp(samples: &mut [f32], channels: usize, from: f32, to: f32) {
+    let frames = samples.len() / channels.max(1);
+    for (i, frame) in samples.chunks_mut(channels.max(1)).enumerate() {
+        let gain = from + (to - from) * (i + 1) as f32 / frames.max(1) as f32;
+        frame.iter_mut().for_each(|sample| *sample *= gain);
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -192,5 +209,24 @@ mod tests {
         assert_eq!(volume_steps(0., -127 * 256, 0), -127 * 256);
         let half = volume_steps(0.5, -127 * 256, 0);
         assert!((-13 * 256..-11 * 256).contains(&half), "{half}");
+    }
+
+    #[test]
+    fn software_volume_follows_the_same_ear_as_a_dacs_own() {
+        assert_eq!(software_gain(1.), 1.);
+        assert_eq!(software_gain(0.), 0.);
+        // A slider's middle is about -12 dB here too.
+        let half = 20. * software_gain(0.5).log10();
+        assert!((-13. ..-11.).contains(&half), "{half}");
+    }
+
+    #[test]
+    fn a_change_of_volume_moves_across_the_packet_and_ends_on_time() {
+        let mut samples = [1f32; 8];
+        ramp(&mut samples, 2, 1., 0.5);
+        assert_eq!(samples, [0.875, 0.875, 0.75, 0.75, 0.625, 0.625, 0.5, 0.5]);
+        let mut samples = [0.5f32; 4];
+        ramp(&mut samples, 2, 0.5, 0.5);
+        assert_eq!(samples, [0.25; 4]);
     }
 }

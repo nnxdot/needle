@@ -170,9 +170,14 @@ impl Drop for Usbfs {
     }
 }
 
+/// Linux's number for the speed of the device on Android's file `fd`.
+pub fn speed(fd: i32) -> Option<i32> {
+    ioctl(fd, GET_SPEED, std::ptr::null_mut()).ok()
+}
+
 impl Bus for Usbfs {
     fn high_speed(&self) -> bool {
-        ioctl(self.fd, GET_SPEED, std::ptr::null_mut()).is_ok_and(|s| s >= SPEED_HIGH)
+        speed(self.fd).is_some_and(|s| s >= SPEED_HIGH)
     }
 
     fn claim(&self, interface: u8) {

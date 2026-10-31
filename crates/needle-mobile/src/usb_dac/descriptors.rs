@@ -1,6 +1,8 @@
-//! A USB DAC's descriptors, read: what it is (USB Audio Class 1 or 2), where its music goes
-//! (the streaming interface, its alternate settings, their formats and endpoints), its clock,
-//! and its volume control. Pure data: the device itself is spoken to in `device.rs`.
+//! A USB DAC's descriptors, read: what it is (USB Audio Class 1 or 2), the ways music can go
+//! through it (each from a streaming interface to an output terminal), the formats and the
+//! volume of the way Needle uses, and its clock. A device may have several ways, such as a
+//! dock's speakers and its headset: only one is used, and nothing is mixed from another. Pure
+//! data: the device itself is spoken to in `device.rs`.
 
 /// USB Audio Class version.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -57,17 +59,37 @@ pub struct Volume {
     pub master: bool,
 }
 
+/// One way music goes through the DAC: in by a streaming interface, through its units, and out
+/// by an output terminal. Each has its own formats and its own volume.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Path {
+    pub interface: u8,
+    /// The USB streaming input terminal the music enters by.
+    pub terminal: u8,
+    /// The output terminal's id and type, when the descriptors lead to one.
+    pub output: Option<(u8, u16)>,
+    /// The units on the way, nearest the output first.
+    pub units: Vec<u8>,
+    pub volume: Option<Volume>,
+    pub formats: Vec<Format>,
+}
+
 /// What a USB DAC offers.
 #[derive(Clone, Debug, PartialEq)]
 pub struct Dac {
     pub uac: Uac,
     /// The Audio Control interface's number.
     pub control: u8,
+    /// Every way through the DAC, and which of them Needle uses.
+    pub paths: Vec<Path>,
+    pub chosen: usize,
+    /// The formats of the way Needle uses.
     pub formats: Vec<Format>,
     /// UAC2: the clock source each input terminal uses, by terminal id.
     pub clocks: Vec<(u8, u8)>,
     /// UAC2: clock selectors and their first source.
     pub selectors: Vec<(u8, u8)>,
+    /// The volume on the way Needle uses.
     pub volume: Option<Volume>,
     /// The DAC takes DSD as raw data itself (UAC2 Type I raw), beside PCM.
     pub native_dsd: bool,
@@ -99,6 +121,112 @@ const CS_ENDPOINT: u8 = 0x25;
 const AUDIO: u8 = 0x01;
 const CONTROL: u8 = 0x01;
 const STREAMING: u8 = 0x02;
+/// The terminal type of music to or from the phone.
+const USB_STREAMING: u16 = 0x0101;
+
+/// A stop on the way through the DAC, from its Audio Control interface.
+struct Node {
+    id: u8,
+    kind: Kind,
+    /// Where its sound comes from.
+    sources: Vec<u8>,
+}
+
+enum Kind {
+    Input,
+    Output(u16),
+    /// A feature unit, and how its volume works: `Some(true)` on the master channel, `Some(false)`
+    /// on each channel, `None` with no volume the host can set.
+    Feature(Option<bool>),
+    Unit,
+}
+
+/// How good a way out a terminal type is for music, as a person would choose: the speakers,
+/// headphones, a line, or a digital output first; a headset, a telephone, or a call's speaker
+/// last, as such a way may be made for voices.
+pub fn rank(output: Option<u16>) -> u8 {
+    match output {
+        Some(0x0306) => 2,
+        Some(kind) => match kind >> 8 {
+            0x03 | 0x06 | 0x07 => 3,
+            0x04 | 0x05 => 1,
+            _ => 2,
+        },
+        None => 2,
+    }
+}
+
+/// The way back from `id` to the terminal `to`, `id` first: what the walk went through.
+fn way_back(nodes: &[Node], id: u8, to: u8, seen: &mut Vec<u8>) -> Option<Vec<u8>> {
+    if id == to {
+        return Some(vec![]);
+    }
+    if seen.contains(&id) {
+        return None;
+    }
+    seen.push(id);
+    let node = nodes.iter().find(|n| n.id == id)?;
+    node.sources.iter().find_map(|source| {
+        let mut way = way_back(nodes, *source, to, seen)?;
+        way.insert(0, id);
+        Some(way)
+    })
+}
+
+/// The way for music entering at `f`'s terminal: to the best output terminal it reaches. In
+/// descriptors that name no way out, to the farthest feature unit it reaches.
+fn path_of(f: &Format, nodes: &[Node]) -> Path {
+    let way = |id: u8| way_back(nodes, id, f.terminal, &mut vec![]);
+    let out = nodes
+        .iter()
+        .filter_map(|n| match n.kind {
+            Kind::Output(kind) if kind != USB_STREAMING => Some(((n.id, kind), way(n.id)?)),
+            _ => None,
+        })
+        .max_by_key(|((_, kind), _)| rank(Some(*kind)));
+    let (output, units) = match out {
+        Some((output, units)) => (Some(output), units),
+        None => {
+            let feature = |n: &&Node| matches!(n.kind, Kind::Feature(_));
+            let farthest = nodes
+                .iter()
+                .filter(feature)
+                .filter_map(|n| way(n.id))
+                .max_by_key(Vec::len);
+            (None, farthest.unwrap_or_default())
+        }
+    };
+    let node = |id: &u8| nodes.iter().find(|n| n.id == *id);
+    let volume = units.iter().find_map(|id| match node(id)?.kind {
+        Kind::Feature(Some(master)) => Some(Volume { unit: *id, master }),
+        _ => None,
+    });
+    Path {
+        interface: f.interface,
+        terminal: f.terminal,
+        output,
+        units: units
+            .into_iter()
+            .filter(|id| !node(id).is_some_and(|n| matches!(n.kind, Kind::Output(_))))
+            .collect(),
+        volume,
+        formats: vec![],
+    }
+}
+
+/// The way Needle uses: one for stereo music, then the best way out, the deepest samples, and
+/// the first interface.
+fn best_path(paths: &[Path]) -> Option<usize> {
+    let key = |p: &Path| {
+        (
+            p.formats.iter().any(|f| f.channels == 2),
+            rank(p.output.map(|(_, kind)| kind)),
+            p.formats.iter().map(|f| f.bits).max().unwrap_or(0),
+            255 - p.interface,
+        )
+    };
+    (0..paths.len()).max_by_key(|i| key(&paths[*i]))
+}
 
 fn u16_at(d: &[u8], i: usize) -> u16 {
     d.get(i..i + 2)
@@ -125,7 +253,7 @@ pub fn parse(raw: &[u8]) -> Option<Dac> {
     let mut formats = vec![];
     let mut clocks = vec![];
     let mut selectors = vec![];
-    let mut volume = None;
+    let mut nodes = vec![];
     let mut native_dsd = false;
     // Where the walk is: the interface (number, alt, class, subclass), and the streaming
     // alt setting being read.
@@ -181,40 +309,72 @@ pub fn parse(raw: &[u8]) -> Option<Dac> {
                         })
                     }
                     // INPUT_TERMINAL (UAC2: its clock source).
-                    0x02 if uac == Some(Uac::Two) && len >= 8 => clocks.push((d[3], d[7])),
-                    // FEATURE_UNIT: the first with a volume control.
-                    0x06 if volume.is_none() && len >= 7 => {
-                        let unit = d[3];
-                        match uac {
-                            Some(Uac::Two) => {
-                                let master = u32_at(d, 5);
-                                let first = u32_at(d, 9);
-                                // Volume is bits 2-3 of each channel's controls.
-                                if master & 0b1100 != 0 {
-                                    volume = Some(Volume { unit, master: true });
-                                } else if first & 0b1100 != 0 {
-                                    volume = Some(Volume {
-                                        unit,
-                                        master: false,
-                                    });
-                                }
-                            }
+                    0x02 if len >= 7 => {
+                        if uac == Some(Uac::Two) && len >= 8 {
+                            clocks.push((d[3], d[7]));
+                        }
+                        nodes.push(Node {
+                            id: d[3],
+                            kind: Kind::Input,
+                            sources: vec![],
+                        });
+                    }
+                    // OUTPUT_TERMINAL.
+                    0x03 if len >= 8 => nodes.push(Node {
+                        id: d[3],
+                        kind: Kind::Output(u16_at(d, 4)),
+                        sources: vec![d[7]],
+                    }),
+                    // FEATURE_UNIT.
+                    0x06 if len >= 7 => {
+                        let (master, first) = match uac {
+                            // Volume is bits 2-3 of each channel's controls: 3 is "the host can
+                            // set it" (1 could only be read, and would leave it stuck).
+                            Some(Uac::Two) => (
+                                (u32_at(d, 5) >> 2) & 0b11 == 0b11,
+                                (u32_at(d, 9) >> 2) & 0b11 == 0b11,
+                            ),
+                            // Volume is bit 1.
                             _ => {
                                 let size = d[5].max(1) as usize;
-                                let master = d.get(6).copied().unwrap_or(0);
-                                let first = d.get(6 + size).copied().unwrap_or(0);
-                                // Volume is bit 1.
-                                if master & 0b10 != 0 {
-                                    volume = Some(Volume { unit, master: true });
-                                } else if first & 0b10 != 0 {
-                                    volume = Some(Volume {
-                                        unit,
-                                        master: false,
-                                    });
-                                }
+                                let bit = |at: usize| d.get(at).is_some_and(|c| c & 0b10 != 0);
+                                (bit(6), bit(6 + size))
                             }
-                        }
+                        };
+                        nodes.push(Node {
+                            id: d[3],
+                            kind: Kind::Feature((master || first).then_some(master)),
+                            sources: vec![d[4]],
+                        });
                     }
+                    // MIXER_UNIT and SELECTOR_UNIT.
+                    0x04 | 0x05 if len >= 6 => nodes.push(Node {
+                        id: d[3],
+                        kind: Kind::Unit,
+                        sources: pins(d, 4),
+                    }),
+                    // PROCESSING_UNIT and EXTENSION_UNIT (their numbers differ by version).
+                    0x07 | 0x08 if uac != Some(Uac::Two) && len >= 8 => nodes.push(Node {
+                        id: d[3],
+                        kind: Kind::Unit,
+                        sources: pins(d, 6),
+                    }),
+                    0x08 | 0x09 if uac == Some(Uac::Two) && len >= 8 => nodes.push(Node {
+                        id: d[3],
+                        kind: Kind::Unit,
+                        sources: pins(d, 6),
+                    }),
+                    // UAC2: EFFECT_UNIT, and SAMPLE_RATE_CONVERTER.
+                    0x07 if uac == Some(Uac::Two) && len >= 7 => nodes.push(Node {
+                        id: d[3],
+                        kind: Kind::Unit,
+                        sources: vec![d[6]],
+                    }),
+                    0x0D if uac == Some(Uac::Two) && len >= 5 => nodes.push(Node {
+                        id: d[3],
+                        kind: Kind::Unit,
+                        sources: vec![d[4]],
+                    }),
                     // CLOCK_SELECTOR (UAC2): its first source.
                     0x0B if len >= 6 => selectors.push((d[3], d[5])),
                     _ => {}
@@ -306,18 +466,36 @@ pub fn parse(raw: &[u8]) -> Option<Dac> {
         }
     }
     formats.retain(|f| f.channels > 0 && matches!(f.subslot, 2..=4) && f.bits >= 16);
-    if formats.is_empty() {
-        return None;
+    let mut paths: Vec<Path> = vec![];
+    for f in formats {
+        let same = |p: &&mut Path| p.interface == f.interface && p.terminal == f.terminal;
+        let path = match paths.iter_mut().find(same) {
+            Some(path) => path,
+            None => {
+                paths.push(path_of(&f, &nodes));
+                paths.last_mut()?
+            }
+        };
+        path.formats.push(f);
     }
+    let chosen = best_path(&paths)?;
     Some(Dac {
         uac: uac?,
         control: control?,
-        formats,
+        formats: paths[chosen].formats.clone(),
+        volume: paths[chosen].volume,
+        paths,
+        chosen,
         clocks,
         selectors,
-        volume,
         native_dsd,
     })
+}
+
+/// The sources of a unit whose count of them is at `at`, with the sources after it.
+fn pins(d: &[u8], at: usize) -> Vec<u8> {
+    let count = d[at] as usize;
+    d.get(at + 1..at + 1 + count).unwrap_or_default().to_vec()
 }
 
 /// The rates a DAC is asked about (a UAC2 clock answers with ranges).
@@ -355,9 +533,12 @@ pub fn rates_in_ranges(answer: &[u8]) -> Vec<u32> {
     out
 }
 
-/// A format's rates, from its own list or range (UAC1).
+/// A format's rates, from its own list or range (UAC1). A range proves little: a chip may take
+/// any rate asked and go on at its own clock, usually 48 kHz, which sounds wrong. With 48 kHz
+/// in the range, that is the one rate trusted, and other music goes through Android.
 pub fn listed_rates(f: &Format) -> Vec<u32> {
     match f.range {
+        Some((low, high)) if (low..=high).contains(&48_000) => vec![48_000],
         Some((low, high)) => RATES
             .iter()
             .copied()
@@ -511,6 +692,24 @@ mod tests {
                 44_100, 48_000, 88_200, 96_000, 176_400, 192_000, 352_800, 384_000, 768_000
             ]
         );
+    }
+
+    #[test]
+    fn a_range_with_48_khz_in_it_trusts_only_48_khz() {
+        let mut f = parse(&uac2_dac()).unwrap().formats[0].clone();
+        f.range = Some((8_000, 48_000));
+        assert_eq!(listed_rates(&f), [48_000]);
+        f.range = Some((8_000, 44_100));
+        assert_eq!(listed_rates(&f), [44_100, 32_000, 22_050]);
+    }
+
+    #[test]
+    fn a_volume_that_can_only_be_read_is_no_volume() {
+        let mut d = uac2_dac();
+        // The feature unit's master controls: 0x0C (the host sets it) becomes 0x04 (read only).
+        let at = d.windows(6).position(|w| w == [18, 0x24, 6, 10, 2, 0x0C]);
+        d[at.unwrap() + 5] = 0x04;
+        assert_eq!(parse(&d).unwrap().volume, None);
     }
 
     #[test]

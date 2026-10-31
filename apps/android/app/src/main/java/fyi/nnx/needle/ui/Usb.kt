@@ -31,6 +31,7 @@ import androidx.compose.foundation.selection.toggleable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
+import androidx.compose.material.icons.rounded.ContentCopy
 import androidx.compose.material.icons.rounded.Usb
 
 private val MUSIC: AudioAttributes = AudioAttributes.Builder()
@@ -125,6 +126,41 @@ private fun logDac(audio: AudioManager, device: AudioDeviceInfo) {
             "encodings ${device.encodings.joinToString(",") { encodingName(it) }.ifEmpty { "any" }}, " +
             "channels ${device.channelCounts.joinToString(",").ifEmpty { "any" }}; mixers: $listed; preferred: $preferred; Needle can use: $usable",
     )
+}
+
+/**
+ * What Android says of its outputs, for "Copy DAC details". By type only, but for USB: another
+ * output's name can be a person's (their earbuds).
+ */
+fun usbPhoneDetails(context: Context): String {
+    val out = StringBuilder()
+    val version = runCatching { context.packageManager.getPackageInfo(context.packageName, 0).versionName }.getOrNull()
+    out.append("Needle $version on Android ${Build.VERSION.RELEASE} (API ${Build.VERSION.SDK_INT}), ${Build.MANUFACTURER} ${Build.MODEL}\n")
+    out.append("Bit-perfect USB: ${if (fyi.nnx.needle.NeedleApp.instance.app.value.usbBitPerfect) "on" else "off"}\n")
+    val audio = context.getSystemService(AudioManager::class.java) ?: return out.toString()
+    val stream = AudioManager.STREAM_MUSIC
+    out.append("Music volume: ${audio.getStreamVolume(stream)} of ${audio.getStreamMaxVolume(stream)}, fixed ${audio.isVolumeFixed}\n")
+    val outputs = runCatching { audio.getDevices(AudioManager.GET_DEVICES_OUTPUTS).toList() }.getOrDefault(emptyList())
+    out.append("Outputs by type: ${outputs.joinToString(", ") { it.type.toString() }}\n")
+    for (device in outputs.filter { it.type == AudioDeviceInfo.TYPE_USB_DEVICE || it.type == AudioDeviceInfo.TYPE_USB_HEADSET }) {
+        out.append(
+            "USB output (type ${device.type}): ${device.productName}, rates ${device.sampleRates.joinToString(",").ifEmpty { "any" }}, " +
+                "encodings ${device.encodings.joinToString(",") { encodingName(it) }.ifEmpty { "any" }}, " +
+                "channels ${device.channelCounts.joinToString(",").ifEmpty { "any" }}\n",
+        )
+    }
+    if (Build.VERSION.SDK_INT >= 33) {
+        val route = runCatching { audio.getAudioDevicesForAttributes(MUSIC).map { it.type } }.getOrNull()
+        out.append("Music goes to type: ${route?.joinToString(",") ?: "not known"}\n")
+    }
+    if (Build.VERSION.SDK_INT >= 34) {
+        val usb = usbOutput(audio)
+        val mixer = usb?.let { runCatching { audio.getPreferredMixerAttributes(MUSIC, it) }.getOrNull() }
+        out.append("Preferred mixer: ${mixer?.let { "${it.mixerBehavior} ${encodingName(it.format.encoding)} ${it.format.sampleRate} Hz" } ?: "none"}\n")
+    }
+    val playback = runCatching { core.playback() }.getOrNull()
+    out.append("Player: ${if (playback?.playing == true) "playing" else "not playing"}\n")
+    return out.toString()
 }
 
 /** The DAC last written to the log, so one plugged in is written once. */
@@ -234,15 +270,21 @@ fun UsbBitPerfect() {
     androidx.compose.runtime.LaunchedEffect(connected) { if (Build.VERSION.SDK_INT >= 34) connected?.let { logDac(audio, it) } }
     // What the driver plays now ("96 kHz, 24-bit"), read while the row shows.
     var playing by remember { mutableStateOf<String?>(null) }
+    // Below 100 %, a DAC with no volume of its own hears lowered samples.
+    var exact by remember { mutableStateOf(true) }
     androidx.compose.runtime.LaunchedEffect(driver) {
         while (driver is fyi.nnx.needle.UsbDriver.State.Driving) {
-            playing = runCatching { core.usbDacStatus().playing }.getOrNull()
+            val status = runCatching { core.usbDacStatus() }.getOrNull()
+            playing = status?.playing
+            exact = status?.bitPerfect ?: true
             kotlinx.coroutines.delay(1500)
         }
         playing = null
+        exact = true
     }
     val line = when (val d = driver) {
-        is fyi.nnx.needle.UsbDriver.State.Driving -> d.info.name + ": " + (playing ?: "Needle's own driver, up to ${d.info.bits}-bit")
+        is fyi.nnx.needle.UsbDriver.State.Driving ->
+            d.info.name + ": " + (playing ?: "Needle's own driver, up to ${d.info.bits}-bit") + (if (exact) "" else ", not bit-perfect below 100%")
         is fyi.nnx.needle.UsbDriver.State.Asking -> "Allow Needle to use ${d.name}"
         is fyi.nnx.needle.UsbDriver.State.Fallback -> if (app.usbBitPerfect && offer != null) "${d.name}: Android's bit-perfect mixer, $offerText" else "${d.name} plays through Android"
         else -> if (connected != null && Build.VERSION.SDK_INT >= 23) "${connected.productName}: the exact sound; other sounds wait" else "Plug in a USB DAC for the exact sound"
@@ -264,8 +306,10 @@ fun UsbBitPerfect() {
                         fyi.nnx.needle.UsbDriver.check(context)
                     }
                 } else {
-                    fyi.nnx.needle.UsbDriver.release(context, fyi.nnx.needle.UsbDriver.State.None)
-                    useAndroidMixer(context, false)
+                    fyi.nnx.needle.UsbDriver.release(context, fyi.nnx.needle.UsbDriver.State.None) {
+                        useAndroidMixer(context, false)
+                        fyi.nnx.needle.UsbDriver.check(context)
+                    }
                 }
             },
         ) { Switch(checked = app.usbBitPerfect, onCheckedChange = null) }
@@ -275,6 +319,26 @@ fun UsbBitPerfect() {
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.padding(start = 68.dp, end = 16.dp, bottom = 14.dp),
+            )
+        }
+        val plugged by fyi.nnx.needle.UsbDriver.plugged.collectAsState()
+        plugged?.let { name ->
+            Divider()
+            SettingRow(
+                androidx.compose.material.icons.Icons.Rounded.ContentCopy,
+                "Copy DAC details",
+                "What Needle read from $name, for a report",
+                Modifier.clickable {
+                    fyi.nnx.needle.UsbDriver.copyDetails(context) { text ->
+                        if (text == null) {
+                            showMessage("Needle could not read the DAC")
+                        } else {
+                            val clipboard = context.getSystemService(android.content.ClipboardManager::class.java)
+                            clipboard?.setPrimaryClip(android.content.ClipData.newPlainText("DAC details", text))
+                            showMessage("DAC details copied")
+                        }
+                    }
+                },
             )
         }
     }

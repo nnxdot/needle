@@ -40,6 +40,10 @@ struct State {
     pub loudest: i32,
     /// The rate the clock runs at.
     pub clock: u32,
+    /// The last volume set: its unit, and its value.
+    pub volume: Option<(u8, i16)>,
+    /// Control requests and settings, counted: none may come after the driver has closed.
+    pub requests: usize,
 }
 
 pub struct FakeDac {
@@ -89,6 +93,18 @@ impl FakeDac {
         self.state.lock().unwrap().alts.clone()
     }
 
+    pub fn volume(&self) -> Option<(u8, i16)> {
+        self.state.lock().unwrap().volume
+    }
+
+    pub fn requests(&self) -> usize {
+        self.state.lock().unwrap().requests
+    }
+
+    pub fn forget_loudest(&self) {
+        self.state.lock().unwrap().loudest = 0;
+    }
+
     pub fn loudest(&self) -> i32 {
         self.state.lock().unwrap().loudest
     }
@@ -118,6 +134,94 @@ pub fn descriptors() -> Vec<u8> {
     d.extend([6, 0x24, 2, 1, 4, 24]);
     d.extend([7, 5, 0x01, 0x05, 0x10, 0x03, 1]);
     d.extend([7, 5, 0x81, 0x11, 4, 0, 4]);
+    d
+}
+
+/// The same with no volume its host can set (the feature unit has only a mute).
+pub fn descriptors_without_volume() -> Vec<u8> {
+    let mut d = descriptors();
+    let at = d.windows(6).position(|w| w == [18, 0x24, 6, 10, 2, 0x0C]);
+    d[at.unwrap() + 5] = 0x03;
+    d
+}
+
+/// What a dock's sound chip may offer (UAC1, as cheap chips are), in the order of its
+/// descriptors:
+/// - a microphone (a terminal, its feature unit with a volume, an input stream), first, so a
+///   driver that takes the first volume it finds takes the microphone's;
+/// - interface 1, a headset: stereo 16-bit with a range of rates, 8 to 48 kHz, as a voice chip
+///   may give, to a headset terminal (0x0402);
+/// - interface 3, the speakers: 16-bit at 44.1 and 48 kHz and 24-bit at 48 kHz, to a speaker
+///   terminal (0x0301), with a volume unless told otherwise.
+#[derive(Clone, Copy)]
+pub struct Dock {
+    pub speakers: bool,
+    pub volume: bool,
+}
+
+impl Default for Dock {
+    fn default() -> Self {
+        Self {
+            speakers: true,
+            volume: true,
+        }
+    }
+}
+
+pub fn dock(dock: Dock) -> Vec<u8> {
+    let mut d = vec![];
+    d.extend([
+        18, 1, 0, 2, 0, 0, 0, 64, 0xDA, 0x0B, 0x52, 0x48, 0, 1, 1, 2, 0, 1,
+    ]);
+    d.extend([9, 2, 0, 0, 4, 1, 0, 0x80, 50]);
+    // The audio control interface, UAC 1.00.
+    d.extend([9, 4, 0, 0, 0, 1, 1, 0, 0]);
+    d.extend([9, 0x24, 1, 0x00, 0x01, 9, 0, 1, 1]);
+    // The microphone: terminal 31, feature unit 32 (mute and volume), to USB (terminal 33).
+    d.extend([12, 0x24, 2, 31, 0x01, 0x02, 0, 1, 0, 0, 0, 0]);
+    d.extend([9, 0x24, 6, 32, 31, 1, 0x03, 0, 0]);
+    d.extend([9, 0x24, 3, 33, 0x01, 0x01, 0, 32, 0]);
+    // The headset: USB (terminal 11), feature unit 12 (its own volume), headset terminal 13.
+    d.extend([12, 0x24, 2, 11, 0x01, 0x01, 0, 2, 3, 0, 0, 0]);
+    d.extend([9, 0x24, 6, 12, 11, 1, 0x03, 0, 0]);
+    d.extend([9, 0x24, 3, 13, 0x02, 0x04, 0, 12, 0]);
+    if dock.speakers {
+        // The speakers: USB (terminal 21), feature unit 22, speaker terminal 23.
+        d.extend([12, 0x24, 2, 21, 0x01, 0x01, 0, 2, 3, 0, 0, 0]);
+        let controls = if dock.volume { 0x03 } else { 0x01 };
+        d.extend([9, 0x24, 6, 22, 21, 1, controls, 0, 0]);
+        d.extend([9, 0x24, 3, 23, 0x01, 0x03, 0, 22, 0]);
+    }
+    let stream = |d: &mut Vec<u8>, interface: u8, alt: u8, terminal: u8, format: &[u8], ep: u8| {
+        d.extend([9, 4, interface, alt, 1, 1, 2, 0, 0]);
+        d.extend([7, 0x24, 1, terminal, 1, 1, 0]);
+        d.extend(format);
+        d.extend([9, 5, ep, 0x09, 0x40, 0x01, 1, 0, 0]);
+        d.extend([7, 0x25, 1, 1, 0, 0, 0]);
+    };
+    // Interface 1: the headset.
+    d.extend([9, 4, 1, 0, 0, 1, 2, 0, 0]);
+    let range = [
+        14, 0x24, 2, 1, 2, 2, 16, 0, 0x40, 0x1F, 0x00, 0x80, 0xBB, 0x00,
+    ];
+    stream(&mut d, 1, 1, 11, &range, 0x01);
+    // Interface 2: the microphone's stream, into the phone.
+    d.extend([9, 4, 2, 0, 0, 1, 2, 0, 0]);
+    d.extend([9, 4, 2, 1, 1, 1, 2, 0, 0]);
+    d.extend([7, 0x24, 1, 33, 1, 1, 0]);
+    d.extend([11, 0x24, 2, 1, 1, 2, 16, 1, 0x80, 0xBB, 0x00]);
+    d.extend([9, 5, 0x82, 0x05, 0x60, 0x00, 1, 0, 0]);
+    d.extend([7, 0x25, 1, 1, 0, 0, 0]);
+    if dock.speakers {
+        // Interface 3: the speakers.
+        d.extend([9, 4, 3, 0, 0, 1, 2, 0, 0]);
+        let cd = [
+            14, 0x24, 2, 1, 2, 2, 16, 2, 0x44, 0xAC, 0x00, 0x80, 0xBB, 0x00,
+        ];
+        stream(&mut d, 3, 1, 21, &cd, 0x03);
+        let deep = [11, 0x24, 2, 1, 2, 3, 24, 1, 0x80, 0xBB, 0x00];
+        stream(&mut d, 3, 2, 21, &deep, 0x03);
+    }
     d
 }
 
@@ -163,7 +267,9 @@ impl Bus for FakeDac {
         if self.trouble == Trouble::Panic && alt != 0 {
             panic!("a pretend bug");
         }
-        self.state.lock().unwrap().alts.push((interface, alt));
+        let mut s = self.state.lock().unwrap();
+        s.alts.push((interface, alt));
+        s.requests += 1;
         Ok(())
     }
 
@@ -172,10 +278,11 @@ impl Bus for FakeDac {
         request_type: u8,
         request: u8,
         value: u16,
-        _index: u16,
+        index: u16,
         data: &mut [u8],
     ) -> Result<usize> {
         let selector = (value >> 8) as u8;
+        self.state.lock().unwrap().requests += 1;
         match (request_type, request, selector) {
             // The clock's rates: three subranges of one rate each.
             (0xA1, 0x02, 0x01) => {
@@ -198,6 +305,18 @@ impl Bus for FakeDac {
                 let n = data.len().min(answer.len());
                 data[..n].copy_from_slice(&answer[..n]);
                 Ok(n)
+            }
+            // UAC1's volume: -100 dB to 0.
+            (0xA1, 0x82 | 0x83, 0x02) => {
+                let value: i16 = if request == 0x82 { -100 * 256 } else { 0 };
+                data[..2].copy_from_slice(&value.to_le_bytes());
+                Ok(2)
+            }
+            // Setting the volume.
+            (0x21, 0x01, 0x02) => {
+                self.state.lock().unwrap().volume =
+                    Some(((index >> 8) as u8, i16::from_le_bytes([data[0], data[1]])));
+                Ok(data.len())
             }
             // Setting the rate: UAC2's clock, or UAC1's endpoint.
             (0x21, 0x01, 0x01) => {
@@ -343,8 +462,67 @@ pub mod checks {
     fn driver(trouble: Trouble) -> (Arc<FakeDac>, Arc<UsbDac>) {
         let fake = Arc::new(FakeDac::new(trouble));
         let dac =
-            Arc::new(UsbDac::new(fake.clone(), &descriptors(), "Pretend DAC".into()).unwrap());
+            Arc::new(UsbDac::new(fake.clone(), &descriptors(), "Pretend DAC".into(), 1.).unwrap());
         (fake, dac)
+    }
+
+    /// A DAC with no volume of its own: the phone's volume scales the samples, and the status
+    /// says it is not bit-perfect meanwhile. Then, with a system's output to go to (see
+    /// FALLBACK), closing the driver ends all talk with the DAC before Android gets it back:
+    /// Android's own driver takes the interfaces at that moment.
+    fn no_volume_and_the_way_back_to_android(needle: &Needle, fallback: bool) {
+        let fake = Arc::new(FakeDac::new(Trouble::None));
+        let raw = descriptors_without_volume();
+        let dac = Arc::new(UsbDac::new(fake.clone(), &raw, "Pretend DAC".into(), 1.).unwrap());
+        assert!(!dac.info().volume);
+        crate::usb_dac::use_driver(dac);
+        wait("the DAC playing", Duration::from_secs(10), || {
+            fake.bytes() > 100_000
+        });
+        // The player's volume is 0 for silence on the system's output; only the DAC plays now.
+        needle.player.send(needle_core::audio::Command::Volume(1.));
+        wait("music at the DAC", Duration::from_secs(5), || {
+            fake.loudest() > 1000
+        });
+        assert!(needle.usb_dac_status().bit_perfect);
+        fake.forget_loudest();
+        std::thread::sleep(Duration::from_millis(600));
+        let full = fake.loudest();
+        needle.usb_dac_volume(0.5);
+        std::thread::sleep(Duration::from_millis(100));
+        fake.forget_loudest();
+        std::thread::sleep(Duration::from_millis(600));
+        let half = fake.loudest();
+        assert!(
+            half > 0 && (half as f32) < full as f32 * 0.4,
+            "{half} of {full}, at about a quarter"
+        );
+        assert!(!needle.usb_dac_status().bit_perfect);
+        needle.usb_dac_volume(1.);
+        assert!(needle.usb_dac_status().bit_perfect);
+
+        // Off: when the call returns, the driver has stopped and let the DAC rest.
+        needle.player.send(needle_core::audio::Command::Volume(0.));
+        wait("the volume at 0", Duration::from_secs(3), || {
+            !needle.usb_dac_status().bit_perfect
+        });
+        if !fallback {
+            return;
+        }
+        needle.usb_dac_close();
+        assert_eq!(fake.alts().last(), Some(&(1, 0)));
+        assert_eq!(
+            Arc::strong_count(&fake),
+            1,
+            "the driver still holds the DAC"
+        );
+        let requests = fake.requests();
+        std::thread::sleep(Duration::from_millis(300));
+        assert_eq!(
+            fake.requests(),
+            requests,
+            "the driver spoke to the DAC after closing"
+        );
     }
 
     /// The driver on a pretend DAC: it plays, rests while paused, and every trouble (a stall,
@@ -397,6 +575,8 @@ pub mod checks {
         wait("playing again", Duration::from_secs(3), || {
             fake.alts().last() == Some(&(1, 2))
         });
+
+        no_volume_and_the_way_back_to_android(needle, fallback);
 
         // Each trouble: an error within a second, and the song goes on through the system.
         for (trouble, words) in [
