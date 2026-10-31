@@ -91,6 +91,12 @@ pub fn import(
         files.retain(|f| !f.canonicalize().is_ok_and(|p| covered.contains(&p)));
     }
     state.current.clear();
+    // What was just seen on disk: these need no second look below.
+    let seen: std::collections::HashSet<String> = files
+        .iter()
+        .chain(sheets.iter())
+        .map(|p| p.to_string_lossy().into_owned())
+        .collect();
     import_files(library, files, &cancel, &mut state, &mut progress)?;
     for sheet in sheets {
         if cancel.load(Ordering::Relaxed) {
@@ -109,16 +115,7 @@ pub fn import(
     }
     library.add_root(&root.to_string_lossy())?;
     if !cancel.load(Ordering::Relaxed) {
-        for track in library.search("")? {
-            if Path::new(track.file_path()).starts_with(&root)
-                && fs::metadata(track.file_path())
-                    .is_err_and(|e| e.kind() == std::io::ErrorKind::NotFound)
-            {
-                library
-                    .connection()?
-                    .execute("UPDATE tracks SET missing=1 WHERE id=?", [track.id])?;
-            }
-        }
+        mark_missing(library, &root, &seen)?;
     }
     state.done = true;
     crate::logfile::info(format!(
@@ -135,11 +132,118 @@ pub fn import(
             .unwrap_or_default()
     ));
     // Each song's album artist under Settings' album rule (new songs, and songs read again).
-    if let Err(e) = library.apply_album_rule() {
+    if state.imported > 0
+        && let Err(e) = library.apply_album_rule()
+    {
         crate::logfile::warn(format!("The album rule: {e:#}"));
     }
     progress(state.clone());
     Ok(state)
+}
+
+/// Songs under `root` whose file is gone are marked missing. Files the scan just saw are not
+/// asked about again, and only each song's path is read, so this stays quick.
+fn mark_missing(
+    library: &Library,
+    root: &Path,
+    seen: &std::collections::HashSet<String>,
+) -> Result<()> {
+    let db = library.connection()?;
+    let rows: Vec<(String, String, bool)> = db
+        .prepare(
+            "SELECT id, path, json_extract(data, '$.cue') IS NOT NULL FROM tracks
+             WHERE missing=0 AND path NOT LIKE ?1",
+        )?
+        .query_map([format!("{}%", crate::sources::SCHEME)], |r| {
+            Ok((r.get(0)?, r.get(1)?, r.get(2)?))
+        })?
+        .collect::<std::result::Result<_, _>>()?;
+    for (id, path, cue) in rows {
+        // A CUE song's path is its sheet's, with its place after a #.
+        let file = if cue {
+            path.rsplit_once('#')
+                .map_or(path.as_str(), |(file, _)| file)
+        } else {
+            path.as_str()
+        };
+        if !seen.contains(file)
+            && Path::new(file).starts_with(root)
+            && fs::metadata(file).is_err_and(|e| e.kind() == std::io::ErrorKind::NotFound)
+        {
+            db.execute("UPDATE tracks SET missing=1 WHERE id=?", [id])?;
+        }
+    }
+    Ok(())
+}
+
+/// What the library knows of a file, enough to tell it has not changed without reading the
+/// song's whole record.
+struct Known {
+    modified: i64,
+    size: i64,
+    missing: bool,
+    version: u32,
+    cover: bool,
+}
+
+/// Every song's [`Known`], by path.
+fn known_files(library: &Library) -> Result<std::collections::HashMap<String, Known>> {
+    let db = library.connection()?;
+    let mut stmt = db.prepare(
+        "SELECT path, json_extract(data, '$.modified_at'), json_extract(data, '$.file_size'),
+                missing, json_extract(data, '$.metadata_version'),
+                json_extract(data, '$.artwork') IS NOT NULL
+         FROM tracks",
+    )?;
+    let rows = stmt.query_map([], |r| {
+        Ok((
+            r.get::<_, String>(0)?,
+            Known {
+                modified: r.get::<_, Option<i64>>(1)?.unwrap_or(0),
+                size: r.get::<_, Option<i64>>(2)?.unwrap_or(-1),
+                missing: r.get(3)?,
+                version: r.get::<_, Option<u32>>(4)?.unwrap_or(0),
+                cover: r.get(5)?,
+            },
+        ))
+    })?;
+    Ok(rows.filter_map(|r| r.ok()).collect())
+}
+
+/// Whether a file is as the library has it, as [`read_track`] would find. Folders are looked
+/// through for a cover once each, not once for each song without one.
+fn unchanged(
+    known: &std::collections::HashMap<String, Known>,
+    covers: &std::sync::Mutex<std::collections::HashMap<PathBuf, bool>>,
+    path: &Path,
+) -> bool {
+    let Some(file) = known.get(path.to_string_lossy().as_ref()) else {
+        return false;
+    };
+    if file.missing || file.version != METADATA_VERSION {
+        return false;
+    }
+    let Ok(metadata) = fs::metadata(path) else {
+        return false;
+    };
+    let modified = metadata
+        .modified()
+        .ok()
+        .and_then(|m| m.duration_since(std::time::UNIX_EPOCH).ok())
+        .unwrap_or_default()
+        .as_nanos()
+        .min(i64::MAX as u128) as i64;
+    if file.modified != modified || file.size != metadata.len() as i64 {
+        return false;
+    }
+    if file.cover {
+        return true;
+    }
+    let folder = path.parent().unwrap_or(path).to_path_buf();
+    let mut covers = covers.lock().unwrap_or_else(|e| e.into_inner());
+    !*covers
+        .entry(folder)
+        .or_insert_with_key(|folder| folder_cover(folder).is_some())
 }
 
 /// A DSF file's tags: it keeps a plain ID3v2 tag at the offset its header points to.
@@ -179,6 +283,9 @@ fn import_files(
         .clamp(2, 8);
     let (job_tx, job_rx) = crossbeam_channel::bounded::<PathBuf>(256);
     let (done_tx, done_rx) = crossbeam_channel::unbounded::<(PathBuf, Result<Option<Track>>)>();
+    let known = known_files(library).unwrap_or_default();
+    let covers = std::sync::Mutex::new(std::collections::HashMap::new());
+    let (known, covers) = (&known, &covers);
     std::thread::scope(|scope| {
         for _ in 0..workers {
             let (jobs, done) = (job_rx.clone(), done_tx.clone());
@@ -187,6 +294,13 @@ fn import_files(
                 for path in jobs {
                     if cancel.load(Ordering::Relaxed) {
                         break;
+                    }
+                    // Most files have not changed: known at once, without the song's record.
+                    if unchanged(known, covers, &path) {
+                        if done.send((path, Ok(None))).is_err() {
+                            break;
+                        }
+                        continue;
                     }
                     // A file that trips up a tag reader is skipped, not the whole scan.
                     let result = match &db {
