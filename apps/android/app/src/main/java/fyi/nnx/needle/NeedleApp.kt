@@ -77,6 +77,12 @@ class NeedleApp : Application() {
     /** How many of Needle's screens are on view (0 when it is in the background). */
     @Volatile private var visible = 0
 
+    /**
+     * Done when someone first opens Needle. A start with no screen (the phone's restart, a
+     * widget, the tile, an alarm) reads nothing and fetches nothing until then.
+     */
+    private val opened = kotlinx.coroutines.CompletableDeferred<Unit>()
+
     /** Changes whenever the library may have changed (a scan finished), so lists load again. */
     val libraryVersion = MutableStateFlow(0)
 
@@ -123,15 +129,15 @@ class NeedleApp : Application() {
 
     /**
      * Tells the core whether the background search for artists' pictures may look now: online
-     * lookups and Artist pictures on, on Wi-Fi (or another network that is not metered), and no
-     * library being read. Asked again when any of those change.
+     * lookups and Artist pictures on, on Wi-Fi (or another network that is not metered), no
+     * library being read, and Needle opened. Asked again when any of those change.
      */
     fun artistPicturesAllowed() {
         scope.launch(kotlinx.coroutines.Dispatchers.IO) {
             val online = runCatching { core.playbackSettings().onlineMedia }.getOrDefault(false)
             val connectivity = getSystemService(android.net.ConnectivityManager::class.java)
             val unmetered = connectivity?.activeNetwork != null && connectivity.isActiveNetworkMetered == false
-            val allowed = online && _more.value.artistPictures && unmetered && !scan.value.running
+            val allowed = opened.isCompleted && online && _more.value.artistPictures && unmetered && !scan.value.running
             runCatching { core.allowPictureSweep(allowed) }
         }
     }
@@ -156,7 +162,7 @@ class NeedleApp : Application() {
         super.onCreate()
         instance = this
         NativeBridge.initAndroid(this)
-        core = Needle(File(filesDir, "needle").absolutePath)
+        core = Needle.newQuiet(File(filesDir, "needle").absolutePath)
         _app.value = core.appSettings()
         runCatching { core.libraryChoices() }.getOrNull()?.let { _more.value = it }
         // The title font chosen before 2.0 (the app's own setting) moves to the library's
@@ -175,15 +181,24 @@ class NeedleApp : Application() {
             override fun onLost(network: android.net.Network) = artistPicturesAllowed()
         })
         core.setDecoder(File(applicationInfo.nativeLibraryDir, "libneedle_ffmpeg.so").absolutePath)
-        // The Discord status, when this build can show it and Discord is on the phone.
+        // The Discord status, when this build can show it and Discord is on the phone: once
+        // Needle is opened or plays.
         Discord.load(this)
-        if (Discord.available && Discord.installed(this)) core.startDiscord()
+        if (Discord.available && Discord.installed(this)) {
+            scope.launch(Dispatchers.IO) {
+                while (!opened.isCompleted && _playback.value?.playing != true) delay(1000)
+                core.startDiscord()
+            }
+        }
         // A USB DAC's bit-perfect mixer, followed as it comes and goes.
         fyi.nnx.needle.ui.followUsbMixer(this)
         // A reading notice left from a run that was closed mid-read.
         ScanNotice.hide(this)
         registerActivityLifecycleCallbacks(object : ActivityLifecycleCallbacks {
-            override fun onActivityStarted(activity: android.app.Activity) { visible++ }
+            override fun onActivityStarted(activity: android.app.Activity) {
+                visible++
+                opened.complete(Unit)
+            }
             override fun onActivityStopped(activity: android.app.Activity) { visible-- }
             override fun onActivityCreated(activity: android.app.Activity, state: android.os.Bundle?) {}
             override fun onActivityResumed(activity: android.app.Activity) {}
@@ -259,14 +274,23 @@ class NeedleApp : Application() {
                 }
             }
         }
-        // Crash reports from earlier runs, when that is on.
-        scope.launch { runCatching { core.sendCrashReports() } }
-        // Read the music folders again at start, for songs added since.
-        if (core.folders().isNotEmpty()) {
-            core.rescan()
-            // A quick scan can begin and end between two looks of the loop above: the lists are
-            // read again once it has ended, whatever the loop saw.
-            scope.launch(Dispatchers.IO) {
+        // The first time someone opens Needle in this run, and only then: a start with no screen
+        // (the phone's restart, a widget, the tile, an alarm) leaves all of this for later.
+        scope.launch(Dispatchers.IO) {
+            opened.await()
+            NeedleLog.info("Opened: reading the music folders again")
+            WakeAlarm.followBoot(this@NeedleApp)
+            // The songs' own lyrics, slowly, for Search.
+            runCatching { core.startReadingLyrics() }
+            // The background search for artists' pictures may start now.
+            artistPicturesAllowed()
+            // Crash reports from earlier runs, when that is on.
+            runCatching { core.sendCrashReports() }
+            // Read the music folders again, for songs added since.
+            if (runCatching { core.folders() }.getOrDefault(emptyList()).isNotEmpty()) {
+                core.rescan()
+                // A quick scan can begin and end between two looks of the loop above: the lists
+                // are read again once it has ended, whatever the loop saw.
                 delay(500)
                 while (runCatching { core.scanStatus().running }.getOrDefault(false)) delay(500)
                 libraryChanged()
