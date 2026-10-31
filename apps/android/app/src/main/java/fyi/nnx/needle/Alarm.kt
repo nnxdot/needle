@@ -66,6 +66,19 @@ object WakeAlarm {
             .putBoolean("fadeIn", s.fadeIn).putBoolean("snooze", s.snooze)
             .apply()
         schedule(context)
+        followBoot(context)
+    }
+
+    /**
+     * Needle hears of a phone's restart only while the alarm is on: with none to set again, a
+     * restart does not start Needle at all.
+     */
+    fun followBoot(context: Context) {
+        context.packageManager.setComponentEnabledSetting(
+            android.content.ComponentName(context, AlarmBootReceiver::class.java),
+            if (read(context).on) android.content.pm.PackageManager.COMPONENT_ENABLED_STATE_ENABLED else android.content.pm.PackageManager.COMPONENT_ENABLED_STATE_DISABLED,
+            android.content.pm.PackageManager.DONT_KILL_APP,
+        )
     }
 
     /** The alarm's time in the phone's own clock format: 7:30 AM, or 07:30. */
@@ -190,14 +203,23 @@ object WakeAlarm {
     }
 }
 
-/** Android's alarm, its notification's buttons, and the phone starting (to set it again). */
+/** Android's alarm, and its notification's buttons. */
 class AlarmReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {
         when (intent.action) {
             WakeAlarm.Fire -> WakeAlarm.fire(context)
             WakeAlarm.Snooze -> WakeAlarm.snooze(context)
             WakeAlarm.Stop -> WakeAlarm.stop(context)
-            Intent.ACTION_BOOT_COMPLETED, AlarmManager.ACTION_SCHEDULE_EXACT_ALARM_PERMISSION_STATE_CHANGED -> WakeAlarm.schedule(context)
         }
+    }
+}
+
+/**
+ * The phone started, or alarms were allowed: the alarm is set again, and nothing else. On only
+ * while the alarm is on (see [WakeAlarm.followBoot]).
+ */
+class AlarmBootReceiver : BroadcastReceiver() {
+    override fun onReceive(context: Context, intent: Intent) {
+        WakeAlarm.schedule(context)
     }
 }

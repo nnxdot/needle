@@ -151,8 +151,11 @@
             </intent-filter>
         </service>
 
-        <!-- Wake up to music: the alarm, its notification's buttons, and setting it again after a restart. -->
-        <receiver android:name=".AlarmReceiver" android:exported="false">
+        <!-- Wake up to music: the alarm and its notification's buttons. -->
+        <receiver android:name=".AlarmReceiver" android:exported="false" />
+        <!-- Sets the alarm again after a restart: off until an alarm is on, so a restart does
+             not start Needle for nothing. -->
+        <receiver android:name=".AlarmBootReceiver" android:exported="false" android:enabled="false">
             <intent-filter>
                 <action android:name="android.intent.action.BOOT_COMPLETED" />
                 <action android:name="android.app.action.SCHEDULE_EXACT_ALARM_PERMISSION_STATE_CHANGED" />
