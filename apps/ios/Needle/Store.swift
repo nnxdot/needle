@@ -200,7 +200,6 @@ final class Store {
         startRemoteCommands()
         Actions.handler = { [weak self] action in self?.perform(action) }
         Actions.takeWaiting().forEach(perform)
-        let folder = Self.realPath(musicFolder.path)
         let core = core
         let welcomed = app.welcomed
         // What's new, once after an update (as on the Mac): the version shown is kept on this
@@ -214,10 +213,6 @@ final class Store {
         }
         UserDefaults.standard.set(version, forKey: "whats-new-seen")
         Task.detached {
-            // Already known: it is read again when the app comes to the front.
-            if (try? core.folders())?.contains(folder) != true {
-                try? core.addFolder(path: folder)
-            }
             // Only once the welcome screen has let the person choose.
             if welcomed { _ = core.sendCrashReports() }
             // The app's own crashes (not only the core's): the system tells of them after.
@@ -924,6 +919,34 @@ final class Store {
     }
 
     func rescan() { core.rescan() }
+
+    /// Needle is on no screen (and has not been, at a start): reads the music when it is back.
+    @ObservationIgnored private var away = true
+
+    func wentAway() { away = true }
+
+    /// The listener opened Needle or came back to it: reads the songs added in the Files app or
+    /// from a computer meanwhile, and Needle's own folder the first time. Not after Control
+    /// Center or an alert, when Needle never left; nothing while a scan runs.
+    func cameToFront() {
+        guard away else { return }
+        away = false
+        let (core, folder) = (core, Self.realPath(musicFolder.path))
+        Task.detached {
+            #if DEBUG
+            // For testing from a shell: a line in needle-scan-check.log for each time here.
+            let log = NSTemporaryDirectory() + "needle-scan-check.log"
+            let line = core.scanStatus().running ? "scan running, nothing asked" : "read asked"
+            try? (((try? String(contentsOfFile: log, encoding: .utf8)) ?? "") + line + "\n").write(toFile: log, atomically: true, encoding: .utf8)
+            #endif
+            guard !core.scanStatus().running else { return }
+            if (try? core.folders())?.contains(folder) == true {
+                core.rescan()
+            } else {
+                try? core.addFolder(path: folder)
+            }
+        }
+    }
 
     // MARK: - The cover's colour
 
