@@ -20,6 +20,8 @@ mod driver;
 pub(crate) mod fake;
 #[cfg_attr(not(target_os = "android"), allow(dead_code))]
 pub mod packets;
+#[cfg_attr(not(target_os = "android"), allow(dead_code))]
+mod resample;
 
 use crate::{Needle, Result};
 use std::{
@@ -109,6 +111,23 @@ pub struct UsbDacInfo {
 
 #[uniffi::export]
 impl Needle {
+    /// Why Needle's driver cannot play to a USB DAC, or none. Asked before it is taken, as a DAC
+    /// taken from Android and given back may stay silent: this takes no interface, and sends
+    /// only a request any device answers. `fd` is Android's file for it.
+    pub fn usb_dac_refusal(&self, fd: i32, descriptors: Vec<u8>, name: String) -> Option<String> {
+        #[cfg(target_os = "android")]
+        let active = device::active_configuration(fd);
+        #[cfg(not(target_os = "android"))]
+        let active = {
+            let _ = fd;
+            None
+        };
+        let active = active.or(descriptors::likely_configuration(&descriptors));
+        descriptors::parse_active(&descriptors, active)
+            .is_none()
+            .then(|| format!("{name} is not a USB audio device Needle can play to"))
+    }
+
     /// Use Needle's own driver for a USB DAC (Settings › Sound › Bit-perfect USB): `fd` is the
     /// file of Android's connection to it (its interfaces taken with `claimInterface(force)`),
     /// `descriptors` its raw descriptors, `android_rates` the rates Android lists for it, for a

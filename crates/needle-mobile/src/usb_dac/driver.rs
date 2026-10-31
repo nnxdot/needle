@@ -1,13 +1,22 @@
-//! The driver: the music from the core's feed to the DAC, through a [`Bus`]. Any trouble ends
-//! `render` with an error at once (a DAC gone, refusing, or no longer taking music within half
-//! a second; even a panic), so the core moves the music to Android's output with a notice.
-use super::{UsbDacInfo, bus::Bus, descriptors::*, details, packets::*};
+//! The driver: the music from the core's feed to the DAC, through a [`Bus`]. A song at a rate
+//! the DAC does not have is converted to one it has: giving the DAC back to Android may leave
+//! Android silent, so that is the last resort. Any trouble ends `render` with an error at once
+//! (a DAC gone, or no longer taking music within half a second; even a panic), so the core moves
+//! the music to Android's output with a notice.
+use super::{
+    UsbDacInfo,
+    bus::Bus,
+    descriptors::*,
+    details,
+    packets::*,
+    resample::{Resampler, nearest_rate},
+};
 use anyhow::{Result, anyhow, bail};
 use needle_core::platform_output::{Feed, FeedFormat, PlatformOutput};
 use std::{
     sync::{
         Arc, Mutex,
-        atomic::{AtomicU32, Ordering},
+        atomic::{AtomicBool, AtomicU32, Ordering},
     },
     time::{Duration, Instant},
 };
@@ -50,6 +59,10 @@ pub struct UsbDac {
     muted: Mutex<Option<bool>>,
     /// What happened as it opened, for a report.
     opened: String,
+    /// Rates the DAC turned down when they were played (its read-back said otherwise).
+    refused: Mutex<Vec<u32>>,
+    /// The music is converted, or folded to fewer channels.
+    converting: AtomicBool,
     /// One control request at a time (volume from the app, rates from the player).
     control: Mutex<()>,
 }
@@ -120,6 +133,8 @@ impl UsbDac {
             chosen: Mutex::new(None),
             muted: Mutex::new(None),
             opened: String::new(),
+            refused: Mutex::new(vec![]),
+            converting: AtomicBool::new(false),
             control: Mutex::new(()),
             dac,
         };
@@ -365,7 +380,7 @@ impl UsbDac {
 
     /// The samples reach the DAC as they are.
     pub fn bit_perfect(&self) -> bool {
-        self.gain() >= 1.
+        self.gain() >= 1. && !self.converting.load(Ordering::Relaxed)
     }
 
     /// The phone's music volume moved (0 to 1).
@@ -575,6 +590,54 @@ impl UsbDac {
         Ok(None)
     }
 
+    /// The rates of `f`, without those the DAC turned down.
+    fn playable(&self, f: &Format) -> Vec<u32> {
+        let refused = self.refused.lock().unwrap_or_else(|e| e.into_inner());
+        let mut rates = self.rates(f);
+        rates.retain(|rate| !refused.contains(rate));
+        rates
+    }
+
+    /// How to play music of `channels` at `rate`: as it is where the DAC can, else at the best
+    /// rate it has, converted, with the reason. DoP is the one thing that cannot be converted,
+    /// and the driver cannot tell it from PCM, so what may be DoP above what the DAC plays is
+    /// refused: the core then decodes it to PCM for Android.
+    fn plan(&self, channels: u16, rate: u32) -> Result<Plan> {
+        let why = match self.format_for(channels, rate) {
+            Ok(format) => {
+                return Ok(Plan {
+                    format,
+                    rate,
+                    why: None,
+                });
+            }
+            Err(why) => why,
+        };
+        if self.takes_dop() && rate >= 352_800 {
+            return Err(why);
+        }
+        // Music of more channels than the DAC has keeps its first two.
+        let sent = [channels, 2, 1]
+            .into_iter()
+            .find(|c| choose(&self.dac.formats, *c, 24).is_some())
+            .ok_or_else(|| anyhow!("{why}"))?;
+        let mut rates: Vec<u32> = self
+            .dac
+            .formats
+            .iter()
+            .filter(|f| choose(std::slice::from_ref(*f), sent, 24).is_some())
+            .flat_map(|f| self.playable(f))
+            .collect();
+        rates.sort_unstable();
+        rates.dedup();
+        let to = nearest_rate(rate, &rates).ok_or_else(|| anyhow!("{why}"))?;
+        Ok(Plan {
+            format: self.format_for(sent, to)?,
+            rate: to,
+            why: Some(why.to_string()),
+        })
+    }
+
     /// The setting for music of `channels` at `rate`: only those that play the rate (a DAC may
     /// have one rate per setting), and of those the best for the music.
     fn format_for(&self, channels: u16, rate: u32) -> Result<Format> {
@@ -582,7 +645,7 @@ impl UsbDac {
             .dac
             .formats
             .iter()
-            .filter(|f| self.rates(f).contains(&rate))
+            .filter(|f| self.playable(f).contains(&rate))
             .cloned()
             .collect();
         if let Some(f) = choose(&fitting, channels, 24) {
@@ -629,24 +692,27 @@ impl UsbDac {
         bail!("{} does not play {} Hz", self.name, rate)
     }
 
-    /// Streams music of one format until the format changes, the music pauses, or it stops.
-    fn stream(&self, feed: &mut Feed, format: FeedFormat, f: &Format) -> Result<()> {
+    /// Streams music of one format until the format changes, the music pauses, or it stops. The
+    /// DAC runs at `rate`: where that is not the music's, the music is converted to it.
+    fn stream(&self, feed: &mut Feed, format: FeedFormat, f: &Format, rate: u32) -> Result<()> {
         let per_second = packets_per_second(self.high_speed, f.interval);
         let per_transfer = ((per_second * TRANSFER_MS / 1000) as usize).max(1);
         let frame = f.channels as usize * f.subslot as usize;
         // The most a packet may carry: the DAC's limit (with high speed's extra transactions).
         let limit =
             ((f.max_packet & 0x7FF) as usize) * (1 + ((f.max_packet >> 11) & 0b11) as usize);
-        let nominal = nominal(format.rate, per_second);
-        if !rate_fits(format.rate, per_second, frame, limit) {
-            bail!("{} Hz is too fast for this setting of the DAC", format.rate);
+        let nominal = nominal(rate, per_second);
+        if !rate_fits(rate, per_second, frame, limit) {
+            bail!("{rate} Hz is too fast for this setting of the DAC");
         }
         // The most frames a packet may carry; a DAC's feedback cannot ask for more.
         let most = limit / frame;
-        let mut pacer = Pacer::new(format.rate, per_second);
+        let mut pacer = Pacer::new(rate, per_second);
         let feedback_endpoint = f.feedback.filter(|_| f.sync == Sync::Async);
         let feedback_size = if self.high_speed { 4 } else { 3 };
         let channels = format.channels as usize;
+        let mut resampler =
+            (rate != format.rate).then(|| Resampler::new(format.rate, rate, channels));
         let mut samples = vec![0f32; most * channels];
         let mut bytes = vec![0u8; per_transfer * limit];
         let mut gain = self.gain();
@@ -658,10 +724,12 @@ impl UsbDac {
                 let mut more = true;
                 for _ in 0..per_transfer {
                     let wanted = pacer.next().min(most) * channels;
-                    let got = if more {
-                        feed.read(&mut samples[..wanted])
-                    } else {
-                        0
+                    let got = match (&mut resampler, more) {
+                        (_, false) => 0,
+                        (Some(resampler), true) => {
+                            resampler.fill(&mut samples[..wanted], |slots| feed.read(slots))
+                        }
+                        (None, true) => feed.read(&mut samples[..wanted]),
                     };
                     if got < wanted {
                         samples[got..wanted].fill(0.);
@@ -770,7 +838,7 @@ impl UsbDac {
 
     fn render_inner(&self, feed: &mut Feed) -> Result<()> {
         self.apply_volume();
-        let mut open: Option<(u8, u8, u32, u16)> = None;
+        let mut open: Option<(u8, u8, u32, u16, u32)> = None;
         let result = loop {
             if feed.stopped() {
                 break Ok(());
@@ -785,44 +853,72 @@ impl UsbDac {
                 continue;
             }
             let format = feed.format();
-            let f = match self.format_for(format.channels, format.rate) {
-                Ok(f) => f,
+            let plan = match self.plan(format.channels, format.rate) {
+                Ok(plan) => plan,
                 Err(e) => break Err(e),
             };
-            let f = &f;
-            if open != Some((f.interface, f.alt, format.rate, format.channels)) {
+            let (f, rate) = (&plan.format, plan.rate);
+            let here = (f.interface, f.alt, format.rate, format.channels, rate);
+            if open != Some(here) {
                 if let Some((interface, ..)) = open.take() {
                     let _ = self.bus.set_interface(interface, 0);
                 }
-                let said = match self
-                    .bus
-                    .set_interface(f.interface, f.alt)
-                    .and_then(|_| self.set_rate(f, format.rate))
-                {
+                if let Err(e) = self.bus.set_interface(f.interface, f.alt) {
+                    // Left open, so the DAC is set back to rest below.
+                    open = Some(here);
+                    break Err(e);
+                }
+                // Left open for the same reason, and the next look takes another of its rates.
+                open = Some(here);
+                let said = match self.set_rate(f, rate) {
                     Ok(said) => said,
                     Err(e) => {
-                        // Left open, so the DAC is set back to rest below.
-                        open = Some((f.interface, f.alt, format.rate, format.channels));
+                        needle_core::logfile::warn(format!("{}: {e:#}", self.name));
+                        self.refused
+                            .lock()
+                            .unwrap_or_else(|e| e.into_inner())
+                            .push(rate);
+                        if self.plan(format.channels, format.rate).is_ok() {
+                            continue;
+                        }
                         break Err(e);
                     }
                 };
-                open = Some((f.interface, f.alt, format.rate, format.channels));
-                feed.playing_at(format);
-                super::status_playing(Some(format!("{} kHz, {}-bit", khz(format.rate), f.bits)));
+                feed.playing_at(FeedFormat {
+                    rate,
+                    channels: format.channels,
+                });
+                let same = rate == format.rate && f.channels as u16 >= format.channels;
+                self.converting.store(!same, Ordering::Relaxed);
+                super::status_playing(Some(if rate != format.rate {
+                    format!("{} → {} kHz, not bit-perfect", khz(format.rate), khz(rate))
+                } else if same {
+                    format!("{} kHz, {}-bit", khz(rate), f.bits)
+                } else {
+                    format!("{} kHz, {}-bit, not bit-perfect", khz(rate), f.bits)
+                }));
                 let chosen = format!(
-                    "{} Hz, {} bits in {}-byte slots, {} channels (setting {} of interface {}), the DAC says {}",
-                    format.rate,
+                    "{} Hz{}, {} bits in {}-byte slots, {} channels (setting {} of interface {}), the DAC says {}{}",
+                    rate,
+                    if rate == format.rate {
+                        String::new()
+                    } else {
+                        format!(" from music at {} Hz", format.rate)
+                    },
                     f.bits,
                     f.subslot,
                     f.channels,
                     f.alt,
                     f.interface,
                     said.map_or("nothing".to_string(), |r| format!("{r} Hz")),
+                    plan.why
+                        .as_ref()
+                        .map_or(String::new(), |why| format!(" ({why})")),
                 );
                 needle_core::logfile::warn(format!("{}: {chosen}", self.name));
                 *self.chosen.lock().unwrap_or_else(|e| e.into_inner()) = Some(chosen);
             }
-            if let Err(e) = self.stream(feed, format, f) {
+            if let Err(e) = self.stream(feed, format, f, rate) {
                 break Err(e);
             }
         };
@@ -831,6 +927,14 @@ impl UsbDac {
         }
         result
     }
+}
+
+/// How music will reach the DAC: its setting, the rate the DAC runs at, and why that is not the
+/// music's own.
+struct Plan {
+    format: Format,
+    rate: u32,
+    why: Option<String>,
 }
 
 fn libc_enodev() -> i32 {
@@ -1195,6 +1299,54 @@ mod tests {
         let (_, both) = dac(Trouble::None, &raw);
         assert_eq!(both.format_for(2, 44_100).unwrap().alt, 2);
         assert_eq!(both.format_for(2, 48_000).unwrap().alt, 1);
+    }
+
+    #[test]
+    fn a_song_at_a_rate_the_dac_lacks_is_converted_not_refused() {
+        let (_, dac_one) = in_configuration(2, Trouble::None, &[]);
+        let dac_one = dac_one.unwrap();
+        let plan = dac_one.plan(2, 44_100).unwrap();
+        assert_eq!((plan.rate, plan.format.alt), (48_000, 1));
+        assert!(plan.why.unwrap().contains("plays only 48 kHz"));
+        // One it has stays as it is.
+        let plan = dac_one.plan(2, 48_000).unwrap();
+        assert_eq!((plan.rate, plan.why), (48_000, None));
+
+        // A range that cannot be trusted, and a setting that cannot be told its rate.
+        let raw = dock(Dock {
+            speakers: false,
+            ..Dock::default()
+        });
+        assert_eq!(
+            dac(Trouble::None, &raw).1.plan(2, 44_100).unwrap().rate,
+            48_000
+        );
+        let raw = uac1_descriptors(&[(1, &[44_100, 48_000], false)]);
+        assert_eq!(
+            dac(Trouble::None, &raw).1.plan(2, 44_100).unwrap().rate,
+            48_000
+        );
+
+        // More channels than it has: its first two.
+        let (_, stereo) = dac(Trouble::None, &descriptors());
+        let plan = stereo.plan(6, 48_000).unwrap();
+        assert_eq!((plan.rate, plan.format.channels), (48_000, 2));
+
+        // A rate it turned down is not chosen again.
+        stereo.refused.lock().unwrap().push(44_100);
+        assert_eq!(stereo.plan(2, 44_100).unwrap().rate, 96_000);
+    }
+
+    #[test]
+    fn what_may_be_dop_is_not_converted() {
+        let plain = uac1_descriptors(&[(1, &[192_000], true)]);
+        let at = plain.windows(3).position(|w| w == [9, 0x24, 1]).unwrap() + 9;
+        let mut with_volume = plain.clone();
+        with_volume.splice(at..at, [9, 0x24, 6, 2, 1, 1, 0x03, 0, 0]);
+        let (_, dop) = dac(Trouble::None, &with_volume);
+        assert!(dop.dop());
+        assert!(dop.plan(2, 352_800).is_err());
+        assert_eq!(dop.plan(2, 96_000).unwrap().rate, 192_000);
     }
 
     #[test]

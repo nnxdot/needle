@@ -56,6 +56,8 @@ struct State {
     pub muted: Option<bool>,
     /// The bottom of its volume in dB, if not -100.
     pub volume_floor: Option<i16>,
+    /// Bytes a sample of the music takes, if not 4.
+    pub slot: Option<usize>,
 }
 
 pub struct FakeDac {
@@ -79,6 +81,11 @@ impl FakeDac {
 
     pub fn set_clock(&self, rate: u32) {
         self.state.lock().unwrap().clock = rate;
+    }
+
+    /// The music comes in slots of this many bytes (for [`Self::loudest`]).
+    pub fn set_slot(&self, bytes: usize) {
+        self.state.lock().unwrap().slot = Some(bytes);
     }
 
     pub fn set_volume_floor(&self, db: i16) {
@@ -485,9 +492,11 @@ impl Bus for FakeDac {
             let end = start + Duration::from_micros(125 * lengths.len() as u64);
             s.free_at = Some(end);
             s.bytes += bytes.len();
-            // 24-bit music in 32-bit slots: how loud it got.
-            for c in bytes.chunks_exact(4) {
-                let v = i32::from_le_bytes([c[0], c[1], c[2], c[3]]) >> 8;
+            // 24-bit music, left-aligned in its slot: how loud it got.
+            let slot = s.slot.unwrap_or(4);
+            for c in bytes.chunks_exact(slot) {
+                let top = [c[slot - 3], c[slot - 2], c[slot - 1]];
+                let v = i32::from_le_bytes([0, top[0], top[1], top[2]]) >> 8;
                 s.loudest = s.loudest.max(v.abs());
             }
             end
@@ -656,6 +665,50 @@ pub mod checks {
         );
     }
 
+    /// A DAC that has only 48 kHz, as Apple's USB-C adapter in its BADD configuration, and a
+    /// song at 44.1 kHz: it plays through the driver, converted, at the DAC's own pace, with no
+    /// refusal and the DAC kept. The rates the DAC turns down when asked go the same way.
+    fn a_rate_the_dac_lacks_is_converted(needle: &Needle) {
+        let fake = Arc::new(FakeDac::in_configuration(Trouble::None, 2));
+        fake.set_slot(3);
+        let raw = hex(APPLE_DAC);
+        let dac = Arc::new(UsbDac::new(fake.clone(), &raw, "Adapter".into(), 1., &[]).unwrap());
+        assert_eq!(dac.info().rates, [48_000]);
+        crate::usb_dac::use_driver(dac);
+        wait("music at the DAC", Duration::from_secs(10), || {
+            fake.bytes() > 100_000
+        });
+        assert_eq!(fake.alts().last(), Some(&(1, 1)), "24-bit, on the driver");
+        assert_eq!(fake.power(), Some((10, 0)));
+        assert!(fake.rates().is_empty(), "no request for a fixed rate");
+        wait("the status", Duration::from_secs(3), || {
+            needle.usb_dac_status().playing.as_deref() == Some("44.1 → 48 kHz, not bit-perfect")
+        });
+        assert!(!needle.usb_dac_status().bit_perfect);
+        assert!(fake.loudest() > 1000, "music, not silence");
+        let before = fake.bytes();
+        std::thread::sleep(Duration::from_secs(1));
+        let second = fake.bytes() - before;
+        assert!(
+            (240_000..340_000).contains(&second),
+            "{second} bytes a second (48 kHz × 6 = 288 000)"
+        );
+        let status = needle.usb_dac_status();
+        assert_eq!(status.problem, None, "no refusal");
+        assert!(needle.playback().playing);
+
+        // A clock that stays at 48 kHz when asked for 44.1: that rate goes, and the song stays.
+        let (stuck, dac) = driver(Trouble::StaysAt(48_000));
+        crate::usb_dac::use_driver(dac);
+        wait("the rate turned down", Duration::from_secs(5), || {
+            needle.usb_dac_status().playing.as_deref() == Some("44.1 → 48 kHz, not bit-perfect")
+        });
+        wait("music at the DAC", Duration::from_secs(5), || {
+            stuck.bytes() > 100_000
+        });
+        assert_eq!(needle.usb_dac_status().problem, None);
+    }
+
     /// What the app does when a DAC is pulled out and plugged in again, with the system's output
     /// between (see FALLBACK), so it needs one: `usb_dac_close`, then a new driver for the new
     /// device. The old driver's last word must not reach the new one, the song goes on from
@@ -804,6 +857,7 @@ pub mod checks {
             fake.alts().last() == Some(&(1, 2))
         });
 
+        a_rate_the_dac_lacks_is_converted(needle);
         no_volume_and_the_way_back_to_android(needle, fallback);
         if fallback {
             unplugged_and_plugged_in_again(needle, ids.clone());
@@ -814,11 +868,6 @@ pub mod checks {
             (Trouble::StallAfter(40), &["stopped taking music"][..]),
             (Trouble::GoneAfter(40), &["gone", "no more music"][..]),
             (Trouble::Panic, &["driver stopped"][..]),
-            // A clock that stays at 48 kHz, for a song at 44.1: not played fast and high.
-            (
-                Trouble::StaysAt(48_000),
-                &["stayed at 48 kHz, so it cannot play 44.1 kHz bit-perfect"][..],
-            ),
         ] {
             let (_, dac) = driver(trouble);
             let at = needle.playback().position;
@@ -851,9 +900,9 @@ pub mod checks {
             );
         }
 
-        // A song at a rate the DAC does not play: an error, not silence.
+        // A song at a rate the DAC does not have: converted, to an exact multiple of it.
         let (_, dac) = driver(Trouble::None);
-        set_platform_output(Some(dac));
+        crate::usb_dac::use_driver(dac);
         let odd = music.join("05 - Odd.wav");
         let frames = 32_000 * 3;
         let mut wav = vec![];
@@ -887,17 +936,9 @@ pub mod checks {
             .unwrap()
             .id;
         needle.play(vec![odd_id], 0).unwrap();
-        assert!(
-            said(needle, "Pretend DAC", Duration::from_secs(5), fallback),
-            "32 kHz: the failure is said"
-        );
-        let why = super::super::STATUS
-            .lock()
-            .unwrap()
-            .1
-            .take()
-            .unwrap_or_default();
-        assert!(why.contains("32000 Hz"), "{why}");
+        wait("the odd song converted", Duration::from_secs(5), || {
+            needle.usb_dac_status().playing.as_deref() == Some("32 → 96 kHz, not bit-perfect")
+        });
 
         set_platform_output(None);
         needle.toggle();
