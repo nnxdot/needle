@@ -58,6 +58,13 @@ internal suspend fun <T> retrying(times: Int, wait: Long, wanted: () -> Boolean,
 object UsbDriver {
     /** What the switch's line says. */
     sealed interface State {
+        /**
+         * The music goes to the driver, which takes it as it is: the equalizer, the crossfade,
+         * even loudness, speed and pitch, and every other sound tool stand aside (the core's
+         * `exclusive`). A speaker on the network plays through them, and Android's output too.
+         */
+        fun takesTheMusic(networkOutput: Boolean) = this is Driving && !networkOutput
+
         /** No USB audio device is plugged in. */
         data object None : State
         /** Waiting for the listener to allow Needle to use it. */

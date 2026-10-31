@@ -34,6 +34,22 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.material.icons.rounded.ContentCopy
 import androidx.compose.material.icons.rounded.Usb
 
+/** The one line of a setting that cannot apply while Needle's own USB driver has the DAC. */
+const val OffWithUsb = "Off while Bit-perfect USB is on"
+
+/**
+ * Whether the music goes to Needle's own USB driver now: such settings show as off, and keep what
+ * is saved for later.
+ */
+@Composable
+fun soundToolsOff(): Boolean {
+    val driver by fyi.nnx.needle.UsbDriver.state.collectAsState()
+    val playback = fyi.nnx.needle.NeedleApp.instance.playback.collectAsState()
+    // Only this, not the whole playback, which changes at every tick.
+    val network by remember { androidx.compose.runtime.derivedStateOf { playback.value?.networkOutput == true } }
+    return driver.takesTheMusic(network)
+}
+
 private val MUSIC: AudioAttributes = AudioAttributes.Builder()
     .setUsage(AudioAttributes.USAGE_MEDIA)
     .setContentType(AudioAttributes.CONTENT_TYPE_MUSIC)

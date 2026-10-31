@@ -114,6 +114,7 @@ internal fun ExpandRow(
     summary: String?,
     value: String? = null,
     key: String = title,
+    enabled: Boolean = true,
     content: @Composable ColumnScope.(close: () -> Unit) -> Unit,
 ) {
     var open by rememberSaveable(key) { mutableStateOf(false) }
@@ -122,10 +123,11 @@ internal fun ExpandRow(
         SettingRow(
             icon, title, summary,
             Modifier
-                .clickable(role = Role.Button, onClickLabel = if (open) "Close" else "Open") { open = !open }
+                .clickable(enabled = enabled, role = Role.Button, onClickLabel = if (open) "Close" else "Open") { open = !open }
                 .semantics { stateDescription = if (open) "Open" else "Closed" },
+            enabled = enabled,
         ) {
-            if (!open && value != null) {
+            if ((!open || !enabled) && value != null) {
                 Text(
                     value,
                     style = MaterialTheme.typography.labelLarge,
@@ -137,7 +139,7 @@ internal fun ExpandRow(
             }
             Icon(Icons.Rounded.ExpandMore, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.rotate(turn))
         }
-        AnimatedVisibility(open) {
+        AnimatedVisibility(open && enabled) {
             // Under the row's words, clear of its icon.
             Column(Modifier.fillMaxWidth().padding(start = if (icon != null) 68.dp else 16.dp, end = 16.dp, bottom = 16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 content { open = false }
