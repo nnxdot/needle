@@ -183,7 +183,7 @@ fn serve(
     let answer = match message {
         Value::Array(batch) => {
             let answers: Vec<Value> = batch.iter().filter_map(|m| tools.answer(m)).collect();
-            (!answers.is_empty()).then(|| Value::Array(answers))
+            (!answers.is_empty()).then_some(Value::Array(answers))
         }
         one => tools.answer(&one),
     };
