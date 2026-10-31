@@ -18,6 +18,7 @@ import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.wrapContentWidth
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -576,10 +577,14 @@ data class Rows(
 
 val LocalRows = androidx.compose.runtime.compositionLocalOf { Rows.of("comfortable") }
 
+/** How wide a page must be for song rows to show their album and length (the page, not the screen). */
+val SongColumnsFrom = 700.dp
+
 /**
  * A song in a list: its cover (or its number on an album page), title and artist, and its menu,
  * over a hairline that starts where the text does. With a [place], a row of a group instead
- * (`segment`): no hairline, and the playing song on its own tone.
+ * (`segment`): no hairline, and the playing song on its own tone. On a wide page, its album and
+ * length too (see [SongColumnsFrom]).
  */
 @Composable
 fun SongRow(
@@ -596,6 +601,7 @@ fun SongRow(
     onClick: () -> Unit,
 ) {
     val rows = LocalRows.current
+    val columns = LocalPageWidth.current >= SongColumnsFrom
     // Choosing many songs: a tap adds the row or takes it away.
     val chosenSongs by Selection.songs.collectAsState()
     val choosing = chosenSongs.isNotEmpty()
@@ -690,6 +696,30 @@ fun SongRow(
                         )
                     }
                 }
+            }
+            // A page with room: the album and the length, in columns that line up from row to
+            // row. Plain words: the whole row plays. An album's own page has no need of its name.
+            if (columns) {
+                // BasicText: lighter than Text, for lists of thousands.
+                val quiet = colors.onSurfaceVariant
+                val small = MaterialTheme.typography.bodyMedium
+                if (LocalAlbumHere.current == null) {
+                    androidx.compose.foundation.text.BasicText(
+                        song.album,
+                        Modifier.weight(0.8f),
+                        style = small,
+                        color = { quiet },
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                }
+                androidx.compose.foundation.text.BasicText(
+                    time(song.duration),
+                    Modifier.width(56.dp).wrapContentWidth(Alignment.End),
+                    style = small,
+                    color = { quiet },
+                    maxLines = 1,
+                )
             }
             when {
                 // The row is the one stop that chooses; the box only shows it.
