@@ -350,15 +350,34 @@ impl UsbDac {
         (got >= size && rate > 0).then_some(rate)
     }
 
+    fn stayed_at(&self, now: u32, rate: u32) -> String {
+        format!(
+            "{} stayed at {} kHz, so it cannot play {} kHz bit-perfect",
+            self.name,
+            khz(now),
+            khz(rate)
+        )
+    }
+
     /// Sets the DAC's rate for `f`, and reads it back: the rate the DAC said it took, or None
-    /// when it cannot say. A DAC that stays at another rate is an error, as its clock decides
-    /// how fast the music plays: 44.1 kHz music on a 48 kHz clock is 9 % fast and high.
+    /// when it cannot say. A DAC that stays at another rate is an error: 44.1 kHz music on a
+    /// 48 kHz clock is 9 % fast and high where the DAC sets the pace, and has gaps in every packet
+    /// where the phone does, at the right pitch.
     fn set_rate(&self, f: &Format, rate: u32) -> Result<Option<u32>> {
-        // UAC1 with no sampling frequency control and one rate: the setting is the rate.
-        if self.dac.uac == Uac::One && !f.rate_control && listed_rates(f).len() <= 1 {
-            return Ok(None);
-        }
         let _one = self.one_at_a_time();
+        // UAC1 with no sampling frequency control and one rate: the setting is the rate. One
+        // that listed more was left with the one it is trusted for: no request, but it may say.
+        if self.dac.uac == Uac::One && !f.rate_control && listed_rates(f).len() <= 1 {
+            let said = if f.rates.len() > 1 || f.range.is_some() {
+                self.read_rate(f)
+            } else {
+                None
+            };
+            if let Some(now) = said.filter(|now| !same_rate(*now, rate)) {
+                bail!(self.stayed_at(now, rate));
+            }
+            return Ok(said);
+        }
         let set = match self.dac.uac {
             Uac::Two => {
                 let clock = self
@@ -392,12 +411,7 @@ impl UsbDac {
             }
         }
         if let Some(now) = said {
-            bail!(
-                "{} stayed at {} kHz, so it cannot play {} kHz bit-perfect",
-                self.name,
-                khz(now),
-                khz(rate)
-            );
+            bail!(self.stayed_at(now, rate));
         }
         // A range of rates and no answer: nothing shows that it left its own clock.
         if f.range.is_some() && rate != 48_000 {
@@ -443,6 +457,14 @@ impl UsbDac {
         if self.dac.formats.iter().any(in_a_range) {
             bail!(
                 "{} gives a range of rates, so {} kHz cannot be trusted",
+                self.name,
+                khz(rate)
+            );
+        }
+        let listed_only = |f: &Format| !f.rate_control && f.rates.contains(&rate);
+        if self.dac.formats.iter().any(listed_only) {
+            bail!(
+                "{} cannot be told its rate, so {} kHz cannot be trusted",
                 self.name,
                 khz(rate)
             );
@@ -869,6 +891,39 @@ mod tests {
         let mut with_volume = plain.clone();
         with_volume.splice(at..at, [9, 0x24, 6, 2, 1, 1, 0x03, 0, 0]);
         assert!(dac(Trouble::None, &with_volume).1.dop());
+    }
+
+    #[test]
+    fn a_setting_that_cannot_be_told_its_rate_keeps_one_of_those_it_lists() {
+        let raw = uac1_descriptors(&[(1, &[44_100, 48_000], false)]);
+        let (fake, told) = dac(Trouble::None, &raw);
+        assert_eq!(told.info().rates, [48_000]);
+        let why = told.format_for(2, 44_100).unwrap_err().to_string();
+        assert_eq!(
+            why,
+            "Pretend DAC cannot be told its rate, so 44.1 kHz cannot be trusted"
+        );
+        let f = told.format_for(2, 48_000).unwrap();
+        assert_eq!(told.set_rate(&f, 48_000).unwrap(), None);
+        assert!(
+            fake.rates().is_empty(),
+            "no request for a rate it cannot set"
+        );
+
+        // It says it runs at another rate: refused too.
+        let (_, other) = dac(Trouble::StaysAt(44_100), &raw);
+        let why = other.set_rate(&f, 48_000).unwrap_err().to_string();
+        assert!(why.contains("stayed at 44.1 kHz"), "{why}");
+
+        // With no 48 kHz among them, its highest.
+        let raw = uac1_descriptors(&[(1, &[32_000, 44_100], false)]);
+        assert_eq!(dac(Trouble::None, &raw).1.info().rates, [44_100]);
+
+        // Another setting that can be told the rate still plays it.
+        let raw = uac1_descriptors(&[(1, &[44_100, 48_000], false), (2, &[44_100], true)]);
+        let (_, both) = dac(Trouble::None, &raw);
+        assert_eq!(both.format_for(2, 44_100).unwrap().alt, 2);
+        assert_eq!(both.format_for(2, 48_000).unwrap().alt, 1);
     }
 
     #[test]
