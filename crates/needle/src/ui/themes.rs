@@ -10,7 +10,7 @@
 //! accent = "#e75480"
 //! [extras]
 //! grain = 0.2               # film grain, 0 to 1
-//! font = "fraunces"         # title font: system, bahnschrift, or fraunces
+//! font = "fraunces"         # title font: see DISPLAY_FONTS
 //! ```
 //!
 //! A theme lists only the colours it changes; the base look gives the rest. Text colours are

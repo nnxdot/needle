@@ -8,11 +8,11 @@ use needle_core::{
     audio::{Command, QueueItem, Repeat},
     cast::{Group, Speaker},
     database::Library,
-    discord, import, integrations,
+    discord, import, integrations, mcp,
     media::{self, LyricLine as CoreLine, LyricWord},
     model::{Playlist, RuleSet, Settings, Track},
     plugins::PluginEvent,
-    mcp, query, radio, remote, rules, scan, sources, stems, update,
+    query, radio, remote, rules, scan, sources, stems, update,
 };
 use serde_json::{Value, json};
 use std::{
@@ -2228,7 +2228,12 @@ impl Needle {
             "banner" => media::pictures::ArtistPicture::Banner,
             _ => media::pictures::ArtistPicture::Photo,
         };
-        to_json(&media::pictures::fanart_choices(&self.library, &name, kind, online)?)
+        to_json(&media::pictures::fanart_choices(
+            &self.library,
+            &name,
+            kind,
+            online,
+        )?)
     }
 
     /// Your library in numbers, as JSON (`LibraryNumbers`, with the Mac's album summaries).

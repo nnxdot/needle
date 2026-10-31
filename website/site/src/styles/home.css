@@ -115,6 +115,7 @@ section { position: relative; }
 .bento .card { overflow: hidden; display: flex; flex-direction: column; }
 .c-crate { grid-column: span 7; }
 .c-mood { grid-column: span 5; }
+.c-ai { grid-column: 1 / -1; }
 .c-day, .c-mix, .c-card { grid-column: span 4; }
 .c-numbers { grid-column: span 5; }
 .c-buttons { grid-column: span 7; }
@@ -138,6 +139,7 @@ section { position: relative; }
 .mood { display: block; width: 100%; max-width: 360px; margin: 20px auto 0; aspect-ratio: 1; }
 .mood line { stroke: var(--hair-2); stroke-width: .3; }
 .mood circle { opacity: .85; }
+.mood text { fill: var(--ink, currentColor); font-weight: 600; }
 .mood .lasso { fill: rgb(226 180 108 / .08); stroke: var(--amber); stroke-width: .5; stroke-dasharray: 2 1.4; }
 .mood-axes { display: flex; justify-content: space-between; margin: 6px 0 0 !important; font: 500 10.5px/1 var(--mono) !important; letter-spacing: .08em; text-transform: uppercase; color: var(--fog) !important; }
 
