@@ -1,26 +1,26 @@
 {
     "html_url": "https://needle.nnx.fyi/",
-    "tag_name": "v1.8.0",
+    "tag_name": "v2.0.0",
     "assets": [
         {
-            "name": "Needle-1.8.0-windows-x64.zip",
-            "browser_download_url": "https://needle.nnx.fyi/download/Needle-1.8.0-windows-x64.zip"
+            "name": "Needle-2.0.0-windows-x64.zip",
+            "browser_download_url": "https://needle.nnx.fyi/download/Needle-2.0.0-windows-x64.zip"
         },
         {
-            "name": "Needle-Setup-1.8.0.exe",
-            "browser_download_url": "https://needle.nnx.fyi/download/Needle-Setup-1.8.0.exe"
+            "name": "Needle-Setup-2.0.0.exe",
+            "browser_download_url": "https://needle.nnx.fyi/download/Needle-Setup-2.0.0.exe"
         },
         {
-            "name": "needle_1.8.0_amd64.deb",
-            "browser_download_url": "https://needle.nnx.fyi/download/needle_1.8.0_amd64.deb"
+            "name": "needle_2.0.0_amd64.deb",
+            "browser_download_url": "https://needle.nnx.fyi/download/needle_2.0.0_amd64.deb"
         },
         {
-            "name": "needle-1.8.0-1.x86_64.rpm",
-            "browser_download_url": "https://needle.nnx.fyi/download/needle-1.8.0-1.x86_64.rpm"
+            "name": "needle-2.0.0-1.x86_64.rpm",
+            "browser_download_url": "https://needle.nnx.fyi/download/needle-2.0.0-1.x86_64.rpm"
         },
         {
-            "name": "Needle-1.8.0-macos.dmg",
-            "browser_download_url": "https://needle.nnx.fyi/download/Needle-1.8.0-macos.dmg"
+            "name": "Needle-2.0.0-macos.dmg",
+            "browser_download_url": "https://needle.nnx.fyi/download/Needle-2.0.0-macos.dmg"
         },
         {
             "name": "Needle-1.6.3-android-release.apk",

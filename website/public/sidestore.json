@@ -5,7 +5,7 @@
     "description": "Needle for iPhone, for SideStore and AltStore. Each phone signs it with its own Apple ID.",
     "iconURL": "https://needle.nnx.fyi/icon-512.png",
     "website": "https://needle.nnx.fyi",
-    "tintColor": "#FF5C8A",
+    "tintColor": "#E2B46C",
     "nsfw": false,
     "featuredApps": [
         "fyi.nnx.needle"
@@ -18,7 +18,7 @@
             "subtitle": "Your music, on your iPhone.",
             "localizedDescription": "Needle is a music player for the songs you own.\n\n- Your library on your iPhone, made for Liquid Glass.\n- A full player in the cover's colours, with lyrics that follow the song word by word.\n- Lock Screen, Control Center, AirPlay, Bluetooth, Chromecast and DLNA speakers.\n- Widgets for the song playing, recent albums, playlists and your week of listening.\n- Navidrome and other music servers built in, with a page for your server.\n- Moving covers, from your folders or your server.\n- A Radio tab: stations from the songs you play most.\n- Control Needle on your computer, and move what plays between the computer and the phone.\n- A 10-band and parametric equalizer, headphone corrections, crossfeed and crossfade.\n- Playlists, smart playlists, tag editing, and tools to find duplicates and covers.\n- Discord status: show what you play on your profile.\n\nNo account and no tracking. Needle goes online only for things that you turn on.",
             "iconURL": "https://needle.nnx.fyi/icon-512.png",
-            "tintColor": "#FF5C8A",
+            "tintColor": "#E2B46C",
             "category": "entertainment",
             "screenshots": [
                 {
@@ -48,6 +48,15 @@
                 }
             ],
             "versions": [
+                {
+                    "version": "2.0.0",
+                    "buildVersion": "1",
+                    "date": "2026-10-31",
+                    "localizedDescription": "Needle 2.0: a new look, and a lot more to see and hear.\n\n- A new Home and icon, in amber.\n- Four looks for the player: Cover, Record, Lyrics, and Visualizer.\n- Choose the player's buttons, its seek bar, and your fonts.\n- A new Search, with lines of lyrics.\n- Lyric cards, and lyrics in your language.\n- Better artists, with pictures you choose.\n- A record crate, the genre map, and your year in music.\n- A sleep timer, speed and pitch, and smart mixes.\n- Turn your iPhone sideways, or open an iPhone Duo, and Needle spreads out.",
+                    "downloadURL": "https://needle.nnx.fyi/download/Needle-2.0.0-ios.ipa",
+                    "size": 17641471,
+                    "minOSVersion": "26.0"
+                },
                 {
                     "version": "1.8.0",
                     "buildVersion": "1",
