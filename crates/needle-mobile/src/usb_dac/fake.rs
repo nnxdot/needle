@@ -25,6 +25,8 @@ pub enum Trouble {
     FixedAt(u32),
     /// The rate cannot be read back.
     NoRateAnswer,
+    /// The clock does not say its rates, as a DAC just plugged in may not.
+    NoClockAnswer,
 }
 
 #[derive(Default)]
@@ -44,6 +46,8 @@ struct State {
     pub volume: Option<(u8, i16)>,
     /// Control requests and settings, counted: none may come after the driver has closed.
     pub requests: usize,
+    /// Pulled out: every request fails from now on.
+    pub gone: bool,
 }
 
 pub struct FakeDac {
@@ -99,6 +103,11 @@ impl FakeDac {
 
     pub fn requests(&self) -> usize {
         self.state.lock().unwrap().requests
+    }
+
+    /// Pulled out of the phone.
+    pub fn unplug(&self) {
+        self.state.lock().unwrap().gone = true;
     }
 
     pub fn forget_loudest(&self) {
@@ -268,6 +277,9 @@ impl Bus for FakeDac {
             panic!("a pretend bug");
         }
         let mut s = self.state.lock().unwrap();
+        if s.gone {
+            bail!("The DAC is gone");
+        }
         s.alts.push((interface, alt));
         s.requests += 1;
         Ok(())
@@ -284,6 +296,9 @@ impl Bus for FakeDac {
         let selector = (value >> 8) as u8;
         self.state.lock().unwrap().requests += 1;
         match (request_type, request, selector) {
+            (0xA1, 0x02, 0x01) if self.trouble == Trouble::NoClockAnswer => {
+                bail!("The DAC refused the request");
+            }
             // The clock's rates: three subranges of one rate each.
             (0xA1, 0x02, 0x01) => {
                 let mut answer = vec![3, 0];
@@ -342,6 +357,9 @@ impl Bus for FakeDac {
 
     fn submit(&self, id: usize, endpoint: u8, bytes: &[u8], lengths: &[usize]) -> Result<()> {
         let mut s = self.state.lock().unwrap();
+        if s.gone {
+            bail!("The DAC took no more music");
+        }
         if let Trouble::GoneAfter(n) = self.trouble {
             if s.done >= n {
                 bail!("The DAC took no more music");
@@ -373,6 +391,9 @@ impl Bus for FakeDac {
         loop {
             {
                 let mut s = self.state.lock().unwrap();
+                if s.gone {
+                    bail!("The DAC is gone");
+                }
                 if let Trouble::GoneAfter(n) = self.trouble {
                     if s.done >= n {
                         bail!("The DAC is gone");
@@ -525,6 +546,103 @@ pub mod checks {
         );
     }
 
+    /// What the app does when a DAC is pulled out and plugged in again, with the system's output
+    /// between (see FALLBACK), so it needs one: `usb_dac_close`, then a new driver for the new
+    /// device. The old driver's last word must not reach the new one, the song goes on from
+    /// where it was, and a pause stays a pause with a Play that works.
+    fn unplugged_and_plugged_in_again(needle: &Needle, ids: Vec<String>) {
+        needle.play(ids, 0).unwrap();
+        let (old, dac) = driver(Trouble::None);
+        crate::usb_dac::use_driver(dac);
+        wait("music at the DAC", Duration::from_secs(10), || {
+            old.bytes() > 100_000
+        });
+
+        // Pulled out while it plays: an error at once, not read yet, as the app may first hear
+        // of it from Android.
+        old.unplug();
+        wait("the driver's word", Duration::from_secs(3), || {
+            super::super::STATUS.lock().unwrap().1.is_some()
+        });
+        needle.usb_dac_close();
+        let status = needle.usb_dac_status();
+        assert_eq!((status.playing, status.problem), (None, None));
+        assert_eq!(
+            Arc::strong_count(&old),
+            1,
+            "the old driver still holds the DAC"
+        );
+
+        // The system's output has the song, which goes on.
+        wait("the song going on", Duration::from_secs(5), || {
+            needle.playback().playing
+        });
+        let at = needle.playback().position;
+        wait("the song moving", Duration::from_secs(5), || {
+            needle.playback().position > at + 0.3
+        });
+
+        // Plugged in again, with the switch on: the new driver plays on from there and stays.
+        let at = needle.playback().position;
+        let (new, dac) = driver(Trouble::None);
+        crate::usb_dac::use_driver(dac);
+        wait("music at the new DAC", Duration::from_secs(10), || {
+            new.bytes() > 100_000
+        });
+        assert!(
+            needle.playback().position >= at - 0.5,
+            "the song began again"
+        );
+        std::thread::sleep(Duration::from_millis(800));
+        let status = needle.usb_dac_status();
+        assert_eq!(
+            status.problem, None,
+            "the old driver's word reached the new one"
+        );
+        assert!(status.playing.is_some());
+
+        // Paused, then pulled out, and Android's output takes over still paused.
+        needle.toggle();
+        wait("the DAC resting", Duration::from_secs(3), || {
+            new.alts().last() == Some(&(1, 0))
+        });
+        new.unplug();
+        needle.usb_dac_close();
+        std::thread::sleep(Duration::from_millis(300));
+        assert!(!needle.playback().playing, "a pause stays a pause");
+
+        // Plugged in again: still paused, nothing sent, and Play plays.
+        let (again, dac) = driver(Trouble::None);
+        crate::usb_dac::use_driver(dac);
+        std::thread::sleep(Duration::from_millis(500));
+        assert!(!needle.playback().playing, "a pause stays a pause");
+        assert_eq!(again.bytes(), 0);
+        needle.toggle();
+        wait("music after Play", Duration::from_secs(5), || {
+            again.bytes() > 100_000
+        });
+
+        // Paused, pulled out, and Android has not told the app yet: Play is an error at once,
+        // and the song goes on through the system's output, not silence.
+        needle.toggle();
+        wait("the DAC resting", Duration::from_secs(3), || {
+            again.alts().last() == Some(&(1, 0))
+        });
+        again.unplug();
+        needle.toggle();
+        wait("the driver's word", Duration::from_secs(3), || {
+            super::super::STATUS.lock().unwrap().1.is_some()
+        });
+        wait("the song going on", Duration::from_secs(5), || {
+            needle.playback().playing
+        });
+        let at = needle.playback().position;
+        wait("the song moving", Duration::from_secs(5), || {
+            needle.playback().position > at + 0.3
+        });
+        needle.usb_dac_close();
+    }
+
     /// The driver on a pretend DAC: it plays, rests while paused, and every trouble (a stall,
     /// the DAC gone, a panic, a rate it does not play) ends in an error within a second or two,
     /// with the song going on through the system's output. `ids` are songs at 44.1 kHz.
@@ -577,6 +695,9 @@ pub mod checks {
         });
 
         no_volume_and_the_way_back_to_android(needle, fallback);
+        if fallback {
+            unplugged_and_plugged_in_again(needle, ids.clone());
+        }
 
         // Each trouble: an error within a second, and the song goes on through the system.
         for (trouble, words) in [

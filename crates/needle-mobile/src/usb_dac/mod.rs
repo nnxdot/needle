@@ -46,12 +46,19 @@ fn driver() -> Option<Arc<driver::UsbDac>> {
 /// `dac` plays from now on.
 #[cfg_attr(not(target_os = "android"), allow(dead_code))]
 pub(crate) fn use_driver(dac: Arc<driver::UsbDac>) {
+    status_clear();
     *DRIVER.lock().unwrap_or_else(|e| e.into_inner()) = Arc::downgrade(&dac);
     needle_core::platform_output::set_platform_output(Some(dac));
 }
 
 pub(crate) fn status_playing(text: Option<String>) {
     STATUS.lock().unwrap_or_else(|e| e.into_inner()).0 = text;
+}
+
+/// The driver's word is for the driver it came from: an old "the DAC is gone" read by the next
+/// one would end it.
+fn status_clear() {
+    *STATUS.lock().unwrap_or_else(|e| e.into_inner()) = (None, None);
 }
 
 #[cfg_attr(not(target_os = "android"), allow(dead_code))]
@@ -137,11 +144,11 @@ impl Needle {
     pub fn usb_dac_close(&self) {
         let running = std::mem::take(&mut *DRIVER.lock().unwrap_or_else(|e| e.into_inner()));
         needle_core::platform_output::set_platform_output(None);
-        status_playing(None);
         let until = Instant::now() + Duration::from_secs(2);
         while running.strong_count() > 0 && Instant::now() < until {
             std::thread::sleep(Duration::from_millis(10));
         }
+        status_clear();
     }
 
     /// The DAC is back with Android: the phone's output opens again, as one opened while it was

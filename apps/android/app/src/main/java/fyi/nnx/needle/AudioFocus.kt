@@ -21,6 +21,24 @@ import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.launch
 
 /**
+ * What was playing out of something now pulled out pauses, rather than go on through the speaker.
+ * Android and Needle's USB driver may both tell of one unplugging, and the core has only a
+ * toggle, so the second telling is let go.
+ */
+internal object Unplugged {
+    private var pausedAt = 0L
+
+    @Synchronized fun pause() {
+        val now = android.os.SystemClock.uptimeMillis()
+        val app = NeedleApp.instance
+        if (now - pausedAt < 2000 || app.remoteShown.value || !app.core.playback().playing) return
+        pausedAt = now
+        app.core.toggle()
+        app.wake()
+    }
+}
+
+/**
  * Needle's sound and the phone's other sounds, as Android's own players share them: Needle asks
  * for the audio while it plays on this phone, pauses when another app takes it (and plays again
  * after a call or a short sound), and pauses when headphones come out rather than go on through
@@ -49,10 +67,7 @@ internal class AudioFocus(private val context: Context) {
 
     private val unplugged = object : BroadcastReceiver() {
         override fun onReceive(context: Context, intent: Intent) {
-            if (intent.action == AudioManager.ACTION_AUDIO_BECOMING_NOISY && playingHere()) {
-                core().toggle()
-                NeedleApp.instance.wake()
-            }
+            if (intent.action == AudioManager.ACTION_AUDIO_BECOMING_NOISY) Unplugged.pause()
         }
     }
 
