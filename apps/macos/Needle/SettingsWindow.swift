@@ -197,6 +197,8 @@ struct PlaybackSettingsView: View {
     @State private var autoplay = ""
     @State private var members: [GroupMember] = []
     @State private var address: String?
+    /// The address AI assistants use, while Needle for AI assistants runs.
+    @State private var mcpAddress: String?
 
     var body: some View {
         let s = store.settings
@@ -307,6 +309,36 @@ struct PlaybackSettingsView: View {
                 }
                 .padding(.vertical, 6)
             }
+            SettingRow(title: "AI assistants", detail: "Let an AI app on this computer, such as Claude, play music, search your library, and make playlists (MCP).", icon: "sparkles") {
+                RowToggle(isOn: Binding(get: { s.mcp }, set: { on in
+                    store.set(["mcp": on])
+                    Task { try? await Task.sleep(for: .milliseconds(300)); mcpAddress = store.core.mcpAddress() }
+                }))
+                .toggleStyle(.switch).labelsHidden()
+            }
+            if s.mcp, let mcpAddress {
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("Give your AI app this address (an MCP server, Streamable HTTP). For Claude Code, run the command below.")
+                        .font(.needle(.callout)).foregroundStyle(.secondary)
+                    Text(mcpAddress).font(.needle(.callout).monospaced()).textSelection(.enabled)
+                        .padding(6).background(store.plainColors.raised, in: RoundedRectangle(cornerRadius: 6))
+                    HStack {
+                        Button("Copy address") { store.copy(mcpAddress); store.notify("Address copied.") }
+                        Button("Copy for Claude Code") {
+                            store.copy("claude mcp add --transport http needle \(mcpAddress)")
+                            store.notify("Command copied. Run it in a terminal.")
+                        }
+                        Button("New address") {
+                            store.run { try $0.newMcpAddress() }
+                            Task { try? await Task.sleep(for: .milliseconds(400)); self.mcpAddress = store.core.mcpAddress() }
+                            store.notify("New address. Apps with the old one no longer work.")
+                        }
+                    }
+                    Text("Only apps on this computer can reach it, and only with this address. Needle must be open for them to use it.")
+                        .font(.needle(.caption)).foregroundStyle(.secondary)
+                }
+                .padding(.vertical, 6)
+            }
         } header: {
             GroupHeader(title: "Menu bar and remote")
         }
@@ -314,6 +346,7 @@ struct PlaybackSettingsView: View {
             autoplay = store.settings.autoplayQuery
             members = store.core.groupMembers()
             address = store.core.remoteAddress()
+            mcpAddress = store.core.mcpAddress()
             loadDevices()
         }
     }

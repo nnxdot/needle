@@ -12,7 +12,7 @@ use needle_core::{
     media::{self, LyricLine as CoreLine, LyricWord},
     model::{Playlist, RuleSet, Settings, Track},
     plugins::PluginEvent,
-    query, radio, remote, rules, scan, sources, stems, update,
+    mcp, query, radio, remote, rules, scan, sources, stems, update,
 };
 use serde_json::{Value, json};
 use std::{
@@ -63,6 +63,8 @@ fn merge(base: &mut Value, patch: Value) {
 struct Desk {
     started: AtomicBool,
     remote: Mutex<Option<remote::Server>>,
+    /// Needle for AI assistants (MCP), while it runs.
+    mcp: Mutex<Option<mcp::Server>>,
     measuring: Arc<AtomicBool>,
     measured: Mutex<Option<(usize, usize)>>,
     /// Counts changes the folder watcher saw, so lists load again.
@@ -302,6 +304,47 @@ impl Needle {
     }
 }
 
+impl Needle {
+    /// Starts or stops Needle for AI assistants to match the settings. What an assistant
+    /// changes (a playlist made, a song favorited) counts as a library change, so the lists
+    /// load again.
+    fn apply_mcp(&self) {
+        let Ok(mut settings) = self.library.settings() else {
+            return;
+        };
+        let mut server = DESK.mcp.lock().unwrap();
+        if !settings.mcp {
+            *server = None;
+            return;
+        }
+        if settings.mcp_key.len() < 16 {
+            let key = remote::new_key();
+            settings = match self.save_settings_with(|s| s.mcp_key = key) {
+                Ok(s) => s,
+                Err(_) => return,
+            };
+        }
+        if server.is_some() {
+            return;
+        }
+        let changes = DESK.changes.clone();
+        match mcp::start(
+            self.player.clone(),
+            self.library.clone(),
+            settings.mcp_key.clone(),
+            Arc::new(move || {
+                changes.fetch_add(1, Ordering::SeqCst);
+            }),
+        ) {
+            Ok(started) => *server = Some(started),
+            Err(error) => {
+                needle_core::logfile::error(format!("AI assistants: {error:#}"));
+                let _ = self.save_settings_with(|s| s.mcp = false);
+            }
+        }
+    }
+}
+
 /// Watches the music folders for new, changed, and removed files, and watches them again when
 /// asked (a folder was added).
 fn watch_folders(library: Library) {
@@ -481,9 +524,10 @@ impl Needle {
         measure(self.library.clone());
         follow_status(self.player.clone(), self.library.clone());
         self.apply_remote();
+        self.apply_mcp();
     }
 
-    /// Changes whenever the folder watcher brought in changes.
+    /// Changes whenever the folder watcher (or an AI assistant) brought in changes.
     pub fn library_changes(&self) -> u64 {
         DESK.changes.load(Ordering::SeqCst)
     }
@@ -503,6 +547,7 @@ impl Needle {
     /// Stops the background work and saves what plays, for quitting.
     pub fn shutdown_desktop(&self) {
         *DESK.remote.lock().unwrap() = None;
+        *DESK.mcp.lock().unwrap() = None;
         self.plugins.send(PluginEvent::Shutdown);
         self.player.shutdown();
     }
@@ -917,6 +962,12 @@ impl Needle {
             }
             self.apply_remote();
         }
+        if has(&["mcp", "mcp_key"]) {
+            if keys.iter().any(|k| k == "mcp_key") {
+                *DESK.mcp.lock().unwrap() = None;
+            }
+            self.apply_mcp();
+        }
         if has(&["sound_analysis"]) {
             DESK.measuring.store(saved.sound_analysis, Ordering::SeqCst);
         }
@@ -1000,6 +1051,22 @@ impl Needle {
         self.save_settings_with(|s| s.remote_key = key)?;
         *DESK.remote.lock().unwrap() = None;
         self.apply_remote();
+        Ok(())
+    }
+
+    // ---------- AI assistants
+
+    /// The address an AI assistant uses (its key inside), while Needle for AI assistants runs.
+    pub fn mcp_address(&self) -> Option<String> {
+        DESK.mcp.lock().unwrap().as_ref().map(|s| s.address())
+    }
+
+    /// A new address for AI assistants: assistants with the old one no longer reach Needle.
+    pub fn new_mcp_address(&self) -> Result<()> {
+        let key = remote::new_key();
+        self.save_settings_with(|s| s.mcp_key = key)?;
+        *DESK.mcp.lock().unwrap() = None;
+        self.apply_mcp();
         Ok(())
     }
 

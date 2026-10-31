@@ -9,6 +9,7 @@ import SwiftUI
 /// - `--render-visualizer <path.png>`: the visualizer in a big player's frame, 16 seconds in,
 ///   and once more a second later (`<path>-2.png`).
 /// - `--render-big <path.png>`: the real big player, 16 seconds in, and a second later.
+/// - `--test-mcp-off <seconds>`: turns AI assistants off that long after the start.
 /// - `--test-spectrum <file>`: the core's spectrum twice a second for 12 seconds.
 @MainActor
 enum TestRenders {
@@ -58,6 +59,12 @@ enum TestRenders {
                     render(BigPlayer().environment(store).frame(width: 1320, height: 860), to: file)
                     try? await Task.sleep(for: .seconds(1))
                 }
+            }
+        }
+        if let seconds = value("--test-mcp-off").flatMap(Double.init) {
+            Task {
+                try? await Task.sleep(for: .seconds(seconds))
+                store.set(["mcp": false])
             }
         }
         if let file = value("--test-spectrum") {

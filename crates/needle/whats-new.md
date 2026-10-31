@@ -56,6 +56,7 @@ A new icon, and a lot more to see and hear.
 - [history] **Your year in music.** Your hours, plays, and new songs, the year by month, your top artist, and your top songs, from Listening history (and on Home in December). Save it as a picture in Pictures › Needle, make a playlist of it, or play your top 50.
 - [lyrics] **Time the lyrics.** −0.2 s, +0.2 s, Redo line, and Undo fix the line you just tapped; Words times each word.
 - [albums] **What makes an album.** Songs without an album artist but tagged as a compilation are one album by Various Artists, and with Folder, a folder's songs with one album name are one album. Settings › Library › Albums; your files never change.
+- [plugin] **Needle for AI assistants.** Turn on Settings › Playback › AI assistants, and an AI app on this computer, such as Claude, can play music, search your library and its lyrics, make playlists, and tell you what plays (MCP). Only apps on this computer can reach it.
 
 # 1.8.0 [macos]
 Navidrome built in, moving covers, and calmer Settings.
