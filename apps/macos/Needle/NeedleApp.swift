@@ -9,6 +9,9 @@ struct NeedleApp: App {
     var body: some Scene {
         Window("Needle", id: "main") {
             MainWindow()
+                // The text font chosen (Settings › Appearance › Text): drawn anew when it changes.
+                .font(.needle(.body))
+                .id(store.textFont)
                 .environment(store)
                 .onAppear { delegate.store = store }
         }
@@ -27,6 +30,7 @@ struct NeedleApp: App {
 
         Settings {
             SettingsWindow()
+                .font(.needle(.body))
                 .environment(store)
         }
 
@@ -44,6 +48,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         keys = Keys.install { [weak self] in self?.store }
+        #if DEBUG
+        MainActor.assumeIsolated { TestRenders.start() }
+        #endif
     }
 
     /// Closing the window leaves Needle open and the music playing, as Music does: the Dock
@@ -183,7 +190,7 @@ struct NeedleCommands: Commands {
             Button("Sound and Equalizer") { store.navigate(.sound) }
             Button("Fix My Library") { store.navigate(.doctor) }
             Button("Import from Other Apps") { store.navigate(.importing) }
-            Button("Your Year in Music") { store.navigate(.wrapped(Calendar.current.component(.year, from: Date()))) }
+            Button("Your Year in Music") { store.navigate(.wrapped(store.reviewYear)) }
         }
         CommandGroup(replacing: .help) {
             Button("Needle Help") { NSWorkspace.shared.open(URL(string: "https://needle.nnx.fyi/help")!) }

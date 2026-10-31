@@ -12,7 +12,7 @@ use needle_core::{
     media::{self, LyricLine as CoreLine, LyricWord},
     model::{Playlist, RuleSet, Settings, Track},
     plugins::PluginEvent,
-    query, radio, remote, rules, scan, sources, stems, update,
+    mcp, query, radio, remote, rules, scan, sources, stems, update,
 };
 use serde_json::{Value, json};
 use std::{
@@ -63,6 +63,8 @@ fn merge(base: &mut Value, patch: Value) {
 struct Desk {
     started: AtomicBool,
     remote: Mutex<Option<remote::Server>>,
+    /// Needle for AI assistants (MCP), while it runs.
+    mcp: Mutex<Option<mcp::Server>>,
     measuring: Arc<AtomicBool>,
     measured: Mutex<Option<(usize, usize)>>,
     /// Counts changes the folder watcher saw, so lists load again.
@@ -302,6 +304,47 @@ impl Needle {
     }
 }
 
+impl Needle {
+    /// Starts or stops Needle for AI assistants to match the settings. What an assistant
+    /// changes (a playlist made, a song favorited) counts as a library change, so the lists
+    /// load again.
+    fn apply_mcp(&self) {
+        let Ok(mut settings) = self.library.settings() else {
+            return;
+        };
+        let mut server = DESK.mcp.lock().unwrap();
+        if !settings.mcp {
+            *server = None;
+            return;
+        }
+        if settings.mcp_key.len() < 16 {
+            let key = remote::new_key();
+            settings = match self.save_settings_with(|s| s.mcp_key = key) {
+                Ok(s) => s,
+                Err(_) => return,
+            };
+        }
+        if server.is_some() {
+            return;
+        }
+        let changes = DESK.changes.clone();
+        match mcp::start(
+            self.player.clone(),
+            self.library.clone(),
+            settings.mcp_key.clone(),
+            Arc::new(move || {
+                changes.fetch_add(1, Ordering::SeqCst);
+            }),
+        ) {
+            Ok(started) => *server = Some(started),
+            Err(error) => {
+                needle_core::logfile::error(format!("AI assistants: {error:#}"));
+                let _ = self.save_settings_with(|s| s.mcp = false);
+            }
+        }
+    }
+}
+
 /// Watches the music folders for new, changed, and removed files, and watches them again when
 /// asked (a folder was added).
 fn watch_folders(library: Library) {
@@ -481,9 +524,10 @@ impl Needle {
         measure(self.library.clone());
         follow_status(self.player.clone(), self.library.clone());
         self.apply_remote();
+        self.apply_mcp();
     }
 
-    /// Changes whenever the folder watcher brought in changes.
+    /// Changes whenever the folder watcher (or an AI assistant) brought in changes.
     pub fn library_changes(&self) -> u64 {
         DESK.changes.load(Ordering::SeqCst)
     }
@@ -503,6 +547,7 @@ impl Needle {
     /// Stops the background work and saves what plays, for quitting.
     pub fn shutdown_desktop(&self) {
         *DESK.remote.lock().unwrap() = None;
+        *DESK.mcp.lock().unwrap() = None;
         self.plugins.send(PluginEvent::Shutdown);
         self.player.shutdown();
     }
@@ -561,8 +606,15 @@ impl Needle {
         to_json(&self.library.albums(&query)?)
     }
 
+    /// The Artists page: in the order chosen (`artist_order`), with only album artists when
+    /// asked (`album_artists_only`); each with the letter it files under in the A–Z bar.
     pub fn artists_json(&self, query: String) -> Result<String> {
-        to_json(&self.library.artists(&query)?)
+        let settings = self.library.settings()?;
+        let choice = needle_core::artists::ArtistChoice {
+            order: needle_core::artists::ArtistOrder::from_name(&settings.artist_order),
+            album_artists_only: settings.album_artists_only,
+        };
+        to_json(&self.library.artists_by(&query, choice)?)
     }
 
     pub fn artist_albums_json(&self, name: String) -> Result<String> {
@@ -896,6 +948,7 @@ impl Needle {
             "replay_gain",
             "album_gain",
             "crossfade",
+            "smart_mix",
             "autoplay_query",
         ]) {
             self.player
@@ -909,6 +962,12 @@ impl Needle {
             }
             self.apply_remote();
         }
+        if has(&["mcp", "mcp_key"]) {
+            if keys.iter().any(|k| k == "mcp_key") {
+                *DESK.mcp.lock().unwrap() = None;
+            }
+            self.apply_mcp();
+        }
         if has(&["sound_analysis"]) {
             DESK.measuring.store(saved.sound_analysis, Ordering::SeqCst);
         }
@@ -917,6 +976,9 @@ impl Needle {
             .any(|k| k.starts_with("discord") || k.ends_with("_enabled"))
         {
             DESK.discord_refresh.store(true, Ordering::SeqCst);
+        }
+        if has(&["online_media", "artist_pictures"]) {
+            self.refresh_sweep();
         }
         Ok(())
     }
@@ -989,6 +1051,22 @@ impl Needle {
         self.save_settings_with(|s| s.remote_key = key)?;
         *DESK.remote.lock().unwrap() = None;
         self.apply_remote();
+        Ok(())
+    }
+
+    // ---------- AI assistants
+
+    /// The address an AI assistant uses (its key inside), while Needle for AI assistants runs.
+    pub fn mcp_address(&self) -> Option<String> {
+        DESK.mcp.lock().unwrap().as_ref().map(|s| s.address())
+    }
+
+    /// A new address for AI assistants: assistants with the old one no longer reach Needle.
+    pub fn new_mcp_address(&self) -> Result<()> {
+        let key = remote::new_key();
+        self.save_settings_with(|s| s.mcp_key = key)?;
+        *DESK.mcp.lock().unwrap() = None;
+        self.apply_mcp();
         Ok(())
     }
 
@@ -2115,6 +2193,83 @@ fn sort_by_query(tracks: &mut [Track], query: &str) {
         };
         if descending { order.reverse() } else { order }
     });
+}
+
+// ---------- Needle 2.0 on the Mac, beyond the phones' (core2.rs)
+
+/// The Mac lets the picture sweep look now (no library scan runs).
+static SWEEP_MAY: AtomicBool = AtomicBool::new(false);
+
+impl Needle {
+    /// The sweep looks while the Mac lets it and online lookups and Artist pictures are on.
+    fn refresh_sweep(&self) {
+        let settings = self.library.settings().unwrap_or_default();
+        self.allow_picture_sweep(
+            SWEEP_MAY.load(Ordering::SeqCst) && settings.online_media && settings.artist_pictures,
+        );
+    }
+}
+
+#[uniffi::export]
+impl Needle {
+    /// Whether the picture sweep may look now (`may`: no library scan runs); it also needs
+    /// online lookups and Artist pictures on.
+    pub fn artist_pictures_allow(&self, may: bool) {
+        SWEEP_MAY.store(may, Ordering::SeqCst);
+        self.refresh_sweep();
+    }
+
+    /// Every picture fanart.tv has of this kind for the artist, best first, as JSON (url,
+    /// preview, likes, language). Empty with online lookups off.
+    pub fn artist_fanart_choices_json(&self, name: String, kind: String) -> Result<String> {
+        let online = self.library.settings()?.online_media;
+        let kind = match kind.as_str() {
+            "logo" => media::pictures::ArtistPicture::Logo,
+            "banner" => media::pictures::ArtistPicture::Banner,
+            _ => media::pictures::ArtistPicture::Photo,
+        };
+        to_json(&media::pictures::fanart_choices(&self.library, &name, kind, online)?)
+    }
+
+    /// Your library in numbers, as JSON (`LibraryNumbers`, with the Mac's album summaries).
+    pub fn library_numbers_json(&self) -> Result<String> {
+        to_json(&self.library.numbers()?)
+    }
+
+    /// What played on this day one and five years ago, as JSON (`OnThisDay` for each year
+    /// with plays). `offset`: seconds east of UTC here.
+    pub fn on_this_day_json(&self, offset: i32) -> Result<String> {
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_secs() as i64)
+            .unwrap_or_default();
+        to_json(&self.library.on_this_day(now, offset, &[1, 5], 12)?)
+    }
+
+    /// What `query` finds (it may be a rule), as JSON in the Mac's own types: `best` ({kind:
+    /// "song"|"album"|"artist", and its track, album, or artist}), then up to `limit` songs,
+    /// albums, artists, and lyrics ({track, line}).
+    pub fn find_json(&self, query: String, limit: u32) -> Result<String> {
+        use needle_core::find::Best;
+        let found = self.library.find(&query, limit.max(1) as usize)?;
+        let best = found.best.map(|best| match best {
+            Best::Song(t) => json!({ "kind": "song", "track": &*t }),
+            Best::Album(a) => json!({ "kind": "album", "album": a }),
+            Best::Artist(a) => json!({ "kind": "artist", "artist": a }),
+        });
+        let lyrics: Vec<Value> = found
+            .lyrics
+            .into_iter()
+            .map(|m| json!({ "track": m.track, "line": m.line }))
+            .collect();
+        to_json(&json!({
+            "best": best,
+            "songs": found.songs,
+            "albums": found.albums,
+            "artists": found.artists,
+            "lyrics": lyrics,
+        }))
+    }
 }
 
 #[uniffi::export]

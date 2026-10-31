@@ -26,12 +26,12 @@ struct StemsPanel: View {
         let ready = info?.ready == true
         let active = store.playback?.stems == track.id
         VStack(alignment: .leading, spacing: 10) {
-            if big { Text("Stems · \(track.title)").font(.headline).foregroundStyle(.white) }
+            if big { Text("Stems · \(track.title)").font(.needle(.headline)).foregroundStyle(.white) }
             if !ready && job == nil {
                 Text(info?.modelReady == true
                      ? "Split this song into drums, bass, vocals, and everything else, right on this Mac. It takes about half the song's length."
                      : "Split this song into drums, bass, vocals, and everything else, right on this Mac. The first time, Needle downloads the 166 MB separation model.")
-                    .font(.callout).foregroundStyle(big ? .white.opacity(0.75) : colors.ink2)
+                    .font(.needle(.callout)).foregroundStyle(big ? .white.opacity(0.75) : colors.ink2)
                     .fixedSize(horizontal: false, vertical: true)
                 Button { split() } label: { Label("Split into stems", systemImage: "square.stack.3d.up") }
                     .glassButton(prominent: true)
@@ -40,7 +40,7 @@ struct StemsPanel: View {
             }
             if let job {
                 VStack(alignment: .leading, spacing: 6) {
-                    Text(job.stage).font(.callout)
+                    Text(job.stage).font(.needle(.callout))
                     ProgressView(value: Double(min(1, max(0, job.fraction))))
                     Button("Stop") { store.core.stopStems() }.controlSize(.small)
                 }
@@ -51,19 +51,19 @@ struct StemsPanel: View {
                     store.run { try $0.playStems(id: id, on: on) }
                 })) {
                     VStack(alignment: .leading, spacing: 1) {
-                        Text("Play from stems").font(.callout.weight(.semibold))
+                        Text("Play from stems").font(.needle(.callout).weight(.semibold))
                         Text(store.playback?.current == track.id ? "Changes apply as you listen" : "Starts this song from its stems")
-                            .font(.caption).foregroundStyle(.secondary)
+                            .font(.needle(.caption)).foregroundStyle(.secondary)
                     }
                 }
                 .toggleStyle(.switch)
                 ForEach(0..<4, id: \.self) { i in channel(i, active: active) }
-                Text("Mixes").font(.caption).foregroundStyle(.secondary)
+                Text("Mixes").font(.needle(.caption)).foregroundStyle(.secondary)
                 LazyVGrid(columns: [GridItem(.adaptive(minimum: 96), spacing: 6)], spacing: 6) {
                     ForEach(Self.presets, id: \.0) { name, icon, mix in
                         let on = zip(levels, mix).allSatisfy { abs($0 - $1) < 0.01 }
                         Button { set(mix) } label: {
-                            Label(name, systemImage: icon).font(.caption).lineLimit(1)
+                            Label(name, systemImage: icon).font(.needle(.caption)).lineLimit(1)
                                 .frame(maxWidth: .infinity)
                                 .padding(.vertical, 5)
                                 .background(on ? colors.accent : colors.raised, in: Capsule())
@@ -77,11 +77,11 @@ struct StemsPanel: View {
                     store.job { try $0.deleteStems(id: id); return "Stems deleted. The song itself is untouched." }
                     Task { try? await Task.sleep(for: .milliseconds(300)); refresh() }
                 }
-                .buttonStyle(.link).font(.caption)
+                .buttonStyle(.link).font(.needle(.caption))
             }
             if big && !ready {
                 Label("Stems use HT-Demucs, running locally. Nothing is uploaded.", systemImage: "info.circle")
-                    .font(.caption).foregroundStyle(.white.opacity(0.6))
+                    .font(.needle(.caption)).foregroundStyle(.white.opacity(0.6))
             }
         }
         .task(id: "\(track.id)\(store.stemsJob == nil)") { refresh() }
@@ -118,8 +118,8 @@ struct StemsPanel: View {
         return HStack(spacing: 8) {
             Image(systemName: icon).foregroundStyle(color).frame(width: 22, height: 22).background(color.opacity(0.18), in: RoundedRectangle(cornerRadius: 5))
             VStack(alignment: .leading, spacing: 0) {
-                Text(label).font(.caption.weight(.medium))
-                Text(muted ? "Muted" : "\(Int(level * 100))%").font(.caption2).foregroundStyle(.secondary)
+                Text(label).font(.needle(.caption).weight(.medium))
+                Text(muted ? "Muted" : "\(Int(level * 100))%").font(.needle(.caption2)).foregroundStyle(.secondary)
             }
             .frame(width: 52, alignment: .leading)
             Slider(value: Binding(get: { Double(level) }, set: { v in
@@ -146,7 +146,7 @@ struct StemsPanel: View {
 
     private func pill(_ text: String, on: Bool, color: Color, help: String, action: @escaping () -> Void) -> some View {
         Button(action: action) {
-            Text(text).font(.caption2.weight(.bold)).frame(width: 20, height: 18)
+            Text(text).font(.needle(.caption2).weight(.bold)).frame(width: 20, height: 18)
                 .background(on ? color : .clear, in: RoundedRectangle(cornerRadius: 4))
                 .foregroundStyle(on ? .black : .secondary)
         }

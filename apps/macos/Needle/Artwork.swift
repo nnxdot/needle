@@ -3,6 +3,14 @@ import CoreImage
 import ImageIO
 import SwiftUI
 
+/// Goes up when an artist's own picture is chosen or reset: the picture views read their files
+/// again then (the path stays the same, so nothing else tells them).
+@Observable
+final class PictureChanges {
+    nonisolated(unsafe) static let shared = PictureChanges()
+    var count = 0
+}
+
 /// Covers, read from their files away from the window, made small for the size they show at,
 /// and kept for a while.
 enum Covers {
@@ -12,8 +20,39 @@ enum Covers {
         return cache
     }()
 
+    /// The picture's path with its file's change time. An artist's own photo, wide picture,
+    /// and logo are saved again at the same path when another is chosen: with the time in the
+    /// key, the new one is read, never the old one from a cache.
+    nonisolated static func stamp(_ path: String) -> String {
+        guard !path.hasPrefix("http://"), !path.hasPrefix("https://"),
+              let date = (try? FileManager.default.attributesOfItem(atPath: path))?[.modificationDate] as? Date else { return path }
+        return "\(path)#\(date.timeIntervalSince1970)"
+    }
+
+    nonisolated static func stamp(_ path: String?) -> String? { path.map { stamp($0) } }
+
+    /// Whether a picture is dark where it is drawn: its alpha-weighted lightness under 0.4, as
+    /// on Windows (fanart.tv has black logos beside the white ones).
+    nonisolated static func isDark(_ cg: CGImage) -> Bool {
+        let side = 64
+        guard let context = CGContext(data: nil, width: side, height: side, bitsPerComponent: 8, bytesPerRow: side * 4,
+                                      space: CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)
+        else { return false }
+        context.draw(cg, in: CGRect(x: 0, y: 0, width: side, height: side))
+        guard let data = context.data else { return false }
+        let p = data.bindMemory(to: UInt8.self, capacity: side * side * 4)
+        var (light, weight) = (0.0, 0.0)
+        for i in 0..<(side * side) {
+            // Kept premultiplied: each colour is already weighted by its alpha.
+            let (r, g, b, a) = (Double(p[i * 4]), Double(p[i * 4 + 1]), Double(p[i * 4 + 2]), Double(p[i * 4 + 3]))
+            light += (0.2126 * r + 0.7152 * g + 0.0722 * b) / 255
+            weight += a / 255
+        }
+        return weight > 0 && light / weight < 0.4
+    }
+
     static func cached(_ path: String, size: Int) -> NSImage? {
-        cache.object(forKey: "\(size)@\(path)" as NSString)
+        cache.object(forKey: "\(size)@\(stamp(path))" as NSString)
     }
 
     nonisolated static func cgImage(_ path: String, size: Int) -> CGImage? {
@@ -39,7 +78,7 @@ enum Covers {
         return await Task.detached(priority: .userInitiated) {
             guard let cg = cgImage(path, size: size) else { return nil }
             let image = NSImage(cgImage: cg, size: NSSize(width: cg.width, height: cg.height))
-            cache.setObject(image, forKey: "\(size)@\(path)" as NSString, cost: cg.bytesPerRow * cg.height)
+            cache.setObject(image, forKey: "\(size)@\(stamp(path))" as NSString, cost: cg.bytesPerRow * cg.height)
             return image
         }.value
     }
@@ -47,7 +86,7 @@ enum Covers {
     /// The cover blurred and made more colourful, small, for backgrounds: drawn large, a small
     /// blurred picture looks like a large one blurred, and costs nothing to draw again.
     static func backdrop(_ path: String) async -> NSImage? {
-        let key = "backdrop@\(path)" as NSString
+        let key = "backdrop@\(stamp(path))" as NSString
         if let hit = cache.object(forKey: key) { return hit }
         return await Task.detached(priority: .utility) {
             guard let cg = cgImage(path, size: 96) else { return nil }
@@ -68,7 +107,7 @@ enum Covers {
     /// picture, the made-up cover's first colour, darkened as the made-up cover is.
     @MainActor
     static func pageColor(_ path: String?, seed: String) async -> NSColor {
-        let key = path ?? "seed:" + seed
+        let key = stamp(path) ?? "seed:" + seed
         if let hit = pageColors[key] { return hit }
         var foot: (Double, Double, Double)?
         if let path { foot = await Task.detached(priority: .userInitiated) { footColor(path) }.value }
@@ -167,7 +206,7 @@ struct Artwork: View {
                 }
             }
             .clipped()
-            .task(id: path) {
+            .task(id: "\(Covers.stamp(path) ?? "")|\(PictureChanges.shared.count)") {
                 guard let path else { image = nil; return }
                 if let hit = Covers.cached(path, size: size) { image = hit; return }
                 let found = await Covers.load(path, size: size)
@@ -280,6 +319,9 @@ struct ArtistPhoto: View {
 enum Photos {
     private static var found: [String: String?] = [:]
 
+    /// Forgets the artist's photo (a picture was chosen or reset), so it is read again.
+    static func forget(_ name: String) { found[name] = nil }
+
     static func find(_ name: String, online: Bool, store: Store) async -> String? {
         if let known = found[name], known != nil || !online { return known }
         let core = store.core
@@ -328,7 +370,7 @@ struct HeaderBackdrop: View {
         // Under the bar's glass too.
         .ignoresSafeArea(edges: .top)
         .allowsHitTesting(false)
-        .task(id: path) {
+        .task(id: "\(Covers.stamp(path) ?? "")|\(PictureChanges.shared.count)") {
             guard let path else { image = nil; return }
             image = await Covers.backdrop(path)
         }
@@ -341,12 +383,21 @@ struct Logo: View {
     /// Drawn in this colour, its own colours left out: for a light page.
     var ink: Color?
     @State private var image: NSImage?
+    /// A dark logo: drawn in white on a dark page, where it would not show.
+    @State private var dark = false
+
+    /// Chosen by the listener (a file, or a fanart.tv pick): kept as it is.
+    private var chosen: Bool { path.hasSuffix(".own") }
 
     var body: some View {
         Group {
             if let image {
-                if let ink {
+                // A logo the listener chose (the core keeps it as ".own") shows as it is: their
+                // pick of a white or a black logo stays. Needle recolours only the ones it found.
+                if let ink, !chosen {
                     Image(nsImage: image).renderingMode(.template).resizable().interpolation(.high).scaledToFit().foregroundStyle(ink)
+                } else if dark, !chosen {
+                    Image(nsImage: image).renderingMode(.template).resizable().interpolation(.high).scaledToFit().foregroundStyle(Color(white: 245 / 255))
                 } else {
                     Image(nsImage: image).resizable().interpolation(.high).scaledToFit()
                 }
@@ -354,9 +405,11 @@ struct Logo: View {
                 Color.clear
             }
         }
-        .task(id: path) {
+        .task(id: "\(Covers.stamp(path))|\(PictureChanges.shared.count)") {
             let found = await Covers.load(path, size: 1200)
-            if !Task.isCancelled { image = found }
+            let cg = found?.cgImage(forProposedRect: nil, context: nil, hints: nil)
+            let isDark = cg.map(Covers.isDark) ?? false
+            if !Task.isCancelled { image = found; dark = isDark }
         }
     }
 }
@@ -451,7 +504,7 @@ struct CoverBackdrop: View {
             }
         }
         .clipped()
-        .task(id: path) {
+        .task(id: "\(Covers.stamp(path) ?? "")|\(PictureChanges.shared.count)") {
             guard let path else { image = nil; return }
             image = await Covers.backdrop(path)
         }

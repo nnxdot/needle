@@ -1,3 +1,33 @@
+# 2.0.0
+A new Home and icon, and a lot more to see and hear.
+! **A new look.** Home is the Mac's: the greeting, the song playing now with a round Play button, then your albums and artists on shelves. Needle's colour is amber, its words are the Mac's, and its icon is new: Glass groove, an amber record of glass on charcoal.
+- [player] **Choose the player's buttons.** Put them in order, take some out, or add Shuffle and Repeat in Settings › Appearance › Player buttons.
+- [palette] **Fonts.** Choose a font for titles (eight of them, such as Fraunces, Poster, and Instrument Serif) and one for everything else (such as Inter and Atkinson Hyperlegible), or a font file from Files, in Settings › Appearance › Titles and Text.
+- [search] **A new Search.** The best match large, then songs, albums, artists, and lines of lyrics that hold the words, with a chip for each and rules to try.
+- [player] **Four looks for the player.** The Look button at its top steps through Cover, Record (the cover as a turning record), Lyrics (only the words, very large, lit as they are sung), and Visualizer.
+- [player] **iPhone Duo.** Open it and Needle spreads out: the tabs stand at the right side, and the player puts the cover on one side of the fold and its controls on the other. Close it and it is the phone you know.
+- [player] **Sideways.** Turn your iPhone and Needle turns with it: the cover on one side, the controls on the other.
+- [sound] **The visualizer.** Light that moves with the music, in the cover's colours: the player's Visualizer look, or over the whole screen from the player's ••• menu.
+- [player] **Motion.** An album's cover grows into its page, a page's name folds into the bar as you scroll, and the colours follow the music. With Reduce motion, only fades.
+- [player] **A seek bar shaped like the song.** The player's seek bar shows the song's loud and quiet parts. Or choose Wave, Line, or Thick in Settings › Appearance › Seek bar.
+- [lyrics] **Lyrics in your language.** Tap the translate button beside Lyrics, and each line shows translated under it, made on your iPhone by Apple's Translation.
+- [lyrics] **Lyric cards.** Hold a line of the lyrics and choose Share as Card for a picture of it in the cover's colours.
+- [watch] **Needle on your Apple Watch.** See the song playing on your iPhone, play or pause, skip, and star it from your wrist.
+- [artists] **Better artists.** Guests after "feat." and both halves of "A & B" get their own page, sort names from your tags are used, and accents sort where they belong. Sort artists by A–Z, Most played, Most songs, or Newest, show only album artists, and jump with the letters at the side.
+- [artists] **Your own artist pictures.** The picture button on an artist's page lets you choose their photo, wide picture, and logo: one from your photos, or any of fanart.tv's (logos on grey, so white ones and black ones both show). A picture you choose shows at once, as it is.
+- [globe] **Pictures for every artist.** With online lookups on, Needle finds every artist's pictures slowly in the background (on Wi-Fi), or all at once with Check all now (Settings › Library › Artist pictures).
+- [history] **On this day.** Home shows what you played one and five years ago today.
+- [albums] **Your library in numbers.** What your music is made of, in Library › Library in numbers.
+- [radio] **The genre map.** Every genre as a bubble placed by how its songs sound: tap one to play it, shuffled (Radio › Genre map).
+- [albums] **A record crate.** Flip through your albums like records in a box: tap the crate at the top of Albums.
+- [player] **Moving covers on the album page.** An album with a moving cover shows it moving on its page too.
+- [sound] **Smart mixes.** With crossfade on, the fade starts where the music ends and lasts whole bars (Settings › Playback › Smart mixes).
+- [moon] **A sleep timer.** The moon at the foot of the player stops the music after 15, 30, or 45 minutes, an hour, or at the end of the song or the album, fading out over the last minute. It stays lit while it runs, with the time left beside it and on the Lock Screen.
+- [speed] **Speed and pitch.** From the player's ••• menu: play a song from half to twice as fast, keep its pitch or let it rise, and move it up or down in semitones, for every song or only this one.
+- [history] **Your year in music.** Your hours, plays, and new songs, the year by month, your top artist, and your top songs, a card at a time, from Listening history (and on Home in December). Save it as a picture, make a playlist of it, or play your top 50.
+- [lyrics] **Time the lyrics.** −0.2 s, +0.2 s, Redo line, and Undo fix the line you just tapped; Time Each Word in the ••• menu times each word.
+- [albums] **What makes an album.** Songs without an album artist but tagged as a compilation are one album by Various Artists, and with Folder, a folder's songs with one album name are one album. Settings › Library › Albums; your files never change.
+
 # 1.8.0
 Navidrome built in, a Radio tab, moving covers, and calmer Settings.
 ! **Navidrome and Subsonic, built in.** Sign in to your music server in Settings › Music server, with no plugin to add. Its songs show with your own, with a small server icon beside the artist (turn it off in Settings › Appearance › Mark server songs). Long lists load faster.

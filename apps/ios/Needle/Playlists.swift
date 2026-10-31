@@ -17,6 +17,8 @@ struct PlaylistView: View {
     @State private var selected = Set<String>()
     /// The playlist as it is now (its picture, after a change).
     @State private var current: Playlist?
+    /// Scrolled past the picture and name: the bar shows the name.
+    @State private var pastHeader = false
 
     var body: some View {
         let songs = detail?.songs ?? []
@@ -28,14 +30,14 @@ struct PlaylistView: View {
                     .clipShape(.rect(cornerRadius: 18))
                     .shadow(color: .black.opacity(0.4), radius: 20, y: 12)
                     .padding(.bottom, 10)
-                Text(detail?.name ?? playlist.name).font(.title2.bold()).multilineTextAlignment(.center)
+                Text(detail?.name ?? playlist.name).font(.needle(.title2).bold()).multilineTextAlignment(.center)
                 if let words = detail?.description, !words.isEmpty {
-                    Text(words).font(.subheadline).foregroundStyle(.secondary).multilineTextAlignment(.center)
+                    Text(words).font(.needle(.subheadline)).foregroundStyle(.secondary).multilineTextAlignment(.center)
                 }
                 if let rule = detail?.rule {
-                    Label(rule, systemImage: "gearshape.2").font(.caption).foregroundStyle(.secondary)
+                    Label(rule, systemImage: "gearshape.2").font(.needle(.caption)).foregroundStyle(.secondary)
                 }
-                Text(count(songs.count, "song") + " · " + clock(songs.reduce(0) { $0 + $1.duration })).font(.footnote).foregroundStyle(.secondary)
+                Text(count(songs.count, "song") + " · " + clock(songs.reduce(0) { $0 + $1.duration })).font(.needle(.footnote)).foregroundStyle(.secondary)
                 if !songs.isEmpty { PlayButtons(songs: songs).padding(.top, 8) }
             }
             .frame(maxWidth: .infinity)
@@ -65,6 +67,10 @@ struct PlaylistView: View {
             })
         }
         .listStyle(.plain)
+        .onScrollGeometryChange(for: Bool.self) { $0.contentOffset.y > 300 } action: { _, past in
+            withAnimation(.easeOut(duration: 0.2)) { pastHeader = past }
+        }
+        .navigationTitle(pastHeader ? (detail?.name ?? playlist.name) : "")
         .navigationBarTitleDisplayMode(.inline)
         .themed()
         .toolbar {
@@ -89,7 +95,7 @@ struct PlaylistView: View {
                         }
                         Button("Export as a playlist file", systemImage: "square.and.arrow.up") { export() }
                         Divider()
-                        Button("Delete playlist", systemImage: "trash", role: .destructive) { deleting = true }
+                        Button("Delete Playlist", systemImage: "trash", role: .destructive) { deleting = true }
                     } label: { Image(systemName: "ellipsis") }
                 }
             }
@@ -112,7 +118,7 @@ struct PlaylistView: View {
         }
         .fileMover(isPresented: $moving, file: exported) { _ in }
         .confirmationDialog("Delete “\(playlist.name)”?", isPresented: $deleting, titleVisibility: .visible) {
-            Button("Delete playlist", role: .destructive) {
+            Button("Delete Playlist", role: .destructive) {
                 let id = playlist.id
                 Task {
                     if await store.ask({ try $0.deletePlaylist(id: id) }) != nil {
@@ -179,7 +185,7 @@ struct PlaylistEditor: View {
                         TextField("rating is at least 4", text: $rule, axis: .vertical)
                             .textInputAutocapitalization(.never)
                             .autocorrectionDisabled()
-                            .font(.body.monospaced())
+                            .font(.needle(.body).monospaced())
                         if !hints.isEmpty {
                             ScrollView(.horizontal) {
                                 HStack {
@@ -191,7 +197,7 @@ struct PlaylistEditor: View {
                             }
                             .scrollIndicators(.hidden)
                         }
-                        if let problem { Text(problem).font(.caption).foregroundStyle(.red) }
+                        if let problem { Text(problem).font(.needle(.caption)).foregroundStyle(.red) }
                     }
                 } footer: {
                     if smart || detail?.rule != nil {
@@ -282,7 +288,7 @@ struct AddToPlaylistView: View {
                 }
             }
         }
-        .navigationTitle(songs.count == 1 ? "Add to a playlist" : "Add \(songs.count) songs")
+        .navigationTitle(songs.count == 1 ? "Add to Playlist" : "Add \(songs.count) songs")
         .navigationBarTitleDisplayMode(.inline)
         .themed()
         .toolbar { ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } } }
@@ -302,14 +308,14 @@ struct SelectionActions: ToolbarContent {
             Button("Play Next", systemImage: "text.line.first.and.arrowtriangle.forward") { store.playNext(songs) }
             Button("Add to Queue", systemImage: "text.line.last.and.arrowtriangle.forward") { store.enqueue(songs) }
             Menu {
-                Button("Add to a playlist", systemImage: "music.note.list") { store.sheet = .addToPlaylist(songs) }
-                Button("Favourite", systemImage: "star") {
+                Button("Add to Playlist", systemImage: "music.note.list") { store.sheet = .addToPlaylist(songs) }
+                Button("Favorite", systemImage: "star") {
                     let ids = songs.map(\.id)
                     Task {
                         _ = await store.ask { core in for id in ids where !core.isFavorite(id: id) { _ = try core.toggleFavorite(id: id) } }
                         store.ratingsChanged()
                     }
-                    store.message = "Added to Favourites"
+                    store.message = "Added to Favorites"
                 }
                 if songs.contains(where: \.fromServer) {
                     Button("Keep offline", systemImage: "arrow.down.circle") { store.keepOffline(songs.filter(\.fromServer), keep: true) }

@@ -25,6 +25,8 @@ struct Sidebar: View {
                     }
                 item("Recently added", "clock", .recent)
                 item("Listening history", "chart.line.uptrend.xyaxis", .history)
+                item("Genre map", "circle.hexagongrid", .genreMap)
+                item("Library in numbers", "chart.bar", .numbers)
                 ForEach(store.settings.layout.collections, id: \.self) { key in
                     if let c = Collections.find(key) {
                         item(c.name, c.icon, .collection(key))
@@ -62,7 +64,7 @@ struct Sidebar: View {
                 }
                 if store.playlists.isEmpty && !rail {
                     Text("Save a search or a set of tracks and it will appear here.")
-                        .font(.caption)
+                        .font(.needle(.caption))
                         .foregroundStyle(.secondary)
                         .selectionDisabled()
                 }
@@ -118,8 +120,8 @@ struct Sidebar: View {
                     if !rail {
                         VStack(alignment: .leading, spacing: 1) {
                             Text(store.scan.scanned == 0 ? "Importing…" : "Importing · \(store.scan.scanned.formatted()) files")
-                                .font(.callout.weight(.medium))
-                            Text(store.scan.current).font(.caption).foregroundStyle(.secondary).lineLimit(1).truncationMode(.middle)
+                                .font(.needle(.callout).weight(.medium))
+                            Text(store.scan.current).font(.needle(.caption)).foregroundStyle(.secondary).lineLimit(1).truncationMode(.middle)
                         }
                     }
                 }
@@ -174,7 +176,7 @@ struct SidebarLabel: LabelStyle {
     let rail: Bool
     func makeBody(configuration: Configuration) -> some View {
         if rail {
-            configuration.icon.font(.title3).frame(maxWidth: .infinity)
+            configuration.icon.font(.needle(.title3)).frame(maxWidth: .infinity)
         } else {
             Label(configuration)
         }
@@ -195,7 +197,7 @@ struct PlaylistRow: View {
                 Text(playlist.name).lineLimit(1)
                 if playlist.smart {
                     Spacer()
-                    Image(systemName: "sparkles").font(.caption2).foregroundStyle(.secondary)
+                    Image(systemName: "sparkles").font(.needle(.caption2)).foregroundStyle(.secondary)
                 }
             }
         }
@@ -283,6 +285,8 @@ struct Rail: View {
                         }
                     page("Recently added", "clock", .recent)
                     page("Listening history", "chart.line.uptrend.xyaxis", .history)
+                    page("Genre map", "circle.hexagongrid", .genreMap)
+                    page("Library in numbers", "chart.bar", .numbers)
                     ForEach(store.settings.layout.collections, id: \.self) { key in
                         if let c = Collections.find(key) { page(c.name, c.icon, .collection(key)) }
                     }

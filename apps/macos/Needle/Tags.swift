@@ -39,7 +39,7 @@ struct TagSheet: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
-            Text(ids.count == 1 ? "Edit tags" : "Edit tags on \(ids.count) tracks").font(.title2.weight(.semibold))
+            Text(ids.count == 1 ? "Edit tags" : "Edit tags on \(ids.count) tracks").font(.needle(.title2).weight(.semibold))
             if streamed {
                 Text("Songs on a music server cannot be edited here. Change them on the server, or save them to your music first.")
                     .foregroundStyle(store.colors.danger)
@@ -54,16 +54,16 @@ struct TagSheet: View {
             .disabled(saving || streamed)
             Text(ids.count == 1 ? "Saving writes to the file. Needle keeps a backup and checks the audio is unchanged."
                                 : "Only fields you change are written. Each file is backed up and checked so its audio stays identical.")
-                .font(.caption).foregroundStyle(.secondary)
+                .font(.needle(.caption)).foregroundStyle(.secondary)
             if let progress {
                 VStack(alignment: .leading, spacing: 4) {
-                    Text("Writing tags and checking the audio is unchanged… \(progress.done) of \(progress.total)").font(.caption)
+                    Text("Writing tags and checking the audio is unchanged… \(progress.done) of \(progress.total)").font(.needle(.caption))
                     ProgressView(value: Double(progress.done), total: Double(max(1, progress.total)))
                 }
             }
             if ids.count == 1 && !backups.isEmpty {
                 VStack(alignment: .leading, spacing: 6) {
-                    Text("Earlier versions of this file").font(.callout.weight(.medium))
+                    Text("Earlier versions of this file").font(.needle(.callout).weight(.medium))
                     ForEach(backups, id: \.createdAt) { backup in
                         HStack {
                             Text(Date(timeIntervalSince1970: TimeInterval(backup.createdAt)).formatted(date: .abbreviated, time: .shortened))
@@ -72,7 +72,7 @@ struct TagSheet: View {
                             Button("Restore") { restore(backup) }
                                 .help("Put this version back. The current file is backed up first, so this can be undone too.")
                         }
-                        .font(.callout)
+                        .font(.needle(.callout))
                     }
                 }
             }

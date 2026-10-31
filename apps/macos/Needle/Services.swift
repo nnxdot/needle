@@ -52,7 +52,7 @@ struct ServicesSettings: View {
             GroupHeader(title: "Identifying songs")
         } footer: {
             Text("Keys and sessions are kept in the Keychain. Nothing is sent until you connect and turn on a service.")
-                .font(.caption).foregroundStyle(.secondary)
+                .font(.needle(.caption)).foregroundStyle(.secondary)
         }
     }
 
@@ -75,7 +75,7 @@ struct ServicesSettings: View {
         let color: Color = state?.rejected != nil ? store.plainColors.danger : state?.configured == true ? store.plainColors.success : store.plainColors.line
         return HStack(spacing: 6) {
             Circle().fill(color).frame(width: 7, height: 7)
-            Text(text).font(.callout).foregroundStyle(.secondary)
+            Text(text).font(.needle(.callout)).foregroundStyle(.secondary)
         }
     }
 
@@ -83,13 +83,13 @@ struct ServicesSettings: View {
     private func queue(_ q: ServiceInfo.Queue?, service: String) -> some View {
         if let q {
             if q.pending == 0 && q.failed == 0 && q.signInRequired == nil {
-                if q.sent > 0 { Text("\(q.sent) listens sent").font(.caption).foregroundStyle(.secondary) }
+                if q.sent > 0 { Text("\(q.sent) listens sent").font(.needle(.caption)).foregroundStyle(.secondary) }
             } else {
                 HStack {
                     Text([q.pending > 0 ? "\(q.pending) waiting to send" : nil, q.failed > 0 ? "\(q.failed) failed" : nil].compactMap { $0 }.joined(separator: " · "))
-                        .font(.caption)
+                        .font(.needle(.caption))
                     if let error = q.signInRequired ?? q.lastError {
-                        Text(error).font(.caption).foregroundStyle(store.plainColors.danger).lineLimit(1)
+                        Text(error).font(.needle(.caption)).foregroundStyle(store.plainColors.danger).lineLimit(1)
                     }
                     if q.failed > 0 {
                         Button("Retry failed") {
@@ -133,7 +133,7 @@ struct ServicesSettings: View {
             if !configured && (open || pending != nil) {
                 if let pending {
                     VStack(alignment: .leading, spacing: 8) {
-                        Text("Approve Needle in the Last.fm page that just opened, then press Continue.").font(.callout)
+                        Text("Approve Needle in the Last.fm page that just opened, then press Continue.").font(.needle(.callout))
                         HStack {
                             Button(busy ? "Checking…" : "Continue") { lastfmContinue() }.buttonStyle(.borderedProminent).disabled(busy)
                             Button("Open the page again") { openWebPage(pending) }
@@ -145,7 +145,7 @@ struct ServicesSettings: View {
                 } else {
                     if info?.status.lastfmApp.configured != true {
                         Text("Needle needs a Last.fm API account to sign in. Create one at last.fm/api/account/create, then paste its key and shared secret.")
-                            .font(.callout).foregroundStyle(.secondary)
+                            .font(.needle(.callout)).foregroundStyle(.secondary)
                         HStack {
                             TextField("API key", text: $lastfmKey, prompt: Text("Last.fm API key")).labelsHidden()
                             SecureField("Shared secret", text: $lastfmSecret, prompt: Text("Shared secret")).labelsHidden()
@@ -183,7 +183,7 @@ struct ServicesSettings: View {
                     .help("Submit qualified listens to ListenBrainz")
             }
             if !configured && open {
-                Text("Paste the user token from listenbrainz.org/settings.").font(.callout).foregroundStyle(.secondary)
+                Text("Paste the user token from listenbrainz.org/settings.").font(.needle(.callout)).foregroundStyle(.secondary)
                 HStack {
                     SecureField("Token", text: $token, prompt: Text("ListenBrainz user token")).labelsHidden().textFieldStyle(.roundedBorder)
                     Button(busy ? "Checking…" : "Connect") {
@@ -216,7 +216,7 @@ struct ServicesSettings: View {
                 RowIcon(name: "waveform.badge.magnifyingglass")
                 VStack(alignment: .leading, spacing: 3) {
                     Text("AcoustID")
-                    Text("Identifies songs by their sound.").font(.callout).foregroundStyle(.secondary)
+                    Text("Identifies songs by their sound.").font(.needle(.callout)).foregroundStyle(.secondary)
                     line(state)
                 }
                 Spacer()
@@ -230,7 +230,7 @@ struct ServicesSettings: View {
                 }
             }
             if state?.configured != true && open {
-                Text("A free application key from acoustid.org.").font(.callout).foregroundStyle(.secondary)
+                Text("A free application key from acoustid.org.").font(.needle(.callout)).foregroundStyle(.secondary)
                 HStack {
                     SecureField("Key", text: $acoustid, prompt: Text("AcoustID application key")).labelsHidden().textFieldStyle(.roundedBorder)
                     Button("Save key") {
@@ -356,7 +356,7 @@ struct PluginsSettings: View {
             GroupHeader(title: "Plugins", detail: "Add features with small scripts. Each plugin lists what it may do. Music servers are in Settings › Library.")
         } footer: {
             Text("Plugins are Rhai scripts in their own folders. Nothing runs until you turn it on. Learn to write one at needle.nnx.fyi/plugins.")
-                .font(.caption).foregroundStyle(.secondary)
+                .font(.needle(.caption)).foregroundStyle(.secondary)
         }
         .task {
             store.reloadPlugins()
@@ -376,18 +376,18 @@ private struct PluginCard: View {
             HStack(alignment: .top) {
                 VStack(alignment: .leading, spacing: 2) {
                     HStack(spacing: 6) {
-                        Text(plugin.name).font(.body.weight(.semibold))
-                        Text(plugin.version).font(.caption).foregroundStyle(.secondary)
+                        Text(plugin.name).font(.needle(.body).weight(.semibold))
+                        Text(plugin.version).font(.needle(.caption)).foregroundStyle(.secondary)
                         Text(plugin.official ? "Official" : "Community")
-                            .font(.caption2.weight(.medium))
+                            .font(.needle(.caption2).weight(.medium))
                             .padding(.horizontal, 6).padding(.vertical, 1)
                             .background(plugin.official ? store.plainColors.accentSoft : store.plainColors.raised, in: Capsule())
                         if plugin.verified {
                             Image(systemName: "checkmark.seal.fill").foregroundStyle(store.plainColors.accent).help("Verified: comes with Needle and is unchanged")
                         }
                     }
-                    if !plugin.author.isEmpty { Text("By \(plugin.author)").font(.caption).foregroundStyle(.secondary) }
-                    Text(plugin.description).font(.callout).foregroundStyle(.secondary)
+                    if !plugin.author.isEmpty { Text("By \(plugin.author)").font(.needle(.caption)).foregroundStyle(.secondary) }
+                    Text(plugin.description).font(.needle(.callout)).foregroundStyle(.secondary)
                 }
                 Spacer()
                 RowToggle(label: plugin.name, isOn: Binding(get: { plugin.enabled }, set: { on in
@@ -398,16 +398,16 @@ private struct PluginCard: View {
                 .help("Turning it on allows everything listed below.")
             }
             if let error = plugin.error {
-                Text(error).font(.caption).foregroundStyle(store.plainColors.danger)
+                Text(error).font(.needle(.caption)).foregroundStyle(store.plainColors.danger)
             }
             Text(plugin.permissions.isEmpty ? "Needs no permissions." : plugin.permissions.joined(separator: " · "))
-                .font(.caption).foregroundStyle(.secondary)
-            if plugin.findsLyrics { Text("Finds lyrics").font(.caption).foregroundStyle(.secondary) }
-            if !plugin.effects.isEmpty { Text("Adds to Sound › Effects: \(plugin.effects.joined(separator: ", ")).").font(.caption).foregroundStyle(.secondary) }
+                .font(.needle(.caption)).foregroundStyle(.secondary)
+            if plugin.findsLyrics { Text("Finds lyrics").font(.needle(.caption)).foregroundStyle(.secondary) }
+            if !plugin.effects.isEmpty { Text("Adds to Sound › Effects: \(plugin.effects.joined(separator: ", ")).").font(.needle(.caption)).foregroundStyle(.secondary) }
             if let update {
                 HStack {
                     Text("Version \(update) is out. You changed this plugin, so Needle left it alone. Updating keeps your changed files next to it as .mine files.")
-                        .font(.caption)
+                        .font(.needle(.caption))
                     Button("Update") { store.core.pluginUpdate(id: plugin.id, take: true); refresh() }
                     Button("Keep mine") { store.core.pluginUpdate(id: plugin.id, take: false); refresh() }
                 }
@@ -475,7 +475,7 @@ private struct SourceCard: View {
             HStack(spacing: 14) {
                 ServerBadge()
                 VStack(alignment: .leading, spacing: 3) {
-                    Text(source.name).font(.title3.weight(.semibold))
+                    Text(source.name).font(.needle(.title3).weight(.semibold))
                     status(source)
                 }
                 Spacer()
@@ -521,7 +521,7 @@ private struct SourceCard: View {
                 }
             }
             if let error = source.error {
-                Text(error).font(.caption).foregroundStyle(store.plainColors.danger)
+                Text(error).font(.needle(.caption)).foregroundStyle(store.plainColors.danger)
             }
             HStack {
                 Spacer()
@@ -538,17 +538,17 @@ private struct SourceCard: View {
             HStack(spacing: 6) {
                 ProgressView().controlSize(.mini)
                 Text(source.received > 0 ? "Updating the song list… \(source.received.formatted()) so far" : "Asking the server for its songs…")
-                    .font(.callout).foregroundStyle(.secondary)
+                    .font(.needle(.callout)).foregroundStyle(.secondary)
             }
         } else if let error = source.error {
             HStack(spacing: 6) {
                 Circle().fill(store.plainColors.danger).frame(width: 7, height: 7)
-                Text("Can't reach the server").font(.callout).foregroundStyle(store.plainColors.danger).help(error)
+                Text("Can't reach the server").font(.needle(.callout)).foregroundStyle(store.plainColors.danger).help(error)
             }
         } else {
             HStack(spacing: 6) {
                 Circle().fill(store.plainColors.success).frame(width: 7, height: 7)
-                Text("Connected").font(.callout).foregroundStyle(.secondary)
+                Text("Connected").font(.needle(.callout)).foregroundStyle(.secondary)
             }
         }
     }
@@ -561,7 +561,7 @@ private struct SourceCard: View {
                 RowIcon(name: "server.rack")
                 VStack(alignment: .leading, spacing: 2) {
                     Text(source.name)
-                    Text("Not signed in. Your server's songs show with your own.").font(.callout).foregroundStyle(.secondary).lineLimit(1)
+                    Text("Not signed in. Your server's songs show with your own.").font(.needle(.callout)).foregroundStyle(.secondary).lineLimit(1)
                 }
                 Spacer()
                 if !signingIn {
@@ -571,7 +571,7 @@ private struct SourceCard: View {
             if signingIn {
                 signInForm(source)
             } else if let error = source.error {
-                Text(error).font(.caption).foregroundStyle(store.plainColors.danger)
+                Text(error).font(.needle(.caption)).foregroundStyle(store.plainColors.danger)
             }
         }
     }
@@ -582,7 +582,7 @@ private struct SourceCard: View {
     private func signInForm(_ source: MusicSource) -> some View {
         let p = store.plainColors
         return VStack(alignment: .leading, spacing: 12) {
-            Text("Navidrome, Airsonic, Gonic, and other Subsonic servers.").font(.caption).foregroundStyle(.secondary)
+            Text("Navidrome, Airsonic, Gonic, and other Subsonic servers.").font(.needle(.caption)).foregroundStyle(.secondary)
             Grid(alignment: .leading, horizontalSpacing: 10, verticalSpacing: 8) {
                 ForEach(source.fields, id: \.id) { field in
                     GridRow {
@@ -607,10 +607,10 @@ private struct SourceCard: View {
                 }
             }
             if let error = source.error {
-                Text(error).font(.caption).foregroundStyle(p.danger)
+                Text(error).font(.needle(.caption)).foregroundStyle(p.danger)
             }
             HStack(alignment: .center) {
-                Text("Passwords are kept in the Keychain, not in Needle's files.").font(.caption).foregroundStyle(.secondary)
+                Text("Passwords are kept in the Keychain, not in Needle's files.").font(.needle(.caption)).foregroundStyle(.secondary)
                 Spacer(minLength: 12)
                 Button("Cancel") { signingIn = false }
                     .keyboardShortcut(.cancelAction)
@@ -702,9 +702,9 @@ private struct Stat: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
-            Image(systemName: symbol).font(.caption).foregroundStyle(.secondary)
-            Text(value).font(.title3.weight(.semibold)).monospacedDigit().lineLimit(1).minimumScaleFactor(0.7)
-            Text(label).font(.caption).foregroundStyle(.secondary)
+            Image(systemName: symbol).font(.needle(.caption)).foregroundStyle(.secondary)
+            Text(value).font(.needle(.title3).weight(.semibold)).monospacedDigit().lineLimit(1).minimumScaleFactor(0.7)
+            Text(label).font(.needle(.caption)).foregroundStyle(.secondary)
         }
         .padding(10)
         .frame(maxWidth: .infinity, alignment: .leading)

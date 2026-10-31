@@ -38,7 +38,7 @@ struct DuplicatesView: View {
                                 VStack(alignment: .leading) {
                                     Text(song.title)
                                     Text("\(song.format) · \(clock(song.duration)) · \((set.paths[safe: i] as NSString?)?.lastPathComponent ?? "")")
-                                        .font(.caption).foregroundStyle(.secondary).lineLimit(1)
+                                        .font(.needle(.caption)).foregroundStyle(.secondary).lineLimit(1)
                                 }
                             }
                         }
@@ -117,7 +117,7 @@ struct MissingCoversView: View {
                     ForEach(songs) { song in
                         VStack(alignment: .leading) {
                             Text(song.album.isEmpty ? song.title : song.album)
-                            Text(song.artist).font(.caption).foregroundStyle(.secondary)
+                            Text(song.artist).font(.needle(.caption)).foregroundStyle(.secondary)
                         }
                     }
                 }
@@ -143,8 +143,8 @@ struct AlbumProblemsView: View {
             Button { fixing = album } label: {
                 VStack(alignment: .leading, spacing: 2) {
                     Text(album.album).foregroundStyle(.primary)
-                    Text(album.artist).font(.subheadline).foregroundStyle(.secondary)
-                    Text(album.problems.joined(separator: " · ")).font(.caption).foregroundStyle(.orange)
+                    Text(album.artist).font(.needle(.subheadline)).foregroundStyle(.secondary)
+                    Text(album.problems.joined(separator: " · ")).font(.needle(.caption)).foregroundStyle(.orange)
                 }
             }
         }
@@ -191,10 +191,10 @@ struct ReleasesView: View {
             } label: {
                 VStack(alignment: .leading, spacing: 2) {
                     Text(release.title).foregroundStyle(.primary)
-                    Text(release.artist).font(.subheadline).foregroundStyle(.secondary)
+                    Text(release.artist).font(.needle(.subheadline)).foregroundStyle(.secondary)
                     Text([release.year > 0 ? String(release.year) : nil, release.country.isEmpty ? nil : release.country, release.format.isEmpty ? nil : release.format,
                           "\(release.matched) of \(release.tracks) songs found"].compactMap { $0 }.joined(separator: " · "))
-                        .font(.caption).foregroundStyle(.secondary)
+                        .font(.needle(.caption)).foregroundStyle(.secondary)
                 }
             }
         }
@@ -238,7 +238,7 @@ struct TidyView: View {
                     LabeledContent("Files that move", value: plan.moves.formatted())
                     LabeledContent("Already in place", value: plan.inPlace.formatted())
                     if plan.skipped > 0 { LabeledContent("Left as they are", value: plan.skipped.formatted()) }
-                    ForEach(plan.examples, id: \.self) { Text($0).font(.caption).foregroundStyle(.secondary) }
+                    ForEach(plan.examples, id: \.self) { Text($0).font(.needle(.caption)).foregroundStyle(.secondary) }
                     Button("Move the files") {
                         Task {
                             result = await store.ask { try $0.tidy() }
@@ -254,7 +254,7 @@ struct TidyView: View {
                 Section("Done") {
                     Text("Moved \(count(Int(result.moved), "file"))")
                     ForEach(result.failures, id: \.path) { f in
-                        Text("\((f.path as NSString).lastPathComponent): \(f.reason)").font(.caption).foregroundStyle(.red)
+                        Text("\((f.path as NSString).lastPathComponent): \(f.reason)").font(.needle(.caption)).foregroundStyle(.red)
                     }
                 }
             }
@@ -416,8 +416,8 @@ struct IdentifyView: View {
                     } label: {
                         VStack(alignment: .leading, spacing: 2) {
                             Text(match.title).foregroundStyle(.primary)
-                            Text("\(match.artist) · \(match.album)").font(.subheadline).foregroundStyle(.secondary)
-                            Text("\(match.score)% sure").font(.caption).foregroundStyle(.secondary)
+                            Text("\(match.artist) · \(match.album)").font(.needle(.subheadline)).foregroundStyle(.secondary)
+                            Text("\(match.score)% sure").font(.needle(.caption)).foregroundStyle(.secondary)
                         }
                     }
                 }
@@ -495,10 +495,10 @@ struct ImportView: View {
     private func card(_ title: String, _ detail: String, _ symbol: String, _ which: String) -> some View {
         Button { kind = which } label: {
             HStack(spacing: 14) {
-                Image(systemName: symbol).font(.title3).foregroundStyle(.tint).frame(width: 30)
+                Image(systemName: symbol).font(.needle(.title3)).foregroundStyle(.tint).frame(width: 30)
                 VStack(alignment: .leading, spacing: 2) {
                     Text(title).foregroundStyle(.primary)
-                    Text(detail).font(.caption).foregroundStyle(.secondary)
+                    Text(detail).font(.needle(.caption)).foregroundStyle(.secondary)
                 }
             }
         }

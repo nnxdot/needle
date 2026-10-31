@@ -22,7 +22,7 @@ struct HistoryPage: View {
                         Text("Every listen is recorded on this Mac, even offline.").foregroundStyle(colors.ink2)
                     }
                     Spacer()
-                    Button { store.navigate(.wrapped(Calendar.current.component(.year, from: Date()))) } label: {
+                    Button { store.navigate(.wrapped(store.reviewYear)) } label: {
                         Label("Your year in music", systemImage: "sparkles")
                     }
                     .glassButton()
@@ -39,7 +39,7 @@ struct HistoryPage: View {
                 if let s = stats {
                     if s.listens == 0 {
                         VStack(spacing: 8) {
-                            Text("Your listening story starts here").font(.title3.weight(.medium))
+                            Text("Your listening story starts here").font(.needle(.title3).weight(.medium))
                             Text("Play something. Every listen is recorded on this Mac, even offline.").foregroundStyle(.secondary)
                         }
                         .frame(maxWidth: .infinity)
@@ -54,7 +54,7 @@ struct HistoryPage: View {
                         HStack(alignment: .top, spacing: 20) {
                             if s.days.count > 1 {
                                 VStack(alignment: .leading, spacing: 8) {
-                                    Text(s.days.count > 60 ? "Listening per week" : "Listening per day").font(.headline)
+                                    Text(s.days.count > 60 ? "Listening per week" : "Listening per day").font(.needle(.headline))
                                     Chart(s.days, id: \.date) { day in
                                         BarMark(x: .value("Day", day.date), y: .value("Minutes", day.seconds / 60))
                                             .foregroundStyle(colors.accent.gradient)
@@ -66,7 +66,7 @@ struct HistoryPage: View {
                             }
                             if s.hours.contains(where: { $0 > 0 }) {
                                 VStack(alignment: .leading, spacing: 8) {
-                                    Text("Time of day").font(.headline)
+                                    Text("Time of day").font(.needle(.headline))
                                     Chart(Array(s.hours.enumerated()), id: \.offset) { hour, seconds in
                                         BarMark(x: .value("Hour", hour), y: .value("Minutes", seconds / 60))
                                             .foregroundStyle(colors.accent.opacity(0.75))
@@ -93,7 +93,7 @@ struct HistoryPage: View {
                     ProgressView().frame(maxWidth: .infinity).padding(30)
                 }
                 if !items.isEmpty {
-                    Text("Every listen, newest first").font(.title3.weight(.semibold))
+                    Text("Every listen, newest first").font(.needle(.title3).weight(.semibold))
                     LazyVStack(alignment: .leading, spacing: 2) {
                         ForEach(Array(runs.enumerated()), id: \.offset) { i, run in
                             listen(run.item, plays: run.count)
@@ -160,13 +160,13 @@ struct HistoryPage: View {
             VStack(alignment: .leading, spacing: 1) {
                 HStack(spacing: 6) {
                     Text(item.title).lineLimit(1).foregroundStyle(item.song == nil ? .secondary : .primary)
-                    if plays > 1 { Text("×\(plays)").font(.caption).foregroundStyle(.secondary) }
+                    if plays > 1 { Text("×\(plays)").font(.needle(.caption)).foregroundStyle(.secondary) }
                 }
-                Text("\(item.artist) · \(item.album)").font(.caption).foregroundStyle(store.colors.ink2).lineLimit(1)
+                Text("\(item.artist) · \(item.album)").font(.needle(.caption)).foregroundStyle(store.colors.ink2).lineLimit(1)
             }
             Spacer()
-            if !item.counted { Text("skipped").font(.caption2).foregroundStyle(.tertiary) }
-            Text(when(item.startedAt)).font(.caption).foregroundStyle(.secondary)
+            if !item.counted { Text("skipped").font(.needle(.caption2)).foregroundStyle(.tertiary) }
+            Text(when(item.startedAt)).font(.needle(.caption)).foregroundStyle(.secondary)
         }
         .padding(.vertical, 4)
         .contentShape(Rectangle())
@@ -187,8 +187,8 @@ struct HistoryPage: View {
 
     private func figure(_ value: String, _ label: String) -> some View {
         VStack(alignment: .leading, spacing: 2) {
-            Text(value).font(.title2.bold())
-            Text(label).font(.callout).foregroundStyle(.secondary)
+            Text(value).font(.needle(.title2).bold())
+            Text(label).font(.needle(.callout)).foregroundStyle(.secondary)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(14)
@@ -213,17 +213,17 @@ struct HistoryPage: View {
     private func ranked(_ title: String, _ list: [Ranked], play: ((Ranked) -> Void)?) -> some View {
         if !list.isEmpty {
             VStack(alignment: .leading, spacing: 8) {
-                Text(title).font(.headline)
+                Text(title).font(.needle(.headline))
                 ForEach(Array(list.prefix(10).enumerated()), id: \.offset) { i, r in
                     HStack(spacing: 10) {
-                        Text("\(i + 1)").font(.callout.monospacedDigit()).foregroundStyle(.secondary).frame(width: 20)
+                        Text("\(i + 1)").font(.needle(.callout).monospacedDigit()).foregroundStyle(.secondary).frame(width: 20)
                         Cover(path: r.artwork, seed: r.album + r.artist, side: 34, corner: 4)
                         VStack(alignment: .leading, spacing: 1) {
                             Text(name(r)).lineLimit(1)
-                            if r.artist != name(r) && !r.artist.isEmpty { Text(r.artist).font(.caption).foregroundStyle(.secondary).lineLimit(1) }
+                            if r.artist != name(r) && !r.artist.isEmpty { Text(r.artist).font(.needle(.caption)).foregroundStyle(.secondary).lineLimit(1) }
                         }
                         Spacer()
-                        Text("\(r.plays)×").font(.caption).foregroundStyle(.secondary)
+                        Text("\(r.plays)×").font(.needle(.caption)).foregroundStyle(.secondary)
                     }
                     .contentShape(Rectangle())
                     .onTapGesture(count: 2) { open(r, play) }
@@ -237,132 +237,3 @@ struct HistoryPage: View {
     }
 }
 
-/// A year of listening, told back.
-struct WrappedPage: View {
-    private var store: Store { .shared }
-    let year: Int
-    @State private var years: [Int32] = []
-    @State private var wrapped: Wrapped?
-    @State private var loading = true
-
-    var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 18) {
-                HStack {
-                    Text("Your \(String(year)) in music").font(store.display(32))
-                    Spacer()
-                    if years.count > 1 {
-                        Picker("Year", selection: Binding(get: { Int32(year) }, set: { store.navigate(.wrapped(Int($0))) })) {
-                            ForEach(years, id: \.self) { Text(String($0)).tag($0) }
-                        }
-                        .fixedSize()
-                    }
-                }
-                if loading {
-                    HStack { ProgressView().controlSize(.small); Text("Gathering your year…").foregroundStyle(.secondary) }
-                } else if let w = wrapped, w.stats.listens > 0 {
-                    LazyVGrid(columns: [GridItem(.adaptive(minimum: 300), spacing: 16)], spacing: 16) {
-                        card("Your \(w.year) in music", "You spent \(longTime(w.stats.seconds)) with music", "\(count(Int(w.stats.songs), "song")) by \(count(Int(w.stats.artists), "artist")).")
-                        if let artist = w.stats.topArtists.first {
-                            card("Your artist of the year", artist.artist, "\(count(Int(artist.plays), "play")), \(longTime(artist.seconds)).")
-                        }
-                        if let album = w.stats.topAlbums.first {
-                            card("Albums you lived in", album.album, w.stats.topAlbums.dropFirst().prefix(2).map(\.album).joined(separator: ", "))
-                        }
-                        if !w.newArtists.isEmpty {
-                            card("New to you", w.newArtists.prefix(3).joined(separator: ", "), "Artists you first played in \(w.year).")
-                        }
-                        if let day = w.busiestDay {
-                            card("Your biggest day", day.date, longTime(day.seconds) + " of music.")
-                        }
-                        if w.streak > 1 { card("Your longest streak", "\(w.streak) days", "Days with music, in a row.") }
-                        if let hour = w.peakHour {
-                            card("Your rhythm", rhythm(Int(hour)), "You listen most around \(hour):00.")
-                        }
-                        if !w.genres.isEmpty { card("What it sounded like", w.genres.prefix(3).joined(separator: ", "), "") }
-                    }
-                    if !w.topSongs.isEmpty {
-                        VStack(alignment: .leading, spacing: 8) {
-                            HStack {
-                                Text("Top songs of \(String(w.year))").font(.title3.weight(.semibold))
-                                Spacer()
-                                Button { store.play(w.topSongs.map(\.asTrack), reason: "One of your songs of the year") } label: {
-                                    Label("Play your top \(w.topSongs.count)", systemImage: "play.fill")
-                                }
-                                .glassButton(prominent: true)
-                                Button("Save as a playlist") { save(w) }.glassButton()
-                            }
-                            ForEach(Array(w.topSongs.enumerated()), id: \.offset) { i, song in
-                                HStack(spacing: 10) {
-                                    Text("\(i + 1)").monospacedDigit().foregroundStyle(.secondary).frame(width: 24)
-                                    Cover(path: song.artwork, seed: song.album + song.artist, side: 36, corner: 4)
-                                    VStack(alignment: .leading, spacing: 1) {
-                                        Text(song.title).lineLimit(1)
-                                        Text(song.artist).font(.caption).foregroundStyle(.secondary).lineLimit(1)
-                                    }
-                                    Spacer()
-                                }
-                                .contentShape(Rectangle())
-                                .onTapGesture(count: 2) { store.play(w.topSongs.map(\.asTrack), from: i, reason: "One of your songs of the year") }
-                            }
-                        }
-                    }
-                } else {
-                    Text("No listening in \(String(year)) yet. Play some music and come back.").foregroundStyle(.secondary)
-                }
-            }
-            .padding(28)
-        }
-        .task(id: year) {
-            loading = true
-            years = await store.load { try $0.wrappedYears() } ?? []
-            let y = Int32(year)
-            wrapped = await store.load { try $0.wrapped(year: y) }
-            loading = false
-        }
-    }
-
-    private func rhythm(_ hour: Int) -> String {
-        switch hour {
-        case 5..<11: "An early riser."
-        case 11..<17: "An afternoon listener."
-        case 17..<22: "An evening listener."
-        default: "A night owl."
-        }
-    }
-
-    private func card(_ kicker: String, _ title: String, _ detail: String) -> some View {
-        let p = SeedPalette(kicker + title)
-        return VStack(alignment: .leading, spacing: 6) {
-            Text(kicker.uppercased()).font(.caption.bold()).kerning(0.8).foregroundStyle(.white.opacity(0.8))
-            Text(title).font(store.display(28)).foregroundStyle(.white).lineLimit(3).minimumScaleFactor(0.6)
-            if !detail.isEmpty { Text(detail).font(.headline).foregroundStyle(.white.opacity(0.85)) }
-        }
-        .frame(maxWidth: .infinity, minHeight: 160, alignment: .bottomLeading)
-        .padding(20)
-        .background {
-            ZStack {
-                LinearGradient(colors: [p.colors[0], p.colors[1].opacity(0.75)], startPoint: .topLeading, endPoint: .bottomTrailing)
-                // The words sit at the foot: darker there, so white reads on any hue.
-                LinearGradient(colors: [.black.opacity(0.1), .black.opacity(0.55)], startPoint: .top, endPoint: .bottom)
-            }
-            .clipShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
-        }
-    }
-
-    private func save(_ w: Wrapped) {
-        var playlist = PlaylistModel.new()
-        playlist.name = "Top songs of \(w.year)"
-        playlist.trackIds = w.topSongs.map(\.id)
-        let encoder = JSONEncoder()
-        encoder.keyEncodingStrategy = .convertToSnakeCase
-        guard let data = try? encoder.encode(playlist) else { return }
-        let json = String(decoding: data, as: UTF8.self)
-        Task {
-            if await store.ask({ try $0.savePlaylistJson(json: json) }) != nil {
-                store.notify("Saved “\(playlist.name)”.")
-                store.libraryChanged()
-            }
-        }
-    }
-}
