@@ -1,7 +1,10 @@
 //! "Copy DAC details": what Needle read from a USB DAC, in words and in hex, for a report. The
 //! raw descriptors hold no strings (a name or a serial number is fetched apart), so nothing
 //! personal is in it.
-use super::descriptors::{Dac, Format, Path, Sync, Uac, listed_rates, parse, rank};
+use super::descriptors::{
+    Configuration, Dac, Format, Path, Sync, configurations, likely_configuration, listed_rates,
+    parse_active, rank,
+};
 use std::fmt::Write;
 
 /// A terminal type in words.
@@ -111,6 +114,25 @@ fn path_line(p: &Path, chosen: bool) -> String {
     )
 }
 
+/// A configuration in words.
+fn configuration_line(c: &Configuration, active: Option<u8>) -> String {
+    let class = match (c.class, c.protocol, c.function) {
+        (1, 0x30, Some(function)) if function >= 0x20 => {
+            format!("USB Audio Class 3, BADD profile {function:#04x}")
+        }
+        (1, 0x30, _) => "USB Audio Class 3".to_string(),
+        (1, 0x20, _) => "USB Audio Class 2".to_string(),
+        (1, _, _) => "USB Audio Class 1".to_string(),
+        (class, protocol, _) => format!("class {class:#04x}, protocol {protocol:#04x}"),
+    };
+    let on = if active == Some(c.value) {
+        " (active)"
+    } else {
+        ""
+    };
+    format!("Configuration {}: {class}{on}", c.value)
+}
+
 /// Every way through the DAC and its formats, one line each; `*` marks the one used.
 pub fn paths(dac: &Dac) -> Vec<String> {
     let mut lines = vec![];
@@ -125,15 +147,17 @@ pub fn paths(dac: &Dac) -> Vec<String> {
     lines
 }
 
-/// Everything known of a DAC. `speed` is Linux's number for it; `driver` is what the driver in
-/// use adds.
+/// Everything known of a DAC. `speed` is Linux's number for it, `active` the configuration it
+/// runs; `driver` is what the driver in use adds, `opened` what happened when it last opened.
 pub fn text(
     raw: &[u8],
     name: &str,
     vendor: u16,
     product: u16,
     speed_number: Option<i32>,
+    active: Option<u8>,
     driver: Option<String>,
+    opened: &str,
 ) -> String {
     let mut out = String::new();
     let _ = writeln!(out, "DAC: {name} ({vendor:04x}:{product:04x})");
@@ -142,14 +166,27 @@ pub fn text(
         "USB speed: {}",
         speed_number.map_or("not known".to_string(), speed)
     );
-    match parse(raw) {
+    let all = configurations(raw);
+    for c in &all {
+        let _ = writeln!(out, "{}", configuration_line(c, active));
+    }
+    if active.is_none() && !all.is_empty() {
+        let _ = writeln!(
+            out,
+            "Active configuration: not known, read as its likely one"
+        );
+    }
+    match parse_active(raw, active.or(likely_configuration(raw))) {
         Some(dac) => {
             let _ = writeln!(
                 out,
                 "USB Audio Class {}, audio control interface {}",
-                if dac.uac == Uac::Two { 2 } else { 1 },
+                dac.uac.number(),
                 dac.control
             );
+            if let Some(power) = dac.power {
+                let _ = writeln!(out, "Power domain: {}", power.id);
+            }
             let _ = writeln!(
                 out,
                 "Volume: {}",
@@ -171,6 +208,9 @@ pub fn text(
     if let Some(driver) = driver {
         out += &driver;
     }
+    if !opened.is_empty() {
+        let _ = writeln!(out, "When it last opened:\n{opened}");
+    }
     let _ = writeln!(out, "Raw descriptors ({} bytes):", raw.len());
     for row in raw.chunks(32) {
         let line: Vec<String> = row.iter().map(|b| format!("{b:02x}")).collect();
@@ -181,7 +221,7 @@ pub fn text(
 
 #[cfg(test)]
 mod tests {
-    use super::super::fake::{Dock, dock, uac1_descriptors};
+    use super::super::fake::{APPLE_DAC, Dock, dock, hex, uac1_descriptors};
     use super::*;
 
     #[test]
@@ -193,7 +233,9 @@ mod tests {
             0x0bda,
             0x4852,
             Some(2),
+            Some(1),
             Some("Chosen: x\n".into()),
+            "Clock 9: RANGE failed (stall)",
         );
         let has = |words: &str| assert!(text.contains(words), "{words} is not in:\n{text}");
         has("DAC: Pretend dock (0bda:4852)");
@@ -210,6 +252,8 @@ mod tests {
         );
         has("rates: a list, [44100, 48000] Hz, adaptive sync, feedback none, rate control yes");
         has("Chosen: x");
+        has("Configuration 1: USB Audio Class 1 (active)");
+        has("When it last opened:\nClock 9: RANGE failed (stall)");
         // The hex, every byte of it.
         let hex: Vec<u8> = text
             .split("bytes):\n")
@@ -224,14 +268,27 @@ mod tests {
     #[test]
     fn the_details_say_when_a_listed_rate_is_not_trusted() {
         let raw = uac1_descriptors(&[(1, &[44_100, 48_000], false)]);
-        let text = text(&raw, "Pretend DAC", 1, 2, None, None);
+        let text = text(&raw, "Pretend DAC", 1, 2, None, Some(1), None, "");
         let words = "a list, [44100, 48000] Hz, with no rate control (Needle trusts [48000])";
         assert!(text.contains(words), "{text}");
     }
 
     #[test]
+    fn the_details_of_apples_adapter_name_every_configuration() {
+        let raw = hex(APPLE_DAC);
+        let text = text(&raw, "Adapter", 0x05ac, 0x110a, Some(2), Some(2), None, "");
+        let has = |words: &str| assert!(text.contains(words), "{words} is not in:\n{text}");
+        has("Configuration 1: USB Audio Class 2\n");
+        has("Configuration 2: USB Audio Class 3, BADD profile 0x21 (active)");
+        has("Configuration 3: USB Audio Class 3\n");
+        has("USB Audio Class 3, audio control interface 0");
+        has("Power domain: 10");
+        has("a list, [48000] Hz");
+    }
+
+    #[test]
     fn descriptors_that_make_no_sense_still_give_their_hex() {
-        let text = text(&[1, 2, 3], "Odd", 1, 2, None, None);
+        let text = text(&[1, 2, 3], "Odd", 1, 2, None, None, None, "");
         assert!(text.contains("could not read"));
         assert!(text.contains("01 02 03"));
         assert!(text.contains("USB speed: not known"));

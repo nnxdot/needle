@@ -170,6 +170,23 @@ impl Drop for Usbfs {
     }
 }
 
+/// The configuration the device on Android's file `fd` runs (GET_CONFIGURATION), which takes no
+/// interface.
+pub fn active_configuration(fd: i32) -> Option<u8> {
+    let mut value = 0u8;
+    let mut t = CtrlTransfer {
+        request_type: 0x80,
+        request: 0x08,
+        value: 0,
+        index: 0,
+        length: 1,
+        timeout: 1000,
+        data: &mut value as *mut u8 as *mut c_void,
+    };
+    ioctl(fd, CONTROL, &mut t as *mut CtrlTransfer as *mut c_void).ok()?;
+    (value > 0).then_some(value)
+}
+
 /// Linux's number for the speed of the device on Android's file `fd`.
 pub fn speed(fd: i32) -> Option<i32> {
     ioctl(fd, GET_SPEED, std::ptr::null_mut()).ok()

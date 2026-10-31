@@ -273,6 +273,11 @@ object UsbDriver {
         }
     }
 
+    /** The rates Android lists for its USB output, for a DAC whose clock does not say its own. */
+    private fun androidRates(context: Context): List<UInt> =
+        context.getSystemService(AudioManager::class.java)?.getDevices(AudioManager.GET_DEVICES_OUTPUTS).orEmpty()
+            .filter(::isUsbOutput).flatMap { it.sampleRates.toList() }.map { it.toUInt() }.distinct()
+
     private fun open(context: Context, device: UsbDevice) {
         val usb = context.getSystemService(UsbManager::class.java) ?: return
         val name = nameOf(device)
@@ -291,7 +296,7 @@ object UsbDriver {
                     // The audio interfaces, from Android's own driver.
                     for (intf in audioInterfaces(device)) c.claimInterface(intf, true)
                     runCatching { core.usbDacVolume(phoneVolume(context)) }
-                    runCatching { core.usbDacOpen(c.fileDescriptor, c.rawDescriptors, name) }
+                    runCatching { core.usbDacOpen(c.fileDescriptor, c.rawDescriptors, name, androidRates(context)) }
                         .onSuccess { taken = c }
                         .onFailure {
                             NeedleLog.info("Needle's USB driver could not use $name yet: ${it.message}")

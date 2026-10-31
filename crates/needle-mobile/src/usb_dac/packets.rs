@@ -18,6 +18,12 @@ pub fn nominal(rate: u32, per_second: u32) -> u32 {
     (((rate as u64) << 16) / per_second as u64) as u32
 }
 
+/// Whether music at `rate` fits packets of up to `limit` bytes, `frame` bytes for each frame. An
+/// endpoint may be made for exactly its rate: 288 bytes is 48 kHz of 24-bit stereo in 1 ms.
+pub fn rate_fits(rate: u32, per_second: u32, frame: usize, limit: usize) -> bool {
+    (rate as usize).div_ceil(per_second.max(1) as usize) * frame <= limit
+}
+
 /// A feedback endpoint's answer in 16.16 samples per packet, or None when it makes no sense.
 /// Full speed sends 10.14 in 3 bytes and high speed 16.16 in 4, but DACs differ, so the reading
 /// closest to the nominal rate is taken, as Linux does.
@@ -123,22 +129,38 @@ fn write_sample(sample: f32, bits: u8, slot: &mut [u8]) {
     }
 }
 
+/// Decibels below the top for Needle's volume (0 to 1) on a DAC whose volume spans `range` dB.
+/// Loudness follows the ear, 40 dB for each tenth of the slider, so with a range of 60 dB or more
+/// a slider's middle is about -12 dB. A narrower range goes with a weaker output, whose bottom
+/// cannot be heard (a dock of -45 to 0 dB is silent by -40 dB), so the curve is squeezed: the
+/// phone's lowest step, 1 of 16, sits at about -30 dB, or at the bottom of a smaller range.
+fn volume_db(volume: f32, range: f32) -> f32 {
+    let wide = ((range - 45.) / 15.).clamp(0., 1.);
+    let squeeze = (0.625 + wide * 0.375).min(range / 48.);
+    40. * volume.clamp(0.001, 1.).log10() * squeeze
+}
+
 /// The DAC's volume for Needle's (0 to 1), in its own steps of 1/256 dB between `min` and
-/// `max`: loudness follows the ear (a slider's middle is about -12 dB), 0 is the quietest.
+/// `max` (see [`volume_db`]); 0 is the quietest.
 pub fn volume_steps(volume: f32, min: i16, max: i16) -> i16 {
     if volume <= 0.001 {
         return min;
     }
-    let db = 20. * volume.clamp(0.001, 1.).log10() * 2.;
-    let steps = (db * 256.).round() as i32 + max as i32;
+    let range = (max as f32 - min as f32) / 256.;
+    let steps = (volume_db(volume, range) * 256.).round() as i32 + max as i32;
     steps.clamp(min as i32, max as i32) as i16
 }
 
+/// The range [`software_gain`] takes for a DAC with no volume: the squeezed curve, as on a dock.
+const SOFTWARE_RANGE: f32 = 45.;
+
 /// How much to scale the samples for Needle's volume (0 to 1), for a DAC with no volume of its
-/// own: the same curve as [`volume_steps`], so a slider feels alike on every DAC.
+/// own: the same curve as [`volume_steps`], so a slider feels alike on every DAC; 0 is silence.
 pub fn software_gain(volume: f32) -> f32 {
-    let volume = volume.clamp(0., 1.);
-    volume * volume
+    if volume <= 0.001 {
+        return 0.;
+    }
+    10f32.powf(volume_db(volume, SOFTWARE_RANGE) / 20.)
 }
 
 /// Scales `samples` (interleaved, `channels` of them) by a gain that moves from `from` to `to`
@@ -154,6 +176,18 @@ pub fn ramp(samples: &mut [f32], channels: usize, from: f32, to: f32) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn packets_made_exactly_for_their_rate_fit() {
+        // Apple's adapter, in 1 ms packets: 24-bit and 16-bit stereo at 48 kHz.
+        assert!(rate_fits(48_000, 1000, 6, 288));
+        assert!(rate_fits(48_000, 1000, 4, 192));
+        // The dock: 16-bit stereo, 192 bytes, at both its rates.
+        assert!(rate_fits(44_100, 1000, 4, 192));
+        // Too much.
+        assert!(!rate_fits(96_000, 1000, 6, 288));
+        assert!(!rate_fits(48_100, 1000, 6, 288));
+    }
 
     #[test]
     fn packets_carry_the_rate_exactly() {
@@ -215,9 +249,55 @@ mod tests {
     fn software_volume_follows_the_same_ear_as_a_dacs_own() {
         assert_eq!(software_gain(1.), 1.);
         assert_eq!(software_gain(0.), 0.);
-        // A slider's middle is about -12 dB here too.
-        let half = 20. * software_gain(0.5).log10();
-        assert!((-13. ..-11.).contains(&half), "{half}");
+        // As on a dock of -45 to 0 dB.
+        for volume in [0.0625, 0.1, 0.2, 0.5, 0.9] {
+            let db = 20. * software_gain(volume).log10();
+            let steps = volume_steps(volume, -45 * 256, 0) as f32 / 256.;
+            assert!((db - steps).abs() < 0.01, "{volume}: {db} and {steps}");
+        }
+    }
+
+    #[test]
+    fn every_step_of_a_narrow_range_can_be_heard_and_is_louder_than_the_last() {
+        let steps = |volume: f32| volume_steps(volume, -45 * 256, 0) as f32 / 256.;
+        let heard = [0.06, 0.1, 0.2, 0.5, 1.];
+        for pair in heard.windows(2) {
+            assert!(steps(pair[0]) < steps(pair[1]), "{pair:?}");
+        }
+        for volume in heard {
+            assert!(steps(volume) >= -31., "{volume}: {} dB", steps(volume));
+        }
+        // All 16 steps of the phone, with room between them, and the top at the top.
+        let all: Vec<f32> = (1..=16).map(|n| steps(n as f32 / 16.)).collect();
+        assert!(all[0] >= -31. && all[0] <= -29., "{all:?}");
+        assert_eq!(all[15], 0.);
+        for pair in all.windows(2) {
+            assert!(pair[1] - pair[0] > 0.3, "{all:?}");
+        }
+        // 0 is the bottom, which the caller mutes.
+        assert_eq!(volume_steps(0., -45 * 256, 0), -45 * 256);
+    }
+
+    #[test]
+    fn a_small_range_keeps_every_step_inside_it() {
+        let steps = |volume: f32| volume_steps(volume, -12 * 256, 0) as f32 / 256.;
+        assert!(
+            (-12.1..-11.9).contains(&steps(1. / 16.)),
+            "{}",
+            steps(1. / 16.)
+        );
+        assert!(steps(2. / 16.) > steps(1. / 16.));
+    }
+
+    #[test]
+    fn a_wide_range_keeps_its_curve() {
+        for (min, max) in [(-60 * 256, 0), (-100 * 256, 0), (-127 * 256, 0)] {
+            for volume in [0.0625f32, 0.25, 0.5, 0.75] {
+                let want = 40. * volume.log10();
+                let got = volume_steps(volume, min, max) as f32 / 256.;
+                assert!((got - want).abs() < 0.01, "{volume}: {got} and {want}");
+            }
+        }
     }
 
     #[test]
