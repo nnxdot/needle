@@ -1,7 +1,7 @@
 //! The driver: the music from the core's feed to the DAC, through a [`Bus`]. Any trouble ends
 //! `render` with an error at once (a DAC gone, refusing, or no longer taking music within half
 //! a second; even a panic), so the core moves the music to Android's output with a notice.
-use super::{UsbDacInfo, bus::Bus, descriptors::*, packets::*};
+use super::{UsbDacInfo, bus::Bus, descriptors::*, details, packets::*};
 use anyhow::{Result, anyhow, bail};
 use needle_core::platform_output::{Feed, FeedFormat, PlatformOutput};
 use std::{
@@ -39,9 +39,13 @@ pub struct UsbDac {
     high_speed: bool,
     /// UAC2: each clock's rates, by clock id.
     clock_rates: Vec<(u8, Vec<u32>)>,
-    /// The volume control's range in 1/256 dB, and the last volume asked (f32 bits).
+    /// The volume control's range in 1/256 dB, and the last volume asked (f32 bits): the
+    /// player's own (its fades), and the phone's, which Android keeps.
     volume_range: Option<(i16, i16)>,
     volume: AtomicU32,
+    phone_volume: AtomicU32,
+    /// What it plays with now, and what the DAC said of the rate, for a report.
+    chosen: Mutex<Option<String>>,
     /// One control request at a time (volume from the app, rates from the player).
     control: Mutex<()>,
 }
@@ -66,7 +70,7 @@ fn same_rate(said: u32, asked: u32) -> bool {
 }
 
 impl UsbDac {
-    pub fn new(bus: Arc<dyn Bus>, raw: &[u8], name: String) -> Result<Self> {
+    pub fn new(bus: Arc<dyn Bus>, raw: &[u8], name: String, phone_volume: f32) -> Result<Self> {
         let Some(dac) = parse(raw) else {
             bail!("{name} is not a USB audio device Needle can play to");
         };
@@ -82,6 +86,8 @@ impl UsbDac {
             high_speed,
             bus,
             volume: AtomicU32::new(1f32.to_bits()),
+            phone_volume: AtomicU32::new(phone_volume.clamp(0., 1.).to_bits()),
+            chosen: Mutex::new(None),
             control: Mutex::new(()),
             dac,
         };
@@ -123,22 +129,48 @@ impl UsbDac {
                 "no"
             },
         ));
+        for line in details::paths(&self.dac) {
+            say(format!("{}: {}", self.name, line.trim_end()));
+        }
         for f in &self.dac.formats {
             say(format!(
-                "{}: interface {} setting {}: {} bits in {}-byte slots, {} channels, rates {:?}, {:?} sync, feedback {}, rate control {}, packets up to {} bytes",
+                "{}: setting {} plays {:?}",
                 self.name,
-                f.interface,
                 f.alt,
-                f.bits,
-                f.subslot,
-                f.channels,
-                self.rates(f),
-                f.sync,
-                if f.feedback.is_some() { "yes" } else { "no" },
-                if f.rate_control { "yes" } else { "no" },
-                f.max_packet,
+                self.rates(f)
             ));
         }
+    }
+
+    /// What only the running driver knows, for a report.
+    pub fn details(&self) -> String {
+        let mut text = format!(
+            "The driver sends {} speed packets\n",
+            if self.high_speed { "high" } else { "full" },
+        );
+        for (clock, rates) in &self.clock_rates {
+            text += &format!("Clock {clock} says it plays {rates:?}\n");
+        }
+        for f in &self.dac.formats {
+            text += &format!("Setting {} plays {:?}\n", f.alt, self.rates(f));
+        }
+        text += &match self.volume_range {
+            Some((min, max)) => format!(
+                "Volume: the DAC's own, {:.1} to {:.1} dB\n",
+                min as f32 / 256.,
+                max as f32 / 256.
+            ),
+            None => "Volume: Needle scales the samples; the DAC has none it can set\n".into(),
+        };
+        text += &format!("Volume now: {:.0} %\n", self.loudness() * 100.);
+        let chosen = self.chosen.lock().unwrap_or_else(|e| e.into_inner());
+        text += &format!(
+            "Chosen: {}\n",
+            chosen
+                .as_deref()
+                .unwrap_or("nothing yet: play a song first")
+        );
+        text
     }
 
     pub fn info(&self) -> UsbDacInfo {
@@ -172,11 +204,42 @@ impl UsbDac {
         }
     }
 
+    /// DoP cannot be scaled, so a DAC with no volume of its own gets DSD as PCM: else DSD would
+    /// be the one thing whose volume cannot change.
     fn takes_dop(&self) -> bool {
-        self.dac
-            .formats
-            .iter()
-            .any(|f| f.bits >= 24 && f.channels == 2 && self.rates(f).iter().any(|r| *r >= 176_400))
+        self.volume_range.is_some()
+            && self.dac.formats.iter().any(|f| {
+                f.bits >= 24 && f.channels == 2 && self.rates(f).iter().any(|r| *r >= 176_400)
+            })
+    }
+
+    /// Needle's volume for this DAC, 0 to 1: the player's and the phone's together.
+    fn loudness(&self) -> f32 {
+        let (player, phone) = (
+            f32::from_bits(self.volume.load(Ordering::Relaxed)),
+            f32::from_bits(self.phone_volume.load(Ordering::Relaxed)),
+        );
+        player * phone
+    }
+
+    /// What the samples are scaled by: 1 with a DAC that has its own volume.
+    fn gain(&self) -> f32 {
+        match self.volume_range {
+            Some(_) => 1.,
+            None => software_gain(self.loudness()),
+        }
+    }
+
+    /// The samples reach the DAC as they are.
+    pub fn bit_perfect(&self) -> bool {
+        self.gain() >= 1.
+    }
+
+    /// The phone's music volume moved (0 to 1).
+    pub fn set_phone_volume(&self, volume: f32) {
+        self.phone_volume
+            .store(volume.clamp(0., 1.).to_bits(), Ordering::Relaxed);
+        self.apply_volume();
     }
 
     fn index(&self, entity: u8) -> u16 {
@@ -251,11 +314,7 @@ impl UsbDac {
         let (Some(v), Some((min, max))) = (self.dac.volume, self.volume_range) else {
             return;
         };
-        let steps = volume_steps(
-            f32::from_bits(self.volume.load(Ordering::Relaxed)),
-            min,
-            max,
-        );
+        let steps = volume_steps(self.loudness(), min, max);
         let _one = self.one_at_a_time();
         let channels: &[u8] = if v.master { &[0] } else { &[1, 2] };
         for c in channels {
@@ -336,6 +395,14 @@ impl UsbDac {
                 khz(rate)
             );
         }
+        // A range of rates and no answer: nothing shows that it left its own clock.
+        if f.range.is_some() && rate != 48_000 {
+            bail!(
+                "{} gives a range of rates and cannot say which it plays, so {} kHz cannot be trusted",
+                self.name,
+                khz(rate)
+            );
+        }
         // It cannot say (as before these checks). The request only counts where the DAC claims
         // the control: without it, it was a try.
         if f.rate_control {
@@ -365,6 +432,17 @@ impl UsbDac {
         if choose(&self.dac.formats, channels, 24).is_none() {
             bail!("{} takes no {}-channel music", self.name, channels);
         }
+        let in_a_range = |f: &Format| {
+            f.range
+                .is_some_and(|(low, high)| (low..=high).contains(&rate))
+        };
+        if self.dac.formats.iter().any(in_a_range) {
+            bail!(
+                "{} gives a range of rates, so {} kHz cannot be trusted",
+                self.name,
+                khz(rate)
+            );
+        }
         bail!("{} does not play {} Hz", self.name, rate)
     }
 
@@ -386,6 +464,7 @@ impl UsbDac {
         let channels = format.channels as usize;
         let mut samples = vec![0f32; ((nominal >> 16) as usize + 2) * channels];
         let mut bytes = vec![0u8; per_transfer * limit];
+        let mut gain = self.gain();
         // Fill one transfer's packets from the feed; false once the music in this format ends.
         let mut fill =
             |pacer: &mut Pacer, feed: &mut Feed, bytes: &mut [u8]| -> (Vec<usize>, usize, bool) {
@@ -403,6 +482,13 @@ impl UsbDac {
                         samples[got..wanted].fill(0.);
                         more = false;
                     }
+                    // With no volume of its own: never at full volume against the listener's
+                    // will, and bit-perfect only at 100 %.
+                    let wanted_gain = self.gain();
+                    if gain < 1. || wanted_gain < 1. {
+                        ramp(&mut samples[..wanted], channels, gain, wanted_gain);
+                    }
+                    gain = wanted_gain;
                     let n = pack(
                         &samples[..wanted],
                         channels,
@@ -538,9 +624,8 @@ impl UsbDac {
                 open = Some((f.interface, f.alt, format.rate, format.channels));
                 feed.playing_at(format);
                 super::status_playing(Some(format!("{} kHz, {}-bit", khz(format.rate), f.bits)));
-                needle_core::logfile::warn(format!(
-                    "{}: {} Hz, {} bits in {}-byte slots, {} channels (setting {} of interface {}), the DAC says {}",
-                    self.name,
+                let chosen = format!(
+                    "{} Hz, {} bits in {}-byte slots, {} channels (setting {} of interface {}), the DAC says {}",
                     format.rate,
                     f.bits,
                     f.subslot,
@@ -548,7 +633,9 @@ impl UsbDac {
                     f.alt,
                     f.interface,
                     said.map_or("nothing".to_string(), |r| format!("{r} Hz")),
-                ));
+                );
+                needle_core::logfile::warn(format!("{}: {chosen}", self.name));
+                *self.chosen.lock().unwrap_or_else(|e| e.into_inner()) = Some(chosen);
             }
             if let Err(e) = self.stream(feed, format, f) {
                 break Err(e);
@@ -606,12 +693,12 @@ impl PlatformOutput for UsbDac {
 
 #[cfg(test)]
 mod tests {
-    use super::super::fake::{FakeDac, Trouble, descriptors, uac1_descriptors};
+    use super::super::fake::{Dock, FakeDac, Trouble, descriptors, dock, uac1_descriptors};
     use super::*;
 
     fn dac(trouble: Trouble, raw: &[u8]) -> (Arc<FakeDac>, UsbDac) {
         let fake = Arc::new(FakeDac::new(trouble));
-        let dac = UsbDac::new(fake.clone(), raw, "Pretend DAC".into()).unwrap();
+        let dac = UsbDac::new(fake.clone(), raw, "Pretend DAC".into(), 1.).unwrap();
         (fake, dac)
     }
 
@@ -676,6 +763,95 @@ mod tests {
             "no request for a rate it cannot set"
         );
         assert!(dac.format_for(2, 44_100).is_err());
+    }
+
+    #[test]
+    fn a_dock_plays_through_its_speakers_not_its_headset() {
+        let (_, dock) = dac(Trouble::None, &dock(Dock::default()));
+        // The speakers' interface and formats only: not the headset's before it.
+        assert_eq!(dock.dac.paths.len(), 2);
+        let f = dock.format_for(2, 48_000).unwrap();
+        assert_eq!((f.interface, f.alt, f.bits), (3, 2, 24));
+        let f = dock.format_for(2, 44_100).unwrap();
+        assert_eq!((f.interface, f.alt, f.bits), (3, 1, 16));
+        // Not the microphone's volume, which comes first, nor the headset's.
+        assert_eq!(dock.dac.volume.map(|v| v.unit), Some(22));
+        // A rate only the headset lists is not played by the speakers.
+        assert!(dock.format_for(2, 8_000).is_err());
+    }
+
+    #[test]
+    fn a_range_of_rates_plays_48_khz_and_refuses_what_it_cannot_prove() {
+        let raw = dock(Dock {
+            speakers: false,
+            ..Dock::default()
+        });
+        let (_, headset) = dac(Trouble::None, &raw);
+        assert_eq!(headset.info().rates, [48_000]);
+        let why = headset.format_for(2, 44_100).unwrap_err().to_string();
+        assert_eq!(
+            why,
+            "Pretend DAC gives a range of rates, so 44.1 kHz cannot be trusted"
+        );
+        assert_eq!(headset.format_for(2, 48_000).unwrap().alt, 1);
+    }
+
+    #[test]
+    fn a_range_that_cannot_say_its_rate_is_refused() {
+        let raw = dock(Dock {
+            speakers: false,
+            ..Dock::default()
+        });
+        let (_, headset) = dac(Trouble::NoRateAnswer, &raw);
+        let mut f = headset.format_for(2, 48_000).unwrap();
+        assert_eq!(headset.set_rate(&f, 48_000).unwrap(), None);
+        f.range = Some((8_000, 44_100));
+        let why = headset.set_rate(&f, 44_100).unwrap_err().to_string();
+        assert!(why.contains("cannot say which it plays"), "{why}");
+    }
+
+    #[test]
+    fn with_no_volume_of_its_own_needle_scales_the_samples() {
+        let raw = dock(Dock {
+            volume: false,
+            ..Dock::default()
+        });
+        let (_, dac) = dac(Trouble::None, &raw);
+        assert!(!dac.info().volume);
+        assert!(dac.bit_perfect());
+        dac.set_phone_volume(0.5);
+        assert_eq!(dac.gain(), 0.25);
+        assert!(!dac.bit_perfect());
+        // The player's own fade counts too.
+        dac.set_volume(0.5);
+        assert_eq!(dac.gain(), 0.0625);
+        dac.set_phone_volume(1.);
+        dac.set_volume(1.);
+        assert!(dac.bit_perfect());
+    }
+
+    #[test]
+    fn the_phones_volume_reaches_a_dacs_own_volume_and_leaves_the_samples_alone() {
+        let (fake, dac) = dac(Trouble::None, &dock(Dock::default()));
+        assert!(dac.info().volume);
+        dac.set_phone_volume(0.5);
+        // The speakers' feature unit, at about -12 dB of its 0 dB top.
+        let (unit, steps) = fake.volume().unwrap();
+        assert_eq!(unit, 22);
+        assert!((-13 * 256..-11 * 256).contains(&(steps as i32)), "{steps}");
+        assert_eq!(dac.gain(), 1.);
+        assert!(dac.bit_perfect());
+    }
+
+    #[test]
+    fn dsd_is_not_sent_as_dop_when_only_scaling_can_change_the_volume() {
+        let plain = uac1_descriptors(&[(1, &[192_000], true)]);
+        assert!(!dac(Trouble::None, &plain).1.dop());
+        // The same DAC with a feature unit after its header, with a volume.
+        let at = plain.windows(3).position(|w| w == [9, 0x24, 1]).unwrap() + 9;
+        let mut with_volume = plain.clone();
+        with_volume.splice(at..at, [9, 0x24, 6, 2, 1, 1, 0x03, 0, 0]);
+        assert!(dac(Trouble::None, &with_volume).1.dop());
     }
 
     #[test]

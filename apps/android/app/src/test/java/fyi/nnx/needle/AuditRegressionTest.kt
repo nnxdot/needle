@@ -13,6 +13,18 @@ import java.io.InputStream
 import java.nio.file.Files
 
 class AuditRegressionTest {
+    /**
+     * Linux's USB audio driver comes back when the audio control interface is given back, and it
+     * skips a streaming interface still held: then the DAC has a sound card with nothing to play on.
+     */
+    @Test
+    fun aDacsControlInterfaceGoesBackLast() {
+        // Android lists every alternate setting: (interface, subclass), control first as DACs do.
+        val interfaces = listOf(0 to 1, 1 to 2, 1 to 2, 2 to 2, 3 to 3)
+        val order = controlLast(interfaces) { it.second == 1 }
+        assertEquals(listOf(1 to 2, 1 to 2, 2 to 2, 3 to 3, 0 to 1), order)
+    }
+
     @Test fun slowProviderCopiesLeaveTheCallingThreadResponsive() = runBlocking {
         val folder = Files.createTempDirectory("needle-slow-provider").toFile()
         try {
