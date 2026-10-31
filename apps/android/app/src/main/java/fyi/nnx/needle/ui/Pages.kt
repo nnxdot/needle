@@ -367,6 +367,52 @@ fun PlayRow(songs: List<Song>, inline: Boolean = false, side: (@Composable () ->
     }
 }
 
+/**
+ * A song list's header beside the side bar: one row, with the title and its count at the left,
+ * in line with the covers, and Play and Shuffle at the right end, in line with the rows' edge.
+ * It stays while the list scrolls. Where the bar leaves a narrow page, round buttons leave the
+ * title its room. Phones keep [Page] and [PlayRow].
+ */
+@Composable
+fun ListHeader(title: String, subtitle: String?, songs: List<Song>) {
+    val haptics = rememberHaptics()
+    val back = LocalCanGoBack.current
+    Row(
+        Modifier.fillMaxWidth().heightIn(min = 72.dp).padding(start = if (back) 6.dp else 22.dp, end = 8.dp, top = 4.dp, bottom = 8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        if (back) BackButton(Modifier.padding(end = 4.dp))
+        Column(Modifier.weight(1f)) {
+            Text(
+                title,
+                style = MaterialTheme.typography.headlineMedium,
+                fontWeight = FontWeight.Bold,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.semantics { heading() },
+            )
+            if (subtitle != null) {
+                Text(subtitle, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            }
+        }
+        if (songs.isNotEmpty()) {
+            Row(Modifier.padding(start = 16.dp), horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.CenterVertically) {
+                if (LocalPageWidth.current >= 500.dp) {
+                    PlayPill(Modifier.firstFocus()) { haptics(false); play(songs) }
+                    ShufflePill { haptics(false); play(songs.shuffled()) }
+                } else {
+                    androidx.compose.material3.FilledIconButton(
+                        onClick = { haptics(false); play(songs) },
+                        shape = CircleShape,
+                        modifier = Modifier.size(50.dp).firstFocus(),
+                    ) { Icon(Icons.Rounded.PlayArrow, contentDescription = "Play", modifier = Modifier.size(24.dp)) }
+                    RoundAction(Icons.Rounded.Shuffle, "Shuffle") { haptics(false); play(songs.shuffled()) }
+                }
+            }
+        }
+    }
+}
+
 /** The page's one main button: Play, a pill filled in the page's colour. */
 @Composable
 fun PlayPill(modifier: Modifier = Modifier, onClick: () -> Unit) {
