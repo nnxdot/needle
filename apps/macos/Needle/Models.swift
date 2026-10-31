@@ -261,6 +261,8 @@ struct NeedleSettings: Decodable, Equatable {
     var welcomed = false
     var whatsNewSeen = ""
     var remote = false
+    /// Needle for AI assistants (MCP) runs on this Mac.
+    var mcp = false
     var tray = false
     /// The sleep timer puts the Mac to sleep when it ends.
     var sleepComputer = false
