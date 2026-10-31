@@ -39,6 +39,27 @@
 	<string>Needle reads the QR code of the phone remote on your computer.</string>
 	<key>NSSupportsLiveActivities</key>
 	<true/>
+	<!-- CarPlay: Needle's lists and the car's Now Playing (CarPlay.swift). The car shows Needle
+	     only in builds signed with Apple's CarPlay audio entitlement. -->
+	<key>UIApplicationSceneManifest</key>
+	<dict>
+		<key>UIApplicationSupportsMultipleScenes</key>
+		<true/>
+		<key>UISceneConfigurations</key>
+		<dict>
+			<key>CPTemplateApplicationSceneSessionRoleApplication</key>
+			<array>
+				<dict>
+					<key>UISceneClassName</key>
+					<string>CPTemplateApplicationScene</string>
+					<key>UISceneConfigurationName</key>
+					<string>CarPlay</string>
+					<key>UISceneDelegateClassName</key>
+					<string>$(PRODUCT_MODULE_NAME).CarPlaySceneDelegate</string>
+				</dict>
+			</array>
+		</dict>
+	</dict>
 	<!-- Links from the widgets and Siri: needle://album?id=… -->
 	<key>CFBundleURLTypes</key>
 	<array>

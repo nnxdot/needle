@@ -131,6 +131,8 @@ struct ArtistSummary: Codable, Identifiable, Hashable {
     var albums: Int
     var tracks: Int
     var artwork: String?
+    /// The letter the artist files under in the A–Z bar ("A"–"Z", "#", or another script's).
+    var letter: String
     var id: String { name }
     var title: String { name.isEmpty ? "Unknown artist" : name }
 }
@@ -244,14 +246,32 @@ struct NeedleSettings: Decodable, Equatable {
     var discordPaused = true
     var discordIdleMinutes = 10
     var displayFont = "system"
+    var textFont = "system"
+    var playerButtons = PlayerButtons.core
+    var artistOrder = "name"
+    var albumArtistsOnly = false
+    var artistPictures = true
     var accentColor = ""
     var ambient = false
     var crossfade: Float = 0
+    var smartMix = true
+    /// The big player's look: "cover", "record", "lyrics", or "visualizer".
+    var bigLook = "cover"
     var crashReports = true
     var welcomed = false
     var whatsNewSeen = ""
     var remote = false
+    /// Needle for AI assistants (MCP) runs on this Mac.
+    var mcp = false
     var tray = false
+    /// The sleep timer puts the Mac to sleep when it ends.
+    var sleepComputer = false
+    /// The big player's seek bar: "shape", "wave", "line", or "thick".
+    var seekStyle = "shape"
+    /// What makes an album: "tags" (album artist and album) or "folder".
+    var albumGrouping = "tags"
+    /// Songs tagged as a compilation, with no album artist, are one album by Various Artists.
+    var compilationsVarious = true
 
     struct Layout: Decodable, Equatable {
         var sidebarWidth: Float = 212

@@ -21,6 +21,7 @@
 /apps/ios/Needle/Core/
 /apps/ios/NeedleCore.xcframework/
 /apps/ios/build/
+/apps/ios/Needle/Fonts/
 /apps/ios/Needle.xcodeproj/project.xcworkspace/
 /apps/ios/Needle.xcodeproj/xcuserdata/
 /apps/macos/Needle/Core/
@@ -28,5 +29,6 @@
 /apps/macos/build/
 /apps/macos/Needle/Resources/Needle.icns
 /apps/macos/Needle/Resources/*.ttf
+/apps/macos/Needle/Resources/*-OFL.txt
 /apps/macos/Needle.xcodeproj/project.xcworkspace/
 /apps/macos/Needle.xcodeproj/xcuserdata/

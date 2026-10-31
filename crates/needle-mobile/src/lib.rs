@@ -281,7 +281,8 @@ impl Needle {
         }
         // On a phone the phone's own volume is the one volume: Needle's (the desktop's slider,
         // 65% to start) stays at full, or Needle would play quieter than other apps at the same
-        // volume. Set before the player starts, so it opens at full.
+        // volume. Set before the player starts, so it opens at full. The Mac keeps its slider's.
+        #[cfg(not(feature = "desktop"))]
         let _ = library.update_settings(|s| s.volume = 1.0);
         let player = Player::new(library.clone());
         log(false, "player started");

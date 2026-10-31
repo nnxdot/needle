@@ -121,6 +121,13 @@ struct MainWindow: View {
         let value = { (flag: String) in arguments.firstIndex(of: flag).flatMap { arguments.indices.contains($0 + 1) ? arguments[$0 + 1] : nil } }
         // `--rescan`: read the music folders again.
         if arguments.contains("--rescan") { store.rescan() }
+        // `--search <words>`: types them in search (on a page that is not a list: Search).
+        if let words = value("--search") {
+            Task {
+                try? await Task.sleep(for: .seconds(2))
+                store.search = words
+            }
+        }
         // `--snapshot-main <path>`: after 12 seconds, the main window drawn twice, half a second
         // apart (<path>-1.png, <path>-2.png), to see whether something moves.
         if let path = value("--snapshot-main") {
@@ -149,6 +156,23 @@ struct MainWindow: View {
                 try? rep.representation(using: .png, properties: [:])?.write(to: URL(fileURLWithPath: path))
             }
         }
+        // `--snapshot-window <path.png> [seconds]`: the main window drawn into a picture after
+        // that many seconds (12 at first), and once more a second later as `<path>-2.png`. The
+        // same drawing as above: it needs no screen recording, and the window may stay hidden.
+        if let path = value("--snapshot-window") {
+            let wait = arguments.firstIndex(of: path).flatMap { arguments.indices.contains($0 + 1) ? Double(arguments[$0 + 1]) : nil } ?? 12
+            Task {
+                try? await Task.sleep(for: .seconds(wait))
+                for (n, file) in [path, path.replacingOccurrences(of: ".png", with: "-2.png")].enumerated() {
+                    if n > 0 { try? await Task.sleep(for: .seconds(1)) }
+                    guard let window = NSApp.windows.first(where: { $0.identifier?.rawValue.hasPrefix("main") == true }),
+                          let view = window.contentView?.superview ?? window.contentView,
+                          let rep = view.bitmapImageRepForCachingDisplay(in: view.bounds) else { return }
+                    view.cacheDisplay(in: view.bounds, to: rep)
+                    try? rep.representation(using: .png, properties: [:])?.write(to: URL(fileURLWithPath: file))
+                }
+            }
+        }
         if let name = value("--artist") { store.navigate(.artist(name)) }
         if let title = value("--album") {
             Task {
@@ -157,7 +181,7 @@ struct MainWindow: View {
                 if let album = albums.first(where: { $0.album == title }) { store.navigate(album.route) }
             }
         }
-        // For the website's pictures: `--page albums|songs|artists|home` opens that page,
+        // For the website's pictures: `--page albums|songs|artists|home|genremap` opens that page,
         // `--panel queue|details|lyrics` the side panel on that, and `--play-album <title>`
         // plays that album from its first song, `--seek <seconds>` into it.
         switch value("--page") {
@@ -165,7 +189,61 @@ struct MainWindow: View {
         case "songs": store.navigate(.songs)
         case "artists": store.navigate(.artists)
         case "home": store.navigate(.home)
+        case "genremap": store.navigate(.genreMap)
+        case "year": store.navigate(.wrapped(store.reviewYear))
+        case "timing": store.navigate(.timing)
         default: break
+        }
+        // `--sleep <minutes>` starts the sleep timer, `--speed <times>` plays at that speed, and
+        // `--tool sleep|speed` opens that pane of the player, a few seconds in.
+        if let minutes = value("--sleep").flatMap(UInt32.init) { store.startSleep("minutes", minutes: minutes) }
+        if let speed = value("--speed").flatMap(Float.init) {
+            var pace = store.tempo
+            pace.speed = speed
+            store.setTempo(pace)
+        }
+        // `--card-test <folder>`: lyric cards of a short, a long, a Japanese, and a Korean line
+        // as pictures there, with the cover of `--card-cover <file>` (any name, such as a
+        // server's ".img").
+        if let folder = value("--card-test") {
+            let coverPath = value("--card-cover")
+            Task {
+                let image = if let coverPath { await Covers.load(coverPath, size: 1080) } else { NSImage?.none }
+                let cover = image?.cgImage(forProposedRect: nil, context: nil, hints: nil)
+                let lines = [
+                    ("short", "Hold the light a little longer"),
+                    ("long", "And every wave that finds my feet is softer than the last one, sweet, and I will wait here by the water till the morning brings you home to me again"),
+                    ("japanese", "夜の海に光が揺れている、君の声が遠くから聞こえる"),
+                    ("korean", "바다 위의 빛이 흔들리고 너의 목소리가 들려"),
+                ]
+                for (name, line) in lines {
+                    let renderer = ImageRenderer(content: LyricCard(line: line, title: "Undertow", artist: "Coral Avenue", cover: cover))
+                    renderer.scale = 3
+                    if let tiff = renderer.nsImage?.tiffRepresentation,
+                       let png = NSBitmapImageRep(data: tiff)?.representation(using: .png, properties: [:]) {
+                        try? png.write(to: URL(fileURLWithPath: folder).appendingPathComponent("card-\(name).png"))
+                    }
+                }
+            }
+        }
+        // `--album-rule tags|folder|compilations-on|compilations-off`: as Settings › Library ›
+        // Albums does, a few seconds in.
+        if let rule = value("--album-rule") {
+            Task {
+                try? await Task.sleep(for: .seconds(4))
+                switch rule {
+                case "tags", "folder": store.setAlbumRule(grouping: rule)
+                case "compilations-on": store.setAlbumRule(compilations: true)
+                case "compilations-off": store.setAlbumRule(compilations: false)
+                default: break
+                }
+            }
+        }
+        if let tool = value("--tool") {
+            Task {
+                try? await Task.sleep(for: .seconds(5))
+                store.tool = tool
+            }
         }
         if let name = value("--panel"), let panel = Store.Panel.allCases.first(where: { $0.rawValue.lowercased() == name }) {
             store.panel = panel
@@ -336,6 +414,13 @@ struct MainWindow: View {
     }
 
     private var title: String {
+        // An album's, artist's, or playlist's own big title shows on the page until it folds
+        // away on scroll; then the title bar takes it.
+        let folds: Bool = switch store.route {
+        case .album, .artist, .playlist: true
+        default: false
+        }
+        if folds && !store.headerFolded { return "" }
         if case .playlist = store.route { return store.pagePlaylist?.name ?? "Playlist" }
         return store.route.title
     }
@@ -530,7 +615,7 @@ struct WindowBackground: View {
         }
         // The one place new colours fade in: the page's and the cover's colours change at once
         // everywhere else (see `Store.setPageTint`). Nothing here is a table.
-        .animation(store.motion ? .easeInOut(duration: 0.45) : nil, value: store.colors)
+        .animation(store.motion ? .easeInOut(duration: 0.5) : nil, value: store.colors)
         .ignoresSafeArea()
     }
 }
@@ -538,6 +623,7 @@ struct WindowBackground: View {
 /// The page the window shows.
 struct PageView: View {
     private var store: Store { .shared }
+    @Namespace private var covers
     @State private var total: UInt32?
 
     var body: some View {
@@ -549,7 +635,10 @@ struct PageView: View {
             case .artist(let name): ArtistPage(name: name)
             case .folders: FoldersPage()
             case .history: HistoryPage()
-            case .wrapped(let year): WrappedPage(year: year)
+            case .search: library { SearchPage() }
+            case .numbers: library { NumbersPage() }
+            case .genreMap: library { GenreMapPage() }
+            case .wrapped(let year): YearReviewPage(year: year)
             case .sound:
                 Form { SoundPane() }
                     .formStyle(.grouped)
@@ -564,6 +653,8 @@ struct PageView: View {
         }
         .id(store.route)
         .transition(.opacity)
+        .animation(store.motion ? .smooth(duration: 0.4) : .easeInOut(duration: 0.2), value: store.route)
+        .onAppear { store.coverSpace = covers }
         .task(id: store.libraryVersion) { total = await store.load { try $0.songCount() } }
     }
 
@@ -594,7 +685,7 @@ struct Onboarding: View {
                 Button("Try three demo recordings") { store.demo() }.glassButton()
             }
             .controlSize(.large)
-            Text("⌘O adds a folder at any time. No account needed.").font(.caption).foregroundStyle(store.colors.ink3)
+            Text("⌘O adds a folder at any time. No account needed.").font(.needle(.caption)).foregroundStyle(store.colors.ink3)
             Button { store.navigate(.importing) } label: {
                 Label("Coming from iTunes, Spotify, or Last.fm? Bring your history", systemImage: "square.and.arrow.down")
             }
@@ -615,7 +706,7 @@ struct ToastView: View {
                 Image(systemName: toast.error ? "exclamationmark.triangle.fill" : "info.circle.fill")
                     .foregroundStyle(toast.error ? store.colors.danger : store.colors.accent)
                 Text(toast.text).lineLimit(4).frame(maxWidth: 520, alignment: .leading)
-                Button { store.toast = nil } label: { Image(systemName: "xmark").font(.caption.bold()) }
+                Button { store.toast = nil } label: { Image(systemName: "xmark").font(.needle(.caption).bold()) }
                     .buttonStyle(.borderless)
                     .accessibilityLabel("Close the message")
             }

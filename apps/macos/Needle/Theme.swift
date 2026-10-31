@@ -311,13 +311,16 @@ extension Store {
         Self.titleFont(displayFont, size: size, weight: weight)
     }
 
-    /// A title font by its settings name ("system", "bahnschrift", "fraunces").
+    /// A title font by its settings name (see `NeedleFonts.titles`; "own:<family>" for one on
+    /// this Mac).
     static func titleFont(_ name: String, size: CGFloat, weight: Font.Weight = .bold) -> Font {
-        switch name {
-        case "fraunces": .custom(weight == .bold ? "Fraunces72ptSoft-Bold" : "Fraunces72ptSoft-SemiBold", size: size)
-        case "bahnschrift": .system(size: size, weight: weight, design: .default).width(.condensed)
-        default: .system(size: size, weight: weight, design: .default)
+        guard let family = NeedleFonts.family(name, in: NeedleFonts.titles) else {
+            return .system(size: size, weight: weight, design: .default)
         }
+        if NeedleFonts.singleWeight.contains(family) { return .custom(family, size: size) }
+        // Poster is narrow and heavy: its heaviest for bold.
+        if family == "Roboto Condensed" { return .custom(family, size: size).weight(weight == .bold ? .black : .heavy) }
+        return .custom(family, size: size).weight(weight)
     }
 
 

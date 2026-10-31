@@ -23,6 +23,8 @@ final class Store {
     private(set) var colors = Palette.build(Palette.base("dark"), tint: nil, ambient: false)
     private(set) var motion = true
     private(set) var displayFont = "system"
+    /// The text font's setting (Settings › Appearance › Text); the window is drawn anew for it.
+    private(set) var textFont = "system"
     /// Song rows in the compact height.
     private(set) var compactRows = false
     private(set) var playback: MacPlayback?
@@ -63,15 +65,30 @@ final class Store {
     private(set) var stemsJob: StemJob?
     private(set) var importProgress: String?
     private(set) var update: MacUpdate?
+    /// The core's sleep timer, while it runs (its seconds left change once a second here).
+    private(set) var sleep: SleepTimerState?
+    /// The speed and pitch the music plays at.
+    private(set) var tempo = SpeedPitch(speed: 1, semitones: 0, keepPitch: true, onlyThisSong: false, available: true)
+    /// How many times the sleep timer had stopped the music when last looked.
+    @ObservationIgnored private var sleepEndedSeen: UInt64?
 
     // MARK: What the window shows
 
     var route: Route = .home
+    /// The player's tool pane open: "sleep" or "speed".
+    var tool: String?
     private(set) var back: [Route] = []
     private(set) var forward: [Route] = []
     var search = "" {
         didSet { searchChanged(from: oldValue) }
     }
+    /// An album's, artist's, or playlist's page has scrolled its big title away: the title bar
+    /// shows the name instead.
+    var headerFolded = false
+    /// The album tile just chosen (its own id), whose cover grows into the album page's.
+    var travelingTile: UUID?
+    /// The namespace the traveling cover moves in (the main window's).
+    @ObservationIgnored var coverSpace: Namespace.ID?
     /// The song the details panel describes: the last one clicked.
     var focused: Track?
     var panel: Panel = .details
@@ -148,6 +165,8 @@ final class Store {
         if settings.showInspector { set(["show_inspector": false]) }
         refreshLook()
         core.startDesktop()
+        // The slow search for artists' pictures may look (it waits while the library is read).
+        core.artistPicturesAllow(may: true)
         reloadPlaylists()
         reloadPlugins()
         reloadThemes()
@@ -187,9 +206,16 @@ final class Store {
         let now = core.macPlayback()
         // Slower while nothing plays: four times a second is plenty.
         if now.playing || ticks % 3 == 0 || now != playback { follow(now) }
+        followSleep()
         guard ticks % 5 == 0 else { return }
+        let pace = core.speedAndPitch()
+        if pace != tempo { tempo = pace }
         let status = core.scanStatus()
-        if status != scan { scan = status }
+        if status != scan {
+            // The slow search for artists' pictures waits while the library is read.
+            if status.running != scan.running { core.artistPicturesAllow(may: !status.running) }
+            scan = status
+        }
         if status.finished != scansSeen {
             scansSeen = status.finished
             let changed = status.changes != changesSeen
@@ -223,6 +249,75 @@ final class Store {
         }
         let progress = core.importProgress()
         if progress != importProgress { importProgress = progress }
+    }
+
+    /// The sleep timer's time left, whole seconds only; when it has just stopped the music, the
+    /// Mac sleeps too if asked (Then sleep the Mac).
+    private func followSleep() {
+        var running = core.sleepTimer()
+        if let r = running { running?.remaining = r.remaining.rounded(.up) }
+        if running != sleep { sleep = running }
+        let ended = core.sleepTimerEnded()
+        if let seen = sleepEndedSeen, ended > seen, settings.sleepComputer { sleepMac() }
+        sleepEndedSeen = ended
+    }
+
+    /// Put the Mac to sleep, as the Apple menu’s Sleep does.
+    private func sleepMac() {
+        let task = Process()
+        task.executableURL = URL(fileURLWithPath: "/usr/bin/pmset")
+        task.arguments = ["sleepnow"]
+        try? task.run()
+    }
+
+    /// Start the sleep timer again from now: `kind` "minutes" (with `minutes`), "end_of_song",
+    /// or "end_of_album", with the Fade out switch as it stands.
+    func startSleep(_ kind: String, minutes: UInt32 = 0) {
+        let fade = sleep?.fade ?? core.sleepFade()
+        run { try $0.startSleepTimer(kind: kind, minutes: minutes, fade: fade) }
+        followSleep()
+    }
+
+    /// The year Your year in music opens first: last year during January, else this one.
+    var reviewYear: Int {
+        Int((try? core.reviewYear()) ?? Int32(Calendar.current.component(.year, from: Date())))
+    }
+
+    /// A new album rule (Settings › Library › Albums): the core gives every song its album
+    /// again, away from the window, then the pages show the new albums.
+    func setAlbumRule(grouping: String? = nil, compilations: Bool? = nil) {
+        Task {
+            let done = await ask { core in
+                var choices = try core.libraryChoices()
+                if let grouping { choices.albumGrouping = grouping }
+                if let compilations { choices.compilationsVarious = compilations }
+                try core.setLibraryChoices(value: choices)
+            }
+            if done != nil {
+                reloadSettings()
+                libraryChanged()
+            }
+        }
+    }
+
+    func cancelSleep() {
+        core.cancelSleepTimer()
+        followSleep()
+    }
+
+    func setSleepFade(_ on: Bool) {
+        core.setSleepFade(fade: on)
+        if var running = sleep { running.fade = on; sleep = running }
+    }
+
+    /// A new speed and pitch, shown at once, before the player says so.
+    func setTempo(_ value: SpeedPitch) {
+        var next = value
+        next.speed = min(max(next.speed, 0.5), 2)
+        next.semitones = min(max(next.semitones, -12), 12)
+        next.available = tempo.available
+        core.setSpeedAndPitch(value: next)
+        tempo = next
     }
 
     private func follow(_ now: MacPlayback) {
@@ -457,6 +552,10 @@ final class Store {
         let still = settings.reduceMotion || NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
         if motion == still { motion = !still }
         if displayFont != settings.displayFont { displayFont = settings.displayFont }
+        if textFont != settings.textFont {
+            NeedleFonts.text = NeedleFonts.family(settings.textFont, in: NeedleFonts.texts)
+            textFont = settings.textFont
+        }
         let compact = settings.layout.rowHeight < 50
         if compactRows != compact { compactRows = compact }
     }
@@ -552,6 +651,7 @@ final class Store {
         selectedTracks = []
         route = to
         big = false
+        headerFolded = false
         // A page without a colour of its own goes back to the theme's. From one album or
         // artist to another, the colour stays until the next one's is found: no flash between.
         // Never in an animation (see `setPageTint`).
@@ -571,14 +671,14 @@ final class Store {
 
     private func searchChanged(from old: String) {
         guard !searchQuiet, old != search else { return }
-        // Typing on a page that does not search goes to Songs.
+        // Typing on a page that is not a list opens Search.
         if !search.isEmpty, !route.searchesInside {
             back.append(route)
             forward.removeAll()
             // As `open` does, but the search stays.
             sort = nil
             selectedTracks = []
-            route = .songs
+            route = .search
             big = false
             if pageTint != nil { pageTint = nil }
         }
