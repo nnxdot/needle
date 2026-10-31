@@ -71,7 +71,18 @@ object Ui {
     val sheet = MutableStateFlow<Sheet?>(null)
     /** The welcome guide, asked for again from Settings › About. */
     val welcome = MutableStateFlow(false)
+    /** A tablet's side pane, open with the lyrics or what is up next; null while shut. */
+    val pane = MutableStateFlow<SideKind?>(null)
+    /** The visualizer full screen (from the player's visualizer). */
+    val fullVisualizer = MutableStateFlow(false)
+    /** Opens the player (Home's card of the song playing). */
+    val showPlayer = kotlinx.coroutines.flow.MutableSharedFlow<Unit>(extraBufferCapacity = 1)
+    /** A page to open from outside the pages (the tile's long press, a Settings row). */
+    val openRoute = kotlinx.coroutines.flow.MutableSharedFlow<Route>(extraBufferCapacity = 1)
 }
+
+/** What a tablet's side pane shows. */
+enum class SideKind { Lyrics, Queue }
 
 sealed interface Sheet {
     data class AddToPlaylist(val ids: List<String>) : Sheet
@@ -79,6 +90,8 @@ sealed interface Sheet {
     data class EditPlaylist(val id: String) : Sheet
     data object PlayOn : Sheet
     data class EditTags(val ids: List<String>) : Sheet
+    data object SleepTimer : Sheet
+    data object SpeedPitch : Sheet
 }
 
 /**
@@ -150,6 +163,8 @@ fun Overlays(snackbar: SnackbarHostState) {
         is Sheet.EditPlaylist -> PlaylistDialog(s.id, emptyList(), false)
         Sheet.PlayOn -> SpeakersSheet(context)
         is Sheet.EditTags -> TagEditorDialog(s.ids) { Ui.sheet.value = null }
+        Sheet.SleepTimer -> SleepTimerSheet { Ui.sheet.value = null }
+        Sheet.SpeedPitch -> SpeedPitchSheet { Ui.sheet.value = null }
         null -> {}
     }
 }

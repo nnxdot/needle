@@ -112,7 +112,7 @@ fun AlbumsScreen(open: (Route) -> Unit) {
         // Two covers across on a phone, more on a tablet.
         LazyVerticalGrid(
             columns = gridColumns(180.dp),
-            contentPadding = PaddingValues(start = Edge, end = Edge, bottom = 24.dp),
+            contentPadding = PaddingValues(start = Edge, end = Edge, bottom = 24.dp + LocalBottomInset.current),
             horizontalArrangement = Arrangement.spacedBy(16.dp),
             verticalArrangement = Arrangement.spacedBy(LocalRows.current.grid),
             modifier = Modifier.fillMaxSize().padding(padding).then(scroll),
@@ -122,21 +122,9 @@ fun AlbumsScreen(open: (Route) -> Unit) {
 
 @Composable
 fun ArtistsScreen(open: (Route) -> Unit) {
-    val artistsLoad = rememberLoaded { artists() }
-    val artists by artistsLoad
-    Page("Artists") { padding, scroll ->
-        // As the Library's artists: each in the artists' arch, as many across as fit.
-        androidx.compose.foundation.lazy.grid.LazyVerticalGrid(
-            columns = androidx.compose.foundation.lazy.grid.GridCells.Adaptive(104.dp),
-            contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 8.dp, bottom = 24.dp),
-            horizontalArrangement = Arrangement.spacedBy(12.dp),
-            verticalArrangement = Arrangement.spacedBy(LocalRows.current.grid),
-            modifier = Modifier.fillMaxSize().padding(padding).then(scroll),
-        ) {
-            // One list, read once: a reload that fails leaves it, not a null, to the tiles.
-            val list = artists.orEmpty()
-            items(list.size, key = { list[it].name }) { i -> ArtistTile(list[i], Modifier, open) }
-        }
+    Page("Artists", actions = { ArtistSortButton() }) { padding, scroll ->
+        // As the Library's artists: circles as many across as fit, in the order chosen.
+        ArtistGrid(open, Modifier.padding(padding).then(scroll))
     }
 }
 
@@ -144,13 +132,28 @@ fun ArtistsScreen(open: (Route) -> Unit) {
 private fun SongListPage(title: String, songs: List<Song>?, open: (Route) -> Unit, loading: Boolean) {
     val playing = currentId()
     val list = songs.orEmpty()
+    val bottom = PaddingValues(bottom = 24.dp + LocalBottomInset.current)
+    fun androidx.compose.foundation.lazy.LazyListScope.rows() {
+        itemsIndexed(list, key = { _, s -> s.id }) { i, song ->
+            SongRow(song, playing == song.id, open, place = Place(i, list.size)) { play(list, i) }
+        }
+    }
+    // Beside the side bar: the title and the buttons in one row, and the list right under it.
+    if (hasSideBar()) {
+        androidx.compose.foundation.layout.Column(Modifier.fillMaxSize()) {
+            ListHeader(title, songs?.let { songsAndLength(it) }, list)
+            LazyColumn(Modifier.weight(1f).fillMaxWidth(), contentPadding = bottom) {
+                if (loading) items(8) { SongPlaceholder() }
+                rows()
+            }
+        }
+        return
+    }
     Page(title, songs?.let { songsAndLength(it) }) { padding, scroll ->
-        LazyColumn(Modifier.fillMaxSize().padding(padding).then(scroll), contentPadding = PaddingValues(bottom = 24.dp)) {
+        LazyColumn(Modifier.fillMaxSize().padding(padding).then(scroll), contentPadding = bottom) {
             if (loading) items(8) { SongPlaceholder() }
             if (list.isNotEmpty()) item { PlayRow(list) }
-            itemsIndexed(list, key = { _, s -> s.id }) { i, song ->
-                SongRow(song, playing == song.id, open, place = Place(i, list.size)) { play(list, i) }
-            }
+            rows()
         }
     }
 }
@@ -177,7 +180,7 @@ fun PlaylistsScreen(open: (Route) -> Unit) {
     Page("Playlists", actions = {
         IconButton(onClick = { Ui.sheet.value = Sheet.NewPlaylist(emptyList()) }) { Icon(Icons.Rounded.LibraryAdd, contentDescription = "New playlist") }
     }) { padding, scroll ->
-        LazyColumn(Modifier.fillMaxSize().padding(padding).then(scroll), contentPadding = PaddingValues(bottom = 24.dp)) {
+        LazyColumn(Modifier.fillMaxSize().padding(padding).then(scroll), contentPadding = PaddingValues(bottom = 24.dp + LocalBottomInset.current)) {
             item {
                 Row(Modifier.padding(horizontal = Edge, vertical = 8.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                     Button(onClick = { Ui.sheet.value = Sheet.NewPlaylist(emptyList()) }) { Text("New playlist") }
@@ -190,7 +193,7 @@ fun PlaylistsScreen(open: (Route) -> Unit) {
             items(list.size, key = { list[it].id }) { i ->
                 val playlist = list[i]
                 Row(
-                    Modifier.fillMaxWidth().segment(Place(i, list.size), groupColor()).clickable { open(Route.Playlist(playlist.id, playlist.name)) }
+                    Modifier.fillMaxWidth().segment(Place(i, list.size), groupColor(), lineStart = 80.dp).clickable { open(Route.Playlist(playlist.id, playlist.name)) }
                         .padding(horizontal = 14.dp, vertical = LocalRows.current.pad / 2 + 2.dp),
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(14.dp),
@@ -219,7 +222,7 @@ fun GenresScreen(open: (Route) -> Unit) {
     Page("Genres") { padding, scroll ->
         LazyVerticalGrid(
             columns = gridColumns(210.dp),
-            contentPadding = PaddingValues(start = 16.dp, end = 16.dp, bottom = 24.dp),
+            contentPadding = PaddingValues(start = 16.dp, end = 16.dp, bottom = 24.dp + LocalBottomInset.current),
             horizontalArrangement = Arrangement.spacedBy(12.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp),
             modifier = Modifier.fillMaxSize().padding(padding).then(scroll),

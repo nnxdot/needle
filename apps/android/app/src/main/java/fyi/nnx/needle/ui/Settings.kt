@@ -1,6 +1,9 @@
 package fyi.nnx.needle.ui
 
 import androidx.compose.material.icons.rounded.Dns
+import androidx.compose.material.icons.rounded.Groups
+import androidx.compose.material.icons.rounded.Widgets
+import androidx.compose.material.icons.rounded.Alarm
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
@@ -21,6 +24,8 @@ import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.material.icons.rounded.Check
+import androidx.compose.material.icons.rounded.Face
+import androidx.compose.material.icons.rounded.TextFields
 import androidx.compose.material.icons.rounded.Forward10
 import androidx.compose.material.icons.rounded.PlayArrow
 import androidx.compose.material.icons.rounded.SkipNext
@@ -216,7 +221,7 @@ fun SettingsScreen(open: (Route) -> Unit) {
         TwoPaneSettings(open)
         return
     }
-    LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = 24.dp)) {
+    LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = 24.dp + LocalBottomInset.current)) {
         item { LargeTitle("Settings") }
         item { SectionList(null) { open(it.route()) } }
     }
@@ -230,7 +235,7 @@ fun SettingsScreen(open: (Route) -> Unit) {
 private fun TwoPaneSettings(open: (Route) -> Unit) {
     var chosen by rememberSaveable { mutableStateOf(SettingsSection.Library) }
     Row(Modifier.fillMaxSize()) {
-        LazyColumn(Modifier.width(380.dp).fillMaxHeight(), contentPadding = PaddingValues(bottom = 24.dp)) {
+        LazyColumn(Modifier.width(380.dp).fillMaxHeight(), contentPadding = PaddingValues(bottom = 24.dp + LocalBottomInset.current)) {
             item { LargeTitle("Settings") }
             item { SectionList(chosen) { chosen = it } }
         }
@@ -291,7 +296,7 @@ private fun SectionList(chosen: SettingsSection?, onChoose: (SettingsSection) ->
 
 @Composable
 fun SettingsSectionScreen(section: SettingsSection, open: (Route) -> Unit) {
-    LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = 32.dp)) {
+    LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = 32.dp + LocalBottomInset.current)) {
         item { LargeTitle(section.title) }
         item {
             when (section) {
@@ -312,9 +317,8 @@ fun SettingsSectionScreen(section: SettingsSection, open: (Route) -> Unit) {
 // ---------- Building blocks
 
 /**
- * Rows grouped on one rounded surface, as in Android 16's own Settings: the group's ends are
- * rounded, and its rows stand a hair apart (each [Divider] is a gap the page shows through).
- * Its heading is plain: colour is kept for what is chosen.
+ * Rows under one short heading, on the page itself (the Needle look has no filled groups): a
+ * soft line between two rows ([Divider]). The heading is plain: colour is kept for what is chosen.
  */
 @Composable
 internal fun Group(title: String? = null, footer: String? = null, content: @Composable () -> Unit) {
@@ -331,8 +335,7 @@ internal fun Group(title: String? = null, footer: String? = null, content: @Comp
         Column(
             Modifier
                 .fillMaxWidth()
-                .clip(RoundedCornerShape(24.dp))
-                .background(groupColor())
+                .clip(RowShape)
                 .animateContentSize(),
         ) { content() }
         if (footer != null) {
@@ -346,9 +349,9 @@ internal fun Group(title: String? = null, footer: String? = null, content: @Comp
     }
 }
 
-/** Between two rows of a [Group]: a gap of the page, rather than a line. */
+/** Between two rows of a [Group]: a soft line from where the rows' words start. */
 @Composable
-internal fun Divider() = Box(Modifier.fillMaxWidth().height(2.dp).background(MaterialTheme.colorScheme.background))
+internal fun Divider() = androidx.compose.material3.HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant, modifier = Modifier.padding(start = 68.dp))
 
 /** A setting that is on or off: the whole row is the one switch, one stop for a remote, and TalkBack says on or off. */
 @Composable
@@ -506,6 +509,27 @@ private fun LibrarySettings(open: (Route) -> Unit) {
             if (scan.running) LinearWavyProgressIndicator(modifier = Modifier.fillMaxWidth().padding(start = 68.dp, end = 16.dp, bottom = 14.dp))
         }
     }
+    // Which songs make one album (needle_core::grouping): the files never change.
+    val more by NeedleApp.instance.more.collectAsState()
+    Group("Albums", footer = "Which songs make one album. Your files never change.") {
+        val ways = listOf("tags" to "Album artist and album", "folder" to "Folder")
+        ExpandRow(
+            Icons.Rounded.Album,
+            "What makes an album",
+            if (more.albumGrouping == "folder") "Songs in one folder with one album name, when they have no album artist." else "Songs with the same album artist and album name.",
+            // Short beside the row; the full names are on the choices under it.
+            if (more.albumGrouping == "folder") "Folder" else "Tags",
+        ) {
+            Segments(ways, more.albumGrouping) { way -> NeedleApp.instance.updateMore { it.copy(albumGrouping = way) } }
+        }
+        Divider()
+        SwitchRow(
+            "Compilations as one album",
+            "Songs tagged as a compilation, with no album artist, are one album by Various Artists.",
+            more.compilationsVarious,
+            icon = Icons.Rounded.Groups,
+        ) { on -> NeedleApp.instance.updateMore { it.copy(compilationsVarious = on) } }
+    }
     val context = LocalContext.current
     val backup = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/octet-stream")) { uri ->
         uri ?: return@rememberLauncherForActivityResult
@@ -532,13 +556,15 @@ private fun LibrarySettings(open: (Route) -> Unit) {
             SwitchRow("Look up lyrics and artists", "LRCLIB for lyrics, fanart.tv for artists", p.onlineMedia, icon = Icons.Rounded.Language) {
                 val next = p.copy(onlineMedia = it)
                 playback = next
-                background { core.setPlaybackSettings(next) }
+                background { core.setPlaybackSettings(next); NeedleApp.instance.artistPicturesAllowed() }
             }
             Divider()
             ExpandRow(Icons.Rounded.Info, "What is sent", "Only what a lookup needs") {
                 MoreText("When a song has no lyrics of its own, Needle asks LRCLIB for them with the song's title, artist, album, and length. For an artist's page, Needle asks MusicBrainz for the artist's ID by name, and sends fanart.tv only that ID. Nothing else is sent.")
             }
             if (p.onlineMedia) {
+                Divider()
+                ArtistPicturesRow()
                 Divider()
                 FanartKeyRow()
             }
@@ -572,28 +598,59 @@ private fun PlaybackSettingsPage() {
         settings = next
         background { core.setPlaybackSettings(next) }
     }
+    // Shown as off, and kept: they apply again when Needle's USB driver lets go.
+    val off = soundToolsOff()
     Group("Between songs") {
         var fade by remember { mutableStateOf(s.crossfade) }
         SliderRow(
             "Crossfade",
-            if (fade < 0.5f) "Off" else "${fade.toInt()} s",
-            fade,
+            if (off || fade < 0.5f) "Off" else "${fade.toInt()} s",
+            if (off) 0f else fade,
             0f..12f,
             steps = 11,
-            summary = "Songs overlap; albums stay gapless",
+            summary = if (off) OffWithUsb else "Songs overlap; albums stay gapless",
+            enabled = !off,
             icon = Icons.Rounded.SwapHoriz,
             onChange = { fade = it },
             onDone = { save(s.copy(crossfade = fade)) },
         )
+        // Smart mixes: only while there is a crossfade to time (SETTINGS-STYLE.md, a dependent row).
+        if (fade >= 0.5f) {
+            val more by NeedleApp.instance.more.collectAsState()
+            DependentRow {
+                SwitchRow("Smart mixes", if (off) OffWithUsb else "Fades where the music ends, in whole bars", more.smartMix && !off, enabled = !off, icon = Icons.Rounded.AutoAwesome) { on ->
+                    NeedleApp.instance.updateMore { it.copy(smartMix = on) }
+                }
+            }
+        }
         Divider()
         val loudness = when {
             !s.replayGain -> 0
             s.albumGain -> 2
             else -> 1
         }
-        ExpandRow(Icons.Rounded.GraphicEq, "Even out loudness", "From the songs' ReplayGain tags", listOf("Off", "Song", "Album")[loudness]) {
+        ExpandRow(
+            Icons.Rounded.GraphicEq,
+            "Even out loudness",
+            if (off) OffWithUsb else "From the songs' ReplayGain tags",
+            if (off) "Off" else listOf("Off", "Song", "Album")[loudness],
+            enabled = !off,
+        ) {
             Segments(listOf(0 to "Off", 1 to "Song", 2 to "Album"), loudness) { i -> save(s.copy(replayGain = i > 0, albumGain = i == 2)) }
             MoreText("Album keeps an album's quiet and loud songs as the artist made them.")
+        }
+    }
+    // Android's own: the alarm, and the Quick Settings tile.
+    Group("Alarm and tile") {
+        val context = androidx.compose.ui.platform.LocalContext.current
+        val alarm = remember { fyi.nnx.needle.WakeAlarm.read(context) }
+        LinkRow("Wake up to music", "A playlist or a smart mix as your alarm", Icons.Rounded.Alarm, if (alarm.on) fyi.nnx.needle.WakeAlarm.timeText(context, alarm) else "Off") {
+            Ui.openRoute.tryEmit(Route.Alarm)
+        }
+        var tile by remember { mutableStateOf(fyi.nnx.needle.TileAction.read(context)) }
+        val tiles = listOf("mix" to "Smart mix", "shuffle" to "Shuffle all", "sleep" to "Sleep 30 min")
+        ExpandRow(Icons.Rounded.Widgets, "Quick Settings tile", "What it plays with nothing to go on with", tiles.first { it.first == tile }.second) {
+            Segments(tiles, tile) { tile = it; fyi.nnx.needle.TileAction.set(context, it) }
         }
     }
     Group("When you choose a song") {
@@ -668,9 +725,11 @@ private fun SoundSettingsPage() {
             reload()
         }
     }
-    Group("Equalizer", footer = if (s.eq && s.mode == "parametric") "Loads AutoEq (ParametricEQ.txt) or Equalizer APO files." else null) {
-        SwitchRow("Equalizer", "Shape the sound", s.eq, icon = Icons.Rounded.Equalizer) { save(s.copy(eq = it)) }
-        AnimatedVisibility(s.eq) {
+    // Shown as off, and kept: they apply again when Needle's USB driver lets go.
+    val off = soundToolsOff()
+    Group("Equalizer", footer = if (s.eq && !off && s.mode == "parametric") "Loads AutoEq (ParametricEQ.txt) or Equalizer APO files." else null) {
+        SwitchRow("Equalizer", if (off) OffWithUsb else "Shape the sound", s.eq && !off, enabled = !off, icon = Icons.Rounded.Equalizer) { save(s.copy(eq = it)) }
+        AnimatedVisibility(s.eq && !off) {
             Column {
                 SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp)) {
                     listOf("graphic" to "Ten bands", "parametric" to "Parametric").forEachIndexed { i, (mode, label) ->
@@ -748,23 +807,26 @@ private fun SoundSettingsPage() {
         )
     }
     Group("Headphones and speakers") {
-        SwitchRow("Crossfeed", "Sides blend a little, as with speakers", s.crossfeed, icon = Icons.Rounded.Headphones) {
+        SwitchRow("Crossfeed", if (off) OffWithUsb else "Sides blend a little, as with speakers", s.crossfeed && !off, enabled = !off, icon = Icons.Rounded.Headphones) {
             save(s.copy(crossfeed = it))
         }
         Divider()
-        SwitchRow("Mono", "Both sides the same, for one earbud", s.mono, icon = Icons.Rounded.Hearing) { save(s.copy(mono = it)) }
+        SwitchRow("Mono", if (off) OffWithUsb else "Both sides the same, for one earbud", s.mono && !off, enabled = !off, icon = Icons.Rounded.Hearing) { save(s.copy(mono = it)) }
         Divider()
         UsbBitPerfect()
         var balance by remember(s.balance) { mutableStateOf(s.balance) }
         SliderRow(
             "Balance",
             when {
+                off -> "Off"
                 balance < -0.02f -> "Left ${(-balance * 100).toInt()}%"
                 balance > 0.02f -> "Right ${(balance * 100).toInt()}%"
                 else -> "Centre"
             },
-            balance,
+            if (off) 0f else balance,
             -1f..1f,
+            summary = if (off) OffWithUsb else null,
+            enabled = !off,
             icon = Icons.Rounded.Tune,
             onChange = { balance = if (kotlin.math.abs(it) < 0.04f) 0f else it },
             onDone = { save(s.copy(balance = balance)) },
@@ -958,18 +1020,19 @@ private fun AppearanceSettings(open: (Route) -> Unit) {
         }
     }
     Group("Player") {
+        val more by NeedleApp.instance.more.collectAsState()
+        val chosen = chosenButtons(more.playerButtons)
+        ExpandRow(Icons.Rounded.Tune, "Player buttons", "Which buttons the player shows", value = count(chosen.size, "button")) {
+            PlayerButtonsEditor(chosen) { list -> NeedleApp.instance.updateMore { it.copy(playerButtons = list) } }
+        }
+        Divider()
         SketchRow(Icons.Rounded.Album, "Cover", "Its shape in the player", listOf(
             Sketch("square", "Square") { accent, grey -> PlayerSketch(grey) { Box(Modifier.size(22.dp).clip(RoundedCornerShape(4.dp)).background(accent)) } },
             Sketch("round", "Record") { accent, grey -> PlayerSketch(grey) { Box(Modifier.size(22.dp).clip(CircleShape).background(accent)) } },
-            Sketch("shape", "Shape") { accent, grey -> PlayerSketch(grey) { Box(Modifier.size(22.dp).clip(androidx.compose.material3.MaterialShapes.Cookie12Sided.toShape()).background(accent)) } },
-        ), app.coverShape) { id -> update { it.copy(coverShape = id) } }
+            // The Needle look has no scalloped shapes: an older "shape" choice shows as Square.
+        ), if (app.coverShape == "shape") "square" else app.coverShape) { id -> update { it.copy(coverShape = id) } }
         Divider()
         SketchRow(Icons.Rounded.PlayCircle, "Buttons", "Play, pause, and skip", listOf(
-            Sketch("expressive", "Expressive") { accent, grey ->
-                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(3.dp)) {
-                    SketchBar(12, 10, grey, 5); SketchBar(20, 16, accent, 5); SketchBar(12, 10, grey, 5)
-                }
-            },
             Sketch("round", "Round") { accent, grey ->
                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(3.dp)) {
                     SketchBar(11, 11, grey, 6); SketchBar(18, 18, accent, 9); SketchBar(11, 11, grey, 6)
@@ -982,7 +1045,8 @@ private fun AppearanceSettings(open: (Route) -> Unit) {
                     Icon(Icons.Rounded.SkipNext, null, Modifier.size(14.dp), tint = grey)
                 }
             },
-        ), app.controlStyle) { id -> update { it.copy(controlStyle = id) } }
+            // The Needle look's buttons are round: the older Expressive shows as Round.
+        ), if (app.controlStyle == "minimal") "minimal" else "round") { id -> update { it.copy(controlStyle = id) } }
         Divider()
         SketchRow(Icons.Rounded.SkipNext, "Beside play", "Skip a song, or jump 10 seconds", listOf(
             Sketch("skip", "Skip songs") { accent, grey ->
@@ -1003,7 +1067,8 @@ private fun AppearanceSettings(open: (Route) -> Unit) {
         Divider()
         SketchRow(Icons.Rounded.LinearScale, "Seek bar", "The line of the song's time", SeekStyle.entries.map { style ->
             Sketch(style.id, style.label) { accent, grey ->
-                Box(Modifier.width(56.dp)) { ProgressLine(0.6f, true, accent, grey, style = style) }
+                // The shape's sketch: a made-up song's loud and quiet parts.
+                Box(Modifier.width(56.dp)) { ProgressLine(0.6f, true, accent, grey, style = style, heights = SketchShape) }
             }
         }, app.seekStyle) { id -> update { it.copy(seekStyle = id) } }
         Divider()
@@ -1066,11 +1131,10 @@ private fun AppearanceSettings(open: (Route) -> Unit) {
         SwitchRow("Mark server songs", "A small server icon beside the artist", app.serverMark, icon = Icons.Rounded.Dns) { on -> update { it.copy(serverMark = on) } }
     }
     Group("Text and motion") {
-        SketchRow(Icons.Rounded.Title, "Titles", "The font of page titles", listOf("flex" to "Poster", "fraunces" to "Serif", "system" to "Plain").map { (id, label) ->
-            Sketch(id, label) { accent, _ ->
-                Text("Aa", color = accent, style = MaterialTheme.typography.titleLarge.copy(fontFamily = titleFamilyFor(id), fontWeight = FontWeight.Black))
-            }
-        }, app.titleFont) { id -> update { it.copy(titleFont = id) } }
+        val fonts by NeedleApp.instance.more.collectAsState()
+        FontRow(Icons.Rounded.Title, "Titles", "The font of page titles", TitleFonts, titleFontId(fonts.displayFont), { titleFamilyFor(it) }, bold = true) { id -> NeedleApp.instance.updateMore { it.copy(displayFont = id) } }
+        Divider()
+        FontRow(Icons.Rounded.TextFields, "Text", "The font of everything else", TextFonts, fonts.textFont, { textFamilyFor(it) }) { id -> NeedleApp.instance.updateMore { it.copy(textFont = id) } }
         Divider()
         var scale by remember(app.textScale) { mutableFloatStateOf(app.textScale) }
         SliderRow(
@@ -1100,6 +1164,118 @@ private fun AppearanceSettings(open: (Route) -> Unit) {
         SwitchRow("Lyrics in the mini player", "Mid-bar on a tablet, under it on a phone", app.miniPlayerLyrics, icon = Icons.Rounded.Subtitles) { on -> update { it.copy(miniPlayerLyrics = on) } }
     }
 }
+
+/**
+ * Artist pictures (a dependent row of the online lookups): every artist's photo, logo, and wide
+ * picture found slowly in the background, on Wi-Fi only; its line says how far it is, and
+ * Check all now looks for every artist at once.
+ */
+@Composable
+private fun ArtistPicturesRow() {
+    val more by NeedleApp.instance.more.collectAsState()
+    var progress by remember { mutableStateOf<fyi.nnx.needle.core.PictureSweepProgress?>(null) }
+    LaunchedEffect(more.artistPictures) {
+        while (true) {
+            progress = withContext(Dispatchers.IO) { runCatching { core.pictureSweepProgress() }.getOrNull() }
+            kotlinx.coroutines.delay(2000)
+        }
+    }
+    val p = progress
+    val line = when {
+        !more.artistPictures -> "Finds every artist's picture, slowly, on Wi-Fi"
+        p == null || p.total == 0u -> "Finds every artist's picture, slowly, on Wi-Fi"
+        p.done >= p.total -> "All ${p.total} artists looked for"
+        !p.allowed -> "${p.done} of ${p.total} artists · waiting for Wi-Fi"
+        else -> "${p.done} of ${p.total} artists"
+    }
+    DependentRow {
+        Column {
+            SwitchRow("Artist pictures", line, more.artistPictures, icon = Icons.Rounded.Face) { on ->
+                NeedleApp.instance.updateMore { it.copy(artistPictures = on) }
+                NeedleApp.instance.artistPicturesAllowed()
+            }
+            if (more.artistPictures && (p == null || p.done < p.total)) {
+                TextButton(
+                    onClick = {
+                        background { core.checkAllArtistPictures() }
+                        showMessage("Looking for every artist's pictures")
+                    },
+                    modifier = Modifier.padding(start = 60.dp, bottom = 6.dp),
+                ) { Text("Check all now") }
+            }
+        }
+    }
+}
+
+/**
+ * A font to choose (Titles, Text): closed, the font in use; open, every font Needle carries,
+ * each name in its own font, and a font file on this phone (.ttf or .otf).
+ */
+@Composable
+private fun FontRow(
+    icon: ImageVector,
+    title: String,
+    summary: String,
+    fonts: List<Pair<String, String>>,
+    current: String,
+    family: (String) -> androidx.compose.ui.text.font.FontFamily,
+    bold: Boolean = false,
+    onChange: (String) -> Unit,
+) {
+    val context = androidx.compose.ui.platform.LocalContext.current
+    val own = current.takeIf { it.startsWith("own:") }
+    val ownName = own?.substringAfterLast('/')?.substringBeforeLast('.')
+    val name = fonts.firstOrNull { it.first == current }?.second ?: ownName ?: fonts.first().second
+    val pick = androidx.activity.compose.rememberLauncherForActivityResult(androidx.activity.result.contract.ActivityResultContracts.OpenDocument()) { uri ->
+        pickedFile(context, uri, { temp -> keepFont(context, uri, temp) }) { kept -> onChange("own:$kept") }
+    }
+    ExpandRow(icon, title, summary, value = name) { close ->
+        val weight = if (bold) FontWeight.Bold else FontWeight.Normal
+        fonts.forEach { (id, label) ->
+            FontChoice(label, family(id), weight, id == current) { onChange(id); close() }
+        }
+        if (own != null) FontChoice(ownName.orEmpty(), family(own), weight, true) {}
+        TextButton(onClick = { pick.launchTypes("font/ttf", "font/otf", "font/sfnt", "application/x-font-ttf", "application/x-font-otf", "application/octet-stream") }) {
+            Text("A font on this phone…")
+        }
+    }
+}
+
+private fun androidx.activity.compose.ManagedActivityResultLauncher<Array<String>, android.net.Uri?>.launchTypes(vararg types: String) = launch(arrayOf(*types))
+
+/** One font in a [FontRow]: its name in itself, and a check when it is the one in use. */
+@Composable
+private fun FontChoice(label: String, family: androidx.compose.ui.text.font.FontFamily, weight: FontWeight, chosen: Boolean, onClick: () -> Unit) {
+    Row(
+        Modifier.fillMaxWidth().heightIn(min = 48.dp).clip(RowShape).selectable(chosen, role = Role.RadioButton, onClick = onClick).padding(horizontal = 8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text(label, style = MaterialTheme.typography.titleMedium.copy(fontFamily = family, fontWeight = weight), modifier = Modifier.weight(1f))
+        if (chosen) Icon(Icons.Rounded.Check, contentDescription = "Chosen", tint = MaterialTheme.colorScheme.primary)
+    }
+}
+
+/**
+ * Keeps a chosen font file in Needle's own files, under its own name, after checking Android
+ * can read it as a font. Returns where it is kept.
+ */
+private fun keepFont(context: android.content.Context, uri: android.net.Uri?, temp: String): String {
+    val shown = uri?.let { u ->
+        context.contentResolver.query(u, arrayOf(android.provider.OpenableColumns.DISPLAY_NAME), null, null, null)?.use { c ->
+            if (c.moveToFirst()) c.getString(0) else null
+        }
+    } ?: "font.ttf"
+    val safe = shown.replace(Regex("[^A-Za-z0-9 ._-]"), "_").let { if (it.lowercase().endsWith(".otf") || it.lowercase().endsWith(".ttf")) it else "$it.ttf" }
+    runCatching { android.graphics.Typeface.createFromFile(temp) }.getOrNull()?.takeIf { it != android.graphics.Typeface.DEFAULT }
+        ?: error("That file is not a font Android can read")
+    val dir = java.io.File(context.filesDir, "fonts").apply { mkdirs() }
+    val kept = java.io.File(dir, safe)
+    java.io.File(temp).copyTo(kept, overwrite = true)
+    return kept.absolutePath
+}
+
+/** A made-up song's shape, for the Shape seek bar's sketch. */
+private val SketchShape = listOf(0.3f, 0.5f, 0.4f, 0.7f, 0.9f, 0.6f, 0.8f, 1f, 0.7f, 0.5f, 0.8f, 0.6f, 0.4f, 0.3f)
 
 /** A tiny player for a sketch: grey lines of words, and [cover] (the part that changes). */
 @Composable

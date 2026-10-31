@@ -21,6 +21,8 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.collectAsState
+import kotlinx.coroutines.launch
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -29,7 +31,24 @@ import androidx.compose.foundation.selection.toggleable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
+import androidx.compose.material.icons.rounded.ContentCopy
 import androidx.compose.material.icons.rounded.Usb
+
+/** The one line of a setting that cannot apply while Needle's own USB driver has the DAC. */
+const val OffWithUsb = "Off while Bit-perfect USB is on"
+
+/**
+ * Whether the music goes to Needle's own USB driver now: such settings show as off, and keep what
+ * is saved for later.
+ */
+@Composable
+fun soundToolsOff(): Boolean {
+    val driver by fyi.nnx.needle.UsbDriver.state.collectAsState()
+    val playback = fyi.nnx.needle.NeedleApp.instance.playback.collectAsState()
+    // Only this, not the whole playback, which changes at every tick.
+    val network by remember { androidx.compose.runtime.derivedStateOf { playback.value?.networkOutput == true } }
+    return driver.takesTheMusic(network)
+}
 
 private val MUSIC: AudioAttributes = AudioAttributes.Builder()
     .setUsage(AudioAttributes.USAGE_MEDIA)
@@ -125,6 +144,41 @@ private fun logDac(audio: AudioManager, device: AudioDeviceInfo) {
     )
 }
 
+/**
+ * What Android says of its outputs, for "Copy DAC details". By type only, but for USB: another
+ * output's name can be a person's (their earbuds).
+ */
+fun usbPhoneDetails(context: Context): String {
+    val out = StringBuilder()
+    val version = runCatching { context.packageManager.getPackageInfo(context.packageName, 0).versionName }.getOrNull()
+    out.append("Needle $version on Android ${Build.VERSION.RELEASE} (API ${Build.VERSION.SDK_INT}), ${Build.MANUFACTURER} ${Build.MODEL}\n")
+    out.append("Bit-perfect USB: ${if (fyi.nnx.needle.NeedleApp.instance.app.value.usbBitPerfect) "on" else "off"}\n")
+    val audio = context.getSystemService(AudioManager::class.java) ?: return out.toString()
+    val stream = AudioManager.STREAM_MUSIC
+    out.append("Music volume: ${audio.getStreamVolume(stream)} of ${audio.getStreamMaxVolume(stream)}, fixed ${audio.isVolumeFixed}\n")
+    val outputs = runCatching { audio.getDevices(AudioManager.GET_DEVICES_OUTPUTS).toList() }.getOrDefault(emptyList())
+    out.append("Outputs by type: ${outputs.joinToString(", ") { it.type.toString() }}\n")
+    for (device in outputs.filter { it.type == AudioDeviceInfo.TYPE_USB_DEVICE || it.type == AudioDeviceInfo.TYPE_USB_HEADSET }) {
+        out.append(
+            "USB output (type ${device.type}): ${device.productName}, rates ${device.sampleRates.joinToString(",").ifEmpty { "any" }}, " +
+                "encodings ${device.encodings.joinToString(",") { encodingName(it) }.ifEmpty { "any" }}, " +
+                "channels ${device.channelCounts.joinToString(",").ifEmpty { "any" }}\n",
+        )
+    }
+    if (Build.VERSION.SDK_INT >= 33) {
+        val route = runCatching { audio.getAudioDevicesForAttributes(MUSIC).map { it.type } }.getOrNull()
+        out.append("Music goes to type: ${route?.joinToString(",") ?: "not known"}\n")
+    }
+    if (Build.VERSION.SDK_INT >= 34) {
+        val usb = usbOutput(audio)
+        val mixer = usb?.let { runCatching { audio.getPreferredMixerAttributes(MUSIC, it) }.getOrNull() }
+        out.append("Preferred mixer: ${mixer?.let { "${it.mixerBehavior} ${encodingName(it.format.encoding)} ${it.format.sampleRate} Hz" } ?: "none"}\n")
+    }
+    val playback = runCatching { core.playback() }.getOrNull()
+    out.append("Player: ${if (playback?.playing == true) "playing" else "not playing"}\n")
+    return out.toString()
+}
+
 /** The DAC last written to the log, so one plugged in is written once. */
 private var loggedDac: String? = null
 
@@ -158,9 +212,20 @@ private fun matchOutput(mixer: AudioMixerAttributes?) {
 /**
  * Needle's output follows the USB DAC's mixer from the start and wherever the app is, not only
  * while Settings shows the switch: a DAC unplugged (or plugged back in) with bit-perfect on
- * changes the format Needle opens in at once, and so does a start with it already on.
+ * changes the format Needle opens in at once, and so does a start with it already on. Needle's
+ * own driver (`UsbDriver`) starts here too; it has the DAC first when Bit-perfect USB is on.
  */
 fun followUsbMixer(context: Context) {
+    // Bit-perfect USB on from before 2.0 (Android's mixer chosen): the switch stays on.
+    if (Build.VERSION.SDK_INT >= 34 && !fyi.nnx.needle.NeedleApp.instance.app.value.usbBitPerfect) {
+        val audio = context.getSystemService(AudioManager::class.java)
+        val dac = audio?.let { usbOutput(it) }
+        val mixer = dac?.let { runCatching { audio.getPreferredMixerAttributes(MUSIC, it) }.getOrNull() }
+        if (mixer?.mixerBehavior == AudioMixerAttributes.MIXER_BEHAVIOR_BIT_PERFECT) {
+            fyi.nnx.needle.NeedleApp.instance.updateApp { it.copy(usbBitPerfect = true) }
+        }
+    }
+    fyi.nnx.needle.UsbDriver.start(context)
     if (Build.VERSION.SDK_INT < 34) return
     val audio = context.getSystemService(AudioManager::class.java) ?: return
     fun check() {
@@ -180,66 +245,125 @@ fun followUsbMixer(context: Context) {
 }
 
 /**
- * Bit-perfect playback to a USB DAC (Android 14 and newer): Android stops mixing and hands
- * the DAC the music as it is, at its own rate. Other sounds are silent meanwhile.
+ * Android's own bit-perfect mixer for the DAC on or off (Android 14 and newer), with Needle's
+ * output opened to match: the fallback when Needle's driver cannot play to a DAC.
+ */
+fun useAndroidMixer(context: Context, on: Boolean) {
+    if (Build.VERSION.SDK_INT < 34) return
+    val audio = context.getSystemService(AudioManager::class.java) ?: return
+    val device = usbOutput(audio)
+    val offer = device?.let { bitPerfect(audio, it) }
+    val wanted = on && offer != null
+    runCatching { toggle(audio, device, offer, wanted) }
+    matchOutput(if (wanted) offer else null)
+}
+
+/**
+ * Bit-perfect playback to a USB DAC: Needle's own driver plays the music to it as it is, at each
+ * song's rate and depth (Android 8 and newer); where it cannot, Android's bit-perfect mixer
+ * (Android 14 and newer). Other sounds play from the phone meanwhile.
  */
 @Composable
 fun UsbBitPerfect() {
-    if (Build.VERSION.SDK_INT < 34) return
     val context = LocalContext.current
+    val app by fyi.nnx.needle.NeedleApp.instance.app.collectAsState()
+    val driver by fyi.nnx.needle.UsbDriver.state.collectAsState()
     val audio = remember { context.getSystemService(Context.AUDIO_SERVICE) as AudioManager }
-    var device by remember { mutableStateOf(usbOutput(audio)) }
+    // Android's mixer, for the fallback's words (Android 14 and newer).
+    var device by remember { mutableStateOf(if (Build.VERSION.SDK_INT >= 34) usbOutput(audio) else null) }
     DisposableEffect(audio) {
         val callback = object : android.media.AudioDeviceCallback() {
-            override fun onAudioDevicesAdded(devices: Array<out AudioDeviceInfo>) { device = usbOutput(audio) }
-            override fun onAudioDevicesRemoved(devices: Array<out AudioDeviceInfo>) {
-                device = usbOutput(audio)
-                if (device == null) matchOutput(null)
-            }
+            override fun onAudioDevicesAdded(devices: Array<out AudioDeviceInfo>) { if (Build.VERSION.SDK_INT >= 34) device = usbOutput(audio) }
+            override fun onAudioDevicesRemoved(devices: Array<out AudioDeviceInfo>) { if (Build.VERSION.SDK_INT >= 34) device = usbOutput(audio) }
         }
         audio.registerAudioDeviceCallback(callback, android.os.Handler(android.os.Looper.getMainLooper()))
         onDispose { audio.unregisterAudioDeviceCallback(callback) }
     }
     val connected = device
-    val offer = remember(connected) { connected?.let { bitPerfect(audio, it) } }
-    val why = remember(connected, offer) { if (connected != null && offer == null) whyNot(audio, connected) else null }
-    androidx.compose.runtime.LaunchedEffect(connected) { connected?.let { logDac(audio, it) } }
-    var on by remember(connected) {
-        mutableStateOf(
-            connected != null && runCatching {
-                audio.getPreferredMixerAttributes(MUSIC, connected)?.mixerBehavior == AudioMixerAttributes.MIXER_BEHAVIOR_BIT_PERFECT
-            }.getOrDefault(false),
-        )
+    val offer = remember(connected) { if (Build.VERSION.SDK_INT >= 34) connected?.let { bitPerfect(audio, it) } else null }
+    // The mixer's format in words (Android 14 and newer only).
+    val offerText = remember(offer) { if (Build.VERSION.SDK_INT >= 34 && offer != null) "${encodingName(offer.format.encoding)} at ${kHz(offer.format.sampleRate)} kHz" else null }
+    androidx.compose.runtime.LaunchedEffect(connected) { if (Build.VERSION.SDK_INT >= 34) connected?.let { logDac(audio, it) } }
+    // What the driver plays now ("96 kHz, 24-bit"), read while the row shows.
+    var playing by remember { mutableStateOf<String?>(null) }
+    // Below 100 %, a DAC with no volume of its own hears lowered samples.
+    var exact by remember { mutableStateOf(true) }
+    androidx.compose.runtime.LaunchedEffect(driver) {
+        while (driver is fyi.nnx.needle.UsbDriver.State.Driving) {
+            val status = runCatching { core.usbDacStatus() }.getOrNull()
+            playing = status?.playing
+            exact = status?.bitPerfect ?: true
+            kotlinx.coroutines.delay(1500)
+        }
+        playing = null
+        exact = true
     }
-    val usable = connected != null && offer != null
-    fun setMixer(wanted: Boolean) {
-        runCatching { toggle(audio, connected, offer, wanted) }
-            .onSuccess { success ->
-                if (success) {
-                    on = wanted
-                    matchOutput(if (wanted) offer else null)
-                } else {
-                    showMessage("Android could not change the USB mixer. Try reconnecting the DAC.")
-                }
-            }
-            .onFailure { showMessage(it.message ?: "Android could not change the USB mixer") }
+    val replug by fyi.nnx.needle.UsbDriver.replug.collectAsState()
+    val line = when (val d = driver) {
+        is fyi.nnx.needle.UsbDriver.State.Driving -> {
+            val now = playing ?: "Needle's own driver, up to ${d.info.bits}-bit"
+            // The driver's words say it when it converts; the volume's are added here.
+            d.info.name + ": " + now + (if (exact || "not bit-perfect" in now) "" else ", not bit-perfect below 100%")
+        }
+        is fyi.nnx.needle.UsbDriver.State.Fallback if replug != null -> "Unplug $replug and plug it in again to use Android's sound"
+        is fyi.nnx.needle.UsbDriver.State.Asking -> "Allow Needle to use ${d.name}"
+        is fyi.nnx.needle.UsbDriver.State.Fallback -> if (app.usbBitPerfect && offer != null) "${d.name}: Android's bit-perfect mixer, $offerText" else "${d.name} plays through Android"
+        else -> if (replug != null) "Unplug $replug and plug it in again to use Android's sound"
+        else if (connected != null && Build.VERSION.SDK_INT >= 23) "${connected.productName}: the exact sound; other sounds wait"
+        else "Plug in a USB DAC for the exact sound"
     }
+    // Why Needle's driver could not, in full, under the row.
+    val why = (driver as? fyi.nnx.needle.UsbDriver.State.Fallback)?.why?.takeIf { app.usbBitPerfect }
     Column {
         SettingRow(
             androidx.compose.material.icons.Icons.Rounded.Usb,
             "Bit-perfect USB",
-            when {
-                connected == null -> "Plug in a USB DAC for the exact sound"
-                offer == null -> "${connected.productName} cannot use it here"
-                else -> "${encodingName(offer.format.encoding)} at ${kHz(offer.format.sampleRate)} kHz; other sounds wait"
-            },
+            line,
             // The whole row is the one switch, named by its words.
-            Modifier.toggleable(on, enabled = usable, role = androidx.compose.ui.semantics.Role.Switch) { setMixer(it) },
-            enabled = usable,
-        ) { Switch(checked = on, enabled = usable, onCheckedChange = null) }
-        // Why not, in full: what is missing, and that the DAC still plays as usual.
+            Modifier.toggleable(app.usbBitPerfect, role = androidx.compose.ui.semantics.Role.Switch) { on ->
+                fyi.nnx.needle.NeedleApp.instance.updateApp { it.copy(usbBitPerfect = on) }
+                if (on) {
+                    // Needle's driver first; the moment after, it has the DAC or Android's mixer does.
+                    fyi.nnx.needle.NeedleApp.instance.scope.launch(kotlinx.coroutines.Dispatchers.Main) {
+                        kotlinx.coroutines.delay(100)
+                        fyi.nnx.needle.UsbDriver.check(context)
+                    }
+                } else {
+                    fyi.nnx.needle.UsbDriver.release(context, fyi.nnx.needle.UsbDriver.State.None) {
+                        useAndroidMixer(context, false)
+                        fyi.nnx.needle.UsbDriver.check(context)
+                    }
+                }
+            },
+        ) { Switch(checked = app.usbBitPerfect, onCheckedChange = null) }
         if (why != null) {
-            Text(why, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(start = 68.dp, end = 16.dp, bottom = 14.dp))
+            Text(
+                if (replug != null) "Needle's own driver could not play to it ($why)."
+                else "Needle's own driver could not play to it ($why), so ${if (offer != null) "Android's bit-perfect mixer" else "Android"} plays to it instead.",
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(start = 68.dp, end = 16.dp, bottom = 14.dp),
+            )
+        }
+        val plugged by fyi.nnx.needle.UsbDriver.plugged.collectAsState()
+        plugged?.let { name ->
+            Divider()
+            SettingRow(
+                androidx.compose.material.icons.Icons.Rounded.ContentCopy,
+                "Copy DAC details",
+                "What Needle read from $name, for a report",
+                Modifier.clickable {
+                    fyi.nnx.needle.UsbDriver.copyDetails(context) { text ->
+                        if (text == null) {
+                            showMessage("Needle could not read the DAC")
+                        } else {
+                            val clipboard = context.getSystemService(android.content.ClipboardManager::class.java)
+                            clipboard?.setPrimaryClip(android.content.ClipData.newPlainText("DAC details", text))
+                            showMessage("DAC details copied")
+                        }
+                    }
+                },
+            )
         }
     }
     Divider()

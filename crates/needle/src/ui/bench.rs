@@ -364,10 +364,63 @@ impl AppView {
                             }
                         }
                     }
+                    // "search:harbor": the Search page, with that typed.
+                    Some(("search", text)) => {
+                        v.search
+                            .update(cx, |s, cx| s.set_value(text.to_string(), window, cx));
+                        v.page = Page::Search;
+                        v.run_find(cx);
+                        cx.notify();
+                    }
+                    // "long-album": an album page that holds every song, scrolled down
+                    // NEEDLE_SHOW_SCROLL pixels (for the header that folds).
+                    _ if page == "long-album" => {
+                        let page = Page::Album {
+                            album: "Every song".into(),
+                            artist: "Mara Quinn".into(),
+                            query: "play_count >= 0".into(),
+                        };
+                        open(v, page, window, cx);
+                        if let Some(down) = std::env::var("NEEDLE_SHOW_SCROLL")
+                            .ok()
+                            .and_then(|s| s.parse::<f32>().ok())
+                        {
+                            let scroll = v.list_scroll.clone();
+                            cx.spawn(async move |view, cx| {
+                                cx.background_executor().timer(Duration::from_secs(2)).await;
+                                let _ = view.update(cx, |_, cx| {
+                                    scroll
+                                        .0
+                                        .borrow()
+                                        .base_handle
+                                        .set_offset(point(px(0.), px(-down)));
+                                    cx.notify();
+                                });
+                            })
+                            .detach();
+                        }
+                    }
+                    // "album:Hana Mori/Bloom Season": one album's page.
+                    Some(("album", which)) => {
+                        let (artist, album) = which.split_once('/').unwrap_or(("", which));
+                        let track = needle_core::model::Track {
+                            album_artist: artist.into(),
+                            album: album.into(),
+                            ..Default::default()
+                        };
+                        open(v, super::album_page(&track), window, cx)
+                    }
                     _ if page == "home" => open(v, Page::Home, window, cx),
                     _ if page == "albums" => open(v, Page::Albums, window, cx),
                     _ if page == "artists" => open(v, Page::Artists, window, cx),
                     _ if page == "history" => open(v, Page::History, window, cx),
+                    _ if page == "numbers" => open(v, Page::Numbers, window, cx),
+                    _ if page == "crate" => {
+                        v.albums_crate = true;
+                        v.crate_index = 3;
+                        open(v, Page::Albums, window, cx)
+                    }
+                    _ if page == "mood" => open(v, Page::MoodMap, window, cx),
                     _ if page == "server" => open(
                         v,
                         Page::Source {
@@ -421,6 +474,17 @@ impl AppView {
         }
         // For screenshots: the big player, once the window is up ("moving": held as it is while
         // it grows, over the page and under the usual title bar).
+        // For screenshots: full screen (NEEDLE_SHOW_IMMERSIVE: "queue" shows what plays next).
+        if let Ok(how) = std::env::var("NEEDLE_SHOW_IMMERSIVE") {
+            cx.spawn_in(window, async move |view, cx| {
+                cx.background_executor().timer(Duration::from_secs(3)).await;
+                let _ = view.update_in(cx, |v, window, cx| {
+                    v.immersive_queue = how == "queue";
+                    v.set_immersive(true, window, cx);
+                });
+            })
+            .detach();
+        }
         if let Ok(how) = std::env::var("NEEDLE_SHOW_BIG") {
             cx.spawn_in(window, async move |view, cx| {
                 cx.background_executor().timer(Duration::from_secs(3)).await;
@@ -430,6 +494,8 @@ impl AppView {
                         v.big_was = true;
                         v.big_moving = true;
                     }
+                    // "visualizer": with the visualizer on.
+                    v.visualizer = how == "visualizer";
                     // "alone": with no pane beside it.
                     if how == "alone" {
                         v.big_side = super::now_playing::Side::None;

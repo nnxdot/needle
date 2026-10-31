@@ -91,7 +91,8 @@ pub struct AppSettings {
     pub moving_backdrop: bool,
     /// How soft that blurred cover is, 20 to 120.
     pub backdrop_blur: f32,
-    /// The seek bar and the mini player's progress: "wave", "line", or "thick".
+    /// The seek bar and the mini player's progress: "shape" (the song's waveform), "wave",
+    /// "line", or "thick".
     pub seek_style: String,
     /// The mini player takes the playing cover's colour, rather than the page's.
     pub mini_player_colored: bool,
@@ -99,8 +100,9 @@ pub struct AppSettings {
     pub mini_player_lyrics: bool,
     /// The player's cover: "square", "round" (a turning record), or "shape" (Material's shapes).
     pub cover_shape: String,
-    /// Font for titles: "flex" (Roboto Flex, narrow and heavy), "fraunces" (a soft serif, as
-    /// on the desktop), or "system".
+    /// Font for titles before 2.0: "flex" (Roboto Flex, narrow and heavy), "fraunces", or
+    /// "system". Since 2.0 the fonts are the library's choices (`display_font`, `text_font`);
+    /// the app moves this one over once and then leaves it empty.
     pub title_font: String,
     /// All text larger or smaller: 0.85 to 1.3.
     pub text_scale: f32,
@@ -137,6 +139,10 @@ pub struct AppSettings {
     /// choice as the computer's `server_mark`).
     #[uniffi(default = true)]
     pub server_mark: bool,
+    /// Settings › Sound › Bit-perfect USB: Needle's own driver plays to a USB DAC, Android's
+    /// bit-perfect mixer where it cannot.
+    #[uniffi(default = false)]
+    pub usb_bit_perfect: bool,
 }
 
 impl Default for AppSettings {
@@ -154,7 +160,9 @@ impl Default for AppSettings {
             ambient_colors: false,
             moving_backdrop: true,
             backdrop_blur: 70.0,
-            seek_style: "wave".into(),
+            // The song's own shape (its waveform) from 2.0 on, for new installs; a style kept
+            // from before stays.
+            seek_style: "shape".into(),
             mini_player_colored: true,
             mini_player_lyrics: false,
             cover_shape: "square".into(),
@@ -172,6 +180,7 @@ impl Default for AppSettings {
             animated_covers: true,
             moving_covers_on_mobile_data: false,
             server_mark: true,
+            usb_bit_perfect: false,
         }
     }
 }

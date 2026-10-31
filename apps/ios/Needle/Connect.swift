@@ -98,7 +98,7 @@ struct ComputerView: View {
                     Artwork(path: song.cover, seed: song.album + song.artist, size: 200)
                         .frame(width: 64, height: 64).clipShape(.rect(cornerRadius: 10))
                     VStack(alignment: .leading, spacing: 2) {
-                        Text(song.title).font(.headline).lineLimit(1)
+                        Text(song.title).font(.needle(.headline)).lineLimit(1)
                         Text(song.artist).foregroundStyle(.secondary).lineLimit(1)
                     }
                 }
@@ -109,7 +109,7 @@ struct ComputerView: View {
                     Button { pcDo("next") } label: { Image(systemName: "forward.fill") }
                     Spacer()
                 }
-                .font(.title2)
+                .font(.needle(.title2))
                 .buttonStyle(.borderless)
                 HStack {
                     Button { pcDo("shuffle") } label: { Image(systemName: "shuffle") }
@@ -161,7 +161,7 @@ struct ComputerView: View {
                 .frame(width: 40, height: 40).clipShape(.rect(cornerRadius: 6))
             VStack(alignment: .leading, spacing: 1) {
                 Text(song.title).foregroundStyle(.primary).lineLimit(1)
-                Text(song.artist).font(.caption).foregroundStyle(.secondary).lineLimit(1)
+                Text(song.artist).font(.needle(.caption)).foregroundStyle(.secondary).lineLimit(1)
             }
         }
     }

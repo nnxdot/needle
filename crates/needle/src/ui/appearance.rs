@@ -611,6 +611,7 @@ impl AppView {
         let searchless = s.layout.search_hidden;
         page = page
             .child(self.group_title("Layout", cx))
+            .child(self.player_buttons_row(cx))
             .child(setting_row(
                 "The player",
                 "At the foot of the window, or in the title bar.",
@@ -686,11 +687,37 @@ impl AppView {
             .child(self.switch_row(
                 "moving-covers",
                 "Moving covers",
-                "An animated WebP or GIF cover beside the songs moves in the big player.",
+                "An animated WebP or GIF cover beside the songs moves on its album's page and in the big player.",
                 s.animated_covers,
                 |this, on, _| this.settings.animated_covers = on,
                 cx,
             ))
+            .child({
+                let weak = cx.entity().downgrade();
+                let at = needle_core::model::SEEK_STYLES
+                    .iter()
+                    .position(|n| *n == s.seek_style)
+                    .unwrap_or(0);
+                setting_row(
+                    "Seek bar",
+                    "In the big player and full screen.",
+                    super::widgets::segmented(
+                        "seek-style",
+                        &["Shape", "Wave", "Line", "Thick"],
+                        at,
+                        cx,
+                        move |index, _, cx| {
+                            let _ = weak.update(cx, |this, cx| {
+                                this.settings.seek_style =
+                                    needle_core::model::SEEK_STYLES[index].into();
+                                this.persist_settings();
+                                cx.notify();
+                            });
+                        },
+                    ),
+                    cx,
+                )
+            })
             .child(self.switch_row(
                 "player-lyrics",
                 "Lyrics under the player",
@@ -708,59 +735,14 @@ impl AppView {
                 cx,
             ));
 
-        // Text and motion: the title fonts as small samples, and reduce motion.
-        let fonts: &'static [_; 3] = &super::theme::DISPLAY_FONTS;
-        let font_chips =
-            div()
-                .flex()
-                .gap(px(6.))
-                .children(fonts.iter().map(|(key, label, family)| {
-                    let active =
-                        s.display_font == *key || (s.display_font.is_empty() && *key == fonts[0].0);
-                    div()
-                        .id(SharedString::from(format!("font-{key}")))
-                        .w(px(64.))
-                        .h(px(52.))
-                        .rounded(px(8.))
-                        .border_1()
-                        .border_color(if active { p.accent } else { p.line_soft })
-                        .when(active, |el| el.bg(p.accent_soft))
-                        .hover(|s| s.bg(p.raised))
-                        .cursor_pointer()
-                        .flex()
-                        .items_center()
-                        .justify_center()
-                        .font_family(SharedString::from(*family))
-                        .text_size(px(22.))
-                        .text_color(if active { p.ink } else { p.ink_2 })
-                        .child("Aa")
-                        .tooltip({
-                            let label = label.to_string();
-                            move |window, cx| {
-                                gpui_component::tooltip::Tooltip::new(label.clone())
-                                    .build(window, cx)
-                            }
-                        })
-                        .on_click(cx.listener(move |this, _, _, cx| {
-                            super::theme::set_display_font(key);
-                            this.settings.display_font = (*key).into();
-                            this.persist_settings();
-                            cx.notify();
-                        }))
-                }));
-        let font_name = fonts
-            .iter()
-            .find(|(key, _, _)| s.display_font == *key)
-            .map_or(fonts[0].1, |(_, label, _)| label);
+        // Text and motion: the title and text fonts (rows that open), and reduce motion.
         let system_still = !motion::system_allows_animation();
+        let titles = self.font_row(true, cx);
+        let text = self.font_row(false, cx);
         page =
             page.child(self.group_title("Text and motion", cx))
-                .child(setting_row(
-                    "Titles",
-                    &format!("The font for page titles and big names: {font_name}."),
-                    font_chips,
-                    cx,
-                ))
+                .child(titles)
+                .child(text)
                 .child(self.switch_row(
                     "reduce-motion",
                     "Reduce motion",
@@ -832,5 +814,181 @@ impl AppView {
                     cx,
                 ));
         page
+    }
+}
+
+impl AppView {
+    /// The Titles or Text row: closed, the font's name in that font; open, every font as a
+    /// sample to choose, and a field for a font on this computer.
+    fn font_row(&self, titles: bool, cx: &mut Context<Self>) -> Div {
+        let p = pal(cx);
+        let fonts: &'static [(&'static str, &'static str, &'static str)] = if titles {
+            &super::theme::DISPLAY_FONTS
+        } else {
+            &super::theme::TEXT_FONTS
+        };
+        let current = if titles {
+            self.settings.display_font.clone()
+        } else {
+            self.settings.text_font.clone()
+        };
+        let current = if current == "bahnschrift" {
+            "poster".to_string()
+        } else {
+            current
+        };
+        let name = super::theme::font_name(fonts, &current);
+        let family: SharedString = if titles {
+            super::theme::display_font().into()
+        } else {
+            super::theme::text_font().into()
+        };
+        let own = if titles {
+            self.own_font.clone()
+        } else {
+            self.own_text_font.clone()
+        };
+        self.expander(
+            if titles { "title-font" } else { "text-font" },
+            if titles { "Titles" } else { "Text" },
+            if titles {
+                "The font of page titles and big names."
+            } else {
+                "The font of lists, menus, and everything else."
+            },
+            Some(
+                div()
+                    .font_family(family)
+                    .text_size(px(14.))
+                    .text_color(p.ink_2)
+                    .child(name)
+                    .into_any_element(),
+            ),
+            move |cx| {
+                let p = pal(cx);
+                let set = move |this: &mut AppView, key: String, cx: &mut Context<AppView>| {
+                    if titles {
+                        super::theme::set_display_font(&key);
+                        this.settings.display_font = key;
+                    } else {
+                        super::theme::set_text_font(&key, cx);
+                        this.settings.text_font = key;
+                    }
+                    this.persist_settings();
+                    cx.notify();
+                };
+                div()
+                    .px(px(14.))
+                    .pb(px(12.))
+                    .flex()
+                    .flex_col()
+                    .gap(px(2.))
+                    .children(fonts.iter().map(|(key, label, family)| {
+                        let active = current == *key;
+                        let key = key.to_string();
+                        div()
+                            .id(SharedString::from(format!(
+                                "font-{}-{key}",
+                                if titles { "t" } else { "x" }
+                            )))
+                            .px(px(10.))
+                            .py(px(6.))
+                            .rounded(px(8.))
+                            .flex()
+                            .items_center()
+                            .gap_3()
+                            .cursor_pointer()
+                            .when(active, |el| el.bg(p.accent_soft))
+                            .hover(|s| s.bg(p.raised))
+                            .child(
+                                div()
+                                    .flex_1()
+                                    .min_w_0()
+                                    .font_family(SharedString::from(*family))
+                                    .text_size(px(if titles { 22. } else { 15. }))
+                                    .when(
+                                        titles
+                                            && !["Instrument Serif", "DM Serif Display"]
+                                                .contains(family),
+                                        |el| el.font_weight(FontWeight::SEMIBOLD),
+                                    )
+                                    .text_color(p.ink)
+                                    .truncate()
+                                    .child(if titles {
+                                        "Good evening"
+                                    } else {
+                                        "Harbor Lights · Mara Quinn · 3:48"
+                                    }),
+                            )
+                            .child(
+                                div()
+                                    .flex_shrink_0()
+                                    .text_size(px(12.))
+                                    .text_color(if active { p.accent } else { p.ink_3 })
+                                    .child(*label),
+                            )
+                            .on_click(cx.listener(move |this, _, _, cx| set(this, key.clone(), cx)))
+                    }))
+                    .child(
+                        div()
+                            .mt_2()
+                            .flex()
+                            .items_center()
+                            .gap_2()
+                            .child(
+                                div()
+                                    .flex_1()
+                                    .h(px(32.))
+                                    .px_2()
+                                    .rounded(px(8.))
+                                    .bg(p.raised)
+                                    .border_1()
+                                    .border_color(p.line_soft)
+                                    .flex()
+                                    .items_center()
+                                    .child(
+                                        gpui_component::input::Input::new(&own).appearance(false),
+                                    ),
+                            )
+                            .child(
+                                super::widgets::small_button(
+                                    if titles {
+                                        "own-title-font"
+                                    } else {
+                                        "own-text-font"
+                                    },
+                                    "Use this font",
+                                )
+                                .on_click(cx.listener(
+                                    move |this, _, _, cx| {
+                                        let field = if titles {
+                                            &this.own_font
+                                        } else {
+                                            &this.own_text_font
+                                        };
+                                        let typed = field.read(cx).value().trim().to_string();
+                                        if typed.is_empty() {
+                                            return;
+                                        }
+                                        let found = cx
+                                            .text_system()
+                                            .all_font_names()
+                                            .into_iter()
+                                            .find(|f| f.eq_ignore_ascii_case(&typed));
+                                        match found {
+                                        Some(family) => set(this, format!("own:{family}"), cx),
+                                        None => this.fail(format!(
+                                            "No font named {typed} is installed on this computer."
+                                        )),
+                                    }
+                                        cx.notify();
+                                    },
+                                )),
+                            ),
+                    )
+                    .into_any_element()
+            },
+            cx,
+        )
     }
 }

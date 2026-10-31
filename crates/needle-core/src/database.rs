@@ -89,6 +89,7 @@ impl Library {
         }
         crate::history::migrate(&db)?;
         crate::browse::migrate(&db)?;
+        crate::find::migrate(&db)?;
         Ok(library)
     }
     pub fn connection(&self) -> Result<Connection> {

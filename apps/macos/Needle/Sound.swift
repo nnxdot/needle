@@ -57,7 +57,7 @@ struct SoundPane: View {
                 GroupHeader(title: "Listening tools")
             } footer: {
                 Text("ReplayGain, album gain, and loudness measurement are in Settings › Playback.")
-                    .font(.caption).foregroundStyle(.secondary)
+                    .font(.needle(.caption)).foregroundStyle(.secondary)
             }
             effectsSection
         }
@@ -116,10 +116,10 @@ struct SoundPane: View {
             }
             HStack(alignment: .center, spacing: 14) {
                 VStack(spacing: 4) {
-                    Text("Preamp").font(.caption).foregroundStyle(.secondary)
+                    Text("Preamp").font(.needle(.caption)).foregroundStyle(.secondary)
                     VerticalSlider(value: Binding(get: { s.preamp }, set: { v in change { $0.preamp = v } }), range: -24...12)
                         .frame(height: 150)
-                    Text(String(format: "%+.1f", s.preamp)).font(.caption.monospacedDigit())
+                    Text(String(format: "%+.1f", s.preamp)).font(.needle(.caption).monospacedDigit())
                 }
                 Divider().frame(height: 160)
                 if s.mode == "parametric" {
@@ -127,12 +127,12 @@ struct SoundPane: View {
                 } else {
                     ForEach(Array(bands.enumerated()), id: \.offset) { i, frequency in
                         VStack(spacing: 4) {
-                            Text(String(format: "%+.0f", i < s.bands.count ? s.bands[i] : 0)).font(.caption2.monospacedDigit()).foregroundStyle(.secondary)
+                            Text(String(format: "%+.0f", i < s.bands.count ? s.bands[i] : 0)).font(.needle(.caption2).monospacedDigit()).foregroundStyle(.secondary)
                             VerticalSlider(value: Binding(get: { i < s.bands.count ? s.bands[i] : 0 }, set: { v in
                                 change { if i < $0.bands.count { $0.bands[i] = v }; $0.eq = true; $0.preset = "Custom" }
                             }), range: -12...12, label: frequency >= 1000 ? "\(Int(frequency / 1000)) kilohertz" : "\(Int(frequency)) hertz")
                             .frame(height: 150)
-                            Text(frequency >= 1000 ? "\(Int(frequency / 1000))k" : "\(Int(frequency))").font(.caption2).foregroundStyle(.secondary)
+                            Text(frequency >= 1000 ? "\(Int(frequency / 1000))k" : "\(Int(frequency))").font(.needle(.caption2)).foregroundStyle(.secondary)
                         }
                         .frame(maxWidth: .infinity)
                     }
@@ -143,7 +143,7 @@ struct SoundPane: View {
             let loudest = (s.mode == "parametric" ? s.parametric.filter(\.on).map(\.gain) : s.bands).max() ?? 0
             if loudest + s.preamp > 0.05 {
                 Text(String(format: "Boosted bands can clip. A preamp of %.1f dB keeps the loudest band safe.", -loudest))
-                    .font(.caption).foregroundStyle(colors.danger)
+                    .font(.needle(.caption)).foregroundStyle(colors.danger)
             }
             HStack {
                 Button("Load EQ file…") { loadFile() }
@@ -183,7 +183,7 @@ struct SoundPane: View {
                 Label("Add band", systemImage: "plus")
             }
             .disabled(s.parametric.count >= 20)
-            Text("Click a band's kind to change it. Peak, shelf, and notch bands follow Q; a higher Q is narrower.").font(.caption).foregroundStyle(.secondary)
+            Text("Click a band's kind to change it. Peak, shelf, and notch bands follow Q; a higher Q is narrower.").font(.needle(.caption)).foregroundStyle(.secondary)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
     }
@@ -192,14 +192,14 @@ struct SoundPane: View {
         Section {
             if effects.isEmpty {
                 Text("No effects yet. Turn on a plugin that adds effects in Settings › Plugins. Add the example plugins there to try Studio effects and Bitcrusher.")
-                    .font(.callout).foregroundStyle(.secondary)
+                    .font(.needle(.callout)).foregroundStyle(.secondary)
             }
             ForEach(Array(effects.enumerated()), id: \.offset) { _, effect in
                 VStack(alignment: .leading, spacing: 6) {
                     HStack {
                         VStack(alignment: .leading, spacing: 1) {
-                            Text(effect.name).font(.body.weight(.medium))
-                            Text("\(effect.pluginName) · \(effect.description)").font(.caption).foregroundStyle(.secondary).lineLimit(2)
+                            Text(effect.name).font(.needle(.body).weight(.medium))
+                            Text("\(effect.pluginName) · \(effect.description)").font(.needle(.caption)).foregroundStyle(.secondary).lineLimit(2)
                         }
                         Spacer()
                         RowToggle(label: effect.name, isOn: Binding(get: { effect.on }, set: { on in
@@ -210,7 +210,7 @@ struct SoundPane: View {
                         .toggleStyle(.switch).labelsHidden()
                     }
                     if let failure = effect.failure {
-                        Text("Stopped: \(failure)").font(.caption).foregroundStyle(store.colors.danger)
+                        Text("Stopped: \(failure)").font(.needle(.caption)).foregroundStyle(store.colors.danger)
                     }
                     if effect.on {
                         ForEach(effect.params, id: \.id) { param in
@@ -221,7 +221,7 @@ struct SoundPane: View {
                                     try? store.core.setEffectParam(plugin: plugin, effect: id, param: pid, value: Float(v))
                                     effects = store.core.effects()
                                 }), in: Double(param.min)...Double(max(param.max, param.min + 0.001)))
-                                Text(param.shown).font(.caption.monospacedDigit()).frame(width: 70, alignment: .trailing)
+                                Text(param.shown).font(.needle(.caption).monospacedDigit()).frame(width: 70, alignment: .trailing)
                             }
                         }
                     }
@@ -304,7 +304,7 @@ struct LabeledSlider: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            Text(label).font(.caption2.monospacedDigit()).foregroundStyle(.secondary)
+            Text(label).font(.needle(.caption2).monospacedDigit()).foregroundStyle(.secondary)
             Slider(value: $value, in: range).controlSize(.mini)
         }
         .frame(minWidth: 90)

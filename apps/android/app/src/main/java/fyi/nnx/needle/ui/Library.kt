@@ -29,7 +29,12 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.Sort
+import androidx.compose.material.icons.automirrored.rounded.KeyboardArrowRight
 import androidx.compose.material.icons.rounded.Add
+import androidx.compose.material.icons.rounded.AutoAwesome
+import androidx.compose.material.icons.rounded.Album
+import androidx.compose.material.icons.rounded.BarChart
+import androidx.compose.material.icons.rounded.BubbleChart
 import androidx.compose.material.icons.rounded.ArrowDropDown
 import androidx.compose.material.icons.rounded.Check
 import androidx.compose.material.icons.rounded.Close
@@ -195,10 +200,15 @@ private fun Pills(filter: Filter?, choose: (Filter?) -> Unit, sort: Sort, sortBy
                     DropdownMenu(expanded = more, onDismissRequest = { more = false }, shape = RoundedCornerShape(20.dp)) {
                         DropdownMenuItem(text = { Text("Genres") }, leadingIcon = { Icon(Icons.Rounded.Style, null) }, onClick = { more = false; open(Route.Genres) })
                         DropdownMenuItem(text = { Text("Folders") }, leadingIcon = { Icon(Icons.Rounded.Folder, null) }, onClick = { more = false; open(Route.Folder(null)) })
+                        DropdownMenuItem(text = { Text("Record crate") }, leadingIcon = { Icon(Icons.Rounded.Album, null) }, onClick = { more = false; open(Route.Crate) })
+                        DropdownMenuItem(text = { Text("Genre map") }, leadingIcon = { Icon(Icons.Rounded.BubbleChart, null) }, onClick = { more = false; open(Route.MoodMap) })
+                        DropdownMenuItem(text = { Text("Your library in numbers") }, leadingIcon = { Icon(Icons.Rounded.BarChart, null) }, onClick = { more = false; open(Route.Numbers) })
+                        DropdownMenuItem(text = { Text("Your year") }, leadingIcon = { Icon(Icons.Rounded.AutoAwesome, null) }, onClick = { more = false; open(Route.Wrapped(null)) })
                     }
                 }
             }
         }
+        if (filter == Filter.Artists) ArtistSortButton()
         if (filter == Filter.Albums || filter == Filter.Songs) {
             // Songs carry no date they were added, so they sort by name or artist only.
             val orders = if (filter == Filter.Songs) Sort.entries - Sort.Recent else Sort.entries
@@ -239,7 +249,7 @@ private fun LazyGridScope.span(content: @Composable () -> Unit) =
 private fun AlbumGrid(albums: List<Album>?, open: (Route) -> Unit, scroll: Modifier, loading: Boolean, header: LazyGridScope.() -> Unit = {}) {
     LazyVerticalGrid(
         columns = GridCells.Adaptive(160.dp),
-        contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 8.dp, bottom = 32.dp),
+        contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 8.dp, bottom = 32.dp + LocalBottomInset.current),
         horizontalArrangement = Arrangement.spacedBy(14.dp),
         verticalArrangement = Arrangement.spacedBy(LocalRows.current.grid),
         modifier = Modifier.fillMaxSize().then(scroll),
@@ -257,15 +267,38 @@ private fun Overview(open: (Route) -> Unit, scroll: Modifier) {
     val favoritesLoad = rememberLoaded { favorites().size }
     val favorites by favoritesLoad
     AlbumGrid(albums?.let { sorted(it, Sort.Recent).take(24) }, open, scroll, albumsLoad.loading) {
+        // Plain rows, as the Mac's sidebar places: no tiles.
         span {
-            // The two the same height, when one's words take two lines.
-            Row(Modifier.height(androidx.compose.foundation.layout.IntrinsicSize.Min), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                val colors = MaterialTheme.colorScheme
-                Pinned(Icons.Rounded.Favorite, "Favorites", favorites?.let { count(it, "song") }, Modifier.weight(1f).fillMaxHeight(), colors.tertiaryContainer, colors.tertiary) { open(Route.Favorites) }
-                Pinned(Icons.Rounded.History, "History", "What you played", Modifier.weight(1f).fillMaxHeight()) { open(Route.History) }
+            Column(Modifier.padding(horizontal = 0.dp)) {
+                LibraryLink(Icons.Rounded.Favorite, "Favorites", favorites?.let { count(it, "song") }) { open(Route.Favorites) }
+                LibraryLink(Icons.Rounded.History, "History", "What you played", last = true) { open(Route.History) }
             }
         }
-        span { Text("Recently added", style = MaterialTheme.typography.titleLargeEmphasized, modifier = Modifier.padding(top = 12.dp)) }
+        span { Text("Recently added", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.SemiBold, modifier = Modifier.padding(top = 16.dp)) }
+    }
+}
+
+/** A place in the library: its icon, its name and a grey line, and a chevron, over a soft line. */
+@Composable
+private fun LibraryLink(icon: ImageVector, title: String, detail: String?, last: Boolean = false, onClick: () -> Unit) {
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .then(if (last) Modifier else Modifier.softLine(start = 52.dp))
+            .clip(RowShape)
+            .clickable(onClick = onClick)
+            .padding(vertical = 10.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(14.dp),
+    ) {
+        Box(Modifier.size(38.dp).clip(CircleShape).background(MaterialTheme.colorScheme.primary.copy(alpha = 0.14f)), contentAlignment = Alignment.Center) {
+            Icon(icon, contentDescription = null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(20.dp))
+        }
+        Column(Modifier.weight(1f)) {
+            Text(title, style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.Medium)
+            if (detail != null) Text(detail, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
+        Icon(Icons.AutoMirrored.Rounded.KeyboardArrowRight, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
     }
 }
 
@@ -344,17 +377,7 @@ private fun Albums(sort: Sort, open: (Route) -> Unit, scroll: Modifier) {
 
 @Composable
 private fun Artists(open: (Route) -> Unit, scroll: Modifier) {
-    val artistsLoad = rememberLoaded { artists() }
-    val artists by artistsLoad
-    LazyVerticalGrid(
-        columns = GridCells.Adaptive(104.dp),
-        contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 8.dp, bottom = 32.dp),
-        horizontalArrangement = Arrangement.spacedBy(12.dp),
-        verticalArrangement = Arrangement.spacedBy(LocalRows.current.grid),
-        modifier = Modifier.fillMaxSize().then(scroll),
-    ) {
-        items(artists.orEmpty(), key = { it.name }) { artist -> ArtistTile(artist, Modifier, open) }
-    }
+    ArtistGrid(open, scroll)
 }
 
 @Composable
@@ -364,7 +387,7 @@ private fun Songs(sort: Sort, open: (Route) -> Unit, scroll: Modifier) {
     val playing = playingSongId()
     // Sorted once per list and order, not at every redraw.
     val list = remember(songs, sort) { songs?.let { sortedSongs(it, sort) }.orEmpty() }
-    androidx.compose.foundation.lazy.LazyColumn(Modifier.fillMaxSize().then(scroll), contentPadding = PaddingValues(bottom = 32.dp)) {
+    androidx.compose.foundation.lazy.LazyColumn(Modifier.fillMaxSize().then(scroll), contentPadding = PaddingValues(bottom = 32.dp + LocalBottomInset.current)) {
         if (songsLoad.loading) items(8) { SongPlaceholder() }
         items(list.size, key = { list[it].id }) { i ->
             val song = list[i]
@@ -379,7 +402,7 @@ private fun Songs(sort: Sort, open: (Route) -> Unit, scroll: Modifier) {
 private fun Playlists(open: (Route) -> Unit, scroll: Modifier) {
     val playlistsLoad = rememberLoaded { playlists() }
     val playlists by playlistsLoad
-    androidx.compose.foundation.lazy.LazyColumn(Modifier.fillMaxSize().then(scroll), contentPadding = PaddingValues(bottom = 32.dp)) {
+    androidx.compose.foundation.lazy.LazyColumn(Modifier.fillMaxSize().then(scroll), contentPadding = PaddingValues(bottom = 32.dp + LocalBottomInset.current)) {
         // A new playlist: Material's tonal button, above the group of playlists.
         item {
             androidx.compose.material3.FilledTonalButton(
@@ -397,7 +420,7 @@ private fun Playlists(open: (Route) -> Unit, scroll: Modifier) {
         items(count, key = { list[it].id }) { i ->
             val playlist = list[i]
             Row(
-                Modifier.fillMaxWidth().segment(Place(i, count), groupColor()).clickable { open(Route.Playlist(playlist.id, playlist.name)) }
+                Modifier.fillMaxWidth().segment(Place(i, count), groupColor(), lineStart = 82.dp).clickable { open(Route.Playlist(playlist.id, playlist.name)) }
                     .heightIn(min = LocalRows.current.height + 12.dp).padding(horizontal = 12.dp, vertical = 8.dp),
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(14.dp),

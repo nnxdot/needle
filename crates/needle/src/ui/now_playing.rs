@@ -175,6 +175,24 @@ impl AppView {
     ) -> AnyElement {
         let closing = !self.big;
         let canvas = pal(cx).canvas;
+        // Open and still: drawn in its own place, without the opening again (the move from the
+        // layer it grew in started the animation a second time).
+        if !self.big_moving {
+            return div()
+                .absolute()
+                .inset_0()
+                .overflow_hidden()
+                .bg(canvas)
+                .child(
+                    div()
+                        .absolute()
+                        .w(px(w))
+                        .h(px(h + lift))
+                        .top(px(-lift))
+                        .child(player),
+                )
+                .into_any_element();
+        }
         // Where the cover sits in the player bar, measured from the body's edges.
         let art = [22., h - 77., w - 78., 21.];
         let edge = move |t: f32, i: usize| art[i] * (1. - if closing { 1. - t } else { t });
@@ -205,7 +223,19 @@ impl AppView {
         let tint = look.as_ref().map(|l| l.vivid);
         let size = super::widgets::content_size(window);
         let (w, h) = (f32::from(size.width), f32::from(size.height));
-        let side = if w < 1000. { Side::None } else { self.big_side };
+        let big_look = self.big_look();
+        // The Lyrics look shows the words itself: no lyrics beside them too.
+        let side = match (w < 1000., self.big_side) {
+            (true, _) => Side::None,
+            (_, Side::Lyrics) if big_look == "lyrics" => Side::None,
+            (_, side) => side,
+        };
+        let angle = self.record_angle();
+        if big_look == "record" && self.playback.playing && self.motion_allowed()
+            || big_look == "lyrics"
+        {
+            window.request_animation_frame();
+        }
         let current = self.shown_item();
         let playing = self.playback.playing;
         let repeat = self.playback.repeat;
@@ -213,9 +243,7 @@ impl AppView {
         let art = (h - 440.).min(left_w - 120.).clamp(140., 520.);
         // Settings > Appearance > Immersive cover, for a song with a cover of its own.
         let moving = current.as_ref().and_then(|c| self.moving_cover(&c.track));
-        let immersive = self
-            .settings
-            .immersive_cover
+        let immersive = (self.settings.immersive_cover && big_look == "cover")
             .then(|| {
                 moving
                     .clone()
@@ -334,22 +362,39 @@ impl AppView {
                                 Some(side) => el.w(px(side)).flex_shrink_0().justify_end().pb_12(),
                                 None => el.flex_1().justify_center().px_12(),
                             })
-                            .when(cover_side.is_none(), |el| {
+                            .when(cover_side.is_none() && big_look != "cover", |el| {
+                                el.child(self.look_stage(
+                                    big_look,
+                                    art,
+                                    left_w,
+                                    angle,
+                                    current.as_ref().map(|c| &c.track),
+                                    cx,
+                                ))
+                            })
+                            .when(cover_side.is_none() && big_look == "cover", |el| {
                                 el.child(
                                     div()
                                         .rounded(px(10.))
-                                        .shadow(vec![BoxShadow {
-                                            color: gpui::black().opacity(if p.dark {
-                                                0.55
+                                        .map(|el| {
+                                            // The visualizer: a glow that breathes with the music.
+                                            if self.visualizer {
+                                                el.shadow(self.visualizer_glow(cx))
                                             } else {
-                                                // Softer on light backgrounds, where the shadow's
-                                                // steps would show.
-                                                0.14
-                                            }),
-                                            offset: point(px(0.), px(18.)),
-                                            blur_radius: px(48.),
-                                            spread_radius: px(-6.),
-                                        }])
+                                                el.shadow(vec![BoxShadow {
+                                                    color: gpui::black().opacity(if p.dark {
+                                                        0.55
+                                                    } else {
+                                                        // Softer on light backgrounds, where the
+                                                        // shadow's steps would show.
+                                                        0.14
+                                                    }),
+                                                    offset: point(px(0.), px(18.)),
+                                                    blur_radius: px(48.),
+                                                    spread_radius: px(-6.),
+                                                }])
+                                            }
+                                        })
                                         // Settings › Appearance › Moving covers: the cover
                                         // moves here too with Immersive cover off.
                                         .child(
@@ -371,6 +416,9 @@ impl AppView {
                                                 }),
                                         ),
                                 )
+                            })
+                            .when(self.visualizer && big_look != "visualizer", |el| {
+                                el.child(self.visualizer_strip(art, 56., cx))
                             })
                             .child(match &current {
                                 None => div()
@@ -458,7 +506,12 @@ impl AppView {
                                         .w(px(40.))
                                         .text_right(),
                                     )
-                                    .child(self.seek_bar("big-seek", current.is_none(), cx))
+                                    .child(self.wave_seek_bar(
+                                        "big-seek",
+                                        current.is_none(),
+                                        34.,
+                                        cx,
+                                    ))
                                     .child(
                                         faint(
                                             current
@@ -703,6 +756,23 @@ impl AppView {
                         cx,
                     ))
                     .child(side_button("big-stems", "stems", "Stems", Side::Stems, cx))
+                    .child(self.look_button(cx))
+                    .child(
+                        icon_button(
+                            "big-visualizer",
+                            "wave",
+                            if self.visualizer {
+                                "Hide the visualizer"
+                            } else {
+                                "Visualizer"
+                            },
+                        )
+                        .when(self.visualizer, |b| b.text_color(p.accent))
+                        .on_click(cx.listener(|this, _, _, cx| {
+                            this.visualizer = !this.visualizer;
+                            cx.notify();
+                        })),
+                    )
                     .child(
                         icon_button("big-full", "fullscreen", "Full screen · F11").on_click(
                             cx.listener(|this, _, window, cx| this.set_immersive(true, window, cx)),

@@ -14,3 +14,5 @@ dependencyResolutionManagement {
 }
 rootProject.name = "Needle"
 include(":app")
+// Needle for Wear OS.
+include(":wear")

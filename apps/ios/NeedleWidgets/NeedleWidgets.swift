@@ -17,7 +17,9 @@ struct NeedleWidgets: WidgetBundle {
     }
 }
 
-private let pink = Color(red: 1, green: 0.361, blue: 0.541)
+/// Needle's amber, as in the app.
+private let amber = Color(red: 0.886, green: 0.706, blue: 0.424)
+private let amberDeep = Color(red: 0.549, green: 0.353, blue: 0.071)
 
 // MARK: - What the widgets read
 
@@ -58,7 +60,7 @@ struct Cover: View {
             if let url = Snapshot.coverURL(name), let image = UIImage(contentsOfFile: url.path) {
                 Image(uiImage: image).resizable().scaledToFill()
             } else {
-                LinearGradient(colors: [pink, .purple.opacity(0.8)], startPoint: .topLeading, endPoint: .bottomTrailing)
+                LinearGradient(colors: [amber, amberDeep], startPoint: .topLeading, endPoint: .bottomTrailing)
                     .overlay(Image(systemName: "music.note").font(.title2).foregroundStyle(.white.opacity(0.8)))
             }
         }
@@ -207,7 +209,7 @@ struct Shelf<I: AudioPlaybackIntent>: View {
                                     Text(item.detail).font(.caption).foregroundStyle(.secondary).lineLimit(1)
                                 }
                                 Spacer()
-                                Image(systemName: "play.fill").foregroundStyle(pink)
+                                Image(systemName: "play.fill").foregroundStyle(amber)
                             }
                         }
                         .buttonStyle(.plain)
@@ -264,7 +266,7 @@ struct RadioView: View {
         .buttonStyle(.plain)
         .containerBackground(for: .widget) {
             if family == .accessoryCircular { AccessoryWidgetBackground() }
-            else { LinearGradient(colors: [pink, .purple], startPoint: .topLeading, endPoint: .bottomTrailing) }
+            else { LinearGradient(colors: [amber, amberDeep], startPoint: .topLeading, endPoint: .bottomTrailing) }
         }
     }
 }
@@ -274,7 +276,7 @@ struct StatsWidget: Widget {
         StaticConfiguration(kind: "Stats", provider: Provider()) { entry in
             let s = entry.snapshot
             VStack(alignment: .leading, spacing: 4) {
-                Text("THIS WEEK").font(.caption2.bold()).foregroundStyle(pink)
+                Text("THIS WEEK").font(.caption2.bold()).foregroundStyle(amber)
                 Text(hours(s.weekSeconds)).font(.title.bold()).minimumScaleFactor(0.6)
                 Text("\(s.weekSongs) songs").font(.caption).foregroundStyle(.secondary)
                 Spacer()
@@ -304,7 +306,7 @@ struct NeedleLiveActivity: Widget {
         ActivityConfiguration(for: NeedleActivity.self) { context in
             HStack(spacing: 14) {
                 Image(systemName: context.attributes.kind == "sleep" ? "moon.zzz.fill" : "arrow.down.circle.fill")
-                    .font(.title).foregroundStyle(pink)
+                    .font(.title).foregroundStyle(amber)
                 VStack(alignment: .leading, spacing: 2) {
                     Text(context.state.title).font(.headline)
                     if !context.state.detail.isEmpty { Text(context.state.detail).font(.subheadline).foregroundStyle(.secondary) }
@@ -314,7 +316,7 @@ struct NeedleLiveActivity: Widget {
                     Text(timerInterval: Date.now...max(ends, .now), countsDown: true)
                         .font(.title2.monospacedDigit().bold()).multilineTextAlignment(.trailing).frame(width: 90)
                 } else if context.attributes.kind == "sync" {
-                    ProgressView().tint(pink)
+                    ProgressView().tint(amber)
                 }
             }
             .padding()
@@ -322,7 +324,7 @@ struct NeedleLiveActivity: Widget {
         } dynamicIsland: { context in
             DynamicIsland {
                 DynamicIslandExpandedRegion(.leading) {
-                    Image(systemName: context.attributes.kind == "sleep" ? "moon.zzz.fill" : "arrow.down.circle.fill").foregroundStyle(pink).font(.title2)
+                    Image(systemName: context.attributes.kind == "sleep" ? "moon.zzz.fill" : "arrow.down.circle.fill").foregroundStyle(amber).font(.title2)
                 }
                 DynamicIslandExpandedRegion(.center) {
                     Text(context.state.title).font(.headline).lineLimit(1)
@@ -336,15 +338,15 @@ struct NeedleLiveActivity: Widget {
                     if !context.state.detail.isEmpty { Text(context.state.detail).font(.caption).foregroundStyle(.secondary) }
                 }
             } compactLeading: {
-                Image(systemName: context.attributes.kind == "sleep" ? "moon.zzz.fill" : "arrow.down.circle.fill").foregroundStyle(pink)
+                Image(systemName: context.attributes.kind == "sleep" ? "moon.zzz.fill" : "arrow.down.circle.fill").foregroundStyle(amber)
             } compactTrailing: {
                 if let ends = context.state.ends {
                     Text(timerInterval: Date.now...max(ends, .now), countsDown: true).monospacedDigit().frame(width: 44)
                 } else {
-                    ProgressView().tint(pink)
+                    ProgressView().tint(amber)
                 }
             } minimal: {
-                Image(systemName: context.attributes.kind == "sleep" ? "moon.zzz.fill" : "arrow.down.circle.fill").foregroundStyle(pink)
+                Image(systemName: context.attributes.kind == "sleep" ? "moon.zzz.fill" : "arrow.down.circle.fill").foregroundStyle(amber)
             }
         }
     }

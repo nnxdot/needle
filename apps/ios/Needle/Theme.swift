@@ -11,16 +11,25 @@ struct ThemeColors {
     var accent: Color
     var dark: Bool
 
-    static let pink = Color(red: 1, green: 0.361, blue: 0.541)
+    /// Needle's amber, as on the Mac: on dark looks, and its deeper shade on Day.
+    static let amber = Color(red: 0.886, green: 0.706, blue: 0.424)
+    static let amberOnLight = Color(red: 0.549, green: 0.353, blue: 0.071)
+
+    /// Text on the accent: dark on a light accent (amber, a pale cover), white on a deep one.
+    var onAccent: Color {
+        var r: CGFloat = 0, g: CGFloat = 0, b: CGFloat = 0, a: CGFloat = 0
+        UIColor(accent).getRed(&r, green: &g, blue: &b, alpha: &a)
+        return 0.2126 * r + 0.7152 * g + 0.0722 * b > 0.6 ? Color(red: 0.11, green: 0.08, blue: 0.03) : .white
+    }
 
     static func base(_ name: String) -> ThemeColors {
         switch name {
         case "day", "light":
-            ThemeColors(page: Color(hex: "#F3F3F6")!, card: .white, text: Color(hex: "#111114")!, muted: Color(hex: "#6B6B75")!, accent: Color(hex: "#E0306A")!, dark: false)
+            ThemeColors(page: Color(hex: "#F3F3F6")!, card: .white, text: Color(hex: "#111114")!, muted: Color(hex: "#6B6B75")!, accent: amberOnLight, dark: false)
         case "midnight":
-            ThemeColors(page: .black, card: Color(hex: "#141418")!, text: Color(hex: "#F2F2F5")!, muted: Color(hex: "#8E8E98")!, accent: pink, dark: true)
+            ThemeColors(page: .black, card: Color(hex: "#141418")!, text: Color(hex: "#F2F2F5")!, muted: Color(hex: "#8E8E98")!, accent: amber, dark: true)
         default:
-            ThemeColors(page: Color(hex: "#0B0B10")!, card: Color(hex: "#1C1C22")!, text: Color(hex: "#F2F2F5")!, muted: Color(hex: "#9A9AA5")!, accent: pink, dark: true)
+            ThemeColors(page: Color(hex: "#0B0B10")!, card: Color(hex: "#1C1C22")!, text: Color(hex: "#F2F2F5")!, muted: Color(hex: "#9A9AA5")!, accent: amber, dark: true)
         }
     }
 

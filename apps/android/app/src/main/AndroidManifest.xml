@@ -24,6 +24,11 @@
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <uses-permission android:name="android.permission.WAKE_LOCK" />
+    <!-- A short buzz when a shake adds 10 minutes to the sleep timer. -->
+    <uses-permission android:name="android.permission.VIBRATE" />
+    <!-- The alarm (wake up to music): exact, and set again after the phone starts. -->
+    <uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM" />
+    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
     <!-- Whether the network is mobile data (metered), for moving covers on mobile data. -->
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
     <!-- Finding speakers (Chromecast, DLNA, AirPlay) on the Wi-Fi. -->
@@ -49,6 +54,7 @@
     <application
         android:name=".NeedleApp"
         android:icon="@mipmap/ic_launcher"
+        android:roundIcon="@mipmap/ic_launcher_round"
         android:banner="@drawable/tv_banner"
         android:label="@string/app_name"
         android:theme="@style/Theme.Needle"
@@ -78,6 +84,10 @@
                 <action android:name="android.media.action.MEDIA_PLAY_FROM_SEARCH" />
                 <category android:name="android.intent.category.DEFAULT" />
             </intent-filter>
+            <!-- A long press on the Quick Settings tile opens its setting. -->
+            <intent-filter>
+                <action android:name="android.service.quicksettings.action.QS_TILE_PREFERENCES" />
+            </intent-filter>
             <intent-filter>
                 <action android:name="android.intent.action.VIEW" />
                 <category android:name="android.intent.category.DEFAULT" />
@@ -86,6 +96,19 @@
                 <data android:mimeType="audio/*" />
             </intent-filter>
         </activity>
+
+        <!-- A Wear OS watch's presses (play, pause, skip, the heart, the volume). -->
+        <service
+            android:name=".NeedleWearService"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="com.google.android.gms.wearable.MESSAGE_RECEIVED" />
+                <data
+                    android:host="*"
+                    android:pathPrefix="/needle"
+                    android:scheme="wear" />
+            </intent-filter>
+        </service>
 
         <!-- Hands a downloaded update to Android's installer. -->
         <provider
@@ -116,6 +139,29 @@
         </service>
 
         <!-- Home screen widgets. -->
+        <!-- The Quick Settings tile: Play and Pause from the shade. -->
+        <service
+            android:name=".NeedleTile"
+            android:exported="true"
+            android:icon="@drawable/ic_tile"
+            android:label="Needle"
+            android:permission="android.permission.BIND_QUICK_SETTINGS_TILE">
+            <intent-filter>
+                <action android:name="android.service.quicksettings.action.QS_TILE" />
+            </intent-filter>
+        </service>
+
+        <!-- Wake up to music: the alarm and its notification's buttons. -->
+        <receiver android:name=".AlarmReceiver" android:exported="false" />
+        <!-- Sets the alarm again after a restart: off until an alarm is on, so a restart does
+             not start Needle for nothing. -->
+        <receiver android:name=".AlarmBootReceiver" android:exported="false" android:enabled="false">
+            <intent-filter>
+                <action android:name="android.intent.action.BOOT_COMPLETED" />
+                <action android:name="android.app.action.SCHEDULE_EXACT_ALARM_PERMISSION_STATE_CHANGED" />
+            </intent-filter>
+        </receiver>
+
         <receiver android:name=".NowPlayingReceiver" android:exported="true" android:label="Needle: now playing">
             <intent-filter>
                 <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />

@@ -24,6 +24,19 @@ impl AppView {
                 Err(e) => Event::Error(format!("{e:#}")),
             };
             let _ = sender.send(event);
+            // On this day: what played one and five years ago today.
+            let now = chrono::Local::now();
+            let offset = now.offset().local_minus_utc();
+            if let Ok(days) = library.on_this_day(now.timestamp(), offset, &[1, 5], SHELF) {
+                let _ = sender.send(Event::OnThisDay(days));
+            }
+            // December: the year in music.
+            let year = needle_core::wrapped::home_year(now.date_naive()).filter(|y| {
+                library
+                    .listening_years()
+                    .is_ok_and(|years| years.contains(y))
+            });
+            let _ = sender.send(Event::HomeYear(year));
         });
     }
 
@@ -37,7 +50,30 @@ impl AppView {
         };
         let empty = Home::default();
         let home = self.home.as_deref().unwrap_or(&empty);
-        let shelves: Vec<(&str, &str, Vec<Group>, bool, Page)> = [
+        let days: Vec<(String, String, Vec<Group>, bool, Page)> = self
+            .on_this_day
+            .iter()
+            .map(|day| {
+                let date = chrono::DateTime::from_timestamp(day.day, 0)
+                    .map(|d| {
+                        d.with_timezone(&chrono::Local)
+                            .format("%-d %B %Y")
+                            .to_string()
+                    })
+                    .unwrap_or_default();
+                (
+                    match day.years_ago {
+                        1 => "One year ago today".to_string(),
+                        n => format!("{n} years ago today"),
+                    },
+                    date,
+                    album_groups(day.albums.clone()),
+                    false,
+                    Page::History,
+                )
+            })
+            .collect();
+        let shelves: Vec<(String, String, Vec<Group>, bool, Page)> = [
             (
                 "Jump back in",
                 "Albums you played last",
@@ -75,6 +111,18 @@ impl AppView {
             ),
         ]
         .into_iter()
+        .map(|(title, note, groups, round, page)| {
+            (title.to_string(), note.to_string(), groups, round, page)
+        })
+        .enumerate()
+        .flat_map(|(i, shelf)| {
+            // On this day comes right after Jump back in.
+            let mut out = vec![shelf];
+            if i == 0 {
+                out.extend(days.clone());
+            }
+            out
+        })
         .filter(|s| !s.2.is_empty())
         .collect();
         div()
@@ -108,6 +156,7 @@ impl AppView {
                     ),
             )
             .children(self.home_now(cx))
+            .children(self.home_year_card(cx))
             .when(self.home.is_none(), |el| el.child(Self::shelf_skeleton(cx)))
             .children(shelves.into_iter().enumerate().map(
                 |(i, (title, note, groups, round, all))| {
@@ -149,9 +198,60 @@ impl AppView {
             ))
     }
 
+    /// December's card: the year in music is ready.
+    fn home_year_card(&self, cx: &mut Context<Self>) -> Option<impl IntoElement> {
+        let year = self.home_year?;
+        let p = pal(cx);
+        Some(
+            div().px_8().pt_6().child(
+                div()
+                    .id("home-year")
+                    .rounded(px(16.))
+                    .p(px(20.))
+                    .bg(p.accent.opacity(0.12))
+                    .border_1()
+                    .border_color(p.accent.opacity(0.25))
+                    .flex()
+                    .items_center()
+                    .gap_4()
+                    .cursor_pointer()
+                    .hover(|s| s.bg(p.accent.opacity(0.18)))
+                    .child(
+                        div()
+                            .flex_1()
+                            .min_w_0()
+                            .flex()
+                            .flex_col()
+                            .gap_1()
+                            .child(
+                                div()
+                                    .font_family(super::theme::MONO_FONT)
+                                    .text_size(px(11.))
+                                    .text_color(p.accent)
+                                    .child(format!("YOUR {year} IN MUSIC")),
+                            )
+                            .child(display(format!("Your {year} in music"), 26.))
+                            .child(meta(
+                                "Your hours, your top artist, and your top songs of the year.",
+                                cx,
+                            )),
+                    )
+                    .child(glyph("chevron-right").size(px(20.)).text_color(p.accent))
+                    .on_click(cx.listener(move |this, _, window, cx| {
+                        this.navigate(Page::Wrapped(year), window, cx)
+                    })),
+            ),
+        )
+    }
+
     /// One Home row, scrolled sideways, with an arrow at each end (while the pointer is over
     /// it, and only toward more) that moves it a page of tiles.
-    fn shelf_row(&self, i: usize, tiles: Vec<AnyElement>, cx: &mut Context<Self>) -> Div {
+    pub(super) fn shelf_row(
+        &self,
+        i: usize,
+        tiles: Vec<AnyElement>,
+        cx: &mut Context<Self>,
+    ) -> Div {
         let p = pal(cx);
         let Some(scroll) = self.shelf_scrolls.get(i).cloned() else {
             return div().child(
@@ -332,7 +432,7 @@ impl AppView {
         )
     }
 
-    fn shelf_tile(
+    pub(super) fn shelf_tile(
         &self,
         index: usize,
         group: &Group,
@@ -356,6 +456,10 @@ impl AppView {
                     .mb_2()
                     .rounded(if round { px(TILE) } else { px(8.) })
                     .shadow_md()
+                    .when(super::motion::enabled(cx), |el| {
+                        let glow = self.cover_glow(group.artwork.as_deref(), cx);
+                        el.group_hover("tile", move |s| s.top(px(-2.)).shadow(glow.clone()))
+                    })
                     .child(if round {
                         self.artist_photo(&group.title, TILE, cx)
                     } else {

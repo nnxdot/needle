@@ -36,6 +36,8 @@ uniffi = { version = "0.32", features = ["cli"] }
 # The audio output (cpal) asks Android for its devices through the app's Java context.
 jni = "0.21"
 ndk-context = "0.1"
+# Needle's own USB DAC driver speaks to the DAC through usbfs (ioctl).
+libc = "0.2"
 
 [dev-dependencies]
 tempfile = "3"

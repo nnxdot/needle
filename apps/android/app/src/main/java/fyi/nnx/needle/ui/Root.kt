@@ -16,6 +16,8 @@ import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.background
@@ -34,8 +36,6 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
-import androidx.compose.material3.ShortNavigationBar
-import androidx.compose.material3.ShortNavigationBarItem
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Scaffold
@@ -60,6 +60,7 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.dp
+import dev.chrisbanes.haze.hazeSource
 import fyi.nnx.needle.NeedleApp
 import fyi.nnx.needle.core.Album
 
@@ -88,6 +89,11 @@ sealed interface Route {
     /** A music folder or a folder in one; `null` lists the music folders. */
     data class Folder(val path: String?) : Route
     data class Wrapped(val year: Int?) : Route
+    data class YearReview(val year: Int?) : Route
+    data object Alarm : Route
+    data object Numbers : Route
+    data object MoodMap : Route
+    data object Crate : Route
     data object Plugins : Route
     data class Plugin(val id: String) : Route
     data object Connect : Route
@@ -122,6 +128,19 @@ fun NeedleRoot() {
     val hasSong by remember { androidx.compose.runtime.derivedStateOf { playbackState.value?.current != null } }
     val playingArt by remember { androidx.compose.runtime.derivedStateOf { playbackState.value?.current?.artwork } }
     val reduce = reduceMotion()
+    // A foldable half closed (Fold.kt): held as a book, the library at the left of the crease
+    // and the player at its right; standing as a laptop (tabletop), the pages above the crease
+    // and the bar of controls below it. Flat or closed, the screen is used whole, by its width.
+    val hinge = rememberHinge()
+    val density = LocalDensity.current
+    var window by remember { mutableStateOf(androidx.compose.ui.unit.DpSize.Zero) }
+    val book = hinge != null && !hinge.tabletop && hasSong && window.width > hinge.right
+    val tabletop = hinge != null && hinge.tabletop && window.height > hinge.bottom
+    // The library's half, when held as a book: laid out by its own width.
+    val config = androidx.compose.ui.platform.LocalConfiguration.current
+    val left = remember(config, book, hinge?.left) {
+        if (book && hinge != null) android.content.res.Configuration(config).apply { screenWidthDp = hinge.left.value.toInt() } else config
+    }
     // The same list each time while the tab has only its first page, so what takes `open`
     // is not redrawn for nothing.
     val rootStack = remember(tab) { listOf(tab.root) }
@@ -129,11 +148,13 @@ fun NeedleRoot() {
     // A second tap while the page slides in (or OK pressed twice) does not open it twice.
     val open: (Route) -> Unit = { if (stack.lastOrNull() != it) stacks[tab] = stack + it }
     val snackbar = remember { SnackbarHostState() }
+    // What the floating glass blurs (Dock.kt).
+    val haze = dev.chrisbanes.haze.rememberHazeState()
     // How tall the mini player, the tabs, and the bar of chosen songs are together, so
     // messages show above them instead of over them.
     var barHeight by remember { mutableStateOf(0) }
     // Tablets and unfolded phones get a side bar of tabs, playlists, and albums (SideBar.kt).
-    val wide = hasSideBar()
+    val wide = hasSideBar() && !book
     // What each page in a tab's stack had (its scroll, its filter, its search words) is kept
     // while the page is under another, so Back finds it as it was; dropped once the page is.
     val pageStates = androidx.compose.runtime.saveable.rememberSaveableStateHolder()
@@ -144,11 +165,18 @@ fun NeedleRoot() {
         kept.clear()
         kept += live
     }
+    // A place chosen in a tablet's side bar: the page alone in its tab, as the Mac's side bar does.
+    val show: (Tab, Route) -> Unit = { t, r ->
+        stacks[t] = listOf(r)
+        tab = t
+    }
     val chooseTab: (Tab) -> Unit = { t ->
         // Tapping the open tab again goes back to its first page.
         if (t == tab) stacks[t] = listOf(t.root) else tab = t
     }
 
+    LaunchedEffect(Unit) { Ui.showPlayer.collect { if (hasSong) playerOpen = true } }
+    LaunchedEffect(Unit) { Ui.openRoute.collect { open(it) } }
     LaunchedEffect(Unit) {
         NeedleApp.instance.openPlayer.collect {
             if (NeedleApp.instance.app.value.openPlayerOnPlay) playerOpen = true
@@ -157,6 +185,8 @@ fun NeedleRoot() {
     // Nothing playing (the computer went, or Needle came back without its song): the player is
     // shut, so Back is not spent on it, and it does not open by itself with the next song.
     LaunchedEffect(hasSong) { if (!hasSong) playerOpen = false }
+    // Held as a book, the player is always there at the right: never opened over the library.
+    LaunchedEffect(book, playerOpen) { if (book && playerOpen) playerOpen = false }
     // Back first stops choosing songs, when some are chosen.
     val choosing by Selection.songs.collectAsState()
     // Not while the player covers the bar of chosen songs: Back closes the player first.
@@ -205,56 +235,53 @@ fun NeedleRoot() {
     // Settings › Appearance › Colours from what is playing: every page in the song's colours.
     CoverTheme(if (app.ambientColors) playingArt else null) {
     SharedTransitionLayout(Modifier.fillMaxSize()) {
-        CompositionLocalProvider(LocalShared provides this) {
-            Box(Modifier.fillMaxSize().onPreviewKeyEvent { lastKey = android.os.SystemClock.uptimeMillis(); false }) {
-                // On tablets the side bar sits on a frame, and the pages in a rounded pane
-                // beside it, as Google's own apps on a tablet (Material's panes).
+        CompositionLocalProvider(LocalShared provides this, LocalHinge provides hinge) {
+            Box(
+                Modifier
+                    .fillMaxSize()
+                    .onSizeChanged { window = with(density) { androidx.compose.ui.unit.DpSize(it.width.toDp(), it.height.toDp()) } }
+                    .onPreviewKeyEvent { lastKey = android.os.SystemClock.uptimeMillis(); false },
+            ) {
+                CompositionLocalProvider(androidx.compose.ui.platform.LocalConfiguration provides left) {
                 // The keyboard takes room from the pages, so a text box low on a page shows above it.
-                Row(Modifier.fillMaxSize().imePadding().focusCovered(covered).then(if (wide) Modifier.background(MaterialTheme.colorScheme.surfaceContainer) else Modifier)) {
-                if (wide) SideBar(tab, stack.last(), chooseTab, open)
+                // On a tablet the side bar sits on the window, a shade darker, and the pages on a
+                // sheet beside it with one round corner, as the Mac's and the computer's.
+                Row(
+                    Modifier
+                        .fillMaxSize()
+                        // Held as a book: the library stops at the crease.
+                        .then(if (book && hinge != null) Modifier.padding(end = (window.width - hinge.left).coerceAtLeast(0.dp)) else Modifier)
+                        .imePadding()
+                        .focusCovered(covered)
+                        .background(if (wide) MaterialTheme.colorScheme.surfaceContainerLowest else MaterialTheme.colorScheme.background),
+                ) {
+                if (wide) {
+                    // Standing as a laptop, the side bar stays above the crease, as the pages do.
+                    Box(if (tabletop && hinge != null) Modifier.padding(bottom = (window.height - hinge.top).coerceAtLeast(0.dp)) else Modifier) {
+                        SideBar(tab, stack.last(), chooseTab, open, show)
+                    }
+                }
                 // Pages lay out by the room they have (see Adaptive.kt).
                 androidx.compose.foundation.layout.BoxWithConstraints(Modifier.weight(1f).then(if (wide) Modifier.pane() else Modifier).focusRequester(pageFocus).onFocusChanged {
                     if (inPage && !it.hasFocus && android.os.SystemClock.uptimeMillis() - lastKey > 250) toPage++
                     inPage = it.hasFocus
                 }.focusGroup()) {
                 CompositionLocalProvider(LocalPageWidth provides maxWidth) {
+                // The room the dock takes at the foot, with a little to spare, for the pages' lists.
+                // Standing as a laptop, the bar sits below the crease, not over the pages.
+                val dockRoom = if (tabletop) 16.dp else with(LocalDensity.current) { barHeight.toDp() } + 12.dp
+                val aboveCrease = if (tabletop && hinge != null) Modifier.padding(bottom = (window.height - hinge.top).coerceAtLeast(0.dp)) else Modifier
+                // The pages run on under the floating dock (or a tablet's floating player); what
+                // floats blurs them (Dock.kt).
                 Scaffold(
                     containerColor = MaterialTheme.colorScheme.background,
                     // The top is left to each page: most keep clear of the status bar, and the
-                    // album, artist, and playlist pages run their colour up under it.
+                    // album, artist, and playlist pages run their colour up under it. The foot is
+                    // left to the dock, which floats over the page.
                     contentWindowInsets = androidx.compose.material3.ScaffoldDefaults.contentWindowInsets.only(
-                        androidx.compose.foundation.layout.WindowInsetsSides.Horizontal + androidx.compose.foundation.layout.WindowInsetsSides.Bottom,
+                        androidx.compose.foundation.layout.WindowInsetsSides.Horizontal,
                     ),
-                    bottomBar = {
-                        Column(Modifier.onSizeChanged { barHeight = it.height }) {
-                            // While typing, the keyboard needs the room: the bars come back after.
-                            val typing = androidx.compose.foundation.layout.WindowInsets.isImeVisible
-                            if (!typing) SelectionBar()
-                            AnimatedVisibility(
-                                visible = hasSong && !playerOpen && !typing,
-                                enter = fadeIn(tween(200)) + slideInVertically(tween(250)) { it / 2 },
-                                exit = fadeOut(tween(150)),
-                            ) {
-                                CompositionLocalProvider(LocalAnimated provides this) {
-                                    MiniPlayer(onOpen = { playerOpen = true })
-                                }
-                            }
-                            if (!wide && !typing) {
-                                // Material 3 Expressive's shorter bar.
-                                ShortNavigationBar(containerColor = MaterialTheme.colorScheme.surfaceContainerLow) {
-                                    Tab.entries.forEach { t ->
-                                        ShortNavigationBarItem(
-                                            selected = t == tab,
-                                            onClick = { chooseTab(t) },
-                                            // The open tab's icon filled, the others outlined, as on the side bar.
-                                            icon = { Icon(if (t == tab) t.icon else t.outline, contentDescription = null) },
-                                            label = { Text(t.label) },
-                                        )
-                                    }
-                                }
-                            }
-                        }
-                    },
+                    modifier = Modifier.then(aboveCrease).hazeSource(haze),
                 ) { padding ->
                     AnimatedContent(
                         targetState = tab to stack,
@@ -287,9 +314,8 @@ fun NeedleRoot() {
                             val route = pages.last()
                             pageStates.SaveableStateProvider(pageKey(pageTab, pages.lastIndex, route)) {
                             val fullBleed = route is Route.AlbumPage || route is Route.AlbumOf || route is Route.Artist || route is Route.Playlist
-                            // The colour pages run on behind the mini player and the tabs; their
-                            // lists leave room at the foot instead.
-                            CompositionLocalProvider(LocalBottomInset provides if (fullBleed) padding.calculateBottomPadding() else 0.dp) {
+                            // Every page runs on behind the dock; its list leaves room at the foot.
+                            CompositionLocalProvider(LocalBottomInset provides dockRoom) {
                                 Box(if (fullBleed) Modifier else Modifier.padding(padding).statusBarsPadding()) {
                                     Page(route, open)
                                     // What scrolls up fades into the page below the status bar,
@@ -309,11 +335,65 @@ fun NeedleRoot() {
                         }
                     }
                 }
+                // A tablet's side pane, floating over the page's right side above the player.
+                if (wide) {
+                    val pane by Ui.pane.collectAsState()
+                    val shown = pane
+                    Column(Modifier.align(androidx.compose.ui.Alignment.TopEnd)) {
+                    AnimatedVisibility(
+                        visible = shown != null && hasSong && !playerOpen,
+                        enter = fadeIn(tween(200)) + slideInHorizontally(tween(260)) { it / 3 },
+                        exit = fadeOut(tween(150)) + slideOutHorizontally(tween(200)) { it / 3 },
+                    ) {
+                        val bars = with(LocalDensity.current) { barHeight.toDp() }
+                        // The last kind shown stays while the pane slides away.
+                        var last by remember { mutableStateOf(SideKind.Lyrics) }
+                        if (shown != null) last = shown
+                        SidePane(last, open, Modifier.then(aboveCrease).padding(top = 12.dp, end = 20.dp, bottom = if (tabletop) 8.dp else bars + 8.dp))
+                    }
+                    }
+                }
+                // The bar of chosen songs, and under it the dock: the mini player and the tabs as
+                // one floating glass bar on a phone; on a tablet or TV, the player alone.
+                val typing = androidx.compose.foundation.layout.WindowInsets.isImeVisible
+                CompositionLocalProvider(LocalHaze provides haze) {
+                    Column(
+                        Modifier
+                            .align(androidx.compose.ui.Alignment.BottomCenter)
+                            .onSizeChanged { barHeight = it.height }
+                            .navigationBarsPadding()
+                            .padding(horizontal = if (wide) 20.dp else 10.dp)
+                            .padding(bottom = 10.dp),
+                    ) {
+                        if (!typing) SelectionBar()
+                        if (!typing) {
+                            if (!wide) {
+                                // Held as a book, the player is at the right: the tabs alone here.
+                                Dock(tab, chooseTab, hasSong && !playerOpen && !book, { playerOpen = true }, null)
+                            } else {
+                                AnimatedVisibility(
+                                    visible = hasSong && !playerOpen,
+                                    enter = fadeIn(tween(200)) + slideInVertically(tween(250)) { it / 2 },
+                                    exit = fadeOut(tween(150)),
+                                ) {
+                                    CompositionLocalProvider(LocalAnimated provides this) {
+                                        FloatingPlayer({ playerOpen = true })
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+                }
                 }
                 }
                 }
                 AnimatedVisibility(
-                    visible = playerOpen && hasSong,
+                    visible = (playerOpen || book) && hasSong,
+                    // Held as a book: the player has the right of the crease.
+                    modifier = if (book && hinge != null) {
+                        Modifier.align(androidx.compose.ui.Alignment.TopEnd).then(Modifier.fillMaxHeight()).width((window.width - hinge.right).coerceAtLeast(0.dp))
+                    } else Modifier,
                     enter = if (reduce) fadeIn(tween(150)) else slideInVertically(tween(380)) { it } + fadeIn(tween(200)),
                     exit = if (reduce) fadeOut(tween(150)) else slideOutVertically(tween(300)) { it } + fadeOut(tween(250)),
                 ) {
@@ -335,9 +415,9 @@ fun NeedleRoot() {
                             .align(androidx.compose.ui.Alignment.BottomCenter)
                             // Above the keyboard while it is up, where it would otherwise hide.
                             .imePadding()
-                            // On a tablet the bars sit in the pane, above the navigation bar and its margin.
-                            .then(if (bars == 0.dp || wide) Modifier.navigationBarsPadding() else Modifier)
-                            .padding(bottom = bars + 8.dp + if (wide) 12.dp else 0.dp)
+                            // Above the dock, which already counts the navigation bar.
+                            .then(if (bars == 0.dp) Modifier.navigationBarsPadding() else Modifier)
+                            .padding(bottom = bars + 8.dp)
                     },
                 ) { data ->
                     // A tap or a swipe sends it away at once.
@@ -352,6 +432,9 @@ fun NeedleRoot() {
                         )
                     }
                 }
+                // The visualizer full screen, over everything, while a song is there.
+                val fullVisualizer by Ui.fullVisualizer.collectAsState()
+                if (fullVisualizer && hasSong) Box(Modifier.focusLayer()) { FullVisualizer { Ui.fullVisualizer.value = false } }
                 Overlays(snackbar)
                 if (welcoming) Box(Modifier.focusLayer()) { WelcomeGuide(open) }
             }
@@ -383,6 +466,11 @@ private fun Page(route: Route, open: (Route) -> Unit) {
         Route.History -> HistoryScreen(open)
         is Route.Folder -> FoldersScreen(route.path, open)
         is Route.Wrapped -> WrappedScreen(route.year, open)
+        is Route.YearReview -> YearReviewScreen(route.year, open)
+        Route.Alarm -> AlarmScreen()
+        Route.Numbers -> NumbersScreen(open)
+        Route.MoodMap -> MoodMapScreen()
+        Route.Crate -> CrateScreen(open)
         Route.Plugins -> PluginsScreen(open)
         is Route.Plugin -> PluginScreen(route.id)
         Route.Connect -> ConnectScreen()

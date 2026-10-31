@@ -18,8 +18,8 @@ android {
         applicationId = "fyi.nnx.needle"
         minSdk = 26
         targetSdk = 36
-        versionCode = 7
-        versionName = "1.8.0"
+        versionCode = 8
+        versionName = "2.0.0"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         ndk {
             // The Rust core is built for these by scripts/android-build.sh.
@@ -52,6 +52,9 @@ android {
 
     // The website's Privacy and Help pages ship inside the app, read in its own pages.
     sourceSets["main"].assets.directories.add(layout.buildDirectory.dir("generated/site-assets").get().asFile.path)
+    // Needle's fonts and their licences, from assets/fonts (see copyFonts).
+    sourceSets["main"].res.directories.add(layout.buildDirectory.dir("generated/needle-fonts-res").get().asFile.path)
+    sourceSets["main"].assets.directories.add(layout.buildDirectory.dir("generated/font-licences").get().asFile.path)
 
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
@@ -75,6 +78,8 @@ dependencies {
     implementation("androidx.core:core-ktx:1.19.1")
     // The splash screen, the same on every Android version.
     implementation("androidx.core:core-splashscreen:1.2.0")
+    // A foldable's hinge and posture (half closed: tabletop or book).
+    implementation("androidx.window:window:1.5.0")
     implementation("androidx.lifecycle:lifecycle-viewmodel-compose:2.11.0")
     implementation("androidx.lifecycle:lifecycle-runtime-compose:2.11.0")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.11.0")
@@ -90,6 +95,16 @@ dependencies {
     implementation("net.java.dev.jna:jna:5.19.1@aar")
     // Scans the QR code of Needle on a computer (Google's scanner: no camera permission).
     implementation("com.google.android.gms:play-services-code-scanner:16.1.0")
+    // Frosted glass for the dock and the floating player: the page behind blurred (Android 12+).
+    implementation("dev.chrisbanes.haze:haze:2.0.1")
+    implementation("dev.chrisbanes.haze:haze-blur:2.0.1")
+    // Lyrics translated on the phone (Google's ML Kit: the language found, then translated
+    // on the device; each language's model downloads once, on Wi-Fi).
+    implementation("com.google.mlkit:translate:17.0.3")
+    implementation("com.google.mlkit:language-id:17.0.6")
+    implementation("org.jetbrains.kotlinx:kotlinx-coroutines-play-services:1.11.0")
+    // Needle on a Wear OS watch (the wear app): what plays, to the watch; its presses, back.
+    implementation("com.google.android.gms:play-services-wearable:20.0.1")
     // Home screen widgets.
     implementation("androidx.glance:glance-appwidget:1.2.0")
     implementation("androidx.glance:glance-material3:1.2.0")
@@ -98,6 +113,26 @@ dependencies {
     val discordSdk = file("libs/discord_partner_sdk.aar")
     if (discordSdk.exists()) implementation(files(discordSdk))
 }
+
+// The fonts every Needle has (assets/fonts, fetched by scripts/fetch-fonts.py), as Android
+// resources (lowercase names: Inter-400.ttf is R.font.inter_400), and their licences in the
+// app's assets. Poster stays Roboto Flex on Android (res/font/roboto_flex.ttf).
+val copyFonts by tasks.registering(Copy::class) {
+    from(rootProject.file("../../assets/fonts")) {
+        include("*.ttf")
+        exclude("Poster-*")
+        rename { it.lowercase().replace(Regex("[^a-z0-9.]"), "_") }
+    }
+    into(layout.buildDirectory.dir("generated/needle-fonts-res/font"))
+}
+val copyFontLicences by tasks.registering(Copy::class) {
+    from(rootProject.file("../../assets/fonts")) {
+        include("*-OFL.txt")
+        exclude("Poster-*")
+    }
+    into(layout.buildDirectory.dir("generated/font-licences/licenses"))
+}
+tasks.named("preBuild") { dependsOn(copyFonts, copyFontLicences) }
 
 // Copies the website's Privacy and Help pages in, so the app always has the current words.
 val copySitePages by tasks.registering(Copy::class) {

@@ -8,7 +8,15 @@ pub struct Track {
     pub title: String,
     pub artist: String,
     pub album: String,
+    /// The album artist the song shows under (see [`crate::grouping`]): its tag, or what
+    /// Settings' album rule gives it.
     pub album_artist: String,
+    /// The album artist tag as read from the file, when it has one.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub album_artist_tag: Option<String>,
+    /// The file is tagged as part of a compilation (iTunes' compilation flag).
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub compilation: bool,
     pub genre: String,
     pub year: i64,
     pub track_number: i64,
@@ -33,6 +41,16 @@ pub struct Track {
     /// Decoded recording identity behind library loudness measurements.
     pub analysis_audio_hash: Option<String>,
     pub musicbrainz_id: Option<String>,
+    /// The file's sort names for the artist and album artist ("Bowie, David").
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub artist_sort: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub album_artist_sort: Option<String>,
+    /// The artist's and album artist's MusicBrainz ids, from the tags.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub musicbrainz_artist_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub musicbrainz_album_artist_id: Option<String>,
     pub play_count: i64,
     pub last_played: Option<i64>,
     pub missing: bool,
@@ -199,8 +217,17 @@ pub struct Settings {
     pub window_material: String,
     /// How see-through the glass is, 0 (solid) to 1 (most see-through).
     pub glass_amount: f32,
+    /// What makes an album: "tags" (album artist and album) or "folder" (a folder's songs
+    /// with one album name). See [`crate::grouping`].
+    pub album_grouping: String,
+    /// Songs tagged as part of a compilation, with no album artist, are one album by "Various
+    /// Artists".
+    pub compilations_various: bool,
     /// Let the glass show through the page too, not only the sidebar and bars.
     pub glass_page: bool,
+    /// Windows: the playing song's cover, blurred, tints the glass (as macOS's glass takes the
+    /// music's colours), with Glass on.
+    pub glass_ambient: bool,
     /// Film grain over the window, 0 (off) to 1.
     pub grain: f32,
     /// Show what is playing on Discord, whenever Discord is running.
@@ -219,8 +246,25 @@ pub struct Settings {
     /// Minutes of nothing playing (paused or stopped) before the Discord status is cleared;
     /// 0 keeps it.
     pub discord_idle_minutes: u32,
-    /// Font for page titles: "system", "bahnschrift", or "fraunces".
+    /// Font for page titles: "system", "poster", "fraunces", "instrument_serif",
+    /// "dm_serif", "space_grotesk", "bricolage", "outfit", or "own:<family>" for an installed
+    /// font ("bahnschrift" from before 2.0 shows as "poster").
     pub display_font: String,
+    /// Font for everything else: "system", "inter", "atkinson", "lexend", "plex_mono", or
+    /// "own:<family>".
+    pub text_font: String,
+    /// The player's buttons, in order: "shuffle", "previous", "play", "next", "repeat",
+    /// "favorite", "lyrics", "queue", "speakers", and on Windows and Linux also "volume",
+    /// "sleep", "speed", "loop", "sound", and "mini" (see [`MORE_BUTTONS`]). Play always stays.
+    pub player_buttons: Vec<String>,
+    /// How the Artists page is ordered: "name", "most_played", "most_songs", or
+    /// "recently_added".
+    pub artist_order: String,
+    /// The Artists page lists only album artists, not those only on someone else's song.
+    pub album_artists_only: bool,
+    /// With online lookups on, find every artist's photo, logo, and wide picture slowly in the
+    /// background (one artist at a time, while Needle is idle).
+    pub artist_pictures: bool,
     /// The grain and title font someone had before a custom theme set its own; put back
     /// when they choose a look without them.
     pub theme_extras_before: Option<(f32, String)>,
@@ -231,6 +275,17 @@ pub struct Settings {
     pub ambient: bool,
     /// Seconds songs overlap as one ends and the next begins (0 = off).
     pub crossfade: f32,
+    /// Smart mixes: the crossfade starts where a song's music ends (not in its silent tail)
+    /// and lasts whole bars of its tempo.
+    pub smart_mix: bool,
+    /// The big player's look: "cover" (the cover and the lyrics beside it), "record" (the
+    /// cover as a turning record), "lyrics" (only the words, very large), or "visualizer".
+    #[serde(default = "default_big_look")]
+    pub big_look: String,
+    /// The big player's seek bar: "shape" (the song's loud and quiet parts), "wave" (a line
+    /// that waves while the music plays), "line", or "thick" (as Android's).
+    #[serde(default = "default_seek_style")]
+    pub seek_style: String,
     /// The song table's columns, in order, with their widths.
     pub columns: Vec<ColumnSetting>,
     /// Send crash reports (without file paths or names) to needle.nnx.fyi.
@@ -243,11 +298,69 @@ pub struct Settings {
     pub remote: bool,
     /// The secret in the remote's address; a new one locks out phones that had the old one.
     pub remote_key: String,
+    /// Let AI assistants on this computer use Needle (crate::mcp).
+    pub mcp: bool,
+    /// The secret in the address assistants are given; a new one locks out the old address.
+    pub mcp_key: String,
     /// Equalizer presets the listener saved.
     pub eq_presets: Vec<crate::dsp::UserPreset>,
     /// An icon in the notification area; closing the window hides it there and the music
     /// plays on.
     pub tray: bool,
+    /// The speed songs play at (0.5 to 2), kept unless chosen for one song only.
+    pub speed: f32,
+    /// Semitones up or down (−12 to 12).
+    pub pitch: f32,
+    /// A new speed keeps the pitch (time-stretch); off, faster also sounds higher.
+    pub keep_pitch: bool,
+    /// The sleep timer fades the music out over its last minute.
+    pub sleep_fade: bool,
+    /// When the sleep timer stops the music, the computer goes to sleep too (desktop only).
+    pub sleep_computer: bool,
+    /// Keys that work everywhere, even with Needle in the background (desktop): an action
+    /// ("play", "next", "previous", "favorite", "mini", "volume_up", "volume_down") and its
+    /// keys, as "ctrl-alt-space". An action not listed has no keys. Out of the box: Ctrl+Alt
+    /// with Space and the arrows.
+    pub global_shortcuts: Vec<(String, String)>,
+}
+
+/// Every button the player can show, in Needle's own order.
+pub const PLAYER_BUTTONS: [&str; 9] = [
+    "shuffle", "previous", "play", "next", "repeat", "favorite", "lyrics", "queue", "speakers",
+];
+
+/// More buttons only the Windows and Linux player has: the volume, the sleep timer, speed and
+/// pitch, the A–B loop, the equalizer, and the mini player. Phones skip them.
+pub const MORE_BUTTONS: [&str; 6] = ["volume", "sleep", "speed", "loop", "sound", "mini"];
+
+impl Settings {
+    /// The speed and pitch kept for every song.
+    pub fn tempo(&self) -> crate::tempo::Tempo {
+        crate::tempo::Tempo {
+            speed: self.speed,
+            semitones: self.pitch,
+            keep_pitch: self.keep_pitch,
+        }
+        .clamped()
+    }
+    /// The player's buttons, known ones only, each once, with Play/Pause always there.
+    pub fn player_buttons(&self) -> Vec<&'static str> {
+        let mut buttons: Vec<&'static str> = vec![];
+        for name in &self.player_buttons {
+            if let Some(known) = PLAYER_BUTTONS
+                .iter()
+                .chain(MORE_BUTTONS.iter())
+                .find(|b| **b == name.as_str())
+                && !buttons.contains(known)
+            {
+                buttons.push(known);
+            }
+        }
+        if !buttons.contains(&"play") {
+            buttons.insert(0, "play");
+        }
+        buttons
+    }
 }
 
 /// One column of the song table.
@@ -286,7 +399,10 @@ impl Default for Settings {
             music_colors: true,
             window_material: "mica".into(),
             glass_amount: 0.6,
+            album_grouping: "tags".into(),
+            compilations_various: true,
             glass_page: false,
+            glass_ambient: false,
             grain: 0.,
             discord_presence: true,
             discord_covers: true,
@@ -298,10 +414,18 @@ impl Default for Settings {
             discord_paused: true,
             discord_idle_minutes: 10,
             display_font: "system".into(),
+            text_font: "system".into(),
+            player_buttons: PLAYER_BUTTONS.iter().map(|b| b.to_string()).collect(),
+            artist_order: "name".into(),
+            album_artists_only: false,
+            artist_pictures: true,
             theme_extras_before: None,
             accent_color: String::new(),
             ambient: false,
             crossfade: 0.,
+            smart_mix: true,
+            big_look: default_big_look(),
+            seek_style: default_seek_style(),
             columns: [("album", 220.), ("quality", 92.), ("time", 52.)]
                 .into_iter()
                 .map(|(key, width)| ColumnSetting {
@@ -314,8 +438,25 @@ impl Default for Settings {
             whats_new_seen: String::new(),
             remote: false,
             remote_key: String::new(),
+            mcp: false,
+            mcp_key: String::new(),
             eq_presets: vec![],
             tray: false,
+            speed: 1.,
+            pitch: 0.,
+            keep_pitch: true,
+            sleep_fade: true,
+            sleep_computer: false,
+            global_shortcuts: [
+                ("play", "ctrl-alt-space"),
+                ("next", "ctrl-alt-right"),
+                ("previous", "ctrl-alt-left"),
+                ("volume_up", "ctrl-alt-up"),
+                ("volume_down", "ctrl-alt-down"),
+            ]
+            .into_iter()
+            .map(|(action, keys)| (action.to_string(), keys.to_string()))
+            .collect(),
         }
     }
 }
@@ -382,3 +523,17 @@ pub fn format_duration(seconds: f64) -> String {
         format!("{}:{:02}", secs / 60, secs % 60)
     }
 }
+
+fn default_big_look() -> String {
+    "cover".into()
+}
+
+fn default_seek_style() -> String {
+    "shape".into()
+}
+
+/// The big player's seek bar styles, in Settings' order.
+pub const SEEK_STYLES: [&str; 4] = ["shape", "wave", "line", "thick"];
+
+/// The big player's looks, in the order its look button steps through them.
+pub const BIG_LOOKS: [&str; 4] = ["cover", "record", "lyrics", "visualizer"];

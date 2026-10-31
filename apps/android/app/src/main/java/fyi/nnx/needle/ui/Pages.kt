@@ -51,7 +51,7 @@ import androidx.compose.material.icons.rounded.Search
 import androidx.compose.material.icons.rounded.Settings
 import androidx.compose.material.icons.rounded.Shuffle
 import androidx.compose.runtime.CompositionLocalProvider
-import androidx.compose.material3.IconButtonShapes
+import androidx.compose.foundation.border
 import androidx.compose.material3.ButtonShapes
 import androidx.compose.material3.ButtonGroupDefaults
 import androidx.compose.material3.AlertDialog
@@ -123,9 +123,17 @@ fun DetailFrame(art: String?, title: String, scrolled: () -> Float, menu: (() ->
     CoverTheme(if (app.coverColors) art else null) {
         Box(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
             content()
-            val limit = with(androidx.compose.ui.platform.LocalDensity.current) { 340.dp.toPx() }
-            val solid by remember { derivedStateOf { scrolled() > limit } }
-            val fill by animateFloatAsState(if (solid) 1f else 0f, tween(220), label = "bar")
+            // The header folds into the bar: as the big title scrolls away, the bar fills and its
+            // title rises into place with the scroll (Reduce motion: a plain fade at one point).
+            val density = androidx.compose.ui.platform.LocalDensity.current
+            val start = with(density) { 240.dp.toPx() }
+            val span = with(density) { 110.dp.toPx() }
+            val rise = with(density) { 14.dp.toPx() }
+            val reduce = reduceMotion()
+            val solid by remember { derivedStateOf { scrolled() > start + span } }
+            val faded by animateFloatAsState(if (solid) 1f else 0f, tween(220), label = "bar")
+            val folded by remember { derivedStateOf { ((scrolled() - start) / span).coerceIn(0f, 1f) } }
+            val fill = if (reduce) faded else folded
             val back = androidx.activity.compose.LocalOnBackPressedDispatcherOwner.current
             val scheme = MaterialTheme.colorScheme
             Row(
@@ -150,7 +158,10 @@ fun DetailFrame(art: String?, title: String, scrolled: () -> Float, menu: (() ->
                     style = MaterialTheme.typography.titleLarge,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
-                    modifier = Modifier.weight(1f).padding(horizontal = 8.dp).graphicsLayer { alpha = fill },
+                    modifier = Modifier.weight(1f).padding(horizontal = 8.dp).graphicsLayer {
+                        alpha = fill
+                        translationY = if (reduce) 0f else (1f - fill) * rise
+                    },
                 )
                 if (menu != null) {
                     FilledTonalIconButton(onClick = menu, colors = round, shapes = IconButtonDefaults.shapes()) {
@@ -179,11 +190,13 @@ fun DetailHeader(
     mosaic: List<String> = emptyList(),
     /** The page's buttons, beside the cover on a tablet (on a phone they follow the header). */
     buttons: (@Composable () -> Unit)? = null,
+    /** A song of the album, whose moving cover moves over the still one (an album's page). */
+    moving: Song? = null,
 ) {
     val density = androidx.compose.ui.platform.LocalDensity.current
     val squeeze by remember { derivedStateOf { (scrolled() / with(density) { 260.dp.toPx() }).coerceIn(0f, 1f) } }
     if (isWide()) {
-        WideDetailHeader(art, title, sub, meta, squeeze, onSub, key, mosaic, buttons)
+        WideDetailHeader(art, title, sub, meta, squeeze, onSub, key, mosaic, buttons, moving)
         return
     }
     Box(Modifier.fillMaxWidth()) {
@@ -192,9 +205,10 @@ fun DetailHeader(
             Modifier.fillMaxWidth().statusBarsPadding().padding(top = 56.dp, start = Edge, end = Edge, bottom = 4.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
-            Mosaic(
+            HeaderCover(
                 mosaic,
                 art,
+                moving,
                 Modifier
                     .fillMaxWidth(0.72f)
                     .aspectRatio(1f)
@@ -241,6 +255,24 @@ fun DetailHeader(
 }
 
 /**
+ * A page's big cover; on an album's page, its moving cover over it (Settings › Appearance ›
+ * Moving covers, not with Reduce motion; the same rules as the player's), the still one
+ * showing until the moving one is ready.
+ */
+@Composable
+private fun HeaderCover(mosaic: List<String>, art: String?, moving: Song?, modifier: Modifier, seed: String) {
+    val app by NeedleApp.instance.app.collectAsState()
+    Box(modifier) {
+        Mosaic(mosaic, art, Modifier.matchParentSize(), seed = seed)
+        moving?.let { song ->
+            movingCover(song, app.animatedCovers && !reduceMotion())?.let { path ->
+                MovingCover(path, shade = null, modifier = Modifier.matchParentSize().clip(CoverShape))
+            }
+        }
+    }
+}
+
+/**
  * The top of an album or playlist page on a tablet, as Apple Music shows it there: the cover at
  * the left, and the name, the facts, and the buttons beside it, rather than a cover the width of
  * the screen.
@@ -256,6 +288,7 @@ private fun WideDetailHeader(
     key: String?,
     mosaic: List<String>,
     buttons: (@Composable () -> Unit)?,
+    moving: Song?,
 ) {
     val cover = (LocalPageWidth.current * 0.28f).coerceIn(200.dp, 320.dp)
     Box(Modifier.fillMaxWidth()) {
@@ -265,9 +298,10 @@ private fun WideDetailHeader(
             verticalAlignment = Alignment.Bottom,
             horizontalArrangement = Arrangement.spacedBy(32.dp),
         ) {
-            Mosaic(
+            HeaderCover(
                 mosaic,
                 art,
+                moving,
                 Modifier
                     .size(cover)
                     .then(if (key != null) Modifier.sharedCover(key) else Modifier)
@@ -315,59 +349,115 @@ fun MetaLine(parts: List<String>, modifier: Modifier = Modifier) {
 }
 
 /**
- * The page's buttons: Shuffle, the one large Play, and a button of the page's own, joined into
- * one connected group (Material 3 Expressive's button group): round at the group's ends, small
- * corners where they meet. Pressed, each one changes its corners a little.
+ * The page's buttons, calm as on the Mac: a filled Play pill in the page's colour, a glass
+ * Shuffle pill beside it, and the page's own button (if any) as a round glass button.
  */
-@OptIn(ExperimentalMaterial3ExpressiveApi::class)
 @Composable
 fun PlayRow(songs: List<Song>, inline: Boolean = false, side: (@Composable () -> Unit)? = null) {
     val haptics = rememberHaptics()
     Row(
         // Inline: under the name beside a tablet's cover, from its left edge.
         if (inline) Modifier.padding(top = 20.dp) else Modifier.fillMaxWidth().padding(horizontal = Edge, vertical = 16.dp),
-        horizontalArrangement = if (inline) Arrangement.spacedBy(ButtonGroupDefaults.ConnectedSpaceBetween)
-        else Arrangement.spacedBy(ButtonGroupDefaults.ConnectedSpaceBetween, Alignment.CenterHorizontally),
+        horizontalArrangement = if (inline) Arrangement.spacedBy(12.dp) else Arrangement.spacedBy(12.dp, Alignment.CenterHorizontally),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        val leading = IconButtonShapes(ButtonGroupDefaults.connectedLeadingButtonShape, ButtonGroupDefaults.connectedLeadingButtonPressShape)
-        CompositionLocalProvider(LocalGroupShapes provides leading) {
-            RoundAction(Icons.Rounded.Shuffle, "Shuffle") { haptics(false); play(songs.shuffled()) }
+        PlayPill(Modifier.weight(1f, fill = false).firstFocus()) { haptics(false); play(songs) }
+        ShufflePill(Modifier.weight(1f, fill = false)) { haptics(false); play(songs.shuffled()) }
+        side?.invoke()
+    }
+}
+
+/**
+ * A song list's header beside the side bar: one row, with the title and its count at the left,
+ * in line with the covers, and Play and Shuffle at the right end, in line with the rows' edge.
+ * It stays while the list scrolls. Where the bar leaves a narrow page, round buttons leave the
+ * title its room. Phones keep [Page] and [PlayRow].
+ */
+@Composable
+fun ListHeader(title: String, subtitle: String?, songs: List<Song>) {
+    val haptics = rememberHaptics()
+    val back = LocalCanGoBack.current
+    Row(
+        Modifier.fillMaxWidth().heightIn(min = 72.dp).padding(start = if (back) 6.dp else 22.dp, end = 8.dp, top = 4.dp, bottom = 8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        if (back) BackButton(Modifier.padding(end = 4.dp))
+        Column(Modifier.weight(1f)) {
+            Text(
+                title,
+                style = MaterialTheme.typography.headlineMedium,
+                fontWeight = FontWeight.Bold,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.semantics { heading() },
+            )
+            if (subtitle != null) {
+                Text(subtitle, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            }
         }
-        val interaction = remember { androidx.compose.foundation.interaction.MutableInteractionSource() }
-        Button(
-            onClick = { haptics(false); play(songs) },
-            shapes = ButtonShapes(
-                if (side == null) ButtonGroupDefaults.connectedTrailingButtonShape else RoundedCornerShape(10.dp),
-                if (side == null) ButtonGroupDefaults.connectedTrailingButtonPressShape else ButtonGroupDefaults.connectedMiddleButtonPressShape,
-            ),
-            interactionSource = interaction,
-            // Narrower on a narrow screen (split screen, the largest display size), so the
-            // group's last button keeps its size.
-            modifier = Modifier.height(64.dp).weight(1f, fill = false).widthIn(min = 96.dp, max = 172.dp).firstFocus(),
-        ) {
-            Icon(Icons.Rounded.PlayArrow, contentDescription = null, modifier = Modifier.size(30.dp))
-            Spacer(Modifier.width(8.dp))
-            Text("Play", style = MaterialTheme.typography.titleLarge)
-        }
-        if (side != null) {
-            val trailing = IconButtonShapes(ButtonGroupDefaults.connectedTrailingButtonShape, ButtonGroupDefaults.connectedTrailingButtonPressShape)
-            CompositionLocalProvider(LocalGroupShapes provides trailing) { side() }
+        if (songs.isNotEmpty()) {
+            Row(Modifier.padding(start = 16.dp), horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.CenterVertically) {
+                if (LocalPageWidth.current >= 500.dp) {
+                    PlayPill(Modifier.firstFocus()) { haptics(false); play(songs) }
+                    ShufflePill { haptics(false); play(songs.shuffled()) }
+                } else {
+                    androidx.compose.material3.FilledIconButton(
+                        onClick = { haptics(false); play(songs) },
+                        shape = CircleShape,
+                        modifier = Modifier.size(50.dp).firstFocus(),
+                    ) { Icon(Icons.Rounded.PlayArrow, contentDescription = "Play", modifier = Modifier.size(24.dp)) }
+                    RoundAction(Icons.Rounded.Shuffle, "Shuffle") { haptics(false); play(songs.shuffled()) }
+                }
+            }
         }
     }
 }
 
-/** The corners a [RoundAction] takes in a [PlayRow]'s group; round on its own. */
-private val LocalGroupShapes = androidx.compose.runtime.compositionLocalOf<IconButtonShapes?> { null }
+/** The page's one main button: Play, a pill filled in the page's colour. */
+@Composable
+fun PlayPill(modifier: Modifier = Modifier, onClick: () -> Unit) {
+    Button(
+        onClick = onClick,
+        shape = CircleShape,
+        contentPadding = PaddingValues(horizontal = 24.dp),
+        modifier = modifier.height(50.dp).widthIn(min = 120.dp, max = 180.dp),
+    ) {
+        Icon(Icons.Rounded.PlayArrow, contentDescription = null, modifier = Modifier.size(24.dp))
+        Spacer(Modifier.width(6.dp))
+        Text("Play", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold, maxLines = 1, softWrap = false)
+    }
+}
 
-@OptIn(ExperimentalMaterial3ExpressiveApi::class)
+/** Shuffle beside Play: a pill of glass, the page showing through it. */
+@Composable
+fun ShufflePill(modifier: Modifier = Modifier, onClick: () -> Unit) {
+    val scheme = MaterialTheme.colorScheme
+    androidx.compose.material3.OutlinedButton(
+        onClick = onClick,
+        shape = CircleShape,
+        colors = ButtonDefaults.outlinedButtonColors(containerColor = scheme.onSurface.copy(alpha = 0.08f), contentColor = scheme.onSurface),
+        border = androidx.compose.foundation.BorderStroke(0.5.dp, scheme.onSurface.copy(alpha = 0.14f)),
+        // Less room at the sides on a narrow page (half a foldable), so the word stays whole.
+        contentPadding = PaddingValues(horizontal = 16.dp),
+        modifier = modifier.height(50.dp).widthIn(min = 120.dp, max = 180.dp),
+    ) {
+        Icon(Icons.Rounded.Shuffle, contentDescription = null, modifier = Modifier.size(22.dp))
+        Spacer(Modifier.width(6.dp))
+        Text("Shuffle", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold, maxLines = 1, softWrap = false)
+    }
+}
+
+/** A round glass button beside the pills, for the page's own action. */
 @Composable
 fun RoundAction(icon: androidx.compose.ui.graphics.vector.ImageVector, label: String, onClick: () -> Unit) {
-    val interaction = remember { androidx.compose.foundation.interaction.MutableInteractionSource() }
-    val shapes = LocalGroupShapes.current ?: IconButtonDefaults.shapes()
-    FilledTonalIconButton(onClick = onClick, shapes = shapes, interactionSource = interaction, modifier = Modifier.size(width = 72.dp, height = 64.dp)) {
-        // As large beside Play as Play's own icon, so the group reads as one.
-        Icon(icon, contentDescription = label, modifier = Modifier.size(28.dp))
+    val scheme = MaterialTheme.colorScheme
+    FilledTonalIconButton(
+        onClick = onClick,
+        shape = CircleShape,
+        colors = IconButtonDefaults.filledTonalIconButtonColors(containerColor = scheme.onSurface.copy(alpha = 0.08f), contentColor = scheme.onSurface),
+        modifier = Modifier.size(50.dp).border(0.5.dp, scheme.onSurface.copy(alpha = 0.14f), CircleShape),
+    ) {
+        Icon(icon, contentDescription = label, modifier = Modifier.size(22.dp))
     }
 }
 
@@ -445,6 +535,7 @@ private fun AlbumPage(album: Album, open: (Route) -> Unit) {
                     onSub = { open(Route.Artist(album.artist)) },
                     key = "album-${album.key}",
                     buttons = buttons?.takeIf { wide },
+                    moving = list.firstOrNull(),
                 )
             }
             if (!wide && buttons != null) item { buttons() }
@@ -653,14 +744,17 @@ fun ArtistScreen(name: String, open: (Route) -> Unit) {
     val albums by albumsLoad
     val topLoad = rememberLoaded(name) { artistSongs(name) }
     val top by topLoad
-    val photoLoad = rememberLoaded(name) { artistPhoto(name) }
+    // Read again when a picture of theirs is chosen or reset.
+    var pictureVersion by remember { androidx.compose.runtime.mutableIntStateOf(0) }
+    val photoLoad = rememberLoaded(name, pictureVersion) { artistPhoto(name) }
     val photo by photoLoad
     // Songs without an artist: nothing to look up online for them.
     val real = name.isNotBlank() && name != "Unknown artist"
-    // From fanart.tv (with online lookups on): a wide picture of them, and their logo.
-    val bannerLoad = rememberLoaded(name, "banner") { if (real) artistBanner(name) else null }
+    // A wide picture of them and their logo: the one chosen, then fanart.tv's (online lookups on,
+    // with a key), then the files in their folder (fanart.jpg, backdrop.jpg, banner.jpg; logo.png, clearlogo.png).
+    val bannerLoad = rememberLoaded(name, "banner", pictureVersion) { if (real) artistBanner(name) else null }
     val banner by bannerLoad
-    val logoLoad = rememberLoaded(name, "logo") { if (real) artistLogo(name) else null }
+    val logoLoad = rememberLoaded(name, "logo", pictureVersion) { if (real) artistLogo(name) else null }
     val logo by logoLoad
     val playing = playingId()
     val songs = top.orEmpty()
@@ -669,7 +763,10 @@ fun ArtistScreen(name: String, open: (Route) -> Unit) {
     val shown = name.ifBlank { "Unknown artist" }
     // The newest album with a year, for its own box under the buttons.
     val latest = albums?.filter { it.year > 0 }?.maxWithOrNull(compareBy({ it.year }, { it.title }))
-    DetailFrame(art, shown, { state.headerScroll() }, null) {
+    var pictures by remember { mutableStateOf(false) }
+    ArtistPictures(name, pictures, { pictures = it }) { pictureVersion++ }
+    // Their pictures can be chosen (More › Pictures), not for songs with no artist.
+    DetailFrame(art, shown, { state.headerScroll() }, if (real) ({ pictures = true }) else null) {
         // Two covers across on a phone, more on a tablet; the rows and the photo run to the edges.
         KeepTop(state) {
         LazyVerticalGrid(
@@ -765,13 +862,25 @@ private fun ArtistHero(art: String?, logo: String?, name: String, albums: Int?, 
         ) {
             if (logo != null) {
                 // Their own logo, as Apple Music shows it. Logos are mostly white: on a light
-                // page, the logo takes the page's ink.
+                // page, the logo takes the page's ink; a dark logo (fanart.tv has black ones
+                // beside the white) is written in white on a dark page, as on the computers.
                 val light = page.luminance() > 0.5f
+                val darkLogo = rememberDarkLogo(logo)
+                // A logo the listener chose (the core keeps it as ".own") shows as it is, on any
+                // look: their choice of a white or a black one is kept. Needle's own recolouring
+                // is only for logos it found itself.
+                val chosen = logo.endsWith(".own")
                 coil3.compose.AsyncImage(
-                    model = fileUri(logo),
+                    // Keyed by the file's change too: a logo chosen again keeps its path.
+                    model = fileRequest(fileUri(logo)),
                     contentDescription = name,
                     contentScale = androidx.compose.ui.layout.ContentScale.Fit,
-                    colorFilter = if (light) androidx.compose.ui.graphics.ColorFilter.tint(MaterialTheme.colorScheme.onBackground) else null,
+                    colorFilter = when {
+                        chosen -> null
+                        light -> androidx.compose.ui.graphics.ColorFilter.tint(MaterialTheme.colorScheme.onBackground)
+                        darkLogo -> androidx.compose.ui.graphics.ColorFilter.tint(Color(245, 245, 245))
+                        else -> null
+                    },
                     modifier = Modifier.widthIn(max = 300.dp).heightIn(max = 120.dp).fillMaxWidth(),
                 )
             } else {
@@ -790,28 +899,51 @@ private fun ArtistHero(art: String?, logo: String?, name: String, albums: Int?, 
     }
 }
 
-/** A large round Play between round Shuffle and Radio, as on Needle for the Mac and iPhone. */
-@OptIn(androidx.compose.material3.ExperimentalMaterial3ExpressiveApi::class)
+/**
+ * Whether a logo is dark: the light of its pixels, each weighed by how solid it is, under 0.4
+ * (as on the computers). Read once per file and change, small and off the main thread.
+ */
+@Composable
+private fun rememberDarkLogo(path: String): Boolean {
+    val changed = remember(path) { java.io.File(path).lastModified() }
+    val dark by androidx.compose.runtime.produceState(false, path, changed) {
+        value = withContext(Dispatchers.IO) {
+            runCatching {
+                val bounds = android.graphics.BitmapFactory.Options().apply { inJustDecodeBounds = true }
+                android.graphics.BitmapFactory.decodeFile(path, bounds)
+                var sample = 1
+                while (bounds.outWidth / (sample * 2) >= 128) sample *= 2
+                val bitmap = android.graphics.BitmapFactory.decodeFile(path, android.graphics.BitmapFactory.Options().apply { inSampleSize = sample }) ?: return@runCatching false
+                var light = 0f
+                var weight = 0f
+                val row = IntArray(bitmap.width)
+                for (y in 0 until bitmap.height) {
+                    bitmap.getPixels(row, 0, bitmap.width, 0, y, bitmap.width, 1)
+                    for (c in row) {
+                        val a = (c ushr 24) / 255f
+                        light += a * (0.2126f * ((c shr 16) and 0xFF) + 0.7152f * ((c shr 8) and 0xFF) + 0.0722f * (c and 0xFF)) / 255f
+                        weight += a
+                    }
+                }
+                bitmap.recycle()
+                weight > 0f && light / weight < 0.4f
+            }.getOrDefault(false)
+        }
+    }
+    return dark
+}
+
+/** Play and Shuffle pills, and a round Radio, as on the album pages. */
 @Composable
 private fun ArtistButtons(onShuffle: () -> Unit, onPlay: () -> Unit, onRadio: () -> Unit) {
     Row(
         Modifier.padding(top = 6.dp, bottom = 4.dp),
-        horizontalArrangement = Arrangement.spacedBy(24.dp),
+        horizontalArrangement = Arrangement.spacedBy(12.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        androidx.compose.material3.FilledTonalIconButton(onClick = onShuffle, modifier = Modifier.size(56.dp)) {
-            Icon(Icons.Rounded.Shuffle, contentDescription = "Shuffle")
-        }
-        androidx.compose.material3.FilledIconButton(
-            onClick = onPlay,
-            shapes = androidx.compose.material3.IconButtonDefaults.shapes(),
-            modifier = Modifier.size(80.dp).firstFocus(),
-        ) {
-            Icon(Icons.Rounded.PlayArrow, contentDescription = "Play", modifier = Modifier.size(40.dp))
-        }
-        androidx.compose.material3.FilledTonalIconButton(onClick = onRadio, modifier = Modifier.size(56.dp)) {
-            Icon(Icons.Rounded.Radio, contentDescription = "Artist radio")
-        }
+        PlayPill(Modifier.firstFocus(), onPlay)
+        ShufflePill(onClick = onShuffle)
+        RoundAction(Icons.Rounded.Radio, "Artist radio", onRadio)
     }
 }
 
@@ -823,10 +955,9 @@ private fun LatestRelease(album: Album, open: (Route) -> Unit) {
         Row(
             Modifier
                 .fillMaxWidth()
-                .clip(RoundedCornerShape(24.dp))
-                .background(MaterialTheme.colorScheme.surfaceContainer)
+                .clip(RowShape)
                 .clickable(onClickLabel = "Open ${album.title}") { open(Route.AlbumPage(album)) }
-                .padding(12.dp),
+                .padding(vertical = 6.dp),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(14.dp),
         ) {
@@ -836,74 +967,85 @@ private fun LatestRelease(album: Album, open: (Route) -> Unit) {
                 Text(album.title.ifBlank { "Unknown album" }, style = MaterialTheme.typography.titleMedium, maxLines = 2, overflow = TextOverflow.Ellipsis)
                 Text(count(album.songs.toInt(), "song"), style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
-            androidx.compose.material3.FilledTonalIconButton(onClick = {
+            RoundAction(Icons.Rounded.PlayArrow, "Play ${album.title}") {
                 NeedleApp.instance.scope.launch(kotlinx.coroutines.Dispatchers.IO) {
                     runCatching { core.albumSongs(album.key).map { it.id } }.getOrNull()?.let { playSongs(it) }
                 }
-            }) { Icon(Icons.Rounded.PlayArrow, contentDescription = "Play ${album.title}") }
+            }
         }
     }
 }
 
 // ---------- Home
 
+/**
+ * Home, as on the Mac: a greeting, the song playing now, then shelves of covers (albums played
+ * lately, new, played most, loved) and the artists played most, each shelf with a grey line
+ * under its title.
+ */
 @Composable
 fun HomeScreen(open: (Route) -> Unit) {
-    val homeLoad = rememberLoaded { home() }
+    // A TV's own Home: the album in focus fills the screen behind (TvHome.kt).
+    if (isTv()) {
+        val songs by rememberLoaded { songCount() }
+        if (songs != null && songs != 0u) {
+            TvHome(open)
+            return
+        }
+    }
+    val homeLoad = rememberLoaded { homeShelves(20u) }
     val home by homeLoad
     val countLoad = rememberLoaded { songCount() }
     val count by countLoad
     val scan by NeedleApp.instance.scan.collectAsState()
-    val albumCountLoad = rememberLoaded { albums().size }
-    val albumCount by albumCountLoad
-    val playlistsLoad = rememberLoaded { playlists() }
-    val playlists by playlistsLoad
-    val artistsLoad = rememberLoaded { artists() }
-    val artists by artistsLoad
-    // Under the greeting, how much music there is: the flexible top bar's subtitle.
-    val sizes = listOfNotNull(count?.takeIf { it > 0u }?.let { count(it.toInt(), "song") }, albumCount?.takeIf { it > 0 }?.let { count(it, "album") })
-    Page(greeting(), subtitle = sizes.joinToString(" · ").ifEmpty { null }, actions = {
-        // With the side bar, Settings is at its foot instead, and the greeting stands alone.
-        if (!hasSideBar()) IconButton(onClick = { open(Route.Settings) }) { Icon(Icons.Rounded.Settings, contentDescription = "Settings") }
-    }, navigation = { if (!hasSideBar()) NeedleMark() }) { padding, scroll ->
-        LazyColumn(Modifier.fillMaxSize().padding(padding).then(scroll), contentPadding = PaddingValues(bottom = 32.dp)) {
-            if (count == 0u) {
-                item { HomeEmpty(scan.running, scan.scanned, open) }
-                return@LazyColumn
+    val daysLoad = rememberLoaded { onThisDay(java.util.TimeZone.getDefault().getOffset(System.currentTimeMillis()) / 1000, 12u) }
+    val days by daysLoad
+    LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = 32.dp + LocalBottomInset.current)) {
+        item {
+            Row(
+                Modifier.fillMaxWidth().padding(start = Edge, end = 8.dp, top = 20.dp, bottom = 8.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text(
+                    greeting(),
+                    style = MaterialTheme.typography.headlineMedium.copy(fontFamily = titleFamily(0.5f)),
+                    fontWeight = FontWeight.Bold,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.weight(1f).semantics { heading() },
+                )
+                // With the side bar, Settings is at its foot instead.
+                if (!hasSideBar()) IconButton(onClick = { open(Route.Settings) }) { Icon(Icons.Rounded.Settings, contentDescription = "Settings") }
             }
-            val h = home ?: return@LazyColumn
-            val lead = h.recent.ifEmpty { h.added }
-            if (lead.isNotEmpty()) {
-                item { SectionHeader(if (h.recent.isNotEmpty()) "Jump back in" else "Recently added", Modifier.padding(top = 0.dp)) }
-                item { Hero(lead, open) }
-            }
+        }
+        if (count == 0u) {
+            item { HomeEmpty(scan.running, scan.scanned, open) }
+            return@LazyColumn
+        }
+        item { NowCard() }
+        // In December: the year in review.
+        item { YearReviewRow(open, december = true) }
+        // Soft tiles hold the shelves' places while they are read.
+        val h = home ?: run {
+            item { ShelfTitle("Jump back in", "Albums you played last") }
             item {
-                val colors = MaterialTheme.colorScheme
-                // The two the same height, when one's words take two lines.
-                Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp).padding(top = 20.dp).height(androidx.compose.foundation.layout.IntrinsicSize.Min), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                    Pinned(Icons.Rounded.AutoAwesome, "Your year", "Told back", Modifier.weight(1f).fillMaxHeight(), colors.tertiaryContainer, colors.tertiary) { open(Route.Wrapped(null)) }
-                    Pinned(Icons.Rounded.Computer, "Computer", "Play from there", Modifier.weight(1f).fillMaxHeight(), colors.secondaryContainer, colors.secondary) { open(Route.Connect) }
+                val tile = if (isWide()) 176.dp else 148.dp
+                LazyRow(contentPadding = PaddingValues(horizontal = Edge), horizontalArrangement = Arrangement.spacedBy(16.dp), userScrollEnabled = false) {
+                    items(5) { AlbumPlaceholder(Modifier.width(tile)) }
                 }
             }
-            if (h.recent.isNotEmpty()) shelf("Recently added", h.added, open, Route.RecentlyAdded)
-            playlistShelf(playlists.orEmpty(), open)
-            shelf("Most played", h.mostPlayed, open)
-            artistShelf(artists.orEmpty().sortedByDescending { it.songs }.take(12), open)
+            return@LazyColumn
         }
+        shelf("Jump back in", "Albums you played last", h.recent, open)
+        shelf("New in your library", "Added most recently", h.added, open, Route.RecentlyAdded)
+        shelf("On repeat", "Your most played albums", h.mostPlayed, open)
+        // What played on this day a year and five years ago.
+        days.orEmpty().forEach { day ->
+            shelf("On this day", if (day.yearsAgo == 1) "A year ago" else "${day.yearsAgo} years ago", day.albums, open)
+        }
+        shelf("Favorites", "Albums with the songs you love", h.favorites, open)
+        artistShelf(h.artists, open)
     }
-}
-
-/**
- * Needle's record, at the top left of Home: the record alone, so the greeting has the bar to
- * itself when it shrinks into it.
- */
-@Composable
-private fun NeedleMark() {
-    androidx.compose.foundation.Image(
-        androidx.compose.ui.res.painterResource(fyi.nnx.needle.R.drawable.needle_logo),
-        contentDescription = "Needle",
-        modifier = Modifier.padding(start = 16.dp, end = 4.dp).size(34.dp).clip(RoundedCornerShape(10.dp)),
-    )
 }
 
 /** Home's title: a greeting for the time of day. */
@@ -913,112 +1055,94 @@ private fun greeting(): String {
     return when (hour) {
         in 5..11 -> "Good morning"
         in 12..17 -> "Good afternoon"
-        in 18..22 -> "Good evening"
-        else -> "Up late"
+        else -> "Good evening"
     }
 }
 
-/** The first shelf: large covers in Material's carousel, the name over each. */
-@OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
+/**
+ * The song playing, large, at the top of Home: its cover, "Playing now" in the accent, the
+ * song, and a round Play/Pause, on a wash of the cover's colour.
+ */
 @Composable
-private fun Hero(albums: List<Album>, open: (Route) -> Unit) {
-    val state = rememberCarouselState { albums.size }
-    val wide = isWide()
-    val modifier = Modifier.fillMaxWidth().height(if (wide) 320.dp else 300.dp)
-    // The multi-browse carousel needs a few covers to shrink the next ones beside the first;
-    // with one or two, each keeps one card's width instead of one cover filling the row.
-    if (albums.size < 3) {
-        // On a phone one alone takes the row, rather than leaving a gap beside it.
-        val page = LocalPageWidth.current - 32.dp
-        androidx.compose.material3.carousel.HorizontalUncontainedCarousel(
-            state = state,
-            itemWidth = if (wide) 320.dp else if (albums.size == 1) page else 280.dp,
-            itemSpacing = 10.dp,
-            contentPadding = PaddingValues(horizontal = 16.dp),
-            modifier = modifier,
-        ) { i -> HeroCard(albums[i], open) }
-    } else {
-        HorizontalMultiBrowseCarousel(
-            state = state,
-            preferredItemWidth = if (wide) 340.dp else 280.dp,
-            itemSpacing = 10.dp,
-            contentPadding = PaddingValues(horizontal = 16.dp),
-            modifier = modifier,
-        ) { i -> HeroCard(albums[i], open) }
-    }
-}
-
-/** One card of the first shelf: the cover, and the name over it while it is the large one. */
-@OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
-@Composable
-private fun androidx.compose.material3.carousel.CarouselItemScope.HeroCard(album: Album, open: (Route) -> Unit) {
-    // Held, it offers the album's menu, as album tiles do.
-    var menu by remember { mutableStateOf(false) }
+private fun NowCard() {
+    val playbackState = NeedleApp.instance.playback.collectAsState()
+    val song by remember { derivedStateOf { playbackState.value?.current } }
+    val playing by remember { derivedStateOf { playbackState.value?.playing == true } }
+    val s = song ?: return
     val haptics = rememberHaptics()
-    if (menu) AlbumSheet(album, open) { menu = false }
-    Box(
-        Modifier.fillMaxSize().maskClip(RoundedCornerShape(28.dp)).combinedClickable(
-            onClick = { open(Route.AlbumPage(album)) },
-            onLongClick = { haptics(true); menu = true },
-        ),
-    ) {
-        Cover(album.artwork, Modifier.fillMaxSize(), RoundedCornerShape(0.dp))
-        Box(Modifier.fillMaxSize().background(Brush.verticalGradient(0.6f to Color.Transparent, 1f to Color.Black.copy(alpha = 0.7f))))
-        // The name shows only on the large card; the narrow ones are just covers.
-        val info = carouselItemDrawInfo
-        Column(Modifier.align(Alignment.BottomStart).padding(16.dp).graphicsLayer { alpha = ((info.size / info.maxSize - 0.8f) / 0.2f).coerceIn(0f, 1f) }) {
-            Text(album.title, color = Color.White, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
-            Text(album.artist, color = Color.White.copy(alpha = 0.8f), style = MaterialTheme.typography.bodyMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
+    CoverTheme(s.artwork) {
+        val scheme = MaterialTheme.colorScheme
+        Row(
+            Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 16.dp, vertical = 8.dp)
+                .clip(RoundedCornerShape(16.dp))
+                .background(Brush.horizontalGradient(listOf(scheme.primaryContainer.copy(alpha = 0.55f), scheme.surfaceContainer.copy(alpha = 0.6f))))
+                .clickable(onClickLabel = "Open the player") { Ui.showPlayer.tryEmit(Unit) }
+                .padding(14.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(14.dp),
+        ) {
+            Cover(s.artwork, Modifier.size(76.dp).shadow(8.dp, CoverShape), CoverShape, seed = s.album + s.artist)
+            Column(Modifier.weight(1f)) {
+                Text(
+                    if (playing) "Playing now" else "Paused",
+                    style = MaterialTheme.typography.labelMedium,
+                    fontWeight = FontWeight.SemiBold,
+                    color = scheme.primary,
+                )
+                Text(s.title, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                Text(
+                    listOf(s.artist, s.album).filter { it.isNotBlank() }.joinToString(" · "),
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = scheme.onSurfaceVariant,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
+            androidx.compose.material3.FilledIconButton(
+                onClick = { haptics(false); Controls.toggle() },
+                shape = CircleShape,
+                modifier = Modifier.size(52.dp).playPauseSemantics(playing) { haptics(false); Controls.toggle() },
+            ) { PlayPauseIcon(playing, 28.dp) }
         }
     }
 }
 
-private fun LazyListScope.shelf(title: String, albums: List<Album>, open: (Route) -> Unit, more: Route? = null) {
+/** A shelf's title, with a grey line under it, and See all where there is a page of it. */
+@Composable
+internal fun ShelfTitle(title: String, detail: String?, onMore: (() -> Unit)? = null) {
+    Row(
+        Modifier.fillMaxWidth().padding(start = Edge, end = 8.dp, top = 26.dp, bottom = 10.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Column(Modifier.weight(1f)) {
+            Text(title, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.SemiBold, modifier = Modifier.semantics { heading() })
+            if (detail != null) Text(detail, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
+        if (onMore != null) TextButton(onClick = onMore) { Text("See all") }
+    }
+}
+
+private fun LazyListScope.shelf(title: String, detail: String, albums: List<Album>, open: (Route) -> Unit, more: Route? = null) {
     if (albums.isEmpty()) return
     // "See all" only where there is a page of the same albums in the same order.
-    item { SectionHeader(title, onMore = more?.let { { open(it) } }) }
+    item { ShelfTitle(title, detail, more?.let { { open(it) } }) }
     item {
-        val tile = if (isWide()) 180.dp else 150.dp
-        LazyRow(contentPadding = PaddingValues(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(LocalRows.current.grid - 4.dp)) {
+        val tile = if (isWide()) 176.dp else 148.dp
+        LazyRow(contentPadding = PaddingValues(horizontal = Edge), horizontalArrangement = Arrangement.spacedBy(16.dp)) {
             items(albums, key = { it.key }) { album -> AlbumTile(album, Modifier.width(tile), open) { open(Route.AlbumPage(album)) } }
         }
     }
 }
 
-/** Your playlists on Home: their covers in a row, the name and the count under each. */
-private fun LazyListScope.playlistShelf(playlists: List<fyi.nnx.needle.core.Playlist>, open: (Route) -> Unit) {
-    if (playlists.isEmpty()) return
-    item { SectionHeader("Your playlists", onMore = { open(Route.Playlists) }) }
-    item {
-        val tile = if (isWide()) 180.dp else 150.dp
-        LazyRow(contentPadding = PaddingValues(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(LocalRows.current.grid - 4.dp)) {
-            items(playlists, key = { it.id }) { p ->
-                val interaction = remember { androidx.compose.foundation.interaction.MutableInteractionSource() }
-                Column(
-                    Modifier.width(tile).pressScale(interaction)
-                        .clickable(interactionSource = interaction, indication = null) { open(Route.Playlist(p.id, p.name)) },
-                ) {
-                    PlaylistCover(p, Modifier.fillMaxWidth().aspectRatio(1f), CoverShape)
-                    Text(p.name, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Medium, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(top = 8.dp))
-                    Text(
-                        if (p.smart) "Smart playlist" else count(p.songs.toInt(), "song"),
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        maxLines = 1,
-                    )
-                }
-            }
-        }
-    }
-}
-
-/** The artists with the most songs, on Home: each in the artists' arch, the name under it. */
+/** The artists played most, on Home: each in a circle, the name under it. */
 private fun LazyListScope.artistShelf(artists: List<fyi.nnx.needle.core.Artist>, open: (Route) -> Unit) {
     if (artists.size < 2) return
-    item { SectionHeader("Artists", onMore = { open(Route.Artists) }) }
+    item { ShelfTitle("Artists you play most", null) { open(Route.Artists) } }
     item {
-        LazyRow(contentPadding = PaddingValues(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(14.dp)) {
-            items(artists, key = { it.name }) { a -> ArtistTile(a, Modifier.width(if (isWide()) 140.dp else 116.dp), open) }
+        LazyRow(contentPadding = PaddingValues(horizontal = Edge), horizontalArrangement = Arrangement.spacedBy(18.dp)) {
+            items(artists, key = { it.name }) { a -> ArtistTile(a, Modifier.width(if (isWide()) 132.dp else 112.dp), open) }
         }
     }
 }
@@ -1052,7 +1176,7 @@ private fun HomeEmpty(scanning: Boolean, read: UInt, open: (Route) -> Unit) {
 // ---------- Search
 
 /** The last search and what it found (see [SearchScreen]). */
-private var lastSearch: Pair<String, List<Song>>? = null
+private var lastSearch: SearchAnswer? = null
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -1061,19 +1185,23 @@ fun SearchScreen(open: (Route) -> Unit) {
     val keyboard = androidx.compose.ui.platform.LocalSoftwareKeyboardController.current
     // Back on the page (from an album found), the last answer shows at once, so the list is
     // there to scroll back to; it is asked again quietly.
-    val last = lastSearch?.takeIf { it.first == query }
-    var songs by remember { mutableStateOf(last?.second ?: emptyList()) }
-    // What the songs shown were found for, so "Nothing found" waits for its own answer.
-    var searched by remember { mutableStateOf(last?.first) }
+    val last = lastSearch?.takeIf { it.query == query }
+    var answer by remember { mutableStateOf(last) }
+    var kind by rememberSaveable { mutableStateOf(SearchKind.All) }
     var server by remember { mutableStateOf<Pair<ULong, List<Song>>?>(null) }
+    // Search's rule chips (name, rule, name, rule…).
+    val rules by rememberLoaded { ruleExamples().chunked(2).filter { it.size == 2 }.map { it[0] to it[1] } }
     val genresLoad = rememberLoaded { genres() }
     val genres by genresLoad
     val playing = playingId()
     LaunchedEffect(query) {
         delay(200)
-        songs = if (query.isBlank()) emptyList() else withContext(Dispatchers.IO) { runCatching { core.search(query) }.getOrDefault(emptyList()) }
-        searched = query
-        lastSearch = query to songs
+        answer = if (query.isBlank()) null else withContext(Dispatchers.IO) {
+            // The best match and a few of each (up to 50, for the chips), and every song.
+            runCatching { SearchAnswer(query, core.find(query, 50u), runCatching { core.search(query) }.getOrDefault(emptyList()), null) }
+                .getOrElse { SearchAnswer(query, null, emptyList(), it.message ?: "This rule is not right.") }
+        }
+        lastSearch = answer
         // Music servers that search (octo-fiesta) answer a moment later.
         server = null
         if (query.isNotBlank()) {
@@ -1093,7 +1221,7 @@ fun SearchScreen(open: (Route) -> Unit) {
         // Two genres across on a phone, more on a tablet; the rows run to the edges.
         LazyVerticalGrid(
             columns = gridColumns(210.dp),
-            contentPadding = PaddingValues(start = 16.dp, end = 16.dp, bottom = 32.dp),
+            contentPadding = PaddingValues(start = 16.dp, end = 16.dp, bottom = 32.dp + LocalBottomInset.current),
             horizontalArrangement = Arrangement.spacedBy(12.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp),
             modifier = Modifier.fillMaxSize().padding(padding).then(scroll),
@@ -1145,13 +1273,10 @@ fun SearchScreen(open: (Route) -> Unit) {
                     }
                 }
             } else {
-                if (songs.isEmpty() && searched == query && server == null) {
-                    edgeToEdge(16.dp) { Text("Nothing found for “$query”.", color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(horizontal = Edge, vertical = 16.dp)) }
+                answer?.takeIf { it.query == query }?.let { a ->
+                    searchResults(a, kind, { kind = it }, rules.orEmpty(), { query = it }, playing, open)
                 }
-                items(songs.size, key = { songs[it].id }, span = { GridItemSpan(maxLineSpan) }) { i ->
-                    SongRow(songs[i], playing == songs[i].id, open, Modifier.bleed(16.dp), place = Place(i, songs.size)) { play(songs, i) }
-                }
-                server?.let { (number, found) ->
+                if (kind == SearchKind.All || kind == SearchKind.Songs) server?.let { (number, found) ->
                     edgeToEdge(16.dp) { SectionHeader("On your server") }
                     items(found.size, key = { "server-$it-" + found[it].id }, span = { GridItemSpan(maxLineSpan) }) { i ->
                         SongRow(found[i], playing == found[i].id, null, Modifier.bleed(16.dp), place = Place(i, found.size)) {

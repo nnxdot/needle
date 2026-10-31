@@ -13,7 +13,7 @@
       <header class="doc-head">
         <h1>Your music stays <em>yours.</em></h1>
         <p class="lede">Needle is a music player that runs on your computer and your phone. It has no account, no ads, and no tracking. This page lists everything Needle can send over the internet, and when.</p>
-        <p class="fine">Last changed 23 October 2026. Applies to Needle 1.8.0 and later.</p>
+        <p class="fine">Last changed 31 October 2026. Applies to Needle 2.0.0 and later.</p>
       </header>
 
       <section id="short">
@@ -57,6 +57,7 @@
               <tr><td>Stems</td><td>Hugging Face</td><td>A download of the stem model, once. Nothing about your music.</td></tr>
               <tr><td>Music servers</td><td>Your own server (Navidrome or another Subsonic server)</td><td>Your user name and a salted token (never the password itself), what you play and when, and your ratings of its songs. Songs, covers, moving covers, and lyrics come from your server; the last 2 GB of songs played are kept on your device.</td></tr>
               <tr><td>Lyrics plugins</td><td>What the plugin uses; NetEase Cloud Music for the NetEase lyrics plugin that comes with Needle</td><td>For songs with no lyrics of their own and no timed ones on LRCLIB: the song's title, artist, album, and length.</td></tr>
+              <tr><td>Translating lyrics</td><td>Android: Google's ML Kit. iPhone and Mac: Apple's Translation. Windows and Linux: a plugin you add.</td><td>On Android, iPhone, and Mac, the lyrics are translated on your device; a language pack downloads once. A plugin sends what it says it sends.</td></tr>
               <tr><td>Plugins</td><td>What the plugin uses</td><td>Only plugins you turn on that ask for the "network" permission can go online. Check a plugin before you turn it on.</td></tr>
             </tbody>
           </table>
@@ -68,6 +69,7 @@
         <h2>On your own network</h2>
         <ul class="points">
           <li><b>Speakers.</b> To find Chromecast, AirPlay, and DLNA speakers, Needle asks the devices on your network. When you play on a speaker, Needle sends it the sound, and the song's name and cover.</li>
+          <li><b>AI assistants (Windows, Linux, and Mac).</b> When you turn it on, Needle answers apps on your own computer that have its address, such as Claude. It does not answer other devices or web pages. What such an app does with what it reads, such as your song names or lyrics, is up to that app and its own privacy policy, so give the address only to apps you trust. New address locks out the old one. It is off until you turn it on.</li>
           <li><b>Phone remote.</b> When you turn it on, Needle answers devices on private networks (your own Wi-Fi, or a VPN you use) that have its address. The address holds a long secret, and <b>New address</b> locks out every phone that had the old one. It is off until you turn it on.</li>
         </ul>
       </section>

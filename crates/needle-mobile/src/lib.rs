@@ -24,15 +24,19 @@ mod app;
 #[cfg(test)]
 mod audit_tests;
 mod connect;
+mod core2;
 mod discord;
 mod ios;
 #[cfg(feature = "desktop")]
 mod mac;
 mod media;
 mod more;
+#[cfg(test)]
+mod platform_output_tests;
 mod plugins;
 mod settings;
 mod tools;
+mod usb_dac;
 
 /// Android's log (logcat), for crashes on the Rust side, which would otherwise go nowhere.
 #[cfg(target_os = "android")]
@@ -145,6 +149,12 @@ pub struct Artist {
     pub albums: u32,
     pub songs: u32,
     pub artwork: Option<String>,
+    /// Its place in an A–Z bar ("A"–"Z", "#", or another script's letter).
+    #[uniffi(default = "")]
+    pub letter: String,
+    /// How often their songs were played.
+    #[uniffi(default = 0)]
+    pub plays: i64,
 }
 
 #[derive(Clone, uniffi::Record)]
@@ -249,11 +259,8 @@ pub struct Needle {
     _scrobbler: needle_core::integrations::ScrobbleWorker,
 }
 
-#[uniffi::export]
 impl Needle {
-    /// Opens (or makes) Needle's library in `data_dir`, the app's own files folder.
-    #[uniffi::constructor]
-    pub fn new(data_dir: String) -> Result<Arc<Self>> {
+    fn open(data_dir: String, read_lyrics: bool) -> Result<Arc<Self>> {
         // Needle's log and crash reports, as on desktop; crashes also go to Android's log.
         needle_core::logfile::init(std::path::Path::new(&data_dir));
         let earlier = std::panic::take_hook();
@@ -268,9 +275,14 @@ impl Needle {
         #[cfg(not(target_os = "android"))]
         needle_core::set_secrets_folder(PathBuf::from(&data_dir));
         let library = Library::open(PathBuf::from(data_dir))?;
+        // The songs' own lyrics, read slowly for Search › In the lyrics.
+        if read_lyrics {
+            needle_core::find::start_reading_lyrics(library.clone());
+        }
         // On a phone the phone's own volume is the one volume: Needle's (the desktop's slider,
         // 65% to start) stays at full, or Needle would play quieter than other apps at the same
-        // volume. Set before the player starts, so it opens at full.
+        // volume. Set before the player starts, so it opens at full. The Mac keeps its slider's.
+        #[cfg(not(feature = "desktop"))]
         let _ = library.update_settings(|s| s.volume = 1.0);
         let player = Player::new(library.clone());
         log(false, "player started");
@@ -305,6 +317,28 @@ impl Needle {
             measuring: Arc::default(),
             analysing: Arc::default(),
         }))
+    }
+}
+
+#[uniffi::export]
+impl Needle {
+    /// Opens (or makes) Needle's library in `data_dir`, the app's own files folder.
+    #[uniffi::constructor]
+    pub fn new(data_dir: String) -> Result<Arc<Self>> {
+        Self::open(data_dir, true)
+    }
+
+    /// As [`Needle::new`], with no reading in the background yet: for an app that may start
+    /// with no screen (a phone's restart, a widget), which then calls
+    /// [`Needle::start_reading_lyrics`] when someone opens it.
+    #[uniffi::constructor]
+    pub fn new_quiet(data_dir: String) -> Result<Arc<Self>> {
+        Self::open(data_dir, false)
+    }
+
+    /// Starts reading the songs' own lyrics for Search (once; see [`Needle::new_quiet`]).
+    pub fn start_reading_lyrics(&self) {
+        needle_core::find::start_reading_lyrics(self.library.clone());
     }
 
     /// The music folders Needle reads.
@@ -471,6 +505,8 @@ impl Needle {
                 albums: a.albums as u32,
                 songs: a.tracks as u32,
                 artwork: a.artwork,
+                letter: a.letter,
+                plays: a.play_count,
             })
             .collect())
     }

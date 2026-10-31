@@ -1,24 +1,65 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- Needle's record for the splash screen: amber grooves on the Night page, with its tonearm.
-     Everything sits inside the 160 dp circle Android keeps (the icon is 240 dp). -->
+<!-- Needle's record for the splash screen: the Glass groove icon (assets/icon/needle-mark.svg,
+     scripts/make-icon.py) at 0.3 of its 512 frame, centred, so all of it sits inside the 160 dp
+     circle Android keeps (the icon is 240 dp). The same colours; the arm's shadow is left out (a
+     vector has no blur). The record turns (its glass light turns with it) and the arm drops;
+     still (before Android 12), the arm rests on the record as in the icon. -->
 <vector xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:aapt="http://schemas.android.com/aapt"
     android:width="240dp" android:height="240dp"
     android:viewportWidth="240" android:viewportHeight="240">
-    <group android:name="record" android:pivotX="114" android:pivotY="126">
+    <!-- The soft amber glow behind the record. -->
+    <path android:pathData="M114,129.6m-65.25,0a65.25,65.25 0,1 1,130.5 0a65.25,65.25 0,1 1,-130.5 0">
+        <aapt:attr name="android:fillColor">
+            <gradient android:type="radial" android:centerX="114" android:centerY="129.6"
+                android:gradientRadius="65.25">
+                <item android:offset="0" android:color="#80E2B46C" />
+                <item android:offset="1" android:color="#00E2B46C" />
+            </gradient>
+        </aapt:attr>
+    </path>
+    <group android:name="record" android:pivotX="114" android:pivotY="129.6">
+        <!-- The amber glass. -->
+        <path android:pathData="M114,129.6m-45,0a45,45 0,1 1,90 0a45,45 0,1 1,-90 0">
+            <aapt:attr name="android:fillColor">
+                <gradient android:type="radial" android:centerX="101.4" android:centerY="111.6"
+                    android:gradientRadius="76.5">
+                    <item android:offset="0" android:color="#F6D9A4" />
+                    <item android:offset="0.55" android:color="#E2B46C" />
+                    <item android:offset="1" android:color="#AD7A3C" />
+                </gradient>
+            </aapt:attr>
+        </path>
+        <!-- The grooves. -->
+        <path android:strokeColor="#597A5020" android:strokeWidth="0.9" android:fillColor="#00000000"
+            android:pathData="M114,129.6m-38.7,0a38.7,38.7 0,1 1,77.4 0a38.7,38.7 0,1 1,-77.4 0 M114,129.6m-33.3,0a33.3,33.3 0,1 1,66.6 0a33.3,33.3 0,1 1,-66.6 0 M114,129.6m-27.9,0a27.9,27.9 0,1 1,55.8 0a27.9,27.9 0,1 1,-55.8 0" />
+        <!-- The soft shine from the top left. -->
+        <path android:pathData="M114,129.6m-45,0a45,45 0,1 1,90 0a45,45 0,1 1,-90 0">
+            <aapt:attr name="android:fillColor">
+                <gradient android:type="linear" android:startX="69" android:startY="84.6"
+                    android:endX="159" android:endY="174.6">
+                    <item android:offset="0" android:color="#54FFFFFF" />
+                    <item android:offset="0.42" android:color="#00FFFFFF" />
+                    <item android:offset="1" android:color="#00FFFFFF" />
+                </gradient>
+            </aapt:attr>
+        </path>
+        <!-- The glass's light edge. -->
+        <path android:strokeColor="#40FFFFFF" android:strokeWidth="0.6" android:fillColor="#00000000"
+            android:pathData="M114,129.6m-45,0a45,45 0,1 1,90 0a45,45 0,1 1,-90 0" />
+        <!-- The dark label and its amber dot. -->
+        <path android:fillColor="#1B1816"
+            android:pathData="M114,129.6m-16.2,0a16.2,16.2 0,1 1,32.4 0a16.2,16.2 0,1 1,-32.4 0" />
         <path android:fillColor="#E2B46C"
-            android:pathData="M114,64a62,62 0,1 0,0.1 0z" />
-        <path android:strokeColor="#C39148" android:strokeWidth="2" android:fillColor="#00000000"
-            android:pathData="M114,74a52,52 0,1 0,0.1 0z M114,84a42,42 0,1 0,0.1 0z M114,94a32,32 0,1 0,0.1 0z" />
-        <!-- A highlight across the grooves, so the turning shows. -->
-        <path android:fillColor="#33FFFFFF"
-            android:pathData="M114,126 L152,76 A62,62 0 0,1 170,100 Z" />
-        <path android:fillColor="#141312" android:pathData="M114,104a22,22 0,1 0,0.1 0z" />
-        <path android:fillColor="#E2B46C" android:pathData="M114,120a6,6 0,1 0,0.1 0z" />
+            android:pathData="M114,129.6m-3.6,0a3.6,3.6 0,1 1,7.2 0a3.6,3.6 0,1 1,-7.2 0" />
     </group>
-    <group android:name="arm" android:pivotX="168" android:pivotY="70" android:rotation="-38">
-        <path android:strokeColor="#F1E6D3" android:strokeWidth="9" android:strokeLineCap="round"
-            android:pathData="M168,70 L136,112" />
-        <path android:fillColor="#F1E6D3" android:pathData="M168,58a12,12 0,1 0,0.1 0z" />
-        <path android:fillColor="#141312" android:pathData="M168,65a5,5 0,1 0,0.1 0z" />
+    <!-- The cream arm, from its pivot at the top right down to the record's edge. -->
+    <group android:name="arm" android:pivotX="169.2" android:pivotY="72.6">
+        <path android:strokeColor="#F2E8D6" android:strokeWidth="6.6" android:strokeLineCap="round"
+            android:pathData="M169.2,72.6 L138.6,110.4" />
+        <path android:fillColor="#F2E8D6"
+            android:pathData="M169.2,72.6m-9,0a9,9 0,1 1,18 0a9,9 0,1 1,-18 0" />
+        <path android:fillColor="#1B1816"
+            android:pathData="M169.2,72.6m-3.6,0a3.6,3.6 0,1 1,7.2 0a3.6,3.6 0,1 1,-7.2 0" />
     </group>
 </vector>

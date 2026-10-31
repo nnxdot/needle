@@ -88,6 +88,14 @@ fn shape(name: &str) -> Option<String> {
         "plugin" => "<path d='M9 3v4M15 3v4M7 7h10v4a5 5 0 0 1-10 0z'/><path d='M12 16v5'/>".into(),
         "stems" => "<path d='m12 2.5 9 4.8-9 4.8-9-4.8z'/><path d='m3 12 9 4.8 9-4.8'/><path d='m3 16.6 9 4.8 9-4.8'/>".into(),
         "import" => "<path d='M12 3v12M7 10l5 5 5-5'/><path d='M4 17v2.5A1.5 1.5 0 0 0 5.5 21h13a1.5 1.5 0 0 0 1.5-1.5V17'/>".into(),
+        // The Record look's arm, drawn as big as the record (Android's: from its pivot at the
+        // top right to the outer grooves), and the dark dot on its pivot.
+        "record-arm" => "<path d='M23.04 0.96 17.52 7.2' stroke-width='0.72'/><circle cx='23.04' cy='0.96' r='1.08' fill='currentColor' stroke='none'/>".into(),
+        "record-arm-dot" => "<circle cx='23.04' cy='0.96' r='0.43' fill='currentColor' stroke='none'/>".into(),
+        "moon" => "<path d='M20 15.5A8.5 8.5 0 0 1 8.5 4a8.5 8.5 0 1 0 11.5 11.5z'/>".into(),
+        "moon-fill" => "<path d='M20 15.5A8.5 8.5 0 0 1 8.5 4a8.5 8.5 0 1 0 11.5 11.5z' fill='currentColor'/>".into(),
+        "speed" => "<path d='M4.5 17a8.5 8.5 0 1 1 15 0'/><path d='m12 13 4-4.5'/><circle cx='12' cy='13' r='1.2' fill='currentColor'/>".into(),
+        "keyboard" => "<rect x='2.5' y='6' width='19' height='12' rx='2.5'/><path d='M6.5 10h.01M10 10h.01M14 10h.01M17.5 10h.01M8 14h8'/>".into(),
         "logo" => "<circle cx='11' cy='13' r='8.5'/><circle cx='11' cy='13' r='2.2' fill='currentColor'/><path d='M21.5 2.5 14.8 9.2'/><path d='M7 9.8a5.3 5.3 0 0 1 2.6-2' opacity='.6'/>".into(),
         _ => return None,
     })

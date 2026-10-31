@@ -28,7 +28,7 @@ enum Route: Hashable {
     case genre(String)
     case folder(String)
     case albums, artists, songs, playlists, genres, favorites, recent, folders
-    case history, stats, wrapped
+    case history, stats, wrapped, crate, playerButtons, numbers, genreMap, fonts(Bool)
     case settings, settingsLibrary, settingsPlayback, settingsSound, settingsAppearance, settingsScrobbling, settingsDiscord
     case plugins, plugin(String), server(String), computer, sources, sync, whatsNew, about
     case fixLibrary, duplicates, missingCovers, albumProblems, tidy, importing
@@ -40,7 +40,7 @@ extension View {
     func routes() -> some View {
         navigationDestination(for: Route.self) { route in
             switch route {
-            case .album(let album): AlbumView(album: album)
+            case .album(let album): AlbumView(album: album).modifier(CoverZoom(id: "album:" + album.key))
             case .albumOf(let id): AlbumOfView(songId: id)
             case .artist(let name): ArtistView(name: name)
             case .playlist(let playlist): PlaylistView(playlist: playlist)
@@ -56,7 +56,12 @@ extension View {
             case .recent: RecentSongsView()
             case .history: HistoryView()
             case .stats: StatsView()
-            case .wrapped: WrappedView()
+            case .wrapped: YearReviewView()
+            case .crate: RecordCrateView()
+            case .playerButtons: PlayerButtonsView()
+            case .numbers: NumbersView()
+            case .genreMap: GenreMapView()
+            case .fonts(let titles): FontsView(titles: titles)
             case .settings: SettingsView()
             case .settingsLibrary: LibrarySettingsView()
             case .settingsPlayback: PlaybackSettingsView()
@@ -108,7 +113,7 @@ struct SectionTitle: View {
                     NavigationLink(value: route) {
                         HStack(spacing: 4) {
                             Text(title)
-                            Image(systemName: "chevron.right").font(.subheadline.weight(.bold)).foregroundStyle(.secondary)
+                            Image(systemName: "chevron.right").font(.needle(.subheadline).weight(.bold)).foregroundStyle(.secondary)
                         }
                     }
                     .buttonStyle(.plain)
@@ -116,10 +121,10 @@ struct SectionTitle: View {
                     Text(title)
                 }
             }
-            .font(.title2.bold())
+            .font(.needleTitle(size: 22))
             .accessibilityAddTraits(.isHeader)
             if let detail {
-                Text(detail).font(.subheadline).foregroundStyle(.secondary)
+                Text(detail).font(.needle(.subheadline)).foregroundStyle(.secondary)
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -139,10 +144,11 @@ struct AlbumTile: View {
                 Artwork(path: album.artwork, seed: album.title + album.artist, size: 400)
                     .aspectRatio(1, contentMode: .fit)
                     .clipShape(.rect(cornerRadius: 14))
+                    .modifier(CoverSource(id: "album:" + album.key))
                     .shadow(color: .black.opacity(0.35), radius: 10, y: 6)
                     .padding(.bottom, 5)
-                Text(album.title).font(.subheadline.weight(.medium)).lineLimit(1)
-                Text(album.artist).font(.footnote).foregroundStyle(.secondary).lineLimit(1)
+                Text(album.title).font(.needle(.subheadline).weight(.medium)).lineLimit(1)
+                Text(album.artist).font(.needle(.footnote)).foregroundStyle(.secondary).lineLimit(1)
             }
             .frame(width: width)
             .contentShape(.rect)
@@ -161,7 +167,7 @@ struct AlbumMenu: View {
         Button("Shuffle", systemImage: "shuffle") { store.playAlbum(album, shuffled: true) }
         Button("Play Next", systemImage: "text.line.first.and.arrowtriangle.forward") { withSongs(store.playNext) }
         Button("Add to Queue", systemImage: "text.line.last.and.arrowtriangle.forward") { withSongs(store.enqueue) }
-        Button("Add to a Playlist", systemImage: "music.note.list") { withSongs { store.sheet = .addToPlaylist($0) } }
+        Button("Add to Playlist", systemImage: "music.note.list") { withSongs { store.sheet = .addToPlaylist($0) } }
         Button("Edit Tags", systemImage: "tag") {
             withSongs { songs in
                 let own = songs.filter { !$0.fromServer }.map(\.id)
@@ -176,48 +182,6 @@ struct AlbumMenu: View {
     private func withSongs(_ then: @escaping ([Song]) -> Void) {
         let key = album.key
         Task { if let songs = await store.load({ try $0.albumSongs(key: key) }), !songs.isEmpty { then(songs) } }
-    }
-}
-
-/// The large card at the top of Home: a cover with its name on a pane of glass.
-struct BigCard: View {
-    @Environment(Store.self) private var store
-    let album: Album
-    let kicker: String
-
-    var body: some View {
-        NavigationLink(value: Route.album(album)) {
-            Artwork(path: album.artwork, seed: album.title + album.artist, size: 800)
-                .frame(width: 270, height: 340)
-                .overlay(alignment: .topLeading) {
-                    Text(kicker.uppercased())
-                        .font(.caption.weight(.bold)).kerning(0.6)
-                        .padding(.horizontal, 10).padding(.vertical, 5)
-                        .glassEffect(.regular, in: .capsule)
-                        .padding(14)
-                }
-                .overlay(alignment: .bottom) {
-                    HStack(spacing: 10) {
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text(album.title).font(.headline).lineLimit(1)
-                            Text(album.artist).font(.subheadline).foregroundStyle(.secondary).lineLimit(1)
-                        }
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        Button { store.playAlbum(album) } label: {
-                            Image(systemName: "play.fill").font(.body).frame(width: 30, height: 30)
-                        }
-                        .buttonStyle(.glass)
-                        .buttonBorderShape(.circle)
-                    }
-                    .padding(.leading, 16).padding(.trailing, 8).padding(.vertical, 8)
-                    .glassEffect(.regular, in: .rect(cornerRadius: 22))
-                    .padding(10)
-                }
-                .clipShape(.rect(cornerRadius: 28))
-                .shadow(color: .black.opacity(0.45), radius: 18, y: 12)
-        }
-        .buttonStyle(Pressable())
-        .contextMenu { AlbumMenu(album: album) }
     }
 }
 
@@ -241,7 +205,7 @@ struct SongRow: View {
                         if playing { Image(systemName: "waveform").symbolEffect(.variableColor.iterative, isActive: store.isPlaying) }
                         else { Text("\(number)") }
                     }
-                    .font(.subheadline.monospacedDigit()).foregroundStyle(playing ? lit : AnyShapeStyle(.secondary))
+                    .font(.needle(.subheadline).monospacedDigit()).foregroundStyle(playing ? lit : AnyShapeStyle(.secondary))
                     .frame(width: 24)
                 } else if showCover {
                     Artwork(path: song.artwork, seed: song.album + song.artist, size: 120)
@@ -252,10 +216,10 @@ struct SongRow: View {
                     Text(song.title).foregroundStyle(playing ? lit : AnyShapeStyle(.primary)).lineLimit(1)
                     if number == nil {
                         HStack(spacing: 4) {
-                            if song.fromServer && store.app.serverMark { Image(systemName: "server.rack").font(.caption2) }
+                            if song.fromServer && store.app.serverMark { Image(systemName: "server.rack").font(.needle(.caption2)) }
                             Text(song.artist).lineLimit(1)
                         }
-                        .font(.subheadline).foregroundStyle(.secondary)
+                        .font(.needle(.subheadline)).foregroundStyle(.secondary)
                     }
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
@@ -284,7 +248,7 @@ struct SongMenu: View {
                 Button("Play Next", systemImage: "text.line.first.and.arrowtriangle.forward") { store.playNext([song]) }
                 Button("Add to Queue", systemImage: "text.line.last.and.arrowtriangle.forward") { store.enqueue([song]) }
             }
-            Button("Add to a Playlist", systemImage: "music.note.list") { store.sheet = .addToPlaylist([song]) }
+            Button("Add to Playlist", systemImage: "music.note.list") { store.sheet = .addToPlaylist([song]) }
             Button("Start Radio", systemImage: "dot.radiowaves.left.and.right") {
                 let id = song.id
                 store.run { try $0.startRadio(id: id) }
@@ -428,12 +392,13 @@ struct PagedSongs: View {
                         Label("Play", systemImage: "play.fill").frame(maxWidth: .infinity).padding(.vertical, 6)
                     }
                     .buttonStyle(.glassProminent)
+                    .foregroundStyle(store.colors.onAccent)
                     Button { playAll(shuffled: true) } label: {
                         Label("Shuffle", systemImage: "shuffle").frame(maxWidth: .infinity).padding(.vertical, 6)
                     }
                     .buttonStyle(.glass)
                 }
-                .font(.headline)
+                .font(.needle(.headline))
                 .listRowSeparator(.hidden).listRowBackground(Color.clear).selectionDisabled()
             }
             ForEach(Array(songs.enumerated()), id: \.element.id) { i, song in
@@ -501,7 +466,7 @@ struct PlayButtons: View {
                 .buttonStyle(.glass)
             }
         }
-        .font(.headline)
+        .font(.needle(.headline))
         .padding(.vertical, 6)
     }
 }
@@ -522,7 +487,7 @@ struct Toast: View {
     var body: some View {
         if let text = store.message {
             Text(text)
-                .font(.subheadline.weight(.medium))
+                .font(.needle(.subheadline).weight(.medium))
                 .padding(.horizontal, 18).padding(.vertical, 12)
                 .glassEffect(.regular, in: .capsule)
                 .padding(.top, 8)
@@ -531,6 +496,45 @@ struct Toast: View {
                     try? await Task.sleep(for: .seconds(2.5))
                     withAnimation { store.message = nil }
                 }
+        }
+    }
+}
+
+private struct CoverSpaceKey: EnvironmentKey {
+    static let defaultValue: Namespace.ID? = nil
+}
+
+extension EnvironmentValues {
+    /// Album covers zoom from their tile into the album's page in this namespace.
+    var coverSpace: Namespace.ID? {
+        get { self[CoverSpaceKey.self] }
+        set { self[CoverSpaceKey.self] = newValue }
+    }
+}
+
+/// An album tile's cover, where the album's page zooms from.
+struct CoverSource: ViewModifier {
+    @Environment(\.coverSpace) private var space
+    let id: String
+
+    func body(content: Content) -> some View {
+        if let space { content.matchedTransitionSource(id: id, in: space) } else { content }
+    }
+}
+
+/// An album's page grows out of the cover chosen (the zoom transition); with Reduce motion
+/// (Needle's or the iPhone's) it simply comes in.
+struct CoverZoom: ViewModifier {
+    @Environment(Store.self) private var store
+    @Environment(\.coverSpace) private var space
+    @Environment(\.accessibilityReduceMotion) private var systemReduceMotion
+    let id: String
+
+    func body(content: Content) -> some View {
+        if let space, !systemReduceMotion, !store.app.reduceMotion {
+            content.navigationTransition(.zoom(sourceID: id, in: space))
+        } else {
+            content
         }
     }
 }

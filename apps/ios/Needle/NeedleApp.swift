@@ -2,21 +2,37 @@ import SwiftUI
 
 @main
 struct NeedleApp: App {
-    @State private var store = Store()
+    @State private var store = Store.main
+
+    init() {
+        NeedleFonts.registerAll()
+    }
     @Environment(\.scenePhase) private var phase
 
     var body: some Scene {
         WindowGroup {
             RootView()
+                // The text font chosen (Settings › Appearance › Text): drawn anew when it changes.
+                .font(.needle(.body))
+                .id("\(store.choices.displayFont)|\(store.choices.textFont)")
                 .environment(store)
                 .onOpenURL { store.open($0) }
+                .task {
+                    WatchLink.shared.start(store)
+                    store.moveOldTitleFont()
+                    store.allowPictures()
+                }
         }
         .onChange(of: phase) { _, now in
-            // Songs added in the Files app or from a computer while Needle was away.
-            if now == .active { store.rescan() }
+            // Only here, where the listener sees it: a start in the background (a widget,
+            // Control Center, Siri, the Lock Screen, the watch) plays and reads nothing.
+            if now == .active { store.cameToFront() }
             // The phone may end the app while it is away: the queue, the place, and what was
             // heard of a paused song are kept now.
-            if now == .background { store.core.persist() }
+            if now == .background {
+                store.wentAway()
+                store.core.persist()
+            }
         }
     }
 }
@@ -32,6 +48,8 @@ struct RootView: View {
     @State private var welcomeTest = false
     @State private var paths: [Place: NavigationPath] = [:]
     @Namespace private var player
+    /// Album covers zoom from their tile into the album's page in this.
+    @Namespace private var covers
 
     var body: some View {
         @Bindable var store = store
@@ -53,6 +71,7 @@ struct RootView: View {
             }
         }
         .tabBarMinimizeBehavior(.onScrollDown)
+        .environment(\.coverSpace, covers)
         #if DEBUG
         // For testing from a shell: -tab library|radio|search, -albums opens Albums there, and
         // -route settings|appearance|sources opens that page.
@@ -65,14 +84,42 @@ struct RootView: View {
                let route = ["settings": [Route.settings], "appearance": [.settings, .settingsAppearance], "sources": [.settings, .sources],
                              "scrobbling": [.settings, .settingsScrobbling], "library": [.settings, .settingsLibrary],
                              "playback": [.settings, .settingsPlayback], "server": [.settings, .server("subsonic")],
-                             "whatsnew": [.settings, .whatsNew]][args[i + 1]] {
+                             "whatsnew": [.settings, .whatsNew], "crate": [.albums, .crate], "numbers": [.numbers], "genremap": [.genreMap], "artists": [.artists], "year": [.wrapped],
+                             "playerbuttons": [.settings, .settingsAppearance, .playerButtons]][args[i + 1]] {
                 paths[place] = NavigationPath(route)
             }
             if args.contains("-albums") { paths[place] = NavigationPath([Route.albums]) }
             if args.contains("-show-welcome") { welcomeTest = true }
+            // -landscape: turns Needle on its side, as if the phone were turned, 25 s in (after
+            // -show-player has opened the player and the app has settled).
+            if args.contains("-landscape") {
+                Task {
+                    try? await Task.sleep(for: .seconds(25))
+                    let scene = UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first
+                    scene?.requestGeometryUpdate(.iOS(interfaceOrientations: .landscapeRight))
+                }
+            }
             // -artist <name>, -album <title>: open that page.
             let value = { (flag: String) in args.firstIndex(of: flag).flatMap { args.indices.contains($0 + 1) ? args[$0 + 1] : nil } }
             if let name = value("-artist") { store.opening = .artist(name) }
+            // -sleep <minutes> starts the sleep timer, -speed <times> plays at that speed, and
+            // -sheet sleep|speed|timing opens that sheet (timing: the song playing), a few seconds in.
+            Task {
+                try? await Task.sleep(for: .seconds(3))
+                if let minutes = value("-sleep").flatMap(UInt32.init) { store.startSleep("minutes", minutes: minutes) }
+                if let speed = value("-speed").flatMap(Float.init) {
+                    var pace = store.tempo
+                    pace.speed = speed
+                    store.setTempo(pace)
+                }
+                try? await Task.sleep(for: .seconds(1))
+                switch value("-sheet") {
+                case "sleep": store.sheet = .sleep
+                case "speed": store.sheet = .speed
+                case "timing": if let song = store.playback?.current { store.sheet = .timing(song) }
+                default: break
+                }
+            }
             // -check-moving <album title>: asks the core for that album's moving cover (its first
             // song's), plays nothing, and writes what came back to needle-moving-check.log.
             if let title = value("-check-moving") {
@@ -163,6 +210,9 @@ struct SheetView: View {
             case .identify(let id): IdentifyView(id: id)
             case .timing(let song): TimingView(song: song)
             case .speakers: SpeakersView()
+            case .sleep: SleepSheet()
+            case .speed: SpeedSheet()
+            case .whatsNew: WhatsNewSheet()
             }
         }
     }
@@ -186,3 +236,4 @@ struct QuestionAlert: ViewModifier {
         }
     }
 }
+

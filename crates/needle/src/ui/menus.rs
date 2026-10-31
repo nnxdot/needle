@@ -467,6 +467,7 @@ impl AppView {
                     self.playlist_menu = None;
                     self.group_menu = None;
                     self.collections_menu = None;
+                    self.player_menu = None;
                     self.header_menu = None;
                 }
                 action(self, window, cx);

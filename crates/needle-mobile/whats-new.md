@@ -1,3 +1,40 @@
+# 2.0.0
+A new look, after the Mac's, and a lot more to see and hear.
+! **A new look.** The mini player and the tabs float together at the foot of the screen as one small bar of frosted glass, and the page runs on under it. Lists are plain rows with a soft line between them. Home opens with a greeting, the song playing now, and shelves of your albums.
+- [panel] **A sidebar on tablets and TVs.** As on the Mac: a search field at the top, small rows for Home, Songs, Albums, Artists, and Folders, then your collections and playlists, and Settings at the foot. The player floats over the page, and the lyrics or Up next open in a pane beside it. On a TV, the sidebar shows only its icons until you move left into it.
+- [player] **Choose the player's buttons.** Drag buttons in, out, and along in Settings › Appearance › Player buttons. The notification shows Shuffle, Repeat, and the heart too when you choose them.
+- [usb] **Needle's own USB driver.** With Settings › Sound › Bit-perfect USB on, Needle plays to a USB DAC itself, at each song's own rate, without Android's mixer. When a DAC cannot play this way, Needle plays through Android as before.
+- [usb] **Better USB audio.** Needle finds a dock's or DAC's real speaker output, the volume works, and a song at a rate your DAC lacks is converted, so the sound keeps going. After you turn Bit-perfect USB off with a DAC plugged in, unplug it and plug it in again to hear Android's sound.
+- [watch] **Needle on your watch.** A Wear OS app shows the song playing on your phone, with its cover. Play, pause, skip, give it a heart, and turn the crown for the volume.
+- [signal] **A seek bar shaped like the song.** The player's seek bar shows the song's loud and quiet parts. Choose another in Settings › Appearance › Seek bar.
+- [wave] **The visualizer.** Light that moves with the music, in the cover's colours. Tap Visualizer at the top of the player, and open it full screen from its corner.
+- [translate] **Translate lyrics.** Tap Translate above the lyrics, and each line shows in your phone's language under it. The translation happens on your phone. Each language downloads once, on Wi-Fi.
+- [image] **Lyric cards.** Long-press a line of the lyrics for a picture of it in the cover's colours, to share.
+- [chart] **Your library in numbers, and the genre map.** From Library › More: what your music is made of, and each genre as a bubble by how its songs sound, as big as its number of songs. Tap a bubble to play that genre.
+- [moon] **A sleep timer.** Tap the moon in the player: 15, 30, or 45 minutes, an hour, or the end of the song or album, with a soft fade over the last minute. Shake the phone to add 10 minutes.
+- [speed] **Speed and pitch.** From the playing song's menu: play from half to twice as fast, keep the pitch or not, and move the pitch up or down, for every song or just this one.
+- [history] **Your year in review.** Your year in hours, plays, and new songs, your top artist, and your top 50 songs, from History (and Home in December). Share it as a picture, play your top 50, or make it a playlist.
+- [lyrics] **Time the lyrics, line by line or word by word.** Tap as each line or word starts; nudge it by 0.2 seconds, tap a line again, or undo.
+- [alarm] **Wake up to music.** Settings › Playback › Wake up to music plays a playlist or a smart mix at the time and on the days you choose, fading in, with Snooze.
+- [widget] **A Quick Settings tile.** Play and pause from the pull-down shade, even with Needle closed. Choose what it plays in Settings › Playback.
+- [album] **A record crate.** Flip through your albums like records in a box (Library › More › Record crate).
+- [history] **On this day.** Home shows what you played one and five years ago today.
+- [eq] **Smart mixes.** With crossfade on, the fade starts where the music ends and lasts whole bars. Turn it on under Settings › Playback › Crossfade.
+- [artists] **Better artists.** Guests after "feat." and both halves of "A & B" get their own page, sort names from your tags are used, and accents sort where they belong. Sort artists by name, most played, most songs, or recently added, show only album artists, and jump with the A–Z bar.
+- [edit] **Your own artist pictures.** On an artist's page, More lets you choose their photo, wide picture, and logo: a picture on your phone, or any of fanart.tv's. Pictures in the artist's folder are used too: artist.jpg, and fanart.jpg and logo.png when fanart.tv has none.
+- [globe] **Pictures for every artist.** With online lookups on, Needle finds every artist's pictures slowly in the background, on Wi-Fi, or all at once with Check all now (Settings › Library › Artist pictures).
+- [tag] **Fonts.** Choose a font for titles (such as Fraunces, Instrument Serif, and DM Serif Display) and one for everything else (such as Inter and Atkinson Hyperlegible), or a font file on your phone, in Settings › Appearance.
+- [globe] **A new Search page.** Chips for All, Songs, Albums, Artists, and Lyrics. All shows the best match large, then songs, albums, artists, lines of lyrics with your words lit, and rules to try.
+- [lyrics] **Search inside lyrics.** Needle reads your songs' own lyrics slowly in the background, so a line you remember finds its song.
+- [record] **The player's looks.** The Look button at the top of the player steps through Cover, Record, Lyrics, and Visualizer: a turning record with its arm, only the words very large, or the light filling the screen.
+- [panel] **A new Home on Android TV.** The album in focus fills the screen behind, with its name large and Play and Shuffle above the row.
+- [palette] **Smoother motion.** An album's cover grows into its page, the page's title folds into the bar as you scroll, and colours blend to the next song's. With Reduce motion, these are plain fades.
+- [album] **What makes an album.** Settings › Library › Albums: an album is its album artist and name, or the songs of one folder. Compilations (tagged as one) are one album by Various Artists. Your files never change.
+- [panel] **Foldables.** On a Galaxy Z Fold, Needle moves to its wide layout when you open it, and the player splits around the fold when it is half closed: the cover above and the controls below on a table, or the library and the player side by side held like a book.
+- [video] **Moving covers on the album page.** An album with a moving cover shows it moving at the top of its page too.
+- [record] **A new icon.** An amber record and its arm, also when Needle starts.
+- In Up next, a row lights up under a mouse pointer.
+
 # 1.8.0
 Navidrome built in, moving covers, and calmer Settings.
 ! **Navidrome and Subsonic, built in.** Sign in to your music server in Settings › Music servers, with no plugin to add. The page shows whether the server is connected, how many songs, albums, and artists it has, and when it last updated. Bring in songs again gets new songs, and Refresh everything gets every song and cover again and removes songs the server no longer has. On this phone shows the songs you kept and the songs played lately, and frees their space after a question.

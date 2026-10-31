@@ -365,6 +365,13 @@ fn run(command, ids) {
     #{ synced: found.lrc }
 }</code></pre>
         <p>Needle comes with <b>NetEase lyrics</b>, which looks on NetEase Cloud Music: it has timed lyrics for a great many songs, Asian music above all. It starts turned off; turn it on in Settings › Plugins, or press <b>Also look on NetEase</b> where a song has no lyrics.</p>
+        <h3>Translating lyrics</h3>
+        <p>A plugin can translate lyrics by defining <code>translate(lines, language)</code>. On Windows and Linux, a <b>Translate</b> button then shows under the lyrics; it puts each line in the listener's language under the line. (Macs, iPhones, and Android phones translate on the device by themselves.) <code>lines</code> is a list of the lyrics' lines, and <code>language</code> a language code such as <code>"de"</code>. Return a list with one translated line for each line, in the same order; anything else is not used.</p>
+<pre><code>fn translate(lines, language) {
+    let body = #{ q: lines, target: language };
+    let answer = parse_json(http_post_json("https://translate.example.com/translate", body));
+    answer.translations
+}</code></pre>
       </section>
 
       <section id="limits">

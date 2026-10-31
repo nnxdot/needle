@@ -58,7 +58,7 @@ impl AppView {
 
     /// A settings card that opens with an arrow: its header (icon, name, one line, and what is
     /// set now on the right) and, while open, `body` under a line.
-    fn expander(
+    pub(super) fn expander(
         &self,
         id: &'static str,
         title: &str,
@@ -764,6 +764,18 @@ impl AppView {
                         ),
                         cx,
                     ))
+                    .when(self.settings.crossfade > 0., |el| {
+                        el.child(setting_row(
+                            "Smart mixes",
+                            "The fade starts where the music ends and lasts whole bars.",
+                            Switch::new("smart-mix").checked(self.settings.smart_mix).on_click(cx.listener(|this, checked: &bool, _, cx| {
+                                this.settings.smart_mix = *checked;
+                                this.configure();
+                                cx.notify();
+                            })),
+                            cx,
+                        ))
+                    })
                     .child({
                         let rule = self.settings.autoplay_query.trim().to_string();
                         let shown = if rule.is_empty() { "Off".to_string() } else { rule };
@@ -839,6 +851,46 @@ impl AppView {
                                     .child(small_button("rescan", "Check for changes").ghost().disabled(self.scan.is_some()).on_click(cx.listener(|this, _, _, cx| this.rescan(cx)))),
                             ),
                     )
+                    .child(self.section_title("Albums", "Which songs make one album. Your files never change.", cx))
+                    .child(setting_row(
+                        "What makes an album",
+                        if self.settings.album_grouping == "folder" {
+                            "Songs in one folder with one album name, when they have no album artist."
+                        } else {
+                            "Songs with the same album artist and album name."
+                        },
+                        segmented(
+                            "album-grouping",
+                            &["Album artist and album", "Folder"],
+                            needle_core::grouping::ALBUM_GROUPINGS
+                                .iter()
+                                .position(|g| *g == self.settings.album_grouping)
+                                .unwrap_or(0),
+                            cx,
+                            {
+                                let weak = cx.entity().downgrade();
+                                move |index, _, cx| {
+                                    let _ = weak.update(cx, |this, cx| {
+                                        this.settings.album_grouping =
+                                            needle_core::grouping::ALBUM_GROUPINGS[index].into();
+                                        this.regroup_albums();
+                                        cx.notify();
+                                    });
+                                }
+                            },
+                        ),
+                        cx,
+                    ))
+                    .child(setting_row(
+                        "Compilations as one album",
+                        "Songs tagged as a compilation, with no album artist, are one album by Various Artists.",
+                        Switch::new("compilations-various").checked(self.settings.compilations_various).on_click(cx.listener(|this, checked: &bool, _, cx| {
+                            this.settings.compilations_various = *checked;
+                            this.regroup_albums();
+                            cx.notify();
+                        })),
+                        cx,
+                    ))
                     .child(self.section_title("Music servers", "Navidrome and other Subsonic servers. Their songs show with your own.", cx))
                     .children(self.music_servers(cx))
                     .child(setting_row(
@@ -878,7 +930,38 @@ impl AppView {
                         cx,
                     ))
                     .when(self.settings.online_media, |el| {
+                        let progress = self.picture_sweep.progress();
+                        let line = if !self.settings.artist_pictures {
+                            "Photos, logos, and wide pictures for every artist, found slowly.".to_string()
+                        } else if progress.total == 0 {
+                            "Finds every artist's photo, logo, and wide picture, one at a time.".to_string()
+                        } else if progress.done >= progress.total {
+                            format!("All {} artists looked for.", progress.total)
+                        } else {
+                            format!("{} of {} artists looked for.", progress.done, progress.total)
+                        };
                         el.child(setting_row(
+                            "Artist pictures",
+                            &line,
+                            div()
+                                .flex()
+                                .items_center()
+                                .gap_2()
+                                .when(self.settings.artist_pictures && progress.done < progress.total && !progress.hurry, |el| {
+                                    el.child(small_button("check-all-artists", "Check all now").on_click(cx.listener(|this, _, _, cx| {
+                                        this.picture_sweep.check_all_now();
+                                        this.notify("Looking for every artist's pictures now…");
+                                        cx.notify();
+                                    })))
+                                })
+                                .child(Switch::new("artist-pictures").checked(self.settings.artist_pictures).on_click(cx.listener(|this, checked: &bool, _, cx| {
+                                    this.settings.artist_pictures = *checked;
+                                    this.persist_settings();
+                                    cx.notify();
+                                }))),
+                            cx,
+                        ))
+                        .child(setting_row(
                             "Find missing album covers",
                             "Looks up every album without a cover. Large libraries take a while.",
                             small_button("fetch-covers", "Find covers").on_click(cx.listener(|this, _, _, _| {
@@ -984,7 +1067,9 @@ impl AppView {
                     // Keyboard
                     .when(tab == 9, |el| {
                         el
-                    .child(self.section_title("Keyboard", "", cx))
+                    .child(self.lead_title("Shortcuts everywhere", "These work everywhere, even when Needle is in the background.", cx))
+                    .child(self.global_shortcut_rows(cx))
+                    .child(self.section_title("In Needle", "", cx))
                     .child(
                         div().pt_2().flex().flex_col().children(shortcuts.iter().map(|(keys, what)| {
                             div()
@@ -1379,12 +1464,44 @@ impl AppView {
                 )
                 .into_any_element(),
             );
+            rows.push(
+                setting_row(
+                    "The cover on the glass",
+                    "The song that plays, blurred, colours the glass, as on the Mac.",
+                    Switch::new("glass-ambient")
+                        .checked(self.settings.glass_ambient)
+                        .on_click(cx.listener(|this, checked: &bool, _, cx| {
+                            this.settings.glass_ambient = *checked;
+                            this.persist_settings();
+                            cx.notify();
+                        })),
+                    cx,
+                )
+                .into_any_element(),
+            );
         }
         rows
     }
 }
 
 impl AppView {
+    /// Settings' album rule changed: keep it, and give every song its album again, in the
+    /// background; the pages show the new albums when it is done.
+    fn regroup_albums(&mut self) {
+        self.persist_settings();
+        let (library, sender) = (self.library.clone(), self.sender.clone());
+        std::thread::spawn(move || {
+            let _ = sender.send(match library.apply_album_rule() {
+                Ok(0) => Event::Notice(String::new()),
+                Ok(n) => Event::Notice(format!(
+                    "{} songs are on other albums now.",
+                    super::widgets::count(n)
+                )),
+                Err(e) => Event::Error(format!("{e:#}")),
+            });
+        });
+    }
+
     /// Discord Rich Presence: one switch. Needle finds Discord by itself.
     fn discord_settings(&self, cx: &mut Context<Self>) -> Vec<AnyElement> {
         use needle_core::discord::Field;

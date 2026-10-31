@@ -63,7 +63,7 @@ impl AppView {
     }
 
     /// Whether the playing song has lyrics to show.
-    fn has_lyrics(&self) -> bool {
+    pub(super) fn has_lyrics(&self) -> bool {
         let current = self.playback.current.as_ref().map(|c| &c.track.id);
         matches!(&self.lyrics, Some((id, Some(lyrics)))
             if Some(id) == current && !lyrics.instrumental
@@ -73,6 +73,33 @@ impl AppView {
     /// The song's moving cover, an animated WebP or GIF beside its file, looked up once per
     /// song (Settings › Appearance › Moving covers). The computer plays no cover videos.
     pub(super) fn moving_cover(&mut self, track: &needle_core::model::Track) -> Option<String> {
+        let mut kept = self.moving_cover.take();
+        let found = self.moving_cover_in(&mut kept, track);
+        self.moving_cover = kept;
+        found
+    }
+
+    /// The album page's moving cover: its first song's, kept while the page shows.
+    pub(super) fn update_album_moving(&mut self) {
+        let first = match self.page {
+            super::Page::Album { .. } => self.tracks.first().cloned(),
+            _ => None,
+        };
+        let Some(track) = first else {
+            self.album_moving = None;
+            return;
+        };
+        let mut kept = self.album_moving.take();
+        let found = self.moving_cover_in(&mut kept, &track);
+        self.album_moving = Some((track.id.clone(), found));
+    }
+
+    /// A moving cover, looked up once for each song kept in `kept`.
+    fn moving_cover_in(
+        &mut self,
+        kept: &mut Option<(String, Option<String>)>,
+        track: &needle_core::model::Track,
+    ) -> Option<String> {
         // With Reduce motion on (in Needle or in the system), the cover keeps still.
         if !self.settings.animated_covers
             || self.settings.reduce_motion
@@ -99,18 +126,12 @@ impl AppView {
                 })
                 .map(|p| p.to_string_lossy().to_string());
         }
-        if self
-            .moving_cover
-            .as_ref()
-            .is_none_or(|(id, _)| *id != track.id)
-        {
+        if kept.as_ref().is_none_or(|(id, _)| *id != track.id) {
             let found = needle_core::media::animated_picture(&self.library, track)
                 .map(|p| p.to_string_lossy().to_string());
-            self.moving_cover = Some((track.id.clone(), found));
+            *kept = Some((track.id.clone(), found));
         }
-        self.moving_cover
-            .as_ref()
-            .and_then(|(_, path)| path.clone())
+        kept.as_ref().and_then(|(_, path)| path.clone())
     }
 
     pub(super) fn immersive_view(
@@ -125,12 +146,17 @@ impl AppView {
         let playing = self.playback.playing;
         let repeat = self.playback.repeat;
         let look = self.now_look();
-        let lyrics = self.immersive_lyrics && self.has_lyrics() && w >= 900.;
+        // Beside the cover: what plays next, or the lyrics.
+        let queue_side = self.immersive_queue && w >= 900.;
+        let lyrics = queue_side || self.immersive_lyrics && self.has_lyrics() && w >= 900.;
+        // The visualizer (its button, or the Visualizer look) fills the cover's place, as on
+        // the Mac and the phones, over the immersive cover too.
+        let light = (self.visualizer || self.big_look() == "visualizer")
+            && self.motion_allowed()
+            && current.is_some();
         // Settings > Appearance > Immersive cover, for a song with a cover of its own.
         let moving = current.as_ref().and_then(|c| self.moving_cover(&c.track));
-        let (cover_layer, cover_side, tone) = match self
-            .settings
-            .immersive_cover
+        let (cover_layer, cover_side, tone) = match (self.settings.immersive_cover && !light)
             .then(|| {
                 moving
                     .clone()
@@ -273,7 +299,7 @@ impl AppView {
                 .w(px(40.))
                 .text_right(),
             )
-            .child(self.seek_bar("imm-seek", current.is_none(), cx))
+            .child(self.wave_seek_bar("imm-seek", current.is_none(), 30., cx))
             .child(
                 faint(
                     current
@@ -367,6 +393,46 @@ impl AppView {
             .right(px(24.))
             .flex()
             .gap_2()
+            .child(
+                icon_button(
+                    "imm-visualizer",
+                    "wave",
+                    if light {
+                        "Hide the visualizer"
+                    } else {
+                        "Show the visualizer"
+                    },
+                )
+                .when(light, |b| b.text_color(p.accent))
+                .on_click(cx.listener(move |this, _, _, cx| {
+                    if light {
+                        this.visualizer = false;
+                        if this.settings.big_look == "visualizer" {
+                            this.settings.big_look = "cover".into();
+                            this.persist_settings();
+                        }
+                    } else {
+                        this.visualizer = true;
+                    }
+                    cx.notify();
+                })),
+            )
+            .child(
+                icon_button(
+                    "imm-queue",
+                    "queue",
+                    if self.immersive_queue {
+                        "Hide what plays next"
+                    } else {
+                        "Show what plays next"
+                    },
+                )
+                .when(self.immersive_queue, |b| b.text_color(p.accent))
+                .on_click(cx.listener(|this, _, _, cx| {
+                    this.immersive_queue = !this.immersive_queue;
+                    cx.notify();
+                })),
+            )
             .when(self.has_lyrics(), |el| {
                 el.child(
                     icon_button(
@@ -378,9 +444,13 @@ impl AppView {
                             "Show the lyrics"
                         },
                     )
-                    .when(self.immersive_lyrics, |b| b.text_color(p.accent))
+                    .when(self.immersive_lyrics && !self.immersive_queue, |b| {
+                        b.text_color(p.accent)
+                    })
                     .on_click(cx.listener(|this, _, _, cx| {
-                        this.immersive_lyrics = !this.immersive_lyrics;
+                        // From the queue, the lyrics button shows the lyrics.
+                        this.immersive_lyrics = !this.immersive_lyrics || this.immersive_queue;
+                        this.immersive_queue = false;
                         this.lyric_glide = this.immersive_lyrics && this.lyric_line.is_some();
                         cx.notify();
                     })),
@@ -392,22 +462,26 @@ impl AppView {
                 ),
             );
 
-        let cover = div()
-            .rounded(px(12.))
-            .shadow(vec![BoxShadow {
-                color: gpui::black().opacity(0.5),
-                offset: point(px(0.), px(24.)),
-                blur_radius: px(64.),
-                spread_radius: px(-8.),
-            }])
-            // Settings › Appearance › Moving covers, with Immersive cover off: the moving one
-            // once it is prepared, the still one until then.
-            .child(
-                moving
-                    .as_deref()
-                    .and_then(|path| super::widgets::moving_cover("full-cover", path, art))
-                    .unwrap_or_else(|| artwork(current.as_ref().map(|i| &i.track), art, cx)),
-            );
+        let cover = if light {
+            div().child(self.visualizer_light(art * 1.15, cx))
+        } else {
+            div()
+                .rounded(px(12.))
+                .shadow(vec![BoxShadow {
+                    color: gpui::black().opacity(0.5),
+                    offset: point(px(0.), px(24.)),
+                    blur_radius: px(64.),
+                    spread_radius: px(-8.),
+                }])
+                // Settings › Appearance › Moving covers, with Immersive cover off: the moving one
+                // once it is prepared, the still one until then.
+                .child(
+                    moving
+                        .as_deref()
+                        .and_then(|path| super::widgets::moving_cover("full-cover", path, art))
+                        .unwrap_or_else(|| artwork(current.as_ref().map(|i| &i.track), art, cx)),
+                )
+        };
 
         let left = div()
             .h_full()
@@ -476,7 +550,20 @@ impl AppView {
                                 .pr(px(w * 0.06))
                                 .flex()
                                 .flex_col()
-                                .child(self.lyrics_view(LyricsKind::Immersive, cx)),
+                                .map(|el| {
+                                    if queue_side {
+                                        el.justify_center().child(
+                                            div()
+                                                .max_h(px(h * 0.7))
+                                                .w(px((w * 0.4).clamp(340., 520.)))
+                                                .flex()
+                                                .flex_col()
+                                                .child(self.queue(cx)),
+                                        )
+                                    } else {
+                                        el.child(self.lyrics_view(LyricsKind::Immersive, cx))
+                                    }
+                                }),
                         )
                     }),
             )

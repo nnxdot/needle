@@ -3,15 +3,13 @@ use super::{
     AppView, Event, Page, album_page,
     library::human_duration,
     pal,
+    theme::MONO_FONT,
     widgets::{count, cover, display, faint, meta, small_button},
+    year_card,
 };
 use gpui::{prelude::*, *};
 use gpui_component::button::ButtonVariants;
-use needle_core::{
-    history::HistoryTop,
-    model::{Playlist, Track},
-    wrapped::Wrapped,
-};
+use needle_core::{history::HistoryTop, model::Track, wrapped::Wrapped};
 
 /// Text with some parts picked out: `(text, emphasised)`.
 fn rich(parts: &[(&str, bool)], emphasis: Hsla) -> StyledText {
@@ -64,14 +62,7 @@ fn listener_kind(hour: u8) -> &'static str {
 
 /// The year to open first: last year during January, when this one has barely begun.
 pub fn default_year(years: &[i32]) -> i32 {
-    use chrono::Datelike;
-    let today = chrono::Local::now().date_naive();
-    let this = today.year();
-    if today.month() == 1 && years.contains(&(this - 1)) {
-        this - 1
-    } else {
-        this
-    }
+    needle_core::wrapped::default_year(years, chrono::Local::now().date_naive())
 }
 
 impl AppView {
@@ -117,29 +108,11 @@ impl AppView {
 
     fn save_wrapped_playlist(&mut self, cx: &mut Context<Self>) {
         let Some(wrapped) = &self.wrapped else { return };
-        let name = format!("Top songs of {}", wrapped.year);
-        let ids: Vec<String> = Self::wrapped_tracks(wrapped)
-            .into_iter()
-            .map(|t| t.id)
-            .collect();
         // Saving again refreshes the same playlist instead of making another.
-        let existing = self
-            .playlists
-            .iter()
-            .find(|p| p.name == name && p.query.is_none())
-            .map(|p| p.id.clone());
-        let playlist = Playlist {
-            id: existing.unwrap_or_else(crate::uuid_string),
-            name: name.clone(),
-            query: None,
-            track_ids: ids,
-            updated_at: chrono::Utc::now().timestamp(),
-            ..Default::default()
-        };
-        match self.library.save_playlist(&playlist) {
-            Ok(()) => {
+        match self.library.save_year_playlist(wrapped.year) {
+            Ok(playlist) => {
                 self.playlists = self.library.playlists().unwrap_or_default();
-                self.notify(format!("Saved “{name}”."));
+                self.notify(format!("Saved “{}”.", playlist.name));
             }
             Err(e) => self.fail(e.to_string()),
         }
@@ -199,6 +172,226 @@ impl AppView {
             .into_any_element()
     }
 
+    /// The three cards from the mockup: the hours and the year by month, the top artist, and
+    /// the top songs with Save as a picture, Make a playlist, and Play top 50.
+    fn wrapped_cards(&self, w: &Wrapped, width: f32, cx: &mut Context<Self>) -> Div {
+        let p = pal(cx);
+        let card = || {
+            div()
+                .rounded(px(16.))
+                .bg(if p.dark {
+                    hsla(0., 0., 1., 0.04)
+                } else {
+                    hsla(0., 0., 0., 0.03)
+                })
+                .p(px(20.))
+                .flex()
+                .flex_col()
+        };
+        let (number, what) = year_card::time_listened(w.stats.seconds);
+        let by_month: Vec<usize> = w.months.iter().map(|m| m.plays).collect();
+        let most = by_month.iter().copied().max().unwrap_or(0).max(1);
+        let top_month = by_month
+            .iter()
+            .enumerate()
+            .max_by_key(|(_, n)| **n)
+            .map(|(i, _)| i);
+        const MONTHS: [&str; 12] = [
+            "January",
+            "February",
+            "March",
+            "April",
+            "May",
+            "June",
+            "July",
+            "August",
+            "September",
+            "October",
+            "November",
+            "December",
+        ];
+        let bars = div()
+            .h(px(110.))
+            .mt(px(14.))
+            .flex()
+            .items_end()
+            .gap(px(6.))
+            .children(by_month.iter().enumerate().map(|(i, n)| {
+                let tip = format!(
+                    "{} · {}",
+                    MONTHS[i],
+                    if *n == 1 {
+                        "1 play".into()
+                    } else {
+                        format!("{} plays", count(*n))
+                    }
+                );
+                div()
+                    .id(("wrapped-month", i))
+                    .flex_1()
+                    .h(relative((*n as f32 / most as f32).max(0.04)))
+                    .rounded_t(px(4.))
+                    .bg(if Some(i) == top_month && *n > 0 {
+                        p.accent
+                    } else {
+                        p.accent.opacity(0.35)
+                    })
+                    .tooltip(move |window, cx| {
+                        gpui_component::tooltip::Tooltip::new(tip.clone()).build(window, cx)
+                    })
+            }));
+        let hours = card()
+            .w(px(300.))
+            .flex_shrink_0()
+            .child(
+                div()
+                    .font_family("Fraunces 72pt Soft")
+                    .text_size(px(72.))
+                    .line_height(px(76.))
+                    .text_color(p.accent)
+                    .child(number),
+            )
+            .child(
+                div()
+                    .text_size(px(15.))
+                    .font_weight(FontWeight::BOLD)
+                    .child(what),
+            )
+            .child(meta(year_card::year_line(w), cx))
+            .child(faint("By month", cx).mt(px(18.)))
+            .child(bars);
+        let artist = w.stats.top_artists.first().map(|top| {
+            let name = top.artist.clone();
+            card()
+                .id("wrapped-top-artist")
+                .w(px(300.))
+                .flex_shrink_0()
+                .items_center()
+                .cursor_pointer()
+                .child(faint("Top artist", cx))
+                .child(div().my(px(14.)).child(self.artist_photo(&name, 130., cx)))
+                .child(display(top.artist.clone(), 22.).text_center())
+                .child(meta(year_card::artist_line(w), cx).text_center())
+                .on_click(cx.listener(move |this, _, window, cx| {
+                    this.navigate(Page::Artist(name.clone()), window, cx)
+                }))
+        });
+        let rows: Vec<AnyElement> = w
+            .top_track_ids
+            .iter()
+            .zip(&w.top_track_plays)
+            .take(4)
+            .enumerate()
+            .filter_map(|(i, (id, n))| {
+                let track = w.tracks.get(id)?.clone();
+                let clicked = track.clone();
+                Some(
+                    div()
+                        .id(("wrapped-song", i))
+                        .flex()
+                        .items_center()
+                        .gap_3()
+                        .py(px(9.))
+                        .when(i > 0, |el| el.border_t_1().border_color(p.line_soft))
+                        .cursor_pointer()
+                        .hover(|s| s.opacity(0.85))
+                        .child(
+                            div()
+                                .w(px(14.))
+                                .font_family(MONO_FONT)
+                                .text_size(px(13.))
+                                .text_color(p.accent)
+                                .child((i + 1).to_string()),
+                        )
+                        .child(cover(
+                            track.artwork.as_deref(),
+                            &super::widgets::track_seed(&track),
+                            36.,
+                            cx,
+                        ))
+                        .child(
+                            div()
+                                .flex_1()
+                                .min_w_0()
+                                .child(
+                                    div()
+                                        .text_size(px(13.))
+                                        .truncate()
+                                        .child(track.title.clone()),
+                                )
+                                .child(faint(track.display_artist().to_string(), cx).truncate()),
+                        )
+                        .child(faint(plays(*n), cx).flex_shrink_0())
+                        .on_click(cx.listener(move |this, _, _, _| {
+                            this.play_tracks(
+                                vec![clicked.clone()],
+                                "One of your songs of the year",
+                            );
+                        }))
+                        .into_any_element(),
+                )
+            })
+            .collect();
+        let top_count = w.top_track_ids.len().min(50);
+        let songs = card()
+            .flex_1()
+            .min_w(px(320.))
+            .child(faint("Top songs", cx).mb(px(4.)))
+            .children(rows)
+            .child(
+                div()
+                    .flex()
+                    .flex_wrap()
+                    .gap(px(10.))
+                    .mt(px(10.))
+                    .child(
+                        small_button("wrapped-picture", "Save as a picture")
+                            .primary()
+                            .on_click(cx.listener(|this, _, _, cx| {
+                                this.save_year_picture();
+                                cx.notify();
+                            })),
+                    )
+                    .child(
+                        small_button("wrapped-save", "Make a playlist")
+                            .ghost()
+                            .on_click(cx.listener(|this, _, _, cx| this.save_wrapped_playlist(cx))),
+                    )
+                    .child(
+                        small_button("wrapped-play", format!("Play top {top_count}"))
+                            .ghost()
+                            .on_click(cx.listener(|this, _, _, _| {
+                                if let Some(w) = &this.wrapped {
+                                    let tracks = Self::wrapped_tracks(w);
+                                    let reason = format!("Your {} in music", w.year);
+                                    this.play_tracks(tracks, &reason);
+                                }
+                            })),
+                    ),
+            );
+        // Side by side when there is room; the songs go under the other two on a narrow page.
+        let wide = width > 1040.;
+        let (beside, under) = if wide {
+            (Some(songs), None)
+        } else {
+            (None, Some(songs))
+        };
+        div()
+            .mt(px(16.))
+            .flex()
+            .flex_col()
+            .gap(px(22.))
+            .child(
+                div()
+                    .flex()
+                    .gap(px(22.))
+                    .child(hours)
+                    .children(artist)
+                    .children(beside),
+            )
+            .children(under)
+    }
+
     pub(super) fn wrapped_view(&self, year: i32, width: f32, cx: &mut Context<Self>) -> AnyElement {
         let p = pal(cx);
         let years = self.wrapped_years.clone();
@@ -207,14 +400,13 @@ impl AppView {
             .items_end()
             .gap_4()
             .child(
-                div()
-                    .flex_1()
-                    .min_w_0()
-                    .flex()
-                    .flex_col()
-                    .gap_1()
-                    .child(faint("Your year in music", cx))
-                    .child(display(year.to_string(), 64.)),
+                div().flex_1().min_w_0().flex().flex_col().gap_1().child(
+                    div()
+                        .font_family(MONO_FONT)
+                        .text_size(px(11.))
+                        .text_color(p.accent)
+                        .child(format!("YOUR {year} IN MUSIC")),
+                ),
             )
             .when(years.len() > 1, |el| {
                 // One chip per year, newest first.
@@ -276,52 +468,6 @@ impl AppView {
                 cx,
             )));
         }
-        let hours = (s.seconds / 3600.).round() as usize;
-        let minutes = (s.seconds / 60.).round() as usize;
-        let time = if hours >= 2 {
-            format!("{} hours", count(hours))
-        } else {
-            format!("{} minutes", count(minutes))
-        };
-        let (plays_text, songs_text, artists_text) = (
-            plays(s.plays),
-            count(s.distinct_tracks),
-            count(s.distinct_artists),
-        );
-        let opening = div()
-            .mt_4()
-            .max_w(px(760.))
-            .text_size(px(24.))
-            .line_height(relative(1.4))
-            .text_color(p.ink_2)
-            .child(rich(
-                &[
-                    ("You spent ", false),
-                    (&time, true),
-                    (" with your music: ", false),
-                    (&plays_text, true),
-                    (" of ", false),
-                    (&songs_text, true),
-                    (
-                        if s.distinct_tracks == 1 {
-                            " song by "
-                        } else {
-                            " songs by "
-                        },
-                        false,
-                    ),
-                    (&artists_text, true),
-                    (
-                        if s.distinct_artists == 1 {
-                            " artist."
-                        } else {
-                            " artists."
-                        },
-                        false,
-                    ),
-                ],
-                p.ink,
-            ));
         // The year's albums, as a row of covers.
         let covers: Vec<AnyElement> = s
             .top_albums
@@ -370,168 +516,10 @@ impl AppView {
             })
             .collect();
 
-        let mut body = div().flex().flex_col().child(opening);
-
-        if let Some(top) = s.top_artists.first() {
-            let name = top.artist.clone();
-            let photo = if width > 640. { 168. } else { 112. };
-            body = body.child(
-                self.wrapped_section("Your artist of the year", cx).child(
-                    div()
-                        .flex()
-                        .gap_8()
-                        .items_center()
-                        .child(
-                            div()
-                                .id("wrapped-top-artist")
-                                .cursor_pointer()
-                                .child(self.artist_photo(&name, photo, cx))
-                                .on_click(cx.listener(move |this, _, window, cx| {
-                                    this.navigate(Page::Artist(name.clone()), window, cx)
-                                })),
-                        )
-                        .child(
-                            div()
-                                .flex_1()
-                                .min_w_0()
-                                .flex()
-                                .flex_col()
-                                .gap_2()
-                                .child(display(top.artist.clone(), 40.))
-                                .child(meta(
-                                    format!(
-                                        "{} and {} together.",
-                                        plays(top.plays),
-                                        human_duration(top.seconds)
-                                    ),
-                                    cx,
-                                ))
-                                .when(s.top_artists.len() > 1, |el| {
-                                    el.child(
-                                        div().mt_4().flex().flex_col().gap_3().children(
-                                            s.top_artists
-                                                .iter()
-                                                .enumerate()
-                                                .skip(1)
-                                                .take(4)
-                                                .map(|(i, a)| self.wrapped_artist(a, i + 1, i, cx))
-                                                .collect::<Vec<_>>(),
-                                        ),
-                                    )
-                                }),
-                        ),
-                ),
-            );
-        }
-
-        let songs: Vec<AnyElement> = w
-            .top_track_ids
-            .iter()
-            .take(5)
-            .enumerate()
-            .map(|(i, id)| {
-                let track = w.tracks.get(id);
-                let top = s
-                    .top_tracks
-                    .iter()
-                    .find(|t| t.track_id.as_deref() == Some(id.as_str()));
-                let title = track
-                    .map(|t| t.title.clone())
-                    .or_else(|| top.map(|t| t.title.clone()))
-                    .unwrap_or_default();
-                let artist = track
-                    .map(|t| t.display_artist().to_string())
-                    .or_else(|| top.map(|t| t.artist.clone()))
-                    .unwrap_or_default();
-                let count = top.map(|t| t.plays).unwrap_or_default();
-                let clicked = track.cloned();
-                div()
-                    .id(("wrapped-song", i))
-                    .flex()
-                    .items_center()
-                    .gap_4()
-                    .px_2()
-                    .py_1()
-                    .rounded(px(8.))
-                    .cursor_pointer()
-                    .hover(|s| s.bg(p.raised.opacity(0.6)))
-                    .child(
-                        div()
-                            .w(px(28.))
-                            .text_right()
-                            .text_size(px(20.))
-                            .font_weight(FontWeight::BOLD)
-                            .text_color(if i == 0 { p.accent } else { p.ink_3 })
-                            .child(format!("{}", i + 1)),
-                    )
-                    .child(match track {
-                        Some(t) => cover(
-                            t.artwork.as_deref(),
-                            &super::widgets::track_seed(t),
-                            52.,
-                            cx,
-                        ),
-                        None => cover(None, &title, 52., cx),
-                    })
-                    .child(
-                        div()
-                            .flex_1()
-                            .min_w_0()
-                            .child(
-                                div()
-                                    .text_size(px(15.))
-                                    .font_weight(FontWeight::MEDIUM)
-                                    .truncate()
-                                    .child(title),
-                            )
-                            .child(meta(artist, cx).truncate()),
-                    )
-                    .when(count > 0, |el| {
-                        el.child(faint(plays(count), cx).flex_shrink_0())
-                    })
-                    .on_click(cx.listener(move |this, _, _, _| {
-                        if let Some(t) = clicked.clone() {
-                            this.play_tracks(vec![t], "One of your songs of the year");
-                        }
-                    }))
-                    .into_any_element()
-            })
-            .collect();
-        let top_count = w.top_track_ids.len();
-        body = body.child(
-            self.wrapped_section("Songs on repeat", cx)
-                .child(
-                    div()
-                        .max_w(px(640.))
-                        .flex()
-                        .flex_col()
-                        .gap_1()
-                        .children(songs),
-                )
-                .child(
-                    div()
-                        .flex()
-                        .gap_2()
-                        .child(
-                            small_button("wrapped-play", format!("Play your top {top_count}"))
-                                .primary()
-                                .on_click(cx.listener(|this, _, _, _| {
-                                    if let Some(w) = &this.wrapped {
-                                        let tracks = Self::wrapped_tracks(w);
-                                        let reason = format!("Your {} in music", w.year);
-                                        this.play_tracks(tracks, &reason);
-                                    }
-                                })),
-                        )
-                        .child(
-                            small_button("wrapped-save", "Save as a playlist")
-                                .ghost()
-                                .on_click(
-                                    cx.listener(|this, _, _, cx| this.save_wrapped_playlist(cx)),
-                                ),
-                        ),
-                ),
-        );
+        let mut body = div()
+            .flex()
+            .flex_col()
+            .child(self.wrapped_cards(w, width, cx));
 
         if !covers.is_empty() {
             body = body.child(

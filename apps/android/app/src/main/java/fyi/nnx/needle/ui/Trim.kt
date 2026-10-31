@@ -57,13 +57,29 @@ class TrimBars : Transformation() {
 
 /** A cover to load, with any bands around the picture trimmed (see [trimBars]). */
 @Composable
-fun coverRequest(model: Any?): coil3.request.ImageRequest {
+fun coverRequest(model: Any?): coil3.request.ImageRequest = fileRequest(model, trim = true)
+
+/**
+ * A picture to load. A file changed in place (an artist's own picture or logo chosen again, at
+ * the same path) is a new picture: its time of change is in the cache key and in what the
+ * request is remembered by, or the last picture would show from memory.
+ */
+@Composable
+fun fileRequest(model: Any?, trim: Boolean = false): coil3.request.ImageRequest {
     val context = androidx.compose.ui.platform.LocalContext.current
-    // The same request while the cover is the same, so a redraw does not ask Coil again.
-    return androidx.compose.runtime.remember(model, context) {
+    val file = (model as? android.net.Uri)?.takeIf { it.scheme == "file" }?.path?.let { java.io.File(it) }
+    val changed = file?.lastModified()
+    // The same request while the picture is the same, so a redraw does not ask Coil again.
+    return androidx.compose.runtime.remember(model, context, changed, trim) {
         coil3.request.ImageRequest.Builder(context)
             .data(model)
-            .transformations(TrimBars())
+            .apply {
+                if (trim) transformations(TrimBars())
+                if (changed != null) {
+                    memoryCacheKey("$model@$changed")
+                    diskCacheKey("$model@$changed")
+                }
+            }
             .build()
     }
 }

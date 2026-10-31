@@ -229,7 +229,7 @@ private fun Round(icon: Int, label: String, action: androidx.glance.action.Actio
 @Composable
 private fun Mark() {
     Row(verticalAlignment = Alignment.CenterVertically) {
-        Image(ImageProvider(R.drawable.needle_logo), contentDescription = null, modifier = GlanceModifier.size(18.dp).cornerRadius(5.dp))
+        Image(ImageProvider(R.drawable.needle_logo_small), contentDescription = null, modifier = GlanceModifier.size(18.dp).cornerRadius(5.dp))
         Spacer(GlanceModifier.width(6.dp))
         Text("Needle", style = TextStyle(color = Faint, fontSize = 12.sp, fontWeight = FontWeight.Medium))
     }
@@ -330,7 +330,7 @@ private fun Large(now: Now) {
  * for a moment, so the song has its notification, lock screen player, and Bluetooth buttons,
  * and Android does not stop it. (A widget's tap may start it, where a background task may not.)
  */
-private fun withService(context: Context) {
+internal fun startPlaybackService(context: Context) {
     // The app's own context: a widget's is a receiver's, which may not connect to a service.
     val app = context.applicationContext
     NeedleApp.instance.scope.launch(kotlinx.coroutines.Dispatchers.Main) {
@@ -354,7 +354,7 @@ class Toggle : ActionCallback {
             if (!NeedleApp.instance.remoteShown.value && core.playback().current == null) core.play(core.searchSongsPage("shuffle limit 200", 0u, 200u).map { it.id }, 0u)
             else fyi.nnx.needle.ui.Controls.toggle()
         }
-        withService(context)
+        startPlaybackService(context)
         // The app looks at the player at once, and the widget then shows the press.
         NeedleApp.instance.wake()
         updateWidgets(context)
@@ -364,7 +364,7 @@ class Toggle : ActionCallback {
 class Next : ActionCallback {
     override suspend fun onAction(context: Context, glanceId: GlanceId, parameters: ActionParameters) {
         fyi.nnx.needle.ui.Controls.next()
-        withService(context)
+        startPlaybackService(context)
         // The app looks at the player at once, and the widget then shows the press.
         NeedleApp.instance.wake()
         updateWidgets(context)
@@ -374,7 +374,7 @@ class Next : ActionCallback {
 class Previous : ActionCallback {
     override suspend fun onAction(context: Context, glanceId: GlanceId, parameters: ActionParameters) {
         fyi.nnx.needle.ui.Controls.previous()
-        withService(context)
+        startPlaybackService(context)
         // The app looks at the player at once, and the widget then shows the press.
         NeedleApp.instance.wake()
         updateWidgets(context)
@@ -406,7 +406,7 @@ class RecentWidget : GlanceAppWidget() {
                     Column(GlanceModifier.fillMaxSize().padding(14.dp)) {
                         Row(GlanceModifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                             Text("Recently added", style = TextStyle(color = White, fontSize = 16.sp, fontWeight = FontWeight.Bold), modifier = GlanceModifier.defaultWeight())
-                            Image(ImageProvider(R.drawable.needle_logo), contentDescription = null, modifier = GlanceModifier.size(18.dp).cornerRadius(5.dp))
+                            Image(ImageProvider(R.drawable.needle_logo_small), contentDescription = null, modifier = GlanceModifier.size(18.dp).cornerRadius(5.dp))
                         }
                         Spacer(GlanceModifier.height(10.dp))
                         if (albums.isEmpty()) Text("Your new albums show here.", style = TextStyle(color = Soft, fontSize = 13.sp))
@@ -438,7 +438,7 @@ class PlayAlbum : ActionCallback {
         val core = NeedleApp.instance.core
         // A library that cannot answer leaves the press undone; it does not close Needle.
         runCatching { core.play(core.albumSongs(key).map { it.id }, 0u) }
-        withService(context)
+        startPlaybackService(context)
         // The app looks at the player at once, and the widget then shows the press.
         NeedleApp.instance.wake()
         updateWidgets(context)

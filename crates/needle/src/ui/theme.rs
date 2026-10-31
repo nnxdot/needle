@@ -97,28 +97,97 @@ pub const MONO_FONT: &str = if cfg!(windows) {
     "DejaVu Sans Mono"
 };
 
-pub const DISPLAY_FONTS: [(&str, &str, &str); 3] = [
-    ("system", "Segoe UI", "Segoe UI Variable Display"),
-    ("bahnschrift", "Bahnschrift", "Bahnschrift"),
-    ("fraunces", "Fraunces (Nick's font)", "Fraunces 72pt Soft"),
+/// The title fonts: settings value, name, and family. All but Plain are carried inside
+/// Needle (assets/fonts, SIL Open Font License), so they look the same on every system.
+pub const DISPLAY_FONTS: [(&str, &str, &str); 8] = [
+    ("system", "Plain", "Segoe UI Variable Display"),
+    ("poster", "Poster", "Roboto Condensed"),
+    ("fraunces", "Fraunces", "Fraunces 72pt Soft"),
+    ("instrument_serif", "Instrument Serif", "Instrument Serif"),
+    ("dm_serif", "DM Serif Display", "DM Serif Display"),
+    ("space_grotesk", "Space Grotesk", "Space Grotesk"),
+    ("bricolage", "Bricolage Grotesque", "Bricolage Grotesque"),
+    ("outfit", "Outfit", "Outfit"),
 ];
+
+/// The text fonts, for everything but titles.
+pub const TEXT_FONTS: [(&str, &str, &str); 5] = [
+    ("system", "Plain", "Segoe UI Variable Text"),
+    ("inter", "Inter", "Inter"),
+    ("atkinson", "Atkinson Hyperlegible", "Atkinson Hyperlegible"),
+    ("lexend", "Lexend", "Lexend"),
+    ("plex_mono", "IBM Plex Mono", "IBM Plex Mono"),
+];
+
+/// Title fonts drawn in one weight only: they are not made bold.
+const SINGLE_WEIGHT: [&str; 2] = ["Instrument Serif", "DM Serif Display"];
 
 static DISPLAY_FONT: std::sync::RwLock<&'static str> =
     std::sync::RwLock::new("Segoe UI Variable Display");
+static TEXT_FONT: std::sync::RwLock<&'static str> =
+    std::sync::RwLock::new("Segoe UI Variable Text");
 
 /// The font family for page titles and big names.
 pub fn display_font() -> &'static str {
     *DISPLAY_FONT.read().unwrap_or_else(|e| e.into_inner())
 }
 
-/// Use the title font with this settings value (unknown values fall back to the first).
-pub fn set_display_font(key: &str) {
-    let family = DISPLAY_FONTS
+/// The weight titles are drawn in: semibold, or the title font's only weight.
+pub fn display_weight() -> gpui::FontWeight {
+    if SINGLE_WEIGHT.contains(&display_font()) {
+        gpui::FontWeight::NORMAL
+    } else {
+        gpui::FontWeight::SEMIBOLD
+    }
+}
+
+/// The font family for everything else.
+pub fn text_font() -> &'static str {
+    *TEXT_FONT.read().unwrap_or_else(|e| e.into_inner())
+}
+
+/// A settings value as a family: one of `fonts`, or "own:<family>" for a font on this computer
+/// (kept for the rest of the run: there are only ever a few).
+fn family(fonts: &[(&str, &str, &'static str)], key: &str) -> &'static str {
+    if let Some(own) = key
+        .strip_prefix("own:")
+        .map(str::trim)
+        .filter(|f| !f.is_empty())
+    {
+        return Box::leak(own.to_string().into_boxed_str());
+    }
+    // Bahnschrift, from before 2.0, is the narrow Poster now.
+    let key = if key == "bahnschrift" { "poster" } else { key };
+    fonts
         .iter()
         .find(|(k, _, _)| *k == key)
-        .unwrap_or(&DISPLAY_FONTS[0])
-        .2;
-    *DISPLAY_FONT.write().unwrap_or_else(|e| e.into_inner()) = family;
+        .unwrap_or(&fonts[0])
+        .2
+}
+
+/// Use the title font with this settings value (unknown values fall back to the first).
+pub fn set_display_font(key: &str) {
+    *DISPLAY_FONT.write().unwrap_or_else(|e| e.into_inner()) = family(&DISPLAY_FONTS, key);
+}
+
+/// Use the text font with this settings value.
+pub fn set_text_font(key: &str, cx: &mut App) {
+    let family = family(&TEXT_FONTS, key);
+    *TEXT_FONT.write().unwrap_or_else(|e| e.into_inner()) = family;
+    Theme::global_mut(cx).font_family = family.into();
+}
+
+/// The name a font setting shows: the font's own, or the family of one on this computer.
+pub fn font_name(fonts: &[(&str, &str, &str)], key: &str) -> String {
+    if let Some(own) = key.strip_prefix("own:") {
+        return own.trim().to_string();
+    }
+    let key = if key == "bahnschrift" { "poster" } else { key };
+    fonts
+        .iter()
+        .find(|(k, _, _)| *k == key)
+        .map_or(fonts[0].1, |f| f.1)
+        .to_string()
 }
 
 fn luminance(color: Hsla) -> f32 {
@@ -446,7 +515,7 @@ pub fn set_theme(mode: &str, window: Option<&mut Window>, cx: &mut App) {
         cx,
     );
     let theme = Theme::global_mut(cx);
-    theme.font_family = "Segoe UI Variable Text".into();
+    theme.font_family = text_font().into();
     theme.font_size = px(14.);
     theme.radius = RADIUS;
     theme.radius_lg = px(10.);

@@ -1,12 +1,20 @@
 import SwiftUI
+import Translation
 
 /// The playing song's lyrics. Timed ones follow the song, the line sung lit, word by word when
 /// the words are timed; click a line to go to it.
 struct LyricsView: View {
     private var store: Store { .shared }
-    enum Kind { case side, big, mini, immersive }
+    /// `stage`: the big player's Lyrics look, only the words, very large.
+    enum Kind { case side, big, mini, immersive, stage }
     let kind: Kind
     var light = false
+    /// A line chosen to share as a picture.
+    @State private var card: CardLine?
+    /// Each line in your language, under it, translated on this Mac (Apple's Translation).
+    @AppStorage("translateLyrics") private var translate = false
+    @State private var translations: [Int: String] = [:]
+    @State private var translation: TranslationSession.Configuration?
 
     private var size: CGFloat {
         switch kind {
@@ -14,6 +22,7 @@ struct LyricsView: View {
         case .big: 26
         case .mini: 15
         case .immersive: 34
+        case .stage: 52
         }
     }
 
@@ -46,6 +55,30 @@ struct LyricsView: View {
                 missing
             }
         }
+        .sheet(item: $card) { LyricCardSheet(line: $0.text) }
+        .onChange(of: translate) { _, _ in askTranslation() }
+        .onChange(of: store.lyrics?.lines.count) { _, _ in askTranslation() }
+        .onChange(of: store.current?.id) { _, _ in askTranslation() }
+        .onAppear { askTranslation() }
+        .translationTask(translation) { session in
+            let lines = store.lyrics?.lines ?? []
+            let requests = lines.enumerated().compactMap { i, line in
+                line.text.trimmingCharacters(in: .whitespaces).isEmpty ? nil : TranslationSession.Request(sourceText: line.text, clientIdentifier: String(i))
+            }
+            do {
+                var found: [Int: String] = [:]
+                for response in try await session.translations(from: requests) {
+                    // A line already in your language is left alone.
+                    if let i = response.clientIdentifier.flatMap(Int.init), response.targetText != response.sourceText {
+                        found[i] = response.targetText
+                    }
+                }
+                translations = found
+                if found.isEmpty { store.notify("These lyrics are already in your language") }
+            } catch {
+                store.notify("These lyrics can't be translated on this Mac")
+            }
+        }
     }
 
     private func note(_ text: String) -> some View {
@@ -54,10 +87,10 @@ struct LyricsView: View {
 
     private var missing: some View {
         VStack(spacing: 10) {
-            Text("No lyrics for this song").font(.headline).foregroundStyle(light ? .white : store.colors.ink)
+            Text("No lyrics for this song").font(.needle(.headline)).foregroundStyle(light ? .white : store.colors.ink)
             if !store.settings.onlineMedia {
                 Text("Turn on Look things up online in Settings › Library to find lyrics on LRCLIB.")
-                    .font(.callout).foregroundStyle(.secondary).multilineTextAlignment(.center)
+                    .font(.needle(.callout)).foregroundStyle(.secondary).multilineTextAlignment(.center)
             }
             HStack {
                 if !store.plugins.contains(where: { $0.id == "netease-lyrics" && $0.enabled }) {
@@ -87,14 +120,14 @@ struct LyricsView: View {
         // Only the line being sung follows the clock (see `SungLine`); the others redraw
         // when the line changes, not ten times a second.
         let line = store.lyricLine
-        let center = kind == .big || kind == .immersive
+        let center = kind == .big || kind == .immersive || kind == .stage
         return ScrollViewReader { reader in
             ScrollView {
-                LazyVStack(alignment: center ? .center : .leading, spacing: kind == .side || kind == .mini ? 12 : 18) {
+                LazyVStack(alignment: center ? .center : .leading, spacing: kind == .side || kind == .mini ? 12 : kind == .stage ? 28 : 18) {
                     Color.clear.frame(height: kind == .mini ? 20 : 60)
                     ForEach(Array(lyrics.lines.enumerated()), id: \.offset) { index, l in
                         let state: LyricLineView.State = index == line ? .sung : (line.map { index < $0 } ?? false) ? .past : .ahead
-                        Group {
+                        VStack(alignment: center ? .center : .leading, spacing: 4) {
                             if state == .sung, !l.words.isEmpty {
                                 SungLine(line: l, next: index + 1 < lyrics.lines.count ? lyrics.lines[index + 1].time : nil,
                                          size: size, ink: ink, center: center)
@@ -102,9 +135,22 @@ struct LyricsView: View {
                                 LyricLineView(text: l.text, state: state, size: size, ink: ink, center: center, motion: store.motion)
                                     .equatable()
                             }
+                            // The line in your language, under it (Translate on).
+                            if translate, let translated = translations[index] {
+                                Text(translated)
+                                    .font(.system(size: size * 0.66, weight: .semibold))
+                                    .foregroundStyle(ink.opacity(state == .sung ? 0.7 : 0.4))
+                                    .multilineTextAlignment(center ? .center : .leading)
+                            }
                         }
                         .id(index)
                         .onTapGesture { store.seek(l.time) }
+                        .contextMenu {
+                            if !l.text.trimmingCharacters(in: .whitespaces).isEmpty {
+                                Button("Share as Card…", systemImage: "square.and.arrow.up") { card = CardLine(text: l.text) }
+                            }
+                            Button(translate ? "Hide Translation" : "Translate Lyrics", systemImage: "translate") { translate.toggle() }
+                        }
                     }
                     footer(lyrics)
                     Color.clear.frame(height: kind == .mini ? 40 : 160)
@@ -120,13 +166,22 @@ struct LyricsView: View {
         }
     }
 
+    /// Asks Apple's Translation for these lyrics, into your language, while Translate is on.
+    private func askTranslation() {
+        translations = [:]
+        guard translate, let lines = store.lyrics?.lines, !lines.isEmpty else { translation = nil; return }
+        if translation == nil { translation = TranslationSession.Configuration() } else { translation?.invalidate() }
+    }
+
     @ViewBuilder
     private func footer(_ lyrics: Lyrics) -> some View {
         if kind == .side || kind == .big {
             HStack(spacing: 10) {
-                Text(source(lyrics.source)).font(.caption).foregroundStyle(light ? .white.opacity(0.6) : .secondary)
+                Text(source(lyrics.source)).font(.needle(.caption)).foregroundStyle(light ? .white.opacity(0.6) : .secondary)
+                Button(translate ? "Hide translation" : "Translate") { translate.toggle() }
+                    .buttonStyle(.link).font(.needle(.caption))
                 Button("Time these lyrics") { store.big = false; store.navigate(.timing) }
-                    .buttonStyle(.link).font(.caption)
+                    .buttonStyle(.link).font(.needle(.caption))
             }
             .padding(.top, 20)
         }
@@ -191,198 +246,248 @@ struct SungLine: View {
     }
 }
 
-/// The lyric timing editor: write or paste the words, then tap Space as each line (or word)
-/// starts while the song plays. Saved as a .lrc file beside the song.
+/// Time the lyrics: tap Space as each line (or word) starts while the song plays; −0.2 s and
+/// +0.2 s move the line last tapped, Redo line taps it again. The steps are the core's
+/// (`LyricTimer`); saved as a .lrc file beside the song.
 struct TimingPage: View {
     private var store: Store { .shared }
+    /// Words written here, for a song without lyrics.
     @State private var text = ""
+    @State private var timer: LyricTimer?
+    /// The song being timed.
+    @State private var song: String?
+    @State private var lines: [TimingLine] = []
+    @State private var next = (line: 0, word: 0)
+    @State private var selected: Int?
     @State private var words = false
-    @State private var timing = false
-    /// The time stamped for each line (or word), in order.
-    @State private var stamps: [Double] = []
+    /// Something changed since it opened or was saved.
+    @State private var dirty = false
     @FocusState private var tapping: Bool
 
-    private var lines: [String] {
-        text.components(separatedBy: .newlines).map { $0.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty }
-    }
-
-    /// What one tap stamps: lines, or words of every line.
-    private var units: [(line: Int, text: String)] {
-        words
-            ? lines.enumerated().flatMap { i, l in l.split(separator: " ").map { (i, String($0)) } }
-            : lines.enumerated().map { ($0.offset, $0.element) }
-    }
+    private var playingThis: Bool { song != nil && store.current?.id == song }
 
     var body: some View {
         let colors = store.colors
         VStack(alignment: .leading, spacing: 14) {
-            HStack {
-                Text("Lyric timing").font(store.display(28))
-                Spacer()
-                Picker("", selection: $words) {
-                    Text("Lines").tag(false)
-                    Text("Words").tag(true)
-                }
-                .pickerStyle(.segmented)
-                .frame(width: 160)
-                .disabled(timing)
-            }
-            if store.current == nil {
+            header
+            if store.current == nil && timer == nil {
                 Text("Play a song first, then time its lyrics.").foregroundStyle(.secondary)
-            } else if store.current?.cue != nil {
+            } else if store.current?.cue != nil && timer == nil {
                 Text("This song is part of a CUE sheet, so it has no file of its own to put lyrics beside.").foregroundStyle(.secondary)
-            } else if !timing {
-                Text(lines.isEmpty ? "This song has no lyrics yet. Write them here, then tap along to time them." : "Paste or type the words here, one line per sung line.")
-                    .foregroundStyle(colors.ink2)
+            } else if timer == nil {
+                Text("This song has no lyrics yet. Write them here, then tap along to time them.").foregroundStyle(colors.ink2)
                 TextEditor(text: $text)
                     .font(.system(size: 14))
                     .scrollContentBackground(.hidden)
                     .padding(8)
                     .background(colors.raised, in: RoundedRectangle(cornerRadius: 10))
-                HStack {
-                    Button { start() } label: { Label("Start timing", systemImage: "play.fill") }
-                        .glassButton(prominent: true)
-                        .disabled(lines.isEmpty)
-                    Text("Play this song, then tap along.").font(.caption).foregroundStyle(.secondary)
-                }
+                Button { begin(LyricTimer(lyrics: nil, text: text)) } label: { Label("Start timing", systemImage: "play.fill") }
+                    .glassButton(prominent: true)
+                    .disabled(text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
             } else {
-                Text(words ? "Press Space as each word starts. Backspace undoes. ← and → move the last one by a twentieth of a second."
-                           : "Press Space as each line starts. Backspace undoes. ← and → move the last line by a twentieth of a second.")
+                Text(!playingThis ? "Play this song, then tap along."
+                     : words ? "Press Space as each word starts. Backspace undoes. ← and → move the last line by 0.2 s."
+                     : "Press Space as each line starts. Backspace undoes. ← and → move the last line by 0.2 s.")
                     .foregroundStyle(colors.ink2)
-                ScrollViewReader { reader in
-                    ScrollView {
-                        VStack(alignment: .leading, spacing: 8) {
-                            ForEach(Array(lines.enumerated()), id: \.offset) { i, line in
-                                HStack(alignment: .firstTextBaseline, spacing: 14) {
-                                    Text(stampFor(line: i).map(clockStamp) ?? "—")
-                                        .font(.system(size: 12, design: .monospaced))
-                                        .foregroundStyle(colors.ink3)
-                                        .frame(width: 70, alignment: .trailing)
-                                    Text(line)
-                                        .font(.system(size: 16, weight: i == currentLine ? .bold : .regular))
-                                        .foregroundStyle(i == currentLine ? colors.accent : stampFor(line: i) != nil ? colors.ink : colors.ink3)
-                                }
-                                .id(i)
-                                .onTapGesture { redo(from: i) }
-                            }
-                        }
-                        .padding(.vertical, 10)
-                    }
-                    .onChange(of: stamps.count) { _, _ in withAnimation { reader.scrollTo(currentLine, anchor: .center) } }
-                }
-                .background(colors.raised.opacity(0.6), in: RoundedRectangle(cornerRadius: 10))
-                HStack {
-                    Button { tap() } label: { Label(words ? "Tap: next word" : "Tap: next line", systemImage: "hand.tap") }
-                        .glassButton(prominent: true)
-                        .keyboardShortcut(.space, modifiers: [])
-                        .disabled(stamps.count >= units.count)
-                    Button("Save") { save() }.glassButton().disabled(stamps.isEmpty)
-                    Button("Close") { timing = false; stamps = [] }.glassButton()
-                    Spacer()
-                    if stamps.count >= units.count {
-                        Text("All stamped. Save, or click a line to redo it.").font(.caption).foregroundStyle(.secondary)
-                    }
-                }
+                list
+                tapButton
+                fixes
             }
         }
         .padding(28)
         .frame(maxWidth: 820, maxHeight: .infinity, alignment: .topLeading)
         .frame(maxWidth: .infinity)
-        .focusable(timing)
+        .focusable(timer != nil)
+        .focusEffectDisabled()
         .focused($tapping)
-        .onKeyPress(.delete) { guard timing, !stamps.isEmpty else { return .ignored }; stamps.removeLast(); return .handled }
-        .onKeyPress(.leftArrow) { nudge(-0.05) }
-        .onKeyPress(.rightArrow) { nudge(0.05) }
-        .task(id: "\(store.current?.id ?? "")|\(store.lyricsFor ?? "")") { fill() }
+        .onKeyPress(.space) { guard timer != nil else { return .ignored }; tap(); return .handled }
+        .onKeyPress(.delete) { guard let timer, timer.undo() else { return .ignored }; changed(); return .handled }
+        .onKeyPress(.leftArrow) { guard let timer, selected != nil else { return .ignored }; timer.earlier(); changed(); return .handled }
+        .onKeyPress(.rightArrow) { guard let timer, selected != nil else { return .ignored }; timer.later(); changed(); return .handled }
+        .task(id: "\(store.current?.id ?? "")|\(store.lyricsFor ?? "")") { open() }
     }
 
-    private var currentLine: Int {
-        let u = units
-        return stamps.count < u.count ? u[stamps.count].line : max(0, lines.count - 1)
+    private var header: some View {
+        let colors = store.colors
+        let title = store.current.map { "\($0.title) · \($0.artist)" } ?? ""
+        return HStack(alignment: .bottom, spacing: 14) {
+            VStack(alignment: .leading, spacing: 2) {
+                Text("Time the lyrics").font(store.display(28))
+                if !title.isEmpty { Text(title).foregroundStyle(colors.ink2).lineLimit(1) }
+            }
+            Spacer()
+            if timer != nil {
+                Picker("", selection: Binding(get: { words }, set: { on in timer?.setWordMode(on: on); changed() })) {
+                    Text("Lines").tag(false)
+                    Text("Words").tag(true)
+                }
+                .pickerStyle(.segmented)
+                .frame(width: 160)
+                Button("Save") { save() }.glassButton(prominent: true).disabled(!dirty)
+            }
+            Button("Close") { store.goBack() }.glassButton()
+        }
     }
 
-    private func stampFor(line: Int) -> Double? {
-        units.enumerated().first { $0.element.line == line && $0.offset < stamps.count }.map { stamps[$0.offset] }
+    private var list: some View {
+        let colors = store.colors
+        let position = playingThis ? store.playback?.position : nil
+        return ScrollViewReader { reader in
+            ScrollView {
+                VStack(alignment: .leading, spacing: 4) {
+                    ForEach(Array(lines.enumerated()), id: \.offset) { i, line in
+                        let isNext = i == next.line
+                        // Now singing: this line started and the next has not.
+                        let now = position.map { pos in
+                            (line.time.map { $0 <= pos } ?? false)
+                                && (i + 1 >= lines.count || lines[i + 1].time.map { pos < $0 } ?? true)
+                        } ?? false
+                        HStack(alignment: .firstTextBaseline, spacing: 16) {
+                            Text(line.time.map(stamp) ?? "--:--.--")
+                                .font(.system(size: 12, design: .monospaced))
+                                .foregroundStyle(line.time != nil ? colors.accent : colors.ink3)
+                                .frame(width: 64, alignment: .leading)
+                            if words && !line.words.isEmpty {
+                                Text(wordText(line, next: isNext ? next.word : nil)).font(.system(size: 15, weight: now ? .semibold : .regular))
+                            } else {
+                                Text(line.text.isEmpty ? "♪" : line.text)
+                                    .font(.system(size: 15, weight: now ? .semibold : .regular))
+                                    .foregroundStyle(line.time != nil ? colors.ink : colors.ink.opacity(0.45))
+                            }
+                            Spacer(minLength: 0)
+                        }
+                        .padding(.horizontal, 12).padding(.vertical, 7)
+                        .background(selected == i ? colors.raised : .clear, in: RoundedRectangle(cornerRadius: 8))
+                        .overlay(RoundedRectangle(cornerRadius: 8).strokeBorder(isNext ? colors.accent.opacity(0.6) : .clear))
+                        .contentShape(Rectangle())
+                        .id(i)
+                        .onTapGesture { choose(i, at: line.time) }
+                    }
+                }
+                .padding(6)
+            }
+            .onChange(of: next.line) { _, line in withAnimation(store.motion ? .default : nil) { reader.scrollTo(line, anchor: .center) } }
+        }
+        .background(colors.raised.opacity(0.4), in: RoundedRectangle(cornerRadius: 10))
     }
 
-    private func clockStamp(_ t: Double) -> String {
-        String(format: "%d:%05.2f", Int(t) / 60, t.truncatingRemainder(dividingBy: 60))
+    /// Word mode: tapped words full strength, the rest faint, the next one underlined.
+    private func wordText(_ line: TimingLine, next: Int?) -> AttributedString {
+        let colors = store.colors
+        var text = AttributedString()
+        for (w, word) in line.words.enumerated() {
+            var part = AttributedString(word.text)
+            if w == next {
+                part.foregroundColor = colors.accent
+                part.underlineStyle = .single
+            } else {
+                part.foregroundColor = word.time != nil ? colors.ink : colors.ink.opacity(0.4)
+            }
+            text += part
+        }
+        return text
     }
 
-    /// What this page last filled in, to tell it from words typed here.
-    @State private var filled = ""
-    @State private var filledSong: String?
+    private var tapButton: some View {
+        let colors = store.colors
+        let done = next.line >= lines.count
+        return Button { tap() } label: {
+            VStack(spacing: 2) {
+                Text(done ? "All stamped. Save, or click a line to redo it." : words ? "Tap: next word" : "Tap: next line")
+                    .font(.system(size: 15, weight: .semibold))
+                Text("Space").font(.system(size: 11.5)).opacity(0.8)
+            }
+            .foregroundStyle(playingThis ? colors.accentInk : colors.ink3)
+            .frame(maxWidth: .infinity, minHeight: 64)
+            .background(playingThis ? colors.accent : colors.raised, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+    }
 
-    private func fill() {
-        let song = store.current?.id
-        if song != filledSong {
-            // Another song: its own words, and no timing carried over from the last one.
-            filledSong = song
-            timing = false
-            stamps = []
-        } else if text != filled {
-            // The same song's lyrics came, but words were typed here: they stay.
+    /// −0.2 s, Redo line, +0.2 s for the line last tapped; Undo for the last tap.
+    private var fixes: some View {
+        HStack(spacing: 8) {
+            fix("− 0.2 s", help: "The line starts earlier · ←") { timer?.earlier() }
+            fix("↺ Line", help: "Tap this line again") {
+                timer?.redoLine()
+                if let i = selected, i < lines.count, let time = lines[i].time, playingThis { store.seek(max(0, time - 2)) }
+            }
+            fix("+ 0.2 s", help: "The line starts later · →") { timer?.later() }
+            Button { if timer?.undo() == true { changed() } } label: {
+                Label("Undo", systemImage: "arrow.uturn.backward").frame(maxWidth: .infinity)
+            }
+            .glassButton()
+            .help("Take back the last tap · Backspace")
+        }
+    }
+
+    private func fix(_ title: String, help: String, _ action: @escaping () -> Void) -> some View {
+        Button { action(); changed() } label: { Text(title).frame(maxWidth: .infinity) }
+            .glassButton()
+            .disabled(selected == nil)
+            .help(help)
+    }
+
+    private func stamp(_ t: Double) -> String {
+        String(format: "%02d:%05.2f", Int(t) / 60, t.truncatingRemainder(dividingBy: 60))
+    }
+
+    /// A song's lyrics open at once (timed ones keep their times, to correct); without any,
+    /// they are written here first.
+    private func open() {
+        guard let current = store.current?.id, current != song || timer == nil else { return }
+        guard let lyrics = store.lyrics, store.lyricsFor == current,
+              !lyrics.lines.isEmpty || !lyrics.plain.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            if current != song { timer = nil; song = current; lines = []; dirty = false }
             return
         }
-        let found = store.lyrics.map { $0.lines.isEmpty ? $0.plain : $0.lines.map(\.text).joined(separator: "\n") } ?? ""
-        text = found
-        filled = found
+        begin(LyricTimer(lyrics: lyrics, text: ""), dirty: false)
     }
 
-    private func start() {
-        stamps = []
-        timing = true
+    private func begin(_ new: LyricTimer, dirty: Bool = true) {
+        timer = new
+        song = store.current?.id
+        self.dirty = dirty
+        refresh()
         tapping = true
-        store.seek(0)
-        if store.playback?.playing != true { store.toggle() }
+    }
+
+    private func refresh() {
+        guard let timer else { return }
+        lines = timer.lines()
+        next = (Int(timer.nextLine()), Int(timer.nextWord()))
+        selected = timer.selected().map(Int.init)
+        words = timer.wordMode()
+    }
+
+    private func changed() {
+        dirty = true
+        refresh()
     }
 
     private func tap() {
-        guard stamps.count < units.count else { return }
-        stamps.append(store.playback?.position ?? 0)
+        guard let timer, playingThis, next.line < lines.count else { return }
+        timer.tap(position: store.playback?.position ?? 0)
+        changed()
     }
 
-    private func nudge(_ by: Double) -> KeyPress.Result {
-        guard timing, !stamps.isEmpty else { return .ignored }
-        stamps[stamps.count - 1] = max(0, stamps[stamps.count - 1] + by)
-        return .handled
-    }
-
-    private func redo(from line: Int) {
-        guard timing, let first = units.firstIndex(where: { $0.line == line }), first < stamps.count else { return }
-        stamps.removeSubrange(first...)
-        if let t = first > 0 ? stamps.last : 0 { store.seek(max(0, t - 2)) }
+    /// Tapping starts again from this line; a stamped line plays from a little before.
+    private func choose(_ i: Int, at time: Double?) {
+        timer?.select(index: UInt32(i))
+        if let time, playingThis { store.seek(max(0, time - 2)) }
+        refresh()
+        tapping = true
     }
 
     private func save() {
-        guard let id = store.current?.id else { return }
-        let u = units
-        var result: [LyricLine] = []
-        // The song's own times, line for line, for the lines not tapped this time.
-        // (Lines with no words, such as instrumental marks, are not lines here.)
-        let before = store.lyrics.flatMap { lyrics -> [LyricLine]? in
-            let worded = lyrics.lines.filter { !$0.text.trimmingCharacters(in: .whitespaces).isEmpty }
-            return worded.count == lines.count ? worded : nil
-        }
-        for (i, line) in lines.enumerated() {
-            let mine = u.enumerated().filter { $0.element.line == i && $0.offset < stamps.count }
-            guard let first = mine.first else {
-                guard let old = before?[i], old.text.trimmingCharacters(in: .whitespaces) == line else {
-                    store.fail("Tap every line before saving: lines without a time would be lost from the file.")
-                    return
-                }
-                result.append(old)
-                continue
-            }
-            let wordTimes = words ? mine.map { Word(time: stamps[$0.offset], text: $0.element.text + " ") } : []
-            result.append(LyricLine(time: stamps[first.offset], text: line, words: wordTimes))
-        }
+        guard let timer, let id = song else { return }
+        let result = timer.finished()
         guard !result.isEmpty else { store.fail("Tap at least one line before saving."); return }
-        result.sort { $0.time < $1.time }
-        Task { [result] in
+        Task {
             if let name = await store.ask({ try $0.saveLyricsFile(id: id, lines: result) }) {
                 store.notify("Saved as \(name), beside the song.")
-                timing = false
+                dirty = false
                 store.reloadLyrics()
             }
         }

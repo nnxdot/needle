@@ -86,7 +86,7 @@ fun SyncScreen() {
                 if (report.songsNotFound > 0u) ". ${count(report.songsNotFound.toInt(), "song")} not on this phone." else "."
         }
     }
-    LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = 32.dp)) {
+    LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = 32.dp + LocalBottomInset.current)) {
         item { LargeTitle("Sync") }
         item {
             Column(Modifier.padding(horizontal = Edge), verticalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -106,91 +106,6 @@ fun SyncScreen() {
                     FilledTonalButton(enabled = !busy && passphrase.length >= 12, onClick = { tryOpen("file picker") { read.launch(arrayOf("*/*")) } }) { Text("Read one") }
                 }
             }
-        }
-    }
-}
-
-// ---------- Timing lyrics
-
-/**
- * Times a song's lyrics by tapping along: each tap stamps the next line at the moment it
- * is sung. Starts from the song's plain lyrics, or its timed ones to fix them.
- */
-@Composable
-fun TimingScreen(songId: String) {
-    val playback by NeedleApp.instance.playback.collectAsState()
-    val lyricsLoad = rememberLoaded(songId) { lyrics(songId) }
-    val lyrics by lyricsLoad
-    val lines = remember { mutableStateListOf<LyricLine>() }
-    var next by remember { mutableStateOf(0) }
-    var text by remember { mutableStateOf("") }
-    LaunchedEffect(lyrics) {
-        val l = lyrics ?: return@LaunchedEffect
-        lines.clear()
-        if (l.lines.isNotEmpty()) lines.addAll(l.lines)
-        else lines.addAll(l.plain.lines().filter { it.isNotBlank() }.map { LyricLine(-1.0, it.trim(), emptyList()) })
-        text = lines.joinToString("\n") { it.text }
-    }
-    val state = rememberLazyListState()
-    LaunchedEffect(next) { if (next > 1) state.animateScrollToItem(next + 1) }
-    val position = playback?.position ?: 0.0
-    val thisSong = playback?.current?.id == songId
-    Column(Modifier.fillMaxSize()) {
-        LazyColumn(Modifier.weight(1f), state = state, contentPadding = PaddingValues(bottom = 16.dp)) {
-            item { LargeTitle("Time the lyrics") }
-            item {
-                Text(
-                    if (!thisSong) "Play this song first, then tap as each line starts."
-                    else if (lines.isEmpty()) "This song has no lyrics to time. Paste them below, one line per line."
-                    else "Tap the big button as each line starts. Tap a line to go back to it.",
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.padding(horizontal = Edge),
-                )
-            }
-            if (lines.isEmpty()) {
-                item {
-                    OutlinedTextField(text, { text = it }, label = { Text("Lyrics") }, minLines = 6, modifier = Modifier.remoteEscape(lines = true).fillMaxWidth().padding(Edge))
-                    TextButton(onClick = {
-                        lines.addAll(text.lines().filter { it.isNotBlank() }.map { LyricLine(-1.0, it.trim(), emptyList()) })
-                    }, modifier = Modifier.padding(horizontal = 12.dp)) { Text("Use these lines") }
-                }
-            }
-            itemsIndexed(lines) { i, line ->
-                Row(
-                    Modifier
-                        .fillMaxWidth()
-                        .clickable { next = i }
-                        .background(if (i == next) MaterialTheme.colorScheme.primaryContainer else androidx.compose.ui.graphics.Color.Transparent)
-                        .padding(horizontal = Edge, vertical = 10.dp),
-                ) {
-                    Text(if (line.time >= 0) time(line.time) else "–", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary, modifier = Modifier.width(56.dp))
-                    Text(line.text, style = MaterialTheme.typography.bodyLarge, fontWeight = if (i == next) FontWeight.Bold else FontWeight.Normal)
-                }
-            }
-        }
-        Row(
-            Modifier.fillMaxWidth().navigationBarsPadding().padding(Edge),
-            horizontalArrangement = Arrangement.spacedBy(12.dp),
-        ) {
-            Button(
-                enabled = thisSong && next < lines.size,
-                onClick = {
-                    // Asked now, not taken from the last redraw, which can be a fifth of a second old.
-                    lines[next] = lines[next].copy(time = runCatching { core.playback().position }.getOrDefault(position))
-                    next++
-                },
-                modifier = Modifier.weight(1f),
-            ) { Text(if (next < lines.size) "Tap: line ${next + 1} starts" else "All timed") }
-            FilledTonalButton(
-                enabled = lines.isNotEmpty() && lines.all { it.time >= 0 },
-                onClick = {
-                    // The player's lyrics are read again once saved.
-                    libraryWrite({ core.saveTimedLyrics(songId, lines.toList()) }, { showMessage(it.message ?: "Could not save them") }) {
-                        showMessage("Saved the timed lyrics")
-                    }
-                },
-            ) { Text("Save") }
         }
     }
 }

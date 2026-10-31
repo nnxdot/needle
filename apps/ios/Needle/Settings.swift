@@ -65,10 +65,10 @@ struct SettingsView: View {
                                 in: .rect(cornerRadius: 14))
                     .accessibilityHidden(true)
                 VStack(alignment: .leading, spacing: 2) {
-                    Text("Needle").font(.title2.bold())
-                    Text("Version \(version)").font(.subheadline).foregroundStyle(.secondary)
+                    Text("Needle").font(.needle(.title2).bold())
+                    Text("Version \(version)").font(.needle(.subheadline)).foregroundStyle(.secondary)
                     if let songs {
-                        Text("\(count(Int(songs), "song")) in your library").font(.caption).foregroundStyle(.secondary)
+                        Text("\(count(Int(songs), "song")) in your library").font(.needle(.caption)).foregroundStyle(.secondary)
                     }
                 }
                 .accessibilityElement(children: .combine)
@@ -85,7 +85,7 @@ struct SettingsView: View {
             }
             .buttonStyle(.bordered)
             .buttonBorderShape(.capsule)
-            .font(.subheadline.weight(.medium))
+            .font(.needle(.subheadline).weight(.medium))
         }
         .padding(.vertical, 6)
     }
@@ -99,7 +99,7 @@ struct SettingsView: View {
                     .accessibilityHidden(true)
                 VStack(alignment: .leading, spacing: 1) {
                     Text(title)
-                    Text(detail).font(.caption).foregroundStyle(.secondary).lineLimit(1)
+                    Text(detail).font(.needle(.caption)).foregroundStyle(.secondary).lineLimit(1)
                 }
             }
             .padding(.vertical, 1)
@@ -123,7 +123,7 @@ struct SettingLabel: View {
                 .accessibilityHidden(true)
             VStack(alignment: .leading, spacing: 1) {
                 Text(title)
-                if !detail.isEmpty { Text(detail).font(.caption).foregroundStyle(.secondary).lineLimit(1) }
+                if !detail.isEmpty { Text(detail).font(.needle(.caption)).foregroundStyle(.secondary).lineLimit(1) }
             }
         }
     }
@@ -143,7 +143,7 @@ struct OpenRow<Content: View>: View {
             HStack {
                 label
                 Spacer(minLength: 8)
-                Text(value).font(.subheadline).foregroundStyle(.secondary).lineLimit(1)
+                Text(value).font(.needle(.subheadline)).foregroundStyle(.secondary).lineLimit(1)
             }
         }
     }
@@ -179,7 +179,7 @@ struct LibrarySettingsView: View {
                     VStack(alignment: .leading, spacing: 2) {
                         Text(Store.realPath(folder) == Store.realPath(store.musicFolder.path) ? "Needle's folder" : (folder as NSString).lastPathComponent)
                         Text(Store.realPath(folder) == Store.realPath(store.musicFolder.path) ? "Files › On My iPhone › Needle" : folder)
-                            .font(.caption).foregroundStyle(.secondary).lineLimit(1)
+                            .font(.needle(.caption)).foregroundStyle(.secondary).lineLimit(1)
                     }
                     .deleteDisabled(Store.realPath(folder) == Store.realPath(store.musicFolder.path))
                 }
@@ -206,11 +206,32 @@ struct LibrarySettingsView: View {
             } footer: {
                 if store.scan.running { Text("Reading… \(count(Int(store.scan.imported), "song")) so far") }
             }
+            Section {
+                Picker(selection: Binding(get: { store.choices.albumGrouping }, set: { v in store.setAlbumRule { $0.albumGrouping = v } })) {
+                    Text("Album artist and album").tag("tags")
+                    Text("Folder").tag("folder")
+                } label: {
+                    SettingLabel(title: "What makes an album",
+                                 detail: store.choices.albumGrouping == "folder" ? "Songs in one folder with one album name, when they have no album artist." : "Songs with the same album artist and album name.",
+                                 icon: "square.stack.fill", tint: .orange)
+                }
+                Toggle(isOn: Binding(get: { store.choices.compilationsVarious }, set: { v in store.setAlbumRule { $0.compilationsVarious = v } })) {
+                    SettingLabel(title: "Compilations as one album", detail: "Songs tagged as a compilation, with no album artist, are one album by Various Artists.", icon: "person.3.fill", tint: .orange)
+                }
+            } header: {
+                Text("Albums")
+            } footer: {
+                Text("Which songs make one album. Your files never change.")
+            }
             if let settings {
                 let save = saved($settings, store) { try $0.setPlaybackSettings(value: $1) }
                 Section("Artwork and lyrics") {
-                    Toggle(isOn: Binding(get: { settings.onlineMedia }, set: { var s = settings; s.onlineMedia = $0; save(s) })) {
+                    Toggle(isOn: Binding(get: { settings.onlineMedia }, set: { var s = settings; s.onlineMedia = $0; save(s); store.allowPictures() })) {
                         SettingLabel(title: "Look things up online", detail: "Covers, artist photos, and lyrics.", icon: "globe", tint: .blue)
+                    }
+                    // A dependent row: only while online lookups are on.
+                    if settings.onlineMedia {
+                        ArtistPicturesRow().padding(.leading, 16)
                     }
                     OpenRow(label: SettingLabel(title: "Artists' logos", detail: "From fanart.tv.", icon: "signature", tint: .indigo),
                             value: hasFanart ? "Your key" : "Needle's key") {
@@ -248,7 +269,7 @@ struct LibrarySettingsView: View {
                             value: settings.autoplayQuery.isEmpty ? "Off" : settings.autoplayQuery) {
                         TextField("For example: rating is at least 4", text: Binding(get: { settings.autoplayQuery }, set: { var s = settings; s.autoplayQuery = $0; save(s) }))
                             .textInputAutocapitalization(.never)
-                        Text("Empty: the music stops.").font(.caption).foregroundStyle(.secondary)
+                        Text("Empty: the music stops.").font(.needle(.caption)).foregroundStyle(.secondary)
                     }
                 }
             }
@@ -302,6 +323,13 @@ struct PlaybackSettingsView: View {
                         Slider(value: Binding(get: { Double(settings.crossfade) }, set: { var s = settings; s.crossfade = Float($0.rounded()); save(s) }), in: 0...12, step: 1)
                             .accessibilityLabel("Crossfade")
                     }
+                    // A dependent row (SETTINGS-STYLE.md): only while Crossfade is on.
+                    if settings.crossfade >= 0.5 {
+                        Toggle(isOn: Binding(get: { store.choices.smartMix }, set: { on in store.updateChoices { $0.smartMix = on } })) {
+                            SettingLabel(title: "Smart mixes", detail: "The fade starts where the music ends and lasts whole bars.", icon: "metronome.fill", tint: .purple)
+                        }
+                        .padding(.leading, 16)
+                    }
                     VStack(alignment: .leading, spacing: 8) {
                         SettingLabel(title: "Even loudness", detail: "From the songs' ReplayGain tags.", icon: "waveform.path", tint: .teal)
                     Picker("Even loudness", selection: Binding(
@@ -325,27 +353,17 @@ struct PlaybackSettingsView: View {
     }
 }
 
-/// Pauses the music later.
+/// The sleep timer's row: what runs, and a tap opens the timer.
 struct SleepMenu: View {
     @Environment(Store.self) private var store
 
     var body: some View {
-        Menu {
-            Button("End of this song") { store.setSleep(minutes: 0) }
-            ForEach([15, 30, 45, 60, 90], id: \.self) { m in
-                Button("\(m) minutes") { store.setSleep(minutes: m) }
-            }
-            if store.sleepEnds != nil {
-                Divider()
-                Button("Turn off", role: .destructive) { store.setSleep(minutes: nil) }
-            }
-        } label: {
+        Button { store.sheet = .sleep } label: {
             HStack {
                 Label("Sleep timer", systemImage: "moon.zzz")
                 Spacer()
-                if let ends = store.sleepEnds {
-                    if ends == .distantFuture { Text("End of song").foregroundStyle(.secondary) }
-                    else { Text(ends, style: .timer).foregroundStyle(.secondary).monospacedDigit() }
+                if let running = store.sleep {
+                    Text(sleepClock(running.remaining)).foregroundStyle(.secondary).monospacedDigit()
                 } else {
                     Text("Off").foregroundStyle(.secondary)
                 }
@@ -487,9 +505,9 @@ struct SoundView: View {
 
     private func dB(_ label: String, value: Float, set: @escaping (Float) -> Void) -> some View {
         HStack {
-            Text(label).font(.subheadline).frame(width: 70, alignment: .leading)
+            Text(label).font(.needle(.subheadline)).frame(width: 70, alignment: .leading)
             Slider(value: Binding(get: { Double(value) }, set: { set(Float(($0 * 2).rounded() / 2)) }), in: -12...12)
-            Text(String(format: "%+.1f", value)).font(.caption.monospacedDigit()).foregroundStyle(.secondary).frame(width: 40, alignment: .trailing)
+            Text(String(format: "%+.1f", value)).font(.needle(.caption).monospacedDigit()).foregroundStyle(.secondary).frame(width: 40, alignment: .trailing)
         }
     }
 }
@@ -537,7 +555,7 @@ struct ParametricBands: View {
     private func slider(_ unit: String, value: Double, range: ClosedRange<Double>, shown: String, set: @escaping (Double) -> Void) -> some View {
         HStack {
             Slider(value: Binding(get: { value }, set: set), in: range)
-            Text(shown).font(.caption.monospacedDigit()).foregroundStyle(.secondary).frame(width: 70, alignment: .trailing)
+            Text(shown).font(.needle(.caption).monospacedDigit()).foregroundStyle(.secondary).frame(width: 70, alignment: .trailing)
         }
     }
 }
@@ -558,17 +576,17 @@ struct EffectsSection: View {
                         Text(effect.name)
                         Text(effect.pluginName + (effect.description.isEmpty ? "" : " · " + effect.description))
                     }
-                    if let failure = effect.failure { Text(failure).font(.caption).foregroundStyle(.red) }
+                    if let failure = effect.failure { Text(failure).font(.needle(.caption)).foregroundStyle(.red) }
                     if effect.on {
                         ForEach(Array(effect.params.enumerated()), id: \.element.id) { j, param in
                             HStack {
-                                Text(param.name).font(.subheadline)
+                                Text(param.name).font(.needle(.subheadline))
                                 Slider(value: Binding(get: { Double(param.value) }, set: { value in
                                     let v = param.step > 0 ? (Float(value) / param.step).rounded() * param.step : Float(value)
                                     effects[i].params[j].value = v
                                     store.run { try $0.setEffectParam(plugin: effect.plugin, effect: effect.id, param: param.id, value: v) }
                                 }), in: Double(param.min)...Double(max(param.max, param.min + 0.001)))
-                                Text(param.shown).font(.caption.monospacedDigit()).foregroundStyle(.secondary)
+                                Text(param.shown).font(.needle(.caption).monospacedDigit()).foregroundStyle(.secondary)
                             }
                         }
                     }
@@ -627,7 +645,7 @@ struct ScrobblingView: View {
                         Button("Sign in to Last.fm") { beginLastfm(key: apiKey, secret: secret) }
                         .disabled(!a.lastfmKeyBuiltIn && (apiKey.isEmpty || secret.isEmpty))
                         if !a.lastfmKeyBuiltIn {
-                            Text("Make a free key at last.fm/api/account/create.").font(.caption).foregroundStyle(.secondary)
+                            Text("Make a free key at last.fm/api/account/create.").font(.needle(.caption)).foregroundStyle(.secondary)
                         }
                     }
                 }
@@ -701,6 +719,7 @@ struct ScrobblingView: View {
                 } else {
                     Button("Connect") { if let direct { direct() } else { connecting.insert(id) } }
                         .buttonStyle(.borderedProminent).buttonBorderShape(.capsule).controlSize(.small)
+                        .foregroundStyle(store.colors.onAccent)
                 }
             }
         }
@@ -842,10 +861,10 @@ struct PluginsView: View {
                         VStack(alignment: .leading, spacing: 2) {
                             HStack(spacing: 6) {
                                 Text(plugin.name)
-                                if plugin.official { Image(systemName: "checkmark.seal.fill").foregroundStyle(.tint).font(.caption) }
+                                if plugin.official { Image(systemName: "checkmark.seal.fill").foregroundStyle(.tint).font(.needle(.caption)) }
                             }
-                            Text(plugin.enabled ? plugin.description : "Off").font(.caption).foregroundStyle(.secondary).lineLimit(2)
-                            if let error = plugin.error { Text(error).font(.caption).foregroundStyle(.red) }
+                            Text(plugin.enabled ? plugin.description : "Off").font(.needle(.caption)).foregroundStyle(.secondary).lineLimit(2)
+                            if let error = plugin.error { Text(error).font(.needle(.caption)).foregroundStyle(.red) }
                         }
                     }
                 }
@@ -992,6 +1011,16 @@ struct SyncView: View {
 
 // MARK: - What's new and About
 
+/// What's new over everything, once after an update, with Done.
+struct WhatsNewSheet: View {
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        WhatsNewView()
+            .toolbar { ToolbarItem(placement: .confirmationAction) { Button("Done") { dismiss() } } }
+    }
+}
+
 /// The iPhone app's release notes (whats-new.md, in the app).
 struct WhatsNewView: View {
     private struct Change: Identifiable {
@@ -1051,11 +1080,11 @@ struct WhatsNewView: View {
             ForEach(Array(releases.enumerated()), id: \.element.id) { index, release in
                 if index == 0 || unfolded.contains(release.version) {
                     Section {
-                        if let tagline = release.tagline { Text(tagline).font(.subheadline) }
+                        if let tagline = release.tagline { Text(tagline).font(.needle(.subheadline)) }
                         ForEach(release.changes) { change in row(change) }
                         if index > 0 {
                             Button("Fold \(release.version)") { withAnimation { _ = unfolded.remove(release.version) } }
-                                .font(.subheadline)
+                                .font(.needle(.subheadline))
                         }
                     } header: {
                         Text(release.version)
@@ -1067,13 +1096,13 @@ struct WhatsNewView: View {
                         } label: {
                             HStack(spacing: 12) {
                                 VStack(alignment: .leading, spacing: 2) {
-                                    Text("\(release.version) · \(count(release.changes.count, "change"))").font(.body.weight(.semibold))
+                                    Text("\(release.version) · \(count(release.changes.count, "change"))").font(.needle(.body).weight(.semibold))
                                     if let tagline = release.tagline {
-                                        Text(tagline).font(.subheadline).foregroundStyle(.secondary).lineLimit(1)
+                                        Text(tagline).font(.needle(.subheadline)).foregroundStyle(.secondary).lineLimit(1)
                                     }
                                 }
                                 Spacer()
-                                Image(systemName: "chevron.down").font(.footnote.weight(.bold)).foregroundStyle(.tertiary)
+                                Image(systemName: "chevron.down").font(.needle(.footnote).weight(.bold)).foregroundStyle(.tertiary)
                             }
                         }
                         .foregroundStyle(.primary)
@@ -1101,13 +1130,13 @@ struct WhatsNewView: View {
                 VStack(alignment: .leading, spacing: 2) {
                     if change.title.isEmpty {
                         // A small change: its words in full weight, two lines until opened.
-                        Text(change.text).font(.subheadline).lineLimit(open ? nil : 2)
+                        Text(change.text).font(.needle(.subheadline)).lineLimit(open ? nil : 2)
                     } else {
-                        Text(change.title).font(.subheadline.weight(.semibold))
-                        Text(change.text).font(.subheadline).foregroundStyle(.secondary).lineLimit(open ? nil : 1)
+                        Text(change.title).font(.needle(.subheadline).weight(.semibold))
+                        Text(change.text).font(.needle(.subheadline)).foregroundStyle(.secondary).lineLimit(open ? nil : 1)
                     }
                     if !open && Self.long(change) {
-                        Text("More").font(.caption.weight(.semibold)).foregroundStyle(.tint)
+                        Text("More").font(.needle(.caption).weight(.semibold)).foregroundStyle(.tint)
                     }
                 }
                 Spacer(minLength: 0)
@@ -1141,6 +1170,13 @@ struct WhatsNewView: View {
         case "radio": ("dot.radiowaves.left.and.right", .red)
         case "signal": ("antenna.radiowaves.left.and.right", .green)
         case "account": ("person.crop.circle.fill", .blue)
+        case "watch": ("applewatch", .gray)
+        case "artists": ("music.microphone", .pink)
+        case "history": ("clock.arrow.circlepath", .orange)
+        case "search": ("magnifyingglass", .blue)
+        case "globe": ("globe", .blue)
+        case "moon": ("moon.fill", .indigo)
+        case "speed": ("gauge.with.dots.needle.67percent", .teal)
         case "": change.title.isEmpty ? ("wrench.and.screwdriver.fill", .gray) : ("sparkles", .yellow)
         default: ("sparkles", .yellow)
         }
@@ -1179,7 +1215,7 @@ struct AboutView: View {
             }
             Section("Privacy") {
                 Text("Needle has no account and no tracking. Your library stays on this iPhone. It talks to the internet only for what you turn on: online lookups, music servers, scrobbling, plugins, and update checks.")
-                    .font(.subheadline).foregroundStyle(.secondary)
+                    .font(.needle(.subheadline)).foregroundStyle(.secondary)
             }
             Section {
                 Link("needle.nnx.fyi", destination: URL(string: "https://needle.nnx.fyi")!)

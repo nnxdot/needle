@@ -12,10 +12,15 @@
     </target>
     <target android:name="arm">
         <aapt:attr name="android:animation">
-            <objectAnimator android:propertyName="rotation" android:duration="700"
-                android:startOffset="150"
-                android:valueFrom="-38" android:valueTo="0"
-                android:interpolator="@android:interpolator/fast_out_slow_in" />
+            <!-- Up from the start, held a moment, then down onto the record (still, it rests there). -->
+            <objectAnimator android:duration="850">
+                <propertyValuesHolder android:propertyName="rotation">
+                    <keyframe android:fraction="0" android:value="-38" />
+                    <keyframe android:fraction="0.18" android:value="-38" />
+                    <keyframe android:fraction="1" android:value="0"
+                        android:interpolator="@android:interpolator/fast_out_slow_in" />
+                </propertyValuesHolder>
+            </objectAnimator>
         </aapt:attr>
     </target>
 </animated-vector>

@@ -91,6 +91,12 @@ pub fn import(
         files.retain(|f| !f.canonicalize().is_ok_and(|p| covered.contains(&p)));
     }
     state.current.clear();
+    // What was just seen on disk: these need no second look below.
+    let seen: std::collections::HashSet<String> = files
+        .iter()
+        .chain(sheets.iter())
+        .map(|p| p.to_string_lossy().into_owned())
+        .collect();
     import_files(library, files, &cancel, &mut state, &mut progress)?;
     for sheet in sheets {
         if cancel.load(Ordering::Relaxed) {
@@ -109,16 +115,7 @@ pub fn import(
     }
     library.add_root(&root.to_string_lossy())?;
     if !cancel.load(Ordering::Relaxed) {
-        for track in library.search("")? {
-            if Path::new(track.file_path()).starts_with(&root)
-                && fs::metadata(track.file_path())
-                    .is_err_and(|e| e.kind() == std::io::ErrorKind::NotFound)
-            {
-                library
-                    .connection()?
-                    .execute("UPDATE tracks SET missing=1 WHERE id=?", [track.id])?;
-            }
-        }
+        mark_missing(library, &root, &seen)?;
     }
     state.done = true;
     crate::logfile::info(format!(
@@ -134,8 +131,119 @@ pub fn import(
             .map(|e| format!(" (first: {e})"))
             .unwrap_or_default()
     ));
+    // Each song's album artist under Settings' album rule (new songs, and songs read again).
+    if state.imported > 0
+        && let Err(e) = library.apply_album_rule()
+    {
+        crate::logfile::warn(format!("The album rule: {e:#}"));
+    }
     progress(state.clone());
     Ok(state)
+}
+
+/// Songs under `root` whose file is gone are marked missing. Files the scan just saw are not
+/// asked about again, and only each song's path is read, so this stays quick.
+fn mark_missing(
+    library: &Library,
+    root: &Path,
+    seen: &std::collections::HashSet<String>,
+) -> Result<()> {
+    let db = library.connection()?;
+    let rows: Vec<(String, String, bool)> = db
+        .prepare(
+            "SELECT id, path, json_extract(data, '$.cue') IS NOT NULL FROM tracks
+             WHERE missing=0 AND path NOT LIKE ?1",
+        )?
+        .query_map([format!("{}%", crate::sources::SCHEME)], |r| {
+            Ok((r.get(0)?, r.get(1)?, r.get(2)?))
+        })?
+        .collect::<std::result::Result<_, _>>()?;
+    for (id, path, cue) in rows {
+        // A CUE song's path is its sheet's, with its place after a #.
+        let file = if cue {
+            path.rsplit_once('#')
+                .map_or(path.as_str(), |(file, _)| file)
+        } else {
+            path.as_str()
+        };
+        if !seen.contains(file)
+            && Path::new(file).starts_with(root)
+            && fs::metadata(file).is_err_and(|e| e.kind() == std::io::ErrorKind::NotFound)
+        {
+            db.execute("UPDATE tracks SET missing=1 WHERE id=?", [id])?;
+        }
+    }
+    Ok(())
+}
+
+/// What the library knows of a file, enough to tell it has not changed without reading the
+/// song's whole record.
+struct Known {
+    modified: i64,
+    size: i64,
+    missing: bool,
+    version: u32,
+    cover: bool,
+}
+
+/// Every song's [`Known`], by path.
+fn known_files(library: &Library) -> Result<std::collections::HashMap<String, Known>> {
+    let db = library.connection()?;
+    let mut stmt = db.prepare(
+        "SELECT path, json_extract(data, '$.modified_at'), json_extract(data, '$.file_size'),
+                missing, json_extract(data, '$.metadata_version'),
+                json_extract(data, '$.artwork') IS NOT NULL
+         FROM tracks",
+    )?;
+    let rows = stmt.query_map([], |r| {
+        Ok((
+            r.get::<_, String>(0)?,
+            Known {
+                modified: r.get::<_, Option<i64>>(1)?.unwrap_or(0),
+                size: r.get::<_, Option<i64>>(2)?.unwrap_or(-1),
+                missing: r.get(3)?,
+                version: r.get::<_, Option<u32>>(4)?.unwrap_or(0),
+                cover: r.get(5)?,
+            },
+        ))
+    })?;
+    Ok(rows.filter_map(|r| r.ok()).collect())
+}
+
+/// Whether a file is as the library has it, as [`read_track`] would find. Folders are looked
+/// through for a cover once each, not once for each song without one.
+fn unchanged(
+    known: &std::collections::HashMap<String, Known>,
+    covers: &std::sync::Mutex<std::collections::HashMap<PathBuf, bool>>,
+    path: &Path,
+) -> bool {
+    let Some(file) = known.get(path.to_string_lossy().as_ref()) else {
+        return false;
+    };
+    if file.missing || file.version != METADATA_VERSION {
+        return false;
+    }
+    let Ok(metadata) = fs::metadata(path) else {
+        return false;
+    };
+    let modified = metadata
+        .modified()
+        .ok()
+        .and_then(|m| m.duration_since(std::time::UNIX_EPOCH).ok())
+        .unwrap_or_default()
+        .as_nanos()
+        .min(i64::MAX as u128) as i64;
+    if file.modified != modified || file.size != metadata.len() as i64 {
+        return false;
+    }
+    if file.cover {
+        return true;
+    }
+    let folder = path.parent().unwrap_or(path).to_path_buf();
+    let mut covers = covers.lock().unwrap_or_else(|e| e.into_inner());
+    !*covers
+        .entry(folder)
+        .or_insert_with_key(|folder| folder_cover(folder).is_some())
 }
 
 /// A DSF file's tags: it keeps a plain ID3v2 tag at the offset its header points to.
@@ -175,6 +283,9 @@ fn import_files(
         .clamp(2, 8);
     let (job_tx, job_rx) = crossbeam_channel::bounded::<PathBuf>(256);
     let (done_tx, done_rx) = crossbeam_channel::unbounded::<(PathBuf, Result<Option<Track>>)>();
+    let known = known_files(library).unwrap_or_default();
+    let covers = std::sync::Mutex::new(std::collections::HashMap::new());
+    let (known, covers) = (&known, &covers);
     std::thread::scope(|scope| {
         for _ in 0..workers {
             let (jobs, done) = (job_rx.clone(), done_tx.clone());
@@ -183,6 +294,13 @@ fn import_files(
                 for path in jobs {
                     if cancel.load(Ordering::Relaxed) {
                         break;
+                    }
+                    // Most files have not changed: known at once, without the song's record.
+                    if unchanged(known, covers, &path) {
+                        if done.send((path, Ok(None))).is_err() {
+                            break;
+                        }
+                        continue;
                     }
                     // A file that trips up a tag reader is skipped, not the whole scan.
                     let result = match &db {
@@ -325,6 +443,11 @@ pub fn import_one(library: &Library, path: &Path) -> Result<bool> {
     }
 }
 
+/// The version of what Needle reads from a file's tags: a song read by an older one is read
+/// again (3: sort names and MusicBrainz artist ids; 4: the album artist tag as it is, and the
+/// compilation flag, for Settings' album rule).
+pub const METADATA_VERSION: u32 = 4;
+
 /// Read a file's details; `None` when the library already has it as it is.
 fn read_track(library: &Library, db: &rusqlite::Connection, path: &Path) -> Result<Option<Track>> {
     let path = path.canonicalize()?;
@@ -341,7 +464,7 @@ fn read_track(library: &Library, db: &rusqlite::Connection, path: &Path) -> Resu
         t.modified_at == modified
             && t.file_size == metadata.len() as i64
             && !t.missing
-            && t.metadata_version == 2
+            && t.metadata_version == METADATA_VERSION
             // A song with no cover is read again once a cover image sits beside it: one added
             // since, or one Needle may only now see (Android asks for pictures separately).
             && (t.artwork.is_some() || folder_cover(path.parent().unwrap_or(&path)).is_none())
@@ -396,7 +519,7 @@ fn read_track(library: &Library, db: &rusqlite::Connection, path: &Path) -> Resu
         rating: previous.as_ref().map(|t| t.rating).unwrap_or(0),
         play_count: previous.as_ref().map(|t| t.play_count).unwrap_or(0),
         last_played: previous.as_ref().and_then(|t| t.last_played),
-        metadata_version: 2,
+        metadata_version: METADATA_VERSION,
         ..Default::default()
     };
     if let Some(tag) = tagged.primary_tag().or_else(|| tagged.first_tag()) {
@@ -405,10 +528,19 @@ fn read_track(library: &Library, db: &rusqlite::Connection, path: &Path) -> Resu
         }
         track.artist = tag.artist().unwrap_or_default().into();
         track.album = tag.album().unwrap_or_default().into();
-        track.album_artist = tag
+        track.album_artist_tag = tag
             .get_string(ItemKey::AlbumArtist)
-            .unwrap_or(&track.artist)
-            .into();
+            .map(str::trim)
+            .filter(|t| !t.is_empty())
+            .map(String::from);
+        track.compilation = tag
+            .get_string(ItemKey::FlagCompilation)
+            .is_some_and(|v| matches!(v.trim(), "1" | "true" | "True" | "TRUE"));
+        // The album rule (crate::grouping) gives songs without the tag theirs after the scan.
+        track.album_artist = track
+            .album_artist_tag
+            .clone()
+            .unwrap_or_else(|| track.artist.clone());
         track.genre = tag.genre().unwrap_or_default().into();
         track.year = tag
             .get_string(ItemKey::RecordingDate)
@@ -437,6 +569,25 @@ fn read_track(library: &Library, db: &rusqlite::Connection, path: &Path) -> Resu
         track.musicbrainz_id = tag
             .get_string(ItemKey::MusicBrainzRecordingId)
             .map(String::from);
+        let text = |key: ItemKey| {
+            tag.get_string(key)
+                .map(str::trim)
+                .filter(|s| !s.is_empty())
+                .map(String::from)
+        };
+        track.artist_sort = text(ItemKey::TrackArtistSortOrder);
+        track.album_artist_sort = text(ItemKey::AlbumArtistSortOrder);
+        // Several ids are one per credited artist: the first is the main one.
+        let first_id = |key: ItemKey| {
+            text(key).and_then(|s| {
+                s.split(['/', ';', ','])
+                    .map(str::trim)
+                    .find(|id| id.len() == 36)
+                    .map(String::from)
+            })
+        };
+        track.musicbrainz_artist_id = first_id(ItemKey::MusicBrainzArtistId);
+        track.musicbrainz_album_artist_id = first_id(ItemKey::MusicBrainzReleaseArtistId);
         // Prefer the front cover when a file carries several pictures.
         let pictures = tag.pictures();
         if let Some(picture) = pictures
@@ -623,6 +774,12 @@ fn replace_verified(
 
 /// Write through a same-directory temporary file; retain a backup before replacing the original.
 pub fn write_tags(library: &Library, id: &str, edit: &TagEdit) -> Result<()> {
+    write_tags_one(library, id, edit)?;
+    album_rule_after_edit(library);
+    Ok(())
+}
+
+fn write_tags_one(library: &Library, id: &str, edit: &TagEdit) -> Result<()> {
     edit.validate()?;
     let track = library.track(id)?.context("Track no longer exists")?;
     let original = Path::new(&track.path);
@@ -680,6 +837,13 @@ pub fn write_tags(library: &Library, id: &str, edit: &TagEdit) -> Result<()> {
             Ok(())
         },
     )
+}
+
+/// New tags can move songs to another album under Settings' album rule.
+fn album_rule_after_edit(library: &Library) {
+    if let Err(e) = library.apply_album_rule() {
+        crate::logfile::warn(format!("The album rule: {e:#}"));
+    }
 }
 
 #[derive(Clone, Debug, Default, PartialEq, serde::Serialize)]
@@ -746,7 +910,7 @@ pub fn write_tags_batch(
             .unwrap_or_default();
         state.current = path.clone();
         progress(state.clone());
-        match write_tags(library, id, edit) {
+        match write_tags_one(library, id, edit) {
             Ok(()) => {
                 report.saved.push(id.clone());
                 state.saved += 1;
@@ -764,6 +928,7 @@ pub fn write_tags_batch(
     }
     state.current.clear();
     progress(state);
+    album_rule_after_edit(library);
     Ok(report)
 }
 

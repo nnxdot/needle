@@ -1,21 +1,28 @@
 mod ambient;
 mod appearance;
 mod artist;
+mod artists_ui;
 mod assets;
 mod bench;
+mod big_looks;
 mod chrome;
 mod columns;
+mod crate_view;
 mod discord;
 mod doctor;
 mod files;
+mod float;
 mod flow;
 mod folders;
 mod glass;
 mod history;
 mod home;
+mod hotkeys;
 mod immersive;
 mod importer;
+mod insights;
 mod library;
+mod lyric_card;
 mod lyrics;
 mod media_keys;
 mod menus;
@@ -27,19 +34,25 @@ mod pages;
 mod palette;
 mod panel;
 mod pickers;
+mod player2;
+mod player_tools;
 mod playlist_art;
 mod playlist_editor;
 mod plugin_ask;
 mod plugin_ui;
 mod radio;
 mod remote_ui;
+mod search_page;
 mod server_search;
+mod shortcuts_ui;
 mod sound;
 mod sources_ui;
 mod speakers;
 mod stems_ui;
 mod suggest;
 mod tags;
+#[cfg(windows)]
+mod taskbar;
 mod theme;
 mod themes;
 mod themes_ui;
@@ -47,10 +60,12 @@ mod thumbs;
 mod timing;
 mod tray;
 mod updates;
+mod visualizer;
 mod welcome;
 mod whats_new;
 mod widgets;
 mod wrapped;
+mod year_card;
 
 use anyhow::Result;
 use gpui::{prelude::*, *};
@@ -216,6 +231,12 @@ pub enum Page {
     Wrapped(i32),
     /// Fix my library: duplicates, covers, tags, and tidy files.
     Doctor,
+    /// Your library: what it is made of.
+    Numbers,
+    /// Every measured song by how it sounds.
+    MoodMap,
+    /// What a search finds across the library (see `search_page`).
+    Search,
     /// The songs of a music source (a server a plugin connects to).
     Source {
         plugin: String,
@@ -247,9 +268,12 @@ impl Page {
             Self::Settings => "Settings".into(),
             Self::Sound => "Sound".into(),
             Self::Import => "Import".into(),
-            Self::Timing => "Lyric timing".into(),
+            Self::Timing => "Time the lyrics".into(),
             Self::Wrapped(year) => format!("{year} in music"),
             Self::Doctor => "Fix my library".into(),
+            Self::Numbers => "Your library".into(),
+            Self::MoodMap => "Genre map".into(),
+            Self::Search => "Search".into(),
             Self::Source { name, .. } => name.clone(),
         }
     }
@@ -282,6 +306,9 @@ impl Page {
                 | Self::Timing
                 | Self::Wrapped(_)
                 | Self::Doctor
+                | Self::Numbers
+                | Self::MoodMap
+                | Self::Search
         )
     }
     pub fn is_grid(&self) -> bool {
@@ -383,8 +410,35 @@ enum Event {
     ArtistTop(String, Vec<Track>),
     ArtistBanner(String, Option<String>),
     ArtistLogo(String, Option<artist::Logo>),
+    /// fanart.tv's pictures of one kind for an artist, as (picture, small copy) to choose from.
+    ArtistChoices(
+        String,
+        needle_core::media::pictures::ArtistPicture,
+        Vec<(String, String)>,
+    ),
+    /// An artist's chosen pictures changed: show them again.
+    ArtistPicturesChanged(String),
+    /// What played on this day in earlier years, for Home.
+    OnThisDay(Vec<needle_core::numbers::OnThisDay>),
+    /// The year Home shows "Your year in music" for (December, with listening).
+    HomeYear(Option<i32>),
+    /// What a search found (its generation, then the finds or the problem).
+    Found(u64, Result<Box<needle_core::find::Found>, String>),
+    /// Every line of lyrics that holds the search (its generation).
+    FoundLyrics(u64, Vec<needle_core::find::LyricMatch>),
+    /// A song's shape for the waveform seek bar: its id and 120 heights, 0 to 1.
+    Waveform(String, Vec<f32>),
+    /// A song's lyrics translated, one line for each line: its id and the lines.
+    Translated(String, Vec<String>),
+    Numbers(Box<needle_core::numbers::LibraryNumbers>),
+    GenreMap(Vec<needle_core::radio::GenreSpot>),
     ArtFetched,
     MediaKey(media_keys::Key),
+    /// A key everywhere (or a taskbar button) was pressed: its action.
+    Hotkey(String),
+    /// Windows made Needle's taskbar button again: its buttons go back on.
+    #[cfg(windows)]
+    TaskbarCreated,
     ImportProgress(String),
     Plugin(needle_core::plugins::HostAction),
     Tray(tray::TrayAction),
@@ -410,6 +464,8 @@ enum Event {
     Layout(needle_core::model::Layout),
     SavedTags,
     Notice(String),
+    /// A lyric card was saved here: copy it too, and say where it went.
+    LyricCard(std::path::PathBuf),
     Play(Vec<QueueItem>, Option<String>),
     PlayAt(Vec<QueueItem>, usize, Option<String>),
     Enqueue(Vec<QueueItem>, String),
@@ -423,6 +479,34 @@ pub struct AppView {
     player: Player,
     playback: PlaybackState,
     settings: Settings,
+    /// Finds every artist's pictures slowly in the background (Settings › Artwork and lyrics).
+    picture_sweep: needle_core::media::pictures::PictureSweep,
+    /// Home's On this day shelves.
+    on_this_day: Vec<needle_core::numbers::OnThisDay>,
+    home_year: Option<i32>,
+    /// The Search page: what it shows, its newest answer, and that answer's number.
+    search_tab: search_page::SearchTab,
+    found: Option<Box<needle_core::find::Found>>,
+    found_error: Option<String>,
+    found_lyrics: Vec<needle_core::find::LyricMatch>,
+    find_generation: u64,
+    /// The playing song's shape, for the waveform seek bar: its id and heights.
+    waveform: Option<(String, Vec<f32>)>,
+    /// Lyrics translated by a plugin, shown under each line while Translate is on.
+    translate_lyrics: bool,
+    translation: Option<(String, Vec<String>)>,
+    /// The visualizer shows in the big player and full screen.
+    visualizer: bool,
+    /// Albums show as a record crate, not a grid; the record in front, and the wheel's part
+    /// turn.
+    albums_crate: bool,
+    crate_index: usize,
+    crate_scroll: f32,
+    /// Your library's numbers, and the mood map's songs, the spot clicked on it, and where it
+    /// was drawn.
+    numbers: Option<Box<needle_core::numbers::LibraryNumbers>>,
+    /// The genre map's genres, the most songs first.
+    genre_spots: std::rc::Rc<Vec<needle_core::radio::GenreSpot>>,
     page: Page,
     back: Vec<Page>,
     /// Pages left by going back, for going forward again (a new page clears it).
@@ -453,9 +537,15 @@ pub struct AppView {
     playlist_menu: Option<menus::PlaylistMenu>,
     group_menu: Option<menus::GroupMenu>,
     collections_menu: Option<(Point<Pixels>, usize)>,
+    /// The player's ••• menu: where, its serial, and whether the bar was narrow.
+    player_menu: Option<(Point<Pixels>, usize, bool)>,
     header_menu: Option<columns::HeaderMenu>,
     blend_menu: Option<radio::BlendMenu>,
     speaker_menu: Option<speakers::SpeakerMenu>,
+    /// The sleep timer's or speed and pitch's pane, while open.
+    tool_pane: Option<player_tools::ToolPane>,
+    /// The sleep timer endings already acted on (Then sleep the PC).
+    sleep_ended_seen: u64,
     update: Option<updates::UpdateState>,
     measuring: std::sync::Arc<std::sync::atomic::AtomicBool>,
     measured: Option<(usize, usize)>,
@@ -485,6 +575,10 @@ pub struct AppView {
     page_offset: usize,
     loop_start: Option<f64>,
     search: Entity<InputState>,
+    /// The names of fonts on this computer, for the title and the text font (Settings ›
+    /// Appearance).
+    own_font: Entity<InputState>,
+    own_text_font: Entity<InputState>,
     autoplay: Entity<InputState>,
     sync_phrase: Entity<InputState>,
     tags: TagFields,
@@ -516,6 +610,8 @@ pub struct AppView {
     seek_moved: Option<Instant>,
     /// When `poll` last asked for a redraw (see `poll`).
     polled_redraw: Instant,
+    /// When a playing server song's shape was last asked for.
+    waveform_asked: Instant,
     /// Up to four covers per playlist, for the sidebar (`playlist_art`), and what they were
     /// gathered for.
     playlist_art: std::collections::HashMap<String, Vec<String>>,
@@ -557,11 +653,18 @@ pub struct AppView {
     /// The song whose moving cover was looked up, and the picture found (Settings ›
     /// Appearance › Moving covers).
     moving_cover: Option<(String, Option<String>)>,
+    /// The big player's record (the Record look): its angle when it last stopped, and since
+    /// when it turns.
+    record_spin: (f32, Option<std::time::Instant>),
+    /// The album page's moving cover: its first song, and the picture found.
+    album_moving: Option<(String, Option<String>)>,
     /// Music server songs whose moving cover was asked for this time Needle runs.
     moving_cover_asked: std::collections::HashSet<String>,
     immersive_serial: u64,
     /// Whether it shows the lyrics beside the cover, when the song has them.
     immersive_lyrics: bool,
+    /// Full screen shows what plays next beside the cover (the queue button there).
+    immersive_queue: bool,
     /// A wait for the controls to rest is running.
     immersive_waiting: bool,
     /// Immersive mode took the window to full screen, so leaving it takes it back.
@@ -576,6 +679,14 @@ pub struct AppView {
     /// The film-grain tile, once written (`Some(None)` if it could not be).
     grain_file: Option<Option<PathBuf>>,
     media_keys: Option<media_keys::MediaKeys>,
+    /// Keys that work everywhere (Settings › Keyboard).
+    hotkeys: Option<hotkeys::Hotkeys>,
+    /// The action whose keys are being pressed in Settings.
+    recording_keys: Option<String>,
+    _key_interceptor: Subscription,
+    /// Previous, Play/Pause, Next, and Favorite under the taskbar preview.
+    #[cfg(windows)]
+    taskbar: Option<taskbar::Taskbar>,
     /// Whether Windows allows transparency, and whether it is Windows 11 (read at start and
     /// when Appearance settings open).
     glass_system: (bool, bool),
@@ -608,6 +719,8 @@ pub struct AppView {
     /// The last song that was playing, and when; see `shown_item`.
     last_item: Option<(QueueItem, Instant)>,
     mini: Option<AnyWindowHandle>,
+    /// The small floating player.
+    float: Option<AnyWindowHandle>,
     sound: sound::SoundControls,
     /// When playback last stopped or paused, for clearing the Discord status after a while.
     discord_idle_since: Option<i64>,
@@ -621,6 +734,8 @@ pub struct AppView {
     whats_new: Option<whats_new::Notes>,
     /// The phone remote, while it is on.
     remote: Option<needle_core::remote::Server>,
+    /// Needle for AI assistants (MCP), while it is on.
+    mcp: Option<needle_core::mcp::Server>,
     /// Timing sliders for the members of a speaker group, by address.
     speaker_timing: std::collections::HashMap<String, (Entity<SliderState>, Subscription)>,
     import: importer::ImportState,
@@ -679,12 +794,87 @@ pub fn run(library: Library, files: Vec<std::path::PathBuf>) -> Result<()> {
         .run(move |cx| {
             gpui_component::init(cx);
             cx.text_system()
+                // Needle's own fonts (assets/fonts): the title and text choices.
                 .add_fonts(vec![
                     std::borrow::Cow::Borrowed(
-                        include_bytes!("../../fonts/Fraunces72ptSoft-SemiBold.ttf").as_slice(),
+                        include_bytes!("../../../../assets/fonts/AtkinsonHyperlegible-400.ttf")
+                            .as_slice(),
                     ),
                     std::borrow::Cow::Borrowed(
-                        include_bytes!("../../fonts/Fraunces72ptSoft-Bold.ttf").as_slice(),
+                        include_bytes!("../../../../assets/fonts/AtkinsonHyperlegible-700.ttf")
+                            .as_slice(),
+                    ),
+                    std::borrow::Cow::Borrowed(
+                        include_bytes!("../../../../assets/fonts/BricolageGrotesque-600.ttf")
+                            .as_slice(),
+                    ),
+                    std::borrow::Cow::Borrowed(
+                        include_bytes!("../../../../assets/fonts/BricolageGrotesque-800.ttf")
+                            .as_slice(),
+                    ),
+                    std::borrow::Cow::Borrowed(
+                        include_bytes!("../../../../assets/fonts/DMSerifDisplay-400.ttf")
+                            .as_slice(),
+                    ),
+                    std::borrow::Cow::Borrowed(
+                        include_bytes!("../../../../assets/fonts/Fraunces72ptSoft-Bold.ttf")
+                            .as_slice(),
+                    ),
+                    std::borrow::Cow::Borrowed(
+                        include_bytes!("../../../../assets/fonts/Fraunces72ptSoft-SemiBold.ttf")
+                            .as_slice(),
+                    ),
+                    std::borrow::Cow::Borrowed(
+                        include_bytes!("../../../../assets/fonts/IBMPlexMono-400.ttf").as_slice(),
+                    ),
+                    std::borrow::Cow::Borrowed(
+                        include_bytes!("../../../../assets/fonts/IBMPlexMono-700.ttf").as_slice(),
+                    ),
+                    std::borrow::Cow::Borrowed(
+                        include_bytes!("../../../../assets/fonts/InstrumentSerif-400.ttf")
+                            .as_slice(),
+                    ),
+                    std::borrow::Cow::Borrowed(
+                        include_bytes!("../../../../assets/fonts/Inter-400.ttf").as_slice(),
+                    ),
+                    std::borrow::Cow::Borrowed(
+                        include_bytes!("../../../../assets/fonts/Inter-500.ttf").as_slice(),
+                    ),
+                    std::borrow::Cow::Borrowed(
+                        include_bytes!("../../../../assets/fonts/Inter-600.ttf").as_slice(),
+                    ),
+                    std::borrow::Cow::Borrowed(
+                        include_bytes!("../../../../assets/fonts/Inter-700.ttf").as_slice(),
+                    ),
+                    std::borrow::Cow::Borrowed(
+                        include_bytes!("../../../../assets/fonts/Lexend-400.ttf").as_slice(),
+                    ),
+                    std::borrow::Cow::Borrowed(
+                        include_bytes!("../../../../assets/fonts/Lexend-500.ttf").as_slice(),
+                    ),
+                    std::borrow::Cow::Borrowed(
+                        include_bytes!("../../../../assets/fonts/Lexend-600.ttf").as_slice(),
+                    ),
+                    std::borrow::Cow::Borrowed(
+                        include_bytes!("../../../../assets/fonts/Lexend-700.ttf").as_slice(),
+                    ),
+                    std::borrow::Cow::Borrowed(
+                        include_bytes!("../../../../assets/fonts/Outfit-600.ttf").as_slice(),
+                    ),
+                    std::borrow::Cow::Borrowed(
+                        include_bytes!("../../../../assets/fonts/Outfit-700.ttf").as_slice(),
+                    ),
+                    std::borrow::Cow::Borrowed(
+                        include_bytes!("../../../../assets/fonts/Poster-800.ttf").as_slice(),
+                    ),
+                    std::borrow::Cow::Borrowed(
+                        include_bytes!("../../../../assets/fonts/Poster-900.ttf").as_slice(),
+                    ),
+                    std::borrow::Cow::Borrowed(
+                        include_bytes!("../../../../assets/fonts/SpaceGrotesk-600.ttf").as_slice(),
+                    ),
+                    std::borrow::Cow::Borrowed(
+                        include_bytes!("../../../../assets/fonts/SpaceGrotesk-700.ttf").as_slice(),
                     ),
                 ])
                 .ok();
@@ -692,6 +882,7 @@ pub fn run(library: Library, files: Vec<std::path::PathBuf>) -> Result<()> {
             cx.set_global(themes::load(&themes::sources(&library)));
             set_theme(&settings.theme, None, cx);
             theme::set_display_font(&settings.display_font);
+            theme::set_text_font(&settings.text_font, cx);
             cx.set_global(motion::Motion {
                 enabled: !settings.reduce_motion && motion::system_allows_animation(),
             });
@@ -803,6 +994,8 @@ fn watch(
 impl AppView {
     fn new(library: Library, window: &mut Window, cx: &mut Context<Self>) -> Self {
         thumbs::start(library.directory.join("artwork").join("thumbs"));
+        // The songs' own lyrics, read slowly for Search › In the lyrics.
+        needle_core::find::start_reading_lyrics(library.clone());
         let mut settings = library.settings().unwrap_or_default();
         let measure_sound = settings.sound_analysis;
         // Ambient used to be a look of its own; it is now a setting for any look.
@@ -813,9 +1006,11 @@ impl AppView {
         let player = Player::new(library.clone());
         // The player's state holds the saved volume, which saving settings keeps.
         let playback = player.state();
-        let search = cx.new(|cx| {
-            InputState::new(window, cx).placeholder("Search, or write a rule like  rating >= 4")
-        });
+        let search = cx.new(|cx| InputState::new(window, cx).placeholder("Search"));
+        let own_font =
+            cx.new(|cx| InputState::new(window, cx).placeholder("A font's name, such as Georgia"));
+        let own_text_font =
+            cx.new(|cx| InputState::new(window, cx).placeholder("A font's name, such as Verdana"));
         let autoplay = cx.new(|cx| {
             InputState::new(window, cx)
                 .placeholder("rating >= 4 and not played(7d) shuffle limit 20")
@@ -871,6 +1066,36 @@ impl AppView {
         window.focus(&focus);
         let (sender, events) = crossbeam_channel::unbounded();
         let media_keys = media_keys::MediaKeys::new(window, sender.clone(), &library.directory);
+        let hotkeys = {
+            let sender = sender.clone();
+            let keys = hotkeys::Hotkeys::start(move |action| {
+                let _ = sender.send(Event::Hotkey(action));
+            });
+            keys.set(&settings.global_shortcuts);
+            keys
+        };
+        #[cfg(windows)]
+        let taskbar = {
+            use raw_window_handle::{HasWindowHandle, RawWindowHandle};
+            match HasWindowHandle::window_handle(window).map(|h| h.as_raw()) {
+                Ok(RawWindowHandle::Win32(win32)) => {
+                    Some(taskbar::Taskbar::new(win32.hwnd.get(), sender.clone()))
+                }
+                _ => None,
+            }
+        };
+        // While Settings waits for keys, they go to it, not to Needle's own shortcuts.
+        let key_interceptor = {
+            let view = cx.weak_entity();
+            cx.intercept_keystrokes(move |event, _, cx| {
+                let _ = view.update(cx, |this, cx| {
+                    if this.recording_keys.is_some() {
+                        this.record_hotkey(&event.keystroke, cx);
+                        cx.stop_propagation();
+                    }
+                });
+            })
+        };
         let plugins = {
             let sender = sender.clone();
             needle_core::plugins::PluginHost::start(
@@ -898,11 +1123,16 @@ impl AppView {
                                 | Page::Folder(_)
                                 | Page::Albums
                                 | Page::Artists
+                                | Page::Search
                         )
                     {
                         this.back.push(this.page.clone());
                         this.forward.clear();
-                        this.page = Page::Songs;
+                        this.page = Page::Search;
+                        this.search_tab = Default::default();
+                    }
+                    if this.page == Page::Search {
+                        this.run_find(cx);
                     }
                     this.refresh(cx);
                     this.update_suggestions(cx);
@@ -966,6 +1196,23 @@ impl AppView {
             history_stats: None,
             history_range: 1,
             history_loading: false,
+            picture_sweep: needle_core::media::pictures::PictureSweep::start(library.clone()),
+            on_this_day: vec![],
+            home_year: None,
+            search_tab: Default::default(),
+            found: None,
+            found_error: None,
+            found_lyrics: vec![],
+            find_generation: 0,
+            waveform: None,
+            translate_lyrics: false,
+            translation: None,
+            visualizer: false,
+            albums_crate: false,
+            crate_index: 0,
+            crate_scroll: 0.,
+            numbers: None,
+            genre_spots: Default::default(),
             library,
             player,
             playback,
@@ -984,9 +1231,12 @@ impl AppView {
             playlist_menu: None,
             group_menu: None,
             collections_menu: None,
+            player_menu: None,
             header_menu: None,
             blend_menu: None,
             speaker_menu: None,
+            tool_pane: None,
+            sleep_ended_seen: 0,
             update: None,
             measuring: radio::switch(measure_sound),
             measured: None,
@@ -1005,6 +1255,7 @@ impl AppView {
             settings_open: Default::default(),
             speaker_timing: Default::default(),
             remote: None,
+            mcp: None,
             welcome_step: None,
             whats_new: None,
             tray: None,
@@ -1017,6 +1268,8 @@ impl AppView {
             page_offset: 0,
             loop_start: None,
             search,
+            own_font,
+            own_text_font,
             autoplay,
             sync_phrase,
             tags,
@@ -1045,6 +1298,7 @@ impl AppView {
             add_songs: None,
             seek_moved: None,
             polled_redraw: Instant::now(),
+            waveform_asked: Instant::now(),
             thumbs_seen: 0,
             server_songs: vec![],
             playlist_art: Default::default(),
@@ -1070,9 +1324,12 @@ impl AppView {
             immersive_moved: Instant::now(),
             immersive_shown: true,
             moving_cover: None,
+            record_spin: (30., None),
+            album_moving: None,
             moving_cover_asked: Default::default(),
             immersive_serial: 0,
             immersive_lyrics: true,
+            immersive_queue: false,
             immersive_waiting: false,
             immersive_restore: None,
             immersive_toggled: false,
@@ -1082,6 +1339,11 @@ impl AppView {
             fade: ambient::Fade::new(pal(cx)),
             grain_file: None,
             media_keys,
+            hotkeys: Some(hotkeys),
+            recording_keys: None,
+            _key_interceptor: key_interceptor,
+            #[cfg(windows)]
+            taskbar,
             glass_system: (glass::system_allows_transparency(), glass::windows_11()),
             glass_applied: None,
             home: None,
@@ -1104,6 +1366,7 @@ impl AppView {
             recent_tracks: Default::default(),
             last_item: None,
             mini: None,
+            float: None,
             sound,
             import,
             plugins,
@@ -1146,6 +1409,7 @@ impl AppView {
         view.start_measuring();
         view.check_for_update(false);
         view.apply_remote();
+        view.apply_mcp();
         view.apply_tray();
         view.maybe_whats_new();
         view.maybe_welcome();
@@ -1288,6 +1552,9 @@ impl AppView {
             || playback.current.as_ref().map(|i| &i.track.id)
                 != self.playback.current.as_ref().map(|i| &i.track.id);
         self.playback = playback;
+        self.watch_sleep_timer();
+        #[cfg(windows)]
+        self.update_taskbar();
         if let Some(item) = self.playback.current.as_mut()
             && item.track.artwork.is_none()
             && let Some(path) = self.art_override.get(&item.track.id)
@@ -1430,6 +1697,18 @@ impl AppView {
                 }
                 Event::Look(path, look) => self.set_look(path, look),
                 Event::Home(home) => self.home = Some(home),
+                Event::OnThisDay(days) => self.on_this_day = days,
+                Event::HomeYear(year) => self.home_year = year,
+                Event::Found(generation, found) => self.found(generation, found),
+                Event::FoundLyrics(generation, found) => {
+                    if generation == self.find_generation {
+                        self.found_lyrics = found;
+                    }
+                }
+                Event::Waveform(id, heights) => self.waveform = Some((id, heights)),
+                Event::Translated(id, lines) => self.translation = Some((id, lines)),
+                Event::Numbers(numbers) => self.numbers = Some(numbers),
+                Event::GenreMap(spots) => self.genre_spots = std::rc::Rc::new(spots),
                 Event::Subfolders(path, list) => self.subfolders = Some((path, list)),
                 Event::Wrapped(wrapped, years) => self.wrapped_loaded(*wrapped, years),
                 Event::Doctor(msg) => self.doctor_message(msg),
@@ -1522,8 +1801,43 @@ impl AppView {
                 Event::ArtistLogo(name, logo) if name == self.artist_view.name => {
                     self.artist_view.logo = logo
                 }
-                Event::ArtistTop(..) | Event::ArtistBanner(..) | Event::ArtistLogo(..) => {}
+                Event::ArtistChoices(name, kind, choices) if name == self.artist_view.name => {
+                    self.artist_view.choices = Some((kind, choices));
+                }
+                Event::ArtistPicturesChanged(name) => {
+                    // A chosen picture is kept at the same path as the one before it: forget
+                    // the old one GPUI holds, so the new one shows now, not after a restart.
+                    let mut old: Vec<String> = self
+                        .artist_images
+                        .remove(&name)
+                        .flatten()
+                        .into_iter()
+                        .collect();
+                    if name == self.artist_view.name {
+                        old.extend(self.artist_view.banner.clone());
+                        if let Some(logo) = &self.artist_view.logo {
+                            old.extend([logo.white.clone(), logo.ink.clone()]);
+                        }
+                    }
+                    artist::forget_pictures(old, cx);
+                    if name == self.artist_view.name {
+                        let editing = self.artist_view.editing;
+                        self.load_artist_view(&name);
+                        self.artist_view.editing = editing;
+                    }
+                }
+                Event::ArtistTop(..)
+                | Event::ArtistBanner(..)
+                | Event::ArtistLogo(..)
+                | Event::ArtistChoices(..) => {}
                 Event::MediaKey(key) => self.media_key(key, window, cx),
+                Event::Hotkey(action) => self.run_hotkey(&action, window, cx),
+                #[cfg(windows)]
+                Event::TaskbarCreated => {
+                    if let Some(taskbar) = &mut self.taskbar {
+                        taskbar.recreated();
+                    }
+                }
                 Event::Themes(generation, themes) => {
                     self.themes_found(generation, *themes, window, cx)
                 }
@@ -1596,6 +1910,21 @@ impl AppView {
                     }
                     self.refresh(cx);
                 }
+                Event::LyricCard(path) => {
+                    let name = path.file_name().unwrap_or_default().to_string_lossy();
+                    match std::fs::read(&path) {
+                        Ok(png) => {
+                            cx.write_to_clipboard(ClipboardItem::new_image(&Image::from_bytes(
+                                ImageFormat::Png,
+                                png,
+                            )));
+                            self.notify(format!(
+                                "Saved {name} in Pictures › Needle, and copied it: paste it anywhere."
+                            ));
+                        }
+                        Err(_) => self.notify(format!("Saved {name} in Pictures › Needle.")),
+                    }
+                }
                 Event::Notice(notice) => {
                     if !notice.is_empty() {
                         self.notify(notice);
@@ -1666,6 +1995,19 @@ impl AppView {
             || self.polled_redraw.elapsed() >= Duration::from_secs(1)
         {
             self.polled_redraw = Instant::now();
+            // A server's song has its shape once it has fully downloaded: ask again now and
+            // then while it has none.
+            if let Some(item) = self.playback.current.clone()
+                && item.track.source().is_some()
+                && self
+                    .waveform
+                    .as_ref()
+                    .is_none_or(|(id, _)| *id != item.track.id)
+                && self.waveform_asked.elapsed() >= Duration::from_secs(10)
+            {
+                self.waveform_asked = Instant::now();
+                self.load_waveform(&item.track);
+            }
             cx.notify();
         }
     }
@@ -1737,6 +2079,7 @@ impl AppView {
     }
 
     fn refresh(&mut self, cx: &mut Context<Self>) {
+        let choice = self.artist_choice();
         let _slow = bench::Slow::new("refresh");
         if !self.page.is_tracks() {
             return;
@@ -1788,7 +2131,9 @@ impl AppView {
             std::thread::spawn(move || {
                 let result = match &page {
                     Page::Albums => library.albums(&expression).map(library::album_groups),
-                    Page::Artists => library.artists(&expression).map(library::artist_groups),
+                    Page::Artists => library
+                        .artists_by(&expression, choice)
+                        .map(library::artist_groups),
                     Page::Artist(name) => library.artist_albums(name).map(library::album_groups),
                     _ => Ok(vec![]),
                 };
@@ -1913,6 +2258,9 @@ impl AppView {
         }
         if self.page == Page::Doctor {
             self.doctor_load();
+        }
+        if matches!(self.page, Page::Numbers | Page::MoodMap) {
+            self.load_insights();
         }
         if self.page == Page::Settings {
             self.glass_system = (glass::system_allows_transparency(), glass::windows_11());
@@ -2482,6 +2830,229 @@ impl AppView {
             .child(gpui_component::slider::Slider::new(&self.seek).disabled(disabled))
     }
 
+    /// The seek bar over the song's shape: its loud and quiet parts as bars, the part played in
+    /// the accent; the bar itself is see-through on top, for clicking and dragging. A plain seek
+    /// bar until the shape is measured.
+    pub(super) fn wave_seek_bar(
+        &self,
+        id: &'static str,
+        disabled: bool,
+        height: f32,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
+        let current = self.playback.current.as_ref().map(|c| c.track.id.clone());
+        let style = self.settings.seek_style.as_str();
+        if style != "shape" {
+            return self.styled_seek_bar(id, disabled, height, cx);
+        }
+        let Some(heights) = self
+            .waveform
+            .as_ref()
+            .filter(|(id, _)| Some(id) == current.as_ref())
+            .map(|(_, h)| h.clone())
+        else {
+            return self.seek_bar(id, disabled, cx).into_any_element();
+        };
+        let p = pal(cx);
+        let duration = self
+            .playback
+            .current
+            .as_ref()
+            .map_or(0., |c| c.track.duration);
+        let played = if duration > 0. {
+            (self.playback.position / duration).clamp(0., 1.) as f32
+        } else {
+            0.
+        };
+        let (accent, rest) = (p.accent, p.ink.opacity(0.22));
+        div()
+            .flex_1()
+            .h(px(height))
+            .relative()
+            .child(
+                canvas(
+                    |_, _, _| {},
+                    move |b, _, window, _| {
+                        let count = heights.len().max(1);
+                        let step = b.size.width / count as f32;
+                        let bar = (step * 0.62).max(px(1.));
+                        for (i, h) in heights.iter().enumerate() {
+                            let tall = (b.size.height * h.max(0.06)).max(px(2.));
+                            let x = b.left() + step * i as f32;
+                            let y = b.top() + (b.size.height - tall) / 2.;
+                            let color = if (i as f32 + 0.5) / count as f32 <= played {
+                                accent
+                            } else {
+                                rest
+                            };
+                            window.paint_quad(
+                                fill(Bounds::new(point(x, y), size(bar, tall)), color)
+                                    .corner_radii(bar / 2.),
+                            );
+                        }
+                    },
+                )
+                .absolute()
+                .inset_0(),
+            )
+            .child(
+                div()
+                    .absolute()
+                    .inset_0()
+                    .flex()
+                    .items_center()
+                    .opacity(0.)
+                    .child(self.seek_bar(id, disabled, cx)),
+            )
+            .into_any_element()
+    }
+
+    /// The big player's seek bar as a wave, a line, or a thick bar (Settings › Appearance ›
+    /// Seek bar), with the plain seek bar unseen over it to take the pointer.
+    fn styled_seek_bar(
+        &self,
+        id: &'static str,
+        disabled: bool,
+        height: f32,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
+        let p = pal(cx);
+        let duration = self
+            .playback
+            .current
+            .as_ref()
+            .map_or(0., |c| c.track.duration);
+        let played = if duration > 0. {
+            (self.playback.position / duration).clamp(0., 1.) as f32
+        } else {
+            0.
+        };
+        let style = self.settings.seek_style.clone();
+        // The wave moves only while the music plays, and not with Reduce motion.
+        let moving = style == "wave" && self.playback.playing && self.motion_allowed();
+        let (accent, rest) = (p.accent, p.ink.opacity(0.22));
+        div()
+            .flex_1()
+            .h(px(height))
+            .relative()
+            .child(
+                canvas(
+                    |_, _, _| {},
+                    move |b, _, window, _| {
+                        let middle = b.top() + b.size.height / 2.;
+                        let split = b.left() + b.size.width * played;
+                        let thick = px(match style.as_str() {
+                            "thick" => 10.,
+                            "wave" => 3.,
+                            _ => 4.,
+                        });
+                        // What is still to play: a straight bar (after a small gap from
+                        // the wave, as Android's).
+                        let gap = if style == "wave" && played > 0. {
+                            px(6.)
+                        } else {
+                            px(0.)
+                        };
+                        let from = (split + gap).min(b.right());
+                        window.paint_quad(
+                            fill(
+                                Bounds::new(
+                                    point(from, middle - thick / 2.),
+                                    size(b.right() - from, thick),
+                                ),
+                                rest,
+                            )
+                            .corner_radii(thick / 2.),
+                        );
+                        if style == "wave" && split > b.left() {
+                            // What has played: one smooth wave, flat while the music rests.
+                            let amplitude = if moving { 2.5 } else { 0. };
+                            let phase = if moving {
+                                std::time::SystemTime::now()
+                                    .duration_since(std::time::UNIX_EPOCH)
+                                    // In whole turns first: seconds since 1970 are too
+                                    // large a number for the sine to move.
+                                    .map_or(0., |d| {
+                                        ((d.as_secs_f64() * 5.) % std::f64::consts::TAU) as f32
+                                    })
+                            } else {
+                                0.
+                            };
+                            let at = |x: Pixels| {
+                                let t = f32::from(x - b.left()) / 40. * std::f32::consts::TAU;
+                                point(x, middle + px(amplitude * (t - phase).sin()))
+                            };
+                            let mut line = PathBuilder::stroke(thick);
+                            line.move_to(at(b.left()));
+                            let mut x = b.left();
+                            while x < split {
+                                x = (x + px(1.)).min(split);
+                                line.line_to(at(x));
+                            }
+                            if let Ok(path) = line.build() {
+                                window.paint_path(path, accent);
+                            }
+                            // Round ends.
+                            for end in [at(b.left()), at(split)] {
+                                window.paint_quad(
+                                    fill(Bounds::centered_at(end, size(thick, thick)), accent)
+                                        .corner_radii(thick / 2.),
+                                );
+                            }
+                            if moving {
+                                window.request_animation_frame();
+                            }
+                        } else if split > b.left() {
+                            window.paint_quad(
+                                fill(
+                                    Bounds::new(
+                                        point(b.left(), middle - thick / 2.),
+                                        size(split - b.left(), thick),
+                                    ),
+                                    accent,
+                                )
+                                .corner_radii(thick / 2.),
+                            );
+                        }
+                    },
+                )
+                .absolute()
+                .inset_0(),
+            )
+            .child(
+                div()
+                    .absolute()
+                    .inset_0()
+                    .flex()
+                    .items_center()
+                    .opacity(0.)
+                    .child(self.seek_bar(id, disabled, cx)),
+            )
+            .into_any_element()
+    }
+
+    /// The seek bar as a thin line (its knob shows under the pointer), for the floating
+    /// player's small screen.
+    pub(super) fn thin_seek_bar(&self, disabled: bool, cx: &mut Context<Self>) -> impl IntoElement {
+        div()
+            .id("thin-seek-bar")
+            .flex_1()
+            .when(!disabled, |el| {
+                el.capture_any_mouse_down(cx.listener(|this, event: &MouseDownEvent, _, _| {
+                    if event.button == MouseButton::Left && !this.seek_held {
+                        this.seek_held = true;
+                        this.seek_to = None;
+                        this.player.send(Command::Scrub(true));
+                    }
+                }))
+            })
+            .child(
+                gpui_component::slider::Slider::new(&self.seek)
+                    .thin()
+                    .disabled(disabled),
+            )
+    }
+
     /// Lets go of a held seek bar: one jump, if the same song still plays, then the sound
     /// comes back. The whole window listens for the button, so this works even when the bar
     /// itself is gone, for example after F11 while it was held.
@@ -2595,8 +3166,14 @@ fn shown_playback(p: &needle_core::audio::PlaybackState) -> impl PartialEq + use
 impl Render for AppView {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let _slow = bench::Slow::new("render");
+        // The artist pictures sweep looks only with online lookups and its setting on, and not
+        // while a library scan runs.
+        self.picture_sweep.set_allowed(
+            self.settings.online_media && self.settings.artist_pictures && self.scan.is_none(),
+        );
         self.update_palette(window, cx);
         self.update_glass(window, cx);
+        self.update_album_moving();
         if self.page == Page::Settings && self.settings_tab == 0 {
             self.sync_timing_sliders(cx);
         }
@@ -2734,7 +3311,7 @@ impl Render for AppView {
                 cx.listener(|this, _: &PreviousTrack, _, _| this.player.send(Command::Previous)),
             )
             .on_action(cx.listener(|this, _: &SeekForward, window, cx| {
-                if this.menu_key("right", window, cx) {
+                if this.menu_key("right", window, cx) || this.crate_key("right", window, cx) {
                     return;
                 }
                 if this.playback.current.is_some() {
@@ -2743,7 +3320,7 @@ impl Render for AppView {
                 }
             }))
             .on_action(cx.listener(|this, _: &SeekBackward, window, cx| {
-                if this.menu_key("left", window, cx) {
+                if this.menu_key("left", window, cx) || this.crate_key("left", window, cx) {
                     return;
                 }
                 if this.playback.current.is_some() {
@@ -2790,7 +3367,7 @@ impl Render for AppView {
                 cx.notify();
             }))
             .on_action(cx.listener(|this, _: &PlaySelection, window, cx| {
-                if this.menu_key("enter", window, cx) {
+                if this.menu_key("enter", window, cx) || this.crate_key("enter", window, cx) {
                     return;
                 }
                 let selected = this.selected_tracks();
@@ -2944,6 +3521,7 @@ impl Render for AppView {
                         // layer), with the sidebar, the player, and the side panel floating on it;
                         // the player sits beside the sidebar, which runs the window's height.
                         let floating = self.floating();
+                        let on_glass = self.on_glass();
                         let sheet = div()
                             .id("sheet")
                             .flex_1()
@@ -2955,25 +3533,49 @@ impl Render for AppView {
                             // Elsewhere, the content surface: flush with the window's right edge
                             // and the player, one hairline and a rounded corner where it meets
                             // the sidebar and title bar, like Windows 11's own apps.
-                            .when(!floating, |el| {
-                                el.rounded_tl(px(10.))
+                            .when(!on_glass, |el| {
+                                el.rounded_tl(px(if floating { 12. } else { 10. }))
                                     .bg(p.canvas)
                                     .border_t_1()
                                     .border_l_1()
                                     .border_color(if p.dark { p.line_soft } else { p.line })
                             })
+                            .when(floating && !on_glass, |el| el.size_full())
                             // macOS Liquid Glass: the page is drawn under the glass, so the
                             // floating player shows the songs passing beneath it.
-                            .when(floating, |el| el.size_full().under_glass())
+                            .when(on_glass, |el| el.size_full().under_glass())
                             .child(backdrop)
-                            .child(self.main(content_width, window, cx))
+                            // With the side panel floating over the sheet, the page stops beside it
+                            // (wide shelves would run on under it).
+                            .map(|el| {
+                                if floating && !on_glass && show_panel {
+                                    el.child(
+                                        div()
+                                            .w(px(content_width))
+                                            .h_full()
+                                            .flex_shrink_0()
+                                            .overflow_hidden()
+                                            .child(self.main(content_width, window, cx)),
+                                    )
+                                } else {
+                                    el.child(self.main(content_width, window, cx))
+                                }
+                            })
                             .when(show_panel && !floating, |el| {
                                 el.child(self.panel(panel_width, window, cx))
                             });
-                        // The player at the bottom; or, with it in the title bar, the search
-                        // field there (unless hidden too).
+                        // The player at the bottom; or, with it in the title bar and the
+                        // sidebar folded away, the search field there (unless hidden too).
                         let player_foot = !self.settings.layout.player_on_top;
-                        let foot = if player_foot {
+                        let foot = if player_foot && floating && !on_glass {
+                            // Needle 2.0: the Mac's floating bar, centred over the page's foot
+                            // and clear of the side panel.
+                            let room = f32::from(width)
+                                - sidebar
+                                - if show_panel { panel_width } else { 0. }
+                                - 40.;
+                            Some(self.floating_player(room, cx).into_any_element())
+                        } else if player_foot {
                             Some(
                                 self.player_bar(
                                     if floating { width - px(sidebar) } else { width },
@@ -2981,8 +3583,12 @@ impl Render for AppView {
                                 )
                                 .into_any_element(),
                             )
-                        } else if !self.settings.layout.search_hidden && !self.big {
-                            // (Over the big player, the title bar has the search field.)
+                        } else if !self.settings.layout.search_hidden
+                            && !self.big
+                            && self.settings.layout.sidebar_hidden
+                        {
+                            // Only with the sidebar folded away: the sidebar has the search
+                            // field at its top. (Over the big player, the title bar has it.)
                             Some(self.search_strip(window, cx).into_any_element())
                         } else {
                             None
@@ -2992,8 +3598,72 @@ impl Render for AppView {
                             .min_h_0()
                             .flex()
                             .bg(p.back)
-                            .when(sidebar > 0., |el| el.child(self.sidebar(sidebar, cx)));
-                        if floating {
+                            .when(sidebar > 0., |el| {
+                                el.child(self.sidebar(sidebar, window, cx))
+                            });
+                        if floating && !on_glass {
+                            // Needle 2.0 on Windows and Linux: the page is a sheet with one
+                            // round corner; the side panel floats over its right side and the
+                            // player over its foot, both frosted.
+                            let (over, below) = if player_foot {
+                                (foot, None)
+                            } else {
+                                (None, foot)
+                            };
+                            // With the player in the title bar, the line being sung sits right
+                            // under it (at the foot, it is in the floating player).
+                            let sung_top = if player_foot {
+                                None
+                            } else {
+                                self.player_lyrics(cx)
+                            };
+                            el.child(
+                                row.child(
+                                    div()
+                                        .flex_1()
+                                        .min_w_0()
+                                        .flex()
+                                        .flex_col()
+                                        .children(sung_top)
+                                        .child(
+                                            div()
+                                                .flex_1()
+                                                .min_h_0()
+                                                .relative()
+                                                .child(sheet)
+                                                .when(show_panel, |el| {
+                                                    el.child(
+                                                        div()
+                                                            .absolute()
+                                                            .top(px(6.))
+                                                            .right(px(10.))
+                                                            .bottom(px(10.))
+                                                            .child(self.panel(
+                                                                panel_width,
+                                                                window,
+                                                                cx,
+                                                            )),
+                                                    )
+                                                })
+                                                .children(over.map(|player| {
+                                                    div()
+                                                        .absolute()
+                                                        .left_0()
+                                                        .right(px(if show_panel {
+                                                            panel_width
+                                                        } else {
+                                                            0.
+                                                        }))
+                                                        .bottom(px(14.))
+                                                        .flex()
+                                                        .justify_center()
+                                                        .child(player)
+                                                })),
+                                        )
+                                        .children(below),
+                                ),
+                            )
+                        } else if floating {
                             // The page fills the column; the player floats over its foot (the
                             // page leaves room to scroll its end out from under it), and the side
                             // panel floats beside it.
@@ -3059,9 +3729,11 @@ impl Render for AppView {
             .children(self.playlist_menu_view(cx))
             .children(self.group_menu_view(cx))
             .children(self.collections_menu_view(cx))
+            .children(self.player_menu_view(cx))
             .children(self.header_menu_view(cx))
             .children(self.blend_menu_view(cx))
             .children(self.speaker_menu_view(cx))
+            .children(self.tool_pane_view(cx))
             .children(self.palette_view(cx))
             .children(self.welcome_view(window, cx))
             .children(self.whats_new_view(window, cx))

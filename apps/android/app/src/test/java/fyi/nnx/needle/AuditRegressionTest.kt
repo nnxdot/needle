@@ -13,6 +13,49 @@ import java.io.InputStream
 import java.nio.file.Files
 
 class AuditRegressionTest {
+    /**
+     * Linux's USB audio driver comes back when the audio control interface is given back, and it
+     * skips a streaming interface still held: then the DAC has a sound card with nothing to play on.
+     */
+    /** The sound settings are off only while the music really goes to Needle's own USB driver. */
+    @Test
+    fun soundToolsStandAsideOnlyForTheDriver() {
+        val info = fyi.nnx.needle.core.UsbDacInfo("DAC", 2u, listOf(48_000u), 24u, false, true)
+        assertTrue(UsbDriver.State.Driving(info).takesTheMusic(false))
+        // A speaker on the network plays through them.
+        assertFalse(UsbDriver.State.Driving(info).takesTheMusic(true))
+        // Nothing plugged in, waiting to be allowed, or Android's output.
+        assertFalse(UsbDriver.State.None.takesTheMusic(false))
+        assertFalse(UsbDriver.State.Asking("DAC").takesTheMusic(false))
+        assertFalse(UsbDriver.State.Fallback("DAC", "why").takesTheMusic(false))
+    }
+
+    @Test
+    fun aDacThatDoesNotAnswerYetIsTriedAgain() = runBlocking {
+        var tries = 0
+        val works = retrying(3, 1, { true }) { if (++tries < 2) Result.failure(IOException("not yet")) else Result.success("open") }
+        assertEquals("open", works.getOrNull())
+        assertEquals(2, tries)
+
+        tries = 0
+        val never = retrying<String>(3, 1, { true }) { tries++; Result.failure(IOException("no: $tries")) }
+        assertEquals("no: 3", never.exceptionOrNull()?.message)
+
+        // Pulled out, or the switch turned off, between tries.
+        tries = 0
+        val stopped = retrying<String>(3, 1, { tries < 1 }) { tries++; Result.failure(IOException("no")) }
+        assertEquals(1, tries)
+        assertEquals("no", stopped.exceptionOrNull()?.message)
+    }
+
+    @Test
+    fun aDacsControlInterfaceGoesBackLast() {
+        // Android lists every alternate setting: (interface, subclass), control first as DACs do.
+        val interfaces = listOf(0 to 1, 1 to 2, 1 to 2, 2 to 2, 3 to 3)
+        val order = controlLast(interfaces) { it.second == 1 }
+        assertEquals(listOf(1 to 2, 1 to 2, 2 to 2, 3 to 3, 0 to 1), order)
+    }
+
     @Test fun slowProviderCopiesLeaveTheCallingThreadResponsive() = runBlocking {
         val folder = Files.createTempDirectory("needle-slow-provider").toFile()
         try {

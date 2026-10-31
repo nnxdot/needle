@@ -87,7 +87,7 @@ private fun rememberPlugins(): List<PluginItem>? {
 fun PluginsScreen(open: (Route) -> Unit) {
     // What is built into Needle (its music servers) is not a plugin to the user: it has its own place.
     val plugins = rememberPlugins()?.filter { !it.builtIn }
-    LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = 32.dp)) {
+    LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = 32.dp + LocalBottomInset.current)) {
         item { LargeTitle("Plugins") }
         item {
             Text(
@@ -143,7 +143,7 @@ fun PluginsScreen(open: (Route) -> Unit) {
 fun PluginScreen(id: String) {
     val plugins = rememberPlugins()
     val plugin = plugins?.firstOrNull { it.id == id } ?: return
-    LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = 32.dp)) {
+    LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = 32.dp + LocalBottomInset.current)) {
         item { LargeTitle(plugin.name) }
         item {
             Column(Modifier.padding(horizontal = Edge), verticalArrangement = Arrangement.spacedBy(6.dp)) {
@@ -534,6 +534,8 @@ fun PluginEffects() {
     var refresh by remember { mutableIntStateOf(0) }
     LaunchedEffect(refresh) { effects = withContext(Dispatchers.IO) { runCatching { core.effects() }.getOrNull() } }
     val list = effects ?: return
+    // Shown as off, and kept: they apply again when Needle's USB driver lets go.
+    val off = soundToolsOff()
     Column(Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) {
         Text("Effects from plugins", style = MaterialTheme.typography.titleSmall, fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold, color = MaterialTheme.colorScheme.onSurface, modifier = Modifier.padding(start = 8.dp, bottom = 8.dp, top = 8.dp))
         Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(24.dp)).background(MaterialTheme.colorScheme.surfaceContainer).animateContentSize()) {
@@ -551,16 +553,16 @@ fun PluginEffects() {
                 Row(Modifier.fillMaxWidth().padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
                     Column(Modifier.weight(1f)) {
                         Text(effect.name, style = MaterialTheme.typography.bodyLarge)
-                        Text(effect.failure ?: "${effect.pluginName} · ${effect.description}", style = MaterialTheme.typography.bodyMedium, color = if (effect.failure != null) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant)
+                        Text(if (off) OffWithUsb else effect.failure ?: "${effect.pluginName} · ${effect.description}", style = MaterialTheme.typography.bodyMedium, color = if (effect.failure != null) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant)
                     }
                     // Moves at once, rather than when the effect is read again a moment later.
-                    Switch(checked = shownOn, modifier = Modifier.named(effect.name), onCheckedChange = { on ->
+                    Switch(checked = shownOn && !off, enabled = !off, modifier = Modifier.named(effect.name), onCheckedChange = { on ->
                         shownOn = on
                         // In order with the effect's other changes (the saves line), so none undoes another.
                         NeedleApp.instance.scope.launch { withContext(NeedleApp.instance.saves) { runCatching { core.setEffect(effect.plugin, effect.id, on) } }; delay(300); refresh++ }
                     })
                 }
-                if (shownOn) {
+                if (shownOn && !off) {
                     effect.params.forEach { param ->
                         var value by remember(effect.id, param.id, param.value) { mutableStateOf(param.value) }
                         Column(Modifier.padding(horizontal = 16.dp)) {

@@ -50,6 +50,10 @@ xcodebuild -create-xcframework "${args[@]}" -output "$ios/NeedleCore.xcframework
 rm -rf "$gen"
 [ "$kind" = core ] && exit 0
 
+# Needle's fonts for titles and text (SIL Open Font License; see assets/fonts).
+mkdir -p "$ios/Needle/Fonts"
+cp "$here/assets/fonts/"*.ttf "$here/assets/fonts/"*-OFL.txt "$ios/Needle/Fonts/"
+
 cd "$ios"
 if [ "$kind" = device ] || [ "$kind" = ipa ]; then
     xcodebuild -project Needle.xcodeproj -scheme Needle -configuration Release \
@@ -74,6 +78,9 @@ for framework in "$app"/Frameworks/*.framework; do
     fi
 done
 codesign --force --sign - --timestamp=none --entitlements NeedleWidgets.entitlements "$app/PlugIns/NeedleWidgets.appex"
+# SideStore and AltStore sign only PlugIns and Frameworks, so a Watch app would stay unsigned for
+# them and could stop the iPhone app installing or updating.
+rm -rf "$app/Watch"
 codesign --force --sign - --timestamp=none --entitlements Needle.entitlements "$app"
 (cd build/ipa && zip -qry ../Needle.ipa Payload)
 rm -rf build/ipa

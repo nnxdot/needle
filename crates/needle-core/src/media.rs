@@ -18,6 +18,10 @@ use std::{
     path::{Path, PathBuf},
 };
 
+pub mod pictures;
+
+use pictures::ArtistPicture;
+
 const WEEK: i64 = 7 * 86400;
 const IMAGE_LIMIT: u64 = 12 * 1024 * 1024;
 
@@ -347,6 +351,20 @@ pub fn lyrics(
     online: bool,
     plugins: Option<&crate::plugins::PluginHost>,
 ) -> Result<Option<Lyrics>> {
+    let found = find_lyrics(library, track, online, plugins)?;
+    // What was shown can be searched for (Search › In the lyrics).
+    if let Some(lyrics) = &found {
+        let _ = library.keep_lyrics(track, Some(lyrics));
+    }
+    Ok(found)
+}
+
+fn find_lyrics(
+    library: &Library,
+    track: &Track,
+    online: bool,
+    plugins: Option<&crate::plugins::PluginHost>,
+) -> Result<Option<Lyrics>> {
     if let Some(local) = local_lyrics(track) {
         return Ok(Some(local));
     }
@@ -525,11 +543,17 @@ fn download_image(url: &str, destination: &Path) -> Result<()> {
     Ok(())
 }
 
-/// A photo of the artist, cached under `artwork/artists`. Online lookups use MusicBrainz
-/// (artist search), then the artist's Wikidata image on Wikimedia Commons.
+/// A photo of the artist: one someone chose, else one in the artist's own folder, else one
+/// cached under `artwork/artists`. Online lookups use MusicBrainz (the artist's id from the
+/// tags, or a search), then the artist's Wikidata image on Wikimedia Commons.
 pub fn artist_image(library: &Library, name: &str, online: bool) -> Result<Option<PathBuf>> {
     if name.trim().is_empty() {
         return Ok(None);
+    }
+    if let Some(chosen) = pictures::own_picture(library, name, ArtistPicture::Photo)
+        .or_else(|| pictures::folder_picture(library, name, ArtistPicture::Photo))
+    {
+        return Ok(Some(chosen));
     }
     let file = library
         .directory
@@ -571,6 +595,11 @@ fn musicbrainz_artist_kept(library: &Library, name: &str) -> Result<Option<Strin
     if let Some(hit) = cached::<Option<String>>(library, &key)? {
         return Ok(hit);
     }
+    // The tags often know the artist's id: then no search, and no wrong namesake.
+    if let Some(id) = tagged_artist_id(library, name)? {
+        remember(library, &key, &Some(id.clone()), WEEK * 13)?;
+        return Ok(Some(id));
+    }
     let found = musicbrainz_artist(name)?;
     remember(
         library,
@@ -579,6 +608,24 @@ fn musicbrainz_artist_kept(library: &Library, name: &str) -> Result<Option<Strin
         if found.is_some() { WEEK * 13 } else { WEEK },
     )?;
     Ok(found)
+}
+
+/// The artist's MusicBrainz id as a song's tags give it (MUSICBRAINZ_ARTISTID for a song the
+/// artist alone is credited on, or MUSICBRAINZ_ALBUMARTISTID for an album of theirs).
+fn tagged_artist_id(library: &Library, name: &str) -> Result<Option<String>> {
+    let db = library.connection()?;
+    Ok(db
+        .query_row(
+            "SELECT coalesce(
+                (SELECT json_extract(data,'$.musicbrainz_artist_id') FROM tracks
+                 WHERE artist=?1 COLLATE NOCASE AND json_extract(data,'$.musicbrainz_artist_id') IS NOT NULL LIMIT 1),
+                (SELECT json_extract(data,'$.musicbrainz_album_artist_id') FROM tracks
+                 WHERE album_artist=?1 COLLATE NOCASE AND json_extract(data,'$.musicbrainz_album_artist_id') IS NOT NULL LIMIT 1))",
+            [name.trim()],
+            |r| r.get::<_, Option<String>>(0),
+        )
+        .optional()?
+        .flatten())
 }
 
 /// The artist's MusicBrainz id: a close match by name, or by one of their other names (a
@@ -971,22 +1018,44 @@ fn fanart_picture(
     kind: &str,
     pick: fn(&Value) -> Option<String>,
 ) -> Result<Option<PathBuf>> {
+    let may_ask = online && crate::integrations::fanart_key().is_some();
+    picture_in_order(library, name, online, may_ask, kind, pick)
+}
+
+/// An artist's wide picture or logo, in this order: the listener's choice; fanart.tv's while
+/// Needle `may_ask` it (online lookups on, a key set); the one in the artist's folder.
+fn picture_in_order(
+    library: &Library,
+    name: &str,
+    online: bool,
+    may_ask: bool,
+    kind: &str,
+    pick: fn(&Value) -> Option<String>,
+) -> Result<Option<PathBuf>> {
     if name.trim().is_empty() {
         return Ok(None);
     }
-    let file = library
-        .directory
-        .join("artwork")
-        .join("artists")
-        .join(format!(
-            "{}.{kind}",
-            blake3::hash(name.to_lowercase().as_bytes()).to_hex()
-        ));
+    let picture = if kind == "logo" {
+        ArtistPicture::Logo
+    } else {
+        ArtistPicture::Banner
+    };
+    // The listener's own choice for this artist comes first, always.
+    if let Some(chosen) = pictures::own_picture(library, name, picture) {
+        return Ok(Some(chosen));
+    }
+    let folder = || pictures::folder_picture(library, name, picture);
+    let file = pictures::kept_file(library, name, picture);
     let kept = file.is_file();
-    // The one kept, while fanart.tv's answer is fresh, or when it cannot be asked again; with a
-    // new answer (each month) the choice is made again, so a newer picture comes in.
+    // Then fanart.tv's, while Needle may ask it; a picture in the artist's folder only when it
+    // may not, or when fanart.tv has none.
+    if !may_ask {
+        return Ok(folder().or_else(|| kept.then_some(file)));
+    }
+    // The one kept, while fanart.tv's answer is fresh; with a new answer (each month) the
+    // choice is made again, so a newer picture comes in.
     let fresh = cached::<Value>(library, &fanart_kept(name))?.is_some();
-    if kept && (fresh || !online || crate::integrations::fanart_key().is_none()) {
+    if kept && fresh {
         return Ok(Some(file));
     }
     let data = match fanart(library, name, online) {
@@ -995,10 +1064,16 @@ fn fanart_picture(
             crate::logfile::warn(format!("fanart.tv for {name}: {problem:#}"));
             return Ok(Some(file));
         }
-        Err(problem) => return Err(problem),
+        Err(problem) => match folder() {
+            Some(found) => {
+                crate::logfile::warn(format!("fanart.tv for {name}: {problem:#}"));
+                return Ok(Some(found));
+            }
+            None => return Err(problem),
+        },
     };
     let Some(url) = data.as_ref().and_then(pick) else {
-        return Ok(kept.then_some(file));
+        return Ok(kept.then_some(file).or_else(folder));
     };
     // fanart.tv's answers can give its pictures as http://: the same, over https.
     let url = match url.strip_prefix("http://assets.fanart.tv/") {

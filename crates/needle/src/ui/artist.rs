@@ -7,9 +7,10 @@ use super::{
 };
 use gpui::{prelude::*, *};
 use gpui_component::{
-    Disableable, Sizable,
+    Disableable, Selectable, Sizable,
     button::{Button, ButtonVariants},
 };
+use needle_core::media::pictures::{self, ArtistPicture};
 use needle_core::{
     media,
     model::{Track, format_duration},
@@ -24,6 +25,10 @@ pub(super) struct ArtistView {
     /// A wide picture of them from fanart.tv.
     pub banner: Option<String>,
     pub logo: Option<Logo>,
+    /// The pictures editor is open (the pencil on the banner).
+    pub editing: bool,
+    /// fanart.tv's pictures of one kind, to choose from: (picture, small copy).
+    pub choices: Option<(ArtistPicture, Vec<(String, String)>)>,
 }
 
 /// An artist's logo from fanart.tv, its clear edges cut off: as it comes (mostly white), and in
@@ -48,12 +53,30 @@ fn placeholder(name: &str) -> bool {
     name.trim().is_empty() || name == "Unknown artist"
 }
 
-/// The logo with its clear edges cut off (`<logo>.white.png`), and the same in dark ink
-/// (`<logo>.ink.png`): fanart.tv's logos are mostly white and do not show on a light page.
-/// Made again when fanart.tv's logo is newer.
+/// Forget the pictures GPUI keeps for these files, so a new picture saved at the same path
+/// is read again.
+pub(super) fn forget_pictures(paths: Vec<String>, cx: &mut App) {
+    for path in paths {
+        cx.remove_asset::<gpui::ImgResourceLoader>(&gpui::Resource::Path(Path::new(&path).into()));
+    }
+}
+
+/// The logo with its clear edges cut off, for a dark page (`<logo>.white.png`: as it comes, or
+/// in white when it is a dark logo, which would not show), and the same in dark ink for a light
+/// page (`<logo>.ink.png`). A logo the listener chose (`….own`) shows as it is on both
+/// (`<logo>.shown.png`): their choice of a white or a black one is kept. Made again when the
+/// logo is newer.
 fn prepare_logo(logo: &Path) -> Option<Logo> {
-    let white = PathBuf::from(format!("{}.white.png", logo.display()));
-    let ink = PathBuf::from(format!("{}.ink.png", logo.display()));
+    let chosen = logo.extension().is_some_and(|e| e == "own");
+    let (white, ink) = if chosen {
+        let shown = PathBuf::from(format!("{}.shown.png", logo.display()));
+        (shown.clone(), shown)
+    } else {
+        (
+            PathBuf::from(format!("{}.white.png", logo.display())),
+            PathBuf::from(format!("{}.ink.png", logo.display())),
+        )
+    };
     let modified = |p: &Path| std::fs::metadata(p).and_then(|m| m.modified()).ok();
     let fresh = |p: &Path| modified(p).is_some() && modified(p) >= modified(logo);
     let done = |size| Logo {
@@ -80,7 +103,28 @@ fn prepare_logo(logo: &Path) -> Option<Logo> {
     let mut trimmed =
         image::imageops::crop_imm(&picture, left, top, right - left + 1, bottom - top + 1)
             .to_image();
-    trimmed
+    if chosen {
+        trimmed
+            .save_with_format(&white, image::ImageFormat::Png)
+            .ok()?;
+        return Some(done(trimmed.dimensions()));
+    }
+    // A dark logo (fanart.tv has black ones beside the white) is written in white on a dark
+    // page.
+    let (mut light, mut weight) = (0f32, 0f32);
+    for pixel in trimmed.pixels() {
+        let [r, g, b, a] = pixel.0;
+        let a = a as f32 / 255.;
+        light += a * (0.2126 * r as f32 + 0.7152 * g as f32 + 0.0722 * b as f32) / 255.;
+        weight += a;
+    }
+    let mut for_dark = trimmed.clone();
+    if weight > 0. && light / weight < 0.4 {
+        for pixel in for_dark.pixels_mut() {
+            pixel.0[..3].copy_from_slice(&[245, 245, 245]);
+        }
+    }
+    for_dark
         .save_with_format(&white, image::ImageFormat::Png)
         .ok()?;
     for pixel in trimmed.pixels_mut() {
@@ -161,6 +205,9 @@ impl AppView {
             .track_scroll(&self.artist_scroll)
             .pb(px(40.) + self.foot_room())
             .child(self.artist_banner(name, view, width, height, cx))
+            .when(view.is_some_and(|v| v.editing), |el| {
+                el.child(self.pictures_editor(name, cx))
+            })
             .child(
                 div()
                     .px_6()
@@ -215,6 +262,7 @@ impl AppView {
         .collect::<Vec<_>>()
         .join(" · ");
         let (radio, blend) = (name.to_string(), name.to_string());
+        let editing = view.is_some_and(|v| v.editing);
         div()
             .relative()
             .w_full()
@@ -343,7 +391,22 @@ impl AppView {
                                             this.open_blend_menu(blend.clone(), position, cx)
                                         },
                                     )),
-                            ),
+                            )
+                            // Their photo, wide picture, and logo: the user's own, or another
+                            // of fanart.tv's.
+                            .when(!placeholder(name), |el| {
+                                el.child(
+                                    Button::new("artist-pictures")
+                                        .icon(icon("edit"))
+                                        .label(if editing { "Done" } else { "Pictures" })
+                                        .selected(editing)
+                                        .on_click(cx.listener(|this, _, _, cx| {
+                                            this.artist_view.editing = !this.artist_view.editing;
+                                            this.artist_view.choices = None;
+                                            cx.notify();
+                                        })),
+                                )
+                            }),
                     ),
             )
     }
@@ -540,5 +603,233 @@ impl AppView {
             );
         }
         grid
+    }
+}
+
+impl AppView {
+    /// Under the banner while editing: the photo, the wide picture, and the logo, each with
+    /// Choose a file…, From fanart.tv, and Reset; and fanart.tv's choices when asked.
+    fn pictures_editor(&self, name: &str, cx: &mut Context<Self>) -> Div {
+        let p = pal(cx);
+        let kinds = [
+            (ArtistPicture::Photo, "Photo"),
+            (ArtistPicture::Banner, "Wide picture"),
+            (ArtistPicture::Logo, "Logo"),
+        ];
+        let online =
+            self.settings.online_media && needle_core::integrations::fanart_key().is_some();
+        let choices = self.artist_view.choices.clone();
+        div()
+            .mx_6()
+            .mt_4()
+            .p_4()
+            .rounded(px(14.))
+            .bg(p.raised)
+            .border_1()
+            .border_color(p.line_soft)
+            .flex()
+            .flex_col()
+            .gap_4()
+            .child(
+                div()
+                    .flex()
+                    .gap_4()
+                    .children(kinds.into_iter().map(|(kind, label)| {
+                        let own = pictures::own_picture(&self.library, name, kind).is_some();
+                        let id = |what: &str| SharedString::from(format!("{what}-{label}"));
+                        let (pick, from, reset) =
+                            (name.to_string(), name.to_string(), name.to_string());
+                        div()
+                            .flex_1()
+                            .min_w_0()
+                            .flex()
+                            .flex_col()
+                            .gap_2()
+                            .child(
+                                div()
+                                    .text_size(px(13.))
+                                    .font_weight(FontWeight::SEMIBOLD)
+                                    .child(label)
+                                    .when(own, |el| {
+                                        el.child(
+                                            div()
+                                                .text_size(px(11.5))
+                                                .font_weight(FontWeight::NORMAL)
+                                                .text_color(p.ink_3)
+                                                .child("Your choice"),
+                                        )
+                                    }),
+                            )
+                            .child(
+                                Button::new(id("choose"))
+                                    .small()
+                                    .label("Choose a file…")
+                                    .on_click(cx.listener(move |this, _, window, cx| {
+                                        this.choose_artist_picture(pick.clone(), kind, window, cx)
+                                    })),
+                            )
+                            .when(online, |el| {
+                                el.child(
+                                    Button::new(id("fanart"))
+                                        .small()
+                                        .label("From fanart.tv")
+                                        .on_click(cx.listener(move |this, _, _, cx| {
+                                            this.load_fanart_choices(from.clone(), kind);
+                                            cx.notify();
+                                        })),
+                                )
+                            })
+                            .when(own, |el| {
+                                el.child(
+                                    Button::new(id("reset"))
+                                        .small()
+                                        .ghost()
+                                        .label("Reset")
+                                        .on_click(cx.listener(move |this, _, _, _| {
+                                            let _ = pictures::reset_picture(
+                                                &this.library,
+                                                &reset,
+                                                kind,
+                                            );
+                                            let _ = this
+                                                .sender
+                                                .send(Event::ArtistPicturesChanged(reset.clone()));
+                                        })),
+                                )
+                            })
+                    })),
+            )
+            .when_some(choices, |el, (kind, choices)| {
+                let who = name.to_string();
+                let only_one = choices.len() == 1;
+                el.child(if choices.is_empty() {
+                    meta(
+                        "fanart.tv has no pictures of this kind for this artist.",
+                        cx,
+                    )
+                    .into_any_element()
+                } else {
+                    div()
+                        .id("fanart-choices")
+                        .overflow_x_scroll()
+                        .flex()
+                        .gap_3()
+                        .children(choices.into_iter().enumerate().map(|(i, (url, preview))| {
+                            let who = who.clone();
+                            let wide = kind != ArtistPicture::Photo;
+                            div()
+                                .id(("fanart-choice", i))
+                                .flex_shrink_0()
+                                .w(px(if wide { 220. } else { 120. }))
+                                .h(px(if wide { 124. } else { 120. }))
+                                .rounded(px(8.))
+                                .overflow_hidden()
+                                // Grey behind logos: fanart.tv has white ones and black ones.
+                                .bg(if kind == ArtistPicture::Logo {
+                                    hsla(0., 0., 0.42, 1.)
+                                } else {
+                                    p.raised_hover
+                                })
+                                .cursor_pointer()
+                                .hover(|s| s.opacity(0.85))
+                                .child(
+                                    img(PathBuf::from(preview))
+                                        .size_full()
+                                        .rounded(px(8.))
+                                        .object_fit(if kind == ArtistPicture::Logo {
+                                            ObjectFit::Contain
+                                        } else {
+                                            ObjectFit::Cover
+                                        }),
+                                )
+                                .on_click(cx.listener(move |this, _, _, cx| {
+                                    this.notify("Using that picture…");
+                                    let (library, sender, who, url) = (
+                                        this.library.clone(),
+                                        this.sender.clone(),
+                                        who.clone(),
+                                        url.clone(),
+                                    );
+                                    std::thread::spawn(move || {
+                                        let _ = sender.send(
+                                            match pictures::pick_fanart(&library, &who, kind, &url)
+                                            {
+                                                Ok(_) => Event::ArtistPicturesChanged(who),
+                                                Err(e) => Event::Error(format!("fanart.tv: {e:#}")),
+                                            },
+                                        );
+                                    });
+                                    this.artist_view.choices = None;
+                                    cx.notify();
+                                }))
+                        }))
+                        .into_any_element()
+                })
+                .when(only_one, |el| {
+                    el.child(meta(
+                        "This is the only one fanart.tv has of this artist. Choose a file… to use another.",
+                        cx,
+                    ))
+                })
+            })
+    }
+
+    /// A picture file of the listener's own, as this artist's photo, wide picture, or logo.
+    fn choose_artist_picture(
+        &mut self,
+        name: String,
+        kind: ArtistPicture,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let paths = cx.prompt_for_paths(PathPromptOptions {
+            files: true,
+            directories: false,
+            multiple: false,
+            prompt: Some("Use this picture".into()),
+        });
+        cx.spawn_in(window, async move |this, cx| {
+            let Ok(Ok(Some(paths))) = paths.await else {
+                return;
+            };
+            let _ = this.update(cx, |this, _| {
+                if let Some(path) = paths.first() {
+                    match pictures::set_own_picture(&this.library, &name, kind, path) {
+                        Ok(_) => {
+                            let _ = this.sender.send(Event::ArtistPicturesChanged(name.clone()));
+                        }
+                        Err(e) => this.fail(format!("{e:#}")),
+                    }
+                }
+            });
+        })
+        .detach();
+    }
+
+    /// fanart.tv's pictures of one kind for the artist, with small copies to choose from.
+    fn load_fanart_choices(&mut self, name: String, kind: ArtistPicture) {
+        let (library, sender) = (self.library.clone(), self.sender.clone());
+        let online = self.settings.online_media;
+        self.notify("Asking fanart.tv…");
+        std::thread::spawn(move || {
+            let found = match pictures::fanart_choices(&library, &name, kind, online) {
+                Ok(found) => found,
+                Err(e) => {
+                    let _ = sender.send(Event::Error(format!("fanart.tv: {e:#}")));
+                    return;
+                }
+            };
+            let choices = found
+                .into_iter()
+                .take(24)
+                .filter_map(|c| {
+                    let preview = pictures::fanart_preview(&library, &c.preview)
+                        .or_else(|_| pictures::fanart_preview(&library, &c.url))
+                        .ok()?;
+                    Some((c.url, preview.to_string_lossy().to_string()))
+                })
+                .collect();
+            let _ = sender.send(Event::ArtistChoices(name, kind, choices));
+        });
     }
 }
