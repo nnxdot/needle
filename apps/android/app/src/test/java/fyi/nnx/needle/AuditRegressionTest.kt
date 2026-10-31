@@ -17,6 +17,19 @@ class AuditRegressionTest {
      * Linux's USB audio driver comes back when the audio control interface is given back, and it
      * skips a streaming interface still held: then the DAC has a sound card with nothing to play on.
      */
+    /** The sound settings are off only while the music really goes to Needle's own USB driver. */
+    @Test
+    fun soundToolsStandAsideOnlyForTheDriver() {
+        val info = fyi.nnx.needle.core.UsbDacInfo("DAC", 2u, listOf(48_000u), 24u, false, true)
+        assertTrue(UsbDriver.State.Driving(info).takesTheMusic(false))
+        // A speaker on the network plays through them.
+        assertFalse(UsbDriver.State.Driving(info).takesTheMusic(true))
+        // Nothing plugged in, waiting to be allowed, or Android's output.
+        assertFalse(UsbDriver.State.None.takesTheMusic(false))
+        assertFalse(UsbDriver.State.Asking("DAC").takesTheMusic(false))
+        assertFalse(UsbDriver.State.Fallback("DAC", "why").takesTheMusic(false))
+    }
+
     @Test
     fun aDacThatDoesNotAnswerYetIsTriedAgain() = runBlocking {
         var tries = 0

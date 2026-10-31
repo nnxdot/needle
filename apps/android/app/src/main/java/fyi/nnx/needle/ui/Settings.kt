@@ -598,15 +598,18 @@ private fun PlaybackSettingsPage() {
         settings = next
         background { core.setPlaybackSettings(next) }
     }
+    // Shown as off, and kept: they apply again when Needle's USB driver lets go.
+    val off = soundToolsOff()
     Group("Between songs") {
         var fade by remember { mutableStateOf(s.crossfade) }
         SliderRow(
             "Crossfade",
-            if (fade < 0.5f) "Off" else "${fade.toInt()} s",
-            fade,
+            if (off || fade < 0.5f) "Off" else "${fade.toInt()} s",
+            if (off) 0f else fade,
             0f..12f,
             steps = 11,
-            summary = "Songs overlap; albums stay gapless",
+            summary = if (off) OffWithUsb else "Songs overlap; albums stay gapless",
+            enabled = !off,
             icon = Icons.Rounded.SwapHoriz,
             onChange = { fade = it },
             onDone = { save(s.copy(crossfade = fade)) },
@@ -615,7 +618,7 @@ private fun PlaybackSettingsPage() {
         if (fade >= 0.5f) {
             val more by NeedleApp.instance.more.collectAsState()
             DependentRow {
-                SwitchRow("Smart mixes", "Fades where the music ends, in whole bars", more.smartMix, icon = Icons.Rounded.AutoAwesome) { on ->
+                SwitchRow("Smart mixes", if (off) OffWithUsb else "Fades where the music ends, in whole bars", more.smartMix && !off, enabled = !off, icon = Icons.Rounded.AutoAwesome) { on ->
                     NeedleApp.instance.updateMore { it.copy(smartMix = on) }
                 }
             }
@@ -626,7 +629,13 @@ private fun PlaybackSettingsPage() {
             s.albumGain -> 2
             else -> 1
         }
-        ExpandRow(Icons.Rounded.GraphicEq, "Even out loudness", "From the songs' ReplayGain tags", listOf("Off", "Song", "Album")[loudness]) {
+        ExpandRow(
+            Icons.Rounded.GraphicEq,
+            "Even out loudness",
+            if (off) OffWithUsb else "From the songs' ReplayGain tags",
+            if (off) "Off" else listOf("Off", "Song", "Album")[loudness],
+            enabled = !off,
+        ) {
             Segments(listOf(0 to "Off", 1 to "Song", 2 to "Album"), loudness) { i -> save(s.copy(replayGain = i > 0, albumGain = i == 2)) }
             MoreText("Album keeps an album's quiet and loud songs as the artist made them.")
         }
@@ -716,9 +725,11 @@ private fun SoundSettingsPage() {
             reload()
         }
     }
-    Group("Equalizer", footer = if (s.eq && s.mode == "parametric") "Loads AutoEq (ParametricEQ.txt) or Equalizer APO files." else null) {
-        SwitchRow("Equalizer", "Shape the sound", s.eq, icon = Icons.Rounded.Equalizer) { save(s.copy(eq = it)) }
-        AnimatedVisibility(s.eq) {
+    // Shown as off, and kept: they apply again when Needle's USB driver lets go.
+    val off = soundToolsOff()
+    Group("Equalizer", footer = if (s.eq && !off && s.mode == "parametric") "Loads AutoEq (ParametricEQ.txt) or Equalizer APO files." else null) {
+        SwitchRow("Equalizer", if (off) OffWithUsb else "Shape the sound", s.eq && !off, enabled = !off, icon = Icons.Rounded.Equalizer) { save(s.copy(eq = it)) }
+        AnimatedVisibility(s.eq && !off) {
             Column {
                 SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp)) {
                     listOf("graphic" to "Ten bands", "parametric" to "Parametric").forEachIndexed { i, (mode, label) ->
@@ -796,23 +807,26 @@ private fun SoundSettingsPage() {
         )
     }
     Group("Headphones and speakers") {
-        SwitchRow("Crossfeed", "Sides blend a little, as with speakers", s.crossfeed, icon = Icons.Rounded.Headphones) {
+        SwitchRow("Crossfeed", if (off) OffWithUsb else "Sides blend a little, as with speakers", s.crossfeed && !off, enabled = !off, icon = Icons.Rounded.Headphones) {
             save(s.copy(crossfeed = it))
         }
         Divider()
-        SwitchRow("Mono", "Both sides the same, for one earbud", s.mono, icon = Icons.Rounded.Hearing) { save(s.copy(mono = it)) }
+        SwitchRow("Mono", if (off) OffWithUsb else "Both sides the same, for one earbud", s.mono && !off, enabled = !off, icon = Icons.Rounded.Hearing) { save(s.copy(mono = it)) }
         Divider()
         UsbBitPerfect()
         var balance by remember(s.balance) { mutableStateOf(s.balance) }
         SliderRow(
             "Balance",
             when {
+                off -> "Off"
                 balance < -0.02f -> "Left ${(-balance * 100).toInt()}%"
                 balance > 0.02f -> "Right ${(balance * 100).toInt()}%"
                 else -> "Centre"
             },
-            balance,
+            if (off) 0f else balance,
             -1f..1f,
+            summary = if (off) OffWithUsb else null,
+            enabled = !off,
             icon = Icons.Rounded.Tune,
             onChange = { balance = if (kotlin.math.abs(it) < 0.04f) 0f else it },
             onDone = { save(s.copy(balance = balance)) },

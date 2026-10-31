@@ -292,9 +292,9 @@ fun SpeedPitchSheet(onDismiss: () -> Unit) {
                 Text("Speed and pitch", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
             }
             val v = now
-            if (v != null && !v.available) {
+            if (soundToolsOff() || v != null && !v.available) {
                 Text(
-                    "Off while Bit-perfect USB plays: nothing may change the sound then.",
+                    OffWithUsb,
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     modifier = Modifier.padding(top = 8.dp, bottom = 8.dp),
