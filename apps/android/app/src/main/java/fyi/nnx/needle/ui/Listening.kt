@@ -79,16 +79,21 @@ fun RecentlyAddedScreen(open: (Route) -> Unit) {
 fun TitledSongs(title: String, songs: List<Song>?, open: (Route) -> Unit, empty: String = "", loading: Boolean = false) {
     val playing = playingSongId()
     val list = songs.orEmpty()
-    LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = 24.dp + LocalBottomInset.current)) {
-        item { LargeTitle(title) }
-        if (loading) items(8) { SongPlaceholder() }
-        if (songs != null && list.isEmpty() && empty.isNotEmpty()) {
-            item {
-                Text(empty, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(horizontal = Edge, vertical = 8.dp))
+    val wide = hasSideBar()
+    androidx.compose.foundation.layout.Column(Modifier.fillMaxSize()) {
+        // Beside the side bar: the title and the buttons in one row, as on the Songs page.
+        if (wide) ListHeader(title, list.takeIf { it.isNotEmpty() }?.let { songsAndLength(it) }, list)
+        LazyColumn(Modifier.weight(1f).fillMaxWidth(), contentPadding = PaddingValues(bottom = 24.dp + LocalBottomInset.current)) {
+            if (!wide) item { LargeTitle(title) }
+            if (loading) items(8) { SongPlaceholder() }
+            if (songs != null && list.isEmpty() && empty.isNotEmpty()) {
+                item {
+                    Text(empty, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(horizontal = Edge, vertical = 8.dp))
+                }
             }
-        }
-        itemsIndexed(list, key = { i, s -> "$i-${s.id}" }) { i, song ->
-            SongRow(song, playing == song.id, open, place = Place(i, list.size)) { play(list, i) }
+            itemsIndexed(list, key = { i, s -> "$i-${s.id}" }) { i, song ->
+                SongRow(song, playing == song.id, open, place = Place(i, list.size)) { play(list, i) }
+            }
         }
     }
 }

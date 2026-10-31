@@ -132,13 +132,28 @@ fun ArtistsScreen(open: (Route) -> Unit) {
 private fun SongListPage(title: String, songs: List<Song>?, open: (Route) -> Unit, loading: Boolean) {
     val playing = currentId()
     val list = songs.orEmpty()
+    val bottom = PaddingValues(bottom = 24.dp + LocalBottomInset.current)
+    fun androidx.compose.foundation.lazy.LazyListScope.rows() {
+        itemsIndexed(list, key = { _, s -> s.id }) { i, song ->
+            SongRow(song, playing == song.id, open, place = Place(i, list.size)) { play(list, i) }
+        }
+    }
+    // Beside the side bar: the title and the buttons in one row, and the list right under it.
+    if (hasSideBar()) {
+        androidx.compose.foundation.layout.Column(Modifier.fillMaxSize()) {
+            ListHeader(title, songs?.let { songsAndLength(it) }, list)
+            LazyColumn(Modifier.weight(1f).fillMaxWidth(), contentPadding = bottom) {
+                if (loading) items(8) { SongPlaceholder() }
+                rows()
+            }
+        }
+        return
+    }
     Page(title, songs?.let { songsAndLength(it) }) { padding, scroll ->
-        LazyColumn(Modifier.fillMaxSize().padding(padding).then(scroll), contentPadding = PaddingValues(bottom = 24.dp + LocalBottomInset.current)) {
+        LazyColumn(Modifier.fillMaxSize().padding(padding).then(scroll), contentPadding = bottom) {
             if (loading) items(8) { SongPlaceholder() }
             if (list.isNotEmpty()) item { PlayRow(list) }
-            itemsIndexed(list, key = { _, s -> s.id }) { i, song ->
-                SongRow(song, playing == song.id, open, place = Place(i, list.size)) { play(list, i) }
-            }
+            rows()
         }
     }
 }
