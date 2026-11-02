@@ -37,6 +37,8 @@ const TRANSFER_MS: u32 = 4;
 const FEEDBACK: usize = TRANSFERS;
 /// How long the DAC may take nothing before Needle gives up on it.
 const STALL: Duration = Duration::from_millis(500);
+/// How long a clock may take to say it runs, after a change of rate.
+const CLOCK_WAIT: Duration = Duration::from_millis(1500);
 /// A clock may take a moment to move: how often it is asked, and how long between.
 const RATE_CHECKS: usize = 6;
 const RATE_CHECK_WAIT: Duration = Duration::from_millis(30);
@@ -534,6 +536,12 @@ impl UsbDac {
             }
             return Ok(said);
         }
+        // Already there: left alone, as Linux does, since a clock asked again may start over.
+        if self.dac.uac != Uac::One
+            && let Some(now) = self.read_rate(f).filter(|now| same_rate(*now, rate))
+        {
+            return Ok(Some(now));
+        }
         let set = match self.dac.uac {
             Uac::Two | Uac::Three => {
                 let clock = self
@@ -588,6 +596,70 @@ impl UsbDac {
             ));
         }
         Ok(None)
+    }
+
+    /// How long the clock for `f` took to say it runs: at once for one that cannot say, or that
+    /// has one rate (some say invalid for ever; Linux lets those pass too). None if it never did.
+    fn clock_locked(&self, f: &Format) -> Option<Duration> {
+        let started = Instant::now();
+        let clock = self.dac.clock_for(f.terminal);
+        let Some(clock) = clock.filter(|c| self.dac.clock_valid.contains(c)) else {
+            return Some(Duration::ZERO);
+        };
+        if self.rates(f).len() <= 1 {
+            return Some(Duration::ZERO);
+        }
+        loop {
+            let mut valid = [0u8];
+            let said = {
+                let _one = self.one_at_a_time();
+                self.bus
+                    .control(GET, CUR, wvalue(0x02, 0), self.index(clock), &mut valid)
+            };
+            if said.is_err() || valid[0] != 0 {
+                return Some(started.elapsed());
+            }
+            if started.elapsed() > CLOCK_WAIT {
+                return None;
+            }
+            std::thread::sleep(RATE_CHECK_WAIT);
+        }
+    }
+
+    /// Readies the DAC for `f` at `rate`, in Linux's order: UAC1 takes its rate on the setting;
+    /// UAC2 and 3 take it at rest, then the setting last, once the clock runs. A clock moved under
+    /// a live setting is what some DACs do not survive.
+    fn open_setting(&self, f: &Format, rate: u32) -> Result<Option<u32>> {
+        if self.dac.uac == Uac::One {
+            self.bus.set_interface(f.interface, f.alt)?;
+            let said = self.set_rate(f, rate)?;
+            super::run_line(format!("{rate} Hz on setting {}: says {said:?}", f.alt));
+            return Ok(said);
+        }
+        self.bus.set_interface(f.interface, 0)?;
+        let said = self.set_rate(f, rate)?;
+        let locked = self.clock_locked(f);
+        super::run_line(format!(
+            "{rate} Hz for setting {}: says {said:?}, clock running after {:?}",
+            f.alt, locked
+        ));
+        if locked.is_none() {
+            // That family of rates shares a crystal: the others would only wait the same.
+            let base = if rate % 11_025 == 0 { 11_025 } else { 8_000 };
+            let family: Vec<u32> = self
+                .rates(f)
+                .into_iter()
+                .filter(|r| r % base == 0)
+                .collect();
+            let others = self.dac.formats.iter().flat_map(|f| self.playable(f));
+            if others.into_iter().any(|r| !family.contains(&r)) {
+                let mut refused = self.refused.lock().unwrap_or_else(|e| e.into_inner());
+                refused.extend(family);
+                bail!("{}'s clock did not start at {} kHz", self.name, khz(rate));
+            }
+        }
+        self.bus.set_interface(f.interface, f.alt)?;
+        Ok(said)
     }
 
     /// The rates of `f`, without those the DAC turned down.
@@ -773,26 +845,37 @@ impl UsbDac {
             let _ = self.bus.submit(FEEDBACK, ep, &[], &[feedback_size]);
         }
         let mut last_back = Instant::now();
+        let started = Instant::now();
+        let (mut music, mut feedbacks, mut bad, mut first_bad) = (0u64, 0u64, 0u64, 0i32);
+        let mut last_feedback = None;
+        let shown = |music, feedbacks, bad, first_bad, last_feedback: Option<u32>| {
+            format!(
+                "{rate} Hz for {:.1} s: {music} transfers back, {feedbacks} feedback, last feedback {} (nominal {:.3} frames a packet), {bad} bad packets (first error {first_bad})",
+                started.elapsed().as_secs_f32(),
+                last_feedback.map_or("none".to_string(), |v| format!("{:.3}", v as f64 / 65536.)),
+                nominal as f64 / 65536.,
+            )
+        };
         while self.bus.busy() > 0 {
+            // Music handed over and none back for too long: the DAC stopped. Asked at every turn:
+            // feedback alone keeps coming, and the player would stand still with no error.
+            if last_back.elapsed() > STALL {
+                result = Err(anyhow!("{} stopped taking music", self.name));
+                break;
+            }
             let back = match self.bus.reap(100) {
                 Ok(Some(back)) => back,
-                Ok(None) => {
-                    // Music handed over and nothing back for too long: the DAC stopped.
-                    if last_back.elapsed() > STALL {
-                        result = Err(anyhow!("{} stopped taking music", self.name));
-                        break;
-                    }
-                    continue;
-                }
+                Ok(None) => continue,
                 Err(e) => {
                     result = Err(e);
                     break;
                 }
             };
-            last_back = Instant::now();
             if back.id == FEEDBACK {
+                feedbacks += 1;
                 if back.status == 0 {
                     if let Some(rate) = feedback(&back.data, nominal) {
+                        last_feedback = Some(rate);
                         pacer.set(rate);
                     }
                 }
@@ -802,6 +885,16 @@ impl UsbDac {
                     }
                 }
                 continue;
+            }
+            last_back = Instant::now();
+            music += 1;
+            bad += back.bad as u64;
+            if first_bad == 0 {
+                first_bad = back.first_bad;
+            }
+            // About each second, so a run that hangs still leaves its numbers.
+            if music % 250 == 1 {
+                super::stream_line(shown(music, feedbacks, bad, first_bad, last_feedback));
             }
             if back.status == -libc_enodev() || back.status == -libc_eshutdown() {
                 result = Err(anyhow!("{} is gone", self.name));
@@ -823,6 +916,7 @@ impl UsbDac {
                 ending = true;
             }
         }
+        super::stream_line(shown(music, feedbacks, bad, first_bad, last_feedback));
         // Everything asked back before leaving; the bus keeps what the kernel still holds.
         for id in 0..=FEEDBACK {
             self.bus.discard(id);
@@ -863,17 +957,14 @@ impl UsbDac {
                 if let Some((interface, ..)) = open.take() {
                     let _ = self.bus.set_interface(interface, 0);
                 }
-                if let Err(e) = self.bus.set_interface(f.interface, f.alt) {
-                    // Left open, so the DAC is set back to rest below.
-                    open = Some(here);
-                    break Err(e);
-                }
-                // Left open for the same reason, and the next look takes another of its rates.
+                // Left open, so the DAC is set back to rest below; the next look takes another
+                // of its rates.
                 open = Some(here);
-                let said = match self.set_rate(f, rate) {
+                let said = match self.open_setting(f, rate) {
                     Ok(said) => said,
                     Err(e) => {
                         needle_core::logfile::warn(format!("{}: {e:#}", self.name));
+                        super::run_line(format!("{rate} Hz turned down: {e:#}"));
                         self.refused
                             .lock()
                             .unwrap_or_else(|e| e.into_inner())
@@ -968,7 +1059,10 @@ impl PlatformOutput for UsbDac {
                 });
         match &result {
             Ok(()) => super::status_playing(None),
-            Err(e) => super::status_failed(e.to_string()),
+            Err(e) => {
+                super::run_line(format!("Stopped: {e:#}"));
+                super::status_failed(e.to_string());
+            }
         }
         result
     }
@@ -983,7 +1077,7 @@ impl PlatformOutput for UsbDac {
 #[cfg(test)]
 mod tests {
     use super::super::fake::{
-        APPLE_DAC, DOCK, Dock, FakeDac, Trouble, descriptors, dock, hex, uac1_descriptors,
+        APPLE_DAC, BTR17, DOCK, Dock, FakeDac, Trouble, descriptors, dock, hex, uac1_descriptors,
     };
     use super::*;
 
@@ -995,6 +1089,61 @@ mod tests {
 
     fn first(dac: &UsbDac) -> Format {
         dac.dac.formats.last().unwrap().clone()
+    }
+
+    #[test]
+    fn uac2_takes_its_rate_at_rest_and_the_setting_last_as_linux_does() {
+        let (fake, btr17) = dac(Trouble::None, &hex(BTR17));
+        let f = btr17.format_for(2, 44_100).unwrap();
+        assert_eq!(f.alt, 1);
+        assert_eq!(btr17.open_setting(&f, 44_100).unwrap(), Some(44_100));
+        assert_eq!(fake.events(), ["alt 0", "rate 44100", "alt 1"]);
+    }
+
+    #[test]
+    fn uac1_takes_the_setting_first_as_linux_does() {
+        let raw = uac1_descriptors(&[(1, &[44_100, 48_000], true)]);
+        let (fake, dac) = dac(Trouble::None, &raw);
+        let f = dac.format_for(2, 44_100).unwrap();
+        dac.open_setting(&f, 44_100).unwrap();
+        assert_eq!(fake.events(), ["alt 1", "rate 44100"]);
+    }
+
+    #[test]
+    fn a_clock_already_at_the_rate_is_left_alone() {
+        let (fake, btr17) = dac(Trouble::None, &hex(BTR17));
+        fake.set_clock(44_100);
+        let f = btr17.format_for(2, 44_100).unwrap();
+        assert_eq!(btr17.open_setting(&f, 44_100).unwrap(), Some(44_100));
+        assert_eq!(fake.events(), ["alt 0", "alt 1"]);
+    }
+
+    #[test]
+    fn a_clock_that_does_not_start_loses_its_family_of_rates() {
+        let (fake, btr17) = dac(Trouble::ClockInvalidAt(44_100), &hex(BTR17));
+        let f = btr17.format_for(2, 44_100).unwrap();
+        let why = btr17.open_setting(&f, 44_100).unwrap_err().to_string();
+        assert!(why.contains("did not start at 44.1 kHz"), "{why}");
+        assert_eq!(
+            fake.alts(),
+            [(1, 0)],
+            "no setting on a clock that does not run"
+        );
+        // Songs at 44.1 kHz then go to a rate of the other crystal.
+        let plan = btr17.plan(2, 44_100).unwrap();
+        assert_eq!((plan.rate, plan.format.alt), (96_000, 1));
+    }
+
+    #[test]
+    fn a_clock_of_one_rate_is_not_asked_whether_it_runs() {
+        // Some say invalid for ever: it costs nothing to let them pass, as Linux does.
+        let fake = Arc::new(FakeDac::new(Trouble::ClockInvalidAt(44_100)));
+        fake.set_only_rate(44_100);
+        let raw = hex(BTR17);
+        let one = UsbDac::new(fake.clone(), &raw, "One".into(), 1., &[]).unwrap();
+        let f = one.format_for(2, 44_100).unwrap();
+        one.open_setting(&f, 44_100).unwrap();
+        assert_eq!(fake.alts().last(), Some(&(1, 1)));
     }
 
     #[test]

@@ -27,6 +27,10 @@ pub enum Trouble {
     NoRateAnswer,
     /// The clock does not say its rates, as a DAC just plugged in may not.
     NoClockAnswer,
+    /// The clock says it is not valid at this rate.
+    ClockInvalidAt(u32),
+    /// After this many transfers no music comes back, while feedback goes on.
+    MusicStuck(usize),
 }
 
 #[derive(Default)]
@@ -58,6 +62,10 @@ struct State {
     pub volume_floor: Option<i16>,
     /// Bytes a sample of the music takes, if not 4.
     pub slot: Option<usize>,
+    /// Settings and rates asked, in order.
+    pub events: Vec<String>,
+    /// The clock has only this rate, if any.
+    pub only_rate: Option<u32>,
 }
 
 pub struct FakeDac {
@@ -81,6 +89,14 @@ impl FakeDac {
 
     pub fn set_clock(&self, rate: u32) {
         self.state.lock().unwrap().clock = rate;
+    }
+
+    pub fn events(&self) -> Vec<String> {
+        self.state.lock().unwrap().events.clone()
+    }
+
+    pub fn set_only_rate(&self, rate: u32) {
+        self.state.lock().unwrap().only_rate = Some(rate);
     }
 
     /// The music comes in slots of this many bytes (for [`Self::loudest`]).
@@ -129,6 +145,7 @@ impl FakeDac {
         }
         let mut s = self.state.lock().unwrap();
         s.rates.push(rate);
+        s.events.push(format!("rate {rate}"));
         if !matches!(self.trouble, Trouble::StaysAt(_)) {
             s.clock = rate;
         }
@@ -187,6 +204,31 @@ pub const APPLE_DAC: &str = "\
 02 0d c0 00 01 0a 25 01 00 00 00 00 01 64 00 09 04 02 00 01 03 00 00 00 09 21 11 01 00 01 22 1f
 00 07 05 85 03 40 00 01 09 04 03 00 01 03 00 00 00 09 21 11 01 00 01 22 2a 00 07 05 86 03 40 00
 01";
+
+/// FiiO's BTR17 (2972:0088): UAC2, high speed, async, with feedback, and no volume. Its device says
+/// two configurations, and they are the same bytes, with the same number.
+pub const BTR17: &str = "\
+12 01 00 02 ef 02 01 40 72 29 88 00 36 01 01 03 02 02 09 02 43 01 05 01 00 80 00 08 0b 00 02 01
+00 20 00 09 04 00 00 00 01 01 20 03 09 24 01 00 02 08 36 00 00 08 24 0a 29 03 07 00 09 08 24 0b
+28 01 29 03 08 11 24 02 02 01 01 00 28 02 00 00 00 00 0b 00 00 06 0c 24 03 14 01 03 00 02 28 00
+00 00 09 04 01 00 00 01 02 20 04 09 04 01 01 02 01 02 20 04 10 24 01 02 00 01 01 00 00 00 02 00
+00 00 00 0b 06 24 02 01 04 20 07 05 01 05 08 03 01 08 25 01 00 00 02 08 00 07 05 81 11 04 00 04
+09 04 01 02 02 01 02 20 04 10 24 01 02 00 01 01 00 00 00 02 00 00 00 00 0b 06 24 02 01 02 10 07
+05 01 05 84 01 01 08 25 01 00 00 02 08 00 07 05 81 11 04 00 04 09 04 01 03 02 01 02 20 04 10 24
+01 02 00 01 00 00 00 80 02 00 00 00 00 0b 06 24 02 01 04 20 07 05 01 05 08 03 01 08 25 01 00 00
+02 08 00 07 05 81 11 04 00 04 09 04 02 00 00 fe 01 01 0a 09 21 07 fa 00 40 00 10 01 09 04 03 00
+01 03 00 00 0e 09 21 10 01 00 01 22 15 00 07 05 83 03 40 00 08 09 04 04 00 02 03 00 00 06 09 21
+11 01 00 01 22 40 00 07 05 84 03 40 00 00 07 05 02 03 40 00 00 09 02 43 01 05 01 00 80 00 08 0b
+00 02 01 00 20 00 09 04 00 00 00 01 01 20 03 09 24 01 00 02 08 36 00 00 08 24 0a 29 03 07 00 09
+08 24 0b 28 01 29 03 08 11 24 02 02 01 01 00 28 02 00 00 00 00 0b 00 00 06 0c 24 03 14 01 03 00
+02 28 00 00 00 09 04 01 00 00 01 02 20 04 09 04 01 01 02 01 02 20 04 10 24 01 02 00 01 01 00 00
+00 02 00 00 00 00 0b 06 24 02 01 04 20 07 05 01 05 08 03 01 08 25 01 00 00 02 08 00 07 05 81 11
+04 00 04 09 04 01 02 02 01 02 20 04 10 24 01 02 00 01 01 00 00 00 02 00 00 00 00 0b 06 24 02 01
+02 10 07 05 01 05 84 01 01 08 25 01 00 00 02 08 00 07 05 81 11 04 00 04 09 04 01 03 02 01 02 20
+04 10 24 01 02 00 01 00 00 00 80 02 00 00 00 00 0b 06 24 02 01 04 20 07 05 01 05 08 03 01 08 25
+01 00 00 02 08 00 07 05 81 11 04 00 04 09 04 02 00 00 fe 01 01 0a 09 21 07 fa 00 40 00 10 01 09
+04 03 00 01 03 00 00 0e 09 21 10 01 00 01 22 15 00 07 05 83 03 40 00 08 09 04 04 00 02 03 00 00
+06 09 21 11 01 00 01 22 40 00 07 05 84 03 40 00 00 07 05 02 03 40 00 00";
 
 /// A dock's sound chip (1b3f:2008): UAC1, speakers and a microphone, volume -45 to 0 dB.
 pub const DOCK: &str = "\
@@ -369,6 +411,7 @@ impl Bus for FakeDac {
             bail!("The DAC is gone");
         }
         s.alts.push((interface, alt));
+        s.events.push(format!("alt {alt}"));
         s.requests += 1;
         Ok(())
     }
@@ -387,6 +430,12 @@ impl Bus for FakeDac {
             // GET_CONFIGURATION.
             (0x80, 0x08, _) => {
                 data[0] = self.state.lock().unwrap().configuration.max(1);
+                Ok(1)
+            }
+            // Whether a clock is valid (UAC3's power domains are 10 and 0x28 here).
+            (0xA1, 0x01, 0x02) if data.len() == 1 && ![10, 0x28].contains(&(index >> 8)) => {
+                let invalid = matches!(self.trouble, Trouble::ClockInvalidAt(rate) if Some(rate) == self.clock_says());
+                data[0] = !invalid as u8;
                 Ok(1)
             }
             // A power domain: its state, and setting it (one byte, not a volume's two).
@@ -411,10 +460,12 @@ impl Bus for FakeDac {
             (0xA1, 0x02, 0x01) if self.trouble == Trouble::NoClockAnswer => {
                 bail!("The DAC refused the request");
             }
-            // The clock's rates: three subranges of one rate each.
+            // The clock's rates: three subranges of one rate each, or the one it has.
             (0xA1, 0x02, 0x01) => {
-                let mut answer = vec![3, 0];
-                for r in [44_100u32, 48_000, 96_000] {
+                let only = self.state.lock().unwrap().only_rate;
+                let rates = only.map_or(vec![44_100u32, 48_000, 96_000], |rate| vec![rate]);
+                let mut answer = vec![rates.len() as u8, 0];
+                for r in rates {
                     answer.extend(r.to_le_bytes());
                     answer.extend(r.to_le_bytes());
                     answer.extend(0u32.to_le_bytes());
@@ -521,7 +572,11 @@ impl Bus for FakeDac {
                 let stalled = matches!(self.trouble, Trouble::StallAfter(n) if s.done >= n);
                 let now = Instant::now();
                 if !stalled {
-                    if let Some(i) = s.queue.iter().position(|(due, ..)| *due <= now) {
+                    let stuck = matches!(self.trouble, Trouble::MusicStuck(n) if s.done >= n);
+                    let back = |(due, _, endpoint): &(Instant, usize, u8)| {
+                        *due <= now && (!stuck || endpoint & 0x80 != 0)
+                    };
+                    if let Some(i) = s.queue.iter().position(back) {
                         let (_, id, endpoint) = s.queue.remove(i).unwrap();
                         s.done += 1;
                         // Feedback: the nominal 44.1 kHz in 16.16 per microframe.
@@ -534,6 +589,8 @@ impl Bus for FakeDac {
                             id,
                             status: 0,
                             data,
+                            bad: 0,
+                            first_bad: 0,
                         }));
                     }
                 }
@@ -696,6 +753,17 @@ pub mod checks {
         let status = needle.usb_dac_status();
         assert_eq!(status.problem, None, "no refusal");
         assert!(needle.playback().playing);
+
+        // A clock that does not start at 44.1 kHz: that family goes, and the song stays.
+        let (fake, dac) = driver(Trouble::ClockInvalidAt(44_100));
+        crate::usb_dac::use_driver(dac);
+        wait("the rate given up", Duration::from_secs(5), || {
+            needle.usb_dac_status().playing.as_deref() == Some("44.1 → 96 kHz, not bit-perfect")
+        });
+        wait("music at the DAC", Duration::from_secs(5), || {
+            fake.bytes() > 100_000
+        });
+        assert_eq!(needle.usb_dac_status().problem, None);
 
         // A clock that stays at 48 kHz when asked for 44.1: that rate goes, and the song stays.
         let (stuck, dac) = driver(Trouble::StaysAt(48_000));
@@ -866,6 +934,8 @@ pub mod checks {
         // Each trouble: an error within a second, and the song goes on through the system.
         for (trouble, words) in [
             (Trouble::StallAfter(40), &["stopped taking music"][..]),
+            // Feedback goes on, so only the music can show it: not a player stuck with no error.
+            (Trouble::MusicStuck(40), &["stopped taking music"][..]),
             (Trouble::GoneAfter(40), &["gone", "no more music"][..]),
             (Trouble::Panic, &["driver stopped"][..]),
         ] {
