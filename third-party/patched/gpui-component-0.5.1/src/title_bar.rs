@@ -304,7 +304,8 @@ impl RenderOnce for TitleBar {
                         .when(window.is_fullscreen(), |this| this.pl_3())
                         .h_full()
                         .justify_between()
-                        .flex_shrink_0()
+                        // Needle: it may shrink, or a wide bar pushes the window's buttons out.
+                        .min_w_0()
                         .flex_1()
                         .when(is_linux && is_client_decorated, |this| {
                             this.child(
