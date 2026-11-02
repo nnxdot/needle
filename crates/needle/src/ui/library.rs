@@ -12,6 +12,11 @@ use gpui_component::{
 };
 use needle_core::browse::{AlbumSummary, ArtistSummary};
 
+/// How far a list scrolls for the header above it to fold all the way.
+const FOLD_SCROLL: f32 = 200.;
+/// The most height the header gives up when it folds (the cover, and the room around it).
+const FOLD_HEIGHT: f32 = 160.;
+
 /// A way out of an empty page.
 #[derive(Clone, Copy)]
 pub enum Step {
@@ -298,12 +303,22 @@ impl AppView {
         let narrow = width < 760.;
         let tight = width < 620.;
         // Scrolled down, the header folds: the cover and the title shrink, so more of the list
-        // shows.
+        // shows. Folding makes the list taller, so its end comes nearer: only a list that still
+        // scrolls the whole way with the header folded may fold. A shorter one would run out of
+        // scroll on the way, unfold, get room to scroll again, and fold, over and over.
         let fold = if big && !self.page.is_grid() {
-            (-f32::from(self.list_scroll.0.borrow().base_handle.offset().y) / 200.).clamp(0., 1.)
+            let scroll = self.list_scroll.0.borrow();
+            let list = &scroll.base_handle;
+            let unfolded = FOLD_HEIGHT * (1. - self.header_fold.get());
+            if f32::from(list.max_offset().height) - unfolded >= FOLD_SCROLL {
+                (-f32::from(list.offset().y) / FOLD_SCROLL).clamp(0., 1.)
+            } else {
+                0.
+            }
         } else {
             0.
         };
+        self.header_fold.set(fold);
         let full = if narrow { 132. } else { 196. };
         let cover_size = full + (72. - full) * fold;
         // Play and the rest: under the title beside a cover, else beside the title.

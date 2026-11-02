@@ -590,6 +590,8 @@ pub struct AppView {
     seek: Entity<SliderState>,
     focus: FocusHandle,
     list_scroll: UniformListScrollHandle,
+    /// How far the header above the list was folded when last drawn, from 0 to 1.
+    header_fold: std::cell::Cell<f32>,
     grid_scroll: UniformListScrollHandle,
     scroll_memory: std::collections::HashMap<String, Point<Pixels>>,
     pending_scroll: Option<Point<Pixels>>,
@@ -1280,6 +1282,7 @@ impl AppView {
             seek,
             focus,
             list_scroll: UniformListScrollHandle::new(),
+            header_fold: std::cell::Cell::new(0.),
             grid_scroll: UniformListScrollHandle::new(),
             scroll_memory: Default::default(),
             pending_scroll: None,
