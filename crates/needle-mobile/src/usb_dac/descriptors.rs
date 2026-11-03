@@ -128,6 +128,8 @@ pub struct Dac {
     pub volume: Option<Volume>,
     /// The DAC takes DSD as raw data itself (UAC2 Type I raw), beside PCM.
     pub native_dsd: bool,
+    /// The clocks that can say whether they run (UAC2 and 3).
+    pub clock_valid: Vec<u8>,
     /// UAC3: the power domain of the way Needle uses.
     pub power: Option<Power>,
     /// A UAC3 BADD profile: no descriptors of its own, always 48 kHz.
@@ -328,7 +330,10 @@ pub fn configurations(raw: &[u8]) -> Vec<Configuration> {
                 });
             }
             (ASSOCIATION, Some(c)) if len >= 8 && d[4] == AUDIO => c.function = Some(d[5]),
-            (INTERFACE, Some(c)) if len >= 9 && first_interface => {
+            // Its first audio interface, or else its first: a TP35 Pro starts with its buttons.
+            (INTERFACE, Some(c))
+                if len >= 9 && (first_interface || (c.class != AUDIO && d[5] == AUDIO)) =>
+            {
                 first_interface = false;
                 c.class = d[5];
                 c.protocol = d[7];
@@ -337,6 +342,8 @@ pub fn configurations(raw: &[u8]) -> Vec<Configuration> {
         }
         i += len;
     }
+    // A FiiO BTR17 describes the same configuration twice.
+    out.dedup_by_key(|c| c.value);
     out
 }
 
@@ -368,6 +375,8 @@ pub fn parse_active(raw: &[u8], active: Option<u8>) -> Option<Dac> {
     let mut powers: Vec<(Power, Vec<u8>)> = vec![];
     let mut badd = false;
     let mut other_configuration = false;
+    let mut found = false;
+    let mut clock_valid = vec![];
     // Where the walk is: the interface (number, alt, class, subclass), and the streaming
     // alt setting being read.
     let mut here: Option<(u8, u8, u8, u8)> = None;
@@ -381,7 +390,9 @@ pub fn parse_active(raw: &[u8], active: Option<u8>) -> Option<Dac> {
         }
         let d = &raw[i..i + len];
         if d[1] == CONFIGURATION && len >= 9 {
-            other_configuration = active.is_some_and(|value| d[5] != value);
+            // Only the first with its number: a FiiO BTR17 describes the same one twice.
+            other_configuration = found || active.is_some_and(|value| d[5] != value);
+            found = active.is_some() && !other_configuration;
         }
         if other_configuration {
             i += len;
@@ -399,10 +410,11 @@ pub fn parse_active(raw: &[u8], active: Option<u8>) -> Option<Dac> {
                 badd |= d[4] == AUDIO && d[6] == UAC3_PROTOCOL && d[5] >= BADD;
             }
             INTERFACE if len >= 9 => {
-                if let Some(f) = pending.take() {
-                    if pcm && f.endpoint != 0 {
-                        formats.push(f);
-                    }
+                if let Some(f) = pending.take()
+                    && pcm
+                    && f.endpoint != 0
+                {
+                    formats.push(f);
                 }
                 here = Some((d[2], d[3], d[5], d[6]));
                 pcm = true;
@@ -523,6 +535,12 @@ pub fn parse_active(raw: &[u8], active: Option<u8>) -> Option<Dac> {
                         kind: Kind::Unit,
                         sources: vec![d[4]],
                     }),
+                    // CLOCK_SOURCE: bit 2 of its controls, whether it can say it is valid.
+                    0x0A if modern && len >= 6 => {
+                        if d[5] & 0b100 != 0 {
+                            clock_valid.push(d[3]);
+                        }
+                    }
                     // CLOCK_SELECTOR: its first source.
                     0x0B if modern && len >= 6 => selectors.push((d[3], d[5])),
                     _ => {}
@@ -616,10 +634,11 @@ pub fn parse_active(raw: &[u8], active: Option<u8>) -> Option<Dac> {
         }
         i += len;
     }
-    if let Some(f) = pending.take() {
-        if pcm && f.endpoint != 0 {
-            formats.push(f);
-        }
+    if let Some(f) = pending.take()
+        && pcm
+        && f.endpoint != 0
+    {
+        formats.push(f);
     }
     // A BADD profile has none of the descriptors above: what it is, is fixed (as Linux has it).
     if badd {
@@ -674,6 +693,7 @@ pub fn parse_active(raw: &[u8], active: Option<u8>) -> Option<Dac> {
         clocks,
         selectors,
         native_dsd,
+        clock_valid,
         power,
         badd,
     })
@@ -911,7 +931,7 @@ mod tests {
         assert_eq!(parse(&d).unwrap().volume, None);
     }
 
-    use super::super::fake::{APPLE_DAC, DOCK, hex};
+    use super::super::fake::{APPLE_DAC, BTR17, DOCK, hex};
 
     #[test]
     fn every_configuration_of_apples_adapter_is_known_and_linux_would_take_the_badd_one() {
@@ -974,6 +994,29 @@ mod tests {
             (0x28, 0x0258, 0x1770)
         );
         assert_eq!(full.paths[0].output, Some((3, 0x0302)));
+    }
+
+    #[test]
+    fn the_real_btr17_is_read_once() {
+        let raw = hex(BTR17);
+        // Its device says two configurations, both number 1, with the same bytes.
+        assert_eq!(configurations(&raw).len(), 1);
+        let btr17 = parse_active(&raw, Some(1)).unwrap();
+        assert_eq!(btr17.uac, Uac::Two);
+        assert_eq!(btr17.paths[btr17.chosen].output, Some((20, 0x0301)));
+        assert_eq!(btr17.volume, None);
+        let shape: Vec<_> = btr17
+            .formats
+            .iter()
+            .map(|f| (f.alt, f.channels, f.bits, f.subslot, f.max_packet))
+            .collect();
+        assert_eq!(shape, [(1, 2, 32, 4, 776), (2, 2, 16, 2, 388)]);
+        assert_eq!(btr17.formats[0].sync, Sync::Async);
+        assert_eq!(btr17.formats[0].feedback, Some(0x81));
+        // Through its clock selector.
+        assert_eq!(btr17.clock_for(2), Some(41));
+        assert_eq!(btr17.clock_valid, [41]);
+        assert!(btr17.native_dsd);
     }
 
     #[test]

@@ -132,19 +132,24 @@ impl Resampler {
     }
 }
 
+/// The highest rate worth converting to: a phone gains nothing from more, and pays for each.
+const TOP_RATE: u32 = 192_000;
+
 /// The rate of those a DAC has for music of `rate`: the rate itself, else an exact multiple (the
-/// lowest above it, then the highest below it), else the highest.
+/// lowest above it, then the highest below it), else the highest up to [`TOP_RATE`].
 pub fn nearest_rate(rate: u32, rates: &[u32]) -> Option<u32> {
     if rates.contains(&rate) {
         return Some(rate);
     }
-    let multiple = |r: &&u32| rate > 0 && **r > 0 && (**r % rate == 0 || rate % **r == 0);
+    let multiple =
+        |r: &&u32| rate > 0 && **r > 0 && ((**r).is_multiple_of(rate) || rate.is_multiple_of(**r));
     let multiples: Vec<&u32> = rates.iter().filter(multiple).collect();
     let above = multiples.iter().filter(|r| ***r > rate).min();
+    let within = rates.iter().filter(|r| **r <= TOP_RATE).max();
     above
         .or(multiples.iter().max())
         .map(|r| **r)
-        .or(rates.iter().max().copied())
+        .or(within.or(rates.iter().min()).copied())
 }
 
 #[cfg(test)]
@@ -261,10 +266,14 @@ mod tests {
             nearest_rate(32_000, &[44_100, 48_000, 96_000]),
             Some(96_000)
         );
-        // None: the highest.
+        // None: the highest, within reason.
         assert_eq!(
             nearest_rate(44_100, &[32_000, 48_000, 96_000]),
             Some(96_000)
+        );
+        assert_eq!(
+            nearest_rate(44_100, &[48_000, 192_000, 384_000, 768_000]),
+            Some(192_000)
         );
         assert_eq!(nearest_rate(44_100, &[]), None);
     }

@@ -869,7 +869,7 @@ impl AppView {
                     .flex_col()
                     .items_center()
                     .gap_1()
-                    .child(self.transport_buttons(38., cx))
+                    .child(self.transport_buttons(38., true, cx))
                     .child(
                         div()
                             .w_full()
@@ -1118,7 +1118,8 @@ impl AppView {
     }
 
     /// Shuffle, previous, play or pause, next, and repeat; `play` is the play button's size.
-    fn transport_buttons(&self, play: f32, cx: &mut Context<Self>) -> Div {
+    /// Without `all`, only previous, play or pause, and next.
+    fn transport_buttons(&self, play: f32, all: bool, cx: &mut Context<Self>) -> Div {
         let p = pal(cx);
         let playing = self.playback.playing;
         let repeat = self.playback.repeat;
@@ -1126,12 +1127,14 @@ impl AppView {
             .flex()
             .items_center()
             .gap_2()
-            .child(
-                icon_button("shuffle", "shuffle", "Shuffle this view")
-                    .small()
-                    .disabled(self.tracks.is_empty())
-                    .on_click(cx.listener(|this, _, _, cx| this.play_view(0, true, cx))),
-            )
+            .when(all, |el| {
+                el.child(
+                    icon_button("shuffle", "shuffle", "Shuffle this view")
+                        .small()
+                        .disabled(self.tracks.is_empty())
+                        .on_click(cx.listener(|this, _, _, cx| this.play_view(0, true, cx))),
+                )
+            })
             .child(
                 icon_button("previous", "previous", "Previous · Ctrl+Left")
                     .on_click(cx.listener(|this, _, _, _| this.player.send(Command::Previous))),
@@ -1169,34 +1172,37 @@ impl AppView {
                 icon_button("next", "next", "Next · Ctrl+Right")
                     .on_click(cx.listener(|this, _, _, _| this.player.send(Command::Next))),
             )
-            .child(
-                icon_button(
-                    "repeat",
-                    if repeat == Repeat::One {
-                        "repeat-one"
-                    } else {
-                        "repeat"
-                    },
-                    match repeat {
-                        Repeat::Off => "Repeat is off",
-                        Repeat::All => "Repeating the queue",
-                        Repeat::One => "Repeating this track",
-                    },
+            .when(all, |el| {
+                el.child(
+                    icon_button(
+                        "repeat",
+                        if repeat == Repeat::One {
+                            "repeat-one"
+                        } else {
+                            "repeat"
+                        },
+                        match repeat {
+                            Repeat::Off => "Repeat is off",
+                            Repeat::All => "Repeating the queue",
+                            Repeat::One => "Repeating this track",
+                        },
+                    )
+                    .small()
+                    .when(repeat != Repeat::Off, |b| b.text_color(p.accent))
+                    .on_click(cx.listener(|this, _, _, _| {
+                        let next = match this.playback.repeat {
+                            Repeat::Off => Repeat::All,
+                            Repeat::All => Repeat::One,
+                            Repeat::One => Repeat::Off,
+                        };
+                        this.player.send(Command::Repeat(next));
+                    })),
                 )
-                .small()
-                .when(repeat != Repeat::Off, |b| b.text_color(p.accent))
-                .on_click(cx.listener(|this, _, _, _| {
-                    let next = match this.playback.repeat {
-                        Repeat::Off => Repeat::All,
-                        Repeat::All => Repeat::One,
-                        Repeat::One => Repeat::Off,
-                    };
-                    this.player.send(Command::Repeat(next));
-                })),
-            )
+            })
     }
 
-    /// Mute and the volume slider (`slider` points long); the wheel over them changes it.
+    /// Mute and the volume slider (`slider` points long, or none at 0); the wheel over them
+    /// changes it.
     pub(super) fn volume_control(&self, slider: f32, cx: &mut Context<Self>) -> Stateful<Div> {
         let volume_glyph = if self.playback.volume <= 0.001 {
             "volume-off"
@@ -1246,11 +1252,13 @@ impl AppView {
                 .disabled(self.playback.exclusive)
                 .on_click(cx.listener(|this, _, window, cx| this.toggle_mute(window, cx))),
             )
-            .child(
-                Slider::new(&self.volume)
-                    .w(px(slider))
-                    .disabled(self.playback.exclusive),
-            )
+            .when(slider > 0., |el| {
+                el.child(
+                    Slider::new(&self.volume)
+                        .w(px(slider))
+                        .disabled(self.playback.exclusive),
+                )
+            })
     }
 
     /// Opens and closes the lyrics beside the page.
@@ -1525,7 +1533,22 @@ impl AppView {
     fn top_player(&self, corner: f32, hidden: bool, width: f32, cx: &mut Context<Self>) -> Div {
         let p = pal(cx);
         let current = self.playback.current.as_ref().map(|i| i.track.clone());
-        let wide = width > 1180.;
+        // The room beside the sidebar's corner and the window's buttons. The controls leave one
+        // group after another as it runs out, so the song keeps a place worth reading and
+        // nothing is pushed out of the window.
+        let buttons = if cfg!(target_os = "macos") {
+            0.
+        } else {
+            WINDOW_BUTTONS
+        };
+        let room = width - corner - buttons;
+        let wide = room >= 910.;
+        // Shuffle, repeat, and the mini player: the command palette has them all.
+        let shorter = room < 740.;
+        // Only the mute button (the wheel over it still changes the volume).
+        let tight = room < 640.;
+        // Favorite and the song's length: the big player has them.
+        let bare = room < 600.;
         let time = |seconds: f64, cx: &App| {
             faint(format_duration(seconds), cx)
                 .text_size(px(11.))
@@ -1533,6 +1556,7 @@ impl AppView {
         };
         div()
             .flex_1()
+            .min_w_0()
             .h_full()
             .flex()
             .items_center()
@@ -1554,7 +1578,7 @@ impl AppView {
                     // Back, Forward, and the palette in their group, as without the player here.
                     .child(self.nav_group(!wide, cx))
                     .child(div().w(px(6.)))
-                    .child(self.transport_buttons(32., cx)),
+                    .child(self.transport_buttons(32., !shorter, cx)),
             )
             .child(
                 div()
@@ -1689,13 +1713,15 @@ impl AppView {
                                                 .text_right(),
                                             )
                                             .child(self.seek_bar("seek-bar", current.is_none(), cx))
-                                            .child(time(
-                                                current.as_ref().map_or(0., |t| t.duration),
-                                                cx,
-                                            )),
+                                            .when(!bare, |el| {
+                                                el.child(time(
+                                                    current.as_ref().map_or(0., |t| t.duration),
+                                                    cx,
+                                                ))
+                                            }),
                                     ),
                             )
-                            .when_some(current.clone(), |el, track| {
+                            .when_some(current.clone().filter(|_| !bare), |el, track| {
                                 el.child(self.favorite_button(track, cx).occlude())
                             }),
                     ),
@@ -1709,13 +1735,22 @@ impl AppView {
                     .pr_2()
                     .occlude()
                     .when(wide, |el| el.child(self.loop_button(cx)))
-                    .child(self.volume_control(if wide { 100. } else { 70. }, cx))
+                    .child(self.volume_control(
+                        if wide {
+                            100.
+                        } else if tight {
+                            0.
+                        } else {
+                            70.
+                        },
+                        cx,
+                    ))
                     .when(wide, |el| {
                         el.child(self.sound_button(cx))
                             .child(self.speakers_button(cx))
                     })
                     .child(self.lyrics_button(cx))
-                    .child(self.mini_button(cx))
+                    .when(!shorter, |el| el.child(self.mini_button(cx)))
                     .child(self.queue_button(cx)),
             )
     }
@@ -1819,6 +1854,9 @@ impl AppView {
 
 /// The sidebar folded to a strip of icons, as in Apple Music.
 pub(super) const RAIL: f32 = 60.;
+
+/// The room Needle's own window buttons take at the title bar's right, on Windows and Linux.
+const WINDOW_BUTTONS: f32 = 102.;
 
 /// macOS: the room its window buttons take at the title bar's left (they end near 70 px; see
 /// `traffic_light_position`), with a clear gap after them.

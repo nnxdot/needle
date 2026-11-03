@@ -41,16 +41,56 @@ static DRIVER: Mutex<Weak<driver::UsbDac>> = Mutex::new(Weak::new());
 /// What happened when a DAC last opened, for "Copy DAC details", also when it was refused.
 static LAST_OPEN: Mutex<String> = Mutex::new(String::new());
 
+/// What happened as it played since: the rates asked, and how it stopped.
+static RUN: Mutex<Vec<String>> = Mutex::new(Vec::new());
+
+/// The numbers of the music last sent.
+static STREAM: Mutex<String> = Mutex::new(String::new());
+
 pub(crate) fn remember_open(text: String) {
     *LAST_OPEN.lock().unwrap_or_else(|e| e.into_inner()) = text;
+    RUN.lock().unwrap_or_else(|e| e.into_inner()).clear();
+    STREAM.lock().unwrap_or_else(|e| e.into_inner()).clear();
 }
 
-pub(crate) fn last_open() -> String {
-    LAST_OPEN.lock().unwrap_or_else(|e| e.into_inner()).clone()
+pub(crate) fn run_line(line: String) {
+    let mut run = RUN.lock().unwrap_or_else(|e| e.into_inner());
+    // The first lines and the latest: a DAC that keeps getting stuck says the same for a while.
+    if run.len() >= 16 {
+        run.remove(6);
+    }
+    run.push(line);
+}
+
+pub(crate) fn stream_line(line: String) {
+    *STREAM.lock().unwrap_or_else(|e| e.into_inner()) = line;
+}
+
+/// What the last DAC did, in lines, for "Copy DAC details".
+pub(crate) fn last_report() -> String {
+    let mut lines = vec![LAST_OPEN.lock().unwrap_or_else(|e| e.into_inner()).clone()];
+    lines.extend(
+        RUN.lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .iter()
+            .cloned(),
+    );
+    lines.push(STREAM.lock().unwrap_or_else(|e| e.into_inner()).clone());
+    lines.retain(|line| !line.is_empty());
+    lines.join("\n")
 }
 
 /// The phone's music volume, 0 to 1 (f32 bits), for the next driver too. 1.0 at the start.
 static PHONE_VOLUME: AtomicU32 = AtomicU32::new(0x3F80_0000);
+
+/// Whether `dac` is the driver in use: one that was replaced says nothing more, or its last word
+/// (a stop, an empty line) would land on the new one's.
+pub(crate) fn is_current(dac: &driver::UsbDac) -> bool {
+    std::ptr::eq(
+        DRIVER.lock().unwrap_or_else(|e| e.into_inner()).as_ptr(),
+        dac,
+    )
+}
 
 fn driver() -> Option<Arc<driver::UsbDac>> {
     DRIVER.lock().unwrap_or_else(|e| e.into_inner()).upgrade()
@@ -234,8 +274,14 @@ impl Needle {
             speed,
             active,
             driver,
-            &last_open(),
+            &last_report(),
         )
+    }
+
+    /// What the last DAC did: how it opened, the rates asked, the numbers of the music, and how
+    /// it stopped. For the app to keep past a restart, so a report can still show it.
+    pub fn usb_dac_report(&self) -> String {
+        last_report()
     }
 
     /// What the driver plays now, and why it stopped (said once).

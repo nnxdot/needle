@@ -701,6 +701,24 @@ struct Gate {
     /// The song held (its number from `Worker::append`); 0 for none.
     hold: std::sync::atomic::AtomicU64,
     hit: std::sync::atomic::AtomicBool,
+    /// Songs queued on the output and taken back (numbers `drop_from..=drop_to`, 0 for none):
+    /// each ends before its first sample. `waiting` counts those the output has not reached.
+    drop_from: std::sync::atomic::AtomicU64,
+    drop_to: std::sync::atomic::AtomicU64,
+    waiting: std::sync::atomic::AtomicUsize,
+}
+impl Gate {
+    fn dropped(&self, serial: u64) -> bool {
+        use std::sync::atomic::Ordering::SeqCst;
+        let from = self.drop_from.load(SeqCst);
+        from != 0 && serial >= from && serial <= self.drop_to.load(SeqCst)
+    }
+    fn clear_dropped(&self) {
+        use std::sync::atomic::Ordering::SeqCst;
+        self.drop_from.store(0, SeqCst);
+        self.drop_to.store(0, SeqCst);
+        self.waiting.store(0, SeqCst);
+    }
 }
 
 struct Marked<S> {
@@ -711,6 +729,8 @@ struct Marked<S> {
     tx: Sender<(u64, QueueItem, u64)>,
     gate: Arc<Gate>,
     serial: u64,
+    /// Taken back before it started (see [`Gate`]), and counted as passed.
+    skipped: bool,
     /// For the visualizer: mono samples gathered since the last hand-over, the frame being
     /// summed, and how many samples until it is asked again whether anyone is looking.
     scope: Vec<f32>,
@@ -736,6 +756,7 @@ impl<S: Source> Marked<S> {
             tx,
             gate,
             serial,
+            skipped: false,
             scope: Vec::with_capacity(512),
             frame: 0.,
             channel: 0,
@@ -748,6 +769,16 @@ impl<S: Source> Iterator for Marked<S> {
     type Item = f32;
     fn next(&mut self) -> Option<f32> {
         use std::sync::atomic::Ordering::Relaxed;
+        if !self.started && self.gate.dropped(self.serial) {
+            if !self.skipped {
+                self.skipped = true;
+                let _ = self
+                    .gate
+                    .waiting
+                    .fetch_update(Relaxed, Relaxed, |n| n.checked_sub(1));
+            }
+            return None;
+        }
         if !self.started && self.gate.hold.load(Relaxed) == self.serial {
             self.gate.hit.store(true, Relaxed);
             return Some(0.);
@@ -1187,6 +1218,7 @@ impl Worker {
         self.gate
             .hit
             .store(false, std::sync::atomic::Ordering::Relaxed);
+        self.gate.clear_dropped();
         self.tempo.clear_position();
         #[cfg(windows)]
         {
@@ -1447,7 +1479,9 @@ impl Worker {
         if self.sink.is_none() {
             return Ok(());
         }
-        while self.sink.as_ref().unwrap().len() < 2 {
+        // Songs taken back still count in the sink until the output passes them.
+        let taken_back = self.gate.waiting.load(std::sync::atomic::Ordering::Relaxed);
+        while self.sink.as_ref().unwrap().len() < 2 + taken_back {
             // One song at a time: the next waits for the one opening.
             if self.opening.is_some() {
                 break;
@@ -2164,7 +2198,7 @@ impl Worker {
             }
             Command::Repeat(repeat) => {
                 if let Some(queue) = self.queue.set_repeat(repeat) {
-                    self.rebuild_tail(queue)?;
+                    self.replace_tail(queue)?;
                 }
             }
             Command::Loop(range) => {
@@ -2179,6 +2213,41 @@ impl Worker {
             }
         }
         Ok(true)
+    }
+    /// Up next becomes `queue`, and the song playing goes on as it is: the songs queued on the
+    /// output after it are taken back. A bit-perfect output (a USB DAC) is not opened again,
+    /// so the music does not stop for a moment. Rebuilds the output as before when they
+    /// cannot be taken back: nothing plays yet, or a crossfade holds the end of the playing
+    /// song inside the next one.
+    fn replace_tail(&mut self, queue: Vec<QueueItem>) -> Result<()> {
+        let crossfading = self.active_ending.is_some() || !self.endings.is_empty();
+        let Some(active) = self.queue.active.clone() else {
+            return self.rebuild_tail(queue);
+        };
+        if self.sink.is_none() || crossfading {
+            return self.rebuild_tail(queue);
+        }
+        if let Some(&(first, _)) = self.staged_serials.front() {
+            use std::sync::atomic::Ordering::SeqCst;
+            // The end first, so the output never sees a start without it. Songs taken back
+            // earlier and not yet passed keep the old start.
+            self.gate.drop_to.store(self.serial, SeqCst);
+            let _ = self
+                .gate
+                .drop_from
+                .compare_exchange(0, first, SeqCst, SeqCst);
+            self.gate
+                .waiting
+                .fetch_add(self.staged_serials.len(), SeqCst);
+            self.staged_serials.clear();
+        }
+        self.queue.staged.clear();
+        self.queue.cycle = std::iter::once(active)
+            .chain(queue.iter().cloned())
+            .collect();
+        self.queue.pending = queue.into();
+        self.queue.touch();
+        self.fill()
     }
     fn rebuild_tail(&mut self, queue: Vec<QueueItem>) -> Result<()> {
         let position = self.sink.as_ref().map_or(0., |s| self.sink_position(s));
@@ -3373,6 +3442,35 @@ mod tests {
         rig.run(Command::Next);
         rig.until_active("b");
         assert!(rig.state().queue.is_empty());
+    }
+
+    #[test]
+    fn a_repeat_change_leaves_the_output_and_the_song_alone() {
+        let opener = FakeOpener::with(&[], Some("Speakers"));
+        let mut rig = rig(opener.clone(), Settings::default());
+        let list = rig.items(&["a", "b", "c"]);
+        rig.run(Command::Play(list));
+        rig.until_active("a");
+        rig.until("b on the output", |w| !w.queue.staged.is_empty());
+        rig.run(Command::Repeat(Repeat::One));
+        assert_eq!(ids(rig.state().queue.iter()), ["b", "c"]);
+        rig.run(Command::Repeat(Repeat::Off));
+        assert_eq!(ids(rig.state().queue.iter()), ["b", "c"]);
+        assert_eq!(rig.active().as_deref(), Some("a"));
+        assert_eq!(opener.opened().len(), 1, "a repeat change opens nothing");
+        // The next song follows on the same output, once.
+        rig.until_active("b");
+        assert_eq!(opener.opened().len(), 1);
+        assert_eq!(ids(rig.state().queue.iter()), ["c"]);
+        // Repeat One with c already on the output: c is taken back and b plays again.
+        rig.until("c on the output", |w| !w.queue.staged.is_empty());
+        rig.run(Command::Repeat(Repeat::One));
+        assert_eq!(opener.opened().len(), 1);
+        let reopened = opener.clone();
+        rig.until("b again", move |_| reopened.opened().len() > 1);
+        rig.until_active("b");
+        assert!(!rig.worker.queue.previous.iter().any(|i| i.track.id == "c"));
+        assert_eq!(ids(rig.state().queue.iter()), ["c"]);
     }
 
     #[test]

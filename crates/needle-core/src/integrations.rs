@@ -1140,7 +1140,15 @@ fn scrobble_summary_with(library: &Library, credentials: &Credentials) -> Result
 /// Return permanently failed listens to the queue, for one service or all.
 pub fn retry_failed_scrobbles(library: &Library, service: Option<&str>) -> Result<usize> {
     Ok(library.connection()?.execute(
-        "UPDATE scrobbles SET status='pending',next_attempt=0 WHERE status='failed' AND (?1 IS NULL OR service=?1)",
+        "UPDATE scrobbles SET status='pending',next_attempt=0,error='' WHERE status='failed' AND (?1 IS NULL OR service=?1)",
+        params![service],
+    )?)
+}
+/// Forget permanently failed listens, for one service or all. The service refused them for
+/// good, so without this they stay in the list forever. The listens stay in the history.
+pub fn clear_failed_scrobbles(library: &Library, service: Option<&str>) -> Result<usize> {
+    Ok(library.connection()?.execute(
+        "DELETE FROM scrobbles WHERE status='failed' AND (?1 IS NULL OR service=?1)",
         params![service],
     )?)
 }
@@ -1438,5 +1446,27 @@ mod tests {
         assert_eq!(retry_failed_scrobbles(&library, Some("lastfm")).unwrap(), 1);
         let summary = scrobble_summary_with(&library, &Credentials::default()).unwrap();
         assert_eq!(summary.lastfm.pending, 2);
+        // Waiting again, it no longer shows why it failed before.
+        let error: String = library
+            .connection()
+            .unwrap()
+            .query_row("SELECT error FROM scrobbles WHERE listen_id='c'", [], |r| {
+                r.get(0)
+            })
+            .unwrap();
+        assert_eq!(error, "");
+        // Refused for good: it can be cleared, for that service only.
+        library
+            .connection()
+            .unwrap()
+            .execute_batch(
+                "UPDATE scrobbles SET status='failed',error='Last.fm ignored this scrobble (code 1)' WHERE listen_id='c';
+                 INSERT INTO scrobbles VALUES ('e','listenbrainz','failed',1,0,'Bad request');",
+            )
+            .unwrap();
+        assert_eq!(clear_failed_scrobbles(&library, Some("lastfm")).unwrap(), 1);
+        let summary = scrobble_summary_with(&library, &Credentials::default()).unwrap();
+        assert_eq!((summary.lastfm.pending, summary.lastfm.failed), (1, 0));
+        assert_eq!(summary.listenbrainz.failed, 1);
     }
 }

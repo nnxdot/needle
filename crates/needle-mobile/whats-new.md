@@ -1,3 +1,10 @@
+# 2.0.1
+USB DACs that stopped after a second now play on.
+! **USB DACs play on.** On some phones, music to a USB DAC stopped after about a second. Needle now sends the music in smaller pieces, and if a DAC still stops taking it, Needle starts it again where the song was.
+- Changing Repeat no longer interrupts the song.
+- A song at a rate your DAC lacks is converted to at most 192 kHz, which saves battery.
+- Copy DAC details shows what happened when a DAC stopped, and keeps it after Needle restarts.
+
 # 2.0.0
 A new look, after the Mac's, and a lot more to see and hear.
 ! **A new look.** The mini player and the tabs float together at the foot of the screen as one small bar of frosted glass, and the page runs on under it. Lists are plain rows with a soft line between them. Home opens with a greeting, the song playing now, and shelves of your albums.

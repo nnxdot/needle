@@ -1,3 +1,10 @@
+# 2.0.1 [windows, linux]
+Fixes for the title bar, album pages, and scrobbles.
+- With the player in the title bar, a narrow window keeps its own buttons in view: less-used buttons step aside as the window gets smaller.
+- Album, artist, and playlist pages no longer jump up and down when their list is nearly as tall as the window.
+- In Settings, Clear failed forgets listens that Last.fm or ListenBrainz refused for good, which otherwise stayed there forever. Retry failed now tries at once.
+- Changing Repeat no longer interrupts the song.
+
 # 2.0.0 [windows, linux]
 A new look, after the Mac's, and a lot more to see and hear.
 ! **A new look.** The player floats over the foot of the page as one rounded bar, with a small screen for the song. The queue, lyrics, and details float beside the page. The page is a sheet with one round corner, the search field sits at the top of the sidebar, and Back, Forward, and the command palette share one small group.

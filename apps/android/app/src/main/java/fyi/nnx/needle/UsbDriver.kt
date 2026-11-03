@@ -100,6 +100,15 @@ object UsbDriver {
     @Volatile private var lastHeld: String? = null
     private var started = false
 
+    /** Where what the last DAC did is kept: a report often comes after a restart. */
+    private const val REPORTS = "usb-driver"
+    private const val REPORT = "report"
+
+    private fun keepReport(context: Context) {
+        val report = runCatching { NeedleApp.instance.core.usbDacReport() }.getOrNull()?.takeIf { it.isNotBlank() } ?: return
+        context.getSharedPreferences(REPORTS, Context.MODE_PRIVATE).edit().putString(REPORT, report).apply()
+    }
+
     /** Taking the DAC and giving it back, one at a time, in order. */
     private val changing = Mutex()
 
@@ -156,10 +165,13 @@ object UsbDriver {
         // The driver's own word: what it plays, or why it stopped (then Android's output plays).
         // Soon while music plays: until the DAC is back with Android, that output is silent.
         NeedleApp.instance.scope.launch {
+            var looks = 0
             while (true) {
                 delay(if (_state.value is State.Driving && NeedleApp.instance.playback.value?.playing == true) 300 else 1500)
                 if (_state.value !is State.Driving) continue
                 val status = withContext(Dispatchers.IO) { runCatching { NeedleApp.instance.core.usbDacStatus() }.getOrNull() } ?: continue
+                // Every few seconds, in case Needle ends with the DAC stuck.
+                if (++looks % 16 == 0 || status.problem != null) withContext(Dispatchers.IO) { keepReport(app) }
                 status.problem?.let { why ->
                     val device = held
                     val name = (device?.productName ?: "The DAC")
@@ -408,6 +420,7 @@ object UsbDriver {
         NeedleApp.instance.scope.launch(Dispatchers.IO) {
             changing.withLock {
                 runCatching { NeedleApp.instance.core.usbDacClose() }
+                keepReport(context)
                 giveBack(c, device)
                 val usb = context.getSystemService(UsbManager::class.java)
                 if (device != null && usb?.deviceList?.containsKey(device.deviceName) == true) askToReplug(nameOf(device))
@@ -467,7 +480,9 @@ object UsbDriver {
                     NeedleApp.instance.core.usbDacDetails(c.fileDescriptor, c.rawDescriptors ?: ByteArray(0), nameOf(dac), dac.vendorId.toUShort(), dac.productId.toUShort())
                 }.getOrElse { "Needle could not read it: ${it.message}\n" }
                 if (own == null) runCatching { c.close() }
-                fyi.nnx.needle.ui.usbPhoneDetails(context) + state + "\n" + dacText
+                val kept = context.getSharedPreferences(REPORTS, Context.MODE_PRIVATE).getString(REPORT, null)
+                val before = if (kept != null && kept !in dacText) "Kept from before:\n$kept\n" else ""
+                fyi.nnx.needle.ui.usbPhoneDetails(context) + state + "\n" + before + dacText
             }
             done(text)
         }

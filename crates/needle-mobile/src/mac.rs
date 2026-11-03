@@ -1781,6 +1781,10 @@ impl Needle {
     pub fn retry_scrobbles(&self, service: String) -> Result<u32> {
         Ok(integrations::retry_failed_scrobbles(&self.library, Some(&service))? as u32)
     }
+    /// Forgets failed listens (`lastfm`, `listenbrainz`). Returns how many.
+    pub fn clear_scrobbles(&self, service: String) -> Result<u32> {
+        Ok(integrations::clear_failed_scrobbles(&self.library, Some(&service))? as u32)
+    }
 
     pub fn clear_acoustid_key(&self) -> Result<()> {
         Ok(integrations::clear_secret(

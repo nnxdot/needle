@@ -442,8 +442,29 @@ impl AppView {
                         .on_click(cx.listener(move |this, _, _, cx| {
                             let library = this.library.clone();
                             this.service_job(move || {
-                                integrations::retry_failed_scrobbles(&library, Some(service))
-                                    .map(|n| format!("{n} listens will be retried."))
+                                let n =
+                                    integrations::retry_failed_scrobbles(&library, Some(service))?;
+                                // Now, not at the next minute: the answer shows at once.
+                                integrations::flush_scrobbles(
+                                    &library,
+                                    &integrations::Credentials::load(),
+                                )?;
+                                Ok(format!("Tried {n} failed listens again."))
+                            });
+                            cx.notify();
+                        })),
+                    )
+                    .child(
+                        small_button(
+                            SharedString::from(format!("clear-{service}")),
+                            "Clear failed",
+                        )
+                        .ghost()
+                        .on_click(cx.listener(move |this, _, _, cx| {
+                            let library = this.library.clone();
+                            this.service_job(move || {
+                                integrations::clear_failed_scrobbles(&library, Some(service))
+                                    .map(|n| format!("Cleared {n} failed listens."))
                             });
                             cx.notify();
                         })),
