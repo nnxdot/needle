@@ -87,7 +87,7 @@ fn wvalue(selector: u8, channel: u8) -> u16 {
 
 /// A rate as people say it: "48" or "44.1".
 fn khz(rate: u32) -> String {
-    if rate % 1000 == 0 {
+    if rate.is_multiple_of(1000) {
         format!("{}", rate / 1000)
     } else {
         format!("{:.1}", rate as f64 / 1000.)
@@ -659,7 +659,11 @@ impl UsbDac {
         ));
         if locked.is_none() {
             // That family of rates shares a crystal: the others would only wait the same.
-            let base = if rate % 11_025 == 0 { 11_025 } else { 8_000 };
+            let base = if rate.is_multiple_of(11_025) {
+                11_025
+            } else {
+                8_000
+            };
             let family: Vec<u32> = self
                 .rates(f)
                 .into_iter()
@@ -939,16 +943,14 @@ impl UsbDac {
             if back.id == FEEDBACK {
                 feedbacks += 1;
                 since_music += 1;
-                if back.status == 0 {
-                    if let Some(rate) = feedback(&back.data, nominal) {
-                        last_feedback = Some(rate);
-                        pacer.set(rate);
-                    }
+                if back.status == 0
+                    && let Some(rate) = feedback(&back.data, nominal)
+                {
+                    last_feedback = Some(rate);
+                    pacer.set(rate);
                 }
-                if !ending {
-                    if let Some(ep) = feedback_endpoint {
-                        let _ = self.bus.submit(FEEDBACK, ep, &[], &[feedback_size]);
-                    }
+                if !ending && let Some(ep) = feedback_endpoint {
+                    let _ = self.bus.submit(FEEDBACK, ep, &[], &[feedback_size]);
                 }
                 continue;
             }

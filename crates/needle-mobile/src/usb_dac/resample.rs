@@ -141,7 +141,8 @@ pub fn nearest_rate(rate: u32, rates: &[u32]) -> Option<u32> {
     if rates.contains(&rate) {
         return Some(rate);
     }
-    let multiple = |r: &&u32| rate > 0 && **r > 0 && (**r % rate == 0 || rate % **r == 0);
+    let multiple =
+        |r: &&u32| rate > 0 && **r > 0 && ((**r).is_multiple_of(rate) || rate.is_multiple_of(**r));
     let multiples: Vec<&u32> = rates.iter().filter(multiple).collect();
     let above = multiples.iter().filter(|r| ***r > rate).min();
     let within = rates.iter().filter(|r| **r <= TOP_RATE).max();

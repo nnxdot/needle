@@ -410,10 +410,11 @@ pub fn parse_active(raw: &[u8], active: Option<u8>) -> Option<Dac> {
                 badd |= d[4] == AUDIO && d[6] == UAC3_PROTOCOL && d[5] >= BADD;
             }
             INTERFACE if len >= 9 => {
-                if let Some(f) = pending.take() {
-                    if pcm && f.endpoint != 0 {
-                        formats.push(f);
-                    }
+                if let Some(f) = pending.take()
+                    && pcm
+                    && f.endpoint != 0
+                {
+                    formats.push(f);
                 }
                 here = Some((d[2], d[3], d[5], d[6]));
                 pcm = true;
@@ -633,10 +634,11 @@ pub fn parse_active(raw: &[u8], active: Option<u8>) -> Option<Dac> {
         }
         i += len;
     }
-    if let Some(f) = pending.take() {
-        if pcm && f.endpoint != 0 {
-            formats.push(f);
-        }
+    if let Some(f) = pending.take()
+        && pcm
+        && f.endpoint != 0
+    {
+        formats.push(f);
     }
     // A BADD profile has none of the descriptors above: what it is, is fixed (as Linux has it).
     if badd {

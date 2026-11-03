@@ -541,10 +541,10 @@ impl Bus for FakeDac {
         if s.gone {
             bail!("The DAC took no more music");
         }
-        if let Trouble::GoneAfter(n) = self.trouble {
-            if s.done >= n {
-                bail!("The DAC took no more music");
-            }
+        if let Trouble::GoneAfter(n) = self.trouble
+            && s.done >= n
+        {
+            bail!("The DAC took no more music");
         }
         let now = Instant::now();
         let due = if endpoint & 0x80 != 0 {
@@ -578,10 +578,10 @@ impl Bus for FakeDac {
                 if s.gone {
                     bail!("The DAC is gone");
                 }
-                if let Trouble::GoneAfter(n) = self.trouble {
-                    if s.done >= n {
-                        bail!("The DAC is gone");
-                    }
+                if let Trouble::GoneAfter(n) = self.trouble
+                    && s.done >= n
+                {
+                    bail!("The DAC is gone");
                 }
                 let stalled = matches!(self.trouble, Trouble::StallAfter(n) if s.done >= n);
                 let now = Instant::now();

@@ -149,6 +149,7 @@ pub fn paths(dac: &Dac) -> Vec<String> {
 
 /// Everything known of a DAC. `speed` is Linux's number for it, `active` the configuration it
 /// runs; `driver` is what the driver in use adds, `opened` what happened when it last opened.
+#[allow(clippy::too_many_arguments)]
 pub fn text(
     raw: &[u8],
     name: &str,
