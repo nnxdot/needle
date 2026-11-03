@@ -7,13 +7,18 @@ use gpui::{prelude::*, *};
 use gpui_component::{
     Disableable,
     button::ButtonVariants,
+    checkbox::Checkbox,
     input::{Input, InputState},
 };
 use needle_core::{
     doctor::{self, AlbumIssue, DuplicateGroup, Plan, Release},
     media,
     model::Track,
-    scan,
+    scan::{self, TagEdit},
+};
+use std::sync::{
+    Arc,
+    atomic::{AtomicBool, Ordering},
 };
 
 const TABS: [&str; 4] = ["Duplicates", "Covers", "Tags", "Organize"];
@@ -31,6 +36,17 @@ pub enum Msg {
     Issues(Vec<AlbumIssue>),
     Releases(String, Result<Vec<Release>, String>),
     Tagged(String, usize, Vec<String>),
+    /// One more album looked up by Look up all (`bulk` names the run): a sure match or none,
+    /// or the lookup failed. `finished` comes last, alone.
+    BulkProgress {
+        bulk: usize,
+        done: usize,
+        found: Option<Box<BulkMatch>>,
+        failed: bool,
+        finished: bool,
+    },
+    /// Look up all wrote its matches: albums, songs, and what failed.
+    BulkTagged(usize, usize, Vec<String>),
     Plan(Plan),
     Organized(usize, Vec<(String, String)>),
     Undone(usize),
@@ -44,6 +60,34 @@ pub struct Lookup {
     pub chosen: usize,
 }
 
+/// An album Look up all matched for sure, waiting to be written.
+pub struct BulkMatch {
+    pub issue: AlbumIssue,
+    pub release: Release,
+    pub edits: Vec<(String, TagEdit)>,
+    /// Ticked to be written.
+    pub chosen: bool,
+}
+
+/// Every album with gaps, looked up on MusicBrainz one after another. Only sure matches are
+/// kept (the album's own title, every song on the release), and nothing is written until
+/// they are checked.
+pub struct Bulk {
+    pub done: usize,
+    pub total: usize,
+    pub failed: usize,
+    pub finished: bool,
+    pub found: Vec<BulkMatch>,
+    pub stop: Arc<AtomicBool>,
+}
+
+impl Bulk {
+    /// Which run a message belongs to.
+    fn id(&self) -> usize {
+        Arc::as_ptr(&self.stop) as usize
+    }
+}
+
 pub struct Doctor {
     pub tab: usize,
     pub duplicates: Option<Vec<DuplicateGroup>>,
@@ -53,6 +97,7 @@ pub struct Doctor {
     pub cover_progress: Option<(usize, usize, usize)>,
     pub issues: Option<Vec<AlbumIssue>>,
     pub lookup: Option<Lookup>,
+    pub bulk: Option<Bulk>,
     pub pattern: Entity<InputState>,
     pub plan: Option<Plan>,
     pub confirm_organize: bool,
@@ -70,6 +115,7 @@ impl Doctor {
             cover_progress: None,
             issues: None,
             lookup: None,
+            bulk: None,
             pattern,
             plan: None,
             confirm_organize: false,
@@ -212,6 +258,41 @@ impl AppView {
                 }
                 self.doctor_load();
             }
+            Msg::BulkProgress {
+                bulk,
+                done,
+                found,
+                failed,
+                finished,
+            } => {
+                if let Some(run) = d.bulk.as_mut().filter(|b| b.id() == bulk) {
+                    if finished {
+                        run.finished = true;
+                    } else {
+                        run.done = done;
+                    }
+                    run.failed += usize::from(failed);
+                    run.found.extend(found.map(|m| *m));
+                }
+            }
+            Msg::BulkTagged(albums, songs, failed) => {
+                d.busy = false;
+                d.bulk = None;
+                if failed.is_empty() {
+                    self.notify(format!(
+                        "Updated {} in {}. Needle kept a backup of each file.",
+                        plural(songs, "song", "songs"),
+                        plural(albums, "album", "albums")
+                    ));
+                } else {
+                    self.fail(format!(
+                        "Updated {songs}; {} failed: {}",
+                        failed.len(),
+                        failed.join("; ")
+                    ));
+                }
+                self.doctor_load();
+            }
             Msg::Plan(plan) => d.plan = Some(plan),
             Msg::Organized(done, failed) => {
                 d.busy = false;
@@ -308,6 +389,108 @@ impl AppView {
                 album.clone(),
                 doctor::find_releases(&album, &artist, count).map_err(|e| format!("{e:#}")),
             )
+        });
+        cx.notify();
+    }
+
+    /// Look up every album with gaps, one after another (MusicBrainz takes one request a
+    /// second), keeping only sure matches to check before anything is written.
+    fn look_up_all(&mut self, cx: &mut Context<Self>) {
+        let Some(list) = self.doctor.issues.clone().filter(|l| !l.is_empty()) else {
+            return;
+        };
+        let stop = Arc::new(AtomicBool::new(false));
+        let run = Bulk {
+            done: 0,
+            total: list.len(),
+            failed: 0,
+            finished: false,
+            found: vec![],
+            stop: stop.clone(),
+        };
+        let bulk = run.id();
+        self.doctor.bulk = Some(run);
+        let library = self.library.clone();
+        let sender = self.sender.clone();
+        std::thread::spawn(move || {
+            for (i, issue) in list.into_iter().enumerate() {
+                if stop.load(Ordering::Relaxed) {
+                    break;
+                }
+                let tracks = library.tracks_by_ids(&issue.track_ids).unwrap_or_default();
+                let artist = if issue.artist == "Various artists" {
+                    String::new()
+                } else {
+                    issue.artist.clone()
+                };
+                let (found, failed) = match doctor::sure_release(&issue.album, &artist, &tracks) {
+                    Ok(release) => (
+                        release.and_then(|release| {
+                            let edits = doctor::release_edits(&tracks, &release);
+                            (!edits.is_empty()).then(|| {
+                                Box::new(BulkMatch {
+                                    issue,
+                                    release,
+                                    edits,
+                                    chosen: true,
+                                })
+                            })
+                        }),
+                        false,
+                    ),
+                    Err(_) => (None, true),
+                };
+                let _ = sender.send(Event::Doctor(Msg::BulkProgress {
+                    bulk,
+                    done: i + 1,
+                    found,
+                    failed,
+                    finished: false,
+                }));
+            }
+            let _ = sender.send(Event::Doctor(Msg::BulkProgress {
+                bulk,
+                done: 0,
+                found: None,
+                failed: false,
+                finished: true,
+            }));
+        });
+        cx.notify();
+    }
+
+    /// Write the ticked matches of Look up all.
+    fn write_bulk(&mut self, cx: &mut Context<Self>) {
+        let Some(bulk) = &self.doctor.bulk else {
+            return;
+        };
+        bulk.stop.store(true, Ordering::Relaxed);
+        let chosen: Vec<(String, Vec<(String, TagEdit)>)> = bulk
+            .found
+            .iter()
+            .filter(|m| m.chosen)
+            .map(|m| (m.release.title.clone(), m.edits.clone()))
+            .collect();
+        if chosen.is_empty() {
+            return;
+        }
+        self.doctor.busy = true;
+        self.doctor_send(move |library| {
+            let (mut albums, mut songs, mut failed) = (0, 0, vec![]);
+            for (title, edits) in &chosen {
+                let mut any = false;
+                for (id, edit) in edits {
+                    match scan::write_tags(library, id, edit) {
+                        Ok(()) => {
+                            songs += 1;
+                            any = true;
+                        }
+                        Err(e) => failed.push(format!("{title}: {e:#}")),
+                    }
+                }
+                albums += usize::from(any);
+            }
+            Msg::BulkTagged(albums, songs, failed)
         });
         cx.notify();
     }
@@ -704,6 +887,9 @@ impl AppView {
         if let Some(lookup) = &d.lookup {
             return self.lookup_view(lookup, width, cx);
         }
+        if let Some(bulk) = &d.bulk {
+            return self.bulk_view(bulk, cx);
+        }
         let Some(list) = &d.issues else {
             return self.loading("Checking album tags…", cx);
         };
@@ -768,10 +954,18 @@ impl AppView {
             .flex()
             .flex_col()
             .gap_3()
+            .when(self.settings.online_media && list.len() > 1, |el| {
+                el.child(
+                    div().flex().child(
+                        small_button("lookup-all", "Look up all")
+                            .on_click(cx.listener(|this, _, _, cx| this.look_up_all(cx))),
+                    ),
+                )
+            })
             .child(meta(
                 if self.settings.online_media {
                     format!(
-                        "{} with gaps in their tags. Look one up to match it with a release on MusicBrainz; you see every change before anything is written, and Needle keeps a backup of each file.",
+                        "{} with gaps in their tags. Look one up to match it with a release on MusicBrainz, or look them all up: Look up all keeps only sure matches for you to check. You see every change before anything is written, and Needle keeps a backup of each file.",
                         plural(list.len(), "album", "albums")
                     )
                 } else {
@@ -782,6 +976,138 @@ impl AppView {
                 },
                 cx,
             ))
+            .child(div().flex().flex_col().children(rows))
+            .into_any_element()
+    }
+
+    /// Look up all: its progress, then the sure matches to tick and write.
+    fn bulk_view(&self, bulk: &Bulk, cx: &mut Context<Self>) -> AnyElement {
+        let p = pal(cx);
+        let chosen = bulk.found.iter().filter(|m| m.chosen).count();
+        let found = plural(bulk.found.len(), "sure match", "sure matches");
+        let status = if bulk.finished {
+            format!(
+                "Looked up {} of {}: {found}. Untick any you do not want, then write them; Needle keeps a backup of each file.",
+                bulk.done, bulk.total
+            )
+        } else {
+            format!(
+                "Looking up {} of {} on MusicBrainz (about a second or two each): {found} so far. You can write them once it ends, or stop it.",
+                bulk.done, bulk.total
+            )
+        };
+        let failed = (bulk.failed > 0).then(|| {
+            faint(
+                format!(
+                    "{} could not be looked up (no connection, or MusicBrainz was busy).",
+                    plural(bulk.failed, "album", "albums")
+                ),
+                cx,
+            )
+        });
+        let buttons = div()
+            .flex()
+            .gap_2()
+            .child(
+                small_button("bulk-back", "Back to the list")
+                    .ghost()
+                    .on_click(cx.listener(|this, _, _, cx| {
+                        if let Some(bulk) = this.doctor.bulk.take() {
+                            bulk.stop.store(true, Ordering::Relaxed);
+                        }
+                        cx.notify();
+                    })),
+            )
+            .when(!bulk.finished, |el| {
+                el.child(small_button("bulk-stop", "Stop").on_click(cx.listener(
+                    |this, _, _, cx| {
+                        if let Some(bulk) = &this.doctor.bulk {
+                            bulk.stop.store(true, Ordering::Relaxed);
+                        }
+                        cx.notify();
+                    },
+                )))
+            })
+            .when(bulk.finished, |el| {
+                el.child(
+                    small_button(
+                        "bulk-write",
+                        format!("Write {}", plural(chosen, "album", "albums")),
+                    )
+                    .primary()
+                    .disabled(chosen == 0 || self.doctor.busy)
+                    .on_click(cx.listener(|this, _, _, cx| this.write_bulk(cx))),
+                )
+            });
+        let rows: Vec<AnyElement> =
+            bulk.found
+                .iter()
+                .enumerate()
+                .map(|(i, m)| {
+                    let release = &m.release;
+                    let mut about = vec![release.title.clone()];
+                    if !release.artist.is_empty() {
+                        about.push(release.artist.clone());
+                    }
+                    if let Some(year) = release.year {
+                        about.push(year.to_string());
+                    }
+                    if !release.country.is_empty() {
+                        about.push(release.country.clone());
+                    }
+                    div()
+                        .id(("bulk", i))
+                        .flex()
+                        .items_center()
+                        .gap_3()
+                        .px_2()
+                        .py(px(6.))
+                        .rounded(px(6.))
+                        .hover(|s| s.bg(p.raised.opacity(0.6)))
+                        .child(Checkbox::new(("bulk-pick", i)).checked(m.chosen).on_click(
+                            cx.listener(move |this, checked: &bool, _, cx| {
+                                if let Some(m) =
+                                    this.doctor.bulk.as_mut().and_then(|b| b.found.get_mut(i))
+                                {
+                                    m.chosen = *checked;
+                                }
+                                cx.notify();
+                            }),
+                        ))
+                        .child(
+                            div()
+                                .flex_1()
+                                .min_w_0()
+                                .child(
+                                    div()
+                                        .text_size(px(13.5))
+                                        .font_weight(FontWeight::MEDIUM)
+                                        .truncate()
+                                        .child(m.issue.album.clone()),
+                                )
+                                .child(
+                                    faint(
+                                        format!(
+                                            "{} · {} · {}",
+                                            m.issue.artist,
+                                            about.join(" · "),
+                                            plural(m.edits.len(), "song changes", "songs change")
+                                        ),
+                                        cx,
+                                    )
+                                    .truncate(),
+                                ),
+                        )
+                        .into_any_element()
+                })
+                .collect();
+        div()
+            .flex()
+            .flex_col()
+            .gap_3()
+            .child(buttons)
+            .child(meta(status, cx))
+            .children(failed)
             .child(div().flex().flex_col().children(rows))
             .into_any_element()
     }

@@ -25,10 +25,19 @@ pub struct LibraryChoices {
     /// "name", "most_played", "most_songs", or "recently_added".
     pub artist_order: String,
     pub album_artists_only: bool,
+    /// The Artists page leaves out artists whose every song is on a Various Artists album.
+    #[uniffi(default = false)]
+    pub hide_compilation_artists: bool,
+    /// Checking the music folders forgets songs whose file is gone or broken.
+    #[uniffi(default = false)]
+    pub forget_missing: bool,
     /// Find every artist's pictures slowly in the background (with online lookups on).
     pub artist_pictures: bool,
     /// The crossfade ends where the music ends and lasts whole bars.
     pub smart_mix: bool,
+    /// The shuffle button turns shuffle on and off, as in Spotify (see `Needle::set_shuffle`).
+    #[uniffi(default = false)]
+    pub shuffle_stays: bool,
     /// The big player's look: "cover", "record", "lyrics", or "visualizer".
     #[uniffi(default = "cover")]
     pub big_look: String,
@@ -211,8 +220,11 @@ impl Needle {
             player_buttons: s.player_buttons().into_iter().map(String::from).collect(),
             artist_order: s.artist_order.clone(),
             album_artists_only: s.album_artists_only,
+            hide_compilation_artists: s.hide_compilation_artists,
+            forget_missing: s.forget_missing,
             artist_pictures: s.artist_pictures,
             smart_mix: s.smart_mix,
+            shuffle_stays: s.shuffle_stays,
             big_look: s.big_look.clone(),
             seek_style: s.seek_style.clone(),
             album_grouping: s.album_grouping.clone(),
@@ -230,8 +242,11 @@ impl Needle {
             s.player_buttons = value.player_buttons.clone();
             s.artist_order = ArtistOrder::from_name(&value.artist_order).name().into();
             s.album_artists_only = value.album_artists_only;
+            s.hide_compilation_artists = value.hide_compilation_artists;
+            s.forget_missing = value.forget_missing;
             s.artist_pictures = value.artist_pictures;
             s.smart_mix = value.smart_mix;
+            s.shuffle_stays = value.shuffle_stays;
             s.big_look = if needle_core::model::BIG_LOOKS.contains(&value.big_look.as_str()) {
                 value.big_look.clone()
             } else {
@@ -337,6 +352,8 @@ impl Needle {
         let choice = ArtistChoice {
             order: ArtistOrder::from_name(&order),
             album_artists_only,
+            // From Settings › Library (see `LibraryChoices`).
+            compilations_hidden: self.library.settings()?.hide_compilation_artists,
         };
         Ok(self
             .library
