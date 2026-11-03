@@ -250,6 +250,12 @@ struct NeedleSettings: Decodable, Equatable {
     var playerButtons = PlayerButtons.core
     var artistOrder = "name"
     var albumArtistsOnly = false
+    /// The Artists page leaves out artists whose every song is on a Various Artists album.
+    var hideCompilationArtists = false
+    /// Check for changes forgets songs whose file is gone or broken.
+    var forgetMissing = false
+    /// The shuffle button turns shuffle on and off, as in Spotify.
+    var shuffleStays = false
     var artistPictures = true
     var accentColor = ""
     var ambient = false

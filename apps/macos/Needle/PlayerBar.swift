@@ -288,7 +288,11 @@ struct MoreButton: View {
         let repeatMode = store.playback?.repeat ?? "off"
         switch name {
         case "shuffle":
-            Button(store.route.isSongs ? "Shuffle This View" : "Shuffle Up Next", systemImage: "shuffle") { store.shuffleView() }
+            if store.settings.shuffleStays {
+                Button(store.shuffleOn ? "Turn Shuffle Off" : "Turn Shuffle On", systemImage: "shuffle") { store.shuffleButton() }
+            } else {
+                Button(store.route.isSongs ? "Shuffle This View" : "Shuffle Up Next", systemImage: "shuffle") { store.shuffleView() }
+            }
         case "previous": Button("Previous", systemImage: "backward.fill") { store.previous() }
         case "next": Button("Next", systemImage: "forward.fill") { store.next() }
         case "repeat":
@@ -418,9 +422,10 @@ struct Transport: View {
         let repeatMode = store.playback?.repeat ?? "off"
         HStack(spacing: bare ? (icons ?? 16) * 0.85 : compact ? 4 : 10) {
             if !compact {
-                Button { store.shuffleView() } label: { Image(systemName: "shuffle") }
-                    .help(store.route.isSongs ? "Shuffle this view" : "Shuffle up next")
+                Button { store.shuffleButton() } label: { Image(systemName: "shuffle").lit(store.shuffleOn, colors.accent) }
+                    .help(store.shuffleHelp)
                     .accessibilityLabel("Shuffle")
+                    .accessibilityValue(store.settings.shuffleStays ? (store.shuffleOn ? "On" : "Off") : "")
             }
             Button { store.previous() } label: { Image(systemName: "backward.fill") }
                 .help("Previous · ⌘←")

@@ -253,6 +253,14 @@ struct PlaybackSettingsView: View {
                     SettingSwitch(key: "smart_mix", on: s.smartMix)
                 }
             }
+            SettingRow(title: "Shuffle stays on", detail: "As in Spotify: the shuffle button turns shuffle on and off, and the song playing goes on.", icon: "shuffle") {
+                RowToggle(isOn: Binding(get: { s.shuffleStays }, set: { on in
+                    store.set(["shuffle_stays": on])
+                    // Off: shuffle no longer stays, so it stops now.
+                    if !on, store.playback?.shuffle == true { store.core.setShuffle(on: false) }
+                }))
+                .toggleStyle(.switch).labelsHidden()
+            }
             OpenRow(title: "When the queue runs out", detail: "Keep playing songs that match a rule.", icon: "sparkles",
                     value: s.autoplayQuery.isEmpty ? "Off" : s.autoplayQuery) {
                 VStack(alignment: .leading, spacing: 6) {
@@ -426,6 +434,9 @@ struct LibrarySettings: View {
             HStack {
                 Button { store.addFolder() } label: { Label("Add folder", systemImage: "plus") }
                 Button("Check for changes") { store.rescan() }.disabled(store.scan.running)
+            }
+            SettingRow(title: "Forget songs that are gone", detail: "Check for changes forgets songs whose file was deleted or can no longer be read, instead of keeping them marked missing.", icon: "trash") {
+                SettingSwitch(key: "forget_missing", on: s.forgetMissing)
             }
         } header: {
             GroupHeader(title: "Music folders")
