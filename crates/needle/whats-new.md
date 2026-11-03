@@ -1,3 +1,12 @@
+# 2.0.2 [windows, linux]
+Shuffle that stays on, tags for many albums at once, and fixes.
+- **Shuffle stays on.** Turn it on in Settings › Playback: the shuffle button then turns shuffle on and off, as in Spotify, and the song playing goes on. Turned off, up next is the list in its own order again.
+- **Look up all.** In Fix my library › Tags, look up every album with gaps at once. Needle keeps only sure matches (the album's own title, every song on the release), and you tick which to write.
+- **Forget songs that are gone.** A switch in Settings › Library: Check for changes then forgets songs whose file was deleted or broke, instead of keeping them marked missing.
+- **Hide Various Artists-only.** The Artists page can leave out artists who are only on Various Artists albums.
+- The Artists page's letter bar files Korean names under their first consonant, Japanese names under their kana row (katakana with hiragana), and Chinese characters together under 漢.
+- Pressing the edge of the window always resizes it, also on Windows 10 with Acrylic.
+
 # 2.0.1 [windows, linux]
 Fixes for the title bar, album pages, and scrobbles.
 - With the player in the title bar, a narrow window keeps its own buttons in view: less-used buttons step aside as the window gets smaller.

@@ -1009,6 +1009,23 @@ impl WindowsWindowInner {
         wparam: WPARAM,
         lparam: LPARAM,
     ) -> Option<isize> {
+        // Needle: a press on a resize edge resizes the window. Without a border (Windows 10
+        // with Acrylic) the edge lies over the page, whose own handlers must not take it.
+        if button == MouseButton::Left
+            && matches!(
+                wparam.0 as u32,
+                HTLEFT
+                    | HTRIGHT
+                    | HTTOP
+                    | HTTOPLEFT
+                    | HTTOPRIGHT
+                    | HTBOTTOM
+                    | HTBOTTOMLEFT
+                    | HTBOTTOMRIGHT
+            )
+        {
+            return None;
+        }
         let mut lock = self.state.borrow_mut();
         if let Some(mut func) = lock.callbacks.input.take() {
             let scale_factor = lock.scale_factor;

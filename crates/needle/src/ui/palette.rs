@@ -210,14 +210,13 @@ impl AppView {
                 Some("Ctrl+←"),
                 |this, _, _| this.player.send(Command::Previous),
             ),
-            item(
-                "Actions",
-                "shuffle",
-                "Shuffle this view",
-                "",
-                None,
-                |this, _, cx| this.play_view(0, true, cx),
-            ),
+            item("Actions", "shuffle", "Shuffle", "", None, |this, _, cx| {
+                if this.settings.shuffle_stays {
+                    this.toggle_shuffle(cx)
+                } else {
+                    this.play_view(0, true, cx)
+                }
+            }),
             item(
                 "Actions",
                 "expand",

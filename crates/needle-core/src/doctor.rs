@@ -505,6 +505,53 @@ fn parse_release(value: &Value) -> Release {
 /// Search MusicBrainz for releases of this album; the closest in track count first, each with
 /// its track list. Sends the album title and artist only.
 pub fn find_releases(album: &str, artist: &str, track_count: usize) -> Result<Vec<Release>> {
+    let mut found = search_releases(album, artist, track_count)?;
+    found.truncate(4);
+    // The search gives no track lists; fetch them for the best few.
+    found.into_iter().map(|r| full_release(&r)).collect()
+}
+
+/// For looking up many albums at once: the release to use without asking, or none. Only one
+/// titled as the album, with a strong search score, that has every song of the album on it.
+/// Sends the album title and artist only.
+pub fn sure_release(album: &str, artist: &str, tracks: &[Track]) -> Result<Option<Release>> {
+    if tracks.is_empty() || album.trim().is_empty() {
+        return Ok(None);
+    }
+    let Some(best) = search_releases(album, artist, tracks.len())?
+        .into_iter()
+        .find(|r| r.score >= SURE_SCORE && simple(&r.title) == simple(album))
+    else {
+        return Ok(None);
+    };
+    let full = full_release(&best)?;
+    Ok(is_sure(album, tracks, &full).then_some(full))
+}
+
+/// The lowest MusicBrainz search score a bulk lookup takes.
+const SURE_SCORE: i64 = 90;
+
+/// The release is titled as the album and has every one of its songs.
+pub fn is_sure(album: &str, tracks: &[Track], release: &Release) -> bool {
+    !tracks.is_empty()
+        && simple(&release.title) == simple(album)
+        && match_tracks(tracks, release).iter().all(Option::is_some)
+}
+
+/// A release found by a search, with its track list.
+fn full_release(release: &Release) -> Result<Release> {
+    let full = musicbrainz_get(
+        &format!("release/{}", release.id),
+        &[("inc", "recordings+artist-credits")],
+    )?;
+    let mut full = parse_release(&full);
+    full.score = release.score;
+    Ok(full)
+}
+
+/// Releases of this album on MusicBrainz, without track lists: the closest in track count
+/// first, then the best match.
+fn search_releases(album: &str, artist: &str, track_count: usize) -> Result<Vec<Release>> {
     if album.trim().is_empty() {
         bail!("This album has no title to search for.");
     }
@@ -531,19 +578,7 @@ pub fn find_releases(album: &str, artist: &str, track_count: usize) -> Result<Ve
             .unwrap_or(0) as usize
     };
     found.sort_by_key(|r| (count(r).abs_diff(track_count), -r.score));
-    found.truncate(4);
-    // The search gives no track lists; fetch them for the best few.
-    let mut releases = vec![];
-    for release in found {
-        let full = musicbrainz_get(
-            &format!("release/{}", release.id),
-            &[("inc", "recordings+artist-credits")],
-        )?;
-        let mut full = parse_release(&full);
-        full.score = release.score;
-        releases.push(full);
-    }
-    Ok(releases)
+    Ok(found)
 }
 
 /// For each song, the release track it is, if any: by disc and track number when they agree
@@ -1414,6 +1449,11 @@ mod tests {
         let for_a = &edits.iter().find(|e| e.0 == "a").unwrap().1;
         assert_eq!(for_a.title.as_deref(), Some("First"));
         assert_eq!(for_a.album, None);
+        // Sure enough for a bulk lookup: its own title, every song on it.
+        assert!(is_sure("Real Album", &[a.clone(), b.clone()], &release));
+        assert!(!is_sure("Other Album", &[a.clone()], &release));
+        let stranger = track("c", "The Band", "Not On It", 30., "FLAC");
+        assert!(!is_sure("Real Album", &[a, stranger], &release));
     }
 
     #[test]

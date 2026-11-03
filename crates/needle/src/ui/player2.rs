@@ -12,7 +12,7 @@ use super::{
 };
 use gpui::{prelude::*, *};
 use gpui_component::{
-    ActiveTheme, Disableable, Selectable, Sizable,
+    ActiveTheme, Selectable, Sizable,
     button::{Button, ButtonVariants},
 };
 use needle_core::{audio::Command, audio::Repeat};
@@ -113,10 +113,9 @@ impl AppView {
         let p = pal(cx);
         let current = self.playback.current.as_ref().map(|i| i.track.clone());
         let element = match name {
-            "shuffle" => icon_button("shuffle", "shuffle", "Shuffle this view")
+            "shuffle" => self
+                .shuffle_button("shuffle", cx)
                 .small()
-                .disabled(self.tracks.is_empty())
-                .on_click(cx.listener(|this, _, _, cx| this.play_view(0, true, cx)))
                 .into_any_element(),
             "previous" => icon_button("previous", "previous", "Previous · Ctrl+Left")
                 .on_click(cx.listener(|this, _, _, _| this.player.send(Command::Previous)))
@@ -387,6 +386,16 @@ impl AppView {
         let mut entries = vec![];
         for &(name, glyph_name, label) in BUTTONS.iter().filter(|b| !shown.contains(&b.0)) {
             let entry = match name {
+                "shuffle" if self.settings.shuffle_stays => Entry::item(
+                    glyph_name,
+                    if self.playback.shuffle {
+                        "Turn shuffle off"
+                    } else {
+                        "Turn shuffle on"
+                    },
+                    None,
+                    |this, _, cx| this.toggle_shuffle(cx),
+                ),
                 "shuffle" => Entry::item(glyph_name, "Shuffle this view", None, |this, _, cx| {
                     this.play_view(0, true, cx)
                 }),

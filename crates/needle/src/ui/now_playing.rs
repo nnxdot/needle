@@ -540,12 +540,7 @@ impl AppView {
                                             )
                                         })
                                     })
-                                    .child(
-                                        icon_button("big-shuffle", "shuffle", "Shuffle this view")
-                                            .on_click(cx.listener(|this, _, _, cx| {
-                                                this.play_view(0, true, cx)
-                                            })),
-                                    )
+                                    .child(self.shuffle_button("big-shuffle", cx))
                                     .child(
                                         icon_button("big-previous", "previous", "Previous")
                                             .large()

@@ -19,10 +19,12 @@ impl AppView {
         ArtistChoice {
             order: ArtistOrder::from_name(&self.settings.artist_order),
             album_artists_only: self.settings.album_artists_only,
+            compilations_hidden: self.settings.hide_compilation_artists,
         }
     }
 
-    /// The order and Only album artists, beside the Artists page's title.
+    /// The order, Only album artists, and Hide Various Artists-only, beside the Artists page's
+    /// title.
     pub(super) fn artist_sort_controls(&self, tight: bool, cx: &mut Context<Self>) -> Div {
         let selected = ORDERS
             .iter()
@@ -58,6 +60,22 @@ impl AppView {
                     .selected(self.settings.album_artists_only)
                     .on_click(cx.listener(|this, _, _, cx| {
                         this.settings.album_artists_only = !this.settings.album_artists_only;
+                        this.persist_settings();
+                        this.refresh(cx);
+                    })),
+            )
+            .child(
+                Button::new("hide-compilation-artists")
+                    .label(if tight {
+                        "No VA-only"
+                    } else {
+                        "Hide Various Artists-only"
+                    })
+                    .tooltip("Hide artists who are only on Various Artists albums")
+                    .selected(self.settings.hide_compilation_artists)
+                    .on_click(cx.listener(|this, _, _, cx| {
+                        this.settings.hide_compilation_artists =
+                            !this.settings.hide_compilation_artists;
                         this.persist_settings();
                         this.refresh(cx);
                     })),

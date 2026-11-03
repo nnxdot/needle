@@ -1128,12 +1128,7 @@ impl AppView {
             .items_center()
             .gap_2()
             .when(all, |el| {
-                el.child(
-                    icon_button("shuffle", "shuffle", "Shuffle this view")
-                        .small()
-                        .disabled(self.tracks.is_empty())
-                        .on_click(cx.listener(|this, _, _, cx| this.play_view(0, true, cx))),
-                )
+                el.child(self.shuffle_button("shuffle", cx).small())
             })
             .child(
                 icon_button("previous", "previous", "Previous · Ctrl+Left")
@@ -1199,6 +1194,37 @@ impl AppView {
                     })),
                 )
             })
+    }
+
+    /// The shuffle button: shuffles the list on screen at once; or, with Shuffle stays on in
+    /// Settings, turns shuffle on and off (lit while on), and the song playing goes on.
+    pub(super) fn shuffle_button(&self, id: &'static str, cx: &mut Context<Self>) -> Button {
+        if self.settings.shuffle_stays {
+            let on = self.playback.shuffle;
+            icon_button(
+                id,
+                "shuffle",
+                if on {
+                    "Shuffle is on"
+                } else {
+                    "Shuffle is off"
+                },
+            )
+            .when(on, |b| b.text_color(pal(cx).accent))
+            .on_click(cx.listener(|this, _, _, cx| this.toggle_shuffle(cx)))
+        } else {
+            icon_button(id, "shuffle", "Shuffle this view")
+                .disabled(self.tracks.is_empty())
+                .on_click(cx.listener(|this, _, _, cx| this.play_view(0, true, cx)))
+        }
+    }
+
+    /// Turns shuffle on or off (Shuffle stays on).
+    pub(super) fn toggle_shuffle(&mut self, cx: &mut Context<Self>) {
+        let on = !self.playback.shuffle;
+        self.player.send(Command::SetShuffle(on));
+        self.playback.shuffle = on;
+        cx.notify();
     }
 
     /// Mute and the volume slider (`slider` points long, or none at 0); the wheel over them
