@@ -27,6 +27,12 @@ pub enum Trouble {
     NoRateAnswer,
     /// The clock does not say its rates, as a DAC just plugged in may not.
     NoClockAnswer,
+    /// The clock says it is not valid at this rate.
+    ClockInvalidAt(u32),
+    /// After this many transfers on a setting no music comes back, while feedback goes on.
+    MusicStuck(usize),
+    /// As `MusicStuck`, for 1 ms transfers (8 high-speed packets) only: 4 ms ones play on.
+    ShortStuck(usize),
 }
 
 #[derive(Default)]
@@ -36,6 +42,8 @@ struct State {
     /// When the device is free for the next data transfer.
     free_at: Option<Instant>,
     done: usize,
+    /// Packets in the last music transfer.
+    packets: usize,
     pub bytes: usize,
     pub rates: Vec<u32>,
     pub alts: Vec<(u8, u8)>,
@@ -58,6 +66,12 @@ struct State {
     pub volume_floor: Option<i16>,
     /// Bytes a sample of the music takes, if not 4.
     pub slot: Option<usize>,
+    /// Settings and rates asked, in order.
+    pub events: Vec<String>,
+    /// The clock has only this rate, if any.
+    pub only_rate: Option<u32>,
+    /// Transfers asked back, which come back even when stuck.
+    pub discarded: Vec<usize>,
 }
 
 pub struct FakeDac {
@@ -81,6 +95,14 @@ impl FakeDac {
 
     pub fn set_clock(&self, rate: u32) {
         self.state.lock().unwrap().clock = rate;
+    }
+
+    pub fn events(&self) -> Vec<String> {
+        self.state.lock().unwrap().events.clone()
+    }
+
+    pub fn set_only_rate(&self, rate: u32) {
+        self.state.lock().unwrap().only_rate = Some(rate);
     }
 
     /// The music comes in slots of this many bytes (for [`Self::loudest`]).
@@ -129,6 +151,7 @@ impl FakeDac {
         }
         let mut s = self.state.lock().unwrap();
         s.rates.push(rate);
+        s.events.push(format!("rate {rate}"));
         if !matches!(self.trouble, Trouble::StaysAt(_)) {
             s.clock = rate;
         }
@@ -187,6 +210,31 @@ pub const APPLE_DAC: &str = "\
 02 0d c0 00 01 0a 25 01 00 00 00 00 01 64 00 09 04 02 00 01 03 00 00 00 09 21 11 01 00 01 22 1f
 00 07 05 85 03 40 00 01 09 04 03 00 01 03 00 00 00 09 21 11 01 00 01 22 2a 00 07 05 86 03 40 00
 01";
+
+/// FiiO's BTR17 (2972:0088): UAC2, high speed, async, with feedback, and no volume. Its device says
+/// two configurations, and they are the same bytes, with the same number.
+pub const BTR17: &str = "\
+12 01 00 02 ef 02 01 40 72 29 88 00 36 01 01 03 02 02 09 02 43 01 05 01 00 80 00 08 0b 00 02 01
+00 20 00 09 04 00 00 00 01 01 20 03 09 24 01 00 02 08 36 00 00 08 24 0a 29 03 07 00 09 08 24 0b
+28 01 29 03 08 11 24 02 02 01 01 00 28 02 00 00 00 00 0b 00 00 06 0c 24 03 14 01 03 00 02 28 00
+00 00 09 04 01 00 00 01 02 20 04 09 04 01 01 02 01 02 20 04 10 24 01 02 00 01 01 00 00 00 02 00
+00 00 00 0b 06 24 02 01 04 20 07 05 01 05 08 03 01 08 25 01 00 00 02 08 00 07 05 81 11 04 00 04
+09 04 01 02 02 01 02 20 04 10 24 01 02 00 01 01 00 00 00 02 00 00 00 00 0b 06 24 02 01 02 10 07
+05 01 05 84 01 01 08 25 01 00 00 02 08 00 07 05 81 11 04 00 04 09 04 01 03 02 01 02 20 04 10 24
+01 02 00 01 00 00 00 80 02 00 00 00 00 0b 06 24 02 01 04 20 07 05 01 05 08 03 01 08 25 01 00 00
+02 08 00 07 05 81 11 04 00 04 09 04 02 00 00 fe 01 01 0a 09 21 07 fa 00 40 00 10 01 09 04 03 00
+01 03 00 00 0e 09 21 10 01 00 01 22 15 00 07 05 83 03 40 00 08 09 04 04 00 02 03 00 00 06 09 21
+11 01 00 01 22 40 00 07 05 84 03 40 00 00 07 05 02 03 40 00 00 09 02 43 01 05 01 00 80 00 08 0b
+00 02 01 00 20 00 09 04 00 00 00 01 01 20 03 09 24 01 00 02 08 36 00 00 08 24 0a 29 03 07 00 09
+08 24 0b 28 01 29 03 08 11 24 02 02 01 01 00 28 02 00 00 00 00 0b 00 00 06 0c 24 03 14 01 03 00
+02 28 00 00 00 09 04 01 00 00 01 02 20 04 09 04 01 01 02 01 02 20 04 10 24 01 02 00 01 01 00 00
+00 02 00 00 00 00 0b 06 24 02 01 04 20 07 05 01 05 08 03 01 08 25 01 00 00 02 08 00 07 05 81 11
+04 00 04 09 04 01 02 02 01 02 20 04 10 24 01 02 00 01 01 00 00 00 02 00 00 00 00 0b 06 24 02 01
+02 10 07 05 01 05 84 01 01 08 25 01 00 00 02 08 00 07 05 81 11 04 00 04 09 04 01 03 02 01 02 20
+04 10 24 01 02 00 01 00 00 00 80 02 00 00 00 00 0b 06 24 02 01 04 20 07 05 01 05 08 03 01 08 25
+01 00 00 02 08 00 07 05 81 11 04 00 04 09 04 02 00 00 fe 01 01 0a 09 21 07 fa 00 40 00 10 01 09
+04 03 00 01 03 00 00 0e 09 21 10 01 00 01 22 15 00 07 05 83 03 40 00 08 09 04 04 00 02 03 00 00
+06 09 21 11 01 00 01 22 40 00 07 05 84 03 40 00 00 07 05 02 03 40 00 00";
 
 /// A dock's sound chip (1b3f:2008): UAC1, speakers and a microphone, volume -45 to 0 dB.
 pub const DOCK: &str = "\
@@ -368,7 +416,14 @@ impl Bus for FakeDac {
         if s.gone {
             bail!("The DAC is gone");
         }
+        if matches!(
+            self.trouble,
+            Trouble::MusicStuck(_) | Trouble::ShortStuck(_)
+        ) {
+            s.done = 0;
+        }
         s.alts.push((interface, alt));
+        s.events.push(format!("alt {alt}"));
         s.requests += 1;
         Ok(())
     }
@@ -387,6 +442,12 @@ impl Bus for FakeDac {
             // GET_CONFIGURATION.
             (0x80, 0x08, _) => {
                 data[0] = self.state.lock().unwrap().configuration.max(1);
+                Ok(1)
+            }
+            // Whether a clock is valid (UAC3's power domains are 10 and 0x28 here).
+            (0xA1, 0x01, 0x02) if data.len() == 1 && ![10, 0x28].contains(&(index >> 8)) => {
+                let invalid = matches!(self.trouble, Trouble::ClockInvalidAt(rate) if Some(rate) == self.clock_says());
+                data[0] = !invalid as u8;
                 Ok(1)
             }
             // A power domain: its state, and setting it (one byte, not a volume's two).
@@ -411,10 +472,12 @@ impl Bus for FakeDac {
             (0xA1, 0x02, 0x01) if self.trouble == Trouble::NoClockAnswer => {
                 bail!("The DAC refused the request");
             }
-            // The clock's rates: three subranges of one rate each.
+            // The clock's rates: three subranges of one rate each, or the one it has.
             (0xA1, 0x02, 0x01) => {
-                let mut answer = vec![3, 0];
-                for r in [44_100u32, 48_000, 96_000] {
+                let only = self.state.lock().unwrap().only_rate;
+                let rates = only.map_or(vec![44_100u32, 48_000, 96_000], |rate| vec![rate]);
+                let mut answer = vec![rates.len() as u8, 0];
+                for r in rates {
                     answer.extend(r.to_le_bytes());
                     answer.extend(r.to_le_bytes());
                     answer.extend(0u32.to_le_bytes());
@@ -474,6 +537,7 @@ impl Bus for FakeDac {
 
     fn submit(&self, id: usize, endpoint: u8, bytes: &[u8], lengths: &[usize]) -> Result<()> {
         let mut s = self.state.lock().unwrap();
+        s.discarded.retain(|discarded| *discarded != id);
         if s.gone {
             bail!("The DAC took no more music");
         }
@@ -492,6 +556,7 @@ impl Bus for FakeDac {
             let end = start + Duration::from_micros(125 * lengths.len() as u64);
             s.free_at = Some(end);
             s.bytes += bytes.len();
+            s.packets = lengths.len();
             // 24-bit music, left-aligned in its slot: how loud it got.
             let slot = s.slot.unwrap_or(4);
             for c in bytes.chunks_exact(slot) {
@@ -521,7 +586,16 @@ impl Bus for FakeDac {
                 let stalled = matches!(self.trouble, Trouble::StallAfter(n) if s.done >= n);
                 let now = Instant::now();
                 if !stalled {
-                    if let Some(i) = s.queue.iter().position(|(due, ..)| *due <= now) {
+                    let stuck = match self.trouble {
+                        Trouble::MusicStuck(n) => s.done >= n,
+                        Trouble::ShortStuck(n) => s.done >= n && s.packets == 8,
+                        _ => false,
+                    };
+                    let discarded = s.discarded.clone();
+                    let back = |(due, id, endpoint): &(Instant, usize, u8)| {
+                        *due <= now && (!stuck || endpoint & 0x80 != 0 || discarded.contains(id))
+                    };
+                    if let Some(i) = s.queue.iter().position(back) {
                         let (_, id, endpoint) = s.queue.remove(i).unwrap();
                         s.done += 1;
                         // Feedback: the nominal 44.1 kHz in 16.16 per microframe.
@@ -534,6 +608,9 @@ impl Bus for FakeDac {
                             id,
                             status: 0,
                             data,
+                            bad: 0,
+                            first_bad: 0,
+                            done: 0,
                         }));
                     }
                 }
@@ -555,6 +632,7 @@ impl Bus for FakeDac {
         for q in s.queue.iter_mut().filter(|q| q.1 == id) {
             q.0 = now;
         }
+        s.discarded.push(id);
     }
 
     fn busy(&self) -> usize {
@@ -668,7 +746,7 @@ pub mod checks {
     /// A DAC that has only 48 kHz, as Apple's USB-C adapter in its BADD configuration, and a
     /// song at 44.1 kHz: it plays through the driver, converted, at the DAC's own pace, with no
     /// refusal and the DAC kept. The rates the DAC turns down when asked go the same way.
-    fn a_rate_the_dac_lacks_is_converted(needle: &Needle) {
+    fn a_rate_the_dac_lacks_is_converted(needle: &Needle, ids: Vec<String>) {
         let fake = Arc::new(FakeDac::in_configuration(Trouble::None, 2));
         fake.set_slot(3);
         let raw = hex(APPLE_DAC);
@@ -696,6 +774,57 @@ pub mod checks {
         let status = needle.usb_dac_status();
         assert_eq!(status.problem, None, "no refusal");
         assert!(needle.playback().playing);
+
+        // Two DACs on one phone: the music stops coming back after a second, while feedback
+        // goes on. The driver starts again, a second way and then on another setting, and the
+        // song goes on through the DAC, with no refusal.
+        // The songs from the start: the checks before may have played them to their end.
+        needle.play(ids.clone(), 0).unwrap();
+        let (fake, dac) = driver(Trouble::MusicStuck(60));
+        crate::usb_dac::use_driver(dac.clone());
+        wait("the other setting", Duration::from_secs(6), || {
+            fake.alts().contains(&(1, 1))
+        });
+        let before = fake.bytes();
+        wait("music after that", Duration::from_secs(3), || {
+            fake.bytes() > before
+        });
+        assert_eq!(needle.usb_dac_status().problem, None);
+        assert!(crate::usb_dac::last_report().contains("Music stuck, feedback going on"));
+        drop(dac);
+
+        // Only the first way gets stuck, and the second plays on (as on that phone, where the
+        // 4 ms transfers stopped). A song chosen again opens the output again: it starts with
+        // the way that played, so the music does not stop for a moment again.
+        use std::sync::atomic::Ordering::Relaxed;
+        needle.play(ids.clone(), 0).unwrap();
+        let (fake, dac) = driver(Trouble::ShortStuck(60));
+        crate::usb_dac::use_driver(dac.clone());
+        wait("the second way", Duration::from_secs(6), || {
+            dac.shape.load(Relaxed) == 1
+        });
+        let stuck = || crate::usb_dac::last_report().matches("Music stuck").count();
+        let once = stuck();
+        needle.play(ids.clone(), 0).unwrap();
+        let before = fake.bytes();
+        wait("music again", Duration::from_secs(3), || {
+            fake.bytes() > before + 150_000
+        });
+        assert_eq!(stuck(), once, "{}", crate::usb_dac::last_report());
+        assert_eq!(dac.shape.load(Relaxed), 1);
+        drop(dac);
+
+        // A clock that does not start at 44.1 kHz: that family goes, and the song stays.
+        needle.play(ids.clone(), 0).unwrap();
+        let (fake, dac) = driver(Trouble::ClockInvalidAt(44_100));
+        crate::usb_dac::use_driver(dac);
+        wait("the rate given up", Duration::from_secs(5), || {
+            needle.usb_dac_status().playing.as_deref() == Some("44.1 → 96 kHz, not bit-perfect")
+        });
+        wait("music at the DAC", Duration::from_secs(5), || {
+            fake.bytes() > 100_000
+        });
+        assert_eq!(needle.usb_dac_status().problem, None);
 
         // A clock that stays at 48 kHz when asked for 44.1: that rate goes, and the song stays.
         let (stuck, dac) = driver(Trouble::StaysAt(48_000));
@@ -823,7 +952,7 @@ pub mod checks {
             (info.uac, info.bits, info.rates.clone(), info.volume),
             (2, 24, vec![44_100, 48_000, 96_000], true)
         );
-        set_platform_output(Some(dac));
+        crate::usb_dac::use_driver(dac);
 
         // It plays: 24-bit in 4-byte slots at the song's rate, in real time, and not silence.
         needle.play(ids.clone(), 0).unwrap();
@@ -857,7 +986,7 @@ pub mod checks {
             fake.alts().last() == Some(&(1, 2))
         });
 
-        a_rate_the_dac_lacks_is_converted(needle);
+        a_rate_the_dac_lacks_is_converted(needle, ids.clone());
         no_volume_and_the_way_back_to_android(needle, fallback);
         if fallback {
             unplugged_and_plugged_in_again(needle, ids.clone());
@@ -871,7 +1000,7 @@ pub mod checks {
         ] {
             let (_, dac) = driver(trouble);
             let at = needle.playback().position;
-            set_platform_output(Some(dac));
+            crate::usb_dac::use_driver(dac);
             let start = Instant::now();
             assert!(
                 said(needle, "Pretend DAC", Duration::from_secs(5), fallback),

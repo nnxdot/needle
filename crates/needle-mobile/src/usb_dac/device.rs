@@ -321,13 +321,25 @@ impl Bus for Usbfs {
                 };
                 t.busy = false;
                 let status = t.urb().status;
+                let count = (t.urb().packets.max(0) as usize).min(256);
+                let bad = t.packets(count).iter().filter(|p| p.status != 0).count();
+                let first_bad = t.packets(count).iter().find(|p| p.status != 0);
+                let first_bad = first_bad.map_or(0, |p| p.status as i32);
+                let done = t.packets(count).iter().filter(|p| p.actual > 0).count();
                 let data = if t.endpoint & 0x80 != 0 {
                     let got = t.packets(1)[0].actual as usize;
                     t.buffer[..got.min(t.buffer.len())].to_vec()
                 } else {
                     vec![]
                 };
-                Ok(Some(Reaped { id, status, data }))
+                Ok(Some(Reaped {
+                    id,
+                    status,
+                    data,
+                    bad,
+                    first_bad,
+                    done,
+                }))
             }
             Err(e)
                 if e.raw_os_error() == Some(libc::EAGAIN)

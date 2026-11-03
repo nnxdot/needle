@@ -209,7 +209,7 @@ pub fn text(
         out += &driver;
     }
     if !opened.is_empty() {
-        let _ = writeln!(out, "When it last opened:\n{opened}");
+        let _ = writeln!(out, "When it last opened and played:\n{opened}");
     }
     let _ = writeln!(out, "Raw descriptors ({} bytes):", raw.len());
     for row in raw.chunks(32) {
@@ -221,7 +221,7 @@ pub fn text(
 
 #[cfg(test)]
 mod tests {
-    use super::super::fake::{APPLE_DAC, Dock, dock, hex, uac1_descriptors};
+    use super::super::fake::{APPLE_DAC, BTR17, Dock, dock, hex, uac1_descriptors};
     use super::*;
 
     #[test]
@@ -253,7 +253,7 @@ mod tests {
         has("rates: a list, [44100, 48000] Hz, adaptive sync, feedback none, rate control yes");
         has("Chosen: x");
         has("Configuration 1: USB Audio Class 1 (active)");
-        has("When it last opened:\nClock 9: RANGE failed (stall)");
+        has("When it last opened and played:\nClock 9: RANGE failed (stall)");
         // The hex, every byte of it.
         let hex: Vec<u8> = text
             .split("bytes):\n")
@@ -284,6 +284,14 @@ mod tests {
         has("USB Audio Class 3, audio control interface 0");
         has("Power domain: 10");
         has("a list, [48000] Hz");
+    }
+
+    #[test]
+    fn a_configuration_described_twice_shows_once() {
+        let raw = hex(BTR17);
+        let text = text(&raw, "FIIO BTR17", 0x2972, 0x88, Some(3), Some(1), None, "");
+        assert_eq!(text.matches("Configuration 1:").count(), 1, "{text}");
+        assert_eq!(text.matches("setting 1:").count(), 1, "{text}");
     }
 
     #[test]

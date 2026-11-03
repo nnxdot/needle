@@ -10,6 +10,12 @@ pub struct Reaped {
     pub status: i32,
     /// For a transfer from the device (feedback): the bytes of its first packet.
     pub data: Vec<u8>,
+    /// Packets that failed on their own (the transfer's status can still be 0), and the kernel's
+    /// error for the first of them.
+    pub bad: usize,
+    pub first_bad: i32,
+    /// Packets that carried anything.
+    pub done: usize,
 }
 
 pub trait Bus: Send + Sync {
