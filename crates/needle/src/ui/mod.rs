@@ -592,6 +592,8 @@ pub struct AppView {
     list_scroll: UniformListScrollHandle,
     /// How far the header above the list was folded when last drawn, from 0 to 1.
     header_fold: std::cell::Cell<f32>,
+    /// The window's content height at the last frame, for parts that must fit it.
+    window_height: f32,
     grid_scroll: UniformListScrollHandle,
     scroll_memory: std::collections::HashMap<String, Point<Pixels>>,
     pending_scroll: Option<Point<Pixels>>,
@@ -1283,6 +1285,7 @@ impl AppView {
             focus,
             list_scroll: UniformListScrollHandle::new(),
             header_fold: std::cell::Cell::new(0.),
+            window_height: 800.,
             grid_scroll: UniformListScrollHandle::new(),
             scroll_memory: Default::default(),
             pending_scroll: None,
@@ -3177,6 +3180,7 @@ fn shown_playback(p: &needle_core::audio::PlaybackState) -> impl PartialEq + use
 
 impl Render for AppView {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        self.window_height = f32::from(widgets::content_size(window).height);
         let _slow = bench::Slow::new("render");
         // The artist pictures sweep looks only with online lookups and its setting on, and not
         // while a library scan runs.

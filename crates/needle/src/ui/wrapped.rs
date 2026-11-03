@@ -1,4 +1,5 @@
 //! "Your year in music": a year of listening told back, from the listening history.
+use super::widgets::SidewaysOnly as _;
 use super::{
     AppView, Event, Page, album_page,
     library::human_duration,
@@ -528,6 +529,7 @@ impl AppView {
                         .id("wrapped-albums")
                         .flex()
                         .overflow_x_scroll()
+                        .sideways_only()
                         // As wide as its covers, so it can scroll.
                         .child(
                             div()

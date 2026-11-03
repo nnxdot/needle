@@ -197,6 +197,14 @@ fun QuickScroll(
     if (count < QuickFrom) return
     val scope = rememberCoroutineScope()
     var dragged by remember { mutableStateOf<Float?>(null) }
+    // One jump at a time, to a place read when the finger moved: a jump still waiting when the
+    // finger lets go must not read the drag (by then none).
+    var jump by remember { mutableStateOf<kotlinx.coroutines.Job?>(null) }
+    fun jumpTo(at: Float) {
+        val to = (at * (count - 1)).roundToInt().coerceIn(0, count - 1)
+        jump?.cancel()
+        jump = scope.launch { scrollTo(to) }
+    }
     var height by remember { mutableIntStateOf(1) }
     val thumb = with(LocalDensity.current) { 44.dp.toPx() }
     val shown = scrolling || dragged != null
@@ -217,15 +225,17 @@ fun QuickScroll(
                     Modifier.pointerInput(count) {
                         detectVerticalDragGestures(
                             onDragStart = { o ->
-                                dragged = index(o.y)
-                                scope.launch { scrollTo((dragged!! * (count - 1)).roundToInt()) }
+                                val at = index(o.y)
+                                dragged = at
+                                jumpTo(at)
                             },
                             onDragEnd = { dragged = null },
                             onDragCancel = { dragged = null },
                         ) { change, _ ->
                             change.consume()
-                            dragged = index(change.position.y)
-                            scope.launch { scrollTo((dragged!! * (count - 1)).roundToInt()) }
+                            val at = index(change.position.y)
+                            dragged = at
+                            jumpTo(at)
                         }
                     }
                 } else {

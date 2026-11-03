@@ -1,6 +1,7 @@
 //! An artist's page: their picture wide across the top, fading into the page; their logo (or
 //! name) near its foot over Shuffle, a large Play, Radio, and Blend; then their newest album
 //! beside their top songs, and their albums.
+use super::widgets::SidewaysOnly as _;
 use super::{
     AppView, Event, pal,
     widgets::{cover, display, glyph, heading, icon, icon_button, meta},
@@ -711,7 +712,7 @@ impl AppView {
                 } else {
                     div()
                         .id("fanart-choices")
-                        .overflow_x_scroll()
+                        .overflow_x_scroll().sideways_only()
                         .flex()
                         .gap_3()
                         .children(choices.into_iter().enumerate().map(|(i, (url, preview))| {

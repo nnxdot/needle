@@ -222,12 +222,20 @@ fun SongPlaceholder() {
 val LocalShared: ProvidableCompositionLocal<SharedTransitionScope?> = compositionLocalOf { null }
 val LocalAnimated: ProvidableCompositionLocal<AnimatedVisibilityScope?> = compositionLocalOf { null }
 
-/** Lets this cover fly between screens that show the same one under `key`. */
+/**
+ * Lets this cover fly between screens that show the same one under `key`: only while its own
+ * page (or player) comes or goes. At rest a cover is a plain cover, with nothing for Compose to
+ * keep in its top layer. A cover that kept its key at rest could stay there (seen rarely on a
+ * phone: over Home's shelves and the dock, its own place empty), whether from a flight cut short,
+ * a back swipe let go, or a shelf that changed order or was read again mid-flight.
+ */
 @OptIn(ExperimentalSharedTransitionApi::class)
 fun Modifier.sharedCover(key: String): Modifier = composed {
     val shared = LocalShared.current
     val animated = LocalAnimated.current
     if (shared == null || animated == null || reduceMotion()) return@composed this
+    val moving = animated.transition.currentState != animated.transition.targetState
+    if (!moving) return@composed this
     val scope = LocalSharedScope.current
     with(shared) {
         this@composed.sharedElement(
