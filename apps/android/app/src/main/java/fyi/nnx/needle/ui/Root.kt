@@ -125,7 +125,15 @@ fun NeedleRoot() {
     // Only whether a song is there, and its cover: the whole playback changes five times a
     // second as it plays, and would redraw every page with it.
     val playbackState = NeedleApp.instance.playback.collectAsState()
-    val hasSong by remember { androidx.compose.runtime.derivedStateOf { playbackState.value?.current != null } }
+    val songNow by remember { androidx.compose.runtime.derivedStateOf { playbackState.value?.current != null } }
+    // A new list of songs has no song for a moment, until its first plays: the mini player and
+    // the room the pages leave for it stay meanwhile, or the dock would shrink and the page
+    // under it jump. Gone only once nothing plays for a while.
+    var hasSong by remember { mutableStateOf(songNow) }
+    LaunchedEffect(songNow) {
+        if (!songNow) kotlinx.coroutines.delay(1500)
+        hasSong = songNow
+    }
     val playingArt by remember { androidx.compose.runtime.derivedStateOf { playbackState.value?.current?.artwork } }
     val reduce = reduceMotion()
     // A foldable half closed (Fold.kt): held as a book, the library at the left of the crease
@@ -153,6 +161,11 @@ fun NeedleRoot() {
     // How tall the mini player, the tabs, and the bar of chosen songs are together, so
     // messages show above them instead of over them.
     var barHeight by remember { mutableStateOf(0) }
+    // The room the pages leave for those bars: their tallest while they hold the same things, so
+    // a line that comes and goes in the mini player (the lyrics of a new song) does not move a
+    // page scrolled to its foot. It follows them again when what they hold changes.
+    var footRoom by remember { mutableStateOf(0) }
+    var footHolds by remember { mutableStateOf<Any?>(null) }
     // Tablets and unfolded phones get a side bar of tabs, playlists, and albums (SideBar.kt).
     val wide = hasSideBar() && !book
     // What each page in a tab's stack had (its scroll, its filter, its search words) is kept
@@ -189,6 +202,8 @@ fun NeedleRoot() {
     LaunchedEffect(book, playerOpen) { if (book && playerOpen) playerOpen = false }
     // Back first stops choosing songs, when some are chosen.
     val choosing by Selection.songs.collectAsState()
+    // What the bars at the foot hold, for their room (see footRoom).
+    val holds = listOf(hasSong, playerOpen, choosing.isNotEmpty(), wide, book)
     // Not while the player covers the bar of chosen songs: Back closes the player first.
     BackHandler(enabled = choosing.isNotEmpty() && !playerOpen) { Selection.clear() }
     BackHandler(enabled = playerOpen || (choosing.isEmpty() && stack.size > 1)) {
@@ -269,7 +284,7 @@ fun NeedleRoot() {
                 CompositionLocalProvider(LocalPageWidth provides maxWidth) {
                 // The room the dock takes at the foot, with a little to spare, for the pages' lists.
                 // Standing as a laptop, the bar sits below the crease, not over the pages.
-                val dockRoom = if (tabletop) 16.dp else with(LocalDensity.current) { barHeight.toDp() } + 12.dp
+                val dockRoom = if (tabletop) 16.dp else with(LocalDensity.current) { footRoom.toDp() } + 12.dp
                 val aboveCrease = if (tabletop && hinge != null) Modifier.padding(bottom = (window.height - hinge.top).coerceAtLeast(0.dp)) else Modifier
                 // The pages run on under the floating dock (or a tablet's floating player); what
                 // floats blurs them (Dock.kt).
@@ -360,7 +375,11 @@ fun NeedleRoot() {
                     Column(
                         Modifier
                             .align(androidx.compose.ui.Alignment.BottomCenter)
-                            .onSizeChanged { barHeight = it.height }
+                            .onSizeChanged {
+                                barHeight = it.height
+                                footRoom = if (footHolds == holds) maxOf(footRoom, it.height) else it.height
+                                footHolds = holds
+                            }
                             .navigationBarsPadding()
                             .padding(horizontal = if (wide) 20.dp else 10.dp)
                             .padding(bottom = FootGap),
