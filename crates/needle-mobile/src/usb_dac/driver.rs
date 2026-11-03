@@ -16,7 +16,7 @@ use needle_core::platform_output::{Feed, FeedFormat, PlatformOutput};
 use std::{
     sync::{
         Arc, Mutex,
-        atomic::{AtomicBool, AtomicU32, Ordering},
+        atomic::{AtomicBool, AtomicU32, AtomicUsize, Ordering},
     },
     time::{Duration, Instant},
 };
@@ -74,6 +74,9 @@ pub struct UsbDac {
     converting: AtomicBool,
     /// A setting that got stuck, left alone while another plays the rate.
     avoid: Mutex<Option<u8>>,
+    /// The way of cutting the music (see `HIGH_SPEED_SHAPES`) that plays: kept for the next song
+    /// too, as the player opens the output again for each song it is asked to play.
+    pub(super) shape: AtomicUsize,
     /// One control request at a time (volume from the app, rates from the player).
     control: Mutex<()>,
 }
@@ -147,6 +150,7 @@ impl UsbDac {
             refused: Mutex::new(vec![]),
             converting: AtomicBool::new(false),
             avoid: Mutex::new(None),
+            shape: AtomicUsize::new(0),
             control: Mutex::new(()),
             dac,
         };
@@ -1022,7 +1026,6 @@ impl UsbDac {
     fn render_inner(&self, feed: &mut Feed) -> Result<()> {
         self.apply_volume();
         let mut open: Option<(u8, u8, u32, u16, u32)> = None;
-        let mut shape = 0;
         let result = loop {
             if feed.stopped() {
                 break Ok(());
@@ -1105,13 +1108,15 @@ impl UsbDac {
                 *self.chosen.lock().unwrap_or_else(|e| e.into_inner()) = Some(chosen);
             }
             let began = Instant::now();
+            let shape = self.shape.load(Ordering::Relaxed);
             match self.stream(feed, format, f, rate, shape.min(self.shapes().len() - 1)) {
                 Ok(false) => {}
                 // Started again, with the music going on from here: a stuck way to the DAC has
                 // come back this way, and giving it to Android could leave no sound at all.
                 Ok(true) => {
                     if began.elapsed() < SETTLED {
-                        shape += 1;
+                        let shape = shape + 1;
+                        self.shape.store(shape, Ordering::Relaxed);
                         if shape >= self.shapes().len() {
                             *self.avoid.lock().unwrap_or_else(|e| e.into_inner()) = Some(f.alt);
                         }

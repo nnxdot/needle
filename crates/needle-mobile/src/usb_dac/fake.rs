@@ -31,6 +31,8 @@ pub enum Trouble {
     ClockInvalidAt(u32),
     /// After this many transfers on a setting no music comes back, while feedback goes on.
     MusicStuck(usize),
+    /// As `MusicStuck`, for 1 ms transfers (8 high-speed packets) only: 4 ms ones play on.
+    ShortStuck(usize),
 }
 
 #[derive(Default)]
@@ -40,6 +42,8 @@ struct State {
     /// When the device is free for the next data transfer.
     free_at: Option<Instant>,
     done: usize,
+    /// Packets in the last music transfer.
+    packets: usize,
     pub bytes: usize,
     pub rates: Vec<u32>,
     pub alts: Vec<(u8, u8)>,
@@ -412,7 +416,10 @@ impl Bus for FakeDac {
         if s.gone {
             bail!("The DAC is gone");
         }
-        if matches!(self.trouble, Trouble::MusicStuck(_)) {
+        if matches!(
+            self.trouble,
+            Trouble::MusicStuck(_) | Trouble::ShortStuck(_)
+        ) {
             s.done = 0;
         }
         s.alts.push((interface, alt));
@@ -549,6 +556,7 @@ impl Bus for FakeDac {
             let end = start + Duration::from_micros(125 * lengths.len() as u64);
             s.free_at = Some(end);
             s.bytes += bytes.len();
+            s.packets = lengths.len();
             // 24-bit music, left-aligned in its slot: how loud it got.
             let slot = s.slot.unwrap_or(4);
             for c in bytes.chunks_exact(slot) {
@@ -578,7 +586,11 @@ impl Bus for FakeDac {
                 let stalled = matches!(self.trouble, Trouble::StallAfter(n) if s.done >= n);
                 let now = Instant::now();
                 if !stalled {
-                    let stuck = matches!(self.trouble, Trouble::MusicStuck(n) if s.done >= n);
+                    let stuck = match self.trouble {
+                        Trouble::MusicStuck(n) => s.done >= n,
+                        Trouble::ShortStuck(n) => s.done >= n && s.packets == 8,
+                        _ => false,
+                    };
                     let discarded = s.discarded.clone();
                     let back = |(due, id, endpoint): &(Instant, usize, u8)| {
                         *due <= now && (!stuck || endpoint & 0x80 != 0 || discarded.contains(id))
@@ -769,7 +781,7 @@ pub mod checks {
         // The songs from the start: the checks before may have played them to their end.
         needle.play(ids.clone(), 0).unwrap();
         let (fake, dac) = driver(Trouble::MusicStuck(60));
-        crate::usb_dac::use_driver(dac);
+        crate::usb_dac::use_driver(dac.clone());
         wait("the other setting", Duration::from_secs(6), || {
             fake.alts().contains(&(1, 1))
         });
@@ -779,6 +791,28 @@ pub mod checks {
         });
         assert_eq!(needle.usb_dac_status().problem, None);
         assert!(crate::usb_dac::last_report().contains("Music stuck, feedback going on"));
+        drop(dac);
+
+        // Only the first way gets stuck, and the second plays on (as on that phone, where the
+        // 4 ms transfers stopped). A song chosen again opens the output again: it starts with
+        // the way that played, so the music does not stop for a moment again.
+        use std::sync::atomic::Ordering::Relaxed;
+        needle.play(ids.clone(), 0).unwrap();
+        let (fake, dac) = driver(Trouble::ShortStuck(60));
+        crate::usb_dac::use_driver(dac.clone());
+        wait("the second way", Duration::from_secs(6), || {
+            dac.shape.load(Relaxed) == 1
+        });
+        let stuck = || crate::usb_dac::last_report().matches("Music stuck").count();
+        let once = stuck();
+        needle.play(ids.clone(), 0).unwrap();
+        let before = fake.bytes();
+        wait("music again", Duration::from_secs(3), || {
+            fake.bytes() > before + 150_000
+        });
+        assert_eq!(stuck(), once, "{}", crate::usb_dac::last_report());
+        assert_eq!(dac.shape.load(Relaxed), 1);
+        drop(dac);
 
         // A clock that does not start at 44.1 kHz: that family goes, and the song stays.
         needle.play(ids.clone(), 0).unwrap();
