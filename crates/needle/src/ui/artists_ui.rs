@@ -98,6 +98,11 @@ impl AppView {
                 letters.push((group.letter.clone(), index));
             }
         }
+        // As many letters as fit beside the grid (below the title bar and the page's head,
+        // above the player); with more, every second or third shows, the first and last
+        // always, and each still jumps to its own place.
+        let room = self.window_height - LETTER_BAR_ABOVE - f32::from(self.foot_room()) - 16.;
+        let letters = fit_letters(letters, (room / LETTER_PITCH).floor().max(3.) as usize);
         Some(
             div()
                 .absolute()
@@ -118,6 +123,7 @@ impl AppView {
                         .justify_center()
                         .rounded(px(4.))
                         .text_size(px(10.5))
+                        .line_height(px(LETTER_PITCH - 1.))
                         .font_weight(FontWeight::SEMIBOLD)
                         .text_color(p.ink_3)
                         .cursor_pointer()
@@ -130,5 +136,42 @@ impl AppView {
                         }))
                 })),
         )
+    }
+}
+
+/// The height of one letter in the A–Z bar, with its gap.
+const LETTER_PITCH: f32 = 15.;
+
+/// The room above the A–Z bar's grid: the title bar and the Artists page's head.
+const LETTER_BAR_ABOVE: f32 = 210.;
+
+/// At most `room` letters, spread evenly: the first and the last always.
+fn fit_letters<T>(letters: Vec<T>, room: usize) -> Vec<T> {
+    let n = letters.len();
+    if n <= room || room < 3 {
+        return letters;
+    }
+    // One place kept for the last letter, which may fall between steps.
+    let step = (n - 1).div_ceil((room - 2).max(1));
+    letters
+        .into_iter()
+        .enumerate()
+        .filter(|(i, _)| i % step == 0 || *i == n - 1)
+        .map(|(_, l)| l)
+        .collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::fit_letters;
+
+    #[test]
+    fn letters_fit_the_room() {
+        let all: Vec<usize> = (0..52).collect();
+        assert_eq!(fit_letters(all.clone(), 60), all);
+        let fit = fit_letters(all.clone(), 20);
+        assert!(fit.len() <= 20, "{} letters", fit.len());
+        assert_eq!(fit.first(), Some(&0));
+        assert_eq!(fit.last(), Some(&51));
     }
 }
