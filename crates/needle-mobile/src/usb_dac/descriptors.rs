@@ -330,7 +330,10 @@ pub fn configurations(raw: &[u8]) -> Vec<Configuration> {
                 });
             }
             (ASSOCIATION, Some(c)) if len >= 8 && d[4] == AUDIO => c.function = Some(d[5]),
-            (INTERFACE, Some(c)) if len >= 9 && first_interface => {
+            // Its first audio interface, or else its first: a TP35 Pro starts with its buttons.
+            (INTERFACE, Some(c))
+                if len >= 9 && (first_interface || (c.class != AUDIO && d[5] == AUDIO)) =>
+            {
                 first_interface = false;
                 c.class = d[5];
                 c.protocol = d[7];

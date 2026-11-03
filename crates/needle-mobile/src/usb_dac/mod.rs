@@ -55,8 +55,9 @@ pub(crate) fn remember_open(text: String) {
 
 pub(crate) fn run_line(line: String) {
     let mut run = RUN.lock().unwrap_or_else(|e| e.into_inner());
+    // The first lines and the latest: a DAC that keeps getting stuck says the same for a while.
     if run.len() >= 16 {
-        run.remove(0);
+        run.remove(6);
     }
     run.push(line);
 }
@@ -81,6 +82,15 @@ pub(crate) fn last_report() -> String {
 
 /// The phone's music volume, 0 to 1 (f32 bits), for the next driver too. 1.0 at the start.
 static PHONE_VOLUME: AtomicU32 = AtomicU32::new(0x3F80_0000);
+
+/// Whether `dac` is the driver in use: one that was replaced says nothing more, or its last word
+/// (a stop, an empty line) would land on the new one's.
+pub(crate) fn is_current(dac: &driver::UsbDac) -> bool {
+    std::ptr::eq(
+        DRIVER.lock().unwrap_or_else(|e| e.into_inner()).as_ptr(),
+        dac,
+    )
+}
 
 fn driver() -> Option<Arc<driver::UsbDac>> {
     DRIVER.lock().unwrap_or_else(|e| e.into_inner()).upgrade()

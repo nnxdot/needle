@@ -29,7 +29,7 @@ pub enum Trouble {
     NoClockAnswer,
     /// The clock says it is not valid at this rate.
     ClockInvalidAt(u32),
-    /// After this many transfers no music comes back, while feedback goes on.
+    /// After this many transfers on a setting no music comes back, while feedback goes on.
     MusicStuck(usize),
 }
 
@@ -66,6 +66,8 @@ struct State {
     pub events: Vec<String>,
     /// The clock has only this rate, if any.
     pub only_rate: Option<u32>,
+    /// Transfers asked back, which come back even when stuck.
+    pub discarded: Vec<usize>,
 }
 
 pub struct FakeDac {
@@ -410,6 +412,9 @@ impl Bus for FakeDac {
         if s.gone {
             bail!("The DAC is gone");
         }
+        if matches!(self.trouble, Trouble::MusicStuck(_)) {
+            s.done = 0;
+        }
         s.alts.push((interface, alt));
         s.events.push(format!("alt {alt}"));
         s.requests += 1;
@@ -525,6 +530,7 @@ impl Bus for FakeDac {
 
     fn submit(&self, id: usize, endpoint: u8, bytes: &[u8], lengths: &[usize]) -> Result<()> {
         let mut s = self.state.lock().unwrap();
+        s.discarded.retain(|discarded| *discarded != id);
         if s.gone {
             bail!("The DAC took no more music");
         }
@@ -573,8 +579,9 @@ impl Bus for FakeDac {
                 let now = Instant::now();
                 if !stalled {
                     let stuck = matches!(self.trouble, Trouble::MusicStuck(n) if s.done >= n);
-                    let back = |(due, _, endpoint): &(Instant, usize, u8)| {
-                        *due <= now && (!stuck || endpoint & 0x80 != 0)
+                    let discarded = s.discarded.clone();
+                    let back = |(due, id, endpoint): &(Instant, usize, u8)| {
+                        *due <= now && (!stuck || endpoint & 0x80 != 0 || discarded.contains(id))
                     };
                     if let Some(i) = s.queue.iter().position(back) {
                         let (_, id, endpoint) = s.queue.remove(i).unwrap();
@@ -591,6 +598,8 @@ impl Bus for FakeDac {
                             data,
                             bad: 0,
                             first_bad: 0,
+                            done: 0,
+                            start_frame: 0,
                         }));
                     }
                 }
@@ -612,6 +621,7 @@ impl Bus for FakeDac {
         for q in s.queue.iter_mut().filter(|q| q.1 == id) {
             q.0 = now;
         }
+        s.discarded.push(id);
     }
 
     fn busy(&self) -> usize {
@@ -725,7 +735,7 @@ pub mod checks {
     /// A DAC that has only 48 kHz, as Apple's USB-C adapter in its BADD configuration, and a
     /// song at 44.1 kHz: it plays through the driver, converted, at the DAC's own pace, with no
     /// refusal and the DAC kept. The rates the DAC turns down when asked go the same way.
-    fn a_rate_the_dac_lacks_is_converted(needle: &Needle) {
+    fn a_rate_the_dac_lacks_is_converted(needle: &Needle, ids: Vec<String>) {
         let fake = Arc::new(FakeDac::in_configuration(Trouble::None, 2));
         fake.set_slot(3);
         let raw = hex(APPLE_DAC);
@@ -754,7 +764,25 @@ pub mod checks {
         assert_eq!(status.problem, None, "no refusal");
         assert!(needle.playback().playing);
 
+        // Two DACs on one phone: the music stops coming back after a second, while feedback
+        // goes on. The driver starts again, a second way and then on another setting, and the
+        // song goes on through the DAC, with no refusal.
+        // The songs from the start: the checks before may have played them to their end.
+        needle.play(ids.clone(), 0).unwrap();
+        let (fake, dac) = driver(Trouble::MusicStuck(60));
+        crate::usb_dac::use_driver(dac);
+        wait("the other setting", Duration::from_secs(6), || {
+            fake.alts().contains(&(1, 1))
+        });
+        let before = fake.bytes();
+        wait("music after that", Duration::from_secs(3), || {
+            fake.bytes() > before
+        });
+        assert_eq!(needle.usb_dac_status().problem, None);
+        assert!(crate::usb_dac::last_report().contains("Music stuck, feedback going on"));
+
         // A clock that does not start at 44.1 kHz: that family goes, and the song stays.
+        needle.play(ids.clone(), 0).unwrap();
         let (fake, dac) = driver(Trouble::ClockInvalidAt(44_100));
         crate::usb_dac::use_driver(dac);
         wait("the rate given up", Duration::from_secs(5), || {
@@ -891,7 +919,7 @@ pub mod checks {
             (info.uac, info.bits, info.rates.clone(), info.volume),
             (2, 24, vec![44_100, 48_000, 96_000], true)
         );
-        set_platform_output(Some(dac));
+        crate::usb_dac::use_driver(dac);
 
         // It plays: 24-bit in 4-byte slots at the song's rate, in real time, and not silence.
         needle.play(ids.clone(), 0).unwrap();
@@ -925,7 +953,7 @@ pub mod checks {
             fake.alts().last() == Some(&(1, 2))
         });
 
-        a_rate_the_dac_lacks_is_converted(needle);
+        a_rate_the_dac_lacks_is_converted(needle, ids.clone());
         no_volume_and_the_way_back_to_android(needle, fallback);
         if fallback {
             unplugged_and_plugged_in_again(needle, ids.clone());
@@ -934,14 +962,12 @@ pub mod checks {
         // Each trouble: an error within a second, and the song goes on through the system.
         for (trouble, words) in [
             (Trouble::StallAfter(40), &["stopped taking music"][..]),
-            // Feedback goes on, so only the music can show it: not a player stuck with no error.
-            (Trouble::MusicStuck(40), &["stopped taking music"][..]),
             (Trouble::GoneAfter(40), &["gone", "no more music"][..]),
             (Trouble::Panic, &["driver stopped"][..]),
         ] {
             let (_, dac) = driver(trouble);
             let at = needle.playback().position;
-            set_platform_output(Some(dac));
+            crate::usb_dac::use_driver(dac);
             let start = Instant::now();
             assert!(
                 said(needle, "Pretend DAC", Duration::from_secs(5), fallback),

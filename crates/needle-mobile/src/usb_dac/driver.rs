@@ -30,13 +30,17 @@ const RANGE: u8 = 0x02;
 const UAC1_GET_CUR: u8 = 0x81;
 const UAC1_GET_MIN: u8 = 0x82;
 const UAC1_GET_MAX: u8 = 0x83;
-/// Transfers in flight, and how long each holds (ms): about 32 ms of music queued.
-const TRANSFERS: usize = 8;
-const TRANSFER_MS: u32 = 4;
+/// How music is cut for the USB: how long a transfer holds (ms), and how many are in flight. The
+/// first gives about 32 ms of music queued; the second is tried when the first gets stuck.
+const SHAPES: [(u32, usize); 2] = [(4, 8), (1, 16)];
 /// The id of the feedback endpoint's transfer.
-const FEEDBACK: usize = TRANSFERS;
+const FEEDBACK: usize = 32;
 /// How long the DAC may take nothing before Needle gives up on it.
 const STALL: Duration = Duration::from_millis(500);
+/// How long music may stay away while feedback comes: the DAC is there, and the way to it stuck.
+const STUCK: Duration = Duration::from_millis(100);
+/// A stream that gets stuck sooner than this is tried another way.
+const SETTLED: Duration = Duration::from_secs(3);
 /// How long a clock may take to say it runs, after a change of rate.
 const CLOCK_WAIT: Duration = Duration::from_millis(1500);
 /// A clock may take a moment to move: how often it is asked, and how long between.
@@ -65,6 +69,8 @@ pub struct UsbDac {
     refused: Mutex<Vec<u32>>,
     /// The music is converted, or folded to fewer channels.
     converting: AtomicBool,
+    /// A setting that got stuck, left alone while another plays the rate.
+    avoid: Mutex<Option<u8>>,
     /// One control request at a time (volume from the app, rates from the player).
     control: Mutex<()>,
 }
@@ -137,6 +143,7 @@ impl UsbDac {
             opened: String::new(),
             refused: Mutex::new(vec![]),
             converting: AtomicBool::new(false),
+            avoid: Mutex::new(None),
             control: Mutex::new(()),
             dac,
         };
@@ -720,6 +727,15 @@ impl UsbDac {
             .filter(|f| self.playable(f).contains(&rate))
             .cloned()
             .collect();
+        let avoid = *self.avoid.lock().unwrap_or_else(|e| e.into_inner());
+        let others: Vec<Format> = fitting
+            .iter()
+            .filter(|f| Some(f.alt) != avoid)
+            .cloned()
+            .collect();
+        if let Some(f) = choose(&others, channels, 24) {
+            return Ok(f.clone());
+        }
         if let Some(f) = choose(&fitting, channels, 24) {
             return Ok(f.clone());
         }
@@ -765,10 +781,19 @@ impl UsbDac {
     }
 
     /// Streams music of one format until the format changes, the music pauses, or it stops. The
-    /// DAC runs at `rate`: where that is not the music's, the music is converted to it.
-    fn stream(&self, feed: &mut Feed, format: FeedFormat, f: &Format, rate: u32) -> Result<()> {
+    /// DAC runs at `rate`: where that is not the music's, the music is converted to it. True when
+    /// the music got stuck while the DAC's feedback went on: all is taken back, to start again.
+    fn stream(
+        &self,
+        feed: &mut Feed,
+        format: FeedFormat,
+        f: &Format,
+        rate: u32,
+        shape: usize,
+    ) -> Result<bool> {
+        let (transfer_ms, transfers) = SHAPES[shape];
         let per_second = packets_per_second(self.high_speed, f.interval);
-        let per_transfer = ((per_second * TRANSFER_MS / 1000) as usize).max(1);
+        let per_transfer = ((per_second * transfer_ms / 1000) as usize).max(1);
         let frame = f.channels as usize * f.subslot as usize;
         // The most a packet may carry: the DAC's limit (with high speed's extra transactions).
         let limit =
@@ -829,7 +854,7 @@ impl UsbDac {
             };
         let mut ending = false;
         let mut result = Ok(());
-        for id in 0..TRANSFERS {
+        for id in 0..transfers {
             let (lengths, used, more) = fill(&mut pacer, feed, &mut bytes);
             if let Err(e) = self.bus.submit(id, f.endpoint, &bytes[..used], &lengths) {
                 result = Err(e);
@@ -848,22 +873,49 @@ impl UsbDac {
         let started = Instant::now();
         let (mut music, mut feedbacks, mut bad, mut first_bad) = (0u64, 0u64, 0u64, 0i32);
         let mut last_feedback = None;
-        let shown = |music, feedbacks, bad, first_bad, last_feedback: Option<u32>| {
+        let (mut first_frame, mut last_frame) = (None, 0);
+        let (mut stuck, mut since_music) = (false, 0u32);
+        let mut waiting = std::collections::VecDeque::new();
+        let shown = |music, feedbacks, bad, first_bad, last_feedback: Option<u32>, frames| {
+            let (first, last): (Option<i32>, i32) = frames;
             format!(
-                "{rate} Hz for {:.1} s: {music} transfers back, {feedbacks} feedback, last feedback {} (nominal {:.3} frames a packet), {bad} bad packets (first error {first_bad})",
+                "{rate} Hz for {:.2} s, {per_transfer} packets a transfer, {transfers} in flight: {music} transfers back, {feedbacks} feedback, last feedback {} (nominal {:.3} frames a packet), {bad} bad packets (first error {first_bad}), start frames {first:?} to {last}",
                 started.elapsed().as_secs_f32(),
                 last_feedback.map_or("none".to_string(), |v| format!("{:.3}", v as f64 / 65536.)),
                 nominal as f64 / 65536.,
             )
         };
         while self.bus.busy() > 0 {
-            // Music handed over and none back for too long: the DAC stopped. Asked at every turn:
-            // feedback alone keeps coming, and the player would stand still with no error.
-            if last_back.elapsed() > STALL {
-                result = Err(anyhow!("{} stopped taking music", self.name));
-                break;
+            // Music handed over and none back for too long. Asked at every turn: feedback alone
+            // keeps coming, and the player would stand still with no error.
+            let quiet = last_back.elapsed();
+            let alive = feedback_endpoint.is_some() && since_music >= 8;
+            if quiet > STALL || (alive && quiet > STUCK) {
+                // This thread may only have slept: what is already back goes first.
+                while waiting.len() < 64 {
+                    match self.bus.reap(0) {
+                        Ok(Some(back)) => waiting.push_back(back),
+                        _ => break,
+                    }
+                }
+                if waiting
+                    .iter()
+                    .any(|back: &super::bus::Reaped| back.id != FEEDBACK)
+                {
+                    last_back = Instant::now();
+                } else if alive {
+                    stuck = !ending;
+                    break;
+                } else {
+                    result = Err(anyhow!("{} stopped taking music", self.name));
+                    break;
+                }
             }
-            let back = match self.bus.reap(100) {
+            let reaped = match waiting.pop_front() {
+                Some(back) => Ok(Some(back)),
+                None => self.bus.reap(100),
+            };
+            let back = match reaped {
                 Ok(Some(back)) => back,
                 Ok(None) => continue,
                 Err(e) => {
@@ -873,6 +925,7 @@ impl UsbDac {
             };
             if back.id == FEEDBACK {
                 feedbacks += 1;
+                since_music += 1;
                 if back.status == 0 {
                     if let Some(rate) = feedback(&back.data, nominal) {
                         last_feedback = Some(rate);
@@ -887,14 +940,25 @@ impl UsbDac {
                 continue;
             }
             last_back = Instant::now();
+            since_music = 0;
             music += 1;
             bad += back.bad as u64;
+            first_frame = first_frame.or(Some(back.start_frame));
+            last_frame = back.start_frame;
             if first_bad == 0 {
                 first_bad = back.first_bad;
             }
             // About each second, so a run that hangs still leaves its numbers.
             if music % 250 == 1 {
-                super::stream_line(shown(music, feedbacks, bad, first_bad, last_feedback));
+                let frames = (first_frame, last_frame);
+                super::stream_line(shown(
+                    music,
+                    feedbacks,
+                    bad,
+                    first_bad,
+                    last_feedback,
+                    frames,
+                ));
             }
             if back.status == -libc_enodev() || back.status == -libc_eshutdown() {
                 result = Err(anyhow!("{} is gone", self.name));
@@ -916,23 +980,54 @@ impl UsbDac {
                 ending = true;
             }
         }
-        super::stream_line(shown(music, feedbacks, bad, first_bad, last_feedback));
+        let numbers = shown(
+            music,
+            feedbacks,
+            bad,
+            first_bad,
+            last_feedback,
+            (first_frame, last_frame),
+        );
+        super::stream_line(numbers.clone());
+        let in_flight = self.bus.busy();
         // Everything asked back before leaving; the bus keeps what the kernel still holds.
-        for id in 0..=FEEDBACK {
+        for id in (0..transfers).chain([FEEDBACK]) {
             self.bus.discard(id);
         }
         let until = Instant::now() + Duration::from_millis(500);
+        let mut returned = vec![];
         while self.bus.busy() > 0 && Instant::now() < until {
-            if self.bus.reap(20).is_err() {
-                break;
+            match self.bus.reap(20) {
+                Ok(Some(back)) if back.id != FEEDBACK => {
+                    returned.push(format!("{}: {} of {per_transfer}", back.status, back.done));
+                }
+                Ok(_) => {}
+                Err(_) => break,
             }
         }
-        result
+        if stuck {
+            let mut setting = [0u8];
+            let asked = self
+                .bus
+                .control(0x81, 0x0A, 0, f.interface as u16, &mut setting);
+            super::run_line(numbers);
+            super::run_line(format!(
+                "Music stuck, feedback going on: {in_flight} in flight, setting now {}, taken back (status: packets that went) {returned:?}, {} still held",
+                asked.map_or_else(|e| e.to_string(), |_| setting[0].to_string()),
+                self.bus.busy(),
+            ));
+            // What the kernel still holds cannot be sent again.
+            if self.bus.busy() > 0 {
+                bail!("{} stopped taking music", self.name);
+            }
+        }
+        result.map(|_| stuck)
     }
 
     fn render_inner(&self, feed: &mut Feed) -> Result<()> {
         self.apply_volume();
         let mut open: Option<(u8, u8, u32, u16, u32)> = None;
+        let mut shape = 0;
         let result = loop {
             if feed.stopped() {
                 break Ok(());
@@ -941,7 +1036,9 @@ impl UsbDac {
                 // Paused: let the DAC rest (setting 0 frees the bus), and let seeks finish.
                 if let Some((interface, ..)) = open.take() {
                     let _ = self.bus.set_interface(interface, 0);
-                    super::status_playing(None);
+                    if super::is_current(self) {
+                        super::status_playing(None);
+                    }
                 }
                 feed.idle();
                 continue;
@@ -981,13 +1078,16 @@ impl UsbDac {
                 });
                 let same = rate == format.rate && f.channels as u16 >= format.channels;
                 self.converting.store(!same, Ordering::Relaxed);
-                super::status_playing(Some(if rate != format.rate {
+                let text = Some(if rate != format.rate {
                     format!("{} → {} kHz, not bit-perfect", khz(format.rate), khz(rate))
                 } else if same {
                     format!("{} kHz, {}-bit", khz(rate), f.bits)
                 } else {
                     format!("{} kHz, {}-bit, not bit-perfect", khz(rate), f.bits)
-                }));
+                });
+                if super::is_current(self) {
+                    super::status_playing(text);
+                }
                 let chosen = format!(
                     "{} Hz{}, {} bits in {}-byte slots, {} channels (setting {} of interface {}), the DAC says {}{}",
                     rate,
@@ -1009,8 +1109,23 @@ impl UsbDac {
                 needle_core::logfile::warn(format!("{}: {chosen}", self.name));
                 *self.chosen.lock().unwrap_or_else(|e| e.into_inner()) = Some(chosen);
             }
-            if let Err(e) = self.stream(feed, format, f, rate) {
-                break Err(e);
+            let began = Instant::now();
+            match self.stream(feed, format, f, rate, shape.min(SHAPES.len() - 1)) {
+                Ok(false) => {}
+                // Started again, with the music going on from here: a stuck way to the DAC has
+                // come back this way, and giving it to Android could leave no sound at all.
+                Ok(true) => {
+                    if began.elapsed() < SETTLED {
+                        shape += 1;
+                        if shape >= SHAPES.len() {
+                            *self.avoid.lock().unwrap_or_else(|e| e.into_inner()) = Some(f.alt);
+                        }
+                    }
+                    if let Some((interface, ..)) = open.take() {
+                        let _ = self.bus.set_interface(interface, 0);
+                    }
+                }
+                Err(e) => break Err(e),
             }
         };
         if let Some((interface, ..)) = open {
@@ -1058,6 +1173,7 @@ impl PlatformOutput for UsbDac {
                     Err(anyhow!("the driver stopped ({why})"))
                 });
         match &result {
+            _ if !super::is_current(self) => {}
             Ok(()) => super::status_playing(None),
             Err(e) => {
                 super::run_line(format!("Stopped: {e:#}"));

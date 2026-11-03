@@ -14,6 +14,9 @@ pub struct Reaped {
     /// error for the first of them.
     pub bad: usize,
     pub first_bad: i32,
+    /// Packets that carried anything, and the frame the transfer started on.
+    pub done: usize,
+    pub start_frame: i32,
 }
 
 pub trait Bus: Send + Sync {
