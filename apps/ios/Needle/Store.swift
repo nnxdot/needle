@@ -721,7 +721,7 @@ final class Store {
         pc.upNext.forEach { hasher.combine($0.id) }
         let repeatMode: RepeatMode = switch pc.repeat { case "all": .all; case "one": .one; default: .off }
         return Playback(current: pc.current.map(song(of:)), playing: pc.playing, position: pc.position, volume: pc.volume,
-                        repeat: repeatMode, upNext: UInt32(pc.upNext.count),
+                        repeat: repeatMode, shuffle: false, upNext: UInt32(pc.upNext.count),
                         queueVersion: UInt64(bitPattern: Int64(hasher.finalize())), loading: false, error: nil)
     }
 

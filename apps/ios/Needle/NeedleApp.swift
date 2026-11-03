@@ -97,7 +97,7 @@ struct RootView: View {
                 Task {
                     try? await Task.sleep(for: .seconds(8))
                     var lines: [String] = []
-                    func pause() async { try? await Task.sleep(for: .milliseconds(1500)) }
+                    func pause() async { try? await Task.sleep(for: .seconds(5)) }
                     let shuffled = { String(store.playback?.shuffle ?? false) }
                     lines.append("song: \(store.playback?.current?.title ?? "none"), playing \(store.playback?.playing ?? false)")
                     store.setShuffleStays(true)
@@ -132,6 +132,9 @@ struct RootView: View {
                     store.updateChoices { $0.forgetMissing = false }
                     await pause()
                     lines.append("forget missing off: \((try? store.core.libraryChoices())?.forgetMissing ?? true)")
+                    try? await Task.sleep(for: .seconds(10))
+                    let late = try? store.core.libraryChoices()
+                    lines.append("10 s later: shuffle \(shuffled()), saved stays \(late?.shuffleStays ?? true), hide \(late?.hideCompilationArtists ?? true), forget \(late?.forgetMissing ?? true)")
                     let log = NSTemporaryDirectory() + "needle-202-check.log"
                     try? lines.joined(separator: "\n").write(toFile: log, atomically: true, encoding: .utf8)
                 }
