@@ -925,7 +925,19 @@ private fun ChosenToggle(name: String, repeat: RepeatMode, panel: Panel, onPanel
 private fun RowScope.ChosenToggleIn(name: String, repeat: RepeatMode, panel: Panel, onPanel: (Panel) -> Unit, favorite: Boolean?, toggleFavorite: () -> Unit) {
     when (name) {
         "lyrics" -> RoundToggle(panel == Panel.Lyrics, { onPanel(Panel.Lyrics) }, if (panel == Panel.Lyrics) "Showing" else "Hidden") { Icon(Icons.Rounded.Lyrics, contentDescription = "Lyrics") }
-        "shuffle" -> RoundToggle(false, { Controls.shuffle(); showMessage("Shuffled what is up next") }) { Icon(Icons.Rounded.Shuffle, contentDescription = "Shuffle what is up next") }
+        "shuffle" -> {
+            // Shuffle stays on: a toggle, lit while on; otherwise it shuffles what is up next once.
+            val stays = NeedleApp.instance.more.collectAsState().value.shuffleStays && !onComputer()
+            val playbackState = NeedleApp.instance.playback.collectAsState()
+            val on by remember { derivedStateOf { playbackState.value?.shuffle == true } }
+            if (stays) {
+                RoundToggle(on, { Controls.shuffle(); showMessage(if (on) "Shuffle is off" else "Shuffle is on") }, if (on) "On" else "Off") {
+                    Icon(Icons.Rounded.Shuffle, contentDescription = "Shuffle")
+                }
+            } else {
+                RoundToggle(false, { Controls.shuffle(); showMessage("Shuffled what is up next") }) { Icon(Icons.Rounded.Shuffle, contentDescription = "Shuffle what is up next") }
+            }
+        }
         "repeat" -> RoundToggle(repeat != RepeatMode.OFF, {
             Controls.setRepeat(
                 when (repeat) {

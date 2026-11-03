@@ -84,6 +84,12 @@ fun ArtistSortButton() {
                 trailingIcon = { if (more.albumArtistsOnly) Icon(Icons.Rounded.Check, null, tint = MaterialTheme.colorScheme.primary) },
                 onClick = { open = false; NeedleApp.instance.updateMore { it.copy(albumArtistsOnly = !it.albumArtistsOnly) } },
             )
+            // The core leaves them out (artists_by reads the choice itself), as on the computer.
+            DropdownMenuItem(
+                text = { Text("Hide Various Artists-only") },
+                trailingIcon = { if (more.hideCompilationArtists) Icon(Icons.Rounded.Check, null, tint = MaterialTheme.colorScheme.primary) },
+                onClick = { open = false; NeedleApp.instance.updateMore { it.copy(hideCompilationArtists = !it.hideCompilationArtists) } },
+            )
             HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
             val asList by LibraryView.artistsAsList.collectAsState()
             ViewChoices(asList, { open = false }, LibraryView::setArtists)
@@ -99,7 +105,7 @@ fun ArtistSortButton() {
 @Composable
 fun ArtistGrid(open: (Route) -> Unit, modifier: Modifier = Modifier, top: androidx.compose.ui.unit.Dp = 8.dp) {
     val more by NeedleApp.instance.more.collectAsState()
-    val listLoad = rememberLoaded(more.artistOrder, more.albumArtistsOnly) { artistsBy("", more.artistOrder, more.albumArtistsOnly) }
+    val listLoad = rememberLoaded(more.artistOrder, more.albumArtistsOnly, more.hideCompilationArtists) { artistsBy("", more.artistOrder, more.albumArtistsOnly) }
     val loaded by listLoad
     val list = loaded.orEmpty()
     val state = rememberLazyGridState()
@@ -159,7 +165,13 @@ private fun AlphabetBar(letters: List<String>, modifier: Modifier, onLetter: (St
     // Where the finger is, for the bubble beside the bar (as the quick scroll's).
     var finger by remember { androidx.compose.runtime.mutableFloatStateOf(0f) }
     fun at(y: Float) = letters[((y / height) * letters.size).toInt().coerceIn(0, letters.size - 1)]
-    Box(modifier) {
+    androidx.compose.foundation.layout.BoxWithConstraints(modifier) {
+    // More letters than fit (A–Z with Korean consonants, kana rows, and 漢): every second or
+    // third shows, the first and last always; sliding still reaches each one.
+    val each = with(androidx.compose.ui.platform.LocalDensity.current) { MaterialTheme.typography.labelSmall.lineHeight.toDp() } + 2.dp
+    val fit = ((maxHeight - 8.dp) / each).toInt().coerceAtLeast(2)
+    val step = (letters.size + fit - 1) / fit
+    val shown = if (step <= 1) letters else letters.filterIndexed { i, _ -> i % step == 0 || i == letters.size - 1 }
     last?.let { letter ->
         ScrollBubble(
             letter,
@@ -188,7 +200,7 @@ private fun AlphabetBar(letters: List<String>, modifier: Modifier, onLetter: (St
             .padding(vertical = 4.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
-        letters.forEach { letter ->
+        shown.forEach { letter ->
             Text(
                 letter,
                 style = MaterialTheme.typography.labelSmall,
