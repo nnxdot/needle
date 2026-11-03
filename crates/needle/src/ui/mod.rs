@@ -1637,6 +1637,14 @@ impl AppView {
                         } else {
                             format!(" · {} files could not be read", progress.errors.len())
                         };
+                        let unreadable = if progress.forgotten > 0 {
+                            format!(
+                                "{unreadable} · {} gone from your folders, forgotten",
+                                progress.forgotten
+                            )
+                        } else {
+                            unreadable
+                        };
                         if progress.scanned > 0 || !unreadable.is_empty() {
                             self.notify(format!(
                                 "{} tracks added or updated · {} already in your library{unreadable}",
@@ -2478,6 +2486,7 @@ impl AppView {
                     total.scanned += p.scanned;
                     total.imported += p.imported;
                     total.unchanged += p.unchanged;
+                    total.forgotten += p.forgotten;
                     total.errors.extend(p.errors);
                 }
                 total.done = true;

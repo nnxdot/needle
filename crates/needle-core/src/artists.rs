@@ -54,6 +54,16 @@ pub struct ArtistChoice {
     pub order: ArtistOrder,
     /// Only artists who are an album's artist somewhere, not those only on someone else's song.
     pub album_artists_only: bool,
+    /// Leave out artists whose every song is on a Various Artists album (a compilation).
+    pub compilations_hidden: bool,
+}
+
+/// An album artist that means "many artists", as compilations are tagged.
+fn is_various(name: &str) -> bool {
+    matches!(
+        name.trim().to_lowercase().as_str(),
+        "various artists" | "various artist" | "various" | "va" | "v.a." | "v/a"
+    )
 }
 
 /// Words that bring in a guest: everything after one is someone else's part.
@@ -198,6 +208,8 @@ struct Tally {
     added_at: i64,
     artwork: Option<String>,
     album_artist: bool,
+    /// Some song of theirs is not on a compilation.
+    own: bool,
 }
 
 impl Library {
@@ -210,7 +222,7 @@ impl Library {
         let mut stmt = db.prepare(&format!(
             "SELECT t.artist, t.album_artist, t.album, t.duration, t.play_count, t.added_at,
                 json_extract(t.data,'$.artwork'), json_extract(t.data,'$.artist_sort'),
-                json_extract(t.data,'$.album_artist_sort')
+                json_extract(t.data,'$.album_artist_sort'), json_extract(t.data,'$.compilation')
              FROM {source}"
         ))?;
         struct Row {
@@ -223,6 +235,7 @@ impl Library {
             artwork: Option<String>,
             artist_sort: Option<String>,
             album_artist_sort: Option<String>,
+            compilation: bool,
         }
         let rows: Vec<Row> = stmt
             .query_map(rusqlite::params_from_iter(parameters), |r| {
@@ -236,6 +249,7 @@ impl Library {
                     artwork: r.get(6)?,
                     artist_sort: r.get(7)?,
                     album_artist_sort: r.get(8)?,
+                    compilation: r.get::<_, Option<i64>>(9)?.unwrap_or(0) != 0,
                 })
             })?
             .collect::<std::result::Result<_, _>>()?;
@@ -245,8 +259,25 @@ impl Library {
             .filter_map(|r| credits(&r.artist).into_iter().next())
             .map(|n| n.to_lowercase())
             .collect();
+        // Albums without an album artist whose songs name more than one main artist: shown as
+        // "Various artists", so they count as compilations too.
+        let mut untagged: HashMap<String, HashSet<String>> = HashMap::new();
+        for row in rows.iter().filter(|r| r.album_artist.trim().is_empty()) {
+            if let Some(main) = credits(&row.artist).into_iter().next() {
+                untagged
+                    .entry(row.album.to_lowercase())
+                    .or_default()
+                    .insert(main.to_lowercase());
+            }
+        }
         let mut tallies: HashMap<String, Tally> = HashMap::new();
         for row in &rows {
+            let compilation = row.compilation
+                || is_various(&row.album_artist)
+                || (row.album_artist.trim().is_empty()
+                    && untagged
+                        .get(&row.album.to_lowercase())
+                        .is_some_and(|artists| artists.len() > 1));
             let mut names = vec![];
             for (i, credit) in credits(&row.artist).into_iter().enumerate() {
                 for name in split_joined(&credit, &known) {
@@ -277,6 +308,7 @@ impl Library {
                             .filter(|s| !s.trim().is_empty());
                     }
                 }
+                tally.own |= !compilation;
                 tally.albums.insert(row.album.to_lowercase());
                 tally.tracks += 1;
                 tally.duration += row.duration;
@@ -290,6 +322,7 @@ impl Library {
         let mut artists: Vec<(String, i64, ArtistSummary)> = tallies
             .into_values()
             .filter(|t| !choice.album_artists_only || t.album_artist)
+            .filter(|t| !choice.compilations_hidden || t.own)
             .map(|t| {
                 let sort = sort_key(&t.name, t.sort_tag.as_deref());
                 let letter = index_letter(&sort);
@@ -509,6 +542,46 @@ mod tests {
         assert_eq!((jay.tracks, jay.albums, jay.letter.as_str()), (2, 2, "J"));
         assert_eq!(library.artist_albums("Kay").unwrap().len(), 2);
         assert_eq!(library.top_tracks("Guest Singer", 10).unwrap().len(), 1);
+    }
+
+    #[test]
+    fn compilation_only_artists_can_be_left_out() {
+        let dir = tempfile::tempdir().unwrap();
+        let library = Library::open(dir.path()).unwrap();
+        let mut flagged = song("f1", "Flagged", "", "Hits", 1);
+        flagged.compilation = true;
+        for t in [
+            // Only on a Various Artists album.
+            song("v1", "Guest", "Various Artists", "Summer Mix", 1),
+            // On one and on an album of their own.
+            song("v2", "Owner", "Various Artists", "Summer Mix", 1),
+            song("o1", "Owner", "Owner", "Mine", 1),
+            // Only on an album without an album artist whose songs name several artists.
+            song("u1", "Loose One", "", "Party", 1),
+            song("u2", "Loose Two", "", "Party", 1),
+            // An album without an album artist, but all theirs.
+            song("s1", "Solo", "", "Alone", 1),
+            song("s2", "Solo", "", "Alone", 1),
+            flagged,
+        ] {
+            library.upsert(&t).unwrap();
+        }
+        let names = |choice| {
+            library
+                .artists_by("", choice)
+                .unwrap()
+                .into_iter()
+                .map(|a| a.name)
+                .collect::<Vec<_>>()
+        };
+        assert_eq!(names(ArtistChoice::default()).len(), 6);
+        assert_eq!(
+            names(ArtistChoice {
+                compilations_hidden: true,
+                ..Default::default()
+            }),
+            ["Owner", "Solo"]
+        );
     }
 
     #[test]

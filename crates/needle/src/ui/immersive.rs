@@ -316,10 +316,7 @@ impl AppView {
             .items_center()
             .justify_center()
             .gap_5()
-            .child(
-                icon_button("imm-shuffle", "shuffle", "Shuffle this view")
-                    .on_click(cx.listener(|this, _, _, cx| this.play_view(0, true, cx))),
-            )
+            .child(self.shuffle_button("imm-shuffle", cx))
             .child(
                 icon_button("imm-previous", "previous", "Previous")
                     .on_click(cx.listener(|this, _, _, _| this.player.send(Command::Previous))),

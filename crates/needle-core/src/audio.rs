@@ -11,7 +11,7 @@ use rodio::{
 use serde::{Deserialize, Serialize};
 use std::{
     any::Any,
-    collections::VecDeque,
+    collections::{HashMap, VecDeque},
     sync::{Arc, Mutex},
     time::{Duration, Instant},
 };
@@ -33,6 +33,9 @@ struct Session {
     /// The whole list Repeat All plays again; empty in sessions saved before it was kept.
     #[serde(default)]
     cycle: Vec<(String, String)>,
+    /// Shuffle stays on (see [`Command::SetShuffle`]).
+    #[serde(default)]
+    shuffle: bool,
 }
 /// How many played songs a saved session keeps for Previous.
 const PREVIOUS_KEPT: usize = 500;
@@ -127,6 +130,8 @@ pub struct PlaybackState {
     /// Non-fatal output events, e.g. a missing configured device or a reconnect.
     pub output_notice: Option<String>,
     pub repeat: Repeat,
+    /// Shuffle stays on: new lists play in a random order (see [`Command::SetShuffle`]).
+    pub shuffle: bool,
     pub exclusive: bool,
     pub replay_gain: bool,
     pub album_gain: bool,
@@ -179,6 +184,11 @@ pub enum Command {
     /// Put the songs up next in a random order. The very next one, already being prepared,
     /// stays, and the playing song is not interrupted.
     Shuffle,
+    /// Shuffle on or off, and it stays so, as in Spotify. On: the songs up next play in a
+    /// random order (the very next one, already being prepared, stays), and so does each list
+    /// played after. Off: up next is the list again in its own order, from the song playing.
+    /// The playing song is not interrupted either way.
+    SetShuffle(bool),
     /// Skip to this song in the upcoming queue: the one at the index if it is still there,
     /// else its first place. Nothing happens when it is no longer up next.
     JumpTo(String, usize),
@@ -412,6 +422,10 @@ struct Queue {
     cycle: Vec<QueueItem>,
     repeat_tail: Vec<QueueItem>,
     repeat: Repeat,
+    /// Shuffle stays on.
+    shuffle: bool,
+    /// With shuffle on, the list in its own order, for turning shuffle off and for Repeat All.
+    order: Vec<QueueItem>,
     version: u64,
 }
 enum Edit {
@@ -455,6 +469,7 @@ impl Queue {
             previous,
             cycle,
             repeat: session.repeat,
+            shuffle: session.shuffle,
             version: 1,
             ..Default::default()
         };
@@ -478,6 +493,7 @@ impl Queue {
                 .map(identity)
                 .collect(),
             cycle: self.cycle.iter().map(identity).collect(),
+            shuffle: self.shuffle,
         }
     }
     fn touch(&mut self) {
@@ -688,10 +704,72 @@ impl Queue {
     fn after_end(&self) -> Vec<QueueItem> {
         match self.repeat {
             Repeat::One => self.active.clone().into_iter().collect(),
+            // With shuffle on, the list again in a new random order.
+            Repeat::All if self.shuffle => {
+                let mut all = self.list().to_vec();
+                shuffled(&mut all);
+                all
+            }
             Repeat::All => self.cycle.clone(),
             Repeat::Off => vec![],
         }
     }
+    /// The list in its own order (with shuffle on, as it was before it was shuffled).
+    fn list(&self) -> &[QueueItem] {
+        if self.order.is_empty() {
+            &self.cycle
+        } else {
+            &self.order
+        }
+    }
+    /// Up next with shuffle turned off: the list's songs after the playing one, in the list's
+    /// own order, then the songs queued from elsewhere as they were. The list's songs before
+    /// the playing one are left out: in the list's order they have played.
+    fn unshuffled(&self) -> Vec<QueueItem> {
+        type Key = (String, String);
+        let key = |i: &QueueItem| (i.track.id.clone(), i.reason.clone());
+        let count = |items: &mut dyn Iterator<Item = &QueueItem>| {
+            let mut counts: HashMap<Key, usize> = HashMap::new();
+            for item in items {
+                *counts.entry(key(item)).or_default() += 1;
+            }
+            counts
+        };
+        let take =
+            |counts: &mut HashMap<Key, usize>, item: &QueueItem| match counts.get_mut(&key(item)) {
+                Some(n) if *n > 0 => {
+                    *n -= 1;
+                    true
+                }
+                _ => false,
+            };
+        let list = self.list();
+        let upcoming = self.upcoming();
+        let start = self
+            .active
+            .as_ref()
+            .and_then(|a| list.iter().position(|o| key(o) == key(a)))
+            .map_or(0, |i| i + 1);
+        let mut queued = count(&mut upcoming.iter());
+        let mut tail: Vec<QueueItem> = list[start..]
+            .iter()
+            .filter(|item| take(&mut queued, item))
+            .cloned()
+            .collect();
+        let mut in_list = count(&mut list.iter());
+        for item in upcoming {
+            if !take(&mut in_list, &item) {
+                tail.push(item);
+            }
+        }
+        tail
+    }
+}
+
+/// Puts songs in a random order.
+fn shuffled(items: &mut [QueueItem]) {
+    use rand::seq::SliceRandom;
+    items.shuffle(&mut rand::thread_rng());
 }
 
 /// Holds back the song after the one playing, for a sleep timer that ends with a song or an
@@ -1828,16 +1906,37 @@ impl Worker {
             Command::Play(items) => {
                 // A song chosen anew, even the one playing, starts without the old loop.
                 self.loop_range = None;
+                let order = items.clone();
+                let mut items = items;
+                if self.queue.shuffle {
+                    shuffled(&mut items);
+                }
                 let items = self.queue.play_request(items);
                 self.play(items)?;
+                if self.queue.shuffle {
+                    self.queue.cycle = order.clone();
+                    self.queue.order = order;
+                }
             }
             Command::PlayAt(items, index) => {
                 if index >= items.len() {
                     bail!("Nothing to play at position {}", index + 1)
                 }
                 self.loop_range = None;
-                let start = self.queue.play_request(items[index..].to_vec());
+                // With shuffle on, the song chosen first, then all the others in a random order.
+                let start = if self.queue.shuffle {
+                    let mut rest = items.clone();
+                    let first = rest.remove(index);
+                    shuffled(&mut rest);
+                    std::iter::once(first).chain(rest).collect()
+                } else {
+                    items[index..].to_vec()
+                };
+                let start = self.queue.play_request(start);
                 self.play(start)?;
+                if self.queue.shuffle {
+                    self.queue.order = items.clone();
+                }
                 self.queue.cycle = items;
             }
             Command::Enqueue(items) => {
@@ -2195,6 +2294,31 @@ impl Worker {
                 // With Repeat One on, Up next waits here instead.
                 self.queue.repeat_tail.shuffle(&mut rand::thread_rng());
                 self.queue.touch();
+            }
+            Command::SetShuffle(on) if on == self.queue.shuffle => {}
+            Command::SetShuffle(true) => {
+                self.queue.order = self.queue.cycle.clone();
+                self.queue.shuffle = true;
+                let mut pending: Vec<QueueItem> = self.queue.pending.drain(..).collect();
+                shuffled(&mut pending);
+                self.queue.pending = pending.into();
+                shuffled(&mut self.queue.repeat_tail);
+                self.queue.touch();
+            }
+            Command::SetShuffle(false) => {
+                let tail = self.queue.unshuffled();
+                let list = std::mem::take(&mut self.queue.order);
+                self.queue.shuffle = false;
+                if self.queue.repeat == Repeat::One {
+                    self.queue.repeat_tail = tail;
+                    self.queue.touch();
+                } else {
+                    self.replace_tail(tail)?;
+                }
+                // Repeat All plays the whole list in its own order again.
+                if !list.is_empty() {
+                    self.queue.cycle = list;
+                }
             }
             Command::Repeat(repeat) => {
                 if let Some(queue) = self.queue.set_repeat(repeat) {
@@ -2557,6 +2681,7 @@ impl Worker {
         state.position = position;
         state.volume = self.settings.volume;
         state.repeat = self.queue.repeat;
+        state.shuffle = self.queue.shuffle;
         state.replay_gain = self.settings.replay_gain && !self.exclusive();
         state.album_gain = state.replay_gain && self.settings.album_gain;
         state.loop_range = self.loop_range;
@@ -3303,6 +3428,47 @@ mod tests {
         a.sort();
         b.sort();
         assert_eq!(a, b);
+    }
+
+    #[test]
+    fn shuffle_stays_on_and_turns_off_to_the_lists_order() {
+        let opener = FakeOpener::with(&["Speakers"], Some("Speakers"));
+        let mut rig = rig(opener, Settings::default());
+        let names: Vec<String> = (0..30).map(|n| format!("s{n:02}")).collect();
+        let list = rig.items(&names.iter().map(String::as_str).collect::<Vec<_>>());
+        rig.run(Command::PlayAt(list.clone(), 0));
+        rig.until_active("s00");
+        let sorted = |mut v: Vec<String>| {
+            v.sort();
+            v
+        };
+        // On: the song goes on, up next is the same songs in another order.
+        let before = ids(rig.state().queue.iter());
+        rig.run(Command::SetShuffle(true));
+        assert!(rig.state().shuffle);
+        assert_eq!(rig.active().as_deref(), Some("s00"));
+        let after = ids(rig.state().queue.iter());
+        assert_ne!(before, after, "30 songs should not stay in order");
+        assert_eq!(sorted(before.clone()), sorted(after));
+        // A song chosen with shuffle on plays first; every other song of the list follows.
+        rig.run(Command::PlayAt(list.clone(), 10));
+        rig.until_active("s10");
+        let up = ids(rig.state().queue.iter());
+        assert_eq!(up.len(), 29);
+        assert!(
+            up.contains(&"s03".to_string()),
+            "songs before it are queued too"
+        );
+        // A song queued from elsewhere keeps its place in up next.
+        let extra = rig.items(&["x"]);
+        rig.run(Command::Enqueue(extra));
+        // Off: the song goes on, then the list from after it, in its own order, then "x".
+        rig.run(Command::SetShuffle(false));
+        assert!(!rig.state().shuffle);
+        assert_eq!(rig.active().as_deref(), Some("s10"));
+        let mut expected: Vec<String> = names[11..].to_vec();
+        expected.push("x".into());
+        assert_eq!(ids(rig.state().queue.iter()), expected);
     }
 
     #[test]

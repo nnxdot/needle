@@ -28,6 +28,8 @@ pub struct ScanProgress {
     pub errors: Vec<String>,
     pub current: String,
     pub done: bool,
+    /// Songs forgotten because their file is gone or broken (Settings' `forget_missing`).
+    pub forgotten: usize,
 }
 
 pub fn import(
@@ -97,7 +99,15 @@ pub fn import(
         .chain(sheets.iter())
         .map(|p| p.to_string_lossy().into_owned())
         .collect();
-    import_files(library, files, &cancel, &mut state, &mut progress)?;
+    let mut broken = vec![];
+    import_files(
+        library,
+        files,
+        &cancel,
+        &mut state,
+        &mut broken,
+        &mut progress,
+    )?;
     for sheet in sheets {
         if cancel.load(Ordering::Relaxed) {
             break;
@@ -116,6 +126,9 @@ pub fn import(
     library.add_root(&root.to_string_lossy())?;
     if !cancel.load(Ordering::Relaxed) {
         mark_missing(library, &root, &seen)?;
+        if library.settings().is_ok_and(|s| s.forget_missing) {
+            state.forgotten = library.forget_missing(&broken)?;
+        }
     }
     state.done = true;
     crate::logfile::info(format!(
@@ -276,6 +289,7 @@ fn import_files(
     files: Vec<PathBuf>,
     cancel: &AtomicBool,
     state: &mut ScanProgress,
+    broken: &mut Vec<String>,
     progress: &mut impl FnMut(ScanProgress),
 ) -> Result<()> {
     let workers = std::thread::available_parallelism()
@@ -362,6 +376,7 @@ fn import_files(
                     if state.errors.len() < 100 {
                         state.errors.push(format!("{}: {e:#}", path.display()));
                     }
+                    broken.push(path.to_string_lossy().into_owned());
                 }
             }
             if batch.len() >= 500

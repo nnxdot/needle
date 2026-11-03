@@ -132,6 +132,35 @@ impl Library {
         db.execute_batch("PRAGMA foreign_keys=ON; PRAGMA synchronous=NORMAL;")?;
         Ok(db)
     }
+    /// Forgets the songs on this computer whose file is gone (marked missing) or is one of
+    /// `broken` (files that can no longer be read). Songs from servers stay. Their playlists
+    /// and listening history keep their places. Returns how many were forgotten.
+    pub fn forget_missing(&self, broken: &[String]) -> Result<usize> {
+        let mut db = self.connection()?;
+        let tx = db.transaction()?;
+        let local = format!("{}%", crate::sources::SCHEME);
+        let mut forgotten = 0;
+        for path in broken {
+            forgotten += tx.execute(
+                "DELETE FROM tracks WHERE path=?1 AND path NOT LIKE ?2",
+                rusqlite::params![path, local],
+            )?;
+        }
+        forgotten += tx.execute(
+            "DELETE FROM tracks WHERE missing=1 AND path NOT LIKE ?1",
+            [&local],
+        )?;
+        tx.execute(
+            "DELETE FROM features WHERE track_id NOT IN (SELECT id FROM tracks)",
+            [],
+        )?;
+        tx.commit()?;
+        if forgotten > 0 {
+            crate::logfile::info(format!("Forgot {forgotten} songs whose file is gone"));
+        }
+        Ok(forgotten)
+    }
+
     pub fn upsert_on(db: &Connection, track: &Track) -> Result<()> {
         db.execute("INSERT INTO tracks(id,path,title,artist,album,album_artist,genre,year,track_number,disc,duration,sample_rate,bit_depth,format,bpm,rating,added_at,last_played,play_count,missing,content_hash,data)
             VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16,?17,?18,?19,?20,?21,?22)
@@ -851,6 +880,34 @@ mod tests {
         std::fs::write(&nothing, "#EXTM3U\nmissing.wav\n").unwrap();
         assert!(db.import_playlist(&nothing).is_err());
         assert_eq!(db.playlists().unwrap().len(), 2);
+    }
+
+    #[test]
+    fn songs_whose_file_is_gone_can_be_forgotten() {
+        let dir = tempfile::tempdir().unwrap();
+        let db = Library::open(dir.path()).unwrap();
+        for (id, path, missing) in [
+            ("gone", "/music/gone.flac", true),
+            ("broken", "/music/broken.flac", false),
+            ("fine", "/music/fine.flac", false),
+            ("server", "source://nav/1", true),
+        ] {
+            db.upsert(&Track {
+                id: id.into(),
+                path: path.into(),
+                title: id.into(),
+                missing,
+                content_hash: id.into(),
+                ..Default::default()
+            })
+            .unwrap();
+        }
+        let forgotten = db.forget_missing(&["/music/broken.flac".into()]).unwrap();
+        assert_eq!(forgotten, 2);
+        assert!(db.track("gone").unwrap().is_none());
+        assert!(db.track("broken").unwrap().is_none());
+        assert!(db.track("fine").unwrap().is_some());
+        assert!(db.track("server").unwrap().is_some(), "server songs stay");
     }
 
     #[test]

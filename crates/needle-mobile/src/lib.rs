@@ -203,6 +203,8 @@ pub struct Playback {
     pub position: f64,
     pub volume: f32,
     pub repeat: RepeatMode,
+    /// Shuffle stays on (see `set_shuffle`).
+    pub shuffle: bool,
     /// How many songs are up next.
     pub up_next: u32,
     /// Changes whenever the songs up next change.
@@ -808,6 +810,13 @@ impl Needle {
         self.player.send(Command::Shuffle);
     }
 
+    /// Shuffle on or off, and it stays so, as in Spotify (for the `shuffle_stays` setting):
+    /// the song playing goes on; lists played while it is on play in a random order, the song
+    /// chosen first.
+    pub fn set_shuffle(&self, on: bool) {
+        self.player.send(Command::SetShuffle(on));
+    }
+
     pub fn set_repeat(&self, mode: RepeatMode) {
         self.player.send(Command::Repeat(match mode {
             RepeatMode::Off => Repeat::Off,
@@ -833,6 +842,7 @@ impl Needle {
                 Repeat::All => RepeatMode::All,
                 Repeat::One => RepeatMode::One,
             },
+            shuffle: state.shuffle,
             up_next: state.queue.len() as u32,
             queue_version: state.queue_version,
             loading: state.loading,
