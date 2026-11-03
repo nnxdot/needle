@@ -153,7 +153,7 @@ fn split_joined(name: &str, known: &HashSet<String>) -> Vec<String> {
 
 /// The key an artist sorts by: the file's sort tag when it has one, else the name without a
 /// leading "The "; accents folded ("Ólafur" sorts with the O's), lowercase. Names in other
-/// scripts keep their letters and sort after the Latin ones.
+/// scripts keep their letters and sort after the Latin ones; katakana sort with hiragana.
 pub fn sort_key(name: &str, sort_tag: Option<&str>) -> String {
     let base = sort_tag
         .map(str::trim)
@@ -162,6 +162,7 @@ pub fn sort_key(name: &str, sort_tag: Option<&str>) -> String {
     let folded: String = base
         .nfkd()
         .filter(|c| !unicode_normalization::char::is_combining_mark(*c))
+        .map(hiragana)
         .collect::<String>()
         .to_lowercase();
     let folded = folded.trim();
@@ -177,14 +178,59 @@ pub fn sort_key(name: &str, sort_tag: Option<&str>) -> String {
 }
 
 /// The letter an artist is filed under in an A–Z bar: "A"–"Z", "#" for digits and signs, or the
-/// first letter of another script.
+/// first letter of another script. As phones file contacts: Korean under its first consonant
+/// (ㄱ for 김 and 까), Japanese kana under its row (か for き, ぎ, and キ), and Chinese
+/// characters and kanji, whose reading is not known without a sort tag, together under 漢.
 pub fn index_letter(sort: &str) -> String {
     match sort.chars().next() {
         None => "#".into(),
         Some(c) if c.is_ascii_alphabetic() => c.to_ascii_uppercase().to_string(),
+        Some(c @ '\u{1100}'..='\u{1112}') => korean_initial(c).to_string(),
+        Some(c @ '\u{3041}'..='\u{3096}') => kana_row(c).to_string(),
+        Some(c) if is_han(c) => "漢".into(),
         Some(c) if c.is_alphabetic() => c.to_uppercase().collect(),
         Some(_) => "#".into(),
     }
+}
+
+/// Katakana as hiragana (キ → き), so both sort and file together.
+fn hiragana(c: char) -> char {
+    match c {
+        '\u{30A1}'..='\u{30F6}' => char::from_u32(c as u32 - 0x60).unwrap_or(c),
+        _ => c,
+    }
+}
+
+/// A Korean syllable's first consonant (after decomposition, U+1100–U+1112) as the letter
+/// people know, doubled ones under their single one (ㄲ under ㄱ).
+fn korean_initial(c: char) -> char {
+    const LETTERS: [char; 19] = [
+        'ㄱ', 'ㄱ', 'ㄴ', 'ㄷ', 'ㄷ', 'ㄹ', 'ㅁ', 'ㅂ', 'ㅂ', 'ㅅ', 'ㅅ', 'ㅇ', 'ㅈ', 'ㅈ', 'ㅊ',
+        'ㅋ', 'ㅌ', 'ㅍ', 'ㅎ',
+    ];
+    LETTERS[(c as usize - 0x1100).min(18)]
+}
+
+/// The gojūon row a hiragana belongs to: あ か さ た な は ま や ら わ.
+fn kana_row(c: char) -> char {
+    match c as u32 {
+        0x3041..=0x304A => 'あ',
+        0x304B..=0x3054 => 'か',
+        0x3055..=0x305E => 'さ',
+        0x305F..=0x3069 => 'た',
+        0x306A..=0x306E => 'な',
+        0x306F..=0x307D => 'は',
+        0x307E..=0x3082 => 'ま',
+        0x3083..=0x3088 => 'や',
+        0x3089..=0x308D => 'ら',
+        0x3094 => 'あ',
+        _ => 'わ',
+    }
+}
+
+/// Chinese characters, as Chinese, Japanese kanji, and Korean hanja write them.
+fn is_han(c: char) -> bool {
+    matches!(c, '\u{3400}'..='\u{4DBF}' | '\u{4E00}'..='\u{9FFF}' | '\u{F900}'..='\u{FAFF}' | '\u{20000}'..='\u{2FFFF}')
 }
 
 /// The sort key for comparing: digits and signs first, then Latin letters, then other scripts.
@@ -448,7 +494,7 @@ mod tests {
         assert_eq!(sort_key("'Til Tuesday", None), "til tuesday");
         assert_eq!(index_letter(&sort_key("Ólafur Arnalds", None)), "O");
         assert_eq!(index_letter(&sort_key("10cc", None)), "#");
-        assert_eq!(index_letter(&sort_key("宇多田ヒカル", None)), "宇");
+        assert_eq!(index_letter(&sort_key("宇多田ヒカル", None)), "漢");
     }
 
     fn song(
@@ -589,5 +635,36 @@ mod tests {
         let mut names = vec!["宇多田", "beatles", "10cc", "abba"];
         names.sort_by_key(|n| order_key(n));
         assert_eq!(names, ["10cc", "abba", "beatles", "宇多田"]);
+    }
+
+    #[test]
+    fn other_scripts_file_as_phones_file_them() {
+        let letter = |name: &str| index_letter(&sort_key(name, None));
+        // Korean: the first consonant, doubled ones under their single one.
+        assert_eq!(letter("김건모"), "ㄱ");
+        assert_eq!(letter("까치산"), "ㄱ");
+        assert_eq!(letter("아이유"), "ㅇ");
+        assert_eq!(letter("트와이스"), "ㅌ");
+        // Japanese kana: the row, katakana with hiragana, voiced with plain.
+        assert_eq!(letter("きゃりーぱみゅぱみゅ"), "か");
+        assert_eq!(letter("ギルガメッシュ"), "か");
+        assert_eq!(letter("ヲタク"), "わ");
+        assert_eq!(letter("ヒトリエ"), "は");
+        assert_eq!(letter("ぷにぷに電機"), "は");
+        // Chinese characters and kanji: one place; a sort tag in kana files them by reading.
+        assert_eq!(letter("宇多田ヒカル"), "漢");
+        assert_eq!(letter("周杰倫"), "漢");
+        assert_eq!(
+            index_letter(&sort_key("宇多田ヒカル", Some("うただひかる"))),
+            "あ"
+        );
+        // Katakana sort among hiragana, so one row stays together.
+        let mut names = vec!["ナナヲアカリ", "あいみょん", "ねごと", "アイナ"];
+        names.sort_by_key(|n| order_key(&sort_key(n, None)));
+        assert_eq!(names, ["アイナ", "あいみょん", "ナナヲアカリ", "ねごと"]);
+        // Korean, then kana, then Chinese characters.
+        let mut names = vec!["周杰倫", "あいみょん", "아이유"];
+        names.sort_by_key(|n| order_key(&sort_key(n, None)));
+        assert_eq!(names, ["아이유", "あいみょん", "周杰倫"]);
     }
 }
