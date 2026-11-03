@@ -1,3 +1,8 @@
+# 2.0.3 [windows, linux]
+Fixes for Home and the Artists page.
+- The mouse wheel over Home's shelves (and other rows that scroll sideways) scrolls the page again. Shift with the wheel, or a touchpad, still moves a row sideways.
+- The Artists page's letter bar fits the window: with many languages, every second or third letter shows, and each still jumps to its place.
+
 # 2.0.2 [windows, linux]
 Shuffle that stays on, tags for many albums at once, and fixes.
 - **Shuffle stays on.** Turn it on in Settings › Playback: the shuffle button then turns shuffle on and off, as in Spotify, and the song playing goes on. Turned off, up next is the list in its own order again.
