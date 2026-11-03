@@ -561,9 +561,11 @@ struct NowPlayingView: View {
             if jump { BigButton(symbol: "goforward.10", size: 32) { store.jumpBy(10) }.accessibilityLabel("On 10 seconds") }
             else { BigButton(symbol: "forward.fill", size: 34) { store.next() }.accessibilityLabel("Next") }
         case "shuffle":
-            BigButton(symbol: "shuffle", size: 22) { store.shuffle() }
-                .opacity(0.8)
-                .accessibilityLabel("Shuffle up next")
+            let stays = store.choices.shuffleStays && !store.onComputer
+            BigButton(symbol: "shuffle", size: 22) { store.shuffleButton() }
+                .opacity(stays ? (store.shuffleOn ? 1 : 0.55) : 0.8)
+                .accessibilityLabel(stays ? "Shuffle" : "Shuffle up next")
+                .accessibilityValue(stays ? (store.shuffleOn ? "On" : "Off") : "")
         case "repeat":
             BigButton(symbol: repeatMode == .one ? "repeat.1" : "repeat", size: 22) { store.cycleRepeat() }
                 .opacity(repeatMode == .off ? 0.55 : 1)
@@ -1264,9 +1266,10 @@ struct QueuePane: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
             HStack(spacing: 12) {
-                Button { store.shuffle() } label: { Pill(symbol: "shuffle", on: false) }
+                Button { store.shuffleButton() } label: { Pill(symbol: "shuffle", on: store.shuffleOn) }
                     .buttonStyle(.plain)
                     .accessibilityLabel("Shuffle")
+                    .accessibilityValue(store.choices.shuffleStays && !store.onComputer ? (store.shuffleOn ? "On" : "Off") : "")
                 Button { store.cycleRepeat() } label: {
                     Pill(symbol: store.playback?.repeat == .one ? "repeat.1" : "repeat", on: store.playback?.repeat != .off)
                 }

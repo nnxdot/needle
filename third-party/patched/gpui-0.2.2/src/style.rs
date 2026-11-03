@@ -571,15 +571,17 @@ impl Style {
             _ => {
                 let mut min = bounds.origin;
                 let mut max = bounds.bottom_right();
+                let mut border = Edges::<Pixels>::default();
 
                 if self
                     .border_color
                     .is_some_and(|color| !color.is_transparent())
                 {
-                    min.x += self.border_widths.left.to_pixels(rem_size);
-                    max.x -= self.border_widths.right.to_pixels(rem_size);
-                    min.y += self.border_widths.top.to_pixels(rem_size);
-                    max.y -= self.border_widths.bottom.to_pixels(rem_size);
+                    border = self.border_widths.to_pixels(rem_size);
+                    min.x += border.left;
+                    max.x -= border.right;
+                    min.y += border.top;
+                    max.y -= border.bottom;
                 }
 
                 let bounds = match (
@@ -598,11 +600,28 @@ impl Style {
                         point(bounds.origin.x, min.y),
                         point(bounds.bottom_right().x, max.y),
                     ),
-                    // both hidden
-                    (false, false) => Bounds::from_corners(min, max),
+                    // both hidden: Needle, the children follow its round corners, inside the
+                    // border.
+                    (false, false) => {
+                        let bounds = Bounds::from_corners(min, max);
+                        let outer = self.corner_radii.to_pixels(rem_size);
+                        let limit = bounds.size.width.min(bounds.size.height) / 2.;
+                        let inner = |r: Pixels, a: Pixels, b: Pixels| {
+                            (r - a.max(b)).min(limit).max(Pixels::ZERO)
+                        };
+                        return Some(ContentMask {
+                            bounds,
+                            corner_radii: Corners {
+                                top_left: inner(outer.top_left, border.top, border.left),
+                                top_right: inner(outer.top_right, border.top, border.right),
+                                bottom_right: inner(outer.bottom_right, border.bottom, border.right),
+                                bottom_left: inner(outer.bottom_left, border.bottom, border.left),
+                            },
+                        });
+                    }
                 };
 
-                Some(ContentMask { bounds })
+                Some(ContentMask::new(bounds))
             }
         }
     }
@@ -703,29 +722,23 @@ impl Style {
                 self.border_style,
             );
 
-            window.with_content_mask(Some(ContentMask { bounds: top_bounds }), |window| {
+            window.with_content_mask(Some(ContentMask::new(top_bounds)), |window| {
                 window.paint_quad(quad.clone());
             });
             window.with_content_mask(
-                Some(ContentMask {
-                    bounds: right_bounds,
-                }),
+                Some(ContentMask::new(right_bounds)),
                 |window| {
                     window.paint_quad(quad.clone());
                 },
             );
             window.with_content_mask(
-                Some(ContentMask {
-                    bounds: bottom_bounds,
-                }),
+                Some(ContentMask::new(bottom_bounds)),
                 |window| {
                     window.paint_quad(quad.clone());
                 },
             );
             window.with_content_mask(
-                Some(ContentMask {
-                    bounds: left_bounds,
-                }),
+                Some(ContentMask::new(left_bounds)),
                 |window| {
                     window.paint_quad(quad);
                 },

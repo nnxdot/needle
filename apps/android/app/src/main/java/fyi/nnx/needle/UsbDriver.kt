@@ -63,7 +63,7 @@ object UsbDriver {
          * even loudness, speed and pitch, and every other sound tool stand aside (the core's
          * `exclusive`). A speaker on the network plays through them, and Android's output too.
          */
-        fun takesTheMusic(networkOutput: Boolean) = this is Driving && !networkOutput
+        fun takesTheMusic(networkOutput: Boolean) = (this is Driving || this is Resting) && !networkOutput
 
         /** No USB audio device is plugged in. */
         data object None : State
@@ -73,6 +73,11 @@ object UsbDriver {
         data class Driving(val info: fyi.nnx.needle.core.UsbDacInfo) : State
         /** Needle's driver could not play to it; Android's output has it. */
         data class Fallback(val name: String, val why: String) : State
+        /**
+         * Let go while paused (Let go while paused, under Bit-perfect USB): other apps may play
+         * through it; Play takes it back.
+         */
+        data class Resting(val info: fyi.nnx.needle.core.UsbDacInfo) : State
     }
 
     private val _state = MutableStateFlow<State>(State.None)
@@ -103,6 +108,26 @@ object UsbDriver {
     /** Where what the last DAC did is kept: a report often comes after a restart. */
     private const val REPORTS = "usb-driver"
     private const val REPORT = "report"
+    private const val LET_GO = "let-go-paused"
+
+    /** Paused this long, the DAC is let go (with Let go while paused on): a quick pause keeps it. */
+    private const val REST_AFTER = 2500L
+
+    /** Let go while paused: a choice of this phone's, kept with the driver's report. */
+    private val _letGo = MutableStateFlow(false)
+    val letGo: StateFlow<Boolean> = _letGo
+
+    /** The DAC let go while paused, to take back on Play. */
+    @Volatile private var resting: UsbDevice? = null
+
+    fun setLetGo(context: Context, on: Boolean) {
+        _letGo.value = on
+        context.getSharedPreferences(REPORTS, Context.MODE_PRIVATE).edit().putBoolean(LET_GO, on).apply()
+        if (!on) wake(context) {}
+    }
+
+    /** Whether Play must take the DAC back first. */
+    fun isResting(): Boolean = resting != null
 
     private fun keepReport(context: Context) {
         val report = runCatching { NeedleApp.instance.core.usbDacReport() }.getOrNull()?.takeIf { it.isNotBlank() } ?: return
@@ -126,6 +151,26 @@ object UsbDriver {
         if (started) return
         started = true
         val app = context.applicationContext
+        _letGo.value = app.getSharedPreferences(REPORTS, Context.MODE_PRIVATE).getBoolean(LET_GO, false)
+        // Let go while paused: paused a while, the DAC goes to Android for other apps; music that
+        // starts by another way than Play (the tile, a new list, sound coming back after a call)
+        // takes it back at once.
+        NeedleApp.instance.scope.launch {
+            var pausedSince = 0L
+            while (true) {
+                delay(250)
+                val playing = NeedleApp.instance.playback.value?.playing == true
+                val now = android.os.SystemClock.uptimeMillis()
+                when {
+                    _state.value is State.Driving && _letGo.value && !playing -> {
+                        if (pausedSince == 0L) pausedSince = now
+                        else if (now - pausedSince >= REST_AFTER) { pausedSince = 0L; rest(app) }
+                    }
+                    _state.value is State.Resting && playing -> { pausedSince = 0L; wake(app) {} }
+                    else -> pausedSince = 0L
+                }
+            }
+        }
         val receiver = object : BroadcastReceiver() {
             override fun onReceive(c: Context, intent: Intent) {
                 when (intent.action) {
@@ -237,6 +282,8 @@ object UsbDriver {
                 giveBackIfLost(context, dac)
             }
             held?.deviceName == dac.deviceName && _state.value is State.Driving -> {}
+            // Let go while paused: Play takes it back, not a look at the devices.
+            resting?.deviceName == dac.deviceName && _state.value is State.Resting -> {}
             _state.value is State.Fallback && held == null && (_state.value as State.Fallback).name == (dac.productName ?: "") -> {}
             usb.hasPermission(dac) -> open(context, dac)
             else -> {
@@ -305,16 +352,21 @@ object UsbDriver {
         context.getSystemService(AudioManager::class.java)?.getDevices(AudioManager.GET_DEVICES_OUTPUTS).orEmpty()
             .filter(::isUsbOutput).flatMap { it.sampleRates.toList() }.map { it.toUInt() }.distinct()
 
-    private fun open(context: Context, device: UsbDevice) {
-        val usb = context.getSystemService(UsbManager::class.java) ?: return
+    /**
+     * Opens the DAC for the driver. `fresh`: just plugged in or allowed, so Android is given its
+     * moment to find it first (see [letAndroidFindIt]); taken back after a pause, it has it.
+     * `then` runs on the main thread once that is done, whether it worked or not.
+     */
+    private fun open(context: Context, device: UsbDevice, fresh: Boolean = true, then: () -> Unit = {}) {
+        val usb = context.getSystemService(UsbManager::class.java) ?: return then()
         val name = nameOf(device)
         val wanted = {
             connection == null && NeedleApp.instance.app.value.usbBitPerfect && usb.deviceList.containsKey(device.deviceName)
         }
         NeedleApp.instance.scope.launch(Dispatchers.IO) {
-            changing.withLock {
+            try { changing.withLock {
                 if (!wanted()) return@withLock
-                letAndroidFindIt(context)
+                if (fresh) letAndroidFindIt(context)
                 val core = NeedleApp.instance.core
                 // Only a DAC that can be played to is taken from Android.
                 val look = runCatching { usb.openDevice(device) }.getOrNull()
@@ -363,8 +415,52 @@ object UsbDriver {
                         fyi.nnx.needle.ui.useAndroidMixer(context, true)
                     }
                 }
+            } } finally {
+                withContext(kotlinx.coroutines.NonCancellable + Dispatchers.Main) { then() }
             }
         }
+    }
+
+    /**
+     * Let go while paused: the DAC goes back to Android, as with Bit-perfect USB turned off, but
+     * with no word and no pause; Play takes it back ([wake]). Whether other apps then play
+     * through it is Android's: some phones keep the sound card they knew silent until a replug.
+     */
+    private fun rest(context: Context) {
+        val c = connection ?: return
+        val device = held ?: return
+        val info = (_state.value as? State.Driving)?.info ?: return
+        connection = null
+        held = null
+        following?.cancel()
+        following = null
+        resting = device
+        _state.value = State.Resting(info)
+        NeedleLog.info("Needle's USB driver lets ${nameOf(device)} go while paused")
+        NeedleApp.instance.scope.launch(Dispatchers.IO) {
+            changing.withLock {
+                // The core keeps the way of cutting the music that played, for this DAC.
+                runCatching { NeedleApp.instance.core.usbDacClose() }
+                keepReport(context)
+                giveBack(c, device)
+            }
+        }
+    }
+
+    /**
+     * Takes the DAC let go while paused back, then `then` (Play): the music goes on where it was,
+     * bit-perfect again. With none let go, `then` at once.
+     */
+    fun wake(context: Context, then: () -> Unit) {
+        val device = resting ?: return then()
+        resting = null
+        val usb = context.getSystemService(UsbManager::class.java)
+        if (usb == null || !usb.deviceList.containsKey(device.deviceName) || !NeedleApp.instance.app.value.usbBitPerfect) {
+            _state.value = State.None
+            return then()
+        }
+        NeedleLog.info("Needle's USB driver takes ${nameOf(device)} back")
+        open(context, device, fresh = false, then = then)
     }
 
     /** Hands the interfaces back to Android's own driver, and closes the connection. */
@@ -406,6 +502,7 @@ object UsbDriver {
      * With no DAC held it runs at once.
      */
     fun release(context: Context, next: State, then: () -> Unit = {}) {
+        resting = null
         val c = connection
         val device = held
         connection = null
@@ -474,6 +571,7 @@ object UsbDriver {
                     is State.Driving -> "it has the DAC"
                     is State.Asking -> "waiting to be allowed"
                     is State.Fallback -> "refused: ${s.why}"
+                    is State.Resting -> "let go while paused"
                     State.None -> "off"
                 }
                 val dacText = runCatching {

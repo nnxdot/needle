@@ -98,9 +98,12 @@ val LocalAlbumHere = androidx.compose.runtime.compositionLocalOf<String?> { null
 @Composable
 fun artistShape(): androidx.compose.ui.graphics.Shape = androidx.compose.foundation.shape.CircleShape
 
-/** Where a row sits in its list (see [segment]): its place and how many rows there are. */
+/**
+ * Where a row sits in its list (see [segment]): its place, how many rows there are, and the id of
+ * the song in the row under it, if any, so a row lit there takes the line between them away.
+ */
 @androidx.compose.runtime.Immutable
-data class Place(val index: Int, val count: Int) {
+data class Place(val index: Int, val count: Int, val next: String? = null) {
     val first get() = index == 0
     val last get() = index == count - 1
 
@@ -108,8 +111,19 @@ data class Place(val index: Int, val count: Int) {
     fun shape(): androidx.compose.ui.graphics.Shape = RowShape
 }
 
+/** Where song `index` of this list sits, with the song under it (see [Place]). */
+fun List<fyi.nnx.needle.core.Song>.place(index: Int, count: Int = size): Place =
+    Place(index, count, if (index + 1 < count) getOrNull(index + 1)?.id else null)
+
 /** A lit row's corners (the song playing, a row chosen). */
 val RowShape = RoundedCornerShape(10.dp)
+
+/**
+ * Room under what floats at the foot, above Android's own bar: the dock, the floating player,
+ * and the full player's bar of buttons, so they all end at one height. The dock floats as far
+ * from the foot as from the sides.
+ */
+val FootGap = 10.dp
 
 /**
  * One row of a plain list, as on the Mac: no filled group, a soft line under every row but the
@@ -121,9 +135,13 @@ fun Modifier.segment(
     color: Color,
     inset: androidx.compose.ui.unit.Dp = 8.dp,
     lineStart: androidx.compose.ui.unit.Dp = 72.dp,
+    /** The row under this one is lit: no line between them. */
+    nextLit: Boolean = false,
 ): Modifier = this
     .padding(horizontal = inset)
-    .then(if (place.last) Modifier else Modifier.softLine(lineStart))
+    // A lit row's rounded tint has no line along its top or foot: a straight line would cut
+    // across its corners.
+    .then(if (place.last || nextLit || color.alpha > 0f) Modifier else Modifier.softLine(lineStart))
     .clip(RowShape)
     .then(if (color.alpha > 0f) Modifier.background(color) else Modifier)
 

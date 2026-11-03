@@ -10,6 +10,14 @@ import SwiftUI
 ///   and once more a second later (`<path>-2.png`).
 /// - `--render-big <path.png>`: the real big player, 16 seconds in, and a second later.
 /// - `--test-mcp-off <seconds>`: turns AI assistants off that long after the start.
+/// - `--test-scrobbles <file>`: Clear failed for Last.fm and Retry failed for ListenBrainz, 8
+///   seconds in, writing the answers and what Settings then reads.
+/// - `--test-202 <file>`: Shuffle stays on, Hide Various Artists-only, and Forget songs that
+///   are gone, 6 seconds in, through what the buttons and rows call; a song plays only when
+///   the volume is 0 (the made-up songs are loud). With `--test-202-restored` too, no song is
+///   started: the presses work on the song restored from the last session, paused.
+/// - `--render-letters <path.png>`: the letter bar with A to Z, Korean, Japanese, and Chinese
+///   letters, in a short and a tall space.
 /// - `--test-spectrum <file>`: the core's spectrum twice a second for 12 seconds.
 @MainActor
 enum TestRenders {
@@ -67,6 +75,33 @@ enum TestRenders {
                 store.set(["mcp": false])
             }
         }
+        if let file = value("--test-scrobbles") {
+            Task {
+                try? await Task.sleep(for: .seconds(8))
+                var lines = ["before: " + store.core.servicesJson()]
+                let cleared = await store.ask { try $0.clearScrobbles(service: "lastfm") }
+                let tried = await store.ask { try $0.retryScrobbles(service: "listenbrainz") }
+                lines.append("clear lastfm: \(cleared.map(String.init) ?? "failed")")
+                lines.append("retry listenbrainz: \(tried.map(String.init) ?? "failed")")
+                lines.append("after: " + store.core.servicesJson())
+                try? lines.joined(separator: "\n").write(toFile: file, atomically: true, encoding: .utf8)
+            }
+        }
+        if let file = value("--test-202") {
+            Task { await test202(store, file, play: !args.contains("--test-202-restored")) }
+        }
+        if let path = value("--render-letters") {
+            let letters = (65...90).map { String(UnicodeScalar($0)!) } + ["#"]
+                + "ㄱㄴㄷㄹㅁㅂㅅㅇㅈㅊㅋㅌㅍㅎ".map(String.init) + "あかさたなはまやらわ".map(String.init) + ["漢"]
+            render(HStack(alignment: .top, spacing: 30) {
+                LetterBar(letters: letters) { _ in }.frame(height: 420)
+                LetterBar(letters: letters) { _ in }.frame(height: 900)
+                LetterBar(letters: Array(letters.prefix(27))) { _ in }.frame(height: 420)
+            }
+            .padding(20)
+            .frame(width: 180, height: 940, alignment: .topLeading)
+            .background(store.colors.canvas), to: path)
+        }
         if let file = value("--test-spectrum") {
             Task {
                 var lines: [String] = []
@@ -79,6 +114,73 @@ enum TestRenders {
                 try? lines.joined(separator: "\n").write(toFile: file, atomically: true, encoding: .utf8)
             }
         }
+    }
+
+    private static func test202(_ store: Store, _ file: String, play: Bool) async {
+        var lines: [String] = []
+        func pause() async { try? await Task.sleep(for: .milliseconds(1500)) }
+        let song = {
+            guard let p = store.playback else { return "no playback" }
+            return "“\(p.title)” playing \(p.playing) at \(Int(p.position)) s, \(p.queue) up next"
+        }
+        let shuffled = { String(store.playback?.shuffle ?? false) }
+        try? await Task.sleep(for: .seconds(6))
+        lines.append("volume: \(store.settings.volume)")
+        lines.append("at the start: song \(song())")
+        if !play {
+            lines.append("no new song: the one restored, paused")
+        } else if store.settings.volume == 0 {
+            lines.append("before playView: song \(song())")
+            let albums = JSON.decode([AlbumSummary].self, await store.load { try $0.albumsJson(query: "") }) ?? []
+            lines.append("albums: \(albums.count), first “\(albums.first?.album ?? "")” query \(albums.first?.query ?? "")")
+            if let album = albums.first {
+                do {
+                    let started = try store.core.playView(query: album.query, playlist: nil, filter: "", start: 0, shuffle: false, reason: "Test")
+                    lines.append("playView: \(started)")
+                } catch {
+                    lines.append("playView failed: \(error.message)")
+                }
+            }
+            await pause()
+            lines.append("after playView: song \(song())")
+        } else {
+            lines.append("not muted: no song played")
+        }
+        store.setShuffleStays(true)
+        await pause()
+        lines.append("stays on: \(store.settings.shuffleStays), shuffle \(shuffled()), song \(song())")
+        store.shuffleButton()
+        await pause()
+        lines.append("after a press: shuffle \(shuffled()), lit \(store.shuffleOn), help \(store.shuffleHelp), song \(song())")
+        store.shuffleButton()
+        await pause()
+        lines.append("after a second press: shuffle \(shuffled()), lit \(store.shuffleOn), song \(song())")
+        try? await Task.sleep(for: .seconds(3))
+        lines.append("3 s later: song \(song())")
+        store.shuffleButton()
+        await pause()
+        lines.append("pressed on again: shuffle \(shuffled()), song \(song())")
+        store.setShuffleStays(false)
+        await pause()
+        lines.append("setting off: stays \(store.settings.shuffleStays), shuffle \(shuffled()), help \(store.shuffleHelp)")
+        if store.playback?.playing == true { store.core.toggle() }
+        let count = { () async -> Int in
+            (JSON.decode([ArtistSummary].self, await store.load { try $0.artistsJson(query: "") }) ?? []).count
+        }
+        store.set(["hide_compilation_artists": false])
+        await pause()
+        let all = await count()
+        store.set(["hide_compilation_artists": true])
+        await pause()
+        lines.append("artists: \(all) shown, \(await count()) with Hide Various Artists-only (setting \(store.settings.hideCompilationArtists))")
+        store.set(["hide_compilation_artists": false])
+        store.set(["forget_missing": true])
+        await pause()
+        lines.append("forget missing: \(store.settings.forgetMissing)")
+        store.set(["forget_missing": false])
+        await pause()
+        lines.append("forget missing off: \(store.settings.forgetMissing)")
+        try? lines.joined(separator: "\n").write(toFile: file, atomically: true, encoding: .utf8)
     }
 
     private static func render(_ view: some View, to path: String) {

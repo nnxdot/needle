@@ -70,7 +70,9 @@ class PlaybackService : MediaLibraryService() {
         val playback = runCatching { NeedleApp.instance.core.playback() }.getOrNull()
         val repeat = playback?.repeat ?: fyi.nnx.needle.core.RepeatMode.OFF
         val favorite = (playback?.current?.rating?.toInt() ?: 0) >= 4
-        val key = "$chosen/$repeat/$favorite"
+        // Lit while shuffle stays on (Settings › Playback › Shuffle stays on).
+        val shuffled = playback?.shuffle == true && NeedleApp.instance.more.value.shuffleStays
+        val key = "$chosen/$repeat/$favorite/$shuffled"
         if (key == buttonsKey) return
         buttonsKey = key
         // The places Previous and Next leave free, in order.
@@ -80,7 +82,9 @@ class PlaybackService : MediaLibraryService() {
         ))
         val buttons = chosen.mapNotNull { name ->
             when (name) {
-                "shuffle" -> androidx.media3.session.CommandButton.Builder(androidx.media3.session.CommandButton.ICON_SHUFFLE_OFF)
+                "shuffle" -> androidx.media3.session.CommandButton.Builder(
+                    if (shuffled) androidx.media3.session.CommandButton.ICON_SHUFFLE_ON else androidx.media3.session.CommandButton.ICON_SHUFFLE_OFF,
+                )
                     .setDisplayName("Shuffle")
                     .setSessionCommand(androidx.media3.session.SessionCommand(SHUFFLE, android.os.Bundle.EMPTY))
                 "repeat" -> androidx.media3.session.CommandButton.Builder(

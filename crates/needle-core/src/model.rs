@@ -262,6 +262,11 @@ pub struct Settings {
     pub artist_order: String,
     /// The Artists page lists only album artists, not those only on someone else's song.
     pub album_artists_only: bool,
+    /// The Artists page leaves out artists whose every song is on a Various Artists album.
+    pub hide_compilation_artists: bool,
+    /// Checking the music folders forgets songs whose file is gone or can no longer be read,
+    /// instead of keeping them marked missing.
+    pub forget_missing: bool,
     /// With online lookups on, find every artist's photo, logo, and wide picture slowly in the
     /// background (one artist at a time, while Needle is idle).
     pub artist_pictures: bool,
@@ -278,6 +283,9 @@ pub struct Settings {
     /// Smart mixes: the crossfade starts where a song's music ends (not in its silent tail)
     /// and lasts whole bars of its tempo.
     pub smart_mix: bool,
+    /// The shuffle button turns shuffle on and off, as in Spotify (the playing song goes on),
+    /// instead of shuffling the list on screen at once.
+    pub shuffle_stays: bool,
     /// The big player's look: "cover" (the cover and the lyrics beside it), "record" (the
     /// cover as a turning record), "lyrics" (only the words, very large), or "visualizer".
     #[serde(default = "default_big_look")]
@@ -418,12 +426,15 @@ impl Default for Settings {
             player_buttons: PLAYER_BUTTONS.iter().map(|b| b.to_string()).collect(),
             artist_order: "name".into(),
             album_artists_only: false,
+            hide_compilation_artists: false,
+            forget_missing: false,
             artist_pictures: true,
             theme_extras_before: None,
             accent_color: String::new(),
             ambient: false,
             crossfade: 0.,
             smart_mix: true,
+            shuffle_stays: false,
             big_look: default_big_look(),
             seek_style: default_seek_style(),
             columns: [("album", 220.), ("quality", 92.), ("time", 52.)]

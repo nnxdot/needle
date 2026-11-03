@@ -223,6 +223,11 @@ private fun Pills(filter: Filter?, choose: (Filter?) -> Unit, sort: Sort, sortBy
                             onClick = { sorting = false; sortBy(s) },
                         )
                     }
+                    if (filter == Filter.Albums) {
+                        androidx.compose.material3.HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+                        val asList by LibraryView.albumsAsList.collectAsState()
+                        ViewChoices(asList, { sorting = false }, LibraryView::setAlbums)
+                    }
                 }
             }
         }
@@ -246,9 +251,17 @@ private fun LazyGridScope.span(content: @Composable () -> Unit) =
 
 /** Two covers across, with the page's margins. */
 @Composable
-private fun AlbumGrid(albums: List<Album>?, open: (Route) -> Unit, scroll: Modifier, loading: Boolean, header: LazyGridScope.() -> Unit = {}) {
+private fun AlbumGrid(
+    albums: List<Album>?,
+    open: (Route) -> Unit,
+    scroll: Modifier,
+    loading: Boolean,
+    state: androidx.compose.foundation.lazy.grid.LazyGridState = androidx.compose.foundation.lazy.grid.rememberLazyGridState(),
+    header: LazyGridScope.() -> Unit = {},
+) {
     LazyVerticalGrid(
         columns = GridCells.Adaptive(160.dp),
+        state = state,
         contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 8.dp, bottom = 32.dp + LocalBottomInset.current),
         horizontalArrangement = Arrangement.spacedBy(14.dp),
         verticalArrangement = Arrangement.spacedBy(LocalRows.current.grid),
@@ -266,7 +279,7 @@ private fun Overview(open: (Route) -> Unit, scroll: Modifier) {
     val albums by albumsLoad
     val favoritesLoad = rememberLoaded { favorites().size }
     val favorites by favoritesLoad
-    AlbumGrid(albums?.let { sorted(it, Sort.Recent).take(24) }, open, scroll, albumsLoad.loading) {
+    AlbumGrid(albums?.let { sorted(it, Sort.Recent).take(24) }, open, scroll, albumsLoad.loading, header = {
         // Plain rows, as the Mac's sidebar places: no tiles.
         span {
             Column(Modifier.padding(horizontal = 0.dp)) {
@@ -275,7 +288,7 @@ private fun Overview(open: (Route) -> Unit, scroll: Modifier) {
             }
         }
         span { Text("Recently added", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.SemiBold, modifier = Modifier.padding(top = 16.dp)) }
-    }
+    })
 }
 
 /** A place in the library: its icon, its name and a grey line, and a chevron, over a soft line. */
@@ -368,11 +381,36 @@ internal fun ArtistTile(artist: fyi.nnx.needle.core.Artist, modifier: Modifier, 
     }
 }
 
+/** The letter a row is filed under, in this order; none when the order is not by name. */
+private fun letterOf(sort: Sort, title: String, artist: String): String? = when (sort) {
+    Sort.Recent -> null
+    Sort.Title -> indexLetter(title)
+    Sort.Artist -> indexLetter(artist)
+}
+
 @Composable
 private fun Albums(sort: Sort, open: (Route) -> Unit, scroll: Modifier) {
     val albumsLoad = rememberLoaded { albums() }
     val albums by albumsLoad
-    AlbumGrid(albums?.let { sorted(it, sort) }, open, scroll, albumsLoad.loading)
+    val asList by LibraryView.albumsAsList.collectAsState()
+    // Sorted once per list and order, not at every redraw.
+    val list = remember(albums, sort) { albums?.let { sorted(it, sort) } }
+    val all = list.orEmpty()
+    val letter = { i: Int -> all.getOrNull(i)?.let { letterOf(sort, it.title, it.artist) } }
+    Box(Modifier.fillMaxSize()) {
+        if (asList) {
+            val state = androidx.compose.foundation.lazy.rememberLazyListState()
+            androidx.compose.foundation.lazy.LazyColumn(Modifier.fillMaxSize().then(scroll), state = state, contentPadding = PaddingValues(bottom = 32.dp + LocalBottomInset.current)) {
+                if (albumsLoad.loading) items(8) { SongPlaceholder() }
+                items(all.size, key = { all[it].key }) { i -> AlbumRow(all[i], Place(i, all.size), open) }
+            }
+            QuickScroll(state, all.size, Modifier.align(Alignment.TopEnd).padding(top = 8.dp, bottom = LocalBottomInset.current), letter)
+        } else {
+            val state = androidx.compose.foundation.lazy.grid.rememberLazyGridState()
+            AlbumGrid(list, open, scroll, albumsLoad.loading, state)
+            QuickScroll(state, all.size, Modifier.align(Alignment.TopEnd).padding(top = 8.dp, bottom = LocalBottomInset.current), letter)
+        }
+    }
 }
 
 @Composable
@@ -387,14 +425,20 @@ private fun Songs(sort: Sort, open: (Route) -> Unit, scroll: Modifier) {
     val playing = playingSongId()
     // Sorted once per list and order, not at every redraw.
     val list = remember(songs, sort) { songs?.let { sortedSongs(it, sort) }.orEmpty() }
-    androidx.compose.foundation.lazy.LazyColumn(Modifier.fillMaxSize().then(scroll), contentPadding = PaddingValues(bottom = 32.dp + LocalBottomInset.current)) {
+    val state = androidx.compose.foundation.lazy.rememberLazyListState()
+    Box(Modifier.fillMaxSize()) {
+    androidx.compose.foundation.lazy.LazyColumn(Modifier.fillMaxSize().then(scroll), state = state, contentPadding = PaddingValues(bottom = 32.dp + LocalBottomInset.current)) {
         if (songsLoad.loading) items(8) { SongPlaceholder() }
         items(list.size, key = { list[it].id }) { i ->
             val song = list[i]
-            SongRow(song, playing == song.id, open, place = Place(i, list.size)) {
+            SongRow(song, playing == song.id, open, place = list.place(i)) {
                 playSongs(list.map { it.id }, i)
             }
         }
+    }
+    QuickScroll(state, list.size, Modifier.align(Alignment.TopEnd).padding(top = 8.dp, bottom = LocalBottomInset.current)) { i ->
+        list.getOrNull(i)?.let { letterOf(sort, it.title, it.artist) }
+    }
     }
 }
 

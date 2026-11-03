@@ -478,7 +478,7 @@ private fun LazyListScope.songList(
                 number = numbered,
                 remove = remove?.let { r -> { r(i) } },
                 trailing = reorder?.let { r -> { DragHandle(r, i) } },
-                place = Place(i, list.size),
+                place = list.place(i),
             ) { play(list, i) }
         }
     }
@@ -807,7 +807,7 @@ fun ArtistScreen(name: String, open: (Route) -> Unit) {
                             textAlign = TextAlign.Center,
                             modifier = Modifier.padding(start = 8.dp).width(28.dp),
                         )
-                        Box(Modifier.weight(1f)) { SongRow(song, playing == song.id, open, place = Place(i, minOf(5, songs.size))) { play(songs, i) } }
+                        Box(Modifier.weight(1f)) { SongRow(song, playing == song.id, open, place = songs.place(i, minOf(5, songs.size))) { play(songs, i) } }
                     }
                 }
                 }
@@ -1279,7 +1279,7 @@ fun SearchScreen(open: (Route) -> Unit) {
                 if (kind == SearchKind.All || kind == SearchKind.Songs) server?.let { (number, found) ->
                     edgeToEdge(16.dp) { SectionHeader("On your server") }
                     items(found.size, key = { "server-$it-" + found[it].id }, span = { GridItemSpan(maxLineSpan) }) { i ->
-                        SongRow(found[i], playing == found[i].id, null, Modifier.bleed(16.dp), place = Place(i, found.size)) {
+                        SongRow(found[i], playing == found[i].id, null, Modifier.bleed(16.dp), place = found.place(i)) {
                             core.playServerSongs(number, i.toUInt())
                             NeedleApp.instance.openPlayer.tryEmit(Unit)
                         }

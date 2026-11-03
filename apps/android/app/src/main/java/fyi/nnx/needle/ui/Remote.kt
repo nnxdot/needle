@@ -43,6 +43,8 @@ fun PcState.asPlayback() = Playback(
         "one" -> RepeatMode.ONE
         else -> RepeatMode.OFF
     },
+    // The computer does not tell its shuffle to the phone.
+    shuffle = false,
     upNext = upNext.size.toUInt(),
     // Changes when the song or the list up next changes, as the phone's own does.
     queueVersion = ((current?.id ?: "") + upNext.joinToString { it.id }).hashCode().toULong(),
@@ -67,7 +69,10 @@ object Controls {
         }
     }
 
-    fun toggle() = if (onComputer()) {
+    fun toggle() = if (!onComputer() && fyi.nnx.needle.UsbDriver.isResting() && NeedleApp.instance.playback.value?.playing != true) {
+        // Let go while paused (Bit-perfect USB): the DAC first, then the music, bit-perfect again.
+        fyi.nnx.needle.UsbDriver.wake(NeedleApp.instance) { core.toggle() }
+    } else if (onComputer()) {
         Live.toggled(NeedleApp.instance.playback.value?.playing != true)
         pc { core.pcDo("toggle") }
     } else core.toggle()
@@ -88,7 +93,20 @@ object Controls {
             pc { core.pcVolume(value) }
         }
     }
-    fun shuffle() = if (onComputer()) pc { core.pcDo("shuffle") } else core.shuffle()
+    /**
+     * Shuffle: with Shuffle stays on (Settings › Playback, the core's), on and off as Spotify's,
+     * the song going on; otherwise what is up next, shuffled once.
+     */
+    fun shuffle() {
+        when {
+            onComputer() -> pc { core.pcDo("shuffle") }
+            NeedleApp.instance.more.value.shuffleStays -> core.setShuffle(!runCatching { core.playback().shuffle }.getOrDefault(false))
+            else -> core.shuffle()
+        }
+    }
+
+    /** Shuffle is on and stays on (only with Shuffle stays on). */
+    fun shuffleOn(): Boolean = !onComputer() && NeedleApp.instance.more.value.shuffleStays && NeedleApp.instance.playback.value?.shuffle == true
 
     fun setRepeat(mode: RepeatMode) = if (onComputer()) {
         pc {

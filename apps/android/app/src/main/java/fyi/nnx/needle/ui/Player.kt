@@ -174,8 +174,11 @@ fun MiniPlayer(onOpen: () -> Unit, docked: Boolean = false) {
     val playbackState = NeedleApp.instance.playback.collectAsState()
     val current by remember { derivedStateOf { playbackState.value?.current } }
     val playing by remember { derivedStateOf { playbackState.value?.playing == true } }
-    // The same object while the song is the same: what takes it can then skip a redraw.
-    val song = remember(current) { current } ?: return
+    // The same object while the song is the same: what takes it can then skip a redraw. The last
+    // song stays while a new list of songs has none yet (a moment), so the bar does not blink.
+    var last by remember { mutableStateOf<Song?>(null) }
+    val song = remember(current) { current } ?: last ?: return
+    androidx.compose.runtime.SideEffect { if (current != null) last = current }
     val app by NeedleApp.instance.app.collectAsState()
     CoverTheme(if (app.miniPlayerColored) song.artwork else null) { MiniPlayerBody(playing, song, onOpen, app.miniPlayerColored, app.miniPlayerLyrics, docked) }
 }
@@ -236,10 +239,16 @@ private fun MiniPlayerBody(playing: Boolean, song: Song, onOpen: () -> Unit, col
     ) {
         // The line being sung (Settings › Appearance › Lyrics in the mini player): on a wide
         // bar, in the room between the song and the buttons; on a narrow one, in one line under.
-        val lines = if (lyrics) miniLyricLines(song) else emptyList()
+        val read = if (lyrics) miniLyricLines(song) else emptyList()
+        val lines = read.orEmpty()
+        // While the next song's lyrics are read, its line keeps the room the last one had ("♪"):
+        // the dock does not shrink and grow again at each new song, nor the page under it move.
+        var hadLines by remember { mutableStateOf(false) }
+        androidx.compose.runtime.SideEffect { if (read != null) hadLines = read.isNotEmpty() }
+        val showsLine = read?.isNotEmpty() ?: hadLines
         val wide = isWide()
-        val inBar = wide && lines.isNotEmpty()
-        val under = !wide && lines.isNotEmpty()
+        val inBar = wide && showsLine
+        val under = !wide && showsLine
         val info: @Composable (Modifier) -> Unit = { modifier ->
             Row(modifier, verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                 Cover(song.artwork, Modifier.size(44.dp).sharedCover("now-${song.id}"), SmallCoverShape, seed = song.album + song.artist)
@@ -330,23 +339,24 @@ private fun MiniPlayerBody(playing: Boolean, song: Song, onOpen: () -> Unit, col
 
 /**
  * The timed lines of the mini player's song, for its line of lyrics (Settings › Appearance ›
- * Lyrics): none for a song without timed lyrics, and then nothing shows.
+ * Lyrics): none for a song without timed lyrics, and then nothing shows. Null while they are
+ * read.
  */
 @Composable
-private fun miniLyricLines(song: Song): List<fyi.nnx.needle.core.LyricLine> {
+private fun miniLyricLines(song: Song): List<fyi.nnx.needle.core.LyricLine>? {
     // Not rememberLoaded: a song without lyrics should not offer Retry over the page.
     // Read again when the library changes too (lyrics just timed or saved).
     val version by NeedleApp.instance.libraryVersion.collectAsState()
-    val lyrics by androidx.compose.runtime.produceState<fyi.nnx.needle.core.Lyrics?>(null, song.id, version) {
+    val lines by androidx.compose.runtime.produceState<List<fyi.nnx.needle.core.LyricLine>?>(null, song.id, version) {
         value = withContext(Dispatchers.IO) {
             runCatching {
                 if (song.onComputer()) {
                     core.pcLyrics(fyi.nnx.needle.core.PcSong(song.id.removePrefix(PcPrefix), song.title, song.artist, song.album, song.duration, song.format, song.artwork))
                 } else core.lyrics(song.id)
-            }.getOrNull()
+            }.getOrNull()?.lines.orEmpty()
         }
     }
-    return lyrics?.lines.orEmpty()
+    return lines
 }
 
 /**
@@ -874,7 +884,8 @@ private fun PlayerControls(
         }
     }
     Row(
-        Modifier.fillMaxWidth().padding(top = if (compact) 6.dp else 14.dp, bottom = if (compact) 8.dp else 18.dp),
+        // Close under the times, which it works with; the room is left above the bar below.
+        Modifier.fillMaxWidth().padding(top = if (compact) 2.dp else 4.dp, bottom = if (compact) 12.dp else 28.dp),
         horizontalArrangement = if (buttons.size <= 3) Arrangement.spacedBy(if (minimal) 36.dp else 14.dp, Alignment.CenterHorizontally) else Arrangement.SpaceEvenly,
         verticalAlignment = Alignment.CenterVertically,
     ) {
@@ -914,7 +925,19 @@ private fun ChosenToggle(name: String, repeat: RepeatMode, panel: Panel, onPanel
 private fun RowScope.ChosenToggleIn(name: String, repeat: RepeatMode, panel: Panel, onPanel: (Panel) -> Unit, favorite: Boolean?, toggleFavorite: () -> Unit) {
     when (name) {
         "lyrics" -> RoundToggle(panel == Panel.Lyrics, { onPanel(Panel.Lyrics) }, if (panel == Panel.Lyrics) "Showing" else "Hidden") { Icon(Icons.Rounded.Lyrics, contentDescription = "Lyrics") }
-        "shuffle" -> RoundToggle(false, { Controls.shuffle(); showMessage("Shuffled what is up next") }) { Icon(Icons.Rounded.Shuffle, contentDescription = "Shuffle what is up next") }
+        "shuffle" -> {
+            // Shuffle stays on: a toggle, lit while on; otherwise it shuffles what is up next once.
+            val stays = NeedleApp.instance.more.collectAsState().value.shuffleStays && !onComputer()
+            val playbackState = NeedleApp.instance.playback.collectAsState()
+            val on by remember { derivedStateOf { playbackState.value?.shuffle == true } }
+            if (stays) {
+                RoundToggle(on, { Controls.shuffle(); showMessage(if (on) "Shuffle is off" else "Shuffle is on") }, if (on) "On" else "Off") {
+                    Icon(Icons.Rounded.Shuffle, contentDescription = "Shuffle")
+                }
+            } else {
+                RoundToggle(false, { Controls.shuffle(); showMessage("Shuffled what is up next") }) { Icon(Icons.Rounded.Shuffle, contentDescription = "Shuffle what is up next") }
+            }
+        }
         "repeat" -> RoundToggle(repeat != RepeatMode.OFF, {
             Controls.setRepeat(
                 when (repeat) {
@@ -1091,7 +1114,7 @@ private fun PlayerToolbar(
     Row(
         Modifier
             .fillMaxWidth()
-            .padding(bottom = 12.dp)
+            .padding(bottom = FootGap)
             .clip(CircleShape)
             .background(Color.White.copy(alpha = 0.1f))
             .padding(horizontal = 6.dp, vertical = 4.dp),

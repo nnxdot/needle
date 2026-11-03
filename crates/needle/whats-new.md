@@ -1,3 +1,14 @@
+# 2.0.2 [windows, linux]
+Shuffle that stays on, tags for many albums at once, and fixes.
+- **Shuffle stays on.** Turn it on in Settings › Playback: the shuffle button then turns shuffle on and off, as in Spotify, and the song playing goes on. Turned off, up next is the list in its own order again.
+- **Look up all.** In Fix my library › Tags, look up every album with gaps at once. Needle keeps only sure matches (the album's own title, every song on the release), and you tick which to write.
+- **Forget songs that are gone.** A switch in Settings › Library: Check for changes then forgets songs whose file was deleted or broke, instead of keeping them marked missing.
+- **Hide Various Artists-only.** The Artists page can leave out artists who are only on Various Artists albums.
+- The Artists page's letter bar files Korean names under their first consonant, Japanese names under their kana row (katakana with hiragana), and Chinese characters together under 漢.
+- Round corners clip what is inside them: the page's corner, artist photos, and covers no longer poke out as squares or arches.
+- Removing songs from the queue quickly no longer plays the song that moves up under the pointer.
+- Pressing the edge of the window always resizes it, also on Windows 10 with Acrylic.
+
 # 2.0.1 [windows, linux]
 Fixes for the title bar, album pages, and scrobbles.
 - With the player in the title bar, a narrow window keeps its own buttons in view: less-used buttons step aside as the window gets smaller.
@@ -36,6 +47,15 @@ A new look, after the Mac's, and a lot more to see and hear.
 - [play] **Moving covers on the album page.** An album with a moving cover shows it moving at the top of its page too.
 - [eq] **Smart mixes.** With crossfade on, the fade starts where the music ends and lasts whole bars.
 - Plugins can translate lyrics: a Translate button then shows under them.
+
+# 2.0.2 [macos]
+Shuffle that stays on, and fixes.
+- [play] **Shuffle stays on.** Turn it on in Settings › Playback: the shuffle button then turns shuffle on and off, as in Spotify, and the song playing goes on. Turned off, up next is the list in its own order again.
+- **Clear failed.** In Settings, Clear failed forgets listens that Last.fm or ListenBrainz refused for good, which otherwise stayed there forever. Retry failed now tries at once.
+- **Hide Various Artists-only.** From the Artists page's sort menu, leave out artists who are only on Various Artists albums.
+- **Forget songs that are gone.** A switch in Settings › Library: checking your music folders then forgets songs whose file was deleted or broke, instead of keeping them marked missing.
+- The letter bar beside Artists files Korean names under their first consonant, Japanese names under their kana row, and Chinese characters together under 漢, and fits a short window.
+- Changing Repeat no longer interrupts the song.
 
 # 2.0.0 [macos]
 A new icon, and a lot more to see and hear.

@@ -1,3 +1,11 @@
+# 2.0.2
+Shuffle that stays on, and fixes.
+- [player] **Shuffle stays on.** Turn it on in Settings › Playback: the shuffle button then turns shuffle on and off, as in Spotify, and the song playing goes on. Turned off, up next is the list in its own order again.
+- **Hide Various Artists-only.** From the sort button of Artists, leave out artists who are only on Various Artists albums.
+- **Forget songs that are gone.** Turn it on in Settings › Library: songs whose file was deleted or can no longer be read leave your library when Needle reads your music again.
+- The letter bar beside Artists files Korean names under their first consonant, Japanese names under their kana row, and Chinese characters together under 漢.
+- Changing Repeat no longer interrupts the song.
+
 # 2.0.0
 A new Home and icon, and a lot more to see and hear.
 ! **A new look.** Home is the Mac's: the greeting, the song playing now with a round Play button, then your albums and artists on shelves. Needle's colour is amber, its words are the Mac's, and its icon is new: Glass groove, an amber record of glass on charcoal.

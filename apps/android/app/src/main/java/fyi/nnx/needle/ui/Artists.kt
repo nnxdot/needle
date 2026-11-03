@@ -29,6 +29,8 @@ import androidx.compose.material.icons.rounded.Restore
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.HorizontalDivider
+import androidx.compose.foundation.layout.offset
+import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -82,18 +84,28 @@ fun ArtistSortButton() {
                 trailingIcon = { if (more.albumArtistsOnly) Icon(Icons.Rounded.Check, null, tint = MaterialTheme.colorScheme.primary) },
                 onClick = { open = false; NeedleApp.instance.updateMore { it.copy(albumArtistsOnly = !it.albumArtistsOnly) } },
             )
+            // The core leaves them out (artists_by reads the choice itself), as on the computer.
+            DropdownMenuItem(
+                text = { Text("Hide Various Artists-only") },
+                trailingIcon = { if (more.hideCompilationArtists) Icon(Icons.Rounded.Check, null, tint = MaterialTheme.colorScheme.primary) },
+                onClick = { open = false; NeedleApp.instance.updateMore { it.copy(hideCompilationArtists = !it.hideCompilationArtists) } },
+            )
+            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+            val asList by LibraryView.artistsAsList.collectAsState()
+            ViewChoices(asList, { open = false }, LibraryView::setArtists)
         }
     }
 }
 
 /**
- * Every artist, in the order chosen: circles as many across as fit, and (ordered by name) an
- * A–Z bar at the right edge that jumps to a letter, tapped or slid along.
+ * Every artist, in the order chosen: circles as many across as fit, or rows (Grid or List in the
+ * sort menu). Ordered by name, an A–Z bar at the right edge jumps to a letter, tapped or slid
+ * along; in another order, a quick scroll there jumps through the list.
  */
 @Composable
 fun ArtistGrid(open: (Route) -> Unit, modifier: Modifier = Modifier, top: androidx.compose.ui.unit.Dp = 8.dp) {
     val more by NeedleApp.instance.more.collectAsState()
-    val listLoad = rememberLoaded(more.artistOrder, more.albumArtistsOnly) { artistsBy("", more.artistOrder, more.albumArtistsOnly) }
+    val listLoad = rememberLoaded(more.artistOrder, more.albumArtistsOnly, more.hideCompilationArtists) { artistsBy("", more.artistOrder, more.albumArtistsOnly) }
     val loaded by listLoad
     val list = loaded.orEmpty()
     val state = rememberLazyGridState()
@@ -105,22 +117,39 @@ fun ArtistGrid(open: (Route) -> Unit, modifier: Modifier = Modifier, top: androi
         firsts
     }
     val alphabetical = more.artistOrder == "name" && letters.size > 3
+    val asList by LibraryView.artistsAsList.collectAsState()
+    val rowsState = androidx.compose.foundation.lazy.rememberLazyListState()
     Box(modifier.fillMaxSize()) {
-        LazyVerticalGrid(
-            columns = GridCells.Adaptive(104.dp),
-            state = state,
-            contentPadding = PaddingValues(start = 16.dp, end = if (alphabetical) 36.dp else 16.dp, top = top, bottom = 32.dp + LocalBottomInset.current),
-            horizontalArrangement = Arrangement.spacedBy(12.dp),
-            verticalArrangement = Arrangement.spacedBy(LocalRows.current.grid),
-            modifier = Modifier.fillMaxSize(),
-        ) {
-            items(list.size, key = { list[it].name }) { i -> ArtistTile(list[i], Modifier, open) }
+        if (asList) {
+            androidx.compose.foundation.lazy.LazyColumn(
+                Modifier.fillMaxSize(),
+                state = rowsState,
+                contentPadding = PaddingValues(end = if (alphabetical) 28.dp else 0.dp, top = top, bottom = 32.dp + LocalBottomInset.current),
+            ) {
+                items(list.size, key = { list[it].name }) { i -> ArtistRow(list[i], Place(i, list.size), open) }
+            }
+        } else {
+            LazyVerticalGrid(
+                columns = GridCells.Adaptive(104.dp),
+                state = state,
+                contentPadding = PaddingValues(start = 16.dp, end = if (alphabetical) 36.dp else 16.dp, top = top, bottom = 32.dp + LocalBottomInset.current),
+                horizontalArrangement = Arrangement.spacedBy(12.dp),
+                verticalArrangement = Arrangement.spacedBy(LocalRows.current.grid),
+                modifier = Modifier.fillMaxSize(),
+            ) {
+                items(list.size, key = { list[it].name }) { i -> ArtistTile(list[i], Modifier, open) }
+            }
         }
         if (alphabetical) {
             AlphabetBar(
                 letters.keys.toList(),
                 Modifier.align(Alignment.CenterEnd).padding(end = 4.dp, bottom = LocalBottomInset.current),
-            ) { letter -> letters[letter]?.let { scope.launch { state.scrollToItem(it) } } }
+            ) { letter ->
+                letters[letter]?.let { scope.launch { if (asList) rowsState.scrollToItem(it) else state.scrollToItem(it) } }
+            }
+        } else {
+            val edge = Modifier.align(Alignment.TopEnd).padding(top = top, bottom = LocalBottomInset.current)
+            if (asList) QuickScroll(rowsState, list.size, edge) else QuickScroll(state, list.size, edge)
         }
     }
 }
@@ -133,17 +162,37 @@ fun ArtistGrid(open: (Route) -> Unit, modifier: Modifier = Modifier, top: androi
 private fun AlphabetBar(letters: List<String>, modifier: Modifier, onLetter: (String) -> Unit) {
     var height by remember { mutableIntStateOf(1) }
     var last by remember { mutableStateOf<String?>(null) }
+    // Where the finger is, for the bubble beside the bar (as the quick scroll's).
+    var finger by remember { androidx.compose.runtime.mutableFloatStateOf(0f) }
     fun at(y: Float) = letters[((y / height) * letters.size).toInt().coerceIn(0, letters.size - 1)]
+    androidx.compose.foundation.layout.BoxWithConstraints(modifier) {
+    // More letters than fit (A–Z with Korean consonants, kana rows, and 漢): every second or
+    // third shows, the first and last always; sliding still reaches each one.
+    val each = with(androidx.compose.ui.platform.LocalDensity.current) { MaterialTheme.typography.labelSmall.lineHeight.toDp() } + 2.dp
+    val fit = ((maxHeight - 8.dp) / each).toInt().coerceAtLeast(2)
+    val step = (letters.size + fit - 1) / fit
+    val shown = if (step <= 1) letters else letters.filterIndexed { i, _ -> i % step == 0 || i == letters.size - 1 }
+    last?.let { letter ->
+        ScrollBubble(
+            letter,
+            Modifier
+                .align(Alignment.TopEnd)
+                .offset { androidx.compose.ui.unit.IntOffset(-(36.dp.roundToPx()), (finger - 50.dp.toPx()).toInt()) }
+                .clearAndSetSemantics {},
+        )
+    }
     Column(
-        modifier
+        Modifier
             .width(28.dp)
             .clip(RoundedCornerShape(14.dp))
             .onSizeChanged { height = it.height.coerceAtLeast(1) }
             .pointerInput(letters) {
                 detectVerticalDragGestures(
-                    onDragStart = { o -> at(o.y).let { last = it; onLetter(it) } },
+                    onDragStart = { o -> finger = o.y; at(o.y).let { last = it; onLetter(it) } },
                     onDragEnd = { last = null },
+                    onDragCancel = { last = null },
                 ) { change, _ ->
+                    finger = change.position.y
                     val l = at(change.position.y)
                     if (l != last) { last = l; onLetter(l) }
                 }
@@ -151,7 +200,7 @@ private fun AlphabetBar(letters: List<String>, modifier: Modifier, onLetter: (St
             .padding(vertical = 4.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
-        letters.forEach { letter ->
+        shown.forEach { letter ->
             Text(
                 letter,
                 style = MaterialTheme.typography.labelSmall,
@@ -163,6 +212,7 @@ private fun AlphabetBar(letters: List<String>, modifier: Modifier, onLetter: (St
                     .padding(vertical = 1.dp),
             )
         }
+    }
     }
 }
 

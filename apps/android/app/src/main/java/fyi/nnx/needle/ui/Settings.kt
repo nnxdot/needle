@@ -1,6 +1,8 @@
 package fyi.nnx.needle.ui
 
 import androidx.compose.material.icons.rounded.Dns
+import androidx.compose.material.icons.rounded.DeleteSweep
+import androidx.compose.material.icons.rounded.Shuffle
 import androidx.compose.material.icons.rounded.Groups
 import androidx.compose.material.icons.rounded.Widgets
 import androidx.compose.material.icons.rounded.Alarm
@@ -508,6 +510,12 @@ private fun LibrarySettings(open: (Route) -> Unit) {
             }
             if (scan.running) LinearWavyProgressIndicator(modifier = Modifier.fillMaxWidth().padding(start = 68.dp, end = 16.dp, bottom = 14.dp))
         }
+        Divider()
+        // The core's folder scan does it (Android finds songs only through it).
+        val choices by NeedleApp.instance.more.collectAsState()
+        SwitchRow("Forget songs that are gone", "Reading forgets songs whose file is gone or broken", choices.forgetMissing, icon = Icons.Rounded.DeleteSweep) { on ->
+            NeedleApp.instance.updateMore { it.copy(forgetMissing = on) }
+        }
     }
     // Which songs make one album (needle_core::grouping): the files never change.
     val more by NeedleApp.instance.more.collectAsState()
@@ -656,6 +664,16 @@ private fun PlaybackSettingsPage() {
     Group("When you choose a song") {
         SwitchRow("Open the player", "Shown as soon as a song starts", app.openPlayerOnPlay, icon = Icons.Rounded.OpenInFull) { on ->
             NeedleApp.instance.updateApp { it.copy(openPlayerOnPlay = on) }
+        }
+        Divider()
+        // As in Spotify, the same setting as on the computer and the Mac (the core's).
+        val more by NeedleApp.instance.more.collectAsState()
+        SwitchRow("Shuffle stays on", "Shuffle turns on and off; the song goes on", more.shuffleStays, icon = Icons.Rounded.Shuffle) { on ->
+            NeedleApp.instance.updateMore { it.copy(shuffleStays = on) }
+            // Turned off while shuffle is on: back to the list's own order.
+            if (!on) NeedleApp.instance.scope.launch(Dispatchers.IO) {
+                if (runCatching { core.playback().shuffle }.getOrDefault(false)) runCatching { core.setShuffle(false) }
+            }
         }
     }
     Group("When Up next ends") {

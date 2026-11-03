@@ -117,6 +117,8 @@ pub struct MacPlayback {
     pub volume: f32,
     /// "off", "all", or "one".
     pub repeat: String,
+    /// Shuffle stays on (see `Needle::set_shuffle`).
+    pub shuffle: bool,
     pub queue: u32,
     pub queue_version: u64,
     pub loading: bool,
@@ -613,6 +615,7 @@ impl Needle {
         let choice = needle_core::artists::ArtistChoice {
             order: needle_core::artists::ArtistOrder::from_name(&settings.artist_order),
             album_artists_only: settings.album_artists_only,
+            compilations_hidden: settings.hide_compilation_artists,
         };
         to_json(&self.library.artists_by(&query, choice)?)
     }
@@ -842,6 +845,7 @@ impl Needle {
                 Repeat::One => "one",
             }
             .into(),
+            shuffle: s.shuffle,
             queue: s.queue.len() as u32,
             queue_version: s.queue_version,
             loading: s.loading,
@@ -1777,9 +1781,12 @@ impl Needle {
         *DESK.lastfm.lock().unwrap() = None;
     }
 
-    /// Sends failed listens again (`lastfm`, `listenbrainz`). Returns how many.
+    /// Sends failed listens again (`lastfm`, `listenbrainz`), now, not at the next minute: the
+    /// answer shows at once. Returns how many.
     pub fn retry_scrobbles(&self, service: String) -> Result<u32> {
-        Ok(integrations::retry_failed_scrobbles(&self.library, Some(&service))? as u32)
+        let tried = integrations::retry_failed_scrobbles(&self.library, Some(&service))?;
+        integrations::flush_scrobbles(&self.library, &integrations::Credentials::load())?;
+        Ok(tried as u32)
     }
     /// Forgets failed listens (`lastfm`, `listenbrainz`). Returns how many.
     pub fn clear_scrobbles(&self, service: String) -> Result<u32> {

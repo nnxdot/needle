@@ -1,3 +1,18 @@
+# 2.0.2
+Albums and artists as a list, a quick scroll, Shuffle that stays on, and fixes.
+! **Albums and artists as a list.** In Library, choose Grid or List from the sort button of Albums or of Artists.
+- [artists] **Quick scroll.** In long lists in Library, drag the thin bar at the right edge to jump through the list, with the letter you are at beside it.
+- [player] **Shuffle stays on.** Turn it on in Settings › Playback: the shuffle button then turns shuffle on and off, as in Spotify, and the song playing goes on.
+- [artists] **Hide Various Artists-only.** From the sort button of Artists, leave out artists who are only on Various Artists albums.
+- [album] **Forget songs that are gone.** Turn it on in Settings › Library: songs whose file was deleted or can no longer be read leave your library when Needle reads your folders.
+- [usb] **Let go while paused.** With Bit-perfect USB on, Needle can give the DAC to other apps while it is paused, and Play takes it back. On some phones, other apps hear nothing until the DAC is plugged in again.
+- [artists] **The letter bar reads more languages.** Korean under its first consonant, Japanese under its kana row, and Chinese characters under 漢.
+- Covers stay in their places on Home and elsewhere when you tap around.
+- An album page no longer jumps when you tap a song.
+- The lines between songs no longer cut across the song playing.
+- History shows its songs as every other list does, with their menu.
+- The player's Play button sits closer to the time, and the bars at the foot of the screen line up.
+
 # 2.0.1
 USB DACs that stopped after a second now play on.
 ! **USB DACs play on.** On some phones, music to a USB DAC stopped after about a second. Needle now sends the music in smaller pieces, and if a DAC still stops taking it, Needle starts it again where the song was.

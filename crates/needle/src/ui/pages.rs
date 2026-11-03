@@ -797,6 +797,20 @@ impl AppView {
                             cx,
                         ))
                     })
+                    .child(setting_row(
+                        "Shuffle stays on",
+                        "As in Spotify: the shuffle button turns shuffle on and off, and the song playing goes on.",
+                        Switch::new("shuffle-stays").checked(self.settings.shuffle_stays).on_click(cx.listener(|this, checked: &bool, _, cx| {
+                            this.settings.shuffle_stays = *checked;
+                            if !*checked && this.playback.shuffle {
+                                this.player.send(needle_core::audio::Command::SetShuffle(false));
+                                this.playback.shuffle = false;
+                            }
+                            this.configure();
+                            cx.notify();
+                        })),
+                        cx,
+                    ))
                     .child({
                         let rule = self.settings.autoplay_query.trim().to_string();
                         let shown = if rule.is_empty() { "Off".to_string() } else { rule };
@@ -872,6 +886,16 @@ impl AppView {
                                     .child(small_button("rescan", "Check for changes").ghost().disabled(self.scan.is_some()).on_click(cx.listener(|this, _, _, cx| this.rescan(cx)))),
                             ),
                     )
+                    .child(setting_row(
+                        "Forget songs that are gone",
+                        "Check for changes forgets songs whose file was deleted or can no longer be read, instead of keeping them marked missing.",
+                        Switch::new("forget-missing").checked(self.settings.forget_missing).on_click(cx.listener(|this, checked: &bool, _, cx| {
+                            this.settings.forget_missing = *checked;
+                            this.persist_settings();
+                            cx.notify();
+                        })),
+                        cx,
+                    ))
                     .child(self.section_title("Albums", "Which songs make one album. Your files never change.", cx))
                     .child(setting_row(
                         "What makes an album",

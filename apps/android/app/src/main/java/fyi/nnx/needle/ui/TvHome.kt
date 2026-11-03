@@ -167,17 +167,18 @@ private fun TvTile(album: Album, onFocus: () -> Unit, onClick: () -> Unit) {
     val reduce = reduceMotion()
     val grow by animateFloatAsState(if (focused) 1.08f else 1f, if (reduce) snap() else tween(180), label = "tv tile")
     val ring = ringColor(album.artwork)
+    val tile = rememberTileId()
     Column(
         Modifier
             .width(TileSide)
             .onFocusChanged { if (it.isFocused) onFocus() }
-            .clickable(interactionSource = interaction, indication = null, onClick = onClick),
+            .clickable(interactionSource = interaction, indication = null, onClick = { tapTile(tile); onClick() }),
     ) {
         Cover(
             album.artwork,
             Modifier
                 .size(TileSide)
-                .sharedCover("album-${album.key}")
+                .tileCover(tile, "album-${album.key}")
                 .graphicsLayer { scaleX = grow; scaleY = grow }
                 .then(if (focused) Modifier.border(3.dp, ring, CoverShape) else Modifier),
             CoverShape,

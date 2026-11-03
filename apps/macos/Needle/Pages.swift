@@ -341,6 +341,8 @@ struct ArtistsPage: View {
                             .pickerStyle(.inline)
                             Divider()
                             Toggle("Only album artists", isOn: Binding(get: { s.albumArtistsOnly }, set: { store.set(["album_artists_only": $0]) }))
+                            Toggle("Hide Various Artists-only", isOn: Binding(get: { s.hideCompilationArtists }, set: { store.set(["hide_compilation_artists": $0]) }))
+                                .help("Hide artists who are only on Various Artists albums")
                         } label: {
                             Label(Self.orderName(s.artistOrder), systemImage: "arrow.up.arrow.down")
                         }
@@ -368,7 +370,7 @@ struct ArtistsPage: View {
                 }
             }
         }
-        .task(id: "\(store.search)\(store.libraryVersion)\(s.artistOrder)\(s.albumArtistsOnly)") {
+        .task(id: "\(store.search)\(store.libraryVersion)\(s.artistOrder)\(s.albumArtistsOnly)\(s.hideCompilationArtists)") {
             try? await Task.sleep(for: .milliseconds(store.search.isEmpty ? 0 : 150))
             guard !Task.isCancelled else { return }
             let q = store.search.trimmingCharacters(in: .whitespaces)
@@ -406,19 +408,29 @@ struct LetterBar: View {
     @State private var last: String?
 
     var body: some View {
+        // Every letter fits the window's height: shorter rows when there are many (Korean,
+        // Japanese, and Chinese letters after A to Z).
+        GeometryReader { geo in
+            let row = max(6, min(15, (geo.size.height - 24) / CGFloat(max(letters.count, 1))))
+            bar(row: row).frame(maxWidth: .infinity, maxHeight: .infinity)
+        }
+        .frame(width: 18)
+    }
+
+    private func bar(row: CGFloat) -> some View {
         VStack(spacing: 0) {
             ForEach(letters, id: \.self) { letter in
                 Text(letter)
-                    .font(.system(size: 10, weight: .semibold))
+                    .font(.system(size: min(10, row * 0.75), weight: .semibold))
                     .foregroundStyle(last == letter ? store.colors.accent : store.colors.ink2)
-                    .frame(width: 18, height: 15)
+                    .frame(width: 18, height: row)
             }
         }
         .padding(.vertical, 6)
         .background(Capsule().fill(store.colors.raised.opacity(0.6)))
         .contentShape(Rectangle())
         .gesture(DragGesture(minimumDistance: 0).onChanged { value in
-            let index = Int((value.location.y - 6) / 15)
+            let index = Int((value.location.y - 6) / row)
             guard letters.indices.contains(index), letters[index] != last else { return }
             last = letters[index]
             go(letters[index])

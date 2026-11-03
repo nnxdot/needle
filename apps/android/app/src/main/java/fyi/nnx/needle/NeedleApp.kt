@@ -122,8 +122,11 @@ class NeedleApp : Application() {
         _more.value = next
         scope.launch(saves) {
             runCatching { core.setLibraryChoices(next) }
-            // A new rule for albums moves songs between albums: the lists are read again.
-            if (next.albumGrouping != before.albumGrouping || next.compilationsVarious != before.compilationsVarious) libraryChanged()
+            // A new rule for albums moves songs between albums, and the artists the core leaves
+            // out change: the lists are read again, once the choice is saved.
+            if (next.albumGrouping != before.albumGrouping || next.compilationsVarious != before.compilationsVarious ||
+                next.hideCompilationArtists != before.hideCompilationArtists
+            ) libraryChanged()
         }
     }
 

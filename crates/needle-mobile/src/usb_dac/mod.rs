@@ -80,6 +80,14 @@ pub(crate) fn last_report() -> String {
     lines.join("\n")
 }
 
+/// The way of cutting the music that played (the driver's `shape`), with the descriptors of the
+/// DAC it played on: the same DAC opened again (Needle lets it go while paused) starts with it,
+/// rather than finding it again.
+static KEPT_SHAPE: Mutex<Option<(Vec<u8>, usize)>> = Mutex::new(None);
+
+/// The descriptors of the DAC the driver in use has, for [`KEPT_SHAPE`].
+static OPEN_DESCRIPTORS: Mutex<Vec<u8>> = Mutex::new(Vec::new());
+
 /// The phone's music volume, 0 to 1 (f32 bits), for the next driver too. 1.0 at the start.
 static PHONE_VOLUME: AtomicU32 = AtomicU32::new(0x3F80_0000);
 
@@ -192,6 +200,16 @@ impl Needle {
                 &android_rates,
             )?);
             let info = dac.info();
+            if let Some((kept, shape)) = KEPT_SHAPE
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .as_ref()
+                && *kept == descriptors
+            {
+                dac.shape
+                    .store(*shape, std::sync::atomic::Ordering::Relaxed);
+            }
+            *OPEN_DESCRIPTORS.lock().unwrap_or_else(|e| e.into_inner()) = descriptors;
             use_driver(dac);
             Ok(info)
         }
@@ -221,6 +239,12 @@ impl Needle {
     /// Android only then. The kernel gives an interface to a driver that touches it, so a last
     /// request after Android's own driver came back would take the interface from under it.
     pub fn usb_dac_close(&self) {
+        if let Some(dac) = driver() {
+            let descriptors =
+                std::mem::take(&mut *OPEN_DESCRIPTORS.lock().unwrap_or_else(|e| e.into_inner()));
+            let shape = dac.shape.load(std::sync::atomic::Ordering::Relaxed);
+            *KEPT_SHAPE.lock().unwrap_or_else(|e| e.into_inner()) = Some((descriptors, shape));
+        }
         let running = std::mem::take(&mut *DRIVER.lock().unwrap_or_else(|e| e.into_inner()));
         needle_core::platform_output::set_platform_output(None);
         let until = Instant::now() + Duration::from_secs(2);

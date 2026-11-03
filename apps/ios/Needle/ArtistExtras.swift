@@ -262,13 +262,14 @@ struct ArtistsView: View {
                         Text("Newest").tag("recently_added")
                     }
                     Toggle("Only album artists", isOn: Binding(get: { store.choices.albumArtistsOnly }, set: { on in store.updateChoices { $0.albumArtistsOnly = on } }))
+                    Toggle("Hide Various Artists-only", isOn: Binding(get: { store.choices.hideCompilationArtists }, set: { on in store.updateChoices { $0.hideCompilationArtists = on } }))
                 } label: {
                     Image(systemName: "arrow.up.arrow.down")
                 }
                 .accessibilityLabel("Sort artists")
             }
         }
-        .task(id: "\(store.libraryVersion)|\(store.choices.artistOrder)|\(store.choices.albumArtistsOnly)") {
+        .task(id: "\(store.libraryVersion)|\(store.choices.artistOrder)|\(store.choices.albumArtistsOnly)|\(store.choices.hideCompilationArtists)") {
             let (order, albumArtists) = (store.choices.artistOrder, store.choices.albumArtistsOnly)
             artists = await store.load { try $0.artistsBy(query: "", order: order, albumArtistsOnly: albumArtists) } ?? []
         }
