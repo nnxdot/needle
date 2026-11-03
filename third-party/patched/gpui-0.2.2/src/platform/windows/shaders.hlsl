@@ -302,6 +302,15 @@ float quad_sdf(float2 pt, Bounds bounds, Corners corner_radii) {
     return quad_sdf_impl(corner_center_to_point, corner_radius);
 }
 
+// Needle: how much of a pixel a content mask with round corners lets through.
+float content_mask_alpha(float2 pt, Bounds mask, Corners radii) {
+    if (radii.top_left == 0.0 && radii.top_right == 0.0 &&
+        radii.bottom_right == 0.0 && radii.bottom_left == 0.0) {
+        return 1.0;
+    }
+    return saturate(0.5 - quad_sdf(pt, mask, radii));
+}
+
 GradientColor prepare_gradient_color(uint tag, uint color_space, Hsla solid, LinearColorStop colors[2]) {
     GradientColor output;
     if (tag == 0 || tag == 2) {
@@ -464,6 +473,7 @@ struct Quad {
     uint border_style;
     Bounds bounds;
     Bounds content_mask;
+    Corners content_mask_radii;
     Background background;
     Hsla border_color;
     Corners corner_radii;
@@ -516,7 +526,7 @@ QuadVertexOutput quad_vertex(uint vertex_id: SV_VertexID, uint quad_id: SV_Insta
     return output;
 }
 
-float4 quad_fragment(QuadFragmentInput input): SV_Target {
+float4 quad_fragment_unmasked(QuadFragmentInput input) {
     Quad quad = quads[input.quad_id];
     float4 background_color = gradient_color(quad.background, input.position.xy, quad.bounds,
     input.background_solid, input.background_color0, input.background_color1);
@@ -819,6 +829,7 @@ struct Shadow {
     Bounds bounds;
     Corners corner_radii;
     Bounds content_mask;
+    Corners content_mask_radii;
     Hsla color;
 };
 
@@ -859,7 +870,7 @@ ShadowVertexOutput shadow_vertex(uint vertex_id: SV_VertexID, uint shadow_id: SV
     return output;
 }
 
-float4 shadow_fragment(ShadowFragmentInput input): SV_TARGET {
+float4 shadow_fragment_unmasked(ShadowFragmentInput input) {
     Shadow shadow = shadows[input.shadow_id];
 
     float2 half_size = shadow.bounds.size / 2.;
@@ -1001,6 +1012,7 @@ struct Underline {
     uint pad;
     Bounds bounds;
     Bounds content_mask;
+    Corners content_mask_radii;
     Hsla color;
     float thickness;
     uint wavy;
@@ -1037,7 +1049,7 @@ UnderlineVertexOutput underline_vertex(uint vertex_id: SV_VertexID, uint underli
     return output;
 }
 
-float4 underline_fragment(UnderlineFragmentInput input): SV_Target {
+float4 underline_fragment_unmasked(UnderlineFragmentInput input) {
     const float WAVE_FREQUENCY = 2.0;
     const float WAVE_HEIGHT_RATIO = 0.8;
 
@@ -1075,6 +1087,7 @@ struct MonochromeSprite {
     uint pad;
     Bounds bounds;
     Bounds content_mask;
+    Corners content_mask_radii;
     Hsla color;
     AtlasTile tile;
     TransformationMatrix transformation;
@@ -1084,6 +1097,7 @@ struct MonochromeSpriteVertexOutput {
     float4 position: SV_Position;
     float2 tile_position: POSITION;
     nointerpolation float4 color: COLOR;
+    nointerpolation uint sprite_id: TEXCOORD1;
     float4 clip_distance: SV_ClipDistance;
 };
 
@@ -1091,6 +1105,7 @@ struct MonochromeSpriteFragmentInput {
     float4 position: SV_Position;
     float2 tile_position: POSITION;
     nointerpolation float4 color: COLOR;
+    nointerpolation uint sprite_id: TEXCOORD1;
     float4 clip_distance: SV_ClipDistance;
 };
 
@@ -1109,11 +1124,12 @@ MonochromeSpriteVertexOutput monochrome_sprite_vertex(uint vertex_id: SV_VertexI
     output.position = device_position;
     output.tile_position = tile_position;
     output.color = color;
+    output.sprite_id = sprite_id;
     output.clip_distance = clip_distance;
     return output;
 }
 
-float4 monochrome_sprite_fragment(MonochromeSpriteFragmentInput input): SV_Target {
+float4 monochrome_sprite_fragment_unmasked(MonochromeSpriteFragmentInput input) {
     float sample = t_sprite.Sample(s_sprite, input.tile_position).r;
     float alpha_corrected = apply_contrast_and_gamma_correction(sample, input.color.rgb, grayscale_enhanced_contrast, gamma_ratios);
     return float4(input.color.rgb, input.color.a * alpha_corrected);
@@ -1132,6 +1148,7 @@ struct PolychromeSprite {
     float opacity;
     Bounds bounds;
     Bounds content_mask;
+    Corners content_mask_radii;
     Corners corner_radii;
     AtlasTile tile;
 };
@@ -1167,7 +1184,7 @@ PolychromeSpriteVertexOutput polychrome_sprite_vertex(uint vertex_id: SV_VertexI
     return output;
 }
 
-float4 polychrome_sprite_fragment(PolychromeSpriteFragmentInput input): SV_Target {
+float4 polychrome_sprite_fragment_unmasked(PolychromeSpriteFragmentInput input) {
     PolychromeSprite sprite = poly_sprites[input.sprite_id];
     float4 sample = t_sprite.Sample(s_sprite, input.tile_position);
     float distance = quad_sdf(input.position.xy, sprite.bounds, sprite.corner_radii);
@@ -1178,5 +1195,46 @@ float4 polychrome_sprite_fragment(PolychromeSpriteFragmentInput input): SV_Targe
         color = float4(grayscale, sample.a);
     }
     color.a *= sprite.opacity * saturate(0.5 - distance);
+    return color;
+}
+
+/*
+**
+**              Needle: content masks with round corners
+**
+*/
+
+float4 quad_fragment(QuadFragmentInput input): SV_Target {
+    Quad quad = quads[input.quad_id];
+    float4 color = quad_fragment_unmasked(input);
+    color.a *= content_mask_alpha(input.position.xy, quad.content_mask, quad.content_mask_radii);
+    return color;
+}
+
+float4 shadow_fragment(ShadowFragmentInput input): SV_Target {
+    Shadow shadow = shadows[input.shadow_id];
+    float4 color = shadow_fragment_unmasked(input);
+    color.a *= content_mask_alpha(input.position.xy, shadow.content_mask, shadow.content_mask_radii);
+    return color;
+}
+
+float4 underline_fragment(UnderlineFragmentInput input): SV_Target {
+    Underline underline = underlines[input.underline_id];
+    float4 color = underline_fragment_unmasked(input);
+    color.a *= content_mask_alpha(input.position.xy, underline.content_mask, underline.content_mask_radii);
+    return color;
+}
+
+float4 monochrome_sprite_fragment(MonochromeSpriteFragmentInput input): SV_Target {
+    MonochromeSprite sprite = mono_sprites[input.sprite_id];
+    float4 color = monochrome_sprite_fragment_unmasked(input);
+    color.a *= content_mask_alpha(input.position.xy, sprite.content_mask, sprite.content_mask_radii);
+    return color;
+}
+
+float4 polychrome_sprite_fragment(PolychromeSpriteFragmentInput input): SV_Target {
+    PolychromeSprite sprite = poly_sprites[input.sprite_id];
+    float4 color = polychrome_sprite_fragment_unmasked(input);
+    color.a *= content_mask_alpha(input.position.xy, sprite.content_mask, sprite.content_mask_radii);
     return color;
 }

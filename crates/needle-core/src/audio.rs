@@ -2312,6 +2312,12 @@ impl Worker {
                 if self.queue.repeat == Repeat::One {
                     self.queue.repeat_tail = tail;
                     self.queue.touch();
+                } else if self.sink.is_none() {
+                    // Nothing on the output yet (a song waiting from last time, paused): only
+                    // the queue changes; the song and its place stay.
+                    self.queue.staged.clear();
+                    self.queue.pending = tail.into();
+                    self.queue.touch();
                 } else {
                     self.replace_tail(tail)?;
                 }
@@ -3861,6 +3867,38 @@ mod tests {
         assert_eq!(ids(&worker.queue.active), ["a"]);
         assert_eq!(ids(&worker.queue.pending), ["b", "c"]);
         assert!((worker.resume_position - 30.0).abs() < 0.5);
+    }
+
+    /// A song waiting from last time, paused, stays when shuffle goes on and off.
+    #[test]
+    fn shuffle_off_keeps_the_waiting_song() {
+        let mut rig = rig(FakeOpener::with(&[], Some("Speakers")), Settings::default());
+        let names: Vec<String> = (0..12).map(|n| format!("s{n:02}")).collect();
+        let list = rig.items(&names.iter().map(String::as_str).collect::<Vec<_>>());
+        for item in &list {
+            let track = Track {
+                path: item.track.id.clone(),
+                ..item.track.clone()
+            };
+            rig.worker.library.upsert(&track).unwrap();
+        }
+        rig.run(Command::Play(list));
+        rig.until_active("s00");
+        rig.run(Command::Toggle);
+        rig.run(Command::Seek(30.0));
+        rig.run(Command::Shutdown);
+        let mut worker = Worker::new(
+            rig.worker.library.clone(),
+            Arc::new(Mutex::new(PlaybackState::default())),
+            Settings::default(),
+            Box::new(FakeOpener::default()),
+        );
+        worker.handle(Command::SetShuffle(true)).unwrap();
+        worker.handle(Command::SetShuffle(false)).unwrap();
+        assert_eq!(ids(&worker.queue.active), ["s00"]);
+        assert_eq!(ids(&worker.queue.pending), names[1..].to_vec());
+        assert!((worker.resume_position - 30.0).abs() < 0.5);
+        assert!(!worker.playing);
     }
 
     /// A session waiting from last time keeps its song and place when the equalizer or the

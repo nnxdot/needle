@@ -692,7 +692,10 @@ impl AppView {
                                                 )
                                                 .xsmall()
                                                 .disabled(index == 0)
-                                                .on_click(cx.listener(move |this, _, _, _| {
+                                                // Its own click only: quick presses must not
+                                                // count as a double click on the row (which plays).
+                                                .on_click(cx.listener(move |this, _, _, cx| {
+                                                    cx.stop_propagation();
                                                     this.player.send(Command::Move(
                                                         index,
                                                         index.saturating_sub(1),
@@ -706,7 +709,10 @@ impl AppView {
                                                     "Remove",
                                                 )
                                                 .xsmall()
-                                                .on_click(cx.listener(move |this, _, _, _| {
+                                                // Its own click only: removing songs quickly
+                                                // must not play the one that moves up under it.
+                                                .on_click(cx.listener(move |this, _, _, cx| {
+                                                    cx.stop_propagation();
                                                     this.player.send(Command::Remove(index))
                                                 })),
                                             ),
