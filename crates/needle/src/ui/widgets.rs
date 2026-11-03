@@ -419,3 +419,15 @@ pub fn content_size(window: &Window) -> Size<Pixels> {
         size.height - edges.top - edges.bottom,
     )
 }
+
+/// A row that scrolls sideways only: the mouse wheel's up and down go on to the page around
+/// it, instead of turning into sideways scrolling (Shift with the wheel, and a touchpad, still
+/// move it sideways).
+pub trait SidewaysOnly: Styled + Sized {
+    fn sideways_only(mut self) -> Self {
+        self.style().restrict_scroll_to_axis = Some(true);
+        self
+    }
+}
+
+impl<T: Styled> SidewaysOnly for T {}

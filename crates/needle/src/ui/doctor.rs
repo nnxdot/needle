@@ -1,4 +1,5 @@
 //! "Fix my library": duplicates, missing covers, album tags from MusicBrainz, and tidy files.
+use super::widgets::SidewaysOnly as _;
 use super::{
     AppView, Event, pal,
     widgets::{cover, display, faint, glyph, meta, quality, segmented, small_button, track_seed},
@@ -1277,7 +1278,7 @@ impl AppView {
             .child(head)
             .child(faint("Pick the release that is your copy", cx))
             // As wide as its choices, so it can scroll.
-            .child(div().id("releases").flex().overflow_x_scroll().child(div().flex_none().flex().gap_3().children(choices)))
+            .child(div().id("releases").flex().overflow_x_scroll().sideways_only().child(div().flex_none().flex().gap_3().children(choices)))
             .child(
                 div()
                     .flex()

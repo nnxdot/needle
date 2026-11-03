@@ -1,5 +1,6 @@
 //! Browse by folder on disk: the music folders, then each folder's subfolders above the songs
 //! directly in it.
+use super::widgets::SidewaysOnly as _;
 use super::{
     AppView, Event, Page, pal,
     widgets::{cover, display, faint, glyph, meta},
@@ -213,6 +214,7 @@ impl AppView {
                 .flex_shrink_0()
                 .flex()
                 .overflow_x_scroll()
+                .sideways_only()
                 .pb_4()
                 // As wide as its tiles (wider than the window), so it can scroll.
                 .child(div().flex_none().px_6().flex().gap_4().children(tiles)),

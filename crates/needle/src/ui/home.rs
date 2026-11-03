@@ -1,4 +1,5 @@
 //! Home: a greeting, what you were listening to, and shelves of covers.
+use super::widgets::SidewaysOnly as _;
 use super::{
     AppView, Event, Page, album_page,
     library::{Group, album_groups, artist_groups},
@@ -258,6 +259,7 @@ impl AppView {
                 div()
                     .id(("shelf", i))
                     .overflow_x_scroll()
+                    .sideways_only()
                     .child(div().px_8().flex().gap(px(20.)).children(tiles)),
             );
         };
@@ -316,6 +318,7 @@ impl AppView {
                     .id(("shelf", i))
                     .flex()
                     .overflow_x_scroll()
+                    .sideways_only()
                     .track_scroll(&scroll)
                     .child(div().flex_none().px_8().flex().gap(px(20.)).children(tiles)),
             )
