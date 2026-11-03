@@ -366,6 +366,23 @@ fn blend_color(color: vec4<f32>, alpha_factor: f32) -> vec4<f32> {
     return vec4<f32>(color.rgb * multiplier, alpha);
 }
 
+// Needle: how much of a pixel a content mask with round corners lets through.
+fn content_mask_alpha(point: vec2<f32>, mask: Bounds, radii: Corners) -> f32 {
+    if (radii.top_left == 0.0 && radii.top_right == 0.0 &&
+        radii.bottom_right == 0.0 && radii.bottom_left == 0.0) {
+        return 1.0;
+    }
+    return saturate(0.5 - quad_sdf(point, mask, radii));
+}
+
+// Needle: a finished colour faded by a content mask's round corner.
+fn masked(color: vec4<f32>, factor: f32) -> vec4<f32> {
+    if (globals.premultiplied_alpha != 0u) {
+        return color * factor;
+    }
+    return vec4<f32>(color.rgb, color.a * factor);
+}
+
 
 struct GradientColor {
     solid: vec4<f32>,
@@ -480,6 +497,7 @@ struct Quad {
     border_style: u32,
     bounds: Bounds,
     content_mask: Bounds,
+    content_mask_radii: Corners,
     background: Background,
     border_color: Hsla,
     corner_radii: Corners,
@@ -521,8 +539,7 @@ fn vs_quad(@builtin(vertex_index) vertex_id: u32, @builtin(instance_index) insta
     return out;
 }
 
-@fragment
-fn fs_quad(input: QuadVarying) -> @location(0) vec4<f32> {
+fn fs_quad_unmasked(input: QuadVarying) -> vec4<f32> {
     // Alpha clip first, since we don't have `clip_distance`.
     if (any(input.clip_distances < vec4<f32>(0.0))) {
         return vec4<f32>(0.0);
@@ -913,6 +930,7 @@ struct Shadow {
     bounds: Bounds,
     corner_radii: Corners,
     content_mask: Bounds,
+    content_mask_radii: Corners,
     color: Hsla,
 }
 var<storage, read> b_shadows: array<Shadow>;
@@ -944,8 +962,7 @@ fn vs_shadow(@builtin(vertex_index) vertex_id: u32, @builtin(instance_index) ins
     return out;
 }
 
-@fragment
-fn fs_shadow(input: ShadowVarying) -> @location(0) vec4<f32> {
+fn fs_shadow_unmasked(input: ShadowVarying) -> vec4<f32> {
     // Alpha clip first, since we don't have `clip_distance`.
     if (any(input.clip_distances < vec4<f32>(0.0))) {
         return vec4<f32>(0.0);
@@ -1084,6 +1101,7 @@ struct Underline {
     pad: u32,
     bounds: Bounds,
     content_mask: Bounds,
+    content_mask_radii: Corners,
     color: Hsla,
     thickness: f32,
     wavy: u32,
@@ -1111,8 +1129,7 @@ fn vs_underline(@builtin(vertex_index) vertex_id: u32, @builtin(instance_index) 
     return out;
 }
 
-@fragment
-fn fs_underline(input: UnderlineVarying) -> @location(0) vec4<f32> {
+fn fs_underline_unmasked(input: UnderlineVarying) -> vec4<f32> {
     const WAVE_FREQUENCY: f32 = 2.0;
     const WAVE_HEIGHT_RATIO: f32 = 0.8;
 
@@ -1150,6 +1167,7 @@ struct MonochromeSprite {
     pad: u32,
     bounds: Bounds,
     content_mask: Bounds,
+    content_mask_radii: Corners,
     color: Hsla,
     tile: AtlasTile,
     transformation: TransformationMatrix,
@@ -1160,6 +1178,7 @@ struct MonoSpriteVarying {
     @builtin(position) position: vec4<f32>,
     @location(0) tile_position: vec2<f32>,
     @location(1) @interpolate(flat) color: vec4<f32>,
+    @location(2) @interpolate(flat) sprite_id: u32,
     @location(3) clip_distances: vec4<f32>,
 }
 
@@ -1173,12 +1192,12 @@ fn vs_mono_sprite(@builtin(vertex_index) vertex_id: u32, @builtin(instance_index
 
     out.tile_position = to_tile_position(unit_vertex, sprite.tile);
     out.color = hsla_to_rgba(sprite.color);
+    out.sprite_id = instance_id;
     out.clip_distances = distance_from_clip_rect_transformed(unit_vertex, sprite.bounds, sprite.content_mask, sprite.transformation);
     return out;
 }
 
-@fragment
-fn fs_mono_sprite(input: MonoSpriteVarying) -> @location(0) vec4<f32> {
+fn fs_mono_sprite_unmasked(input: MonoSpriteVarying) -> vec4<f32> {
     let sample = textureSample(t_sprite, s_sprite, input.tile_position).r;
     let alpha_corrected = apply_contrast_and_gamma_correction(sample, input.color.rgb, grayscale_enhanced_contrast, gamma_ratios);
 
@@ -1200,6 +1219,7 @@ struct PolychromeSprite {
     opacity: f32,
     bounds: Bounds,
     content_mask: Bounds,
+    content_mask_radii: Corners,
     corner_radii: Corners,
     tile: AtlasTile,
 }
@@ -1225,8 +1245,7 @@ fn vs_poly_sprite(@builtin(vertex_index) vertex_id: u32, @builtin(instance_index
     return out;
 }
 
-@fragment
-fn fs_poly_sprite(input: PolySpriteVarying) -> @location(0) vec4<f32> {
+fn fs_poly_sprite_unmasked(input: PolySpriteVarying) -> vec4<f32> {
     let sample = textureSample(t_sprite, s_sprite, input.tile_position);
     // Alpha clip after using the derivatives.
     if (any(input.clip_distances < vec4<f32>(0.0))) {
@@ -1293,4 +1312,41 @@ fn fs_surface(input: SurfaceVarying) -> @location(0) vec4<f32> {
         1.0);
 
     return ycbcr_to_RGB * y_cb_cr;
+}
+
+// --- Needle: content masks with round corners --- //
+
+@fragment
+fn fs_quad(input: QuadVarying) -> @location(0) vec4<f32> {
+    let primitive = b_quads[input.quad_id];
+    let factor = content_mask_alpha(input.position.xy, primitive.content_mask, primitive.content_mask_radii);
+    return masked(fs_quad_unmasked(input), factor);
+}
+
+@fragment
+fn fs_shadow(input: ShadowVarying) -> @location(0) vec4<f32> {
+    let primitive = b_shadows[input.shadow_id];
+    let factor = content_mask_alpha(input.position.xy, primitive.content_mask, primitive.content_mask_radii);
+    return masked(fs_shadow_unmasked(input), factor);
+}
+
+@fragment
+fn fs_underline(input: UnderlineVarying) -> @location(0) vec4<f32> {
+    let primitive = b_underlines[input.underline_id];
+    let factor = content_mask_alpha(input.position.xy, primitive.content_mask, primitive.content_mask_radii);
+    return masked(fs_underline_unmasked(input), factor);
+}
+
+@fragment
+fn fs_mono_sprite(input: MonoSpriteVarying) -> @location(0) vec4<f32> {
+    let primitive = b_mono_sprites[input.sprite_id];
+    let factor = content_mask_alpha(input.position.xy, primitive.content_mask, primitive.content_mask_radii);
+    return masked(fs_mono_sprite_unmasked(input), factor);
+}
+
+@fragment
+fn fs_poly_sprite(input: PolySpriteVarying) -> @location(0) vec4<f32> {
+    let primitive = b_poly_sprites[input.sprite_id];
+    let factor = content_mask_alpha(input.position.xy, primitive.content_mask, primitive.content_mask_radii);
+    return masked(fs_poly_sprite_unmasked(input), factor);
 }

@@ -1,7 +1,7 @@
 use crate::{
     AnyElement, AnyImageCache, App, Asset, AssetLogger, Bounds, DefiniteLength, Element, ElementId,
     Entity, GlobalElementId, Hitbox, Image, ImageCache, InspectorElementId, InteractiveElement,
-    Interactivity, IntoElement, LayoutId, Length, ObjectFit, Pixels, RenderImage, Resource,
+    Corners, Interactivity, IntoElement, LayoutId, Length, ObjectFit, Pixels, RenderImage, Resource,
     SMOOTH_SVG_SCALE_FACTOR, SharedString, SharedUri, StyleRefinement, Styled, SvgSize, Task,
     Window, px, swap_rgba_pa_to_bgra,
 };
@@ -468,19 +468,47 @@ impl Element for Img {
                         .style
                         .object_fit
                         .get_bounds(bounds, data.size(layout_state.frame_index));
-                    let corner_radii = style
-                        .corner_radii
-                        .to_pixels(window.rem_size())
-                        .clamp_radii_for_quad_size(new_bounds.size);
-                    window
-                        .paint_image(
-                            new_bounds,
-                            corner_radii,
-                            data,
-                            layout_state.frame_index,
-                            self.style.grayscale,
-                        )
-                        .log_err();
+                    let radii = style.corner_radii.to_pixels(window.rem_size());
+                    let rounded = [
+                        radii.top_left,
+                        radii.top_right,
+                        radii.bottom_right,
+                        radii.bottom_left,
+                    ]
+                    .iter()
+                    .any(|r| *r > Pixels::ZERO);
+                    let overflows = new_bounds.size.width > bounds.size.width + px(0.5)
+                        || new_bounds.size.height > bounds.size.height + px(0.5);
+                    if rounded && overflows {
+                        // Needle: a picture that covers its box (and so runs past it) is
+                        // rounded at the box's corners, not at its own, which lie outside.
+                        let mask = crate::ContentMask {
+                            bounds,
+                            corner_radii: radii.clamp_radii_for_quad_size(bounds.size),
+                        };
+                        window.with_content_mask(Some(mask), |window| {
+                            window
+                                .paint_image(
+                                    new_bounds,
+                                    Corners::default(),
+                                    data,
+                                    layout_state.frame_index,
+                                    self.style.grayscale,
+                                )
+                                .log_err();
+                        });
+                    } else {
+                        let corner_radii = radii.clamp_radii_for_quad_size(new_bounds.size);
+                        window
+                            .paint_image(
+                                new_bounds,
+                                corner_radii,
+                                data,
+                                layout_state.frame_index,
+                                self.style.grayscale,
+                            )
+                            .log_err();
+                    }
                 } else if let Some(replacement) = &mut layout_state.replacement {
                     replacement.paint(window, cx);
                 }
