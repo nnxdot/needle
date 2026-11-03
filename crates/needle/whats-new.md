@@ -5,6 +5,8 @@ Shuffle that stays on, tags for many albums at once, and fixes.
 - **Forget songs that are gone.** A switch in Settings › Library: Check for changes then forgets songs whose file was deleted or broke, instead of keeping them marked missing.
 - **Hide Various Artists-only.** The Artists page can leave out artists who are only on Various Artists albums.
 - The Artists page's letter bar files Korean names under their first consonant, Japanese names under their kana row (katakana with hiragana), and Chinese characters together under 漢.
+- Round corners clip what is inside them: the page's corner, artist photos, and covers no longer poke out as squares or arches.
+- Removing songs from the queue quickly no longer plays the song that moves up under the pointer.
 - Pressing the edge of the window always resizes it, also on Windows 10 with Acrylic.
 
 # 2.0.1 [windows, linux]
