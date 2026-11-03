@@ -1,4 +1,4 @@
-# Unreleased
+# 2.0.2
 Albums and artists as a list, a quick scroll, Shuffle that stays on, and fixes.
 ! **Albums and artists as a list.** In Library, choose Grid or List from the sort button of Albums or of Artists.
 - [artists] **Quick scroll.** In long lists in Library, drag the thin bar at the right edge to jump through the list, with the letter you are at beside it.

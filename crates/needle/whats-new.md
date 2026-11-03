@@ -48,6 +48,15 @@ A new look, after the Mac's, and a lot more to see and hear.
 - [eq] **Smart mixes.** With crossfade on, the fade starts where the music ends and lasts whole bars.
 - Plugins can translate lyrics: a Translate button then shows under them.
 
+# 2.0.2 [macos]
+Shuffle that stays on, and fixes.
+- [play] **Shuffle stays on.** Turn it on in Settings › Playback: the shuffle button then turns shuffle on and off, as in Spotify, and the song playing goes on. Turned off, up next is the list in its own order again.
+- **Clear failed.** In Settings, Clear failed forgets listens that Last.fm or ListenBrainz refused for good, which otherwise stayed there forever. Retry failed now tries at once.
+- **Hide Various Artists-only.** From the Artists page's sort menu, leave out artists who are only on Various Artists albums.
+- **Forget songs that are gone.** A switch in Settings › Library: checking your music folders then forgets songs whose file was deleted or broke, instead of keeping them marked missing.
+- The letter bar beside Artists files Korean names under their first consonant, Japanese names under their kana row, and Chinese characters together under 漢, and fits a short window.
+- Changing Repeat no longer interrupts the song.
+
 # 2.0.0 [macos]
 A new icon, and a lot more to see and hear.
 ! **A new icon, and one look everywhere.** Needle's icon is now Glass groove: an amber record of glass with its arm, on charcoal. Needle on Windows, Linux, Android, and the iPhone now looks like Needle on the Mac.
