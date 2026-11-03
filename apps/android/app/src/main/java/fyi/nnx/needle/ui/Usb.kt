@@ -21,6 +21,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.material.icons.rounded.PauseCircle
 import androidx.compose.runtime.collectAsState
 import kotlinx.coroutines.launch
 import androidx.compose.runtime.mutableStateOf
@@ -305,6 +306,7 @@ fun UsbBitPerfect() {
             // The driver's words say it when it converts; the volume's are added here.
             d.info.name + ": " + now + (if (exact || "not bit-perfect" in now) "" else ", not bit-perfect below 100%")
         }
+        is fyi.nnx.needle.UsbDriver.State.Resting -> "${d.info.name}: let go while paused"
         is fyi.nnx.needle.UsbDriver.State.Fallback if replug != null -> "Unplug $replug and plug it in again to use Android's sound"
         is fyi.nnx.needle.UsbDriver.State.Asking -> "Allow Needle to use ${d.name}"
         is fyi.nnx.needle.UsbDriver.State.Fallback -> if (app.usbBitPerfect && offer != null) "${d.name}: Android's bit-perfect mixer, $offerText" else "${d.name} plays through Android"
@@ -344,6 +346,17 @@ fun UsbBitPerfect() {
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.padding(start = 68.dp, end = 16.dp, bottom = 14.dp),
             )
+        }
+        // A dependent row (SETTINGS-STYLE.md): only while Bit-perfect USB is on.
+        if (app.usbBitPerfect) {
+            val letGo by fyi.nnx.needle.UsbDriver.letGo.collectAsState()
+            Divider()
+            SwitchRow(
+                "Let go while paused",
+                "Other apps can play through the DAC; Play takes it back",
+                letGo,
+                icon = androidx.compose.material.icons.Icons.Rounded.PauseCircle,
+            ) { on -> fyi.nnx.needle.UsbDriver.setLetGo(context, on) }
         }
         val plugged by fyi.nnx.needle.UsbDriver.plugged.collectAsState()
         plugged?.let { name ->

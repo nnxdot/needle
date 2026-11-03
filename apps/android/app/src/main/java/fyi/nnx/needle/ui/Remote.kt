@@ -69,7 +69,10 @@ object Controls {
         }
     }
 
-    fun toggle() = if (onComputer()) {
+    fun toggle() = if (!onComputer() && fyi.nnx.needle.UsbDriver.isResting() && NeedleApp.instance.playback.value?.playing != true) {
+        // Let go while paused (Bit-perfect USB): the DAC first, then the music, bit-perfect again.
+        fyi.nnx.needle.UsbDriver.wake(NeedleApp.instance) { core.toggle() }
+    } else if (onComputer()) {
         Live.toggled(NeedleApp.instance.playback.value?.playing != true)
         pc { core.pcDo("toggle") }
     } else core.toggle()
