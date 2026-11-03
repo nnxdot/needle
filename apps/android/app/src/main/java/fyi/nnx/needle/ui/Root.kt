@@ -363,7 +363,7 @@ fun NeedleRoot() {
                             .onSizeChanged { barHeight = it.height }
                             .navigationBarsPadding()
                             .padding(horizontal = if (wide) 20.dp else 10.dp)
-                            .padding(bottom = 10.dp),
+                            .padding(bottom = FootGap),
                     ) {
                         if (!typing) SelectionBar()
                         if (!typing) {

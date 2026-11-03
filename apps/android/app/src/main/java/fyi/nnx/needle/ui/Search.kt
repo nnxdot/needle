@@ -92,7 +92,7 @@ internal fun LazyGridScope.searchResults(
                 edgeToEdge(16.dp, key = "songs-title") { ShelfTitle("Songs", null) { onKind(SearchKind.Songs) } }
                 val five = found.songs.take(5)
                 items(five.size, key = { "song-" + five[it].id }, span = { GridItemSpan(maxLineSpan) }) { i ->
-                    SongRow(five[i], playing == five[i].id, open, Modifier.bleed(16.dp), place = Place(i, five.size)) { playSongs(five.map { it.id }, i) }
+                    SongRow(five[i], playing == five[i].id, open, Modifier.bleed(16.dp), place = five.place(i)) { playSongs(five.map { it.id }, i) }
                 }
             }
             if (found.albums.isNotEmpty()) {
@@ -124,7 +124,7 @@ internal fun LazyGridScope.searchResults(
         SearchKind.Songs -> {
             if (songs.isEmpty()) edgeToEdge(16.dp, key = "nothing") { NothingMatches() }
             items(songs.size, key = { "song-" + songs[it].id }, span = { GridItemSpan(maxLineSpan) }) { i ->
-                SongRow(songs[i], playing == songs[i].id, open, Modifier.bleed(16.dp), place = Place(i, songs.size)) { playSongs(songs.map { it.id }, i) }
+                SongRow(songs[i], playing == songs[i].id, open, Modifier.bleed(16.dp), place = songs.place(i)) { playSongs(songs.map { it.id }, i) }
             }
         }
         SearchKind.Albums -> {

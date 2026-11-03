@@ -874,7 +874,8 @@ private fun PlayerControls(
         }
     }
     Row(
-        Modifier.fillMaxWidth().padding(top = if (compact) 6.dp else 14.dp, bottom = if (compact) 8.dp else 18.dp),
+        // Close under the times, which it works with; the room is left above the bar below.
+        Modifier.fillMaxWidth().padding(top = if (compact) 2.dp else 4.dp, bottom = if (compact) 12.dp else 28.dp),
         horizontalArrangement = if (buttons.size <= 3) Arrangement.spacedBy(if (minimal) 36.dp else 14.dp, Alignment.CenterHorizontally) else Arrangement.SpaceEvenly,
         verticalAlignment = Alignment.CenterVertically,
     ) {
@@ -1091,7 +1092,7 @@ private fun PlayerToolbar(
     Row(
         Modifier
             .fillMaxWidth()
-            .padding(bottom = 12.dp)
+            .padding(bottom = FootGap)
             .clip(CircleShape)
             .background(Color.White.copy(alpha = 0.1f))
             .padding(horizontal = 6.dp, vertical = 4.dp),

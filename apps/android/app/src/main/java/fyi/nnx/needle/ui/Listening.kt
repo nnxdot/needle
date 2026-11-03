@@ -92,7 +92,7 @@ fun TitledSongs(title: String, songs: List<Song>?, open: (Route) -> Unit, empty:
                 }
             }
             itemsIndexed(list, key = { i, s -> "$i-${s.id}" }) { i, song ->
-                SongRow(song, playing == song.id, open, place = Place(i, list.size)) { play(list, i) }
+                SongRow(song, playing == song.id, open, place = list.place(i)) { play(list, i) }
             }
         }
     }
@@ -130,7 +130,7 @@ fun FoldersScreen(path: String?, open: (Route) -> Unit) {
             if (here.isNotEmpty()) {
                 item { SectionHeader("Every song in here") }
                 itemsIndexed(here, key = { _, s -> s.id }) { i, song ->
-                    SongRow(song, playing == song.id, open, place = Place(i, here.size)) { play(here, i) }
+                    SongRow(song, playing == song.id, open, place = here.place(i)) { play(here, i) }
                 }
             }
         }
@@ -190,33 +190,46 @@ private fun Listens(open: (Route) -> Unit) {
     val history by historyLoad
     val format = DateFormat.getDateTimeInstance(DateFormat.MEDIUM, DateFormat.SHORT)
     val list = history.orEmpty()
+    val playing = playingSongId()
     LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = 24.dp + LocalBottomInset.current)) {
         if (historyLoad.loading) items(8) { SongPlaceholder() }
         if (history != null && list.isEmpty()) {
             item { Text("What you play shows here.", color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(Edge)) }
         }
-        items(list) { listen ->
-            Row(
-                Modifier
-                    .fillMaxWidth()
-                    .clickable(enabled = listen.song != null) { listen.song?.let { play(listOf(it)) } }
-                    .padding(horizontal = Edge, vertical = 8.dp),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(14.dp),
-            ) {
-                Cover(listen.song?.artwork, Modifier.size(48.dp), SmallCoverShape)
-                Column(Modifier.weight(1f)) {
-                    Text(listen.title, style = MaterialTheme.typography.bodyLarge, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                    Text(
-                        "${listen.artist} · ${format.format(Date(listen.startedAt * 1000))}",
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                    )
-                }
-                if (!listen.counted) Text("skipped", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        // The same rows as every list of songs: a tap plays from there on, the menu, the song
+        // playing marked. A song no longer in the library keeps a plain row, with nothing to play.
+        val songs = list.mapNotNull { it.song }
+        val spots = run { var n = 0; list.map { if (it.song != null) n++ else -1 } }
+        itemsIndexed(list) { i, listen ->
+            val song = listen.song
+            val detail = format.format(Date(listen.startedAt * 1000)) + if (listen.counted) "" else " · skipped"
+            val place = Place(i, list.size, list.getOrNull(i + 1)?.song?.id)
+            if (song != null) {
+                SongRow(song, playing == song.id, open, place = place, detail = detail) { play(songs, spots[i]) }
+            } else {
+                GoneListen(listen.title, "${listen.artist} · $detail", place)
             }
+        }
+    }
+}
+
+/** A listen whose song is no longer in the library: as a song row, with nothing to play. */
+@Composable
+private fun GoneListen(title: String, line: String, place: Place) {
+    val rows = LocalRows.current
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .segment(place, groupColor(), lineStart = 14.dp + rows.cover + rows.gap)
+            .heightIn(min = rows.height)
+            .padding(start = 14.dp, end = 4.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(rows.gap),
+    ) {
+        Cover(null, Modifier.size(rows.cover), SmallCoverShape)
+        Column(Modifier.weight(1f).padding(vertical = if (rows.height < 56.dp) 4.dp else 8.dp)) {
+            Text(title, style = MaterialTheme.typography.bodyLarge, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            Text(line, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
         }
     }
 }

@@ -135,7 +135,7 @@ private fun SongListPage(title: String, songs: List<Song>?, open: (Route) -> Uni
     val bottom = PaddingValues(bottom = 24.dp + LocalBottomInset.current)
     fun androidx.compose.foundation.lazy.LazyListScope.rows() {
         itemsIndexed(list, key = { _, s -> s.id }) { i, song ->
-            SongRow(song, playing == song.id, open, place = Place(i, list.size)) { play(list, i) }
+            SongRow(song, playing == song.id, open, place = list.place(i)) { play(list, i) }
         }
     }
     // Beside the side bar: the title and the buttons in one row, and the list right under it.

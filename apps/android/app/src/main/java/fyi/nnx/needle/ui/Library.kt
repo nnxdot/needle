@@ -391,7 +391,7 @@ private fun Songs(sort: Sort, open: (Route) -> Unit, scroll: Modifier) {
         if (songsLoad.loading) items(8) { SongPlaceholder() }
         items(list.size, key = { list[it].id }) { i ->
             val song = list[i]
-            SongRow(song, playing == song.id, open, place = Place(i, list.size)) {
+            SongRow(song, playing == song.id, open, place = list.place(i)) {
                 playSongs(list.map { it.id }, i)
             }
         }

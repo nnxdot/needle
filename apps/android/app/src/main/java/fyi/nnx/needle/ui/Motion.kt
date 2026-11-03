@@ -238,6 +238,27 @@ fun Modifier.sharedCover(key: String): Modifier = composed {
     }
 }
 
+/**
+ * The tile tapped last (its own id): only its cover flies to the page it opens, and back. An
+ * album shown twice on one page (two shelves of Home) would otherwise put two covers under one
+ * key, and Compose then draws them above everything, the dock too, leaving their places empty.
+ */
+private val tappedTile = androidx.compose.runtime.mutableStateOf<String?>(null)
+
+/** A tile's own id for [tileCover], kept while its page is kept. */
+@Composable
+fun rememberTileId(): String = androidx.compose.runtime.saveable.rememberSaveable { java.util.UUID.randomUUID().toString() }
+
+/** This tile was tapped: its cover is the one that flies. */
+fun tapTile(id: String) {
+    tappedTile.value = id
+}
+
+/** The cover of tile `id`: it flies under `key` only while it is the tile tapped last. */
+fun Modifier.tileCover(id: String, key: String): Modifier = composed {
+    if (tappedTile.value == id) Modifier.sharedCover(key) else Modifier
+}
+
 /** When the page on screen opened (uptime in ms), so rows know whether to come in with it. */
 val LocalPageOpened: ProvidableCompositionLocal<Long> = compositionLocalOf { 0L }
 

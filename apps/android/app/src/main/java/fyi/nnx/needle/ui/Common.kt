@@ -507,13 +507,14 @@ fun AlbumTile(album: Album, modifier: Modifier = Modifier, open: ((Route) -> Uni
     val interaction = remember { MutableInteractionSource() }
     var menu by remember { mutableStateOf(false) }
     val haptics = rememberHaptics()
+    val tile = rememberTileId()
     if (menu) AlbumSheet(album, open) { menu = false }
     Column(
         modifier
             .pressScale(interaction)
-            .combinedClickable(interactionSource = interaction, indication = null, onClick = onClick, onLongClick = { haptics(true); menu = true }),
+            .combinedClickable(interactionSource = interaction, indication = null, onClick = { tapTile(tile); onClick() }, onLongClick = { haptics(true); menu = true }),
     ) {
-        Cover(album.artwork, Modifier.fillMaxWidth().aspectRatio(1f).sharedCover("album-${album.key}"), seed = album.title + album.artist)
+        Cover(album.artwork, Modifier.fillMaxWidth().aspectRatio(1f).tileCover(tile, "album-${album.key}"), seed = album.title + album.artist)
         Text(
             album.title.ifBlank { "Unknown album" },
             style = MaterialTheme.typography.bodyMedium,
@@ -598,6 +599,8 @@ fun SongRow(
     /** Shown at the end instead of the menu, such as a handle to drag the row by. */
     trailing: (@Composable () -> Unit)? = null,
     place: Place? = null,
+    /** Words after the artist on the grey line, such as when it was played. */
+    detail: String? = null,
     onClick: () -> Unit,
 ) {
     val rows = LocalRows.current
@@ -606,6 +609,9 @@ fun SongRow(
     val chosenSongs by Selection.songs.collectAsState()
     val choosing = chosenSongs.isNotEmpty()
     val chosen = chosenSongs.any { it.id == song.id }
+    // The row under this one lit (playing or chosen): the line between them goes.
+    val playingNow = playingSongId()
+    val nextLit = place?.next?.let { next -> next == playingNow || chosenSongs.any { it.id == next } } ?: false
     val lead: Dp = if (number) 36.dp else rows.cover + 4.dp
     var menu by remember { mutableStateOf(false) }
     val haptics = rememberHaptics()
@@ -627,6 +633,7 @@ fun SongRow(
                             else -> groupColor()
                         },
                         lineStart = 14.dp + (if (number) 22.dp else rows.cover) + rows.gap,
+                        nextLit = nextLit,
                     )
                 },
             )
@@ -688,7 +695,7 @@ fun SongRow(
                             )
                         }
                         Text(
-                            song.artist,
+                            if (detail == null) song.artist else "${song.artist} · $detail",
                             style = MaterialTheme.typography.bodyMedium,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                             maxLines = 1,
