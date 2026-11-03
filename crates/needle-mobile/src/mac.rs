@@ -1777,9 +1777,12 @@ impl Needle {
         *DESK.lastfm.lock().unwrap() = None;
     }
 
-    /// Sends failed listens again (`lastfm`, `listenbrainz`). Returns how many.
+    /// Sends failed listens again (`lastfm`, `listenbrainz`), now, not at the next minute: the
+    /// answer shows at once. Returns how many.
     pub fn retry_scrobbles(&self, service: String) -> Result<u32> {
-        Ok(integrations::retry_failed_scrobbles(&self.library, Some(&service))? as u32)
+        let tried = integrations::retry_failed_scrobbles(&self.library, Some(&service))?;
+        integrations::flush_scrobbles(&self.library, &integrations::Credentials::load())?;
+        Ok(tried as u32)
     }
     /// Forgets failed listens (`lastfm`, `listenbrainz`). Returns how many.
     pub fn clear_scrobbles(&self, service: String) -> Result<u32> {

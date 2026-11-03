@@ -10,6 +10,8 @@ import SwiftUI
 ///   and once more a second later (`<path>-2.png`).
 /// - `--render-big <path.png>`: the real big player, 16 seconds in, and a second later.
 /// - `--test-mcp-off <seconds>`: turns AI assistants off that long after the start.
+/// - `--test-scrobbles <file>`: Clear failed for Last.fm and Retry failed for ListenBrainz, 8
+///   seconds in, writing the answers and what Settings then reads.
 /// - `--test-spectrum <file>`: the core's spectrum twice a second for 12 seconds.
 @MainActor
 enum TestRenders {
@@ -65,6 +67,18 @@ enum TestRenders {
             Task {
                 try? await Task.sleep(for: .seconds(seconds))
                 store.set(["mcp": false])
+            }
+        }
+        if let file = value("--test-scrobbles") {
+            Task {
+                try? await Task.sleep(for: .seconds(8))
+                var lines = ["before: " + store.core.servicesJson()]
+                let cleared = await store.ask { try $0.clearScrobbles(service: "lastfm") }
+                let tried = await store.ask { try $0.retryScrobbles(service: "listenbrainz") }
+                lines.append("clear lastfm: \(cleared.map(String.init) ?? "failed")")
+                lines.append("retry listenbrainz: \(tried.map(String.init) ?? "failed")")
+                lines.append("after: " + store.core.servicesJson())
+                try? lines.joined(separator: "\n").write(toFile: file, atomically: true, encoding: .utf8)
             }
         }
         if let file = value("--test-spectrum") {

@@ -92,14 +92,29 @@ struct ServicesSettings: View {
                         Text(error).font(.needle(.caption)).foregroundStyle(store.plainColors.danger).lineLimit(1)
                     }
                     if q.failed > 0 {
-                        Button("Retry failed") {
-                            store.job { "\(try $0.retryScrobbles(service: service)) listens will be retried." }
-                            refresh()
+                        // Refused for good, a listen stays failed: Clear failed lets it go.
+                        HStack {
+                            Button("Retry failed") {
+                                failedListens { "Tried \(try $0.retryScrobbles(service: service)) failed listens again." }
+                            }
+                            Button("Clear failed") {
+                                failedListens { "Cleared \(try $0.clearScrobbles(service: service)) failed listens." }
+                            }
                         }
                         .controlSize(.small)
+                        .fixedSize()
                     }
                 }
             }
+        }
+    }
+
+    /// Retries or clears failed listens, then reads the list again once that is done, so the
+    /// old count and error go.
+    private func failedListens(_ work: @escaping @Sendable (Needle) throws -> String) {
+        Task {
+            if let text = await store.ask(work) { store.notify(text) }
+            refresh()
         }
     }
 
