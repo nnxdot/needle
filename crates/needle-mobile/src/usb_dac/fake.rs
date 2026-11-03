@@ -599,7 +599,6 @@ impl Bus for FakeDac {
                             bad: 0,
                             first_bad: 0,
                             done: 0,
-                            start_frame: 0,
                         }));
                     }
                 }

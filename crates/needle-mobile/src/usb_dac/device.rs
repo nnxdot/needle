@@ -326,7 +326,6 @@ impl Bus for Usbfs {
                 let first_bad = t.packets(count).iter().find(|p| p.status != 0);
                 let first_bad = first_bad.map_or(0, |p| p.status as i32);
                 let done = t.packets(count).iter().filter(|p| p.actual > 0).count();
-                let start_frame = t.urb().start_frame;
                 let data = if t.endpoint & 0x80 != 0 {
                     let got = t.packets(1)[0].actual as usize;
                     t.buffer[..got.min(t.buffer.len())].to_vec()
@@ -340,7 +339,6 @@ impl Bus for Usbfs {
                     bad,
                     first_bad,
                     done,
-                    start_frame,
                 }))
             }
             Err(e)

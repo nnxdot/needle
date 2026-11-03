@@ -30,9 +30,12 @@ const RANGE: u8 = 0x02;
 const UAC1_GET_CUR: u8 = 0x81;
 const UAC1_GET_MIN: u8 = 0x82;
 const UAC1_GET_MAX: u8 = 0x83;
-/// How music is cut for the USB: how long a transfer holds (ms), and how many are in flight. The
-/// first gives about 32 ms of music queued; the second is tried when the first gets stuck.
-const SHAPES: [(u32, usize); 2] = [(4, 8), (1, 16)];
+/// How music is cut for the USB: how long a transfer holds (ms), and how many are in flight; the
+/// second is tried when the first gets stuck. At high speed, 1 ms transfers first: on a Samsung
+/// phone, 4 ms ones stopped coming back after a second with two DACs, and 1 ms ones played on (16
+/// ms queued, near Linux's 18). At full speed, 4 ms first, as the DACs that played on it had.
+const HIGH_SPEED_SHAPES: [(u32, usize); 2] = [(1, 16), (4, 8)];
+const FULL_SPEED_SHAPES: [(u32, usize); 2] = [(4, 8), (1, 16)];
 /// The id of the feedback endpoint's transfer.
 const FEEDBACK: usize = 32;
 /// How long the DAC may take nothing before Needle gives up on it.
@@ -669,6 +672,14 @@ impl UsbDac {
         Ok(said)
     }
 
+    fn shapes(&self) -> [(u32, usize); 2] {
+        if self.high_speed {
+            HIGH_SPEED_SHAPES
+        } else {
+            FULL_SPEED_SHAPES
+        }
+    }
+
     /// The rates of `f`, without those the DAC turned down.
     fn playable(&self, f: &Format) -> Vec<u32> {
         let refused = self.refused.lock().unwrap_or_else(|e| e.into_inner());
@@ -791,7 +802,7 @@ impl UsbDac {
         rate: u32,
         shape: usize,
     ) -> Result<bool> {
-        let (transfer_ms, transfers) = SHAPES[shape];
+        let (transfer_ms, transfers) = self.shapes()[shape];
         let per_second = packets_per_second(self.high_speed, f.interval);
         let per_transfer = ((per_second * transfer_ms / 1000) as usize).max(1);
         let frame = f.channels as usize * f.subslot as usize;
@@ -873,13 +884,11 @@ impl UsbDac {
         let started = Instant::now();
         let (mut music, mut feedbacks, mut bad, mut first_bad) = (0u64, 0u64, 0u64, 0i32);
         let mut last_feedback = None;
-        let (mut first_frame, mut last_frame) = (None, 0);
         let (mut stuck, mut since_music) = (false, 0u32);
         let mut waiting = std::collections::VecDeque::new();
-        let shown = |music, feedbacks, bad, first_bad, last_feedback: Option<u32>, frames| {
-            let (first, last): (Option<i32>, i32) = frames;
+        let shown = |music, feedbacks, bad, first_bad, last_feedback: Option<u32>| {
             format!(
-                "{rate} Hz for {:.2} s, {per_transfer} packets a transfer, {transfers} in flight: {music} transfers back, {feedbacks} feedback, last feedback {} (nominal {:.3} frames a packet), {bad} bad packets (first error {first_bad}), start frames {first:?} to {last}",
+                "{rate} Hz for {:.2} s, {per_transfer} packets a transfer, {transfers} in flight: {music} transfers back, {feedbacks} feedback, last feedback {} (nominal {:.3} frames a packet), {bad} bad packets (first error {first_bad})",
                 started.elapsed().as_secs_f32(),
                 last_feedback.map_or("none".to_string(), |v| format!("{:.3}", v as f64 / 65536.)),
                 nominal as f64 / 65536.,
@@ -943,22 +952,12 @@ impl UsbDac {
             since_music = 0;
             music += 1;
             bad += back.bad as u64;
-            first_frame = first_frame.or(Some(back.start_frame));
-            last_frame = back.start_frame;
             if first_bad == 0 {
                 first_bad = back.first_bad;
             }
             // About each second, so a run that hangs still leaves its numbers.
             if music % 250 == 1 {
-                let frames = (first_frame, last_frame);
-                super::stream_line(shown(
-                    music,
-                    feedbacks,
-                    bad,
-                    first_bad,
-                    last_feedback,
-                    frames,
-                ));
+                super::stream_line(shown(music, feedbacks, bad, first_bad, last_feedback));
             }
             if back.status == -libc_enodev() || back.status == -libc_eshutdown() {
                 result = Err(anyhow!("{} is gone", self.name));
@@ -980,16 +979,11 @@ impl UsbDac {
                 ending = true;
             }
         }
-        let numbers = shown(
-            music,
-            feedbacks,
-            bad,
-            first_bad,
-            last_feedback,
-            (first_frame, last_frame),
-        );
+        let numbers = shown(music, feedbacks, bad, first_bad, last_feedback);
         super::stream_line(numbers.clone());
+        // The feedback transfer is out too, except while the stream ends.
         let in_flight = self.bus.busy();
+        let feedback_out = (feedback_endpoint.is_some() && !ending) as usize;
         // Everything asked back before leaving; the bus keeps what the kernel still holds.
         for id in (0..transfers).chain([FEEDBACK]) {
             self.bus.discard(id);
@@ -1012,7 +1006,8 @@ impl UsbDac {
                 .control(0x81, 0x0A, 0, f.interface as u16, &mut setting);
             super::run_line(numbers);
             super::run_line(format!(
-                "Music stuck, feedback going on: {in_flight} in flight, setting now {}, taken back (status: packets that went) {returned:?}, {} still held",
+                "Music stuck, feedback going on: {} music and {feedback_out} feedback transfers in flight, setting now {}, taken back (status: packets that went) {returned:?}, {} still held",
+                in_flight.saturating_sub(feedback_out),
                 asked.map_or_else(|e| e.to_string(), |_| setting[0].to_string()),
                 self.bus.busy(),
             ));
@@ -1110,14 +1105,14 @@ impl UsbDac {
                 *self.chosen.lock().unwrap_or_else(|e| e.into_inner()) = Some(chosen);
             }
             let began = Instant::now();
-            match self.stream(feed, format, f, rate, shape.min(SHAPES.len() - 1)) {
+            match self.stream(feed, format, f, rate, shape.min(self.shapes().len() - 1)) {
                 Ok(false) => {}
                 // Started again, with the music going on from here: a stuck way to the DAC has
                 // come back this way, and giving it to Android could leave no sound at all.
                 Ok(true) => {
                     if began.elapsed() < SETTLED {
                         shape += 1;
-                        if shape >= SHAPES.len() {
+                        if shape >= self.shapes().len() {
                             *self.avoid.lock().unwrap_or_else(|e| e.into_inner()) = Some(f.alt);
                         }
                     }
@@ -1205,6 +1200,15 @@ mod tests {
 
     fn first(dac: &UsbDac) -> Format {
         dac.dac.formats.last().unwrap().clone()
+    }
+
+    #[test]
+    fn high_speed_sends_1_ms_transfers_first() {
+        let (_, btr17) = dac(Trouble::None, &hex(BTR17));
+        assert!(btr17.high_speed);
+        assert_eq!(btr17.shapes()[0], (1, 16));
+        // At its fastest, 768 kHz of 32-bit stereo is 96 frames, 768 bytes a packet: it fits.
+        assert!(rate_fits(768_000, 8000, 8, 776));
     }
 
     #[test]
