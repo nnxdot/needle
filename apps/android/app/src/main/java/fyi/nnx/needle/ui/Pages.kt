@@ -1127,8 +1127,10 @@ internal fun ShelfTitle(title: String, detail: String?, onMore: (() -> Unit)? = 
 private fun LazyListScope.shelf(title: String, detail: String, albums: List<Album>, open: (Route) -> Unit, more: Route? = null) {
     if (albums.isEmpty()) return
     // "See all" only where there is a page of the same albums in the same order.
-    item { ShelfTitle(title, detail, more?.let { { open(it) } }) }
-    item {
+    item(key = "shelf-title/$title/$detail") { ShelfTitle(title, detail, more?.let { { open(it) } }) }
+    // Kept by its name: when Home gains or loses a part above it (the song playing, a shelf),
+    // its row keeps its own scroll and tiles, not the ones of the shelf that was in its place.
+    item(key = "shelf/$title/$detail") {
         val tile = if (isWide()) 176.dp else 148.dp
         LazyRow(contentPadding = PaddingValues(horizontal = Edge), horizontalArrangement = Arrangement.spacedBy(16.dp)) {
             items(albums, key = { it.key }) { album -> AlbumTile(album, Modifier.width(tile), open) { open(Route.AlbumPage(album)) } }
