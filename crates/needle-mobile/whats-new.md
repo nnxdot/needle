@@ -1,3 +1,8 @@
+# 2.0.3
+Fixes for the quick scroll and covers.
+- Dragging or grabbing the quick scroll in Library no longer closes Needle.
+- A cover no longer stays stuck over Home after you go to an album and back.
+
 # 2.0.2
 Albums and artists as a list, a quick scroll, Shuffle that stays on, and fixes.
 ! **Albums and artists as a list.** In Library, choose Grid or List from the sort button of Albums or of Artists.
