@@ -49,6 +49,15 @@
             ],
             "versions": [
                 {
+                    "version": "2.0.2",
+                    "buildVersion": "1",
+                    "date": "2026-11-03",
+                    "localizedDescription": "Needle 2.0.2: shuffle that stays on, and fixes.\n\n- Shuffle stays on: turn it on in Settings › Playback, and the shuffle button turns shuffle on and off, as in Spotify.\n- Hide artists who are only on Various Artists albums.\n- Forget songs whose file is gone.\n- The letter bar beside Artists reads Korean, Japanese, and Chinese names.\n- Changing Repeat no longer interrupts the song.",
+                    "downloadURL": "https://needle.nnx.fyi/download/Needle-2.0.2-ios.ipa",
+                    "size": 17654549,
+                    "minOSVersion": "26.0"
+                },
+                {
                     "version": "2.0.0",
                     "buildVersion": "1",
                     "date": "2026-10-31",
