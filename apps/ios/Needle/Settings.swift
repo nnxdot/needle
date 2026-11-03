@@ -333,11 +333,7 @@ struct PlaybackSettingsView: View {
                         }
                         .padding(.leading, 16)
                     }
-                    Toggle(isOn: Binding(get: { store.choices.shuffleStays }, set: { on in
-                        store.updateChoices { $0.shuffleStays = on }
-                        // Off: shuffle no longer stays, so it stops now.
-                        if !on, store.playback?.shuffle == true { store.core.setShuffle(on: false) }
-                    })) {
+                    Toggle(isOn: Binding(get: { store.choices.shuffleStays }, set: { store.setShuffleStays($0) })) {
                         SettingLabel(title: "Shuffle stays on", detail: "As in Spotify: the shuffle button turns shuffle on and off, and the song playing goes on.", icon: "shuffle", tint: .green)
                     }
                     VStack(alignment: .leading, spacing: 8) {

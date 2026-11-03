@@ -769,6 +769,12 @@ final class Store {
         }
     }
 
+    /// Shuffle stays on, or not; turned off, shuffle stops now, since it no longer stays.
+    func setShuffleStays(_ on: Bool) {
+        set(["shuffle_stays": on])
+        if !on, playback?.shuffle == true { core.setShuffle(on: false) }
+    }
+
     /// Shuffle stays on, and it is on: the shuffle button is lit.
     var shuffleOn: Bool { settings.shuffleStays && playback?.shuffle == true }
 

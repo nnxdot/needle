@@ -254,11 +254,7 @@ struct PlaybackSettingsView: View {
                 }
             }
             SettingRow(title: "Shuffle stays on", detail: "As in Spotify: the shuffle button turns shuffle on and off, and the song playing goes on.", icon: "shuffle") {
-                RowToggle(isOn: Binding(get: { s.shuffleStays }, set: { on in
-                    store.set(["shuffle_stays": on])
-                    // Off: shuffle no longer stays, so it stops now.
-                    if !on, store.playback?.shuffle == true { store.core.setShuffle(on: false) }
-                }))
+                RowToggle(isOn: Binding(get: { s.shuffleStays }, set: { store.setShuffleStays($0) }))
                 .toggleStyle(.switch).labelsHidden()
             }
             OpenRow(title: "When the queue runs out", detail: "Keep playing songs that match a rule.", icon: "sparkles",

@@ -90,6 +90,52 @@ struct RootView: View {
             }
             if args.contains("-albums") { paths[place] = NavigationPath([Route.albums]) }
             if args.contains("-show-welcome") { welcomeTest = true }
+            // -test-202: Shuffle stays on, Hide Various Artists-only, and Forget songs that are
+            // gone, through what the buttons and rows call, into needle-202-check.log. Plays
+            // nothing: the phone's own volume is always full here.
+            if args.contains("-test-202") {
+                Task {
+                    try? await Task.sleep(for: .seconds(8))
+                    var lines: [String] = []
+                    func pause() async { try? await Task.sleep(for: .milliseconds(1500)) }
+                    let shuffled = { String(store.playback?.shuffle ?? false) }
+                    lines.append("song: \(store.playback?.current?.title ?? "none"), playing \(store.playback?.playing ?? false)")
+                    store.setShuffleStays(true)
+                    await pause()
+                    lines.append("stays on: \(store.choices.shuffleStays), shuffle \(shuffled()), lit \(store.shuffleOn)")
+                    store.shuffleButton()
+                    await pause()
+                    lines.append("after a press: shuffle \(shuffled()), lit \(store.shuffleOn)")
+                    store.shuffleButton()
+                    await pause()
+                    lines.append("after a second press: shuffle \(shuffled()), lit \(store.shuffleOn)")
+                    store.shuffleButton()
+                    await pause()
+                    lines.append("pressed on again: shuffle \(shuffled())")
+                    store.setShuffleStays(false)
+                    await pause()
+                    lines.append("setting off: stays \(store.choices.shuffleStays), shuffle \(shuffled()), lit \(store.shuffleOn)")
+                    lines.append("still not playing: \(!(store.playback?.playing ?? false))")
+                    let count = { () async -> Int in (await store.load { try $0.artistsBy(query: "", order: "name", albumArtistsOnly: false) } ?? []).count }
+                    store.updateChoices { $0.hideCompilationArtists = false }
+                    await pause()
+                    let all = await count()
+                    store.updateChoices { $0.hideCompilationArtists = true }
+                    await pause()
+                    lines.append("artists: \(all) shown, \(await count()) with Hide Various Artists-only")
+                    let letters = Set((await store.load { try $0.artistsBy(query: "", order: "name", albumArtistsOnly: false) } ?? []).map(\.letter))
+                    lines.append("letters: \(letters.sorted().joined(separator: " "))")
+                    store.updateChoices { $0.hideCompilationArtists = false }
+                    store.updateChoices { $0.forgetMissing = true }
+                    await pause()
+                    lines.append("forget missing saved: \((try? store.core.libraryChoices())?.forgetMissing ?? false)")
+                    store.updateChoices { $0.forgetMissing = false }
+                    await pause()
+                    lines.append("forget missing off: \((try? store.core.libraryChoices())?.forgetMissing ?? true)")
+                    let log = NSTemporaryDirectory() + "needle-202-check.log"
+                    try? lines.joined(separator: "\n").write(toFile: log, atomically: true, encoding: .utf8)
+                }
+            }
             // -landscape: turns Needle on its side, as if the phone were turned, 25 s in (after
             // -show-player has opened the player and the app has settled).
             if args.contains("-landscape") {
