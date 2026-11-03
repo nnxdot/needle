@@ -621,6 +621,25 @@ final class Store {
         message = "Up next shuffled"
     }
 
+    /// The shuffle button: with Shuffle stays on (this iPhone's own music), turns shuffle on or
+    /// off, and the song playing goes on; else shuffles what plays next at once.
+    func shuffleButton() {
+        if choices.shuffleStays && !onComputer {
+            core.setShuffle(on: !(playback?.shuffle ?? false))
+        } else {
+            shuffle()
+        }
+    }
+
+    /// Shuffle stays on, or not; turned off, shuffle stops now, since it no longer stays.
+    func setShuffleStays(_ on: Bool) {
+        updateChoices { $0.shuffleStays = on }
+        if !on, playback?.shuffle == true { core.setShuffle(on: false) }
+    }
+
+    /// Shuffle stays on, and it is on: the shuffle button is lit.
+    var shuffleOn: Bool { choices.shuffleStays && !onComputer && playback?.shuffle == true }
+
     func cycleRepeat() {
         let next: RepeatMode = switch playback?.repeat ?? .off {
         case .off: .all
@@ -702,7 +721,7 @@ final class Store {
         pc.upNext.forEach { hasher.combine($0.id) }
         let repeatMode: RepeatMode = switch pc.repeat { case "all": .all; case "one": .one; default: .off }
         return Playback(current: pc.current.map(song(of:)), playing: pc.playing, position: pc.position, volume: pc.volume,
-                        repeat: repeatMode, upNext: UInt32(pc.upNext.count),
+                        repeat: repeatMode, shuffle: false, upNext: UInt32(pc.upNext.count),
                         queueVersion: UInt64(bitPattern: Int64(hasher.finalize())), loading: false, error: nil)
     }
 

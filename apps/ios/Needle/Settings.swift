@@ -201,6 +201,9 @@ struct LibrarySettingsView: View {
                     } message: {
                         Text("Its songs leave the library, with their plays, stars, and places in playlists. The files stay.")
                     }
+                Toggle(isOn: Binding(get: { store.choices.forgetMissing }, set: { on in store.updateChoices { $0.forgetMissing = on } })) {
+                    SettingLabel(title: "Forget songs that are gone", detail: "Reading the music forgets songs whose file was deleted or can no longer be read, instead of keeping them marked missing.", icon: "trash.fill", tint: .gray)
+                }
             } header: {
                 Text("Music folders")
             } footer: {
@@ -329,6 +332,9 @@ struct PlaybackSettingsView: View {
                             SettingLabel(title: "Smart mixes", detail: "The fade starts where the music ends and lasts whole bars.", icon: "metronome.fill", tint: .purple)
                         }
                         .padding(.leading, 16)
+                    }
+                    Toggle(isOn: Binding(get: { store.choices.shuffleStays }, set: { store.setShuffleStays($0) })) {
+                        SettingLabel(title: "Shuffle stays on", detail: "As in Spotify: the shuffle button turns shuffle on and off, and the song playing goes on.", icon: "shuffle", tint: .green)
                     }
                     VStack(alignment: .leading, spacing: 8) {
                         SettingLabel(title: "Even loudness", detail: "From the songs' ReplayGain tags.", icon: "waveform.path", tint: .teal)

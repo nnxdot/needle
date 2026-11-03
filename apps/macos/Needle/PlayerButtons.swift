@@ -86,10 +86,11 @@ struct PlayerButton: View {
         let repeatMode = store.playback?.repeat ?? "off"
         switch name {
         case "shuffle":
-            Button { store.shuffleView() } label: { Image(systemName: "shuffle") }
+            Button { store.shuffleButton() } label: { Image(systemName: "shuffle").lit(store.shuffleOn, colors.accent) }
                 .buttonStyle(.borderless)
-                .help(store.route.isSongs ? "Shuffle this view" : "Shuffle up next")
+                .help(store.shuffleHelp)
                 .accessibilityLabel("Shuffle")
+                .accessibilityValue(store.settings.shuffleStays ? (store.shuffleOn ? "On" : "Off") : "")
         case "previous":
             Button { store.previous() } label: { Image(systemName: "backward.fill") }
                 .buttonStyle(.borderless)
@@ -273,5 +274,13 @@ struct PlayerButtonsEditor: View {
 
     private func save(_ list: [String]) {
         store.set(["player_buttons": PlayerButtons.chosen(list)])
+    }
+}
+
+extension View {
+    /// In the accent colour while `on` (a button that is lit), as it is otherwise.
+    @ViewBuilder
+    func lit(_ on: Bool, _ color: Color) -> some View {
+        if on { foregroundStyle(color) } else { self }
     }
 }

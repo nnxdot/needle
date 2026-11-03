@@ -759,6 +759,31 @@ final class Store {
     }
 
     /// Plays everything the page shows, shuffled (the shuffle button beside the controls).
+    /// The shuffle button: with Shuffle stays on, turns shuffle on or off (the song playing
+    /// goes on); else shuffles the view, or what plays next, at once.
+    func shuffleButton() {
+        if settings.shuffleStays {
+            core.setShuffle(on: !(playback?.shuffle ?? false))
+        } else {
+            shuffleView()
+        }
+    }
+
+    /// Shuffle stays on, or not; turned off, shuffle stops now, since it no longer stays.
+    func setShuffleStays(_ on: Bool) {
+        set(["shuffle_stays": on])
+        if !on, playback?.shuffle == true { core.setShuffle(on: false) }
+    }
+
+    /// Shuffle stays on, and it is on: the shuffle button is lit.
+    var shuffleOn: Bool { settings.shuffleStays && playback?.shuffle == true }
+
+    /// What the shuffle button says it does.
+    var shuffleHelp: String {
+        if settings.shuffleStays { return shuffleOn ? "Shuffle is on" : "Shuffle is off" }
+        return route.isSongs ? "Shuffle this view" : "Shuffle up next"
+    }
+
     func shuffleView() {
         guard route.isSongs else {
             core.shuffle()
