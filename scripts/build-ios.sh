@@ -61,7 +61,10 @@ if [ "$kind" = testflight ]; then
     # keychain. The team id comes from outside the code. Each upload needs a new, higher build
     # number: the time, unless NEEDLE_BUILD gives one. NEEDLE_UPLOAD=1 sends the build to App
     # Store Connect; without it, the signed .ipa only lands in apps/ios/build/testflight.
+    # NEEDLE_ID is the app's id (fyi.nnx.needle2 on the TestFlight team, because another team
+    # holds fyi.nnx.needle); the widgets, Watch app, and shared folder follow it.
     team="${NEEDLE_TEAM:?NEEDLE_TEAM must hold the Apple team id}"
+    needle_id="${NEEDLE_ID:-fyi.nnx.needle2}"
     build="${NEEDLE_BUILD:-$(date -u +%Y%m%d%H%M)}"
     destination=export
     [ "${NEEDLE_UPLOAD:-0}" = 1 ] && destination=upload
@@ -69,7 +72,8 @@ if [ "$kind" = testflight ]; then
     xcodebuild -project Needle.xcodeproj -scheme Needle -configuration Release \
         -destination 'generic/platform=iOS' -derivedDataPath build/derived \
         -archivePath build/Needle.xcarchive -allowProvisioningUpdates \
-        DEVELOPMENT_TEAM="$team" CURRENT_PROJECT_VERSION="$build" archive | tail -3
+        DEVELOPMENT_TEAM="$team" NEEDLE_ID="$needle_id" CURRENT_PROJECT_VERSION="$build" \
+        archive | tail -3
     options="$(mktemp /tmp/needle-testflight.XXXXXX)"
     cat > "$options" <<EOF
 <?xml version="1.0" encoding="UTF-8"?>
@@ -113,11 +117,17 @@ for framework in "$app"/Frameworks/*.framework; do
         codesign --force --sign - --timestamp=none "$framework"
     fi
 done
-codesign --force --sign - --timestamp=none --entitlements NeedleWidgets.entitlements "$app/PlugIns/NeedleWidgets.appex"
+# The entitlements files name the shared folder with $(NEEDLE_ID); codesign takes them as written.
+ents="$(mktemp -d /tmp/needle-ents.XXXXXX)"
+for file in Needle NeedleWidgets; do
+    sed 's/\$(NEEDLE_ID)/fyi.nnx.needle/g' "$file.entitlements" > "$ents/$file.entitlements"
+done
+codesign --force --sign - --timestamp=none --entitlements "$ents/NeedleWidgets.entitlements" "$app/PlugIns/NeedleWidgets.appex"
 # SideStore and AltStore sign only PlugIns and Frameworks, so a Watch app would stay unsigned for
 # them and could stop the iPhone app installing or updating.
 rm -rf "$app/Watch"
-codesign --force --sign - --timestamp=none --entitlements Needle.entitlements "$app"
+codesign --force --sign - --timestamp=none --entitlements "$ents/Needle.entitlements" "$app"
+rm -rf "$ents"
 (cd build/ipa && zip -qry ../Needle.ipa Payload)
 rm -rf build/ipa
 echo "$ios/build/Needle.ipa"

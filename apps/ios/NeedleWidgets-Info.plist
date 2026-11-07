@@ -7,5 +7,8 @@
 		<key>NSExtensionPointIdentifier</key>
 		<string>com.apple.widgetkit-extension</string>
 	</dict>
+	<!-- The folder the app shares with its widgets (Snapshot.group). -->
+	<key>NeedleAppGroup</key>
+	<string>group.$(NEEDLE_ID)</string>
 </dict>
 </plist>
