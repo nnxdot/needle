@@ -1109,8 +1109,13 @@ final class Store {
         }
     }
 
+    /// The App Store build: the only one in Apple's sandbox. The App Store updates it, so it
+    /// has no update check of its own.
+    static let fromAppStore = ProcessInfo.processInfo.environment["APP_SANDBOX_CONTAINER_ID"] != nil
+
     /// Once a day at most (or now, when asked), asks needle.nnx.fyi whether a newer Needle is out.
     func checkForUpdate(force: Bool) {
+        guard !Store.fromAppStore else { return }
         let day = Int(Date().timeIntervalSince1970) - 86_400
         guard force || (settings.checkUpdates && settings.lastUpdateCheck < day) else { return }
         Task {
@@ -1129,7 +1134,7 @@ final class Store {
     }
 
     func installUpdate() {
-        guard let update else { return }
+        guard let update, !Store.fromAppStore else { return }
         notify("Downloading Needle \(update.version) and checking it…")
         Task {
             if await ask({ try $0.installMacUpdate() }) != nil {

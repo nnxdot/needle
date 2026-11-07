@@ -15,6 +15,12 @@ struct ServicesSettings: View {
 
     var body: some View {
         let s = store.settings
+        // The App Store updates its build itself.
+        if !Store.fromAppStore { updates(s) }
+        services(s)
+    }
+
+    @ViewBuilder private func updates(_ s: NeedleSettings) -> some View {
         Section {
             SettingRow(title: "Check for updates automatically", detail: "Once a day. You have Needle \(store.version).", icon: "arrow.down.circle") {
                 SettingSwitch(key: "check_updates", on: s.checkUpdates)
@@ -33,6 +39,9 @@ struct ServicesSettings: View {
         } header: {
             GroupHeader(title: "Updates")
         }
+    }
+
+    @ViewBuilder private func services(_ s: NeedleSettings) -> some View {
         Section {
             if let error = info?.status.storeError {
                 Text("The Keychain could not be read: \(error)").foregroundStyle(store.plainColors.danger).padding(.vertical, 6)
