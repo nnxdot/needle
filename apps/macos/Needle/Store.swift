@@ -158,6 +158,8 @@ final class Store {
             alert.runModal()
             exit(1)
         }
+        // The music folders picked earlier, before anything reads the library (the sandbox).
+        Bookmarks.start(in: folder)
         version = core.version()
         settings = JSON.decode(NeedleSettings.self, try? core.settingsJson()) ?? NeedleSettings()
         // The side panel opens when asked for (Lyrics, Queue, Details), as in Apple Music, not
@@ -989,6 +991,7 @@ final class Store {
         panel.prompt = "Add"
         panel.message = "Add a music folder to Needle"
         guard panel.runModal() == .OK else { return }
+        Bookmarks.remember(panel.urls)
         let paths = panel.urls.map(\.path)
         Task {
             _ = await ask { core in for path in paths { try core.addFolder(path: path) } }
@@ -1025,6 +1028,8 @@ final class Store {
             }
         }
         guard !music.isEmpty else { return }
+        // Opened songs join the library: keep the way back to them for the next start.
+        Bookmarks.remember(urls.filter { music.contains($0.path) })
         Task { [music] in
             guard let n = await ask({ try $0.openFiles(paths: music) }) else { return }
             if n == 0 { notify("Needle could not open that. It may not be a music file Needle can play.") }
