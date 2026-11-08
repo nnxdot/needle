@@ -1137,6 +1137,80 @@ fn scrobble_summary_with(library: &Library, credentials: &Credentials) -> Result
         listenbrainz: queue("listenbrainz")?,
     })
 }
+/// What went wrong sending listens to one service: each reason with how many listens it holds
+/// back (many reasons, or one old one, is a passing trouble; one reason for every listen, such
+/// as a refused sign-in, is not), and the latest listens that failed or wait to be tried again.
+#[derive(Clone, Debug, Default, Serialize)]
+pub struct ScrobbleProblems {
+    pub reasons: Vec<ScrobbleReason>,
+    pub recent: Vec<ScrobbleProblem>,
+}
+
+#[derive(Clone, Debug, Default, Serialize, PartialEq)]
+pub struct ScrobbleReason {
+    pub error: String,
+    pub listens: i64,
+    /// Refused for good (`true`), or waiting to be tried again.
+    pub failed: bool,
+    /// When the latest listen it holds back was played (Unix seconds).
+    pub latest: i64,
+}
+
+#[derive(Clone, Debug, Default, Serialize, PartialEq)]
+pub struct ScrobbleProblem {
+    pub title: String,
+    pub artist: String,
+    /// When it was played (Unix seconds).
+    pub played: i64,
+    pub error: String,
+    pub failed: bool,
+    pub attempts: i64,
+}
+
+/// The listens `service` has not taken, by reason, and the latest `limit` of them.
+pub fn scrobble_problems(
+    library: &Library,
+    service: &str,
+    limit: usize,
+) -> Result<ScrobbleProblems> {
+    let db = library.connection()?;
+    let mut reasons = db.prepare(
+        "SELECT s.error, count(*), s.status='failed', coalesce(max(l.started_at),0)
+         FROM scrobbles s LEFT JOIN listens l ON l.id=s.listen_id
+         WHERE s.service=?1 AND s.status!='sent' AND s.error!=''
+         GROUP BY s.error, s.status='failed' ORDER BY count(*) DESC, 4 DESC",
+    )?;
+    let reasons = reasons
+        .query_map([service], |r| {
+            Ok(ScrobbleReason {
+                error: r.get(0)?,
+                listens: r.get(1)?,
+                failed: r.get(2)?,
+                latest: r.get(3)?,
+            })
+        })?
+        .collect::<rusqlite::Result<Vec<_>>>()?;
+    let mut recent = db.prepare(
+        "SELECT coalesce(t.title,''), coalesce(t.artist,''), coalesce(l.started_at,0), s.error, s.status='failed', s.attempts
+         FROM scrobbles s LEFT JOIN listens l ON l.id=s.listen_id LEFT JOIN tracks t ON t.id=l.track_id
+         WHERE s.service=?1 AND s.status!='sent' AND s.error!=''
+         ORDER BY 3 DESC LIMIT ?2",
+    )?;
+    let recent = recent
+        .query_map(params![service, limit as i64], |r| {
+            Ok(ScrobbleProblem {
+                title: r.get(0)?,
+                artist: r.get(1)?,
+                played: r.get(2)?,
+                error: r.get(3)?,
+                failed: r.get(4)?,
+                attempts: r.get(5)?,
+            })
+        })?
+        .collect::<rusqlite::Result<Vec<_>>>()?;
+    Ok(ScrobbleProblems { reasons, recent })
+}
+
 /// Return permanently failed listens to the queue, for one service or all.
 pub fn retry_failed_scrobbles(library: &Library, service: Option<&str>) -> Result<usize> {
     Ok(library.connection()?.execute(
@@ -1464,6 +1538,37 @@ mod tests {
                  INSERT INTO scrobbles VALUES ('e','listenbrainz','failed',1,0,'Bad request');",
             )
             .unwrap();
+        // The reasons, most listens first, and the listens themselves, latest first.
+        library
+            .upsert(&crate::model::Track {
+                id: "t1".into(),
+                path: "/m/1.flac".into(),
+                title: "Tidewater".into(),
+                artist: "Mara Quinn".into(),
+                ..Default::default()
+            })
+            .unwrap();
+        library
+            .connection()
+            .unwrap()
+            .execute_batch(
+                "INSERT INTO listens(id,track_id,started_at,qualified,data) VALUES ('a','t1',100,1,'{}');
+                 INSERT INTO listens(id,track_id,started_at,qualified,data) VALUES ('c','t1',200,1,'{}');",
+            )
+            .unwrap();
+        let problems = scrobble_problems(&library, "lastfm", 10).unwrap();
+        assert_eq!(problems.reasons.len(), 2);
+        assert!(
+            problems
+                .reasons
+                .iter()
+                .any(|r| r.failed && r.error.contains("code 1"))
+        );
+        assert_eq!(problems.recent.len(), 2);
+        assert_eq!(problems.recent[0].played, 200);
+        assert_eq!(problems.recent[0].title, "Tidewater");
+        assert!(problems.recent[0].failed);
+        assert!(!problems.recent[1].failed);
         assert_eq!(clear_failed_scrobbles(&library, Some("lastfm")).unwrap(), 1);
         let summary = scrobble_summary_with(&library, &Credentials::default()).unwrap();
         assert_eq!((summary.lastfm.pending, summary.lastfm.failed), (1, 0));

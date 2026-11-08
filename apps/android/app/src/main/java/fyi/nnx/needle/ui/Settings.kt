@@ -1354,6 +1354,7 @@ private fun ScrobblingSettings() {
                 run { core.setScrobbling(on, null); null }
             }
             TextButton(onClick = { run { core.signOut("lastfm"); "Signed out of Last.fm." } }, modifier = Modifier.padding(start = 56.dp, bottom = 4.dp)) { Text("Sign out of Last.fm") }
+            ScrobbleProblems("lastfm", refresh)
         } else {
             SettingRow(Icons.Rounded.MusicNote, "Last.fm", if (waitingForBrowser) "Waiting for Last.fm" else "Not connected") {
                 if (connectingLastfm || waitingForBrowser) {
@@ -1396,6 +1397,7 @@ private fun ScrobblingSettings() {
                 run { core.setScrobbling(null, on); null }
             }
             TextButton(onClick = { run { core.signOut("listenbrainz"); "Signed out of ListenBrainz." } }, modifier = Modifier.padding(start = 56.dp, bottom = 4.dp)) { Text("Sign out of ListenBrainz") }
+            ScrobbleProblems("listenbrainz", refresh)
         } else {
             SettingRow(Icons.Rounded.Headphones, "ListenBrainz", "Not connected") {
                 if (connectingLb) TextButton(onClick = { connectingLb = false }) { Text("Cancel") }
@@ -1637,6 +1639,57 @@ private fun FanartKeyRow() {
                     own = true
                     background { core.setFanartKey(saved) }
                 }) { Text("Save") }
+            }
+        }
+    }
+}
+
+/**
+ * Why listens did not reach a service, when some did not: each reason with how many listens it
+ * holds back (one reason for every listen, such as a refused sign-in, is not the same as a few the
+ * network dropped), then the latest listens held back. Hidden when nothing went wrong.
+ */
+@Composable
+private fun ScrobbleProblems(service: String, refresh: Int) {
+    var json by remember { mutableStateOf<org.json.JSONObject?>(null) }
+    var open by remember { mutableStateOf(false) }
+    LaunchedEffect(service, refresh) {
+        json = withContext(Dispatchers.IO) { runCatching { org.json.JSONObject(core.scrobbleProblemsJson(service)) }.getOrNull() }
+    }
+    val reasons = json?.optJSONArray("reasons") ?: return
+    if (reasons.length() == 0) return
+    val recent = json?.optJSONArray("recent")
+    fun whenText(seconds: Long) = if (seconds <= 0) "some time ago" else
+        android.text.format.DateUtils.getRelativeTimeSpanString(seconds * 1000, System.currentTimeMillis(), android.text.format.DateUtils.MINUTE_IN_MILLIS).toString()
+    Column(Modifier.fillMaxWidth().padding(start = 56.dp, end = 16.dp, bottom = 8.dp)) {
+        TextButton(onClick = { open = !open }) { Text(if (open) "Hide why listens were not sent" else "Why some listens were not sent") }
+        AnimatedVisibility(open) {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                for (i in 0 until reasons.length()) {
+                    val r = reasons.getJSONObject(i)
+                    val n = r.optInt("listens")
+                    Column {
+                        Text(r.optString("error"), style = MaterialTheme.typography.bodyMedium)
+                        Text(
+                            "${count(n, "listen")} · ${if (r.optBoolean("failed")) "refused for good" else "will be tried again"} · last ${whenText(r.optLong("latest"))}",
+                            style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                }
+                if (recent != null && recent.length() > 0) {
+                    Text("Latest", style = MaterialTheme.typography.titleSmall, modifier = Modifier.padding(top = 4.dp))
+                    for (i in 0 until recent.length()) {
+                        val item = recent.getJSONObject(i)
+                        val title = item.optString("title")
+                        Column {
+                            Text(if (title.isEmpty()) "A song no longer in your library" else "$title — ${item.optString("artist")}", style = MaterialTheme.typography.bodyMedium, maxLines = 1, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis)
+                            Text(
+                                "${whenText(item.optLong("played"))} · ${if (item.optBoolean("failed")) "refused" else count(item.optInt("attempts"), "attempt") + " so far"} · ${item.optString("error")}",
+                                style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 2,
+                            )
+                        }
+                    }
+                }
             }
         }
     }

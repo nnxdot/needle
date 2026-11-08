@@ -634,6 +634,7 @@ struct ScrobblingView: View {
                             accounts?.lastfmOn = on; Task { _ = await store.ask { try $0.setScrobbling(lastfm: on, listenbrainz: nil) }; await reload() }
                         }))
                         Button("Sign out", role: .destructive) { Task { _ = await store.ask { try $0.signOut(service: "lastfm") }; await reload() } }
+                        ScrobbleProblemsLink(service: "lastfm")
                     } else if waitingForBrowser {
                         Text("Allow Needle on the Last.fm page, then come back.")
                         Button("I allowed Needle") {
@@ -662,6 +663,7 @@ struct ScrobblingView: View {
                             accounts?.listenbrainzOn = on; Task { _ = await store.ask { try $0.setScrobbling(lastfm: nil, listenbrainz: on) }; await reload() }
                         }))
                         Button("Sign out", role: .destructive) { Task { _ = await store.ask { try $0.signOut(service: "listenbrainz") }; await reload() } }
+                        ScrobbleProblemsLink(service: "listenbrainz")
                     } else if connecting.contains("listenbrainz") {
                         SecureField("User token, from listenbrainz.org/settings", text: $token)
                         Button("Sign in") {
@@ -1233,5 +1235,61 @@ struct AboutView: View {
             crashReports = await store.load { $0.crashReports() } ?? false
             settings = await store.load { try $0.playbackSettings() }
         }
+    }
+}
+
+/// Why listens did not reach a service, when some did not: each reason with how many listens it
+/// holds back (one reason for every listen, such as a refused sign-in, is not the same as a few
+/// the network dropped), then the latest listens held back. Hidden when nothing went wrong.
+struct ScrobbleProblemsLink: View {
+    struct Problems: Decodable {
+        struct Reason: Decodable, Hashable { var error: String; var listens: Int; var failed: Bool; var latest: Int64 }
+        struct Item: Decodable, Hashable { var title: String; var artist: String; var played: Int64; var error: String; var failed: Bool; var attempts: Int }
+        var reasons: [Reason]
+        var recent: [Item]
+    }
+    @Environment(Store.self) private var store
+    let service: String
+    @State private var problems: Problems?
+
+    var body: some View {
+        Group {
+            if let p = problems, !p.reasons.isEmpty {
+                NavigationLink("Why some listens were not sent") { list(p) }
+            }
+        }
+        .task {
+            let service = service
+            let json = await store.load { $0.scrobbleProblemsJson(service: service) } ?? ""
+            problems = try? JSONDecoder().decode(Problems.self, from: Data(json.utf8))
+        }
+    }
+
+    private func list(_ p: Problems) -> some View {
+        List {
+            Section("Why") {
+                ForEach(p.reasons, id: \.self) { r in
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(r.error)
+                        Text("\(r.listens) listen\(r.listens == 1 ? "" : "s") · \(r.failed ? "refused for good" : "will be tried again") · last \(when(r.latest))")
+                            .font(.needle(.caption)).foregroundStyle(.secondary)
+                    }
+                }
+            }
+            Section("Latest") {
+                ForEach(p.recent, id: \.self) { item in
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(item.title.isEmpty ? "A song no longer in your library" : "\(item.title) — \(item.artist)").lineLimit(1)
+                        Text("\(when(item.played)) · \(item.failed ? "refused" : "\(item.attempts) attempt\(item.attempts == 1 ? "" : "s") so far") · \(item.error)")
+                            .font(.needle(.caption)).foregroundStyle(.secondary).lineLimit(2)
+                    }
+                }
+            }
+        }
+        .navigationTitle("Not sent")
+    }
+
+    private func when(_ seconds: Int64) -> String {
+        seconds > 0 ? Date(timeIntervalSince1970: TimeInterval(seconds)).formatted(.relative(presentation: .named)) : "some time ago"
     }
 }

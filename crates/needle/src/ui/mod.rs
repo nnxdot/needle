@@ -755,6 +755,8 @@ pub struct AppView {
     groups: Vec<library::Group>,
     service_status: Option<integrations::ServiceStatus>,
     scrobble_summary: Option<integrations::ScrobbleSummary>,
+    /// Settings › Scrobbling › Details: why listens did not reach that service.
+    scrobble_problems: Option<(&'static str, integrations::ScrobbleProblems)>,
     service_busy: bool,
     lastfm_pending: Option<integrations::LastfmPending>,
     lastfm_key: Entity<InputState>,
@@ -1386,6 +1388,7 @@ impl AppView {
             groups: vec![],
             service_status: None,
             scrobble_summary: None,
+            scrobble_problems: None,
             service_busy: false,
             lastfm_pending: None,
             lastfm_key,

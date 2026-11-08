@@ -91,6 +91,9 @@ struct ServicesSettings: View {
                     if let error = q.signInRequired ?? q.lastError {
                         Text(error).font(.needle(.caption)).foregroundStyle(store.plainColors.danger).lineLimit(1)
                     }
+                    // What went wrong, song by song: one reason for every listen (a refused
+                    // sign-in) is not the same as a few that the network dropped.
+                    ScrobbleProblemsButton(service: service)
                     if q.failed > 0 {
                         // Refused for good, a listen stays failed: Clear failed lets it go.
                         HStack {
@@ -755,4 +758,75 @@ func openWebPage(_ address: String) {
         return
     }
     NSWorkspace.shared.open(url)
+}
+
+/// Why listens did not reach a service: each reason with how many listens it holds back and
+/// when it last happened, then the latest listens held back, song by song.
+private struct ScrobbleProblems: Decodable {
+    struct Reason: Decodable, Hashable { var error: String; var listens: Int; var failed: Bool; var latest: Int64 }
+    struct Problem: Decodable, Hashable { var title: String; var artist: String; var played: Int64; var error: String; var failed: Bool; var attempts: Int }
+    var reasons: [Reason]
+    var recent: [Problem]
+}
+
+/// "Details…" beside a service's waiting or failed listens: what went wrong, in a popover.
+private struct ScrobbleProblemsButton: View {
+    private var store: Store { .shared }
+    let service: String
+    @State private var shown = false
+    @State private var problems: ScrobbleProblems?
+
+    var body: some View {
+        Button("Details…") { shown = true }
+            .controlSize(.small)
+            .fixedSize()
+            .popover(isPresented: $shown, arrowEdge: .bottom) {
+                content
+                    .frame(width: 440)
+                    .frame(maxHeight: 460)
+                    .task {
+                        let service = service
+                        problems = JSON.decode(ScrobbleProblems.self, await store.load { $0.scrobbleProblemsJson(service: service) })
+                    }
+            }
+    }
+
+    @ViewBuilder
+    private var content: some View {
+        if let p = problems {
+            if p.reasons.isEmpty {
+                Text("Nothing went wrong lately.").foregroundStyle(.secondary).padding(20)
+            } else {
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 14) {
+                        Text("Why").font(.needle(.headline))
+                        ForEach(p.reasons, id: \.self) { r in
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(r.error).fixedSize(horizontal: false, vertical: true)
+                                Text("\(count(r.listens, "listen")) · \(r.failed ? "refused for good" : "will be tried again") · last \(when(r.latest))")
+                                    .font(.needle(.caption)).foregroundStyle(.secondary)
+                            }
+                        }
+                        Divider()
+                        Text("Latest").font(.needle(.headline))
+                        ForEach(p.recent, id: \.self) { item in
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(item.title.isEmpty ? "A song no longer in your library" : "\(item.title) — \(item.artist)").lineLimit(1)
+                                Text("\(when(item.played)) · \(item.failed ? "refused" : "\(count(item.attempts, "attempt")) so far") · \(item.error)")
+                                    .font(.needle(.caption)).foregroundStyle(.secondary).lineLimit(2)
+                            }
+                        }
+                    }
+                    .padding(18)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                }
+            }
+        } else {
+            ProgressView().padding(30)
+        }
+    }
+
+    private func when(_ seconds: Int64) -> String {
+        seconds > 0 ? Date(timeIntervalSince1970: TimeInterval(seconds)).formatted(.relative(presentation: .named)) : "some time ago"
+    }
 }

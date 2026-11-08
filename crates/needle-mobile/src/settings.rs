@@ -476,6 +476,16 @@ impl Needle {
         Ok(url)
     }
 
+    /// Why listens did not reach `service` ("lastfm" or "listenbrainz"), as JSON: `reasons`
+    /// (`error`, `listens`, `failed`, `latest`) and the latest 20 listens held back (`title`,
+    /// `artist`, `played`, `error`, `failed`, `attempts`).
+    pub fn scrobble_problems_json(&self, service: String) -> String {
+        needle_core::integrations::scrobble_problems(&self.library, &service, 20)
+            .ok()
+            .and_then(|p| serde_json::to_string(&p).ok())
+            .unwrap_or_else(|| "{\"reasons\":[],\"recent\":[]}".into())
+    }
+
     /// Finishes signing in to Last.fm once the listener allowed Needle in the browser.
     pub fn lastfm_complete(&self) -> Result<String> {
         let pending = PENDING
