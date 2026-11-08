@@ -4984,6 +4984,7 @@ dependencies = [
  "libc",
  "ndk-context",
  "needle-core",
+ "qrcode",
  "rand 0.8.8",
  "reqwest",
  "serde",

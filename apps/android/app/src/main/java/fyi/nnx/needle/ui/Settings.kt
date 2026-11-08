@@ -1339,16 +1339,37 @@ private fun ScrobblingSettings() {
     LaunchedEffect(Unit) { playback = withContext(Dispatchers.IO) { runCatching { core.playbackSettings() }.getOrNull() } }
     var key by remember { mutableStateOf("") }
     var secret by remember { mutableStateOf("") }
+    // A TV has no browser to allow Needle in: Last.fm's page shows as a QR code, for a phone.
+    val tv = isTv()
+    var qrPage by remember { mutableStateOf<String?>(null) }
     // Last.fm's page, where Needle is allowed: opened at once with Needle's own key, else after
-    // the key and secret of the person's own API account are in.
+    // the key and secret of the person's own API account are in. On a TV, or with no browser,
+    // it shows as a QR code to open on a phone.
     fun openLastfm() {
         run {
             val url = core.lastfmBegin(key, secret)
-            // Without a browser there is no page to allow Needle on; say so plainly.
-            if (tryOpen("web browser to sign in with") { context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) }) {
-                waitingForBrowser = true
-            }
+            val opened = !tv && runCatching {
+                context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+            }.isSuccess
+            qrPage = if (opened) null else url
+            waitingForBrowser = true
             null
+        }
+    }
+    // With the QR code up, Needle asks Last.fm every few seconds whether it was allowed, so the
+    // remote has nothing more to press (for 10 minutes; then "I allowed it" still works).
+    LaunchedEffect(qrPage) {
+        val page = qrPage ?: return@LaunchedEffect
+        repeat(200) {
+            kotlinx.coroutines.delay(3000)
+            if (qrPage != page) return@LaunchedEffect
+            val user = withContext(Dispatchers.IO) { runCatching { core.lastfmComplete() }.getOrNull() } ?: return@repeat
+            qrPage = null
+            waitingForBrowser = false
+            connectingLastfm = false
+            message = if (user.isBlank()) "Signed in to Last.fm." else "Signed in as $user."
+            refresh++
+            return@LaunchedEffect
         }
     }
 
@@ -1361,7 +1382,7 @@ private fun ScrobblingSettings() {
         } else {
             SettingRow(Icons.Rounded.MusicNote, "Last.fm", if (waitingForBrowser) "Waiting for Last.fm" else "Not connected") {
                 if (connectingLastfm || waitingForBrowser) {
-                    TextButton(onClick = { connectingLastfm = false; waitingForBrowser = false }) { Text("Cancel") }
+                    TextButton(onClick = { connectingLastfm = false; waitingForBrowser = false; qrPage = null }) { Text("Cancel") }
                 } else {
                     FilledTonalButton(enabled = !busy, onClick = {
                         // With Needle's own key there is nothing to fill in: straight to Last.fm.
@@ -1372,18 +1393,25 @@ private fun ScrobblingSettings() {
             AnimatedVisibility(waitingForBrowser || connectingLastfm) {
                 Column(Modifier.fillMaxWidth().padding(start = 68.dp, end = 16.dp, bottom = 16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                     if (waitingForBrowser) {
-                        Text("Allow Needle on the Last.fm page, then come back here.", style = MaterialTheme.typography.bodyMedium)
+                        val page = qrPage
+                        if (page != null) {
+                            Text("Scan this with your phone's camera, sign in, and allow Needle. Needle signs in here by itself.", style = MaterialTheme.typography.bodyMedium)
+                            QrCode(page, Modifier.size(220.dp))
+                        } else {
+                            Text("Allow Needle on the Last.fm page, then come back here.", style = MaterialTheme.typography.bodyMedium)
+                        }
                         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                             Button(enabled = !busy, onClick = {
                                 run {
                                     val user = core.lastfmComplete()
                                     waitingForBrowser = false
                                     connectingLastfm = false
+                                    qrPage = null
                                     if (user.isBlank()) "Signed in to Last.fm." else "Signed in as $user."
                                 }
                             }) { Text("I allowed it") }
                             // The page was closed, or the key was wrong: ask for a new page.
-                            TextButton(enabled = !busy, onClick = { waitingForBrowser = false; if (a.lastfmKeyBuiltIn) openLastfm() }) { Text("Open the page again") }
+                            TextButton(enabled = !busy, onClick = { waitingForBrowser = false; qrPage = null; if (a.lastfmKeyBuiltIn) openLastfm() }) { Text(if (qrPage != null) "New code" else "Open the page again") }
                         }
                     } else {
                         Text("This build needs your own Last.fm API account, from last.fm/api.", style = MaterialTheme.typography.bodyMedium)
@@ -1641,6 +1669,23 @@ private fun FanartKeyRow() {
                     own = true
                     background { core.setFanartKey(saved) }
                 }) { Text("Save") }
+            }
+        }
+    }
+}
+
+/** A QR code of [text] (a sign-in page to open on a phone), dark on white with a quiet edge. */
+@Composable
+fun QrCode(text: String, modifier: Modifier = Modifier) {
+    val code = remember(text) { runCatching { core.qrCode(text) }.getOrNull() } ?: return
+    androidx.compose.foundation.Canvas(modifier.clip(RoundedCornerShape(12.dp)).background(Color.White)) {
+        val n = code.width.toInt()
+        // Four squares of white around it, as readers expect.
+        val cell = size.minDimension / (n + 8)
+        val start = (size.minDimension - cell * n) / 2
+        for (y in 0 until n) for (x in 0 until n) {
+            if (code.dark[y * n + x]) {
+                drawRect(Color.Black, androidx.compose.ui.geometry.Offset(start + x * cell, start + y * cell), androidx.compose.ui.geometry.Size(cell + 0.5f, cell + 0.5f))
             }
         }
     }
