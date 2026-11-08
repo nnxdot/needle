@@ -30,9 +30,145 @@ impl AppView {
                         Err(e) => Event::Error(format!("{e:#}")),
                     });
                 });
+                self.load_genre_art();
             }
             _ => {}
         }
+    }
+
+    /// The cloud or bubbles, laid out by the core for the map's shape (when one shows).
+    fn load_genre_art(&mut self) {
+        let (view, plays) = (self.genre_view, self.genre_by_plays);
+        if view == 0 {
+            return;
+        }
+        let (library, sender) = (self.library.clone(), self.sender.clone());
+        std::thread::spawn(move || {
+            use needle_core::genre_art::ArtKind;
+            let (kind, most) = if view == 1 {
+                (ArtKind::Cloud, 120)
+            } else {
+                (ArtKind::Bubbles, 160)
+            };
+            let _ = sender.send(match library.genre_art(kind, plays, 1.6, most) {
+                Ok(art) => Event::GenreArt(view, plays, Box::new(art)),
+                Err(e) => Event::Error(format!("{e:#}")),
+            });
+        });
+    }
+
+    /// Plays a genre written any of these ways, shuffled.
+    fn play_genres(&mut self, spellings: &[String]) {
+        match self.library.songs_of_genres(spellings, 500) {
+            Ok(tracks) if !tracks.is_empty() => self.play_tracks(tracks, "From the genre map"),
+            Ok(_) => {}
+            Err(e) => self.fail(format!("{e:#}")),
+        }
+    }
+
+    /// The cloud (words) or bubbles (circles by family), drawn where the core placed them, as
+    /// wide as `side` (or as tall as `most_height`, when the picture is the taller).
+    fn genre_art_view(&self, side: f32, most_height: f32, cx: &mut Context<Self>) -> Div {
+        let p = pal(cx);
+        let Some((view, plays, art)) = self.genre_art.clone() else {
+            return div().child(meta("Laying it out…", cx));
+        };
+        if view != self.genre_view || plays != self.genre_by_plays {
+            return div().child(meta("Laying it out…", cx));
+        }
+        if art.items.is_empty() {
+            return div().child(meta(
+                if plays {
+                    "Nothing played yet."
+                } else {
+                    "Your songs have no genres in their tags yet."
+                },
+                cx,
+            ));
+        }
+        let scale = side.min(most_height / art.height.max(0.01));
+        let cloud = view == 1;
+        let items = art.items.iter().enumerate().map(|(i, item)| {
+            let tone = hsla(
+                item.hue / 360.,
+                if p.dark { 0.5 } else { 0.6 },
+                if p.dark { 0.68 } else { 0.4 },
+                1.,
+            );
+            let spellings = item.spellings.clone();
+            let (x, y, size) = (item.x * scale, item.y * scale, item.size * scale);
+            let tip = format!(
+                "{}: {} songs, {} plays · {}",
+                item.genre, item.songs, item.plays, item.family
+            );
+            let el = if cloud {
+                // A box as wide as the core reckoned the word, the word centred in it.
+                let w = needle_core::genre_art::word_width(&item.genre) * size;
+                let h = size * 1.3;
+                div()
+                    .id(("genre-word", i))
+                    .absolute()
+                    .left(px(x - w / 2.))
+                    .top(px(y - h / 2.))
+                    .w(px(w))
+                    .h(px(h))
+                    .flex()
+                    .items_center()
+                    .justify_center()
+                    .whitespace_nowrap()
+                    .text_size(px(size.max(6.)))
+                    .line_height(px(h))
+                    .font_weight(FontWeight::BOLD)
+                    .text_color(tone)
+                    .cursor_pointer()
+                    .hover(move |s| s.text_color(tone.opacity(0.75)))
+                    .child(item.genre.clone())
+            } else {
+                div()
+                    .id(("genre-circle", i))
+                    .absolute()
+                    .left(px(x - size))
+                    .top(px(y - size))
+                    .size(px(size * 2.))
+                    .rounded_full()
+                    .bg(tone.opacity(0.9))
+                    .flex()
+                    .items_center()
+                    .justify_center()
+                    .cursor_pointer()
+                    .hover(move |s| s.bg(tone))
+                    // As big as fits, its longest word on one line; no name when too small.
+                    .when_some(
+                        Some((size * 0.32).clamp(8., 20.).min(size * item.fit))
+                            .filter(|f| *f >= 7.),
+                        |el, font| {
+                            el.child(
+                                div()
+                                    .w(px(size * 1.6))
+                                    .text_center()
+                                    .overflow_hidden()
+                                    .text_size(px(font))
+                                    .font_weight(FontWeight::SEMIBOLD)
+                                    .text_color(if p.dark {
+                                        hsla(0., 0., 0., 0.85)
+                                    } else {
+                                        hsla(0., 0., 1., 1.)
+                                    })
+                                    .child(item.genre.clone()),
+                            )
+                        },
+                    )
+            };
+            el.tooltip(move |window, cx| {
+                gpui_component::tooltip::Tooltip::new(tip.clone()).build(window, cx)
+            })
+            .on_click(cx.listener(move |this, _, _, _| this.play_genres(&spellings)))
+        });
+        div()
+            .relative()
+            .w(px(scale))
+            .h(px(art.height * scale))
+            .children(items)
     }
 
     pub(super) fn numbers_view(&self, width: f32, cx: &mut Context<Self>) -> AnyElement {
@@ -373,26 +509,31 @@ impl AppView {
                         ))
                     })
                     .on_click(cx.listener(move |this, _, _, _| this.play_genre(&genre)))
-            });
-        let chips = rest.into_iter().enumerate().map(|(i, spot)| {
-            let genre = spot.genre.clone();
-            div()
-                .id(("genre-chip", i))
-                .px_3()
-                .py(px(5.))
-                .rounded_full()
-                .bg(p.raised)
-                .border_1()
-                .border_color(p.line_soft)
-                .text_size(px(12.5))
-                .cursor_pointer()
-                .hover(|s| s.bg(p.raised.opacity(0.7)))
-                .flex()
-                .gap_2()
-                .child(div().child(spot.genre.clone()))
-                .child(faint(super::widgets::count(spot.songs), cx))
-                .on_click(cx.listener(move |this, _, _, _| this.play_genre(&genre)))
-        });
+            })
+            .collect::<Vec<_>>();
+        let chips = rest
+            .into_iter()
+            .enumerate()
+            .map(|(i, spot)| {
+                let genre = spot.genre.clone();
+                div()
+                    .id(("genre-chip", i))
+                    .px_3()
+                    .py(px(5.))
+                    .rounded_full()
+                    .bg(p.raised)
+                    .border_1()
+                    .border_color(p.line_soft)
+                    .text_size(px(12.5))
+                    .cursor_pointer()
+                    .hover(|s| s.bg(p.raised.opacity(0.7)))
+                    .flex()
+                    .gap_2()
+                    .child(div().child(spot.genre.clone()))
+                    .child(faint(super::widgets::count(spot.songs), cx))
+                    .on_click(cx.listener(move |this, _, _, _| this.play_genre(&genre)))
+            })
+            .collect::<Vec<_>>();
         let total = spots.len();
         let measured = spots.iter().any(|g| g.place.is_some());
         div()
@@ -412,7 +553,13 @@ impl AppView {
                     .gap_1()
                     .child(page_title("Genre map"))
                     .child(meta(
-                        if total == 0 {
+                        if self.genre_view != 0 {
+                            format!(
+                                "Every genre a {}, as big as its {}. Click one to play it.",
+                                if self.genre_view == 1 { "word" } else { "circle, grouped by family" },
+                                if self.genre_by_plays { "plays" } else { "songs" }
+                            )
+                        } else if total == 0 {
                             "Your songs have no genres in their tags yet.".to_string()
                         } else if !measured {
                             "Needle measures each song's sound in the background (Settings › Playback). Genres take their place as their songs are measured.".to_string()
@@ -422,7 +569,32 @@ impl AppView {
                         cx,
                     )),
             )
-            .when(measured, |el| {
+            // Map, Cloud, or Bubbles; the last two by songs or plays.
+            .child({
+                let weak = cx.entity().downgrade();
+                let by = cx.entity().downgrade();
+                div()
+                    .flex()
+                    .gap_3()
+                    .child(super::widgets::segmented("genre-view", &["Map", "Cloud", "Bubbles"], self.genre_view, cx, move |i, _, cx| {
+                        let _ = weak.update(cx, |this, cx| {
+                            this.genre_view = i;
+                            this.load_genre_art();
+                            cx.notify();
+                        });
+                    }))
+                    .when(self.genre_view != 0, |el| {
+                        el.child(super::widgets::segmented("genre-by", &["By songs", "By plays"], usize::from(self.genre_by_plays), cx, move |i, _, cx| {
+                            let _ = by.update(cx, |this, cx| {
+                                this.genre_by_plays = i == 1;
+                                this.load_genre_art();
+                                cx.notify();
+                            });
+                        }))
+                    })
+            })
+            .when(self.genre_view != 0, |el| el.child(self.genre_art_view(side, 640., cx)))
+            .when(measured && self.genre_view == 0, |el| {
                 el.child(
                     div()
                         .relative()
@@ -440,7 +612,7 @@ impl AppView {
                         .child(div().absolute().left(px(70.)).bottom(px(8.)).child(faint("Dark", cx))),
                 )
             })
-            .when(chips.len() > 0, |el| {
+            .when(!chips.is_empty() && self.genre_view == 0, |el| {
                 el.child(display("More genres", 18.))
                     .child(div().flex().flex_wrap().gap_2().children(chips))
             })

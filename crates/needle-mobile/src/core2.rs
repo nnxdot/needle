@@ -541,6 +541,40 @@ impl Needle {
             .collect())
     }
 
+    /// The genre map's cloud (`kind` "cloud") or bubbles ("bubbles") as JSON, laid out by the
+    /// core for a picture `aspect` times as wide as high: `height` (the width is 1) and `items`,
+    /// each with `genre`, `spellings`, `songs`, `plays`, `family`, `hue`, `x`, `y`, and `size`
+    /// (a word's font size or a circle's radius). By plays with `by_plays`, else by songs.
+    pub fn genre_art_json(&self, kind: String, by_plays: bool, aspect: f32) -> String {
+        let kind = if kind == "cloud" {
+            needle_core::genre_art::ArtKind::Cloud
+        } else {
+            needle_core::genre_art::ArtKind::Bubbles
+        };
+        let most = if kind == needle_core::genre_art::ArtKind::Cloud {
+            120
+        } else {
+            160
+        };
+        self.library
+            .genre_art(kind, by_plays, aspect, most)
+            .ok()
+            .and_then(|art| serde_json::to_string(&art).ok())
+            .unwrap_or_else(|| "{\"height\":1,\"items\":[]}".into())
+    }
+
+    /// The songs of a genre written any of these ways (a word or bubble of the genre map),
+    /// shuffled, at most 500.
+    pub fn genres_songs(&self, spellings: Vec<String>) -> Result<Vec<Song>> {
+        Ok(self
+            .library
+            .songs_of_genres(&spellings, 500)?
+            .iter()
+            .filter(|t| !t.missing)
+            .map(Song::from)
+            .collect())
+    }
+
     /// The songs inside a circle on the mood map, nearest the centre first (to play).
     pub fn mood_area(&self, x: f32, y: f32, radius: f32, limit: u32) -> Result<Vec<Song>> {
         Ok(self

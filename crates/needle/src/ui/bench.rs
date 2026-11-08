@@ -364,6 +364,18 @@ impl AppView {
                             }
                         }
                     }
+                    // "genres:cloud" or "genres:bubbles" (":plays" after, by plays): the genre map
+                    // in that view.
+                    Some(("genres", how)) => {
+                        let (kind, by) = how.split_once(':').unwrap_or((how, ""));
+                        v.genre_view = match kind {
+                            "cloud" => 1,
+                            "bubbles" => 2,
+                            _ => 0,
+                        };
+                        v.genre_by_plays = by == "plays";
+                        open(v, Page::MoodMap, window, cx);
+                    }
                     // "search:harbor": the Search page, with that typed.
                     Some(("search", text)) => {
                         v.search

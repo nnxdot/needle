@@ -432,6 +432,7 @@ enum Event {
     Translated(String, Vec<String>),
     Numbers(Box<needle_core::numbers::LibraryNumbers>),
     GenreMap(Vec<needle_core::radio::GenreSpot>),
+    GenreArt(usize, bool, Box<needle_core::genre_art::GenreArt>),
     ArtFetched,
     MediaKey(media_keys::Key),
     /// A key everywhere (or a taskbar button) was pressed: its action.
@@ -507,6 +508,12 @@ pub struct AppView {
     numbers: Option<Box<needle_core::numbers::LibraryNumbers>>,
     /// The genre map's genres, the most songs first.
     genre_spots: std::rc::Rc<Vec<needle_core::radio::GenreSpot>>,
+    /// The genre map's view: 0 the map (where the songs sound), 1 the cloud, 2 the bubbles.
+    genre_view: usize,
+    /// The cloud and bubbles by plays, not songs.
+    genre_by_plays: bool,
+    /// The cloud or bubbles laid out by the core, for the view and order they were asked for.
+    genre_art: Option<(usize, bool, std::rc::Rc<needle_core::genre_art::GenreArt>)>,
     page: Page,
     back: Vec<Page>,
     /// Pages left by going back, for going forward again (a new page clears it).
@@ -1223,6 +1230,9 @@ impl AppView {
             crate_scroll: 0.,
             numbers: None,
             genre_spots: Default::default(),
+            genre_view: 0,
+            genre_by_plays: false,
+            genre_art: None,
             library,
             player,
             playback,
@@ -1730,6 +1740,9 @@ impl AppView {
                 Event::Translated(id, lines) => self.translation = Some((id, lines)),
                 Event::Numbers(numbers) => self.numbers = Some(numbers),
                 Event::GenreMap(spots) => self.genre_spots = std::rc::Rc::new(spots),
+                Event::GenreArt(view, plays, art) => {
+                    self.genre_art = Some((view, plays, std::rc::Rc::new(*art)))
+                }
                 Event::Subfolders(path, list) => self.subfolders = Some((path, list)),
                 Event::Wrapped(wrapped, years) => self.wrapped_loaded(*wrapped, years),
                 Event::Doctor(msg) => self.doctor_message(msg),
