@@ -47,7 +47,7 @@ extension View {
             case .artist(let name): ArtistView(name: name)
             case .playlist(let playlist): PlaylistView(playlist: playlist)
             case .genre(let name): GenreView(name: name)
-            case .rule(let title, let query): SongList(title: title) { try $0.searchSongsPage(query: query, offset: 0, size: 2000) }
+            case .rule(let title, let query): PagedSongs(title: title, query: query)
             case .folder(let path): FoldersView(path: path)
             case .folders: FoldersView(path: nil)
             case .albums: AlbumsView()

@@ -92,10 +92,11 @@ struct DoctorPage: View {
         .buttonStyle(.plain)
     }
 
-    /// The songs a rule finds, on the Songs page.
+    /// The songs a rule finds, on the Songs page: the page first (opening a page clears the
+    /// search), then the rule, which the Songs page filters by.
     private func show(_ rule: String) {
-        store.search = rule
         store.navigate(.songs)
+        store.search = rule
     }
 }
 

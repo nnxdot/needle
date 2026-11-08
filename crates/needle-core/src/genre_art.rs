@@ -350,20 +350,34 @@ impl Library {
     }
 
     /// The songs of a genre written any of these ways, shuffled, at most `limit` (to play a word
-    /// or a bubble).
+    /// or a bubble): matched as the pictures count them, each genre of a tag apart ("Rock; Pop"
+    /// is in both) and written any way ("Hip-Hop", "hip hop"), each song once.
     pub fn songs_of_genres(
         &self,
         spellings: &[String],
         limit: usize,
     ) -> Result<Vec<crate::model::Track>> {
-        let mut songs = vec![];
-        for genre in spellings {
-            songs.extend(self.genre_songs(genre, limit)?);
+        let keys: std::collections::HashSet<String> = spellings.iter().map(|g| key(g)).collect();
+        let db = self.connection()?;
+        let mut stmt =
+            db.prepare("SELECT id, genre FROM tracks WHERE genre != '' AND missing=0")?;
+        let rows = stmt.query_map([], |r| Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?)))?;
+        let mut ids = vec![];
+        for row in rows {
+            let (id, field) = row?;
+            if field
+                .split([';', ' '])
+                .map(str::trim)
+                .any(|g| !g.is_empty() && keys.contains(&key(g)))
+            {
+                ids.push(id);
+            }
         }
+        drop(stmt);
         use rand::seq::SliceRandom;
-        songs.shuffle(&mut rand::thread_rng());
-        songs.truncate(limit.max(1));
-        Ok(songs)
+        ids.shuffle(&mut rand::thread_rng());
+        ids.truncate(limit.max(1));
+        self.tracks_by_ids(&ids)
     }
 }
 
@@ -657,6 +671,26 @@ mod tests {
         }
         // Bigger genres, bigger words.
         assert!(art.items[0].size > art.items.last().unwrap().size);
+    }
+
+    #[test]
+    fn a_genre_plays_every_song_once_however_its_tag_is_written() {
+        let (_dir, library) = library(&[("Rock; Pop", 2), ("rock", 3), ("Rock", 1), ("Jazz", 1)]);
+        let art = library.genre_art(ArtKind::Bubbles, false, 1.5, 50).unwrap();
+        let rock = art.items.iter().find(|i| key(&i.genre) == "rock").unwrap();
+        assert_eq!(rock.songs, 6);
+        let songs = library.songs_of_genres(&rock.spellings, 500).unwrap();
+        let ids: std::collections::HashSet<String> = songs.iter().map(|t| t.id.clone()).collect();
+        assert_eq!(
+            (songs.len(), ids.len()),
+            (6, 6),
+            "each Rock song once, the Rock; Pop ones too"
+        );
+        let pop = art.items.iter().find(|i| i.genre == "Pop").unwrap();
+        assert_eq!(
+            library.songs_of_genres(&pop.spellings, 500).unwrap().len(),
+            2
+        );
     }
 
     #[test]

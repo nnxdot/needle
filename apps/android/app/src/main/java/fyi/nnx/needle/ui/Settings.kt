@@ -1372,6 +1372,8 @@ private fun ScrobblingSettings() {
             kotlinx.coroutines.delay(3000)
             if (qrPage != page) return@LaunchedEffect
             val user = withContext(Dispatchers.IO) { runCatching { core.lastfmComplete() }.getOrNull() } ?: return@repeat
+            // A new code made while it asked: that one's own check goes on.
+            if (qrPage != page) return@LaunchedEffect
             qrPage = null
             waitingForBrowser = false
             connectingLastfm = false

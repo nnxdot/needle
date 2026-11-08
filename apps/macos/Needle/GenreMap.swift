@@ -276,9 +276,16 @@ struct GenreMapPage: View {
         return "\(count(art.items.count, "genre")). \(what) \(byPlays ? "their plays" : "their songs"). Click one to play it."
     }
 
+    /// Plays a word's or bubble's songs as the picture counts them (each genre of a tag apart,
+    /// written any way), shuffled, by the core.
     private func play(_ item: GenreArt.Item) {
-        let rule = item.spellings.map { "genre = \(Rule.quote($0))" }.joined(separator: " or ")
-        Task { _ = await store.ask { try $0.playView(query: rule, playlist: nil, filter: "", start: 0, shuffle: true, reason: "From the genre map") } }
+        let spellings = item.spellings
+        Task {
+            let songs = await store.ask { try $0.genresSongs(spellings: spellings) } ?? []
+            guard !songs.isEmpty else { return }
+            let ids = songs.map(\.id)
+            _ = await store.ask { try $0.playSongs(ids: ids, start: 0, reason: "From the genre map") }
+        }
     }
 
     private func play(_ genre: String) {

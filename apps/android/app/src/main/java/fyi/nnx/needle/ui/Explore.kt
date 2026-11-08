@@ -1,5 +1,6 @@
 package fyi.nnx.needle.ui
 
+import androidx.compose.runtime.collectAsState
 import androidx.compose.material3.SegmentedButton
 import androidx.compose.runtime.LaunchedEffect
 import kotlinx.coroutines.withContext
@@ -203,9 +204,14 @@ fun MoodMapScreen() {
     var view by androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf("map") }
     var byPlays by androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf(false) }
     var art by remember { mutableStateOf<org.json.JSONObject?>(null) }
-    LaunchedEffect(view, byPlays) {
+    var artFor by remember { mutableStateOf("") }
+    // Laid out again when the library changes (a scan that ends while the page is open).
+    val version by NeedleApp.instance.libraryVersion.collectAsState()
+    LaunchedEffect(view, byPlays, version) {
         if (view == "map") return@LaunchedEffect
-        art = null
+        // Cleared for another view or order; a library change keeps the old one until the new.
+        val key = "$view|$byPlays"
+        if (key != artFor) { art = null; artFor = key }
         art = withContext(kotlinx.coroutines.Dispatchers.IO) {
             runCatching { org.json.JSONObject(NeedleApp.instance.core.genreArtJson(view, byPlays, 0.8f)) }.getOrNull()
         }

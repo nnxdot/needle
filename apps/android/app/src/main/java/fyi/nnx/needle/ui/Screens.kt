@@ -172,10 +172,19 @@ fun GenreScreen(name: String, open: (Route) -> Unit) {
     SongListPage(name, songs, open, songsLoad.loading)
 }
 
-/** The songs a rule finds (such as `not exists(genre)`), at most 2,000. */
+/** Every song a rule finds (such as `not exists(genre)`), page after page. */
 @Composable
 fun RuleScreen(title: String, query: String, open: (Route) -> Unit) {
-    val songsLoad = rememberLoaded(query) { searchSongsPage(query, 0u, 2000u) }
+    val songsLoad = rememberLoaded(query) {
+        // The core gives at most a thousand at a time: ask until a page comes back short.
+        val all = mutableListOf<fyi.nnx.needle.core.Song>()
+        while (true) {
+            val page = searchSongsPage(query, all.size.toUInt(), 1000u)
+            all += page
+            if (page.size < 1000) break
+        }
+        all.toList()
+    }
     val songs by songsLoad
     SongListPage(title, songs, open, songsLoad.loading)
 }

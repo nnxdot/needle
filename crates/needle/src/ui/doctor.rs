@@ -664,10 +664,13 @@ impl AppView {
             })
         };
         let show = |rule: &'static str| -> CardAction {
+            // As Back expects (navigate), on the All tab (not Lyrics or another left from an
+            // earlier search), with the rule typed in.
             Box::new(move |this, window, cx| {
+                this.navigate(super::Page::Search, window, cx);
+                this.search_tab = Default::default();
                 this.search
                     .update(cx, |s, cx| s.set_value(rule.to_string(), window, cx));
-                this.page = super::Page::Search;
                 this.run_find(cx);
             })
         };

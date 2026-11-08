@@ -1740,8 +1740,12 @@ impl AppView {
                 Event::Translated(id, lines) => self.translation = Some((id, lines)),
                 Event::Numbers(numbers) => self.numbers = Some(numbers),
                 Event::GenreMap(spots) => self.genre_spots = std::rc::Rc::new(spots),
+                // Only for the view and order showing now: a late answer for another (switched
+                // away from while it was laid out) would leave this one waiting for good.
                 Event::GenreArt(view, plays, art) => {
-                    self.genre_art = Some((view, plays, std::rc::Rc::new(*art)))
+                    if (view, plays) == (self.genre_view, self.genre_by_plays) {
+                        self.genre_art = Some((view, plays, std::rc::Rc::new(*art)));
+                    }
                 }
                 Event::Subfolders(path, list) => self.subfolders = Some((path, list)),
                 Event::Wrapped(wrapped, years) => self.wrapped_loaded(*wrapped, years),

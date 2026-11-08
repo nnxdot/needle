@@ -21,11 +21,17 @@ enum Bookmarks {
            let list = try? PropertyListDecoder().decode([String: Data].self, from: data) {
             saved = list
         }
+        reopen()
+    }
+
+    /// Opens the saved bookmarks not open yet: at the start, and when a drive is plugged in (one
+    /// whose folders were away at the start could not be opened then).
+    static func reopen() {
         var changed = false
-        for (path, bookmark) in saved {
+        for (path, bookmark) in saved where opened[path] == nil {
             var stale = false
             // A bookmark that does not resolve now (a drive that is not plugged in) is kept:
-            // it may work at the next start.
+            // it may work when its drive is plugged in, or at the next start.
             guard let url = try? URL(resolvingBookmarkData: bookmark, options: [.withSecurityScope, .withoutUI],
                                      relativeTo: nil, bookmarkDataIsStale: &stale) else { continue }
             if url.startAccessingSecurityScopedResource() { opened[path] = url }

@@ -505,22 +505,23 @@ impl Needle {
 
     /// Finishes signing in to Last.fm once the listener allowed Needle in the browser.
     pub fn lastfm_complete(&self) -> Result<String> {
+        // Read, not taken out: a TV asks every few seconds while a new code may be made, and
+        // putting an old one back after a slow answer replaced the new one.
         let pending = PENDING
             .lock()
             .unwrap()
-            .take()
+            .clone()
             .ok_or_else(|| NeedleError::Failed("Start signing in to Last.fm first".into()))?;
-        match integrations::lastfm_complete(&pending) {
-            Ok(user) => {
-                self.set_scrobbling(Some(true), None)?;
-                Ok(user)
-            }
-            Err(error) => {
-                // Not allowed yet: keep it, so the listener can try again after allowing.
-                *PENDING.lock().unwrap() = Some(pending);
-                Err(error.into())
+        let user = integrations::lastfm_complete(&pending)?;
+        {
+            // Done with it, unless a newer sign-in has begun since.
+            let mut waiting = PENDING.lock().unwrap();
+            if waiting.as_ref().is_some_and(|p| p.token == pending.token) {
+                *waiting = None;
             }
         }
+        self.set_scrobbling(Some(true), None)?;
+        Ok(user)
     }
 
     pub fn listenbrainz_sign_in(&self, token: String) -> Result<String> {
