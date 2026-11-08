@@ -398,12 +398,6 @@ struct MainWindow: View {
                     .padding(.trailing, store.settings.showInspector && Self.runsUnder(store.route) ? Self.panelWidth + 20 : 0)
                 }
             }
-            // With the player in the title bar, the line goes right under it, over the page.
-            .overlay(alignment: .top) {
-                if store.settings.layout.playerOnTop && LyricStrip.shows {
-                    LyricStrip().padding(.horizontal, 20).padding(.top, 2)
-                }
-            }
     }
 
     /// The page's box, the bar above it, and the player below it.
@@ -455,6 +449,16 @@ struct MainWindow: View {
                     .sharedBackgroundVisibility(.hidden)
             } else {
                 ToolbarItem(placement: .navigation) { TopPlayer() }
+            }
+            // The line being sung beside the player, in the title bar's room to its right; under
+            // it, centred over the page, it sat apart from the player it belongs to.
+            if LyricStrip.shows {
+                if #available(macOS 26, *) {
+                    ToolbarItem(placement: .navigation) { LyricStrip(inBar: true).frame(minWidth: 140, idealWidth: 300, maxWidth: 300).padding(.leading, 6) }
+                        .sharedBackgroundVisibility(.hidden)
+                } else {
+                    ToolbarItem(placement: .navigation) { LyricStrip(inBar: true).frame(minWidth: 140, idealWidth: 300, maxWidth: 300) }
+                }
             }
         }
     }

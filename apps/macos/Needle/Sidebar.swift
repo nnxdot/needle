@@ -48,12 +48,16 @@ struct Sidebar: View {
                                     set: { setCollection(c.key, on: $0) }))
                             }
                         } label: {
-                            Image(systemName: "plus")
+                            HeaderPlus()
                         }
-                        .menuStyle(.borderlessButton)
+                        // Drawn as plainly as the Playlists +: a borderless menu had its own
+                        // size and shape beside the button's.
+                        .menuStyle(.button)
+                        .buttonStyle(.plain)
                         .menuIndicator(.hidden)
                         .fixedSize()
                         .help("Add a collection")
+                        .accessibilityLabel("Add a collection")
                     }
                 }
             }
@@ -73,8 +77,8 @@ struct Sidebar: View {
                     HStack {
                         Text("Playlists")
                         Spacer()
-                        Button { store.editor = .new() } label: { Image(systemName: "plus") }
-                            .buttonStyle(.borderless)
+                        Button { store.editor = .new() } label: { HeaderPlus() }
+                            .buttonStyle(.plain)
                             .help("New playlist")
                             .accessibilityLabel("New playlist")
                     }
@@ -350,5 +354,20 @@ struct Rail: View {
 
     private func selectedBackground(_ selected: Bool) -> some View {
         RoundedRectangle(cornerRadius: 8, style: .continuous).fill(selected ? store.colors.accent.opacity(0.18) : .clear)
+    }
+}
+
+/** The + beside a sidebar heading (Collections, Playlists): one size and shape for both. */
+private struct HeaderPlus: View {
+    @State private var hovering = false
+
+    var body: some View {
+        Image(systemName: "plus")
+            .font(.system(size: 11, weight: .semibold))
+            .foregroundStyle(hovering ? .primary : .secondary)
+            .frame(width: 20, height: 20)
+            .background(hovering ? Color.primary.opacity(0.08) : .clear, in: RoundedRectangle(cornerRadius: 5))
+            .contentShape(Rectangle())
+            .onHover { hovering = $0 }
     }
 }

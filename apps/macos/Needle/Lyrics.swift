@@ -495,15 +495,21 @@ struct TimingPage: View {
 }
 
 /// Lyrics under the player (Settings › Appearance › Lyrics under the player): the line being
-/// sung, one line, fading in at each new one; a faint ♪ while none is (the intro, a gap). Only
-/// for timed lyrics, and not in the big or full screen player, which have their own.
+/// sung, one line; the old line goes up and fades as the new one comes up from below, as in the
+/// other lyrics; a faint ♪ while none is (the intro, a gap). Only for timed lyrics, and not in
+/// the big or full screen player, which have their own, nor while the Lyrics panel shows them
+/// all. With the player in the title bar, the line sits there beside it (`inBar`).
 struct LyricStrip: View {
     private var store: Store { .shared }
+    var inBar = false
 
     @MainActor static var shows: Bool {
         let store = Store.shared
         guard store.settings.playerLyrics, store.current != nil, !store.big, !store.immersive,
               let lyrics = store.lyrics, !lyrics.instrumental else { return false }
+        // The Lyrics panel open shows them all: the one line under the player would only repeat
+        // it, and lay over it.
+        if store.settings.showInspector && store.panel == .lyrics { return false }
         return !lyrics.lines.isEmpty
     }
 
@@ -512,21 +518,27 @@ struct LyricStrip: View {
         let lines = store.lyrics?.lines ?? []
         let text = store.lyricLine.flatMap { $0 < lines.count ? lines[$0].text.trimmingCharacters(in: .whitespaces) : nil } ?? ""
         ZStack {
-            if text.isEmpty {
-                Text("♪").foregroundStyle(colors.ink3.opacity(0.7))
-                    .accessibilityLabel("No words sung now")
-            } else {
-                Text(text).foregroundStyle(colors.ink)
+            Group {
+                if text.isEmpty {
+                    Text("♪").foregroundStyle(colors.ink3.opacity(0.7))
+                        .accessibilityLabel("No words sung now")
+                } else {
+                    Text(text).foregroundStyle(colors.ink)
+                }
             }
+            .id(store.lyricLine ?? -1)
+            .transition(store.motion
+                ? .asymmetric(insertion: .offset(y: 10).combined(with: .opacity), removal: .offset(y: -10).combined(with: .opacity))
+                : .opacity)
         }
-        .id(store.lyricLine ?? -1)
-        .transition(.opacity)
         .font(.system(size: 13, weight: .medium))
         .lineLimit(1)
         .truncationMode(.tail)
         .padding(.horizontal, 14)
         .frame(height: 22)
-        .frame(maxWidth: 640)
+        .frame(maxWidth: inBar ? .infinity : 640, alignment: inBar ? .leading : .center)
+        // The lines move inside the capsule, not over its edge.
+        .clipped()
         .pane(Capsule())
         .animation(store.motion ? .easeOut(duration: 0.35) : nil, value: store.lyricLine)
         .onTapGesture { store.panel = .lyrics; store.set(["show_inspector": true]) }

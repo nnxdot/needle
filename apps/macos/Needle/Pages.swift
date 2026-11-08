@@ -331,6 +331,13 @@ struct ArtistsPage: View {
                             Text(artists.map { count($0.count, "artist") } ?? "Loading…").font(.needle(.callout)).foregroundStyle(store.colors.ink2)
                         }
                         Spacer()
+                        // In sight, as on Windows: inside the sort menu they went unseen.
+                        Toggle("Only album artists", isOn: Binding(get: { s.albumArtistsOnly }, set: { store.set(["album_artists_only": $0]) }))
+                            .toggleStyle(.button)
+                            .help("Only artists with albums of their own")
+                        Toggle("Hide Various Artists-only", isOn: Binding(get: { s.hideCompilationArtists }, set: { store.set(["hide_compilation_artists": $0]) }))
+                            .toggleStyle(.button)
+                            .help("Hide artists who are only on Various Artists albums")
                         Menu {
                             Picker("Sort by", selection: Binding(get: { s.artistOrder }, set: { store.set(["artist_order": $0]) })) {
                                 Text("A–Z").tag("name")
@@ -339,10 +346,6 @@ struct ArtistsPage: View {
                                 Text("Newest").tag("recently_added")
                             }
                             .pickerStyle(.inline)
-                            Divider()
-                            Toggle("Only album artists", isOn: Binding(get: { s.albumArtistsOnly }, set: { store.set(["album_artists_only": $0]) }))
-                            Toggle("Hide Various Artists-only", isOn: Binding(get: { s.hideCompilationArtists }, set: { store.set(["hide_compilation_artists": $0]) }))
-                                .help("Hide artists who are only on Various Artists albums")
                         } label: {
                             Label(Self.orderName(s.artistOrder), systemImage: "arrow.up.arrow.down")
                         }
@@ -408,16 +411,30 @@ struct LetterBar: View {
     @State private var last: String?
 
     var body: some View {
-        // Every letter fits the window's height: shorter rows when there are many (Korean,
-        // Japanese, and Chinese letters after A to Z).
+        // Letters keep one readable size. When they do not all fit the window's height (Korean,
+        // Japanese, and Chinese letters after A to Z, or a short window), every few are shown,
+        // spread evenly, the first and the last always, as on Windows: squeezed, they shrank
+        // until they could not be read.
         GeometryReader { geo in
-            let row = max(6, min(15, (geo.size.height - 24) / CGFloat(max(letters.count, 1))))
-            bar(row: row).frame(maxWidth: .infinity, maxHeight: .infinity)
+            let shown = Self.fit(letters, room: Int((geo.size.height - 12) / Self.pitch))
+            bar(shown, row: Self.pitch).frame(maxWidth: .infinity, maxHeight: .infinity)
         }
         .frame(width: 18)
     }
 
-    private func bar(row: CGFloat) -> some View {
+    /// One letter's height, with its gap.
+    static let pitch: CGFloat = 15
+
+    /// At most `room` letters, spread evenly: the first and the last always (Windows' fit_letters).
+    static func fit(_ letters: [String], room: Int) -> [String] {
+        let n = letters.count
+        guard n > room, room >= 3 else { return letters }
+        // One place kept for the last letter, which may fall between steps.
+        let step = (n - 1 + (room - 2) - 1) / max(room - 2, 1)
+        return letters.enumerated().filter { $0.offset % step == 0 || $0.offset == n - 1 }.map(\.element)
+    }
+
+    private func bar(_ letters: [String], row: CGFloat) -> some View {
         VStack(spacing: 0) {
             ForEach(letters, id: \.self) { letter in
                 Text(letter)

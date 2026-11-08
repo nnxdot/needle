@@ -443,6 +443,9 @@ private struct SourceCard: View {
     let plugin: PluginItem
     @State private var fields: [String: String] = [:]
     @State private var usage: [UInt64] = [0, 0]
+    /// Pressed Update now or Refresh everything: the card reads the server's progress again
+    /// each second until the song list and the covers are done (it showed none before).
+    @State private var watching = 0
     /// Songs played lately, kept for a while to play again without the network: count, bytes.
     @State private var cached: [UInt64] = [0, 0]
     /// The sign-in form, shown only after Sign in… (test builds: `-open-signin YES` opens it).
@@ -468,6 +471,20 @@ private struct SourceCard: View {
         }
         .padding(.vertical, 4)
         .task { loadUsage() }
+        .task(id: watching) {
+            guard watching > 0 else { return }
+            let id = plugin.id
+            var seconds = 0
+            while !Task.isCancelled {
+                try? await Task.sleep(for: .seconds(1))
+                seconds += 1
+                store.reloadPlugins()
+                let now = store.plugins.first { $0.id == id }?.source
+                // A few seconds first: the update starts a moment after the press.
+                if seconds >= 4, now.map({ !$0.syncing && $0.coversLeft == 0 }) ?? true { break }
+            }
+            store.libraryChanged()
+        }
         .task(id: "\(source.songs)|\(source.syncing)") {
             guard source.signedIn else { return }
             // The core counts albums and artists with the server's rule, as the iPhone shows them.
@@ -496,12 +513,13 @@ private struct SourceCard: View {
                 Spacer()
                 Button("Show songs") { store.navigate(.source(plugin: plugin.id, name: source.name)) }
                     .buttonStyle(.borderedProminent)
-                Button(source.syncing ? "Updating…" : "Update now") { store.core.sourceSync(plugin: plugin.id) }
+                Button(source.syncing ? "Updating…" : "Update now") { store.core.sourceSync(plugin: plugin.id); watching += 1 }
                     .disabled(source.syncing)
                     .help("Ask the server for its songs again")
                 Button("Refresh everything…") {
                     if confirm("Refresh everything?", "Needle gets every song and cover again. Songs no longer on the server leave your library.", "Refresh") {
                         store.core.sourceRefresh(plugin: plugin.id)
+                        watching += 1
                     }
                 }
                 .disabled(source.syncing)
