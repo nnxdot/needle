@@ -93,8 +93,11 @@ fun NumbersScreen(open: (Route) -> Unit) {
         item { ShelfTitle("Quality", "How the songs are kept") }
         item {
             Column(Modifier.padding(horizontal = Edge), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                // Lossless and lossy make up the whole library; hi-res and low quality are parts.
                 CountBar("Lossless", numbers.lossless.toInt(), songs, percent = true)
                 CountBar("Hi-res", numbers.hires.toInt(), songs, percent = true)
+                CountBar("Lossy", numbers.lossy.toInt(), songs, percent = true)
+                CountBar("Low quality (under 192 kbit/s)", numbers.lowQualitySongs.toInt(), songs, percent = true)
             }
         }
         countSection("Formats", "Songs in each", numbers.formats, songs)

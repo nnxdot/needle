@@ -25,6 +25,10 @@ struct NumbersData: Decodable {
     var formats: [NamedCount]
     var lossless: Int
     var hires: Int
+    /// Not lossless: with `lossless`, every song.
+    var lossy: Int
+    /// Lossy and under 192 kbit/s.
+    var lowQualitySongs: Int
     var decades: [NamedCount]
     var genres: [NamedCount]
     var artistsBySongs: [NamedCount]
@@ -75,8 +79,12 @@ struct NumbersPage: View {
                     }
                     HStack(alignment: .top, spacing: 36) {
                         section("Quality") {
+                            // Lossless and lossy make up the whole library; hi-res and low
+                            // quality are parts of them.
                             share("Lossless", n.lossless, of: n.songs)
                             share("Hi-res", n.hires, of: n.songs)
+                            share("Lossy", n.lossy, of: n.songs)
+                            share("Low quality (under 192 kbit/s)", n.lowQualitySongs, of: n.songs)
                         }
                         section("Formats") { bars(n.formats) }
                     }

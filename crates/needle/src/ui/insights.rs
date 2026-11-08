@@ -172,6 +172,13 @@ impl AppView {
                         "hi-res (above 16 bits or 48 kHz)",
                         cx,
                     ))
+                    // With lossless, the whole library; low quality is a part of it.
+                    .child(figure(format!("{:.0}%", percent(n.lossy)), "lossy", cx))
+                    .child(figure(
+                        format!("{:.0}%", percent(n.low_quality_songs)),
+                        "low quality (under 192 kbit/s)",
+                        cx,
+                    ))
                     .when(n.server_songs > 0, |el| {
                         el.child(figure(
                             super::widgets::count(n.server_songs),

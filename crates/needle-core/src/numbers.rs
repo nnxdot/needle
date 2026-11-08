@@ -23,6 +23,10 @@ pub struct LibraryNumbers {
     pub lossless: usize,
     /// Hi-res songs: more than 16 bits, or more than 48 kHz.
     pub hires: usize,
+    /// Lossy songs (every song not lossless): with `lossless`, the whole library.
+    pub lossy: usize,
+    /// Lossy songs under 192 kbit/s, as the low-quality albums are.
+    pub low_quality_songs: usize,
     /// Songs per decade ("1990s"), oldest first; songs without a year are left out.
     pub decades: Vec<(String, usize)>,
     /// The ten genres with the most songs.
@@ -145,6 +149,12 @@ impl Library {
                 entry.1 += 1;
             }
             let low = !lossless && bitrate.is_some_and(|b| b > 0 && b < 192);
+            if !lossless {
+                numbers.lossy += 1;
+            }
+            if low {
+                numbers.low_quality_songs += 1;
+            }
             let entry = albums
                 .entry((album_artist.to_lowercase(), album.to_lowercase()))
                 .or_insert((false, true, album_artist.clone(), album.clone()));
@@ -288,6 +298,9 @@ mod tests {
             n.decades,
             [("1990s".to_string(), 1), ("2020s".to_string(), 2)]
         );
+        // Lossless and lossy make up the whole library; the MP3 at 128 kbit/s is low quality.
+        assert_eq!((n.lossy, n.low_quality_songs), (1, 1));
+        assert_eq!(n.lossless + n.lossy, n.songs);
         assert_eq!((n.albums_without_cover, n.low_quality_albums), (1, 1));
         assert_eq!(n.low_quality[0].album, "Old Tapes");
         assert_eq!(n.size, 3000);

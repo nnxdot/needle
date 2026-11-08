@@ -153,6 +153,12 @@ pub struct LibraryNumbers {
     pub server_songs: u32,
     pub lossless: u32,
     pub hires: u32,
+    /// Lossy songs: with `lossless`, the whole library.
+    #[uniffi(default = 0)]
+    pub lossy: u32,
+    /// Lossy songs under 192 kbit/s.
+    #[uniffi(default = 0)]
+    pub low_quality_songs: u32,
     pub formats: Vec<Count>,
     pub decades: Vec<Count>,
     pub genres: Vec<Count>,
@@ -466,6 +472,8 @@ impl Needle {
             server_songs: n.server_songs as u32,
             lossless: n.lossless as u32,
             hires: n.hires as u32,
+            lossy: n.lossy as u32,
+            low_quality_songs: n.low_quality_songs as u32,
             formats: counts(n.formats),
             decades: counts(n.decades),
             genres: counts(n.genres),
