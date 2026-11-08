@@ -236,7 +236,10 @@ final class Store {
         }
         network.pathUpdateHandler = { [weak self] path in
             let costly = path.isExpensive || path.usesInterfaceType(.cellular)
+            // Low Data Mode counts too, for the core's own background lookups.
+            let metered = costly || path.isConstrained
             Task { @MainActor in
+                self?.core.setMetered(on: metered)
                 if self?.onMobileData != costly {
                     self?.onMobileData = costly
                     self?.allowPictures()
@@ -455,7 +458,8 @@ final class Store {
     /// The slow search for artists' pictures looks only with online lookups and Artist
     /// pictures on, on Wi-Fi, and while no scan runs.
     func allowPictures() {
-        let (wifi, scanning, pictures) = (!onMobileData, scan.running, choices.artistPictures)
+        // On mobile data too, when Fewer lookups on mobile data is turned off.
+        let (wifi, scanning, pictures) = (!onMobileData || !choices.fewerLookupsOnMetered, scan.running, choices.artistPictures)
         run { core in
             let online = (try? core.playbackSettings().onlineMedia) ?? false
             core.allowPictureSweep(allowed: online && pictures && wifi && !scanning)

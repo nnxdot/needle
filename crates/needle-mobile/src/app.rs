@@ -28,6 +28,17 @@ pub struct UpdateProgress {
 
 #[uniffi::export]
 impl Needle {
+    /// The app says whether its network is metered now (mobile data, a hotspot, Low Data Mode):
+    /// background lookups then wait, when Fewer lookups on metered connections is on.
+    pub fn set_metered(&self, on: bool) {
+        needle_core::network::set_metered(on);
+    }
+
+    /// Whether the network is metered, as the app last said.
+    pub fn metered(&self) -> bool {
+        needle_core::network::metered()
+    }
+
     /// How far the update running now has got, for a progress bar.
     pub fn update_progress(&self) -> UpdateProgress {
         let p = update::progress();

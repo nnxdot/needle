@@ -1009,6 +1009,23 @@ impl AppView {
                         })),
                         cx,
                     ))
+                    // A hotspot or mobile data: the slow search for artists' pictures waits.
+                    .when(self.settings.online_media, |el| {
+                        el.child(setting_row(
+                            "Fewer lookups on metered connections",
+                            if needle_core::network::metered() {
+                                "On a metered connection now (a hotspot or mobile data): the search for artist pictures waits for another."
+                            } else {
+                                "On a hotspot or mobile data, the search for artist pictures waits for another network."
+                            },
+                            Switch::new("fewer-on-metered").checked(self.settings.fewer_lookups_on_metered).on_click(cx.listener(|this, checked: &bool, _, cx| {
+                                this.settings.fewer_lookups_on_metered = *checked;
+                                this.persist_settings();
+                                cx.notify();
+                            })),
+                            cx,
+                        ))
+                    })
                     .when(self.settings.online_media, |el| {
                         let progress = self.picture_sweep.progress();
                         let line = if !self.settings.artist_pictures {

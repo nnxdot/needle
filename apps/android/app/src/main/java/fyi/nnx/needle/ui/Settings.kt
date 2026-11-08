@@ -1,6 +1,7 @@
 package fyi.nnx.needle.ui
 
 import androidx.compose.material.icons.rounded.Dns
+import androidx.compose.material.icons.rounded.DataSaverOn
 import androidx.compose.material.icons.rounded.DeleteSweep
 import androidx.compose.material.icons.rounded.Shuffle
 import androidx.compose.material.icons.rounded.Groups
@@ -1203,7 +1204,8 @@ private fun ArtistPicturesRow() {
         !more.artistPictures -> "Finds every artist's picture, slowly, on Wi-Fi"
         p == null || p.total == 0u -> "Finds every artist's picture, slowly, on Wi-Fi"
         p.done >= p.total -> "All ${p.total} artists looked for"
-        !p.allowed -> "${p.done} of ${p.total} artists · waiting for Wi-Fi"
+        !p.allowed && more.fewerLookupsOnMetered -> "${p.done} of ${p.total} artists · waiting for Wi-Fi"
+        !p.allowed -> "${p.done} of ${p.total} artists · waiting"
         else -> "${p.done} of ${p.total} artists"
     }
     DependentRow {
@@ -1220,6 +1222,12 @@ private fun ArtistPicturesRow() {
                     },
                     modifier = Modifier.padding(start = 60.dp, bottom = 6.dp),
                 ) { Text("Check all now") }
+            }
+            if (more.artistPictures) {
+                SwitchRow("Fewer lookups on mobile data", "The search for pictures waits for Wi-Fi on mobile data or a hotspot", more.fewerLookupsOnMetered, icon = Icons.Rounded.DataSaverOn) { on ->
+                    NeedleApp.instance.updateMore { it.copy(fewerLookupsOnMetered = on) }
+                    NeedleApp.instance.artistPicturesAllowed()
+                }
             }
         }
     }

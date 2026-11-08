@@ -225,6 +225,15 @@ struct ArtistPicturesRow: View {
                 try? await Task.sleep(for: .seconds(2))
             }
         }
+        if s.artistPictures {
+            SettingRow(title: "Fewer lookups on metered connections",
+                       detail: store.core.metered()
+                           ? "On a metered connection now (a hotspot or Low Data Mode): the picture search waits for another."
+                           : "On a hotspot or in Low Data Mode, the picture search waits for another network.",
+                       icon: "antenna.radiowaves.left.and.right") {
+                SettingSwitch(key: "fewer_lookups_on_metered", on: s.fewerLookupsOnMetered)
+            }
+        }
     }
 
     private func detail(on: Bool) -> String {

@@ -1202,7 +1202,11 @@ impl AppView {
             history_stats: None,
             history_range: 1,
             history_loading: false,
-            picture_sweep: needle_core::media::pictures::PictureSweep::start(library.clone()),
+            picture_sweep: {
+                // Whether the network is metered, asked of the system now and then.
+                needle_core::network::watch();
+                needle_core::media::pictures::PictureSweep::start(library.clone())
+            },
             on_this_day: vec![],
             home_year: None,
             search_tab: Default::default(),

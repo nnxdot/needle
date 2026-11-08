@@ -257,6 +257,8 @@ struct NeedleSettings: Decodable, Equatable {
     /// The shuffle button turns shuffle on and off, as in Spotify.
     var shuffleStays = false
     var artistPictures = true
+    /// On a hotspot, a phone's connection, or Low Data Mode, the picture search waits.
+    var fewerLookupsOnMetered = true
     var accentColor = ""
     var ambient = false
     var crossfade: Float = 0

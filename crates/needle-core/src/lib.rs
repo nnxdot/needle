@@ -29,6 +29,7 @@ pub mod media;
 pub mod mediafoundation;
 pub mod model;
 mod mp4_trim;
+pub mod network;
 pub mod numbers;
 mod opus;
 pub mod platform_output;

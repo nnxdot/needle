@@ -31,6 +31,9 @@ pub struct LibraryChoices {
     /// Checking the music folders forgets songs whose file is gone or broken.
     #[uniffi(default = false)]
     pub forget_missing: bool,
+    /// On a metered network, background lookups (artists' pictures) wait (see `set_metered`).
+    #[uniffi(default = true)]
+    pub fewer_lookups_on_metered: bool,
     /// Find every artist's pictures slowly in the background (with online lookups on).
     pub artist_pictures: bool,
     /// The crossfade ends where the music ends and lasts whole bars.
@@ -228,6 +231,7 @@ impl Needle {
             album_artists_only: s.album_artists_only,
             hide_compilation_artists: s.hide_compilation_artists,
             forget_missing: s.forget_missing,
+            fewer_lookups_on_metered: s.fewer_lookups_on_metered,
             artist_pictures: s.artist_pictures,
             smart_mix: s.smart_mix,
             shuffle_stays: s.shuffle_stays,
@@ -250,6 +254,7 @@ impl Needle {
             s.album_artists_only = value.album_artists_only;
             s.hide_compilation_artists = value.hide_compilation_artists;
             s.forget_missing = value.forget_missing;
+            s.fewer_lookups_on_metered = value.fewer_lookups_on_metered;
             s.artist_pictures = value.artist_pictures;
             s.smart_mix = value.smart_mix;
             s.shuffle_stays = value.shuffle_stays;

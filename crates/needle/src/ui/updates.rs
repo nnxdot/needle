@@ -148,9 +148,14 @@ impl AppView {
     pub(super) fn updates_view(&self, cx: &mut Context<Self>) -> impl IntoElement {
         let status = match &self.update {
             Some(UpdateState::Available(r)) => format!(
-                "Needle {} is out. You have {}.",
+                "Needle {} is out. You have {}.{}",
                 r.version,
-                env!("CARGO_PKG_VERSION")
+                env!("CARGO_PKG_VERSION"),
+                if needle_core::network::metered() {
+                    " You are on a metered connection: the update downloads tens of MB."
+                } else {
+                    ""
+                }
             ),
             Some(UpdateState::Downloading(r)) => progress_words(&r.version, &update::progress()),
             Some(UpdateState::Failed(e)) => format!("The update did not work: {e}"),

@@ -1,5 +1,6 @@
 import AppKit
 import Observation
+import Network
 import SwiftUI
 import UniformTypeIdentifiers
 
@@ -145,6 +146,7 @@ final class Store {
     @ObservationIgnored private var coverFetched: Set<String> = []
     @ObservationIgnored private var toastTask: Task<Void, Never>?
     @ObservationIgnored let nowPlaying = NowPlaying()
+    @ObservationIgnored private let metered = NWPathMonitor()
 
     init() {
         // `--data-dir <folder>` opens another library, as on the desktop (for tests).
@@ -169,6 +171,9 @@ final class Store {
         core.startDesktop()
         // The slow search for artists' pictures may look (it waits while the library is read).
         core.artistPicturesAllow(may: true)
+        // A hotspot, a phone's connection, or Low Data Mode: the core's background lookups wait.
+        metered.pathUpdateHandler = { [core] path in core.setMetered(on: path.isExpensive || path.isConstrained) }
+        metered.start(queue: .global(qos: .utility))
         reloadPlaylists()
         reloadPlugins()
         reloadThemes()

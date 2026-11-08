@@ -141,6 +141,10 @@ fun UpdatesRow() {
                 androidx.compose.material3.LinearProgressIndicator(Modifier.fillMaxWidth())
             }
         }
+        // A hotspot or mobile data: the download is big, so say so first.
+        if (found?.installable == true && version == null && runCatching { core.metered() }.getOrDefault(false)) {
+            Text("You are on mobile data or a hotspot: the update downloads tens of MB.", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.error)
+        }
         Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
             val update = found
             if (update == null) {
